@@ -1,0 +1,233 @@
+/* ==============================================================================
+   Informity AI — Shared data table styles (FileTable, HistoryTable)
+   ============================================================================== */
+
+.data-table {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.data-table__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+.data-table__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-body);
+}
+
+.data-table__th {
+  padding: 0.6rem 0.75rem;
+  text-align: left;
+  font-weight: 600;
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  background: transparent;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 82%, white);
+  white-space: nowrap;
+  position: relative;
+}
+
+.data-table__th--right {
+  text-align: right;
+}
+
+.data-table__th--sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color var(--transition-fast);
+}
+
+.data-table__th--sortable:hover {
+  color: var(--color-text);
+}
+
+.data-table__th--sorted {
+  color: var(--color-text);
+  font-weight: 600;
+}
+
+.data-table__sort-icon {
+  margin-left: 0.25rem;
+  vertical-align: middle;
+}
+
+.data-table__sort-icon--inactive {
+  opacity: 0.4;
+}
+
+.data-table__th--sortable:hover .data-table__sort-icon--inactive {
+  opacity: 0.8;
+}
+
+.data-table__sort-icon--active {
+  opacity: 1;
+  color: var(--color-accent);
+}
+
+.data-table__th--icon {
+  width: 32px;
+  padding-right: 0;
+}
+
+.data-table__row {
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.data-table__row:hover {
+  background: var(--surface-table-row-hover);
+}
+
+.data-table--offline .data-table__th--sortable {
+  cursor: default;
+}
+
+.data-table--offline .data-table__th--sortable:hover {
+  color: var(--color-text-muted);
+}
+
+.data-table--offline .data-table__row {
+  cursor: default;
+}
+
+.data-table--offline .data-table__row:hover {
+  background: transparent;
+}
+
+.data-table__td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+  vertical-align: middle;
+}
+
+.data-table__td--icon {
+  width: 32px;
+  padding-right: 0.25rem;
+}
+
+.data-table__td--right {
+  text-align: right;
+}
+
+.data-table__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  color: var(--color-text-muted);
+}
+
+.data-table__badge {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: var(--font-size-caption);
+  font-weight: 500;
+  border-radius: var(--border-radius-sm);
+  letter-spacing: 0.02em;
+  background: var(--color-primary-bg-strong);
+  color: var(--color-accent);
+}
+
+.data-table__icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+  user-select: none;
+}
+
+.data-table__icon-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.data-table__icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.data-table__action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  user-select: none;
+}
+
+.data-table__action-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.data-table__action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Action button with fancy tooltip (Settings-style) */
+.data-table__action-wrap {
+  user-select: none;
+}
+
+.data-table__action-tooltip {
+  white-space: nowrap;
+}
+
+.data-table--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 1;
+  min-height: 200px;
+}
+
+.data-table__empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
+.data-table__empty-state > p {
+  margin: 0;
+  font-size: var(--font-size-body);
+}
+
+.data-table__empty-icon {
+  font-size: 2rem;
+  color: var(--color-text-muted);
+  opacity: 0.6;
+  margin-bottom: 0.75rem;
+}
+
+.data-table__empty-hint {
+  margin-top: 0.5rem;
+  font-size: var(--font-size-body);
+  opacity: 0.9;
+}

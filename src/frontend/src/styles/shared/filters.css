@@ -1,0 +1,60 @@
+/* ==============================================================================
+   Informity AI — Shared filter styles (FileFilters, HistoryFilters)
+   ============================================================================== */
+
+.filter-search {
+  flex: 1;
+  min-width: 180px;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0 var(--space-md);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background: var(--color-bg-elevated);
+  min-height: var(--min-touch-height);
+  box-sizing: border-box;
+}
+
+.filter-search__icon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+  font-size: 0.875rem;
+}
+
+.filter-search__input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: var(--font-size-sm);
+  padding: var(--space-sm) 0;
+}
+
+.filter-search__input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.filter-search__input:focus {
+  outline: none;
+}
+
+.filter-clear-btn {
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--font-size-base);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast), border-color var(--transition-fast);
+  min-height: var(--min-touch-height);
+  box-sizing: border-box;
+}
+
+.filter-clear-btn:hover {
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+  border-color: var(--color-text);
+}

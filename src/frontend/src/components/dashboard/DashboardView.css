@@ -1,0 +1,339 @@
+/* -----------------------------------------------------------------------------
+   Dashboard view — status-first design
+   ----------------------------------------------------------------------------- */
+
+.page--dashboard {
+  --page-content-width: 58rem;
+  --ui-section-divider-max-width: var(--page-content-width);
+  padding-bottom: 2rem;
+}
+
+.dashboard-loading {
+  padding: 2rem;
+  text-align: center;
+  color: var(--color-text-muted);
+}
+
+/* Hero + Content + Storage — shared grid, same width */
+.dashboard__hero-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(200px, 1fr));
+  gap: var(--space-md);
+  margin-bottom: var(--space-md);
+  max-width: var(--page-content-width);
+}
+
+.dashboard__hero-grid .dashboard__hero {
+  grid-column: 1 / -1;
+  margin-bottom: 0;
+}
+
+.dashboard__hero-grid .dashboard__content-metrics,
+.dashboard__hero-grid .dashboard__storage-section {
+  grid-column: 1 / -1;
+}
+
+.dashboard__hero-grid .dashboard__content-metrics .dashboard__cards,
+.dashboard__hero-grid .dashboard__storage-section .dashboard__cards {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.dashboard__hero-grid .dashboard__content-metrics {
+  margin-bottom: 0;
+}
+
+.dashboard__hero-grid .dashboard__storage-section {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/* Hero Status Card */
+.dashboard__hero {
+  background: var(--color-primary-bg);
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--border-radius);
+  padding: var(--space-lg);
+  margin-bottom: var(--space-lg);
+}
+
+.dashboard__hero-main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: var(--space-sm);
+}
+
+.dashboard__hero-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--border-radius-lg);
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  color: var(--color-accent);
+  font-size: 1.75rem;
+}
+
+.dashboard__hero-title {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.dashboard__hero-number {
+  font-size: 2.25rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  user-select: none;
+}
+
+.dashboard__hero-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  margin-bottom: var(--space-md);
+}
+
+.dashboard__hero-actions {
+  display: flex;
+  gap: var(--space-md);
+}
+
+.dashboard__hero-actions .settings-btn {
+  width: var(--action-btn-width);
+  min-width: var(--action-btn-width);
+}
+
+.dashboard__btn-icon--spin {
+  animation: dashboard-spin 1s linear infinite;
+}
+
+@keyframes dashboard-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.dashboard__content-metrics {
+  margin-bottom: 0;
+}
+
+.dashboard__hero-grid .dashboard__content-metrics {
+  margin-bottom: 0;
+}
+
+.dashboard__hero-grid .dashboard__storage-section {
+  margin-bottom: 0;
+}
+
+/* Storage Section */
+.dashboard__storage-section {
+  margin-top: 0;
+  margin-bottom: 0;
+}
+
+/* Recent Activity — same width as hero */
+.dashboard__recent {
+  margin-top: 0;
+  margin-bottom: var(--space-md);
+  max-width: var(--page-content-width);
+}
+
+.dashboard__scan-error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: var(--font-size-body);
+  color: #ef4444;
+  background: rgba(239, 68, 68, 0.1);
+  border-radius: var(--border-radius-md);
+}
+
+.dashboard__hero-progress {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--color-border-subtle);
+}
+
+.dashboard__hero-progress .dashboard__progress-bar {
+  margin-bottom: 0.5rem;
+}
+
+.dashboard__hero-progress .dashboard__progress-text {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}
+
+.dashboard__progress-bar {
+  height: 8px;
+  border-radius: 4px;
+  background: var(--color-bg);
+  overflow: hidden;
+  margin-bottom: 0.5rem;
+}
+
+.dashboard__progress-fill {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 4px;
+  transition: width 0.3s ease;
+}
+
+.dashboard__progress-fill--indeterminate {
+  width: 40% !important;
+  animation: dashboard-progress-indeterminate 1.5s ease-in-out infinite;
+}
+
+@keyframes dashboard-progress-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(350%);
+  }
+}
+
+.dashboard__progress-text {
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+}
+
+.dashboard__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.dashboard-card {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  min-width: 200px;
+  min-height: 80px;
+}
+
+.dashboard-card__icon {
+  border-radius: 8px;
+}
+
+.dashboard-card__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+  flex: 1;
+  justify-content: center;
+}
+
+.dashboard-card__value {
+  font-size: 1.5rem;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  word-break: break-all;
+  line-height: 1.2;
+  word-spacing: -0.15em;
+  user-select: none;
+}
+
+.dashboard-card__label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: 1.2;
+  user-select: none;
+}
+
+.dashboard-card__subtitle {
+  font-size: var(--font-size-caption);
+  color: var(--color-text-muted);
+  opacity: 0.8;
+  user-select: none;
+}
+
+.dashboard__recent-table {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.dashboard__recent-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--color-border-subtle);
+  font-size: var(--font-size-sm);
+  background: transparent;
+}
+
+.dashboard__recent-row:last-child {
+  border-bottom: none;
+}
+
+.dashboard__recent-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  font-size: 1rem;
+  color: var(--color-text-muted);
+}
+
+.dashboard__recent-filename {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+.dashboard__recent-time {
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  min-width: 80px;
+  text-align: right;
+}
+
+.dashboard__recent-empty {
+  padding: var(--space-xl) var(--space-lg);
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Advanced Section — same width as hero */
+.dashboard__advanced {
+  margin-top: 0;
+  margin-bottom: var(--space-md);
+  max-width: var(--page-content-width);
+}
+
+.dashboard__advanced-content {
+  margin-top: var(--space-md);
+  padding: var(--space-lg);
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--border-radius);
+}
+
+.dashboard__advanced-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.dashboard__advanced-actions .settings-btn {
+  width: var(--action-btn-width);
+  min-width: var(--action-btn-width);
+}

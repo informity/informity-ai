@@ -1,0 +1,8 @@
+* {
+  box-sizing: border-box;
+}
+
+#root {
+  height: 100%;
+  overflow: hidden;
+}

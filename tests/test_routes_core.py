@@ -1,0 +1,351 @@
+from __future__ import annotations
+
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, MagicMock
+
+import pytest
+from fastapi import HTTPException
+
+from informity.api import routes_index, routes_search, routes_system
+from informity.api.schemas import SearchRequest
+from informity.db.models import FileCategory, IndexedFile
+
+
+async def _to_thread(func, *args, **kwargs):  # type: ignore[no-untyped-def]
+    return func(*args, **kwargs)
+
+
+@asynccontextmanager
+async def _noop_slot():
+    yield
+
+
+@pytest.mark.asyncio
+async def test_search_documents_applies_filters_and_limit(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(routes_search.asyncio, 'to_thread', _to_thread)
+    monkeypatch.setattr(routes_search.SEARCH_GUARD, 'slot', lambda: _noop_slot())
+    monkeypatch.setattr(routes_search.embedder, 'embed_query', lambda _query: [0.1] * 8)
+    monkeypatch.setattr(
+        routes_search.vector_store,
+        'search_similar',
+        lambda _vec, _limit: [
+            {'file_id': 1, 'chunk_text': 'alpha chunk', 'score': 0.11},
+            {'file_id': 2, 'chunk_text': 'beta chunk', 'score': 0.22},
+            {'file_id': 3, 'chunk_text': 'gamma chunk', 'score': 0.33},
+            {'file_id': None, 'chunk_text': 'missing file id', 'score': 0.44},
+        ],
+    )
+
+    files_by_id = {
+        1: IndexedFile(
+            id=1,
+            path='/docs/a.pdf',
+            filename='a.pdf',
+            extension='.pdf',
+            size_bytes=10,
+            content_hash='h1',
+            extracted_text_preview='a',
+            category=FileCategory.DOCUMENT,
+            modified_at=datetime.now(UTC),
+        ),
+        2: IndexedFile(
+            id=2,
+            path='/docs/b.txt',
+            filename='b.txt',
+            extension='.txt',
+            size_bytes=10,
+            content_hash='h2',
+            extracted_text_preview='b',
+            category=FileCategory.PLAINTEXT,
+            modified_at=datetime.now(UTC),
+        ),
+        3: IndexedFile(
+            id=3,
+            path='/docs/c.md',
+            filename='c.md',
+            extension='.md',
+            size_bytes=10,
+            content_hash='h3',
+            extracted_text_preview='c',
+            category=FileCategory.DOCUMENT,
+            modified_at=datetime.now(UTC),
+        ),
+    }
+    monkeypatch.setattr(routes_search, 'get_files_by_ids', AsyncMock(return_value=files_by_id))
+
+    response = await routes_search.search_documents(
+        SearchRequest(query='  find documents  ', limit=2, category='document', file_types=['.pdf']),
+        db=MagicMock(),
+    )
+
+    assert response.query == 'find documents'
+    assert response.total == 1
+    assert len(response.results) == 1
+    assert response.results[0].filename == 'a.pdf'
+
+
+@pytest.mark.asyncio
+async def test_search_documents_rejects_empty_query(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(routes_search.SEARCH_GUARD, 'slot', lambda: _noop_slot())
+    with pytest.raises(HTTPException) as exc_info:
+        await routes_search.search_documents(SearchRequest(query='   '), db=MagicMock())
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_get_index_status_aggregates_counts_and_sizes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(routes_index.asyncio, 'to_thread', _to_thread)
+    monkeypatch.setattr(routes_index, 'get_file_count', AsyncMock(return_value=7))
+    monkeypatch.setattr(routes_index, 'get_chunk_count', AsyncMock(return_value=30))
+    monkeypatch.setattr(routes_index, 'get_indexed_content_size_bytes', AsyncMock(return_value=4096))
+    monkeypatch.setattr(routes_index, 'get_chat_count', AsyncMock(return_value=2))
+    monkeypatch.setattr(
+        routes_index,
+        'get_latest_completed_scan',
+        AsyncMock(return_value=SimpleNamespace(completed_at=datetime(2026, 2, 1, tzinfo=UTC))),
+    )
+    monkeypatch.setattr(routes_index.vector_store, 'get_stats', lambda: {'total_vectors': 27, 'storage_bytes': 12345})
+    monkeypatch.setattr(routes_index, '_compute_disk_sizes', lambda: (111, 222))
+    monkeypatch.setattr(routes_index.op_state, 'get_reset_state_snapshot', AsyncMock(return_value=(False, {'ok': True})))
+
+    status = await routes_index.get_index_status(db=MagicMock())
+
+    assert status.total_files == 7
+    assert status.total_chunks == 30
+    assert status.total_embeddings == 27
+    assert status.vectors_size_bytes == 12345
+    assert status.db_size_bytes == 111
+    assert status.model_size_bytes == 222
+    assert status.last_reset_result == {'ok': True}
+
+
+@pytest.mark.asyncio
+async def test_get_index_status_short_circuits_while_reset_in_progress(monkeypatch: pytest.MonkeyPatch) -> None:
+    async def _fail(*_args, **_kwargs):  # type: ignore[no-untyped-def]
+        raise AssertionError('DB aggregate should not be called during reset polling')
+
+    monkeypatch.setattr(routes_index.asyncio, 'to_thread', _to_thread)
+    monkeypatch.setattr(routes_index.op_state, 'get_reset_state_snapshot', AsyncMock(return_value=(True, {'ok': True})))
+    monkeypatch.setattr(routes_index, '_compute_disk_sizes', lambda: (111, 222))
+    monkeypatch.setattr(routes_index, 'get_file_count', _fail)
+    monkeypatch.setattr(routes_index, 'get_chunk_count', _fail)
+    monkeypatch.setattr(routes_index, 'get_indexed_content_size_bytes', _fail)
+    monkeypatch.setattr(routes_index, 'get_chat_count', _fail)
+
+    status = await routes_index.get_index_status(db=MagicMock())
+
+    assert status.reset_in_progress is True
+    assert status.last_reset_result == {'ok': True}
+    assert status.total_files == 0
+    assert status.total_chunks == 0
+    assert status.total_embeddings == 0
+    assert status.chat_count == 0
+    assert status.indexed_content_size_bytes == 0
+    assert status.db_size_bytes == 111
+    assert status.model_size_bytes == 222
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_returns_system_and_index_stats(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    app_data_dir = tmp_path / 'app-data'
+    app_data_dir.mkdir(parents=True)
+    db_path = tmp_path / 'diagnostics.db'
+    db_path.write_bytes(b'12345678')
+    model_path = tmp_path / 'model.gguf'
+    model_path.write_bytes(b'x' * 1024)
+
+    monkeypatch.setattr(routes_system.settings, 'app_data_dir', app_data_dir)
+    monkeypatch.setattr(routes_system.settings, 'db_path', db_path)
+    monkeypatch.setattr(routes_system, 'llm_engine', SimpleNamespace(model=object(), _get_model_path=lambda: model_path))
+    monkeypatch.setattr(routes_system, 'get_file_count', AsyncMock(return_value=5))
+    monkeypatch.setattr(routes_system, 'get_chunk_count', AsyncMock(return_value=12))
+    monkeypatch.setattr(routes_system, 'get_indexed_content_size_bytes', AsyncMock(return_value=2048))
+    monkeypatch.setattr(routes_system.vector_store, 'get_stats', lambda: {'storage_bytes': 4096})
+    monkeypatch.setattr(routes_system.platform, 'python_version', lambda: '3.13.0')
+    monkeypatch.setattr(routes_system.platform, 'system', lambda: 'Darwin')
+    monkeypatch.setattr(routes_system.platform, 'version', lambda: '23.0')
+    monkeypatch.setattr(routes_system.platform, 'machine', lambda: 'arm64')
+    monkeypatch.setattr(
+        routes_system.psutil,
+        'virtual_memory',
+        lambda: SimpleNamespace(total=16 * 1024**3, available=10 * 1024**3, used=6 * 1024**3),
+    )
+    monkeypatch.setattr(
+        routes_system.psutil,
+        'disk_usage',
+        lambda _path: SimpleNamespace(total=512 * 1024**3, free=300 * 1024**3, used=212 * 1024**3),
+    )
+
+    @asynccontextmanager
+    async def _fake_get_db():
+        yield MagicMock()
+
+    monkeypatch.setattr(routes_system, 'get_db', _fake_get_db)
+
+    diagnostics = await routes_system.get_diagnostics(request=MagicMock())
+    assert diagnostics.total_files == 5
+    assert diagnostics.total_chunks == 12
+    assert diagnostics.indexed_content_size_bytes == 2048
+    assert diagnostics.vectors_size_bytes == 4096
+    assert diagnostics.model_loaded is True
+    assert diagnostics.model_filename == 'model.gguf'
+    assert diagnostics.db_size_bytes == 8
+
+
+@pytest.mark.asyncio
+async def test_shutdown_rejects_non_localhost() -> None:
+    request = SimpleNamespace(client=SimpleNamespace(host='10.0.0.8'))
+    with pytest.raises(HTTPException) as exc_info:
+        await routes_system.shutdown(request=request)
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_shutdown_allows_localhost() -> None:
+    request = SimpleNamespace(client=SimpleNamespace(host='127.0.0.1'))
+    result = await routes_system.shutdown(request=request)
+    assert result.shutdown_initiated is True
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_summary_aggregates_rows(monkeypatch: pytest.MonkeyPatch) -> None:
+    rows = [
+        {
+            'type': 'user',
+            'query_type': 'focused',
+            'timeout_occurred': False,
+            'has_empty_answer': False,
+            'has_refusal_pattern': False,
+            'generation_seconds': 2.5,
+            'sources_count': 3,
+            'raw_chunks_count': 8,
+            'detected_issues': [],
+            'created_at': datetime(2026, 2, 24, tzinfo=UTC),
+        },
+        {
+            'type': 'user',
+            'query_type': 'coverage',
+            'timeout_occurred': True,
+            'has_empty_answer': False,
+            'has_refusal_pattern': True,
+            'generation_seconds': 8.5,
+            'sources_count': 5,
+            'raw_chunks_count': 14,
+            'detected_issues': ['timeout', 'retrieval_failure'],
+            'created_at': datetime(2026, 2, 25, tzinfo=UTC),
+        },
+        {
+            'type': 'evaluation',
+            'query_type': 'metadata',
+            'timeout_occurred': False,
+            'has_empty_answer': True,
+            'has_refusal_pattern': False,
+            'generation_seconds': 1.0,
+            'sources_count': 0,
+            'raw_chunks_count': 0,
+            'detected_issues': ['empty_answer'],
+            'created_at': datetime(2026, 2, 23, tzinfo=UTC),
+        },
+    ]
+
+    @asynccontextmanager
+    async def _fake_get_db():
+        yield MagicMock()
+
+    monkeypatch.setattr(routes_system, 'get_db', _fake_get_db)
+    monkeypatch.setattr(routes_system, 'get_diagnostics_metrics_since', AsyncMock(return_value=rows))
+
+    summary = await routes_system.get_diagnostics_summary(days=7, type_filter=None, run_id_filter=None)
+
+    assert summary.summary_schema == 'informity.diagnostics.summary.v2'
+    assert summary.aggregation_mode == 'direct_window_scan'
+    assert summary.type_taxonomy == ['user', 'evaluation']
+    assert summary.query_type_taxonomy == ['simple', 'metadata', 'focused', 'coverage', 'unknown']
+    assert 'timeout' in summary.issue_type_taxonomy
+    assert summary.window_days == 7
+    assert summary.total_responses == 3
+    assert summary.by_type == {'user': 2, 'evaluation': 1}
+    assert summary.by_query_type == {'focused': 1, 'coverage': 1, 'metadata': 1}
+    assert summary.issue_counts == {'timeout': 1, 'retrieval_failure': 1, 'empty_answer': 1}
+    assert summary.timeout_count == 1
+    assert summary.empty_answer_count == 1
+    assert summary.refusal_pattern_count == 1
+    assert summary.timeout_rate == pytest.approx(0.3333, rel=1e-4)
+    assert summary.empty_answer_rate == pytest.approx(0.3333, rel=1e-4)
+    assert summary.refusal_pattern_rate == pytest.approx(0.3333, rel=1e-4)
+    assert summary.avg_generation_seconds == pytest.approx(4.0)
+    assert summary.p95_generation_seconds == pytest.approx(8.5)
+    assert summary.avg_sources_count == pytest.approx(2.667, rel=1e-3)
+    assert summary.avg_raw_chunks_count == pytest.approx(7.333, rel=1e-3)
+    assert summary.created_at_oldest == datetime(2026, 2, 23, tzinfo=UTC)
+    assert summary.created_at_newest == datetime(2026, 2, 25, tzinfo=UTC)
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_summary_handles_empty_dataset(monkeypatch: pytest.MonkeyPatch) -> None:
+    @asynccontextmanager
+    async def _fake_get_db():
+        yield MagicMock()
+
+    monkeypatch.setattr(routes_system, 'get_db', _fake_get_db)
+    monkeypatch.setattr(routes_system, 'get_diagnostics_metrics_since', AsyncMock(return_value=[]))
+
+    summary = await routes_system.get_diagnostics_summary(days=30, type_filter='user', run_id_filter='run-x')
+
+    assert summary.window_days == 30
+    assert summary.type_filter == 'user'
+    assert summary.run_id_filter == 'run-x'
+    assert summary.total_responses == 0
+    assert summary.by_type == {}
+    assert summary.by_query_type == {}
+    assert summary.issue_counts == {}
+    assert summary.timeout_count == 0
+    assert summary.empty_answer_count == 0
+    assert summary.refusal_pattern_count == 0
+    assert summary.timeout_rate == 0.0
+    assert summary.empty_answer_rate == 0.0
+    assert summary.refusal_pattern_rate == 0.0
+    assert summary.avg_generation_seconds == 0.0
+    assert summary.p95_generation_seconds is None
+    assert summary.avg_sources_count == 0.0
+    assert summary.avg_raw_chunks_count == 0.0
+    assert summary.created_at_oldest is None
+    assert summary.created_at_newest is None
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_summary_normalizes_non_canonical_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    rows = [
+        {
+            'type': 'UNKNOWN_TYPE',
+            'query_type': 'NON_STANDARD_QUERY',
+            'timeout_occurred': False,
+            'has_empty_answer': False,
+            'has_refusal_pattern': False,
+            'generation_seconds': 1.0,
+            'sources_count': 1,
+            'raw_chunks_count': 1,
+            'detected_issues': ['timeout', 'not_a_real_issue'],
+            'created_at': datetime(2026, 2, 25, tzinfo=UTC),
+        },
+    ]
+
+    @asynccontextmanager
+    async def _fake_get_db():
+        yield MagicMock()
+
+    monkeypatch.setattr(routes_system, 'get_db', _fake_get_db)
+    monkeypatch.setattr(routes_system, 'get_diagnostics_metrics_since', AsyncMock(return_value=rows))
+
+    summary = await routes_system.get_diagnostics_summary(days=7, type_filter=None, run_id_filter=None)
+
+    assert summary.total_responses == 1
+    assert summary.by_type == {}
+    assert summary.by_query_type == {'unknown': 1}
+    assert summary.issue_counts == {'timeout': 1}

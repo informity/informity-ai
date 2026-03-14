@@ -1,0 +1,4 @@
+Hello, Informity AI!
+This is a sample text file used for testing.
+It contains multiple lines of plain text.
+UTF-8 encoded with special characters: café, résumé, naïve.

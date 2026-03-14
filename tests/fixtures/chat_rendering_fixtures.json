@@ -1,0 +1,64 @@
+[
+  {
+    "id": "long_prose_sections",
+    "content": "## Executive Summary\n\nThe portfolio remained resilient across the quarter with stable variance and lower-than-expected downside movement.\n\n## Findings\n\nOperational throughput improved while exception rates declined in the highest-volume segments.",
+    "display_blocks": [],
+    "expected_text": ["Executive Summary", "Findings", "portfolio remained resilient"],
+    "expected_lint_issues": []
+  },
+  {
+    "id": "nested_lists",
+    "content": "## Action Plan\n\n- Phase 1\n  - Validate data contracts\n    - Add smoke checks\n- Phase 2\n  - Run full regression",
+    "display_blocks": [],
+    "expected_text": ["Action Plan", "Validate data contracts", "Run full regression"],
+    "expected_lint_issues": []
+  },
+  {
+    "id": "code_fence",
+    "content": "```python\nfor index in range(3):\n    print(index)\n```",
+    "display_blocks": [],
+    "expected_text": ["for index in range(3):", "print(index)"],
+    "expected_lint_issues": []
+  },
+  {
+    "id": "wide_table",
+    "content": "| Year | Revenue | Margin | Notes |\n| --- | ---: | ---: | --- |\n| 2022 | 1200000 | 18.4% | Baseline period |\n| 2023 | 1385000 | 20.1% | Efficiency gains |\n| 2024 | 1499000 | 21.0% | Scaled operations |",
+    "display_blocks": [],
+    "expected_text": ["Year", "Revenue", "Scaled operations"],
+    "expected_lint_issues": []
+  },
+  {
+    "id": "malformed_markdown",
+    "content": "### Scope\n\n#### Subscope\n\n##### Deep Dive\n\n| Item | Value |\n| --- |\n| A | 100 |\n\nSources: [Source: 1]",
+    "display_blocks": [
+      {
+        "type": "text",
+        "markdown": "### Scope\n\n#### Subscope\n\n##### Deep Dive\n\n| Item | Value |\n| --- |\n| A | 100 |"
+      }
+    ],
+    "expected_text": ["Scope", "Deep Dive"],
+    "expected_lint_issues": ["malformed_table_row", "source_marker_leakage"]
+  },
+  {
+    "id": "mixed_blocks",
+    "content": "Fallback markdown should not render when structured blocks are valid.",
+    "display_blocks": [
+      {
+        "type": "text",
+        "markdown": "## Structured Brief\n\nSummary from block rendering path."
+      },
+      {
+        "type": "callout",
+        "tone": "warning",
+        "text": "Review unresolved evidence gaps before approval."
+      },
+      {
+        "type": "metric",
+        "label": "P95 Latency",
+        "value": "148 ms"
+      }
+    ],
+    "expected_text": ["Structured Brief", "Review unresolved evidence gaps", "P95 Latency"],
+    "expected_lint_issues": []
+  }
+]

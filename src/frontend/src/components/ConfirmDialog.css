@@ -1,0 +1,191 @@
+/* ==============================================================================
+   Informity AI — Confirm dialog
+   ============================================================================== */
+
+.confirm-dialog__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  padding: 1rem;
+  animation: confirm-dialog-fade-in 0.15s ease-out;
+}
+
+@keyframes confirm-dialog-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.confirm-dialog {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-lg);
+  max-width: var(--modal-width-md);
+  width: 100%;
+  max-height: var(--modal-max-height);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  animation: confirm-dialog-slide-in 0.2s ease-out;
+}
+
+@keyframes confirm-dialog-slide-in {
+  from { transform: translateY(-20px) scale(0.95); opacity: 0; }
+  to   { transform: translateY(0) scale(1); opacity: 1; }
+}
+
+.confirm-dialog__header {
+  position: relative;
+  padding: var(--space-lg);
+  border-bottom: none;
+}
+
+.confirm-dialog__header--centered {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 0;
+  padding-bottom: var(--space-md);
+}
+
+.confirm-dialog--centered .confirm-dialog__body {
+  text-align: center;
+  padding-top: calc(var(--space-md) + var(--space-xxs));
+}
+
+.confirm-dialog__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: calc(var(--space-xxs) * -1);
+}
+
+.confirm-dialog__icon i {
+  display: block;
+  line-height: 1;
+}
+
+.confirm-dialog__icon--default {
+  color: var(--color-accent);
+}
+
+.confirm-dialog__icon--danger {
+  color: var(--color-danger-text);
+}
+
+.confirm-dialog__title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.confirm-dialog__header--centered .confirm-dialog__title {
+  font-size: var(--font-size-xl);
+}
+
+.confirm-dialog__body {
+  width: min(100%, var(--modal-divider-width));
+  margin: 0 auto;
+  padding: var(--space-lg);
+  padding-bottom: var(--space-xl);
+  overflow-y: auto;
+}
+
+
+.confirm-dialog__message {
+  margin: 0;
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.confirm-dialog__subtext {
+  margin: var(--space-sm) 0 0;
+  font-size: var(--font-size-base);
+  line-height: 1.6;
+  color: var(--color-text);
+}
+
+.confirm-dialog__footer {
+  position: relative;
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+  display: flex;
+  justify-content: center;
+  gap: var(--space-sm);
+  border-top: none;
+}
+
+.confirm-dialog__footer::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(100%, var(--modal-divider-width));
+  border-top: 1px var(--layout-divider-style, solid) var(--layout-divider-color, var(--color-border-subtle));
+}
+
+.confirm-dialog--centered .confirm-dialog__footer {
+  justify-content: center;
+}
+
+/* Button variants — match settings-btn (Discard, Save, Reset All) */
+.confirm-dialog__btn {
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: var(--action-btn-width);
+  padding: var(--space-sm) var(--space-lg);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  border-radius: var(--border-radius);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.confirm-dialog__btn:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+/* Cancel — muted, like settings-btn--secondary (Discard Changes) */
+.confirm-dialog__btn--cancel {
+  background: transparent;
+  border: 1px solid var(--color-text-secondary);
+  color: var(--color-text-secondary);
+}
+
+.confirm-dialog__btn--cancel:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+  border-color: var(--color-text-secondary);
+}
+
+/* Primary (OK) — like settings-btn--primary */
+.confirm-dialog__btn--primary {
+  background: var(--color-accent);
+  color: var(--color-on-primary);
+  border: 1px solid var(--color-accent);
+}
+
+.confirm-dialog__btn--primary:hover {
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
+}
+
+/* Danger — solid red for emphasis (destructive action) */
+.confirm-dialog__btn--danger {
+  background: var(--color-danger-solid);
+  color: var(--color-on-primary);
+  border: 1px solid var(--color-danger-solid);
+}
+
+.confirm-dialog__btn--danger:hover {
+  background: var(--color-danger-text);
+  border-color: var(--color-danger-text);
+}

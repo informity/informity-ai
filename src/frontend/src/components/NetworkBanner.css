@@ -1,0 +1,18 @@
+/* ==============================================================================
+   Informity AI — Network offline banner (top of page)
+   ============================================================================== */
+
+.network-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0.5rem 1rem;
+  font-size: var(--font-size-base);
+  text-align: center;
+  background: var(--color-danger-bg);
+  border-bottom: 1px solid var(--color-danger-border-strong);
+  color: var(--color-danger-solid);
+  user-select: none;
+}

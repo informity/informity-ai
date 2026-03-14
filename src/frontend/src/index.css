@@ -1,0 +1,369 @@
+@import './styles/shared/cards.css';
+@import './styles/shared/filters.css';
+@import './styles/shared/sections.css';
+@import './styles/shared/tables.css';
+@import './styles/shared/tooltips.css';
+
+:root {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  font-weight: 400;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  --font-mono: 'SF Mono', 'Menlo', 'Monaco', 'Consolas', monospace;
+  --border-radius: 8px;
+  --border-radius-sm: 4px;
+  --border-radius-md: 6px;
+  --border-radius-lg: 12px;
+  /* Typography scale — match old UI (smaller throughout) */
+  --font-size-2xs: 0.6875rem;
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.8125rem;
+  --font-size-base: 0.875rem;
+  --font-size-lg: 1rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-view-title: var(--font-size-2xl);
+  --font-size-section-title: var(--font-size-lg);
+  --font-size-subsection-title: var(--font-size-sm);
+  --font-size-subtitle: var(--font-size-sm);
+  --font-size-body: var(--font-size-base);
+  --font-size-body-small: var(--font-size-sm);
+  --font-size-description: var(--font-size-sm);
+  --font-size-caption: var(--font-size-xs);
+  --font-size-form-label: var(--font-size-sm);
+  --font-size-icon: 1.125rem;
+  --font-weight-heading: 600;
+  --space-xxs: 0.125rem;
+  --space-xs: 0.25rem;
+  --space-sm: 0.5rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 2.5rem;
+  --space-step: 0.75rem;
+  --min-touch-height: 2rem;
+  --icon-size-sm: 16px;
+  --icon-size-md: 24px;
+  --action-btn-width: 10.5rem;
+  --modal-width-md: 420px;
+  --modal-max-height: 90vh;
+  --modal-divider-width: calc((var(--action-btn-width) * 2) + var(--space-sm));
+  --layout-divider-style: solid;
+  --layout-divider-color: var(--color-border-subtle);
+  --input-max-width: 40rem;
+  --page-content-width: 44rem;
+  --content-max-width: 936px;
+  --color-on-primary: #ffffff;
+  --transition-fast: 150ms ease;
+}
+
+/* Base colors — dark theme only */
+:root {
+  color-scheme: dark;
+  --color-bg: #0f0f0f;
+  --color-bg-surface: #1a1a1a;
+  --color-bg-elevated: #242424;
+  --color-bg-hover: #2a2a2a;
+  --color-border: #2e2e2e;
+  --color-border-subtle: #222222;
+  --color-text: #e8e8e8;
+  --color-text-muted: #7a7a7a;
+  --color-text-dimmed: #707070;
+  --color-text-secondary: #9e9e9e;
+  --color-warning-border: rgba(245, 158, 11, 0.3);
+  --color-warning-text: #d97706;
+  --color-danger: #ef5350;
+  --color-danger-solid: #ef4444;
+  --color-danger-bg: rgba(239, 68, 68, 0.1);
+  --color-danger-bg-strong: rgba(239, 83, 80, 0.12);
+  --color-danger-border: rgba(239, 68, 68, 0.35);
+  --color-danger-border-strong: rgba(239, 68, 68, 0.4);
+  --color-danger-subtle: rgba(239, 68, 68, 0.06);
+  --color-danger-text: #dc2626;
+  --color-success: #22c55e;
+  --color-success-bg: rgba(34, 197, 94, 0.15);
+  --color-success-border: rgba(34, 197, 94, 0.4);
+  --color-success-light: #4ade80;
+  --color-success-score-bg: rgba(34, 197, 94, 0.2);
+  --color-info: #3b82f6;
+  --color-info-bg: rgba(59, 130, 246, 0.15);
+  --color-info-border: rgba(59, 130, 246, 0.4);
+  --color-warning-bright: #f59e0b;
+  --color-warning-bg: rgba(245, 158, 11, 0.15);
+  --color-warning-border: rgba(245, 158, 11, 0.4);
+  /* Semantic surfaces for cross-component consistency. */
+  --surface-nav: var(--color-bg-surface);
+  --surface-control: #303030;
+  --surface-readonly: color-mix(in srgb, var(--color-bg-elevated) 84%, var(--color-bg-surface));
+  --surface-table-head: color-mix(in srgb, var(--surface-nav) 88%, black);
+  --surface-table-row-hover: var(--color-bg-hover);
+  --surface-tooltip: var(--color-bg-elevated);
+  --text-tooltip: var(--color-text);
+  color: var(--color-text);
+  background-color: var(--color-bg);
+}
+
+/* Hide scrollbars site-wide (Safari, Chrome, Firefox) — scroll still works */
+::-webkit-scrollbar {
+  display: none;
+}
+* {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  min-width: 320px;
+  font-size: var(--font-size-body);
+}
+
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+  font-size: inherit;
+  color: inherit;
+  line-height: inherit;
+}
+
+button {
+  cursor: pointer;
+  border: none;
+  background: none;
+  padding: 0;
+  white-space: nowrap;
+}
+
+/* Prevent browser-default glowing focus rings on interactive controls. */
+button:focus,
+button:focus-visible,
+a:focus,
+a:focus-visible,
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible,
+[role='button']:focus,
+[role='button']:focus-visible,
+[tabindex]:focus,
+[tabindex]:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+input,
+textarea,
+select {
+  background-color: var(--surface-control);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  padding: var(--space-sm) var(--space-md);
+  color: var(--color-text);
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+}
+
+input:focus,
+input:focus-visible,
+textarea:focus,
+textarea:focus-visible,
+select:focus,
+select:focus-visible {
+  outline: none;
+  box-shadow: none;
+  border-color: var(--color-accent);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--color-text-dimmed);
+}
+
+select {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23888' d='M1.41 0L6 4.59 10.59 0 12 1.41l-6 6-6-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+  padding-right: 2rem;
+}
+
+input[type='search']::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+}
+
+input[type='number'] {
+  -moz-appearance: textfield;
+}
+
+input[type='number']::-webkit-inner-spin-button,
+input[type='number']::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type='checkbox'] {
+  -webkit-appearance: auto;
+  appearance: auto;
+  width: var(--icon-size-sm);
+  height: var(--icon-size-sm);
+  padding: 0;
+  border: none;
+  accent-color: var(--color-accent);
+}
+
+/* Accent colors (ui_theme from Settings). Set via data-accent on <html>. Default: mono. */
+:root,
+html[data-accent='blue'] {
+  --color-accent: #6b9ec9;
+  --color-primary: #6b9ec9;
+  --color-accent-subtle: rgba(107, 158, 201, 0.1);
+  --color-primary-bg: rgba(107, 158, 201, 0.12);
+  --color-primary-bg-strong: rgba(107, 158, 201, 0.18);
+  --color-primary-border: rgba(107, 158, 201, 0.25);
+}
+html[data-accent='gray'] {
+  --color-accent: #8f8f8f;
+  --color-primary: #8f8f8f;
+  --color-accent-subtle: rgba(143, 143, 143, 0.12);
+  --color-primary-bg: rgba(143, 143, 143, 0.16);
+  --color-primary-bg-strong: rgba(143, 143, 143, 0.22);
+  --color-primary-border: rgba(143, 143, 143, 0.3);
+}
+html[data-accent='purple'] {
+  --color-accent: #9d7bd8;
+  --color-primary: #9d7bd8;
+  --color-accent-subtle: rgba(157, 123, 216, 0.1);
+  --color-primary-bg: rgba(157, 123, 216, 0.12);
+  --color-primary-bg-strong: rgba(157, 123, 216, 0.18);
+  --color-primary-border: rgba(157, 123, 216, 0.25);
+}
+html[data-accent='green'] {
+  --color-accent: #6b9e6b;
+  --color-primary: #6b9e6b;
+  --color-accent-subtle: rgba(107, 158, 107, 0.1);
+  --color-primary-bg: rgba(107, 158, 107, 0.12);
+  --color-primary-bg-strong: rgba(107, 158, 107, 0.18);
+  --color-primary-border: rgba(107, 158, 107, 0.25);
+}
+html[data-accent='orange'] {
+  --color-accent: #d4854a;
+  --color-primary: #d4854a;
+  --color-accent-subtle: rgba(212, 133, 74, 0.1);
+  --color-primary-bg: rgba(212, 133, 74, 0.12);
+  --color-primary-bg-strong: rgba(212, 133, 74, 0.18);
+  --color-primary-border: rgba(212, 133, 74, 0.2);
+}
+/* Mono Theme Start: black base + dotted separators */
+html[data-accent='mono'] {
+  --color-accent: #8f8f8f;
+  --color-primary: #8f8f8f;
+  --color-accent-subtle: rgba(143, 143, 143, 0.12);
+  --color-primary-bg: rgba(143, 143, 143, 0.16);
+  --color-primary-bg-strong: rgba(143, 143, 143, 0.22);
+  --color-primary-border: rgba(143, 143, 143, 0.3);
+  --color-bg: #090909;
+  --color-bg-surface: #1a1a1a;
+  --color-bg-elevated: #242424;
+  --color-bg-hover: #2a2a2a;
+  --color-border: #4a4a4a;
+  --color-border-subtle: #3a3a3a;
+  --surface-nav: #1a1a1a;
+  --surface-control: #303030;
+  --surface-readonly: color-mix(in srgb, var(--color-bg-elevated) 84%, var(--color-bg-surface));
+  --surface-table-head: color-mix(in srgb, var(--surface-nav) 88%, black);
+  --surface-table-row-hover: var(--color-bg-hover);
+  --surface-tooltip: #181614;
+  --layout-divider-color: #4a4a4a;
+  --layout-divider-style: dotted;
+}
+
+html[data-accent='mono'] body {
+  background-color: var(--color-bg);
+  background-image:
+    radial-gradient(circle at 1px 1px, rgba(180, 180, 180, 0.16) 1px, transparent 0);
+  background-size: 18px 18px;
+}
+
+html[data-accent='mono'] .ui-subsection-head::before {
+  background: var(--color-accent);
+}
+
+html[data-accent='mono'] .page-header {
+  border-bottom: 1px dotted #4a4a4a;
+}
+
+html[data-accent='mono'] .settings-tabs {
+  border-bottom: 1px dotted #4a4a4a;
+}
+
+html[data-accent='mono'] .settings-tab + .settings-tab {
+  border-left: 1px dotted #4a4a4a;
+}
+
+html[data-accent='mono'] .file-table__pagination,
+html[data-accent='mono'] .history-table__pagination {
+  border-top: 1px dotted #4a4a4a;
+}
+
+html[data-accent='mono'] .settings-actions--sticky {
+  border-top: 1px dotted #4a4a4a;
+}
+
+html[data-accent='mono'] .page-footer {
+  border-top: 1px dotted #4a4a4a;
+}
+
+html[data-accent='mono'] .data-table__th {
+  border-bottom: 1px dotted #4a4a4a;
+}
+
+html[data-accent='mono'] .data-table__td {
+  border-bottom: 1px dotted #3a3a3a;
+}
+
+html[data-accent='mono'] .ui-section-divider::before {
+  border-top: 1px dotted #4a4a4a;
+}
+
+html[data-accent='mono'] .settings-profile-row {
+  border-bottom: 1px dotted #4a4a4a;
+}
+
+html[data-accent='mono'] .settings-slider {
+  background: #303030;
+  border: none;
+}
+
+html[data-accent='mono'] .settings-slider::-webkit-slider-thumb {
+  border: none;
+  box-shadow: none;
+}
+
+html[data-accent='mono'] .settings-slider::-moz-range-thumb {
+  border: none;
+  box-shadow: none;
+}
+/* Mono Theme End */
+
+html[data-accent='mono'] {
+  --color-accent-hover: #7a7a7a;
+}
+
+/* Accent hover (darker for buttons, links) */
+:root {
+  --color-accent-hover: color-mix(in srgb, var(--color-accent) 85%, black);
+}

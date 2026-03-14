@@ -1,0 +1,105 @@
+/* ==============================================================================
+   Informity AI — Keyboard shortcuts modal
+   Matches ConfirmDialog: tokens, animations, background.
+   ============================================================================== */
+
+.keyboard-shortcuts-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  padding: var(--space-md);
+  animation: confirm-dialog-fade-in 0.15s ease-out;
+}
+
+.keyboard-shortcuts-modal {
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-lg);
+  max-width: var(--modal-width-md);
+  width: 100%;
+  max-height: var(--modal-max-height);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  animation: confirm-dialog-slide-in 0.2s ease-out;
+}
+
+.keyboard-shortcuts-modal__header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-md) var(--space-lg);
+  border-bottom: none;
+  user-select: none;
+}
+
+.keyboard-shortcuts-modal__header h2 {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.keyboard-shortcuts-modal__close {
+  padding: var(--space-xs);
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--border-radius-md);
+  user-select: none;
+}
+
+.keyboard-shortcuts-modal__close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.keyboard-shortcuts-modal__body {
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-md) var(--space-lg);
+  overflow-y: auto;
+}
+
+.keyboard-shortcuts-list {
+  width: min(100%, var(--modal-divider-width));
+  margin: 0;
+  margin-inline: auto;
+  padding: 0;
+}
+
+.keyboard-shortcuts-list__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+  padding: var(--space-xs) 0;
+  border-bottom: 1px var(--layout-divider-style, solid) var(--layout-divider-color, var(--color-border-subtle));
+}
+
+.keyboard-shortcuts-list__row:last-child {
+  border-bottom: none;
+}
+
+.keyboard-shortcuts-list__keys kbd {
+  display: inline-block;
+  padding: var(--space-xxs) var(--space-xs);
+  font-size: var(--font-size-xs);
+  font-family: ui-monospace, monospace;
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-sm);
+}
+
+.keyboard-shortcuts-list__desc {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+}

@@ -1,0 +1,434 @@
+/* -----------------------------------------------------------------------------
+   File detail — sliding panel (right side)
+   Uses app design tokens for consistency with Settings, Dashboard, tables.
+   ----------------------------------------------------------------------------- */
+
+.file-detail {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  justify-content: flex-end;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.file-detail__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+  pointer-events: auto;
+  cursor: pointer;
+}
+
+.file-detail__panel {
+  position: relative;
+  width: 100%;
+  max-width: 540px;
+  height: 100vh;
+  background: var(--color-bg-surface);
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
+  pointer-events: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  overscroll-behavior: contain;
+}
+
+.file-detail__header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-lg) var(--space-xl) var(--space-sm);
+}
+
+.file-detail__title {
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  font-size: var(--font-size-view-title);
+  font-weight: var(--font-weight-heading);
+  color: var(--color-text);
+}
+
+.file-detail__title-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  font-size: var(--font-size-view-title);
+  color: var(--color-text);
+}
+
+.file-detail__close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: var(--border-radius);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: opacity var(--transition-fast), background var(--transition-fast);
+}
+
+.file-detail__close:hover {
+  opacity: 1;
+  background: var(--color-bg-hover);
+}
+
+.file-detail__loading,
+.file-detail__error {
+  padding: var(--space-xl) var(--space-xl);
+  text-align: center;
+}
+
+.file-detail__loading {
+  color: var(--color-text-muted);
+}
+
+.file-detail__error {
+  color: var(--color-danger);
+}
+
+.file-detail__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-sm) var(--space-xl) var(--space-lg);
+  overflow: hidden;
+}
+
+.file-detail__section {
+  margin-bottom: var(--space-lg);
+}
+
+.file-detail__section:last-of-type {
+  margin-bottom: 0;
+}
+
+.file-detail__section--meta {
+  flex-shrink: 0;
+}
+
+.file-detail__section--preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 0;
+}
+
+/* Accent left border (like Settings subsections) */
+.file-detail__subsection-head {
+  --ui-subsection-line-bottom-offset: 0;
+  margin-bottom: var(--space-sm);
+}
+
+.file-detail__subsection-head .file-detail__section-title {
+  color: var(--color-text);
+}
+
+.file-detail__subsection-description {
+  font-size: var(--font-size-description);
+  color: var(--color-text-muted);
+  margin: var(--space-xs) 0 var(--space-sm);
+  line-height: 1.4;
+}
+
+.file-detail__preview-scroll-wrap {
+  flex: 1;
+  min-height: 0;
+  margin-top: var(--space-sm);
+  position: relative;
+}
+
+.file-detail__preview-scroll-wrap::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2.5rem;
+  background: linear-gradient(to bottom, transparent, var(--color-bg-surface));
+  pointer-events: none;
+}
+
+.file-detail__preview-scroll {
+  height: 100%;
+  overflow-y: auto;
+}
+
+.file-detail__section-title {
+  margin: 0;
+  font-size: var(--font-size-subsection-title);
+  font-weight: var(--font-weight-heading);
+  color: var(--color-text-muted);
+}
+
+/* Profile grid — matches Settings model profile format */
+.file-detail__profile-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  margin-top: var(--space-md);
+}
+
+.file-detail__profile-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: var(--space-xs) 0;
+  border-bottom: 1px var(--layout-divider-style, solid) var(--layout-divider-color, var(--color-border-subtle));
+}
+
+.file-detail__profile-row:first-child {
+  border-top: 1px var(--layout-divider-style, solid) var(--layout-divider-color, var(--color-border-subtle));
+}
+
+.file-detail__profile-row:last-child {
+  border-bottom: none;
+}
+
+.file-detail__profile-row__label {
+  font-size: var(--font-size-form-label);
+  color: var(--color-text);
+  flex-shrink: 0;
+  margin-right: var(--space-md);
+}
+
+.file-detail__profile-row__value {
+  font-size: var(--font-size-body-small);
+  font-family: var(--font-mono);
+  color: var(--color-accent);
+  text-align: right;
+  word-break: break-word;
+}
+
+/* Info icon with tooltip (Settings-style, wraps) */
+.file-detail__info {
+  margin-left: var(--space-xs);
+  color: var(--color-text-muted);
+  cursor: help;
+  vertical-align: middle;
+}
+
+.file-detail__info i {
+  font-size: 0.875rem;
+  line-height: 1;
+}
+
+.file-detail__info:hover {
+  color: var(--color-text);
+}
+
+.file-detail__preview {
+  padding: var(--space-md);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+}
+
+.file-detail__preview-text {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: inherit;
+}
+
+.file-detail__preview-empty {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.file-detail__show-more {
+  margin-top: var(--space-sm);
+  padding: var(--space-xs) 0;
+  font-size: var(--font-size-base);
+  border: none;
+  background: transparent;
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.file-detail__show-more:hover {
+  text-decoration: underline;
+}
+
+.file-detail__actions {
+  flex-shrink: 0;
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  display: flex;
+  flex-direction: row;
+  gap: var(--space-sm);
+}
+
+.file-detail__actions .file-detail__btn {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Buttons — match Settings/Dashboard (settings-btn patterns) */
+.file-detail__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  min-height: var(--min-touch-height);
+}
+
+.file-detail__btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+  border-color: var(--color-text-muted);
+}
+
+.file-detail__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.file-detail__btn--secondary {
+  color: var(--color-text-secondary);
+  border-color: var(--color-text-secondary);
+}
+
+.file-detail__btn--secondary:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+  border-color: var(--color-text-secondary);
+}
+
+.file-detail__btn--danger {
+  color: var(--color-danger-text);
+  border-color: var(--color-danger-border);
+}
+
+.file-detail__btn--danger:hover:not(:disabled) {
+  background: var(--color-danger-subtle);
+  border-color: rgba(239, 68, 68, 0.5);
+}
+
+/* -----------------------------------------------------------------------------
+   Responsive — compact layout for smaller screens
+   ----------------------------------------------------------------------------- */
+
+@media (max-width: 640px) {
+  .file-detail__panel {
+    max-width: 100%;
+  }
+
+  .file-detail__header {
+    padding: var(--space-md) var(--space-md) var(--space-xs);
+  }
+
+  .file-detail__title {
+    font-size: var(--font-size-lg);
+  }
+
+  .file-detail__body {
+    padding: var(--space-sm) var(--space-md) var(--space-md);
+  }
+
+  .file-detail__section {
+    margin-bottom: var(--space-md);
+  }
+
+  .file-detail__profile-grid {
+    margin-top: var(--space-sm);
+  }
+
+  .file-detail__profile-row {
+    padding: var(--space-xxs) 0;
+  }
+
+  .file-detail__profile-row__label,
+  .file-detail__profile-row__value {
+    font-size: var(--font-size-xs);
+  }
+
+  .file-detail__subsection-head {
+    margin-bottom: var(--space-xs);
+  }
+
+  .file-detail__subsection-description {
+    margin: var(--space-xxs) 0 var(--space-xs);
+    font-size: var(--font-size-xs);
+  }
+
+  .file-detail__preview-scroll-wrap {
+    margin-top: var(--space-xs);
+  }
+
+  .file-detail__preview {
+    padding: var(--space-sm);
+    font-size: var(--font-size-sm);
+  }
+
+  .file-detail__actions {
+    margin-top: var(--space-sm);
+    padding-top: var(--space-sm);
+  }
+
+  .file-detail__btn {
+    padding: var(--space-xs) var(--space-sm);
+    font-size: var(--font-size-sm);
+  }
+}
+
+@media (max-width: 480px) {
+  .file-detail__header {
+    padding: var(--space-sm) var(--space-sm) var(--space-xxs);
+  }
+
+  .file-detail__title {
+    font-size: var(--font-size-base);
+  }
+
+  .file-detail__body {
+    padding: var(--space-xs) var(--space-sm) var(--space-sm);
+  }
+
+  .file-detail__section-title {
+    font-size: var(--font-size-xs);
+  }
+
+  .file-detail__profile-row__label,
+  .file-detail__profile-row__value {
+    font-size: var(--font-size-2xs);
+  }
+
+  .file-detail__preview {
+    padding: var(--space-xs);
+    font-size: var(--font-size-xs);
+  }
+
+  .file-detail__actions {
+    margin-top: var(--space-xs);
+    padding-top: var(--space-xs);
+  }
+
+  .file-detail__btn {
+    padding: var(--space-xxs) var(--space-xs);
+    font-size: var(--font-size-xs);
+    min-height: 1.75rem;
+  }
+}

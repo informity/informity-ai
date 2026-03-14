@@ -1,0 +1,89 @@
+/* ==============================================================================
+   Informity AI — Shared section/title primitives
+   Cross-screen patterns: section dividers, subsection headers, title + description.
+   ============================================================================== */
+
+.ui-section-divider {
+  position: relative;
+  padding-top: var(--ui-section-divider-padding-top, var(--space-md));
+}
+
+.ui-section-divider::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  max-width: var(--ui-section-divider-max-width, 100%);
+  border-top: 1px solid var(--color-border);
+}
+
+.ui-section-heading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-heading);
+  color: var(--color-text);
+  margin: var(--space-md) 0 var(--space-sm);
+  user-select: none;
+}
+
+.ui-section-heading__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-icon);
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.ui-subsection-head {
+  --ui-subsection-line-width: 2px;
+  --ui-subsection-line-bottom-offset: 0.2rem;
+  position: relative;
+  padding-left: calc(var(--space-sm) + var(--ui-subsection-line-width));
+}
+
+.ui-subsection-head::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: var(--ui-subsection-line-bottom-offset);
+  left: 0;
+  width: var(--ui-subsection-line-width);
+  background: var(--color-accent);
+}
+
+.ui-subsection-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  margin: 0 0 var(--space-sm) 0;
+  font-size: var(--font-size-subsection-title);
+  font-weight: var(--font-weight-heading);
+  line-height: 1;
+  color: var(--color-text);
+}
+
+.ui-subsection-title .ui-subsection-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1em;
+  line-height: 1;
+  opacity: 0.75;
+  flex-shrink: 0;
+}
+
+/* Title + description should be visually grouped. */
+.ui-subsection-head .ui-subsection-title:has(+ .ui-subsection-description) {
+  margin-bottom: var(--space-xxs);
+}
+
+.ui-subsection-description {
+  margin: 0;
+  font-size: var(--font-size-description);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}

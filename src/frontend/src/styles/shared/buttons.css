@@ -1,0 +1,95 @@
+/* ==============================================================================
+   Informity AI — Shared button styles
+   Reused across Settings, Dashboard, and confirmation flows.
+   ============================================================================== */
+
+.settings-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-sm);
+    padding: var(--space-sm) var(--space-lg);
+    font-size: var(--font-size-base);
+    font-weight: 500;
+    border: 1px solid transparent;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    min-height: var(--min-touch-height);
+    user-select: none;
+}
+
+.settings-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.settings-btn--primary {
+    width: var(--action-btn-width);
+    min-width: var(--action-btn-width);
+    background: var(--color-accent);
+    color: var(--color-on-primary);
+    border-color: var(--color-accent);
+}
+
+.settings-btn--primary:hover:not(:disabled) {
+    background: var(--color-accent-hover);
+    border-color: var(--color-accent-hover);
+}
+
+.settings-btn--secondary {
+    width: var(--action-btn-width);
+    min-width: var(--action-btn-width);
+    background: transparent;
+    color: var(--color-text-secondary);
+    border-color: var(--color-text-secondary);
+}
+
+.settings-btn--secondary:hover:not(:disabled) {
+    background: var(--color-bg-hover);
+    color: var(--color-text);
+    border-color: var(--color-text-secondary);
+}
+
+.settings-btn--add {
+    flex-shrink: 0;
+    min-height: var(--min-touch-height);
+    padding: 0 var(--space-md);
+    background: var(--color-bg-elevated);
+    border-color: var(--color-border);
+    color: var(--color-accent);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    white-space: nowrap;
+}
+
+.settings-btn--add:hover {
+    background: var(--color-bg-hover);
+    border-color: var(--color-accent);
+}
+
+.settings-btn--warning {
+    width: var(--action-btn-width);
+    min-width: var(--action-btn-width);
+    background: transparent;
+    color: var(--color-warning-text);
+    border-color: var(--color-warning-border);
+}
+
+.settings-btn--warning:hover:not(:disabled) {
+    background: rgba(245, 158, 11, 0.08);
+    border-color: rgba(245, 158, 11, 0.5);
+}
+
+.settings-btn--danger {
+    width: var(--action-btn-width);
+    min-width: var(--action-btn-width);
+    background: transparent;
+    color: var(--color-danger-text);
+    border-color: var(--color-danger-border);
+}
+
+.settings-btn--danger:hover:not(:disabled) {
+    background: var(--color-danger-subtle);
+    border-color: rgba(239, 68, 68, 0.5);
+}

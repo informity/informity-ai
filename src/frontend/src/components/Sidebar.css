@@ -1,0 +1,205 @@
+.sidebar {
+  --sidebar-width: 228px;
+  --sidebar-width-collapsed: 60px;
+  --sidebar-link-padding-x: var(--space-md);
+  user-select: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
+  height: 100vh;
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  border-right: 1px var(--layout-divider-style, solid) var(--layout-divider-color, var(--color-border));
+  padding: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  transition: width 0.2s ease, min-width 0.2s ease;
+  z-index: 100;
+  box-sizing: border-box;
+}
+
+.sidebar--collapsed {
+  width: var(--sidebar-width-collapsed);
+  min-width: var(--sidebar-width-collapsed);
+}
+
+.sidebar--collapsed .sidebar__title {
+  display: none;
+}
+
+.sidebar--collapsed .sidebar__label {
+  display: none;
+}
+
+.sidebar--collapsed .sidebar__header {
+  justify-content: center;
+  padding: var(--space-lg) var(--space-sm);
+}
+
+.sidebar--collapsed .sidebar__toggle {
+  display: none;
+}
+
+.sidebar--collapsed .sidebar__link {
+  justify-content: center;
+  padding: var(--space-sm);
+}
+
+.sidebar--collapsed .sidebar__icon {
+  width: auto;
+  margin: 0;
+}
+
+.sidebar--collapsed .sidebar__nav {
+  padding: var(--space-sm);
+}
+
+.sidebar__header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-lg) calc(var(--space-md) - 4px) var(--space-lg) var(--space-xl);
+}
+
+.sidebar__logo {
+  width: 1.5rem;
+  height: 1.5rem;
+  object-fit: contain;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sidebar__title {
+  flex: 1;
+  font-size: var(--font-size-lg);
+  font-weight: 600;
+  color: var(--color-text);
+  white-space: nowrap;
+}
+
+.sidebar__toggle {
+  width: 1.5rem;
+  height: 1.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-icon);
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  transition: all var(--transition-fast);
+  flex-shrink: 0;
+}
+
+.sidebar__toggle:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.sidebar__nav {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-sm) var(--space-md);
+  flex: 1;
+  overflow-y: auto;
+}
+
+.sidebar__link {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+  box-sizing: border-box;
+  padding: var(--space-sm) var(--sidebar-link-padding-x);
+  margin: 0 0 2px 0;
+  border-radius: var(--border-radius);
+  color: var(--color-text-muted);
+  text-decoration: none;
+  font-size: var(--font-size-base);
+  transition: background var(--transition-fast), color var(--transition-fast);
+  cursor: pointer;
+}
+
+.sidebar__link:hover:not(.sidebar__link--active) {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+  text-decoration: none;
+}
+
+.sidebar__link--active {
+  background: var(--color-primary-bg);
+  color: var(--color-text);
+  font-weight: 500;
+  width: calc(100% - 2px);
+}
+
+.sidebar__icon {
+  font-size: var(--font-size-icon);
+  width: 1.5rem;
+  text-align: center;
+  flex-shrink: 0;
+}
+
+.sidebar__label {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.sidebar__status {
+  font-size: var(--font-size-caption);
+  color: var(--color-accent);
+  opacity: 0.9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebar__status-slot {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 1rem;
+}
+
+.sidebar__status-spinner {
+  font-size: var(--font-size-caption);
+  line-height: 1;
+  animation: sidebar-status-spin 1s linear infinite;
+}
+
+@keyframes sidebar-status-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (max-width: 1024px) {
+  .sidebar {
+    width: var(--sidebar-width-collapsed) !important;
+    min-width: var(--sidebar-width-collapsed) !important;
+  }
+
+  .sidebar__title,
+  .sidebar__label {
+    display: none !important;
+  }
+
+  .sidebar__header {
+    justify-content: center;
+  }
+}

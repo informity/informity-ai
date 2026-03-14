@@ -1,0 +1,44 @@
+[
+  {
+    "id": "think_and_inline_sources",
+    "raw": "<think>hidden reasoning</think>Answer text (Source 1, Source 2)\nSources: 1,2",
+    "backend_cleaned": "Answer text",
+    "backend_reasoning_only": false,
+    "frontend_cleaned": "Answer text"
+  },
+  {
+    "id": "orphan_think_tag",
+    "raw": "Final answer starts.\n<think>incomplete",
+    "backend_cleaned": "Final answer starts.",
+    "backend_reasoning_only": false,
+    "frontend_cleaned": "Final answer starts."
+  },
+  {
+    "id": "phi_style_think_tag",
+    "raw": "<<think>>private chain</think>>Result paragraph.",
+    "backend_cleaned": "Result paragraph.",
+    "backend_reasoning_only": false,
+    "frontend_cleaned": "Result paragraph."
+  },
+  {
+    "id": "source_lines_and_brackets",
+    "raw": "[Source: 3]\nKey finding.\nSource 2, Source 4\nSources: 2,4",
+    "backend_cleaned": "Key finding.",
+    "backend_reasoning_only": false,
+    "frontend_cleaned": "Key finding."
+  },
+  {
+    "id": "lowercase_source_and_br_artifacts",
+    "raw": "Row A<br/>Row B [source: 2]\nsource 2",
+    "backend_cleaned": "Row A; Row B",
+    "backend_reasoning_only": false,
+    "frontend_cleaned": "Row A; Row B"
+  },
+  {
+    "id": "reasoning_only_output",
+    "raw": "<think>internal reasoning only</think>",
+    "backend_cleaned": "I could not generate a final answer from the model output. Please try rephrasing your question.",
+    "backend_reasoning_only": true,
+    "frontend_cleaned": ""
+  }
+]

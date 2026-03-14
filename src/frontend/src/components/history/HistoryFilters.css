@@ -1,0 +1,35 @@
+/* -----------------------------------------------------------------------------
+   History filters — search (uses shared filter-search, filter-clear-btn)
+   ----------------------------------------------------------------------------- */
+
+.history-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.history-filters__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.history-filters__clear {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  border-radius: var(--border-radius-sm);
+}
+
+.history-filters__clear:hover {
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+}

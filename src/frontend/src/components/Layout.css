@@ -1,0 +1,45 @@
+.layout {
+  --layout-sidebar-width: 228px;
+  --layout-sidebar-width-collapsed: 60px;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.layout__body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.layout__main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg);
+  color: var(--color-text);
+  margin-left: var(--layout-sidebar-width);
+  transition: margin-left 0.2s ease;
+}
+
+.layout__body:has(.sidebar--collapsed) .layout__main {
+  margin-left: var(--layout-sidebar-width-collapsed);
+}
+
+/* No outer scroll — each page handles scroll internally (header fixed, content scrolls) */
+.layout__main-inner {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+@media (max-width: 1024px) {
+  .layout__main {
+    margin-left: var(--layout-sidebar-width-collapsed) !important;
+  }
+}

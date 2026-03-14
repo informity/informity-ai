@@ -1,0 +1,25 @@
+/* ==============================================================================
+   Informity AI — File table skeleton
+   ============================================================================== */
+
+.file-table-skeleton {
+  padding: 0.5rem;
+}
+
+.file-table-skeleton__header {
+  display: grid;
+  grid-template-columns: 32px 1fr 80px 60px 100px 100px 120px;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.file-table-skeleton__row {
+  display: grid;
+  grid-template-columns: 32px 1fr 80px 60px 100px 100px 120px;
+  gap: 1rem;
+  align-items: center;
+  padding: 0.625rem 1rem;
+  margin-bottom: 0.25rem;
+}

@@ -1,0 +1,566 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatting lint expectations 1`] = `
+<div
+  class="chat-message__inner"
+>
+  <div
+    class="chat-message__content"
+  >
+    <div
+      class="chat-message__markdown"
+    >
+      <h2>
+        Executive Summary
+      </h2>
+      
+
+      <p>
+        The portfolio remained resilient across the quarter with stable variance and lower-than-expected downside movement.
+      </p>
+      
+
+      <h2>
+        Findings
+      </h2>
+      
+
+      <p>
+        Operational throughput improved while exception rates declined in the highest-volume segments.
+      </p>
+    </div>
+  </div>
+  <div
+    class="chat-message__actions"
+  >
+    <div
+      class="chat-message__meta-left"
+    >
+      <div
+        class="chat-message__meta-item"
+      >
+        <i
+          aria-hidden="true"
+          class="ri-scales-3-line chat-message__meta-icon"
+        />
+        <span>
+          Balanced
+        </span>
+      </div>
+    </div>
+    <div
+      class="chat-message__actions-right"
+    >
+      <button
+        aria-label="Copy message"
+        class="chat-message__copy-full"
+        title="Copy message"
+        type="button"
+      >
+        <i
+          aria-hidden="true"
+          class="ri-file-copy-line"
+          style="font-size: 0.875rem;"
+        />
+      </button>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatting lint expectations 2`] = `
+<div
+  class="chat-message__inner"
+>
+  <div
+    class="chat-message__content"
+  >
+    <div
+      class="chat-message__markdown"
+    >
+      <h2>
+        Action Plan
+      </h2>
+      
+
+      <ul>
+        
+
+        <li>
+          Phase 1
+          
+
+          <ul>
+            
+
+            <li>
+              Validate data contracts
+              
+
+              <ul>
+                
+
+                <li>
+                  Add smoke checks
+                </li>
+                
+
+              </ul>
+              
+
+            </li>
+            
+
+          </ul>
+          
+
+        </li>
+        
+
+        <li>
+          Phase 2
+          
+
+          <ul>
+            
+
+            <li>
+              Run full regression
+            </li>
+            
+
+          </ul>
+          
+
+        </li>
+        
+
+      </ul>
+    </div>
+  </div>
+  <div
+    class="chat-message__actions"
+  >
+    <div
+      class="chat-message__meta-left"
+    >
+      <div
+        class="chat-message__meta-item"
+      >
+        <i
+          aria-hidden="true"
+          class="ri-scales-3-line chat-message__meta-icon"
+        />
+        <span>
+          Balanced
+        </span>
+      </div>
+    </div>
+    <div
+      class="chat-message__actions-right"
+    >
+      <button
+        aria-label="Copy message"
+        class="chat-message__copy-full"
+        title="Copy message"
+        type="button"
+      >
+        <i
+          aria-hidden="true"
+          class="ri-file-copy-line"
+          style="font-size: 0.875rem;"
+        />
+      </button>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatting lint expectations 3`] = `
+<div
+  class="chat-message__inner"
+>
+  <div
+    class="chat-message__content"
+  >
+    <div
+      class="chat-message__markdown"
+    >
+      <div
+        class="chat-message__code-wrapper"
+      >
+        <button
+          aria-label="Copy code block"
+          class="chat-message__copy-code"
+          title="Copy code"
+          type="button"
+        >
+          <i
+            aria-hidden="true"
+            class="ri-file-copy-line"
+            style="font-size: 0.875rem;"
+          />
+        </button>
+        <pre>
+          <code
+            class="hljs language-python"
+          >
+            <span
+              class="hljs-keyword"
+            >
+              for
+            </span>
+             index 
+            <span
+              class="hljs-keyword"
+            >
+              in
+            </span>
+             
+            <span
+              class="hljs-built_in"
+            >
+              range
+            </span>
+            (
+            <span
+              class="hljs-number"
+            >
+              3
+            </span>
+            ):
+    
+            <span
+              class="hljs-built_in"
+            >
+              print
+            </span>
+            (index)
+
+          </code>
+        </pre>
+      </div>
+    </div>
+  </div>
+  <div
+    class="chat-message__actions"
+  >
+    <div
+      class="chat-message__meta-left"
+    >
+      <div
+        class="chat-message__meta-item"
+      >
+        <i
+          aria-hidden="true"
+          class="ri-scales-3-line chat-message__meta-icon"
+        />
+        <span>
+          Balanced
+        </span>
+      </div>
+    </div>
+    <div
+      class="chat-message__actions-right"
+    >
+      <button
+        aria-label="Copy message"
+        class="chat-message__copy-full"
+        title="Copy message"
+        type="button"
+      >
+        <i
+          aria-hidden="true"
+          class="ri-file-copy-line"
+          style="font-size: 0.875rem;"
+        />
+      </button>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatting lint expectations 4`] = `
+<div
+  class="chat-message__inner"
+>
+  <div
+    class="chat-message__content"
+  >
+    <div
+      class="chat-message__markdown"
+    >
+      <div
+        class="chat-message__table-scroll"
+      >
+        <table>
+          <thead>
+            <tr>
+              <th>
+                Year
+              </th>
+              <th
+                style="text-align: right;"
+              >
+                Revenue
+              </th>
+              <th
+                style="text-align: right;"
+              >
+                Margin
+              </th>
+              <th>
+                Notes
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td
+                data-align="right"
+              >
+                2022
+              </td>
+              <td
+                data-align="right"
+              >
+                1200000
+              </td>
+              <td
+                data-align="right"
+              >
+                18.4%
+              </td>
+              <td>
+                Baseline period
+              </td>
+            </tr>
+            <tr>
+              <td
+                data-align="right"
+              >
+                2023
+              </td>
+              <td
+                data-align="right"
+              >
+                1385000
+              </td>
+              <td
+                data-align="right"
+              >
+                20.1%
+              </td>
+              <td>
+                Efficiency gains
+              </td>
+            </tr>
+            <tr>
+              <td
+                data-align="right"
+              >
+                2024
+              </td>
+              <td
+                data-align="right"
+              >
+                1499000
+              </td>
+              <td
+                data-align="right"
+              >
+                21.0%
+              </td>
+              <td>
+                Scaled operations
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <div
+    class="chat-message__actions"
+  >
+    <div
+      class="chat-message__meta-left"
+    >
+      <div
+        class="chat-message__meta-item"
+      >
+        <i
+          aria-hidden="true"
+          class="ri-scales-3-line chat-message__meta-icon"
+        />
+        <span>
+          Balanced
+        </span>
+      </div>
+    </div>
+    <div
+      class="chat-message__actions-right"
+    >
+      <button
+        aria-label="Copy message"
+        class="chat-message__copy-full"
+        title="Copy message"
+        type="button"
+      >
+        <i
+          aria-hidden="true"
+          class="ri-file-copy-line"
+          style="font-size: 0.875rem;"
+        />
+      </button>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatting lint expectations 5`] = `
+<div
+  class="chat-message__inner"
+>
+  <div
+    class="chat-message__content"
+  >
+    <div
+      class="chat-message__markdown"
+    >
+      <h3>
+        Scope
+      </h3>
+      
+
+      <h4>
+        Subscope
+      </h4>
+      
+
+      <h5>
+        Deep Dive
+      </h5>
+      
+
+      <p>
+        | Item | Value |
+| --- |
+| A | 100 |
+      </p>
+    </div>
+  </div>
+  <div
+    class="chat-message__actions"
+  >
+    <div
+      class="chat-message__meta-left"
+    >
+      <div
+        class="chat-message__meta-item"
+      >
+        <i
+          aria-hidden="true"
+          class="ri-scales-3-line chat-message__meta-icon"
+        />
+        <span>
+          Balanced
+        </span>
+      </div>
+    </div>
+    <div
+      class="chat-message__actions-right"
+    >
+      <button
+        aria-label="Copy message"
+        class="chat-message__copy-full"
+        title="Copy message"
+        type="button"
+      >
+        <i
+          aria-hidden="true"
+          class="ri-file-copy-line"
+          style="font-size: 0.875rem;"
+        />
+      </button>
+    </div>
+  </div>
+</div>
+`;
+
+exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatting lint expectations 6`] = `
+<div
+  class="chat-message__inner"
+>
+  <div
+    class="chat-message__content"
+  >
+    <div
+      class="chat-message__markdown"
+    >
+      <h2>
+        Structured Brief
+      </h2>
+      
+
+      <p>
+        Summary from block rendering path.
+      </p>
+      <div
+        class="chat-message__block chat-message__block--callout chat-message__block--warning"
+      >
+        Review unresolved evidence gaps before approval.
+      </div>
+      <div
+        class="chat-message__block chat-message__block--metric"
+      >
+        <div
+          class="chat-message__metric-label"
+        >
+          P95 Latency
+        </div>
+        <div
+          class="chat-message__metric-value"
+        >
+          148 ms
+        </div>
+      </div>
+    </div>
+  </div>
+  <div
+    class="chat-message__actions"
+  >
+    <div
+      class="chat-message__meta-left"
+    >
+      <div
+        class="chat-message__meta-item"
+      >
+        <i
+          aria-hidden="true"
+          class="ri-scales-3-line chat-message__meta-icon"
+        />
+        <span>
+          Balanced
+        </span>
+      </div>
+    </div>
+    <div
+      class="chat-message__actions-right"
+    >
+      <button
+        aria-label="Copy message"
+        class="chat-message__copy-full"
+        title="Copy message"
+        type="button"
+      >
+        <i
+          aria-hidden="true"
+          class="ri-file-copy-line"
+          style="font-size: 0.875rem;"
+        />
+      </button>
+    </div>
+  </div>
+</div>
+`;

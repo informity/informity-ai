@@ -1,0 +1,31 @@
+.state-message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: var(--space-sm);
+  color: var(--color-text-muted);
+  user-select: none;
+}
+
+.state-message__icon {
+  font-size: 2rem;
+  color: var(--color-text-muted);
+  opacity: 0.6;
+  margin: 0;
+}
+
+.state-message__title {
+  margin: 0;
+  font-size: var(--font-size-body);
+  line-height: 1.35;
+  color: var(--color-text-muted);
+}
+
+.state-message__description {
+  margin: 0;
+  font-size: var(--font-size-body);
+  line-height: 1.45;
+  color: var(--color-text-muted);
+}

@@ -1,0 +1,87 @@
+/* -----------------------------------------------------------------------------
+   File filters — search, dropdowns, chips (uses shared filter-search, filter-clear-btn)
+   ----------------------------------------------------------------------------- */
+
+.file-filters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.file-filters__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.file-filters__select,
+.file-filters__input {
+  padding: var(--space-sm) var(--space-md);
+  font-size: var(--font-size-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background: var(--color-bg-elevated);
+  color: inherit;
+  min-height: var(--min-touch-height);
+  box-sizing: border-box;
+}
+
+.file-filters__select {
+  padding-right: 2rem;
+  min-width: 140px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath fill='%23888' d='M1.41 0L6 4.59 10.59 0 12 1.41l-6 6-6-6z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.75rem center;
+}
+
+.file-filters__input {
+  min-width: 120px;
+}
+
+.file-filters__input::placeholder {
+  color: var(--color-text-muted);
+}
+
+.file-filters__select:focus,
+.file-filters__input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.file-filters__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.file-filters__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.5rem;
+  font-size: var(--font-size-sm);
+  border-radius: var(--border-radius-sm);
+  background: var(--color-primary-bg);
+  border: 1px solid var(--color-primary-border);
+  color: inherit;
+}
+
+.file-filters__chip button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+  border-radius: 2px;
+}
+
+.file-filters__chip button:hover {
+  opacity: 1;
+  background: rgba(0, 0, 0, 0.1);
+}

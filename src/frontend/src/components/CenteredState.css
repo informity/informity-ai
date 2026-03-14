@@ -1,0 +1,16 @@
+.centered-state {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: clamp(150px, 20vh, 210px) var(--space-xl) 0;
+  box-sizing: border-box;
+}
+
+.centered-state .state-message {
+  width: 100%;
+}

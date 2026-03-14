@@ -1,0 +1,71 @@
+/* -----------------------------------------------------------------------------
+   File table — sortable columns, row selection, pagination (uses shared data-table)
+   ----------------------------------------------------------------------------- */
+
+.file-table__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--font-size-body);
+}
+
+.file-table__row--selected {
+  background: color-mix(in srgb, var(--color-accent) 15%, transparent);
+}
+
+.file-table__row--selected:hover {
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+.file-table__td--filename {
+  font-weight: 500;
+  padding-left: 0;
+}
+
+.file-table__th--filename {
+  padding-left: 0;
+}
+
+.file-table__th--size {
+  text-align: right;
+}
+
+.file-table__th--actions {
+  width: 150px;
+  text-align: center;
+}
+
+.file-table__td--actions {
+  text-align: center;
+}
+
+.file-table__actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+.file-table__action-btn--danger:hover {
+  color: var(--color-danger-solid);
+}
+
+.file-table__pagination {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+}
+
+.file-table__pagination-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.file-table__pagination-page {
+  font-size: var(--font-size-sm);
+}

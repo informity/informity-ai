@@ -1,0 +1,23 @@
+/* -----------------------------------------------------------------------------
+   Page footer — unified footer for all pages (except chat)
+   Matches Settings footer appearance.
+   ----------------------------------------------------------------------------- */
+
+.page-footer {
+  font-size: var(--font-size-description);
+  color: var(--color-text-muted);
+  margin: 0 2rem 0 2rem;
+  padding: var(--space-sm) 0;
+  border-top: 1px solid var(--color-border);
+  text-align: left;
+  flex-shrink: 0;
+}
+
+.page-footer__link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.page-footer__link:hover {
+  text-decoration: underline;
+}

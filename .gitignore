@@ -1,0 +1,83 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+
+# uv
+.python-version
+
+# IDE
+.vscode/
+.idea/
+.cursorrules
+*.swp
+*.swo
+*~
+
+# macOS
+.DS_Store
+._*
+.AppleDouble
+.LSOverride
+.Spotlight-V100
+.Trashes
+
+# Environment
+.env
+.env.*
+!.env.example
+*.local
+
+# Project runtime data
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+
+# Application assets (at repo root, too large for git)
+.cache/
+
+# LLM models (too large for git)
+*.gguf
+*.bin
+*.safetensors
+
+# Logs
+*.log
+
+# Build artifacts
+*.dmg
+*.app
+
+# Frontend (Vite + React)
+src/frontend/node_modules/
+src/frontend/dist/
+
+# Development tools
+htmlcov/
+.pytest_cache/
+.coverage
+.coverage.*
+.ruff_cache/
+
+# Internal archive and local AI tool state (not committed)
+.archive/
+.codex/
+.claude/
+.internal/
+tools/
+
+# Secrets / certificates
+*.pem
+*.key
+*.p12
+*.pfx
+.npmrc
