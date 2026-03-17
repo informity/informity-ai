@@ -95,7 +95,6 @@ def remove_models_dir_cache() -> None:
     # Check llm/, query-classifier/, and diagnostics/ directories.
     for models_dir in [
         settings.models_dir,
-        settings.query_classifier_models_dir,
         settings.diagnostics_models_dir,
     ]:
         if models_dir is None:

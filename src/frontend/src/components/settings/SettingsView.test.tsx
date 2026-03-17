@@ -38,7 +38,6 @@ const baseSettings = {
   ui_theme: 'blue',
   default_response_mode: 'balanced' as const,
   llm_model_filename: 'main.gguf',
-  classifier_llm_model: 'classifier.gguf',
   available_models: ['main.gguf'],
   embedding_model: 'embed.gguf',
   rag_reranker_model: 'reranker.gguf',

@@ -63,7 +63,6 @@ from informity.indexer.adaptive_tuning import update_tuning_cache
 from informity.indexer.embedder import embedder
 from informity.indexer.reranker import reranker
 from informity.llm.engine import llm_engine, remove_models_dir_cache
-from informity.llm.query_classifier_llm import unload_classifier
 from informity.logging_config import configure_logging
 from informity.scanner.watcher import start_watcher, stop_watcher
 
@@ -100,7 +99,6 @@ def _cleanup_models() -> None:
     # Used on normal shutdown (lifespan/atexit) and on SIGTERM/SIGINT (reload child).
     embedder.unload()
     reranker.unload()
-    unload_classifier()  # Unload classifier LLM (Qwen2.5-3B)
 
 
 def _write_managed_pid_file() -> None:

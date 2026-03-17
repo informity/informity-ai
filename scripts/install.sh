@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ==============================================================================
 # Informity AI — One-time install
-# Installs Python deps and downloads embedding, reranker, optional LLM, and
-# classifier LLM into app data, then configures the app to always use cached
+# Installs Python deps and downloads embedding, reranker, optional LLM into
+# app data, then configures the app to always use cached
 # models (no auto-download at runtime).
 # Run from repo root: ./scripts/install.sh   or   bash scripts/install.sh
 # ==============================================================================
@@ -15,8 +15,7 @@ cd "$REPO_ROOT"
 APP_DISPLAY_NAME="Informity AI"
 DIR_CACHE="cache"
 DIR_MODELS="models"
-DIR_CHAT_LLM="chat-llm"
-DIR_QUERY_CLASSIFIER_LLM="query-classifier-llm"
+DIR_LLM="llm"
 
 # Install profile:
 # - runtime (default): application runtime deps only
@@ -28,8 +27,7 @@ APP_DATA_DIR="${INFORMITY_APP_DATA_DIR:-$HOME/Library/Application Support/$APP_D
 export INFORMITY_APP_DATA_DIR="$APP_DATA_DIR"
 # Keep cache and model paths aligned with bundled desktop runtime defaults.
 export INFORMITY_CACHE_DIR="${INFORMITY_CACHE_DIR:-$APP_DATA_DIR/$DIR_CACHE}"
-export INFORMITY_MODELS_DIR="${INFORMITY_MODELS_DIR:-$APP_DATA_DIR/$DIR_MODELS/$DIR_CHAT_LLM}"
-export INFORMITY_QUERY_CLASSIFIER_MODELS_DIR="${INFORMITY_QUERY_CLASSIFIER_MODELS_DIR:-$APP_DATA_DIR/$DIR_MODELS/$DIR_QUERY_CLASSIFIER_LLM}"
+export INFORMITY_MODELS_DIR="${INFORMITY_MODELS_DIR:-$APP_DATA_DIR/$DIR_MODELS/$DIR_LLM}"
 
 echo "Informity AI — Install"
 echo "  Repo root:    $REPO_ROOT"
@@ -86,7 +84,7 @@ echo "Installing frontend dependencies (npm install)..."
 # Temporarily disable privacy so bootstrap can download models. Bootstrap will
 # re-enable privacy at the end when all models are cached.
 echo ""
-echo "Downloading models (embedding, reranker, docling, optional LLM, classifier LLM from scripts/install.conf.json)..."
+echo "Downloading models (embedding, reranker, docling, optional LLM from scripts/install.conf.json)..."
 export INFORMITY_FULL_PRIVACY=false
 export INFORMITY_EMBEDDING_OFFLINE=false
 export INFORMITY_LLM_LOCAL_ONLY=false

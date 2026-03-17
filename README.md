@@ -26,74 +26,54 @@ make dev
 You can either **run the app and let it download models on first use** (see Offline mode below), or **run a one-time install** so everything is downloaded up front and the app always uses cached models.
 
 **Option A — Install script (recommended for clean setup)**  
-Run once to install Python deps and download the embedding model, reranker (cross-encoder), optional LLM, and classifier LLM into app data, then lock the app to cached-only:
+Run once to install Python deps and download the embedding model, reranker (cross-encoder), and optional LLM into app data, then lock the app to cached-only:
 
 ```bash
 ./scripts/install.sh
 ```
 
-- Uses `scripts/install.conf.json` for model IDs: `embedding_model`, `reranker_model` (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`), optional LLM (default: **Qwen 30B** Q5_K_M via `repo_id` / `filename`), and classifier LLM (default: **Qwen2.5-3B** Q4_K_M for query classification).
-- Creates `data/` (or `INFORMITY_APP_DATA_DIR`), downloads all models there, and writes `config.json` with `full_privacy=true` (no network after install).
+- Uses `scripts/install.conf.json` for model IDs: `embedding_model`, `reranker_model` (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`), and optional LLM (default: **Qwen 14B** Q5_K_M via `repo_id` / `filename`).
+- Downloads all models to `~/Library/Application Support/Informity AI/` (macOS default, shared with the desktop .app; override with `INFORMITY_APP_DATA_DIR`) and writes `config.json` with `full_privacy=true` (no network after install).
 - After this, the app will **never** auto-download; it only uses what’s already in app data. With those settings enabled, the app makes **no network requests after install** (no Hugging Face or internet contact).
 
 **Uninstall**  
 To remove all user data and downloaded content and return to a fresh distribution state (as after cloning), run from repo root: `./scripts/uninstall.sh` or `make uninstall`. This removes the app data directory (config, database, embedding cache, LLM models, vectors, logs), the virtualenv (`.venv`), and local caches. Run `./scripts/install.sh` again to reinstall.
 
 **Reset (in-app)**  
-Settings → Reset restores all settings to factory defaults (including default LLM: Qwen 30B). Index → Reset deletes all indexed data and chat history and also resets settings to the same defaults. For a full disk reset (remove all app data but keep `.venv`), run `./scripts/reset.sh`.
+Settings → Reset restores all settings to factory defaults (including default LLM: Qwen3 14B). Index → Reset deletes all indexed data and chat history and also resets settings to the same defaults. For a full disk reset (remove all app data but keep `.venv`), run `./scripts/reset.sh`.
 
 **Option B — First-run auto-download**  
-Just run the app. On first search/index/chat it may download the embedding model, reranker, LLM, and classifier LLM if not already present. In Settings → Full Privacy Mode you can turn **“Enable”** on so future runs are fully offline.
+Just run the app. On first search/index/chat it may download the embedding model, reranker, and LLM if not already present. In Settings → Full Privacy Mode you can turn **“Enable”** on so future runs are fully offline.
 
 You do **not** need to remove auto-download from the app: the install script is for users who want a single, explicit setup step and then strictly cached-only behaviour.
 
 ## Data location
 
-All application data (database, vectors, LLM and embedding models, logs, config) is stored under a single app data directory. By default this is:
+All application data (database, vectors, LLM and embedding models, logs, config) is stored under a single app data directory:
 
-- **Default:** `data/` in the directory where you run the app (e.g. project root). Override with `INFORMITY_APP_DATA_DIR` for production (e.g. **macOS:** `~/Library/Application Support/Informity AI/`).
+- **macOS default:** `~/Library/Application Support/Informity AI/` — same location used by the desktop `.app` bundle, shared between dev and production so models are never duplicated.
+- **Override:** Set `INFORMITY_APP_DATA_DIR` to use a custom path (e.g. an external drive or CI-isolated `./data`).
 
-To keep **everything inside the project folder** (e.g. `informity-ai/data/`), set:
-
-```bash
-# Optional: use a custom app data path (default is ./data when run from project root)
-export INFORMITY_APP_DATA_DIR=./data
-```
-
-Then the layout is:
+Directory layout:
 
 ```
-informity-ai/
-  data/
-    config.json            # Saved settings
-    db/                    # SQLite DB and WAL files
-      informity.db
-      informity.db-shm
-      informity.db-wal
-    # Note: vectors are stored in SQLite database (vec_chunks table), not a separate directory
-    logs/                  # app.log, app.error.log
-  .cache/                  # Unified cache directory (at repo root, not committed)
-    llm/                   # RAG LLM models (*.gguf files)
-    query-classifier/      # Query classification LLM model (*.gguf file)
-    diagnostics/           # Diagnostics LLM models (*.gguf files)
-    huggingface/           # Embedding + reranker (cross-encoder) cache
+~/Library/Application Support/Informity AI/
+  config.json              # Saved settings
+  db/                      # SQLite DB and WAL files
+    informity.db
+  logs/                    # Runtime log files
+  models/
+    llm/                   # LLM models (*.gguf files)
+  cache/                   # Unified cache (not committed)
+    huggingface/           # Embedding + reranker (cross-encoder) models
       hub/                 # Model blobs + snapshots (required)
       modules/             # Custom model code, created at first load (required)
-    docling/               # Docling models (docling creates its own structure inside)
+    docling/               # Docling models for document extraction
+tools/diagnostics/models/  # Diagnostics LLM models (repo-local, separate from user data)
 ```
 
-Use the same variable in production if you want a custom path (e.g. an external drive).
-
-**Unified cache structure (fully flat)**  
-All models and cache are stored under `.cache/` at the repo root (not committed to git) in a flat structure:
-- `.cache/chat-llm/` - Chat/RAG LLM models (*.gguf files)
-- `.cache/query-classifier-llm/` - Query classification model (*.gguf file)
-- `tools/diagnostics/models/` - Diagnostics LLM models (*.gguf files)
-- `.cache/huggingface/hub/` - HuggingFace cache (embedding and reranker models)
-- `.cache/docling/` - Docling models for document extraction (docling creates its own subdirectories inside)
-
-**One cache only (avoid duplicates)**  
-Informity uses **only** the unified cache directory (`.cache/` at repo root). It does not use the default Hugging Face cache (`~/.cache/huggingface/hub`). If you have the same models in both places (e.g. from an earlier run or another tool), you can remove the copy under `~/.cache/huggingface/hub` to free space; Informity will keep using the unified cache copy.
+**One cache only (avoid duplicates)**
+Informity uses **only** the app data cache directory (`cache/` under app data). It does not use the default Hugging Face cache (`~/.cache/huggingface/hub`). If you have the same models in both places, you can remove the copy under `~/.cache/huggingface/hub` to free space.
 
 **If embedding or reranker fails with "cache incomplete"** (e.g. missing `snapshots/` under the model folder), remove the incomplete model dir and re-download: run `./scripts/install.sh` or set `INFORMITY_FULL_PRIVACY=false` and run a scan/chat once so the missing model is downloaded.
 
@@ -107,9 +87,9 @@ PDFs are processed using **docling**, which provides superior structure preserva
 
 The app is **offline-first by default**. With **Full Privacy Mode** on (Settings → Full Privacy Mode), no network is used at runtime; all models are loaded from local storage.
 
-- **Two models in the Hugging Face cache** (`.cache/huggingface/hub/`): (1) **Embedding model** (`nomic-ai/nomic-embed-text-v1.5`) for document and query vectors; (2) **Reranker** (`cross-encoder/ms-marco-MiniLM-L-6-v2`) for re-ranking search results. Settings → System shows both for transparency.
+- **Two models in the Hugging Face cache** (`cache/huggingface/hub/` under app data): (1) **Embedding model** (`nomic-ai/nomic-embed-text-v1.5`) for document and query vectors; (2) **Reranker** (`cross-encoder/ms-marco-MiniLM-L-6-v2`) for re-ranking search results. Settings → System shows both for transparency.
 - With `full_privacy=true` (default after install), embedding and reranker are loaded only from this cache. Set `INFORMITY_FULL_PRIVACY=false` (or turn off in Settings) once to allow downloads, then turn Full Privacy Mode back on for offline use.
-- **LLM (GGUF):** Default model is **Qwen 30B** (Q5_K_M), stored in `.cache/chat-llm/`. With `llm_local_only=true` (default), the app only loads from this directory and never downloads. Place your `.gguf` file there, or set `INFORMITY_LLM_LOCAL_ONLY=false` once to allow a one-time download, then set it back to true.
+- **LLM (GGUF):** Default model is **Qwen3 14B** (Q5_K_M), stored in `models/llm/` under the app data directory. With `llm_local_only=true` (default), the app only loads from this directory and never downloads. Place your `.gguf` file there, or set `INFORMITY_LLM_LOCAL_ONLY=false` once to allow a one-time download, then set it back to true.
 
 After models are in place, the app runs fully offline with no internet required.
 
@@ -121,7 +101,7 @@ After models are in place, the app runs fully offline with no internet required.
 - **SQLite** via aiosqlite — metadata, config, chat history, vector storage (via sqlite-vec extension)
 - **sqlite-vec** — vector storage extension for SQLite (embeddings stored in `vec_chunks` table)
 - **sentence-transformers** (nomic-embed-text-v1.5) — embedding generation; (ms-marco-MiniLM-L-6-v2) — optional cross-encoder re-ranking
-- **llama-cpp-python** (with Metal/GPU) — local LLM inference (default: Qwen 30B Q5_K_M)
+- **llama-cpp-python** (with Metal/GPU) — local LLM inference (default: Qwen3 14B Q5_K_M)
 
 ## Project Structure
 
@@ -147,7 +127,7 @@ src/informity/
 │   └── pipeline.py        # index_file, reindex_file, remove_file — orchestration
 ├── llm/
 │   ├── engine.py          # LLM inference (llama-cpp-python, Metal)
-│   ├── model_adapter.py   # Per-model profiles (Qwen 30B, Qwen3 14B)
+│   ├── model_adapter.py   # Per-model profiles (Qwen3 14B, 9B, 30B A3B, DeepSeek R1)
 │   ├── rag.py             # QueryRouter — dispatches to handlers based on intent
 │   ├── query_classifier.py # Structured slot extraction + decision tree
 │   ├── retrieval.py       # Unified retrieval pipeline (vector search → rerank)
@@ -211,7 +191,7 @@ uv run python tools/diagnostics/evaluate.py --run-id {run_id} --queries-file dat
 uv run python tools/diagnostics/analyze.py --run-id {run_id}
 ```
 
-Results are saved to `data/diagnostics/runs/{run_id}/`:
+Results are saved to `{app_data_dir}/diagnostics/runs/{run_id}/` (macOS default: `~/Library/Application Support/Informity AI/diagnostics/runs/{run_id}/`):
 - `queries/` - `queries.json` (generated regular queries)
 - `traces/` - Trace files per query×model
 - `results/` - `run.json`, `report.md`, `report.json`, `pipeline_manifest.json`

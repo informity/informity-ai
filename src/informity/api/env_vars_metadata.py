@@ -68,23 +68,15 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
     ),
     (
         'Paths and Storage',
-        'Where the application stores database, vectors, models, and logs. Default is local (data/ under process cwd). Override for production (e.g. macOS Application Support).',
+        'Where the application stores database, vectors, models, and logs. On macOS defaults to ~/Library/Application Support/Informity AI (shared with the desktop app). Override via INFORMITY_APP_DATA_DIR.',
         [
-            ('app_data_dir', 'Root directory for all app data (DB, vectors, models, logs, config).'),
-            ('cache_dir', 'Unified cache root for Hugging Face/docling artifacts and temporary runtime cache. Default: {repo_root}/.cache.'),
+            ('app_data_dir', 'Root directory for all app data (DB, vectors, models, logs, config). macOS default: ~/Library/Application Support/Informity AI.'),
+            ('cache_dir', f'Unified cache root for Hugging Face/docling artifacts. Default: app_data_dir/{DirNames.CACHE}.'),
             ('db_path', f'SQLite database file path (default: app_data_dir/{DirNames.DB}/{APP_SLUG}.db).'),
             ('logs_dir', 'Directory for log files.'),
             (
                 'models_dir',
-                f'Directory for GGUF LLM model files. Desktop default: '
-                f'app_data_dir/{DirNames.MODELS}/{DirNames.LLM} (persistent); '
-                f'otherwise cache_dir/{DirNames.LLM}.',
-            ),
-            (
-                'query_classifier_models_dir',
-                f'Directory for query-classifier GGUF model files. Desktop default: '
-                f'app_data_dir/{DirNames.MODELS}/{DirNames.QUERY_CLASSIFIER_MODELS}; '
-                f'otherwise cache_dir/{DirNames.QUERY_CLASSIFIER_MODELS}.',
+                f'Directory for GGUF LLM model files. Default: app_data_dir/{DirNames.MODELS}/{DirNames.LLM}.',
             ),
             # vectors_dir removed - vectors now stored in SQLite via sqlite-vec
         ],
@@ -153,7 +145,6 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('llm_hf_repo', 'Hugging Face repository for automatic LLM model downloads (e.g., "Qwen/Qwen3-14B-GGUF").'),
             ('llm_max_tokens', 'Maximum tokens to generate per response.'),
             ('llm_model_filename', 'GGUF filename in models_dir.'),
-            ('classifier_llm_model', 'GGUF filename in query_classifier_models_dir.'),
             ('llm_temperature', 'Sampling temperature (0 = deterministic; higher = more varied).'),
             # NOTE: rag_context_ratio, rag_max_score, rag_top_k, rag_coverage_top_k are model-specific (ModelProfile, not configurable via env)
             ('adaptive_rag_tuning', 'When true, adapt retrieval top-k based on corpus size (file count, parent chunk count). Default true.'),

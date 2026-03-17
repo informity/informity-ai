@@ -1149,6 +1149,7 @@ async def chat(
                 )
                 section_progress_last_completed_count = 0
                 pending_repair_requires_overwrite = False
+                locked_classification = None
                 pass_index = 1
                 while pass_index <= max_total_passes:
                     pass_question = (
@@ -1227,9 +1228,14 @@ async def chat(
                         db=db,
                         trace=trace_writer,
                         response_mode=response_mode,
+                        classification=locked_classification,
                     ):
                         if stop_event.is_set() and _is_stream_stopped_by_user(stream_id):
                             raise UserStopRequestedError
+
+                        if isinstance(item, tuple) and len(item) == 2 and item[0] == '__classification__':
+                            locked_classification = item[1]
+                            continue
 
                         if isinstance(item, tuple) and len(item) == 2 and item[0] == '__timeout__':
                             timeout_occurred = True

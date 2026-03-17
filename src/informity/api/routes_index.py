@@ -117,7 +117,6 @@ def _compute_disk_sizes() -> tuple[int, int]:
     model_size_bytes = 0
     model_dirs = (
         settings.models_dir,
-        settings.query_classifier_models_dir,
         settings.diagnostics_models_dir,
     )
     for models_dir in model_dirs:
@@ -206,7 +205,7 @@ async def reset_index(
     # Delete ALL user data: files, chunks, vectors, scan history,
     # chat messages, quality metrics, diagnostics (chat traces, evaluations, reports),
     # and logs (runtime application logs).
-    # Application assets (.cache/) at repo root are preserved.
+    # Downloaded models and cache assets (app_data_dir/models/, app_data_dir/cache/) are preserved.
     # Also resets all settings to factory defaults.
     # Runs in background so the request returns immediately.
 

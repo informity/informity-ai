@@ -92,14 +92,9 @@ class DoclingExtractor:
             # Configure docling to use our cache directory for models
             # Docling uses DOCLING_ARTIFACTS_PATH env var or downloads to default cache
             # We set it to our unified cache directory so models are cached there
-            cache_dir = settings.cache_dir
-            if cache_dir is None:
-                from informity.config import _get_repo_root
-                cache_dir = _get_repo_root() / DirNames.CACHE
-
-            # Set docling artifacts path (flat structure: .cache/docling/)
+            # Set docling artifacts path (flat structure: cache/docling/)
             # Docling will create its own subdirectories inside as needed
-            docling_cache = cache_dir / DirNames.DOCLING
+            docling_cache = settings.cache_dir / DirNames.DOCLING
             ensure_directory(docling_cache)
             os.environ['DOCLING_ARTIFACTS_PATH'] = str(docling_cache)
 
