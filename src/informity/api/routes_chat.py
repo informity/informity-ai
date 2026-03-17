@@ -1115,13 +1115,6 @@ async def chat(
                 if classifying_status is not None:
                     yield classifying_status
 
-                retrieving_status = _build_status_event(
-                    'retrieving',
-                    message='Searching for relevant information...',
-                )
-                if retrieving_status is not None:
-                    yield retrieving_status
-
                 generation_started = False
                 source_map: dict[tuple[str, str], ChatSourceReference] = {}
                 continuation_request = _is_continuation_request(message_text)
@@ -1252,6 +1245,12 @@ async def chat(
 
                         if isinstance(item, tuple) and len(item) == 2 and item[0] == '__classification__':
                             locked_classification = item[1]
+                            retrieving_status = _build_status_event(
+                                'retrieving',
+                                message='Searching for relevant information...',
+                            )
+                            if retrieving_status is not None:
+                                yield retrieving_status
                             continue
 
                         if isinstance(item, tuple) and len(item) == 2 and item[0] == '__timeout__':
