@@ -846,6 +846,9 @@ def configure_hf_environment() -> bool:
 # Model cache verification — check if models are cached before enabling offline mode
 # ==============================================================================
 
+_WEIGHT_EXTENSIONS = frozenset({'.bin', '.safetensors', '.onnx'})
+
+
 def _is_hf_model_cached(model_name: str, hf_hub_cache: Path) -> bool:
     """
     Check if a HuggingFace model is cached.
@@ -856,31 +859,23 @@ def _is_hf_model_cached(model_name: str, hf_hub_cache: Path) -> bool:
     if not hf_hub_cache.exists():
         return False
 
-    # HuggingFace creates a directory with structure: models--{org}--{model_name}
-    # e.g., "nomic-ai/nomic-embed-text-v1.5" -> "models--nomic-ai--nomic-embed-text-v1.5"
     model_dir_pattern = f'models--{model_name.replace("/", "--")}'
     model_dir = hf_hub_cache / model_dir_pattern
 
     if not model_dir.exists():
         return False
 
-    # Check for HuggingFace model files in snapshots subdirectory
-    # Models are stored in snapshots/{hash}/ subdirectories
     try:
         snapshots_dir = model_dir / 'snapshots'
         if not snapshots_dir.exists():
             return False
 
-        # Check each snapshot directory
         for snapshot_dir in snapshots_dir.iterdir():
             if not snapshot_dir.is_dir():
                 continue
-            # HuggingFace models have config.json and model weights (.bin, .safetensors, or .onnx)
             has_config = (snapshot_dir / 'config.json').exists()
-            has_weights = (
-                any(snapshot_dir.rglob('*.bin')) or
-                any(snapshot_dir.rglob('*.safetensors')) or
-                any(snapshot_dir.rglob('*.onnx'))
+            has_weights = any(
+                f.suffix in _WEIGHT_EXTENSIONS for f in snapshot_dir.rglob('*') if f.is_file()
             )
             if has_config and has_weights:
                 return True
@@ -897,22 +892,22 @@ def _is_gguf_model_cached(model_filename: str, models_dir: Path | None) -> bool:
     return model_path.exists() and model_path.is_file()
 
 
-def _is_docling_cached() -> bool:
+_DOCLING_EXTENSIONS = frozenset({'.bin', '.safetensors', '.onnx', '.pt', '.pth'})
+
+
+def _is_docling_cached(cache_dir: Path | None = None) -> bool:
     """Check if docling runtime artifacts are cached under cache/docling.
 
     Important: runtime sets DOCLING_ARTIFACTS_PATH to cache/docling, so Hugging Face
     hub snapshots alone are not sufficient to guarantee extraction works offline.
+
+    Args:
+        cache_dir: Optional override for the cache root. Defaults to settings.cache_dir.
     """
-    docling_cache = settings.cache_dir / DirNames.DOCLING
-    # Native docling artifact cache
+    docling_cache = (cache_dir if cache_dir is not None else settings.cache_dir) / DirNames.DOCLING
     try:
         if docling_cache.exists():
-            for item in docling_cache.iterdir():
-                if item.is_dir():
-                    if any(item.rglob('*.bin')) or any(item.rglob('*.safetensors')) or any(item.rglob('*.onnx')):
-                        return True
-                elif item.suffix in ('.bin', '.safetensors', '.onnx', '.pt', '.pth'):
-                    return True
+            return any(f.suffix in _DOCLING_EXTENSIONS for f in docling_cache.rglob('*') if f.is_file())
     except OSError:
         pass
     return False

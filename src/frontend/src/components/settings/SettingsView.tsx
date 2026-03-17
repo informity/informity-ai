@@ -944,7 +944,7 @@ export function SettingsView({
                   <i className="ri-chat-ai-4-line subsection-icon ui-subsection-icon" aria-hidden="true" />
                   Main Model
                 </div>
-                <p className="settings-subsection-description ui-subsection-description">The AI model used for chat responses. Requires restart.</p>
+                <p className="settings-subsection-description ui-subsection-description">The AI model used for query classifications and chat responses. Requires restart.</p>
               </div>
             </div>
             <div className="settings-control-group">
