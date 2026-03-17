@@ -96,9 +96,11 @@ describe('ChatView new chat behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Start New Chat' }))
 
     await waitFor(() => {
-      expect(screen.getByText('Start a chat by typing a question below.')).toBeInTheDocument()
+      expect(screen.queryByText('Start a chat by typing a question below.')).not.toBeInTheDocument()
     })
     await waitFor(() => expect(getChatMock).toHaveBeenCalledTimes(1))
+    const inputArea = screen.getByLabelText('Chat message input').closest('.chat-view__input-area')
+    expect(inputArea).toHaveClass('chat-view__input-area--centered')
     expect(updateCurrentChatMock).toHaveBeenCalledWith(null)
   })
 

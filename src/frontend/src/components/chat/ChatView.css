@@ -113,6 +113,14 @@
   overflow: hidden;
 }
 
+.chat-view__messages--centered-composer {
+  justify-content: center;
+}
+
+.chat-view__messages--centered-composer .chat-view__messages-scroll {
+  display: none;
+}
+
 .chat-view__messages-scroll {
   flex: 1;
   overflow-y: auto;
@@ -134,42 +142,6 @@
 .chat-view__messages-end {
   height: 56px;
   flex-shrink: 0;
-}
-
-.chat-view__empty {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-sm);
-  padding: 2rem;
-  color: var(--color-text-muted);
-  text-align: center;
-  user-select: none;
-}
-
-.chat-view__empty-message {
-  margin: 0;
-  font-size: var(--font-size-body);
-  font-weight: 500;
-}
-
-.chat-view__empty-hint {
-  margin: 0;
-  font-size: var(--font-size-body-small);
-  color: var(--color-text-dimmed);
-}
-
-.chat-view__empty-hint kbd {
-  display: inline-block;
-  padding: 1px 5px;
-  font-size: var(--font-size-caption);
-  font-family: var(--font-mono);
-  background: var(--color-bg-elevated);
-  border: 1px solid var(--color-border);
-  border-radius: var(--border-radius-sm);
-  color: var(--color-text-muted);
 }
 
 .chat-view__scroll-to-bottom {
@@ -220,6 +192,31 @@
   overflow: visible;
   background: var(--color-bg);
   box-sizing: border-box;
+}
+
+.chat-view__input-area--centered {
+  position: static;
+  padding: 0;
+  background: transparent;
+}
+
+.chat-view__input-area--centered::before {
+  display: none;
+}
+
+.chat-view__input-area--docking {
+  animation: chat-view-composer-dock 620ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes chat-view-composer-dock {
+  from {
+    transform: translateY(clamp(-88px, -16vh, -220px));
+    opacity: 0.96;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 .chat-view__input-area::before {
@@ -290,7 +287,7 @@
   font-family: inherit;
   font-size: var(--font-size-base);
   line-height: 1.5;
-  border: 1px solid color-mix(in srgb, var(--color-bg-elevated) 88%, white);
+  border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   background: var(--surface-control);
   color: var(--color-text);
@@ -300,7 +297,8 @@
   scrollbar-gutter: stable;
 }
 
-.chat-view__textarea:focus {
+.chat-view__textarea:focus,
+.chat-view__textarea:focus-visible {
   outline: none;
   border-color: var(--color-accent);
 }

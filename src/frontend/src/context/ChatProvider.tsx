@@ -30,7 +30,9 @@ const CLEANED_REVEAL_CHARS_PER_TICK = 8
 const CONTINUE_SCOPED_PROMPT = 'Continue with the remaining sections from your last answer. Keep the same structure and avoid repeating completed sections.'
 const FORCE_NEW_CHAT_KEY = 'informity_force_new_chat'
 const ACTIVE_GENERATION_REJECT_MESSAGE = 'Please wait for the current answer to finish or press Stop.'
-const STREAM_INACTIVITY_TIMEOUT_MS = 30000
+// Keep watchdog well above backend generation hard limits (research can run up to 900s
+// on large local models). This timer is only a dead-connection guard.
+const STREAM_INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000
 const STREAM_WATCHDOG_TIMEOUT_MESSAGE = 'Connection lost while waiting for response. Please try again.'
 const STREAM_WATCHDOG_INTERRUPTED_MESSAGE = 'Response was interrupted due to connection inactivity.'
 const STREAM_STATUS_LABELS: Record<string, string> = {

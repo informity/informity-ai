@@ -16,11 +16,12 @@ const SHORTCUTS = [
   { keys: 'Ctrl+4', desc: 'Go to Dashboard' },
   { keys: 'Ctrl+5', desc: 'Go to Settings' },
   { keys: `${MOD_KEY}+N`, desc: 'New Chat' },
+  { keys: 'Enter', desc: 'Send Chat Message' },
+  { keys: 'Shift+Enter', desc: 'New line in chat input' },
   { keys: `${MOD_KEY}+B`, desc: 'Toggle Sidebar' },
   { keys: `${MOD_KEY}+,`, desc: 'Open Settings' },
   { keys: `${MOD_KEY}+/`, desc: 'Show Keyboard Shortcuts' },
   { keys: 'Esc', desc: 'Close panel or modal' },
-  { keys: `${MOD_KEY}+Enter`, desc: 'Send Chat Message' },
   { keys: `${MOD_KEY}+Shift+H`, desc: 'Toggle Chat History Panel' },
 ]
 

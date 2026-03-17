@@ -65,10 +65,13 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   const [supportedModes, setSupportedModes] = useState<ResponseMode[]>(['balanced', 'analysis'])
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
+  const [animateToDocked, setAnimateToDocked] = useState(false)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const newChatRequestedRef = useRef(false)
   const consumedInitialChatIdRef = useRef<string | null>(null)
+  const wasCenteredComposerRef = useRef(false)
+  const dockAnimationTimerRef = useRef<number | null>(null)
   const scrollRafRef = useRef<number | null>(null)
   const autoFollowRafRef = useRef<number | null>(null)
   const showScrollRef = useRef(false)
@@ -242,6 +245,34 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   const streamContent = lastMessage?.role === 'assistant' ? lastMessage.content : ''
   const isInitialThinkingPhase = isStreaming && lastMessage?.role === 'assistant' && !lastMessage.content
   const showOfflineEmptyState = offline && !loadingChat && messages.length === 0
+  const isCenteredComposer = !offline && !loadingChat && messages.length === 0
+
+  useEffect(() => {
+    if (wasCenteredComposerRef.current && !isCenteredComposer) {
+      setAnimateToDocked(true)
+      if (dockAnimationTimerRef.current != null) {
+        window.clearTimeout(dockAnimationTimerRef.current)
+      }
+      dockAnimationTimerRef.current = window.setTimeout(() => {
+        setAnimateToDocked(false)
+        dockAnimationTimerRef.current = null
+      }, 620)
+    } else if (isCenteredComposer) {
+      setAnimateToDocked(false)
+      if (dockAnimationTimerRef.current != null) {
+        window.clearTimeout(dockAnimationTimerRef.current)
+        dockAnimationTimerRef.current = null
+      }
+    }
+    wasCenteredComposerRef.current = isCenteredComposer
+  }, [isCenteredComposer])
+
+  useEffect(() => () => {
+    if (dockAnimationTimerRef.current != null) {
+      window.clearTimeout(dockAnimationTimerRef.current)
+      dockAnimationTimerRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     if (!isStreaming || !isNearBottomRef.current) return
@@ -391,7 +422,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
       <div className="chat-view__body" onWheel={handleMessagesWrapperWheel}>
         <div className="chat-view__content">
           <div className="chat-view__messages-wrapper" onWheel={handleMessagesWrapperWheel}>
-            <div className="chat-view__messages">
+            <div className={`chat-view__messages${isCenteredComposer ? ' chat-view__messages--centered-composer' : ''}`}>
               <div
                 ref={messagesContainerRef}
                 className={`chat-view__messages-scroll${showOfflineEmptyState ? ' chat-view__messages-scroll--state' : ''}`}
@@ -404,15 +435,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                   </>
                 )}
                 {showOfflineEmptyState && <ServiceUnavailableState />}
-                {!loadingChat && messages.length === 0 && !offline && (
-                  <div className="chat-view__empty">
-                    <p className="chat-view__empty-message">Start a chat by typing a question below.</p>
-                    <p className="chat-view__empty-hint">Your indexed documents will be used as context.</p>
-                    <p className="chat-view__empty-hint">
-                      Press <kbd>Enter</kbd> to send, <kbd>Shift+Enter</kbd> for a new line.
-                    </p>
-                  </div>
-                )}
                 {!loadingChat &&
                   messages.length > 0 &&
                   messages.map((msg, i) => (
@@ -448,7 +470,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                 {!showOfflineEmptyState && <div className="chat-view__messages-end" />}
               </div>
 
-              <div className="chat-view__input-area">
+              <div
+                className={
+                  `chat-view__input-area${isCenteredComposer ? ' chat-view__input-area--centered' : ''}${animateToDocked ? ' chat-view__input-area--docking' : ''}`
+                }
+              >
                 {error && <div className="chat-view__error">{error}</div>}
                 <div className="chat-view__input-wrapper">
                   <textarea
