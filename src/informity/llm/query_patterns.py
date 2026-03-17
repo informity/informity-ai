@@ -65,7 +65,7 @@ GROUP_BY_YEAR_KEYWORDS: str = r'\b(by\s+year|per\s+year|group(?:ed)?\s+by\s+year
 GROUP_BY_CATEGORY_KEYWORDS: str = r'\b(by\s+category|per\s+category|group(?:ed)?\s+by\s+category)\b'
 GROUP_BY_FILE_KEYWORDS: str = r'\b(by\s+file|per\s+file|group(?:ed)?\s+by\s+file)\b'
 
-# Field extraction hints (generic): "Box 1", "Line 2a", "Field 10"
+# Field extraction hints (generic): "Field 1", "Line 2a", "Row 10"
 STRUCTURED_FIELD_HINT_KEYWORDS: str = r'\b(box\s+\d+[a-z]?|line\s+\d+[a-z]?|field\s+\d+[a-z]?)\b'
 
 # Section hints for structured retrieval targeting

@@ -21,6 +21,14 @@ _PLURAL_DOCUMENT_PATTERN = re.compile(
     r'\b(documents|files|reports|sources)\b',
     re.IGNORECASE,
 )
+# Signals that a query is operating on document *content*, not just listing files.
+# Used to guard policy_plural_multi_scope_to_coverage from firing on inventory queries
+# like "list all document files" which have "all" + "files" but no content operation.
+_CONTENT_OPERATION_PATTERN = re.compile(
+    r'\b(what (is|are|does|do|did)|summarize|summary|contains?|content|extract|analyze|analysis|'
+    r'findings?|compare|contrast|about|say|says|mention|describe|tell me|show me what)\b',
+    re.IGNORECASE,
+)
 
 
 def normalize_intent_policy_fields(
@@ -51,6 +59,7 @@ def normalize_intent_policy_fields(
         normalized_intent == 'focused'
         and _BROAD_SCOPE_SIGNAL_PATTERN.search(query)
         and _PLURAL_DOCUMENT_PATTERN.search(query)
+        and _CONTENT_OPERATION_PATTERN.search(query)
         and filename_filter is None
     ):
         normalized_intent = 'coverage'

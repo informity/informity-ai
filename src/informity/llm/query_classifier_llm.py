@@ -236,8 +236,56 @@ def _infer_category_from_file_type(file_type: str | None) -> str | None:
 
 
 # ==============================================================================
-# Classification System Prompt
+# Classification System Prompt and Few-Shot Priming
 # ==============================================================================
+
+# These 3 conversation turns are prepended to every classification call.
+# They serve as a warm-up for the model: Qwen3 with GBNF JSON grammar can
+# produce empty {} on the very first call in a fresh process; the few-shot
+# turns ensure reliable JSON output from the first real query.
+# The prefixed messages must use /no_think so the KV cache matches the real calls.
+_CLASSIFICATION_FEW_SHOT = [
+    {
+        'role': 'user',
+        'content': 'list all PDFs\n/no_think',
+    },
+    {
+        'role': 'assistant',
+        'content': (
+            '{"intent": "metadata", "response_shape": "narrative_synthesis",'
+            ' "route_candidate": "metadata_inventory", "year": null,'
+            ' "category": "document", "file_type": ".pdf", "filename": null,'
+            ' "block_type": null, "section": null}'
+        ),
+    },
+    {
+        'role': 'user',
+        'content': 'what information is in 2022 Acme Invoice.pdf?\n/no_think',
+    },
+    {
+        'role': 'assistant',
+        'content': (
+            '{"intent": "focused", "response_shape": "narrative_synthesis",'
+            ' "route_candidate": "targeted_fact_lookup", "year": 2022,'
+            ' "category": null, "file_type": ".pdf",'
+            ' "filename": "2022 Acme Invoice.pdf",'
+            ' "block_type": null, "section": null}'
+        ),
+    },
+    {
+        'role': 'user',
+        'content': 'how many documents are indexed?\n/no_think',
+    },
+    {
+        'role': 'assistant',
+        'content': (
+            '{"intent": "metadata", "response_shape": "narrative_synthesis",'
+            ' "route_candidate": "metadata_inventory", "year": null,'
+            ' "category": null, "file_type": null, "filename": null,'
+            ' "block_type": null, "section": null}'
+        ),
+    },
+]
 
 CLASSIFICATION_SYSTEM_PROMPT = """OUTPUT FORMAT: Return ONLY valid JSON. No markdown, no explanations, no code blocks.
 
@@ -266,16 +314,16 @@ FIELD RULES:
   - narrative_synthesis: user asks for summaries, briefs, comparisons, evidence maps, risks, recommendations
 
 INTENT TYPES:
-- metadata: File inventory operations only (count/list/enumerate file metadata)
-- focused: Find specific information in documents
-- coverage: Synthesize across multiple documents
-- simple: Greetings, clarifications, system questions
+- metadata: Any query whose answer is a list of files or a file count — enumerating files by name, type, year, or category. The answer is a file inventory, not document content.
+- focused: Read or extract content from a specific document or small set of documents.
+- coverage: Synthesize, compare, or aggregate content across multiple documents.
+- simple: Greetings, clarifications, system questions unrelated to document content.
 
 CRITICAL ROUTING RULE:
-- If the operation is performed ON document content values (extract/calculate/sum/total/compare/aggregate),
-  this is NOT a metadata inventory request. Use focused (single-document/small set) or coverage
-  (cross-document synthesis), even if the user says "list all".
-- If the operation counts or lists files themselves (inventory of files/years/types), use metadata.
+- If the answer is a list or count of files themselves = metadata. File type, category, and year are filters on the file list, not content operations.
+- If the answer requires reading what is inside documents = focused (one/few docs) or coverage (many docs).
+- "List all X files" / "How many X files" / "Show files from year Y" = metadata (file inventory).
+- "What is in X.pdf" / "Summarize X.pdf" / "What does X say about Y" = focused or coverage (content).
 - category must be null for focused/coverage; use category only for metadata queries.
 
 EXAMPLES (output JSON only):
@@ -283,32 +331,38 @@ EXAMPLES (output JSON only):
 Query: "how many PDFs do I have from 2022?"
 Output: {"intent": "metadata", "response_shape": "narrative_synthesis", "route_candidate": "metadata_inventory", "year": 2022, "category": "document", "file_type": ".pdf", "filename": null, "block_type": null, "section": null}
 
-Query: "what does the employment contract say about vacation days?"
-Output: {"intent": "focused", "response_shape": "narrative_synthesis", "route_candidate": "targeted_fact_lookup", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
-
-Query: "summarize the key findings across all annual reports"
-Output: {"intent": "coverage", "response_shape": "narrative_synthesis", "route_candidate": "cross_document_synthesis", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
-
-Query: "hello, what can you do?"
-Output: {"intent": "simple", "response_shape": "narrative_synthesis", "route_candidate": "clarification_or_disambiguation", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
+Query: "how many years of documents do I have?"
+Output: {"intent": "metadata", "response_shape": "narrative_synthesis", "route_candidate": "metadata_inventory", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
 
 Query: "list all files from 2023"
 Output: {"intent": "metadata", "response_shape": "narrative_synthesis", "route_candidate": "metadata_inventory", "year": 2023, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
 
-Query: "how many years of invoices do I have?"
-Output: {"intent": "metadata", "response_shape": "narrative_synthesis", "route_candidate": "metadata_inventory", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
+Query: "list all document files"
+Output: {"intent": "metadata", "response_shape": "narrative_synthesis", "route_candidate": "metadata_inventory", "year": null, "category": "document", "file_type": null, "filename": null, "block_type": null, "section": null}
 
-Query: "show me files named report.pdf"
-Output: {"intent": "metadata", "response_shape": "narrative_synthesis", "route_candidate": "metadata_inventory", "year": null, "category": null, "file_type": null, "filename": "report.pdf", "block_type": null, "section": null}
+Query: "list all plaintext files"
+Output: {"intent": "metadata", "response_shape": "narrative_synthesis", "route_candidate": "metadata_inventory", "year": null, "category": "plaintext", "file_type": null, "filename": null, "block_type": null, "section": null}
+
+Query: "what does the employment contract say about vacation days?"
+Output: {"intent": "focused", "response_shape": "narrative_synthesis", "route_candidate": "targeted_fact_lookup", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
+
+Query: "what information is in 2022 Acme Invoice.pdf?"
+Output: {"intent": "focused", "response_shape": "narrative_synthesis", "route_candidate": "targeted_fact_lookup", "year": 2022, "category": null, "file_type": ".pdf", "filename": "2022 Acme Invoice.pdf", "block_type": null, "section": null}
+
+Query: "summarize the content of 2018 Company Report.pdf"
+Output: {"intent": "focused", "response_shape": "narrative_synthesis", "route_candidate": "targeted_fact_lookup", "year": 2018, "category": null, "file_type": ".pdf", "filename": "2018 Company Report.pdf", "block_type": null, "section": null}
 
 Query: "extract the summary table values from the annual report"
 Output: {"intent": "focused", "response_shape": "structured_extract", "route_candidate": "structured_field_extraction", "year": null, "category": null, "file_type": null, "filename": null, "block_type": "table", "section": null}
 
-Query: "summarize the annual report findings"
-Output: {"intent": "focused", "response_shape": "narrative_synthesis", "route_candidate": "targeted_fact_lookup", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
+Query: "summarize the key findings across all annual reports"
+Output: {"intent": "coverage", "response_shape": "narrative_synthesis", "route_candidate": "cross_document_synthesis", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
 
 Query: "Build a compliance reconciliation brief across 3 years with required sections and evidence-backed deltas."
 Output: {"intent": "coverage", "response_shape": "narrative_synthesis", "route_candidate": "audit_or_compliance_brief", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
+
+Query: "hello, what can you do?"
+Output: {"intent": "simple", "response_shape": "narrative_synthesis", "route_candidate": "clarification_or_disambiguation", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
 
 EDGE CASES:
 - Ambiguous = prefer "focused"
@@ -341,20 +395,22 @@ def classify_query_llm(query: str) -> QueryClassification:
 
     classify_start = time.perf_counter()
     profile = get_profile()
-    messages = profile.prepare_messages(
-        [
-            {'role': 'system', 'content': CLASSIFICATION_SYSTEM_PROMPT},
-            {'role': 'user', 'content': query},
-        ],
-        query_type='simple',  # reasoning=False → /no_think injected for think-capable models
-    )
+    # Prepend few-shot examples to warm up JSON output.
+    # Qwen3 with GBNF JSON grammar can produce {} on the very first call in a
+    # fresh process; the few-shot priming messages establish reliable JSON output.
+    # /no_think is appended to each user message so the KV cache matches exactly.
+    messages = [
+        {'role': 'system', 'content': CLASSIFICATION_SYSTEM_PROMPT},
+        *_CLASSIFICATION_FEW_SHOT,
+        {'role': 'user', 'content': query + '\n/no_think'},
+    ]
     stops = profile.get_stop_sequences(reasoning_enabled=False)
-    # JSON mode (GBNF grammar) constrains output to valid JSON; reasoning is disabled via /no_think
+    # JSON mode (GBNF grammar) constrains output to valid JSON; /no_think suppresses thinking tokens
 
     try:
         response = llm_engine.model.create_chat_completion(
             messages=messages,
-            max_tokens=120,   # classification is always short
+            max_tokens=180,   # slightly larger to fit long filenames
             temperature=0.0,  # deterministic
             stop=stops,
             response_format={'type': 'json_object'},  # Enforces valid JSON via GBNF grammar
