@@ -1245,9 +1245,15 @@ async def chat(
 
                         if isinstance(item, tuple) and len(item) == 2 and item[0] == '__classification__':
                             locked_classification = item[1]
+                            _classification = item[1]
+                            _retrieval_message = (
+                                'Checking document index...'
+                                if _classification.is_metadata_query
+                                else 'Searching for relevant information...'
+                            )
                             retrieving_status = _build_status_event(
                                 'retrieving',
-                                message='Searching for relevant information...',
+                                message=_retrieval_message,
                             )
                             if retrieving_status is not None:
                                 yield retrieving_status
