@@ -208,16 +208,10 @@ async def _run_llm_warmup() -> None:
             return
         log.info('llm_warmup_starting', model=model_path.name, model_size_gb=round(model_size_gb, 1))
         from informity.llm.model_adapter import get_profile
-        from informity.llm.query_classifier_llm import (
-            CLASSIFICATION_SYSTEM_PROMPT,
-            _CLASSIFICATION_FEW_SHOT,
-        )
+        from informity.llm.query_classifier_llm import build_classification_messages
         profile = get_profile()
-        messages = [
-            {'role': 'system', 'content': CLASSIFICATION_SYSTEM_PROMPT},
-            *_CLASSIFICATION_FEW_SHOT,
-            {'role': 'user', 'content': 'warmup\n/no_think'},
-        ]
+        no_think_suffix = f'\n{profile.no_think_token}' if profile.no_think_token else ''
+        messages = build_classification_messages('warmup', no_think_suffix)
         stops = profile.get_stop_sequences(reasoning_enabled=False)
         await asyncio.wait_for(
             asyncio.to_thread(

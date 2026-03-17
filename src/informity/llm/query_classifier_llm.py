@@ -239,53 +239,45 @@ def _infer_category_from_file_type(file_type: str | None) -> str | None:
 # Classification System Prompt and Few-Shot Priming
 # ==============================================================================
 
-# These 3 conversation turns are prepended to every classification call.
-# They serve as a warm-up for the model: Qwen3 with GBNF JSON grammar can
-# produce empty {} on the very first call in a fresh process; the few-shot
-# turns ensure reliable JSON output from the first real query.
-# The prefixed messages must use /no_think so the KV cache matches the real calls.
-_CLASSIFICATION_FEW_SHOT = [
-    {
-        'role': 'user',
-        'content': 'list all PDFs\n/no_think',
-    },
-    {
-        'role': 'assistant',
-        'content': (
-            '{"intent": "metadata", "response_shape": "narrative_synthesis",'
-            ' "route_candidate": "metadata_inventory", "year": null,'
-            ' "category": "document", "file_type": ".pdf", "filename": null,'
-            ' "block_type": null, "section": null}'
-        ),
-    },
-    {
-        'role': 'user',
-        'content': 'what information is in 2022 Acme Invoice.pdf?\n/no_think',
-    },
-    {
-        'role': 'assistant',
-        'content': (
-            '{"intent": "focused", "response_shape": "narrative_synthesis",'
-            ' "route_candidate": "targeted_fact_lookup", "year": 2022,'
-            ' "category": null, "file_type": ".pdf",'
-            ' "filename": "2022 Acme Invoice.pdf",'
-            ' "block_type": null, "section": null}'
-        ),
-    },
-    {
-        'role': 'user',
-        'content': 'how many documents are indexed?\n/no_think',
-    },
-    {
-        'role': 'assistant',
-        'content': (
-            '{"intent": "metadata", "response_shape": "narrative_synthesis",'
-            ' "route_candidate": "metadata_inventory", "year": null,'
-            ' "category": null, "file_type": null, "filename": null,'
-            ' "block_type": null, "section": null}'
-        ),
-    },
-]
+# Few-shot examples prepended to every classification call.
+# Qwen3 with GBNF JSON grammar can produce empty {} on the very first call in a
+# fresh process; these examples establish reliable JSON output.
+# User content is stored WITHOUT the no_think suffix — it is appended at call
+# time based on profile.no_think_token so the KV cache prefix always matches.
+_CLASSIFICATION_FEW_SHOT_PAIRS: tuple[tuple[str, str], ...] = (
+    (
+        'list all PDFs',
+        '{"intent": "metadata", "response_shape": "narrative_synthesis",'
+        ' "route_candidate": "metadata_inventory", "year": null,'
+        ' "category": "document", "file_type": ".pdf", "filename": null,'
+        ' "block_type": null, "section": null}',
+    ),
+    (
+        'what information is in 2022 Acme Invoice.pdf?',
+        '{"intent": "focused", "response_shape": "narrative_synthesis",'
+        ' "route_candidate": "targeted_fact_lookup", "year": 2022,'
+        ' "category": null, "file_type": ".pdf",'
+        ' "filename": "2022 Acme Invoice.pdf",'
+        ' "block_type": null, "section": null}',
+    ),
+    (
+        'how many documents are indexed?',
+        '{"intent": "metadata", "response_shape": "narrative_synthesis",'
+        ' "route_candidate": "metadata_inventory", "year": null,'
+        ' "category": null, "file_type": null, "filename": null,'
+        ' "block_type": null, "section": null}',
+    ),
+)
+
+
+def build_classification_messages(query: str, no_think_suffix: str) -> list[dict[str, str]]:
+    """Build the full classification message list with profile-appropriate no_think suffix."""
+    messages: list[dict[str, str]] = [{'role': 'system', 'content': CLASSIFICATION_SYSTEM_PROMPT}]
+    for user_text, assistant_text in _CLASSIFICATION_FEW_SHOT_PAIRS:
+        messages.append({'role': 'user', 'content': user_text + no_think_suffix})
+        messages.append({'role': 'assistant', 'content': assistant_text})
+    messages.append({'role': 'user', 'content': query + no_think_suffix})
+    return messages
 
 CLASSIFICATION_SYSTEM_PROMPT = """OUTPUT FORMAT: Return ONLY valid JSON. No markdown, no explanations, no code blocks.
 
@@ -395,15 +387,10 @@ def classify_query_llm(query: str) -> QueryClassification:
 
     classify_start = time.perf_counter()
     profile = get_profile()
-    # Prepend few-shot examples to warm up JSON output.
-    # Qwen3 with GBNF JSON grammar can produce {} on the very first call in a
-    # fresh process; the few-shot priming messages establish reliable JSON output.
-    # /no_think is appended to each user message so the KV cache matches exactly.
-    messages = [
-        {'role': 'system', 'content': CLASSIFICATION_SYSTEM_PROMPT},
-        *_CLASSIFICATION_FEW_SHOT,
-        {'role': 'user', 'content': query + '\n/no_think'},
-    ]
+    # Build messages with profile-appropriate no_think suffix on every user turn.
+    # The suffix must be identical in both few-shot and real query for KV cache reuse.
+    no_think_suffix = f'\n{profile.no_think_token}' if profile.no_think_token else ''
+    messages = build_classification_messages(query, no_think_suffix)
     stops = profile.get_stop_sequences(reasoning_enabled=False)
     # JSON mode (GBNF grammar) constrains output to valid JSON; /no_think suppresses thinking tokens
 
