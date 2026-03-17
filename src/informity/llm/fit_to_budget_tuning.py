@@ -10,7 +10,7 @@ from pathlib import Path
 import aiosqlite
 import structlog
 
-from informity.config import settings
+from informity.config import DirNames, settings
 
 log = structlog.get_logger(__name__)
 
@@ -170,8 +170,8 @@ def _extract_intent_step(trace_data: dict) -> dict | None:
 def _collect_first_token_samples_sync(query_type: str, lookback_days: int) -> list[float]:
     cutoff = time.time() - (max(1, lookback_days) * _SECONDS_PER_DAY)
     base_dirs: list[Path] = [
-        settings.app_data_dir / 'chats',
-        settings.diagnostics_dir / 'runs',
+        settings.app_data_dir / DirNames.CHAT_LOGS,
+        settings.diagnostics_dir / DirNames.RUNS,
     ]
     candidates: list[Path] = []
     for base_dir in base_dirs:

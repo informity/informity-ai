@@ -2,7 +2,8 @@
 # Informity AI — Settings API Routes
 # Endpoints for reading and updating application configuration.
 # Settings are persisted to config.json under the app data directory
-# (default: data/config.json relative to process cwd).
+# (desktop packaged runtime: ~/Library/Application Support/Informity AI/config.json;
+# local dev default: data/config.json relative to process cwd).
 # ==============================================================================
 
 import asyncio
@@ -234,6 +235,7 @@ _UPDATABLE_FIELDS: set[str] = {
     'classifier_llm_model',
     'log_level',
     'ui_theme',
+    'enable_menu_bar_icon',
     'default_response_mode',
     'cpu_priority_nice',
 }
@@ -323,6 +325,7 @@ async def get_settings() -> SettingsResponse:
         model_profile         = profile_info,
         classifier_model_profile = classifier_profile_info,
         ui_theme              = s.ui_theme,
+        enable_menu_bar_icon  = s.enable_menu_bar_icon,
         default_response_mode = s.default_response_mode,
         cpu_priority_nice     = s.cpu_priority_nice,
     )

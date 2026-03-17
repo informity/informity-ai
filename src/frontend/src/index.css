@@ -58,6 +58,7 @@
   --page-content-width: 44rem;
   --content-max-width: 936px;
   --color-on-primary: #ffffff;
+  --color-checkbox-accent: var(--color-accent);
   --transition-fast: 150ms ease;
 }
 
@@ -222,7 +223,7 @@ input[type='checkbox'] {
   height: var(--icon-size-sm);
   padding: 0;
   border: none;
-  accent-color: var(--color-accent);
+  accent-color: var(--color-checkbox-accent, var(--color-accent));
 }
 
 /* Accent colors (ui_theme from Settings). Set via data-accent on <html>. Default: mono. */
@@ -269,12 +270,12 @@ html[data-accent='orange'] {
 }
 /* Mono Theme Start: black base + dotted separators */
 html[data-accent='mono'] {
-  --color-accent: #8f8f8f;
-  --color-primary: #8f8f8f;
-  --color-accent-subtle: rgba(143, 143, 143, 0.12);
-  --color-primary-bg: rgba(143, 143, 143, 0.16);
-  --color-primary-bg-strong: rgba(143, 143, 143, 0.22);
-  --color-primary-border: rgba(143, 143, 143, 0.3);
+  --color-accent: #767676;
+  --color-primary: #767676;
+  --color-accent-subtle: rgba(118, 118, 118, 0.1);
+  --color-primary-bg: rgba(118, 118, 118, 0.13);
+  --color-primary-bg-strong: rgba(118, 118, 118, 0.18);
+  --color-primary-border: rgba(118, 118, 118, 0.3);
   --color-bg: #090909;
   --color-bg-surface: #1a1a1a;
   --color-bg-elevated: #242424;
@@ -293,9 +294,6 @@ html[data-accent='mono'] {
 
 html[data-accent='mono'] body {
   background-color: var(--color-bg);
-  background-image:
-    radial-gradient(circle at 1px 1px, rgba(180, 180, 180, 0.16) 1px, transparent 0);
-  background-size: 18px 18px;
 }
 
 html[data-accent='mono'] .ui-subsection-head::before {
@@ -358,10 +356,6 @@ html[data-accent='mono'] .settings-slider::-moz-range-thumb {
   box-shadow: none;
 }
 /* Mono Theme End */
-
-html[data-accent='mono'] {
-  --color-accent-hover: #7a7a7a;
-}
 
 /* Accent hover (darker for buttons, links) */
 :root {

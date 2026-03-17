@@ -12,13 +12,29 @@ set -e
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-# App data directory: same default as the app (data/ relative to repo root)
-APP_DATA_DIR="${INFORMITY_APP_DATA_DIR:-$REPO_ROOT/data}"
+APP_DISPLAY_NAME="Informity AI"
+DIR_CACHE="cache"
+DIR_MODELS="models"
+DIR_CHAT_LLM="chat-llm"
+DIR_QUERY_CLASSIFIER_LLM="query-classifier-llm"
+
+# Install profile:
+# - runtime (default): application runtime deps only
+# - dev: runtime + optional dev tooling (pytest, ruff, pyinstaller, etc.)
+INSTALL_PROFILE="${INFORMITY_INSTALL_PROFILE:-runtime}"
+
+# App data directory: same default as bundled desktop app.
+APP_DATA_DIR="${INFORMITY_APP_DATA_DIR:-$HOME/Library/Application Support/$APP_DISPLAY_NAME}"
 export INFORMITY_APP_DATA_DIR="$APP_DATA_DIR"
+# Keep cache and model paths aligned with bundled desktop runtime defaults.
+export INFORMITY_CACHE_DIR="${INFORMITY_CACHE_DIR:-$APP_DATA_DIR/$DIR_CACHE}"
+export INFORMITY_MODELS_DIR="${INFORMITY_MODELS_DIR:-$APP_DATA_DIR/$DIR_MODELS/$DIR_CHAT_LLM}"
+export INFORMITY_QUERY_CLASSIFIER_MODELS_DIR="${INFORMITY_QUERY_CLASSIFIER_MODELS_DIR:-$APP_DATA_DIR/$DIR_MODELS/$DIR_QUERY_CLASSIFIER_LLM}"
 
 echo "Informity AI — Install"
 echo "  Repo root:    $REPO_ROOT"
 echo "  App data dir: $APP_DATA_DIR"
+echo "  Profile:      $INSTALL_PROFILE"
 echo ""
 
 # ------------------------------------------------------------------------------
@@ -42,8 +58,20 @@ fi
 # ------------------------------------------------------------------------------
 # 3. Install Python dependencies
 # ------------------------------------------------------------------------------
-echo "Installing Python dependencies (uv sync)..."
-uv sync --all-extras
+case "$INSTALL_PROFILE" in
+    runtime)
+        echo "Installing Python runtime dependencies (uv sync)..."
+        uv sync
+        ;;
+    dev)
+        echo "Installing Python dependencies with dev extras (uv sync --all-extras)..."
+        uv sync --all-extras
+        ;;
+    *)
+        echo "Invalid INFORMITY_INSTALL_PROFILE: $INSTALL_PROFILE (expected: runtime|dev)"
+        exit 1
+        ;;
+esac
 
 # ------------------------------------------------------------------------------
 # 4. Install frontend dependencies (including TypeScript)
@@ -68,6 +96,6 @@ echo ""
 echo "Done. Start the app with:"
 echo "  export INFORMITY_APP_DATA_DIR=\"$APP_DATA_DIR\""
 echo "  uv run uvicorn informity.main:app --host 127.0.0.1 --port 8420"
-echo "Or from repo root: make run   (uses ./data by default)"
+echo "Or from repo root: make run"
 echo ""
 echo "The app will use cached models only (embedding_offline=true, llm_local_only=true) and will not contact Hugging Face or the internet—no network requests after install."

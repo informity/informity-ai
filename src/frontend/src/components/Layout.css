@@ -5,6 +5,18 @@
   flex-direction: column;
   height: 100vh;
   overflow: hidden;
+  position: relative;
+}
+
+.layout::before {
+  content: '';
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  border-top: 1px var(--layout-divider-style, solid) var(--layout-divider-color, var(--color-border-subtle));
+  pointer-events: none;
+  z-index: 1000;
 }
 
 .layout__body {

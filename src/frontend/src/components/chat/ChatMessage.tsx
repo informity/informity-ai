@@ -72,7 +72,6 @@ function ChatMessageComponent({
   stoppedByUser = false,
   responseModeUsed = 'balanced',
   nextAction = 'none',
-  nextActionReason = null,
   continueLabel = 'Continue',
   createdAt,
   generationSeconds,

@@ -7,6 +7,7 @@ import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { getModelProfile } from '../../api'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_OPTIONS, UI_THEME_STORAGE_KEY } from '../../utils/uiTheme'
+import { isDesktopRuntime, nativePickDirectoryDialog } from '../../tauriRuntime'
 import '../../styles/shared/buttons.css'
 import './SettingsView.css'
 const DIAGNOSTICS_PROFILE_OPTIONS = [
@@ -167,6 +168,7 @@ interface SettingsData {
   chat_trace_evaluation_retention_days?: number
   enable_raw_output_control?: boolean
   ui_theme?: string
+  enable_menu_bar_icon?: boolean
   default_response_mode?: 'balanced' | 'analysis' | 'research'
   llm_model_filename?: string
   classifier_llm_model?: string
@@ -203,6 +205,7 @@ interface FormState {
   chat_trace_evaluation_retention_days: number
   enable_raw_output_control: boolean
   ui_theme: string
+  enable_menu_bar_icon: boolean
   default_response_mode: 'balanced' | 'analysis' | 'research'
   llm_model_filename: string
 }
@@ -260,6 +263,7 @@ function buildFormState(settings: SettingsData): FormState {
     chat_trace_evaluation_retention_days: settings.chat_trace_evaluation_retention_days ?? 30,
     enable_raw_output_control: settings.enable_raw_output_control ?? false,
     ui_theme: normalizedTheme ?? UI_THEME_DEFAULT,
+    enable_menu_bar_icon: settings.enable_menu_bar_icon ?? false,
     default_response_mode: resolvedDefaultMode,
     llm_model_filename: settings.llm_model_filename ?? '',
   }
@@ -376,6 +380,12 @@ export function SettingsView({
 
   const removeDir = (path: string) => {
     update('watched_directories', form.watched_directories.filter((p) => p !== path))
+  }
+
+  const browseDir = async () => {
+    const selected = await nativePickDirectoryDialog('Choose Source Directory')
+    if (!selected) return
+    setDirInput(selected)
   }
 
   const addIgnore = () => {
@@ -633,6 +643,12 @@ export function SettingsView({
               onChange={(e) => setDirInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && canAddDir && (e.preventDefault(), addDir())}
             />
+            {isDesktopRuntime() && (
+              <button type="button" className="settings-btn settings-btn--add" onClick={browseDir}>
+                <i className="ri-folder-open-line" aria-hidden />
+                <span>Browse</span>
+              </button>
+            )}
             <button type="button" className="settings-btn settings-btn--add" onClick={addDir} disabled={!canAddDir}>
               + Add
             </button>
@@ -1093,7 +1109,8 @@ export function SettingsView({
                 <span className="settings-checkbox-row-info ui-tooltip-trigger">
                   <i className="ri-information-line" aria-hidden="true" />
                   <span className="settings-tooltip ui-tooltip">
-                    Save a JSON trace per message to data/chats for full RAG and LLM debugging. Disabled by default.
+                    Save a JSON trace per message to the app data directory chats folder
+                    (desktop app: ~/Library/Application Support/Informity AI/chats). Disabled by default.
                   </span>
                 </span>
               </span>
@@ -1220,6 +1237,25 @@ export function SettingsView({
               </option>
             ))}
           </select>
+        </div>
+        <div className="settings-subsection">
+          <div className="settings-subsection-head ui-subsection-head">
+            <div className="settings-subsection-title ui-subsection-title">
+              <i className="ri-layout-top-2-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              Menu Bar Icon
+            </div>
+            <p className="settings-subsection-description ui-subsection-description">
+              Show the Informity AI icon in the macOS menu bar while the app is running.
+            </p>
+          </div>
+          <label className="settings-checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.enable_menu_bar_icon ?? false}
+              onChange={(e) => update('enable_menu_bar_icon', e.target.checked)}
+            />
+            <div><span className="settings-checkbox-row-label">Enable menu bar icon</span></div>
+          </label>
         </div>
         </section>
 

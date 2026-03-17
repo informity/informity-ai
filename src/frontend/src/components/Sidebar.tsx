@@ -57,17 +57,21 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   return (
     <aside className={`sidebar ${collapsed ? 'sidebar--collapsed' : ''}`}>
       <div className="sidebar__header">
-        <img
-          src="/logo.png"
-          alt="Informity AI"
-          className="sidebar__logo"
+        <div
+          className="sidebar__logo-shell"
           onClick={collapsed ? onToggleCollapsed : undefined}
           role={collapsed ? 'button' : undefined}
           tabIndex={collapsed ? 0 : undefined}
           onKeyDown={collapsed ? (e) => e.key === 'Enter' && onToggleCollapsed?.() : undefined}
           title={collapsed ? 'Expand sidebar (Cmd+B)' : undefined}
           aria-label={collapsed ? 'Expand sidebar' : undefined}
-        />
+        >
+          <img
+            src="/logo.png"
+            alt="Informity AI"
+            className="sidebar__logo"
+          />
+        </div>
         {!collapsed && <span className="sidebar__title">Informity AI</span>}
         {!collapsed && (
           <button

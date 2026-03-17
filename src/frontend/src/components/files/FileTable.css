@@ -8,6 +8,10 @@
   font-size: var(--font-size-body);
 }
 
+.file-table {
+  container-type: inline-size;
+}
+
 .file-table__row--selected {
   background: color-mix(in srgb, var(--color-accent) 15%, transparent);
 }
@@ -23,6 +27,37 @@
 
 .file-table__th--filename {
   padding-left: 0;
+}
+
+.file-table__th--category,
+.file-table__td--category {
+  width: 9.5rem;
+}
+
+.file-table__th--size,
+.file-table__td--size {
+  width: 6.5rem;
+}
+
+.file-table__th--modified,
+.file-table__td--modified,
+.file-table__th--indexed,
+.file-table__td--indexed {
+  width: 11.5rem;
+}
+
+.file-table__filename-text {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-table__category-badge,
+.file-table__td--size,
+.file-table__td--modified,
+.file-table__td--indexed {
+  white-space: nowrap;
 }
 
 .file-table__th--size {
@@ -68,4 +103,29 @@
 
 .file-table__pagination-page {
   font-size: var(--font-size-sm);
+}
+
+@container (max-width: 1180px) {
+  .file-table__th--modified,
+  .file-table__td--modified {
+    display: none;
+  }
+}
+
+@container (max-width: 1040px) {
+  .file-table__th--size,
+  .file-table__td--size {
+    display: none;
+  }
+}
+
+@container (max-width: 920px) {
+  .file-table__th--category,
+  .file-table__td--category {
+    display: none;
+  }
+
+  .file-table__th--actions {
+    width: 128px;
+  }
 }

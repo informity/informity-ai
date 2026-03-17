@@ -54,6 +54,9 @@ def _classify_docling_exception(exc: Exception) -> tuple[str, bool]:
     # Map docling/pdfium failures to stable, generic error codes and retryability.
     error_str = str(exc).lower()
 
+    if 'pdf_resources_dir' in error_str:
+        # Packaged runtime is missing docling parse resources; this is an app setup issue.
+        return 'docling_runtime_resource_missing', True
     if 'incorrect password' in error_str or ('password' in error_str and 'pdfium' in error_str):
         return 'pdf_password_protected', False
     if 'data format error' in error_str or 'is not valid' in error_str:

@@ -246,6 +246,8 @@ DROP TABLE IF EXISTS chat_messages;
 DROP TABLE IF EXISTS chunks;
 DROP TABLE IF EXISTS files;
 DROP TABLE IF EXISTS chats;
+DROP TABLE IF EXISTS scan_errors;
+DROP TABLE IF EXISTS file_failures;
 DROP TABLE IF EXISTS scan_history;
 DROP TABLE IF EXISTS config;
 DROP TABLE IF EXISTS schema_version;
@@ -1911,7 +1913,17 @@ async def reset_all_data(db: aiosqlite.Connection) -> dict[str, object]:
 
     counts: dict[str, object] = {
         t: 0
-        for t in ('response_diagnostics_metrics', 'chat_messages', 'chunks', 'chats', 'scan_history', 'files', 'vec_chunks')
+        for t in (
+            'response_diagnostics_metrics',
+            'chat_messages',
+            'chunks',
+            'chats',
+            'scan_errors',
+            'file_failures',
+            'scan_history',
+            'files',
+            'vec_chunks',
+        )
     }
     counts['storage_compacted'] = storage_compacted
     counts['compaction_error'] = compaction_error

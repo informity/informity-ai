@@ -346,7 +346,7 @@
   margin: 0;
   flex-shrink: 0;
   cursor: pointer;
-  accent-color: var(--color-accent);
+  accent-color: var(--color-checkbox-accent, var(--color-accent));
 }
 
 .settings-checkbox span {
@@ -378,7 +378,7 @@
   margin: 0;
   flex-shrink: 0;
   cursor: pointer;
-  accent-color: var(--color-accent);
+  accent-color: var(--color-checkbox-accent, var(--color-accent));
 }
 
 .settings-checkbox-row-label {
@@ -495,6 +495,11 @@
 .settings-add-row .settings-input {
   flex: 1;
   min-width: 0;
+}
+
+.settings-add-row .settings-btn--add {
+  width: var(--action-btn-width);
+  min-width: var(--action-btn-width);
 }
 
 .settings-count {
@@ -632,7 +637,7 @@
   margin: 0;
   flex-shrink: 0;
   cursor: pointer;
-  accent-color: var(--color-accent);
+  accent-color: var(--color-checkbox-accent, var(--color-accent));
 }
 
 /* -----------------------------------------------------------------------------

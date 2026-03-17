@@ -66,9 +66,22 @@
 }
 
 .sidebar__logo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.sidebar__logo-shell {
   width: 1.5rem;
   height: 1.5rem;
-  object-fit: contain;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--color-bg-elevated);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   cursor: pointer;
   flex-shrink: 0;
 }

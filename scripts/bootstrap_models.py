@@ -84,8 +84,8 @@ def _ensure_dirs(app_data: Path) -> None:
     
     # Use _get_cache_dir() to respect INFORMITY_CACHE_DIR env var (not hardcoded to repo root)
     cache_root = _get_cache_dir()
-    (cache_root / DirNames.LLM).mkdir(parents=True, exist_ok=True)  # .cache/chat-llm/
-    (cache_root / DirNames.QUERY_CLASSIFIER_MODELS).mkdir(parents=True, exist_ok=True)  # .cache/query-classifier-llm/
+    (app_data / DirNames.MODELS / DirNames.LLM).mkdir(parents=True, exist_ok=True)  # app_data/models/chat-llm/
+    (app_data / DirNames.MODELS / DirNames.QUERY_CLASSIFIER_MODELS).mkdir(parents=True, exist_ok=True)  # app_data/models/query-classifier-llm/
     (_get_repo_root() / DirNames.TOOLS / DirNames.DIAGNOSTICS / DirNames.DIAGNOSTICS_MODELS).mkdir(parents=True, exist_ok=True)  # tools/diagnostics/models/
     (cache_root / DirNames.HUGGINGFACE / DirNames.HUB).mkdir(parents=True, exist_ok=True)  # .cache/huggingface/hub/
     (cache_root / DirNames.DOCLING).mkdir(parents=True, exist_ok=True)  # .cache/docling/
@@ -96,6 +96,11 @@ def _ensure_dirs(app_data: Path) -> None:
 
 def _download_embedding_model(app_data: Path, model_id: str) -> None:
     """Download embedding model using sentence-transformers (PyTorch)."""
+    hf_hub_cache = _get_cache_dir() / 'huggingface' / 'hub'
+    if _is_hf_model_cached(model_id, hf_hub_cache):
+        print(f'Embedding model already cached: {model_id}')
+        return
+
     print(f'Downloading embedding model: {model_id}')
     try:
         from sentence_transformers import SentenceTransformer
@@ -113,6 +118,11 @@ def _download_embedding_model(app_data: Path, model_id: str) -> None:
 
 def _download_reranker_model(app_data: Path, model_id: str) -> None:
     """Download the cross-encoder reranker using sentence-transformers (PyTorch)."""
+    hf_hub_cache = _get_cache_dir() / 'huggingface' / 'hub'
+    if _is_hf_model_cached(model_id, hf_hub_cache):
+        print(f'Reranker model already cached: {model_id}')
+        return
+
     print(f'Downloading reranker (cross-encoder): {model_id}')
     try:
         from sentence_transformers import CrossEncoder
@@ -154,6 +164,10 @@ def _download_docling_models(app_data: Path) -> None:
 
     # Ensure cache directory exists
     docling_cache.mkdir(parents=True, exist_ok=True)
+
+    if _is_docling_cached(cache_dir):
+        print(f'Docling models already cached: {docling_cache}')
+        return
 
     # Set docling artifacts path so download_models() writes here and runtime finds them here
     os.environ['DOCLING_ARTIFACTS_PATH'] = str(docling_cache)
@@ -211,9 +225,7 @@ def _download_llm(app_data: Path, llm: dict) -> None:
 
     from informity.config import DirNames
     
-    # Use _get_cache_dir() to respect INFORMITY_CACHE_DIR env var (not hardcoded to repo root)
-    cache_dir = _get_cache_dir()
-    models_dir = cache_dir / DirNames.LLM  # .cache/chat-llm/
+    models_dir = app_data / DirNames.MODELS / DirNames.LLM  # app_data/models/chat-llm/
     target_path = models_dir / local_fname
     if target_path.exists():
         print(f'LLM already present: {target_path}')
@@ -224,6 +236,7 @@ def _download_llm(app_data: Path, llm: dict) -> None:
     
     # HF cache paths already set by _setup_hf_cache_early() at module import
     # Get the cache dir to construct hf_hub path
+    cache_dir = _get_cache_dir()
     hf_home = cache_dir / DirNames.HUGGINGFACE
     hf_hub  = hf_home / DirNames.HUB
     
@@ -250,9 +263,7 @@ def _download_classifier_llm(app_data: Path, classifier_llm: dict) -> None:
 
     from informity.config import DirNames
     
-    # Use _get_cache_dir() to respect INFORMITY_CACHE_DIR env var (not hardcoded to repo root)
-    cache_dir = _get_cache_dir()
-    models_dir = cache_dir / DirNames.QUERY_CLASSIFIER_MODELS  # .cache/query-classifier-llm/
+    models_dir = app_data / DirNames.MODELS / DirNames.QUERY_CLASSIFIER_MODELS  # app_data/models/query-classifier-llm/
     target_path = models_dir / local_fname
     if target_path.exists():
         print(f'Classifier LLM already present: {target_path}')
@@ -262,6 +273,7 @@ def _download_classifier_llm(app_data: Path, classifier_llm: dict) -> None:
     from huggingface_hub import hf_hub_download
     
     # HF cache paths already set by _setup_hf_cache_early() at module import
+    cache_dir = _get_cache_dir()
     hf_home = cache_dir / DirNames.HUGGINGFACE
     hf_hub  = hf_home / DirNames.HUB
     
@@ -313,18 +325,19 @@ def _is_hf_model_cached(model_name: str, hf_hub_cache: Path) -> bool:
 
 
 def _is_docling_cached(cache_dir: Path) -> bool:
-    """Check if docling models are cached (standalone version for bootstrap)."""
+    """Check if docling runtime artifacts are cached (standalone for bootstrap)."""
     from informity.config import DirNames
     docling_cache = cache_dir / DirNames.DOCLING
-    if not docling_cache.exists():
-        return False
+
+    # Native docling artifact cache
     try:
-        for item in docling_cache.iterdir():
-            if item.is_dir():
-                if any(item.rglob('*.bin')) or any(item.rglob('*.safetensors')) or any(item.rglob('*.onnx')):
+        if docling_cache.exists():
+            for item in docling_cache.iterdir():
+                if item.is_dir():
+                    if any(item.rglob('*.bin')) or any(item.rglob('*.safetensors')) or any(item.rglob('*.onnx')):
+                        return True
+                elif item.suffix in ('.bin', '.safetensors', '.onnx', '.pt', '.pth'):
                     return True
-            elif item.suffix in ('.bin', '.safetensors', '.onnx', '.pt', '.pth'):
-                return True
     except Exception:
         pass
     return False
@@ -355,10 +368,8 @@ def _verify_models_cached(install_config: dict) -> bool:
     # Check LLM model (if configured)
     if install_config.get('llm') and isinstance(install_config['llm'], dict):
         from informity.config import DirNames
-        # Use _get_cache_dir() to respect INFORMITY_CACHE_DIR env var (not hardcoded to repo root)
-        cache_dir = _get_cache_dir()
-        # Main chat model is stored under .cache/chat-llm/, not query-classifier-llm/.
-        models_dir = cache_dir / DirNames.LLM
+        app_data = _app_data_dir()
+        models_dir = app_data / DirNames.MODELS / DirNames.LLM
         local_fname = install_config['llm'].get('local_filename') or install_config['llm'].get('filename')
         if local_fname:
             model_path = models_dir / local_fname
@@ -368,8 +379,8 @@ def _verify_models_cached(install_config: dict) -> bool:
     # Check classifier LLM model (if configured)
     if install_config.get('classifier_llm') and isinstance(install_config['classifier_llm'], dict):
         from informity.config import DirNames
-        cache_dir = _get_cache_dir()
-        models_dir = cache_dir / DirNames.QUERY_CLASSIFIER_MODELS
+        app_data = _app_data_dir()
+        models_dir = app_data / DirNames.MODELS / DirNames.QUERY_CLASSIFIER_MODELS
         local_fname = install_config['classifier_llm'].get('local_filename') or install_config['classifier_llm'].get('filename')
         if local_fname:
             model_path = models_dir / local_fname
@@ -455,19 +466,20 @@ def main() -> int:
         _download_llm(app_data, install_config['llm'])
     else:
         from informity.config import DirNames
-        cache_dir = _get_cache_dir()
-        print(f'No LLM in install config; skip. Place a .gguf in {cache_dir}/{DirNames.LLM}/ if needed.')
+        print(
+            'No LLM in install config; skip. '
+            f'Place a .gguf in {app_data}/{DirNames.MODELS}/{DirNames.LLM}/ if needed.'
+        )
 
     # Download classifier LLM (small model for query classification)
     if install_config.get('classifier_llm') and isinstance(install_config['classifier_llm'], dict):
         _download_classifier_llm(app_data, install_config['classifier_llm'])
     else:
         from informity.config import DirNames, _DEFAULT_CLASSIFIER_LLM_MODEL_FILENAME
-        cache_dir = _get_cache_dir()
         print(
             'No classifier_llm in install config; skip. '
             f'Default classifier model ({_DEFAULT_CLASSIFIER_LLM_MODEL_FILENAME}) '
-            f'will be expected in {cache_dir}/{DirNames.QUERY_CLASSIFIER_MODELS}/.'
+            f'will be expected in {app_data}/{DirNames.MODELS}/{DirNames.QUERY_CLASSIFIER_MODELS}/.'
         )
 
     _write_offline_config(app_data, install_config)

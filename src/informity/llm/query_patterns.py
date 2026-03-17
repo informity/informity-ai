@@ -23,7 +23,7 @@ LIST_VERBS: str = r'(list|display)'
 # Query verbs: "show", "give me" (information retrieval - require quantifiers/document types for list intent)
 QUERY_VERBS: str = r'(show|give\s+me)'
 
-# All imperative verbs (for backward compatibility in imperative_quantifier_pattern)
+# All imperative verbs used by imperative_quantifier_pattern
 IMPERATIVE_VERBS: str = rf'({LIST_VERBS}|{QUERY_VERBS})'
 
 # Question words: "what", "which"

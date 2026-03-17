@@ -32,6 +32,7 @@ import uvicorn
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from structlog.contextvars import bind_contextvars, clear_contextvars
@@ -43,6 +44,13 @@ from informity.api.routes_search import router as search_router
 from informity.api.routes_settings import router as settings_router
 from informity.api.routes_system import router as system_router
 from informity.api.schemas import HealthResponse
+from informity.api.security import (
+    TAURI_SESSION_HEADER,
+    get_cors_allow_origins,
+    get_tauri_session_token_from_env,
+    is_tauri_desktop_mode,
+    is_tauri_session_authorized,
+)
 from informity.config import APP_DISPLAY_NAME, configure_hf_environment, settings
 from informity.version import APP_VERSION
 
@@ -75,6 +83,13 @@ log = structlog.get_logger(__name__)
 _STARTUP_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, TimeoutError)
 _REQUEST_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, TimeoutError)
 _WARMUP_TIMEOUT_SECONDS = 300.0
+_TAURI_SESSION_TOKEN = get_tauri_session_token_from_env()
+_DESKTOP_SESSION_MODE = is_tauri_desktop_mode(_TAURI_SESSION_TOKEN)
+_MANAGED_PID_FILE_ENV = 'INFORMITY_MANAGED_PID_FILE'
+_MANAGED_PID_FILE_RAW = _os.environ.get(_MANAGED_PID_FILE_ENV, '').strip()
+_MANAGED_PID_FILE_PATH: Path | None = (
+    Path(_MANAGED_PID_FILE_RAW).expanduser() if _MANAGED_PID_FILE_RAW else None
+)
 
 # ==============================================================================
 # Process Cleanup
@@ -86,6 +101,27 @@ def _cleanup_models() -> None:
     embedder.unload()
     reranker.unload()
     unload_classifier()  # Unload classifier LLM (Qwen2.5-3B)
+
+
+def _write_managed_pid_file() -> None:
+    if _MANAGED_PID_FILE_PATH is None:
+        return
+    try:
+        _MANAGED_PID_FILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _MANAGED_PID_FILE_PATH.write_text(f'{_os.getpid()}\n', encoding='utf-8')
+    except OSError as exc:
+        log.warning(
+            'managed_pid_file_write_failed',
+            path=str(_MANAGED_PID_FILE_PATH),
+            error=str(exc),
+        )
+
+
+def _remove_managed_pid_file() -> None:
+    if _MANAGED_PID_FILE_PATH is None:
+        return
+    with suppress(OSError):
+        _MANAGED_PID_FILE_PATH.unlink(missing_ok=True)
 
 
 def _kill_child_processes() -> None:
@@ -112,6 +148,7 @@ def _signal_cleanup(signum: int, frame: types.FrameType | None) -> None:
     # On SIGTERM/SIGINT (e.g. Ctrl+C when running under uvicorn --reload), unload
     # models so joblib/loky release semaphores. Use _exit() so we don't raise
     # SystemExit into asyncio/uvicorn (which would produce a traceback).
+    _remove_managed_pid_file()
     _cleanup_models()
     # Signal numbers on POSIX are always < 32, so the else branch is unreachable
     # but kept for defensive programming
@@ -121,6 +158,7 @@ def _signal_cleanup(signum: int, frame: types.FrameType | None) -> None:
 
 # atexit is a backup for normal exit paths; safe to register at module level.
 atexit.register(_cleanup_models)
+atexit.register(_remove_managed_pid_file)
 
 
 def _register_signal_handlers() -> None:
@@ -143,6 +181,7 @@ def _register_signal_handlers() -> None:
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # -- Startup --------------------------------------------------------------
     _register_signal_handlers()
+    _write_managed_pid_file()
 
     # Lower process priority so scans/indexing yield CPU time to foreground apps.
     # 0 disables priority changes.
@@ -192,7 +231,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Skip in dev mode (reload) to avoid double-warmup on code changes.
     # For very large models (30B+), warmup can take 5+ minutes, so we skip warmup
     # entirely for models over 20GB and let them load lazily on first query.
-    if not settings.dev_reload:
+    if not settings.dev_reload and not _DESKTOP_SESSION_MODE:
         try:
             model_path = llm_engine._get_model_path()
             if model_path.exists():
@@ -244,6 +283,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         except _STARTUP_RUNTIME_EXCEPTIONS as exc:
             # If we can't even check the model path, skip warmup
             log.warning('llm_warmup_skipped', error=str(exc), msg='Skipping warmup due to error')
+    elif _DESKTOP_SESSION_MODE:
+        log.info(
+            'llm_warmup_skipped_desktop_mode',
+            msg='Skipping startup warmup in desktop mode — model loads on first query',
+        )
 
     # Start file watcher for incremental indexing (if watched_directories configured)
     loop = asyncio.get_running_loop()
@@ -254,12 +298,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     # -- Shutdown -------------------------------------------------------------
     log.info('application_shutting_down')
+    _remove_managed_pid_file()
 
     stop_watcher()
     _cleanup_models()
 
     # Kill any lingering child processes (tokenizers, embedder workers)
     _kill_child_processes()
+    _remove_managed_pid_file()
 
     log.info('application_shutdown_complete')
 
@@ -269,6 +315,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 # ==============================================================================
 
 def _resolve_api_docs_enabled() -> bool:
+    # Desktop-shell mode always disables docs/OpenAPI routes.
+    if _DESKTOP_SESSION_MODE:
+        return False
     # Explicit setting wins; otherwise expose docs only in dev_reload sessions.
     if settings.api_docs_enabled is not None:
         return bool(settings.api_docs_enabled)
@@ -286,6 +335,20 @@ app = FastAPI(
     redoc_url='/redoc' if _api_docs_enabled else None,
     openapi_url='/openapi.json' if _api_docs_enabled else None,
 )
+
+if not _api_docs_enabled:
+    # Prevent SPA static fallback from serving index.html on docs/OpenAPI paths.
+    @app.get('/docs')
+    async def docs_disabled() -> Response:
+        return Response(status_code=404)
+
+    @app.get('/redoc')
+    async def redoc_disabled() -> Response:
+        return Response(status_code=404)
+
+    @app.get('/openapi.json')
+    async def openapi_disabled() -> Response:
+        return Response(status_code=404)
 
 # ==============================================================================
 # Middleware
@@ -372,19 +435,38 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
             clear_contextvars()
 
 
+class DesktopSessionMiddleware(BaseHTTPMiddleware):
+    """
+    Enforce per-launch desktop session token for API routes when running under Tauri.
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        if (
+            _DESKTOP_SESSION_MODE
+            and request.url.path.startswith('/api')
+            and request.method != 'OPTIONS'
+            and not is_tauri_session_authorized(request.headers, _TAURI_SESSION_TOKEN)
+        ):
+            return JSONResponse(
+                status_code=401,
+                content={
+                    'detail': (
+                        f'Missing or invalid desktop session token. '
+                        f'Provide {TAURI_SESSION_HEADER}.'
+                    ),
+                },
+            )
+        return await call_next(request)
+
+
 # Request logging — log all API requests
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(DesktopSessionMiddleware)
 
 # CORS — allow the frontend to talk to the API from localhost
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        f'http://localhost:{settings.port}',
-        f'http://127.0.0.1:{settings.port}',
-        'http://localhost:3000',   # In case of separate dev server
-        'http://localhost:5173',   # Vite dev server
-        'tauri://localhost',       # Future Tauri integration
-    ],
+    allow_origins=get_cors_allow_origins(settings.port, desktop_mode=_DESKTOP_SESSION_MODE),
     allow_credentials=True,
     allow_methods=['*'],
     allow_headers=['*'],
@@ -454,7 +536,7 @@ def main() -> None:
     # reload=True only when dev_reload is set (e.g. make dev); never in production.
     # access_log=False because we have custom RequestLoggingMiddleware that provides structured logging.
     uvicorn.run(
-        'informity.main:app',
+        app,
         host=settings.host,
         port=settings.port,
         reload=settings.dev_reload,

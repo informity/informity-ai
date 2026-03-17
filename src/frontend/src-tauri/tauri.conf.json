@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Informity AI",
+  "mainBinaryName": "Informity AI",
+  "version": "0.7.0",
+  "identifier": "com.informity.ai",
+  "build": {
+    "beforeDevCommand": "npm run dev -- --host 127.0.0.1 --port 5173",
+    "beforeBuildCommand": "npm run build",
+    "devUrl": "http://127.0.0.1:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "withGlobalTauri": true,
+    "windows": [
+      {
+        "title": "Informity AI",
+        "label": "main",
+        "width": 1440,
+        "height": 920,
+        "minWidth": 1280,
+        "minHeight": 820,
+        "backgroundColor": "#090909",
+        "resizable": true,
+        "fullscreen": false
+      }
+    ]
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "resources": [
+      "backend/*",
+      "icons/32x32.png",
+      "icons/trayTemplate.png"
+    ]
+  }
+}

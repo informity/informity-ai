@@ -2,6 +2,14 @@
    History table — matches FileTable appearance (uses shared data-table)
    ----------------------------------------------------------------------------- */
 
+.history-table {
+  container-type: inline-size;
+}
+
+.history-table__table {
+  width: 100%;
+}
+
 .history-table__th--actions {
   width: 150px;
   text-align: center;
@@ -12,10 +20,24 @@
 }
 
 .history-table__td--title {
-  max-width: 320px;
   padding-left: 0;
   padding-top: 0.5rem;
   vertical-align: top;
+}
+
+.history-table__th--messages,
+.history-table__td--messages {
+  width: 6.5rem;
+}
+
+.history-table__th--date,
+.history-table__td--date {
+  width: 11rem;
+}
+
+.history-table__th--duration,
+.history-table__td--duration {
+  width: 9.5rem;
 }
 
 .history-table__td--actions {
@@ -25,6 +47,7 @@
 .history-table__title-cell {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .history-table__title-row {
@@ -46,7 +69,13 @@
 }
 
 .history-table__title-text {
+  flex: 1;
   font-weight: 500;
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .history-table__title-preview {
@@ -115,6 +144,46 @@
   outline: none;
   box-shadow: none;
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+}
+
+.history-table__td--messages,
+.history-table__td--date,
+.history-table__td--duration {
+  white-space: nowrap;
+}
+
+@container (max-width: 1180px) {
+  .history-table__th--duration,
+  .history-table__td--duration {
+    display: none;
+  }
+}
+
+@container (max-width: 1040px) {
+  .history-table__title-preview {
+    display: none;
+  }
+
+  .history-table__td--title {
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+    vertical-align: middle;
+  }
+
+  .history-table__title-row {
+    margin-bottom: 0;
+  }
+}
+
+@container (max-width: 920px) {
+  .history-table__th--messages,
+  .history-table__td--messages {
+    display: none;
+  }
+
+  .history-table__th--actions {
+    width: 128px;
+  }
 }
 
 /* Empty state uses shared data-table__empty-* styles */

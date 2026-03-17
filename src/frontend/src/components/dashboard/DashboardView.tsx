@@ -30,6 +30,7 @@ import '../../styles/shared/buttons.css'
 import './DashboardView.css'
 
 const POLL_INTERVAL_MS = 2000
+const MENU_SCAN_NOW_PENDING_KEY = 'informity.menu.scan_now.pending'
 
 interface StatCardProps {
   icon: string
@@ -87,6 +88,86 @@ interface SettingsData {
   watched_directories?: string[]
 }
 
+type ScanNoticeSeverity = 'warning' | 'error'
+
+interface ScanNotice {
+  key: string
+  severity: ScanNoticeSeverity
+  icon: string
+  text: string
+}
+
+const MAX_SCAN_NOTICES = 3
+
+function getRecentErrorKey(err: NonNullable<ScanStatus['recent_errors']>[number], idx: number): string {
+  const source = err.path || err.filename || `item-${idx}`
+  const code = err.error_code || 'error'
+  const createdAt = err.created_at || 'unknown-time'
+  return `${createdAt}|${source}|${code}`
+}
+
+function getScanNoticeFromRecentError(
+  err: NonNullable<ScanStatus['recent_errors']>[number],
+  idx: number,
+): ScanNotice {
+  const fileLabel = err.filename || err.path || 'Unknown file'
+  const code = err.error_code ?? ''
+  const key = getRecentErrorKey(err, idx)
+
+  if (code === 'pdf_password_protected') {
+    return {
+      key,
+      severity: 'warning',
+      icon: 'ri-lock-line',
+      text: `${fileLabel}: Password-protected PDF skipped.`,
+    }
+  }
+
+  if (code === 'pdf_invalid_or_corrupt') {
+    return {
+      key,
+      severity: 'warning',
+      icon: 'ri-file-warning-line',
+      text: `${fileLabel}: PDF is invalid or corrupted and could not be indexed.`,
+    }
+  }
+
+  if (code === 'docling_extraction_error') {
+    return {
+      key,
+      severity: 'error',
+      icon: 'ri-file-damage-line',
+      text: `${fileLabel}: Document extraction failed.`,
+    }
+  }
+
+  if (code === 'scan_cancelled') {
+    return {
+      key,
+      severity: 'warning',
+      icon: 'ri-close-circle-line',
+      text: `${fileLabel}: Scan was cancelled before completion.`,
+    }
+  }
+
+  if (err.is_timeout || code.includes('timeout')) {
+    return {
+      key,
+      severity: 'warning',
+      icon: 'ri-time-line',
+      text: `${fileLabel}: Processing timed out.`,
+    }
+  }
+
+  const codeLabel = code ? ` (${code})` : ''
+  return {
+    key,
+    severity: 'error',
+    icon: 'ri-alert-line',
+    text: `${fileLabel}: Scan failed${codeLabel}.`,
+  }
+}
+
 export function DashboardView() {
   const confirm = useConfirm()
   const { offline } = useBackendStatus()
@@ -100,6 +181,9 @@ export function DashboardView() {
   const [cancelling, setCancelling] = useState(false)
   const [rebuilding, setRebuilding] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
+  const [dismissedNoticeKeys, setDismissedNoticeKeys] = useState<Set<string>>(new Set())
+  const [suppressRecentErrors, setSuppressRecentErrors] = useState(false)
+  const previousScanStatusRef = useRef<string | undefined>(undefined)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   const loadIndexStatus = useCallback(async () => {
@@ -191,10 +275,41 @@ export function DashboardView() {
     }
   }, [scanStatus?.status, loadScanStatus, loadIndexStatus, loadRecentFiles])
 
+  useEffect(() => {
+    const previousStatus = previousScanStatusRef.current
+    const currentStatus = scanStatus?.status
+    if (currentStatus === 'running' && previousStatus !== 'running') {
+      setDismissedNoticeKeys(new Set())
+      setSuppressRecentErrors(false)
+    }
+    if (previousStatus === 'running' && currentStatus !== 'running') {
+      const completedWithoutErrors =
+        (scanStatus?.errors ?? 0) === 0 &&
+        (scanStatus?.timeout_errors ?? 0) === 0 &&
+        (scanStatus?.recent_errors?.length ?? 0) === 0
+      if (completedWithoutErrors) {
+        setScanError(null)
+        setDismissedNoticeKeys(new Set())
+        setSuppressRecentErrors(true)
+      }
+    }
+    previousScanStatusRef.current = currentStatus
+  }, [scanStatus])
+
+  const dismissNotice = useCallback((key: string) => {
+    setDismissedNoticeKeys((previous) => {
+      const next = new Set(previous)
+      next.add(key)
+      return next
+    })
+  }, [])
+
   const handleScanNow = async () => {
     if (offline) return
     setScanning(true)
     setScanError(null)
+    setDismissedNoticeKeys(new Set())
+    setSuppressRecentErrors(false)
     try {
       let dirs = settings?.watched_directories
       if (!dirs?.length) {
@@ -217,6 +332,32 @@ export function DashboardView() {
     }
   }
 
+  const isScanRunning = scanStatus?.status === 'running'
+  const watchedDirCount = settings?.watched_directories?.length ?? 0
+
+  useEffect(() => {
+    try {
+      const pending = sessionStorage.getItem(MENU_SCAN_NOW_PENDING_KEY) === '1'
+      if (pending) {
+        sessionStorage.removeItem(MENU_SCAN_NOW_PENDING_KEY)
+        if (!isScanRunning && !scanning && !rebuilding && !cancelling && !offline) {
+          void handleScanNow()
+        }
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [handleScanNow, isScanRunning, scanning, rebuilding, cancelling, offline])
+
+  useEffect(() => {
+    const handleMenuScanNow = () => {
+      if (isScanRunning || scanning || rebuilding || cancelling || offline) return
+      void handleScanNow()
+    }
+    window.addEventListener('menu-scan-now', handleMenuScanNow)
+    return () => window.removeEventListener('menu-scan-now', handleMenuScanNow)
+  }, [handleScanNow, isScanRunning, scanning, rebuilding, cancelling, offline])
+
   const handleRescanAll = async () => {
     if (offline) return
     const ok = await confirm({
@@ -229,6 +370,8 @@ export function DashboardView() {
     if (!ok) return
     setScanning(true)
     setScanError(null)
+    setDismissedNoticeKeys(new Set())
+    setSuppressRecentErrors(false)
     try {
       let dirs = settings?.watched_directories
       if (!dirs?.length) {
@@ -343,9 +486,20 @@ export function DashboardView() {
       </div>
     )
   }
-
-  const isScanRunning = scanStatus?.status === 'running'
-  const watchedDirCount = settings?.watched_directories?.length ?? 0
+  const recentNotices = suppressRecentErrors
+    ? []
+    : (scanStatus?.recent_errors ?? []).slice(0, MAX_SCAN_NOTICES).map(getScanNoticeFromRecentError)
+  const scanNotices: ScanNotice[] = []
+  if (scanError) {
+    scanNotices.push({
+      key: 'scan-error',
+      severity: 'error',
+      icon: 'ri-alert-circle-line',
+      text: scanError,
+    })
+  }
+  scanNotices.push(...recentNotices)
+  const visibleScanNotices = scanNotices.filter((notice) => !dismissedNoticeKeys.has(notice.key))
 
   return (
     <div className="page page--dashboard" onWheel={handlePageWheel}>
@@ -425,6 +579,27 @@ export function DashboardView() {
                 </div>
               </div>
             )}
+            {visibleScanNotices.length > 0 && (
+              <div className="dashboard__scan-notices" role="status" aria-live="polite">
+                {visibleScanNotices.map((notice) => (
+                  <div
+                    key={notice.key}
+                    className={`dashboard__scan-notice dashboard__scan-notice--${notice.severity}`}
+                  >
+                    <i className={notice.icon} aria-hidden />
+                    <span>{notice.text}</span>
+                    <button
+                      type="button"
+                      className="dashboard__scan-notice-dismiss"
+                      aria-label="Dismiss scan notice"
+                      onClick={() => dismissNotice(notice.key)}
+                    >
+                      <i className="ri-close-line" aria-hidden />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="dashboard__content-metrics ui-section-divider">
@@ -475,24 +650,6 @@ export function DashboardView() {
             </div>
           </div>
         </div>
-
-        {scanError && (
-          <div className="dashboard__scan-error">
-            <i className="ri-alert-circle-line" aria-hidden style={{ fontSize: '1rem' }} />
-            {scanError}
-          </div>
-        )}
-
-        {(scanStatus?.recent_errors?.length ?? 0) > 0 && (
-          <div className="dashboard__scan-error">
-            <i className="ri-alert-line" aria-hidden style={{ fontSize: '1rem' }} />
-            <span>
-              Recent scan errors: {scanStatus?.recent_errors?.slice(0, 3).map((err) =>
-                `${err.filename || err.path || 'unknown'} (${err.operation || 'scan'}: ${err.error_code || 'error'})`,
-              ).join(' · ')}
-            </span>
-          </div>
-        )}
 
         <div className="dashboard__recent ui-section-divider">
           <h2 className="dashboard__section-heading ui-section-heading">

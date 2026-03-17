@@ -5,8 +5,8 @@
 # Only active when settings.chat_trace_logging is True.
 #
 # Format: One JSON object per file (pretty-printed).
-# User chats: data/chats/{chat_id}/{message_id}.json (full trace: intent, retrieval, prompt, sources, llm)
-# Evaluation: data/diagnostics/runs/{run_id}/traces/{chat_id}--{message_id}.json
+# User chats: {app_data_dir}/chats/{chat_id}/{message_id}.json
+# Evaluation: {app_data_dir}/diagnostics/runs/{run_id}/traces/{chat_id}--{message_id}.json
 # Each file contains one complete trace entry with timestamp, chat_id, message_id, and steps.
 # ==============================================================================
 

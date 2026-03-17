@@ -5,7 +5,13 @@
 
 import type { StreamChatCallbacks, StreamDonePayload } from './types/api'
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://localhost:8420'
+function getApiBase(): string {
+  return window.__INFORMITY_API_BASE__ || import.meta.env.VITE_API_URL || 'http://localhost:8420'
+}
+
+function getSessionToken(): string | null {
+  return window.__INFORMITY_API_TOKEN__ || null
+}
 
 // -----------------------------------------------------------------------------
 // ApiError — typed error for API failures
@@ -39,7 +45,7 @@ async function request<T = unknown>(
   path: string,
   options: RequestConfig = {},
 ): Promise<T> {
-  const url = path.startsWith('http') ? path : `${API_BASE}${path}`
+  const url = path.startsWith('http') ? path : `${getApiBase()}${path}`
   const { body, params } = options
 
   let fullUrl = url
@@ -60,6 +66,10 @@ async function request<T = unknown>(
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
     ...options.headers,
+  }
+  const sessionToken = getSessionToken()
+  if (sessionToken) {
+    headers['X-Informity-Session'] = sessionToken
   }
 
   const config: RequestInit = {
@@ -188,8 +198,10 @@ export async function rebuildIndex(force = false): Promise<unknown> {
   return request('POST', '/api/index/rebuild', { body: { force } })
 }
 
-export async function resetIndex(): Promise<unknown> {
-  return request('POST', '/api/index/reset')
+export async function resetIndex(force = false): Promise<unknown> {
+  return request('POST', '/api/index/reset', {
+    params: { force },
+  })
 }
 
 // -----------------------------------------------------------------------------
@@ -205,7 +217,8 @@ export async function streamChat(
   const { onToken, onChatId, onStreamId, onRequestId, onSources, onDone, onError, onCleaned, onStatus, signal } = callbacks
   let doneData: StreamDonePayload | null = null
   const streamState = { seenSources: false, seenCleaned: false, seenDone: false }
-  const url = `${API_BASE}/api/chat`
+  const url = `${getApiBase()}/api/chat`
+  const sessionToken = getSessionToken()
   const body = JSON.stringify({
     message: message.trim(),
     chat_id: chatId || null,
@@ -215,7 +228,10 @@ export async function streamChat(
   try {
     const response = await fetch(url, {
       method:  'POST',
-      headers:  { 'Content-Type': 'application/json' },
+      headers:  {
+        'Content-Type': 'application/json',
+        ...(sessionToken ? { 'X-Informity-Session': sessionToken } : {}),
+      },
       body,
       signal,
     })

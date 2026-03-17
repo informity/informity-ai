@@ -161,7 +161,7 @@ export function FileTable({
                 <SortIcon sort={sort} order={order} column="filename" />
               </th>
               <th
-                className={`file-table__th file-table__th--sortable data-table__th data-table__th--sortable ${
+                className={`file-table__th file-table__th--category file-table__th--sortable data-table__th data-table__th--sortable ${
                   sort === 'category' ? 'data-table__th--sorted' : ''
                 }`}
                 onClick={() => handleHeaderClick('category')}
@@ -179,7 +179,7 @@ export function FileTable({
                 <SortIcon sort={sort} order={order} column="size_bytes" />
               </th>
               <th
-                className={`file-table__th file-table__th--sortable file-table__th--right data-table__th data-table__th--sortable data-table__th--right ${
+                className={`file-table__th file-table__th--modified file-table__th--sortable file-table__th--right data-table__th data-table__th--sortable data-table__th--right ${
                   sort === 'modified_at' ? 'data-table__th--sorted' : ''
                 }`}
                 onClick={() => handleHeaderClick('modified_at')}
@@ -188,7 +188,7 @@ export function FileTable({
                 <SortIcon sort={sort} order={order} column="modified_at" />
               </th>
               <th
-                className={`file-table__th file-table__th--sortable file-table__th--right data-table__th data-table__th--sortable data-table__th--right ${
+                className={`file-table__th file-table__th--indexed file-table__th--sortable file-table__th--right data-table__th data-table__th--sortable data-table__th--right ${
                   sort === 'indexed_at' ? 'data-table__th--sorted' : ''
                 }`}
                 onClick={() => handleHeaderClick('indexed_at')}
@@ -215,15 +215,19 @@ export function FileTable({
                       <i className={iconClass} aria-hidden style={{ fontSize: '1rem' }} />
                     </div>
                   </td>
-                  <td className="file-table__td file-table__td--filename data-table__td">{file.filename || '—'}</td>
-                  <td className="file-table__td data-table__td">
+                  <td className="file-table__td file-table__td--filename data-table__td">
+                    <span className="file-table__filename-text" title={file.filename || '—'}>
+                      {file.filename || '—'}
+                    </span>
+                  </td>
+                  <td className="file-table__td file-table__td--category data-table__td">
                     <span className="file-table__category-badge data-table__badge">{formatCategory(file.category)}</span>
                   </td>
-                  <td className="file-table__td file-table__td--right data-table__td data-table__td--right">
+                  <td className="file-table__td file-table__td--size file-table__td--right data-table__td data-table__td--right">
                     {formatFileSize(file.size_bytes)}
                   </td>
-                  <td className="file-table__td file-table__td--right data-table__td data-table__td--right">{formatDate(file.modified_at)}</td>
-                  <td className="file-table__td file-table__td--right data-table__td data-table__td--right">{formatDate(file.indexed_at)}</td>
+                  <td className="file-table__td file-table__td--modified file-table__td--right data-table__td data-table__td--right">{formatDate(file.modified_at)}</td>
+                  <td className="file-table__td file-table__td--indexed file-table__td--right data-table__td data-table__td--right">{formatDate(file.indexed_at)}</td>
                   <td className="file-table__td file-table__td--actions data-table__td" onClick={(e) => e.stopPropagation()}>
                     <div className="file-table__actions">
                       <span className="data-table__action-wrap ui-tooltip-trigger">

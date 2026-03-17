@@ -5,6 +5,7 @@
 # ==============================================================================
 
 import asyncio
+import contextlib
 import gc
 import os
 import subprocess
@@ -74,6 +75,15 @@ from informity.utils.path_utils import normalize_path
 
 log = structlog.get_logger(__name__)
 _SCAN_RUNTIME_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError)
+SCAN_CANCEL_POLL_INTERVAL_SECONDS = 0.25
+SCAN_PROGRESS_DB_BUSY_TIMEOUT_MS = 250
+SCAN_PROGRESS_UPDATE_TIMEOUT_SECONDS = 1.0
+SCAN_TERMINAL_UPDATE_RETRIES = 3
+SCAN_TERMINAL_UPDATE_RETRY_DELAY_SECONDS = 0.2
+
+
+class _ScanCancelledInFlight(Exception):
+    """Raised when a scan cancellation request arrives during file processing."""
 
 # ==============================================================================
 # Router
@@ -422,6 +432,8 @@ async def _run_scan_task(
     )
 
     db = await get_connection()
+    progress_db = await get_connection()
+    await progress_db.execute(f'PRAGMA busy_timeout={SCAN_PROGRESS_DB_BUSY_TIMEOUT_MS}')
 
     scan_started_at  = datetime.now(UTC)
     files_scanned    = 0
@@ -438,6 +450,42 @@ async def _run_scan_task(
     ocr_used_count = 0
     timeout_seconds_configured = int(settings.scan_file_timeout_seconds)
     timeout_seconds_effective = _clamp_scan_file_timeout_seconds(timeout_seconds_configured)
+
+    async def _update_scan_record_best_effort(
+        record: ScanRecord,
+        *,
+        context: str,
+        terminal: bool = False,
+    ) -> None:
+        attempts = SCAN_TERMINAL_UPDATE_RETRIES if terminal else 1
+        for attempt in range(1, attempts + 1):
+            try:
+                await asyncio.wait_for(
+                    update_scan_record(progress_db, record),
+                    timeout=SCAN_PROGRESS_UPDATE_TIMEOUT_SECONDS,
+                )
+                return
+            except TimeoutError:
+                log.warning(
+                    'scan_record_update_timeout',
+                    scan_id=scan_id,
+                    context=context,
+                    attempt=attempt,
+                    terminal=terminal,
+                    timeout_seconds=SCAN_PROGRESS_UPDATE_TIMEOUT_SECONDS,
+                )
+            except _SCAN_RUNTIME_EXCEPTIONS as exc:
+                log.warning(
+                    'scan_record_update_failed',
+                    scan_id=scan_id,
+                    context=context,
+                    attempt=attempt,
+                    terminal=terminal,
+                    error=str(exc),
+                )
+
+            if attempt < attempts:
+                await asyncio.sleep(SCAN_TERMINAL_UPDATE_RETRY_DELAY_SECONDS)
 
     async def _process_file(
         sf: 'ScannedFile',
@@ -456,14 +504,56 @@ async def _run_scan_task(
             file     = sf.filename,
             path     = str(sf.path),
         )
+
+        async def _run_handler_with_cancel_polling() -> IndexResult:
+            # Poll for scan cancellation while a single file is being processed so
+            # cancel requests don't wait for full file timeout windows.
+            handler_task = asyncio.create_task(handler(db, sf))
+            deadline: float | None = None
+            if timeout_seconds_effective > 0:
+                deadline = asyncio.get_running_loop().time() + float(timeout_seconds_effective)
+
+            try:
+                while True:
+                    if handler_task.done():
+                        return await handler_task
+
+                    if await op_state.is_scan_cancel_requested(scan_id):
+                        log.info(
+                            'scan_cancel_requested_inflight',
+                            scan_id=scan_id,
+                            operation=action,
+                            path=str(sf.path),
+                        )
+                        handler_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError, Exception):
+                            await asyncio.wait_for(handler_task, timeout=0.1)
+                        raise _ScanCancelledInFlight()
+
+                    wait_timeout = SCAN_CANCEL_POLL_INTERVAL_SECONDS
+                    if deadline is not None:
+                        remaining = deadline - asyncio.get_running_loop().time()
+                        if remaining <= 0:
+                            handler_task.cancel()
+                            with contextlib.suppress(asyncio.CancelledError, Exception):
+                                await asyncio.wait_for(handler_task, timeout=0.1)
+                            raise TimeoutError()
+                        wait_timeout = min(wait_timeout, remaining)
+
+                    try:
+                        await asyncio.wait_for(
+                            asyncio.shield(handler_task),
+                            timeout=wait_timeout,
+                        )
+                    except TimeoutError:
+                        # Expected: loop heartbeat for cancel polling.
+                        continue
+            finally:
+                if not handler_task.done():
+                    handler_task.cancel()
+
         try:
-            if timeout_seconds_effective == 0:
-                result = await handler(db, sf)
-            else:
-                result = await asyncio.wait_for(
-                    handler(db, sf),
-                    timeout=float(timeout_seconds_effective),
-                )
+            result = await _run_handler_with_cancel_polling()
             if result.success:
                 files_indexed += 1
                 chunks_total_created += result.chunks_created
@@ -497,6 +587,8 @@ async def _run_scan_task(
                     path=str(sf.path),
                     error=result.error,
                 )
+        except _ScanCancelledInFlight:
+            raise
         except TimeoutError:
             errors += 1
             errors_by_extension[sf.extension] += 1
@@ -561,24 +653,53 @@ async def _run_scan_task(
                 error_code='scan_processing_exception',
                 retryable=True,
             )
+        except Exception as exc:
+            # Last-resort guard: never let unexpected exception classes kill
+            # the background scan task silently.
+            errors += 1
+            errors_by_extension[sf.extension] += 1
+            await insert_scan_error_record(
+                db,
+                ScanErrorRecord(
+                    scan_id=scan_id,
+                    path=str(sf.path),
+                    filename=sf.filename,
+                    extension=sf.extension,
+                    operation=action,
+                    error_code='scan_unhandled_exception',
+                    error_message=str(exc),
+                    is_timeout=False,
+                ),
+            )
+            log.error(
+                'scan_file_processing_unhandled_exception',
+                operation=action,
+                path=str(sf.path),
+                error=str(exc),
+                exception_type=type(exc).__name__,
+                exc_info=True,
+            )
+            result = IndexResult(
+                success=False,
+                chunks_created=0,
+                error=str(exc),
+                error_code='scan_unhandled_exception',
+                retryable=True,
+            )
 
         # Update scan record after each file to keep it in sync with database state
         # (files are inserted immediately, so scan record should reflect current progress)
-        try:
-            await update_scan_record(
-                db,
-                ScanRecord(
-                    id            = scan_id,
-                    started_at    = scan_started_at,
-                    files_scanned = files_scanned,
-                    files_indexed = files_indexed,
-                    errors        = errors,
-                    status        = ScanStatus.RUNNING,
-                ),
-            )
-        except _SCAN_RUNTIME_EXCEPTIONS as exc:
-            # Log but don't fail the scan if we can't update the scan record
-            log.warning('scan_record_update_failed', scan_id=scan_id, error=str(exc))
+        await _update_scan_record_best_effort(
+            ScanRecord(
+                id=scan_id,
+                started_at=scan_started_at,
+                files_scanned=files_scanned,
+                files_indexed=files_indexed,
+                errors=errors,
+                status=ScanStatus.RUNNING,
+            ),
+            context='per_file_progress',
+        )
 
         # Explicit garbage collection to free memory back to OS after each file
         # This helps prevent memory accumulation during long scans, especially for large documents
@@ -587,8 +708,7 @@ async def _run_scan_task(
 
     async def _finalize_cancelled() -> None:
         # Persist terminal cancelled state with current progress.
-        await update_scan_record(
-            db,
+        await _update_scan_record_best_effort(
             ScanRecord(
                 id=scan_id,
                 started_at=scan_started_at,
@@ -598,6 +718,8 @@ async def _run_scan_task(
                 status=ScanStatus.CANCELLED,
                 completed_at=datetime.now(UTC),
             ),
+            context='cancelled_terminal',
+            terminal=True,
         )
 
     async def _cancel_requested(stage: str) -> bool:
@@ -695,23 +817,28 @@ async def _run_scan_task(
             )
 
             # Persist "checked" count so UI shows we only index new/changed
-            await update_scan_record(
-                db,
+            await _update_scan_record_best_effort(
                 ScanRecord(
-                    id            = scan_id,
-                    started_at    = scan_started_at,
-                    files_scanned = files_scanned,
-                    files_indexed = 0,
-                    errors        = 0,
-                    status        = ScanStatus.RUNNING,
+                    id=scan_id,
+                    started_at=scan_started_at,
+                    files_scanned=files_scanned,
+                    files_indexed=0,
+                    errors=0,
+                    status=ScanStatus.RUNNING,
                 ),
+                context='post_crawl_baseline',
             )
 
             # 3. Index new files (sequential to preserve DB consistency)
             for sf in changes.new:
                 if await _cancel_requested('index_new'):
                     return
-                result = await _process_file(sf, 'indexing_file', index_file)
+                try:
+                    result = await _process_file(sf, 'indexing_file', index_file)
+                except _ScanCancelledInFlight:
+                    if await _cancel_requested('index_new_inflight'):
+                        return
+                    raise
                 normalized_path = str(normalize_path(sf.path, expand_user=False))
                 # Persist failure/success state for retry suppression across scans.
                 if result.success:
@@ -736,7 +863,12 @@ async def _run_scan_task(
             for sf in changes.changed:
                 if await _cancel_requested('index_changed'):
                     return
-                result = await _process_file(sf, 'reindexing_file', reindex_file)
+                try:
+                    result = await _process_file(sf, 'reindexing_file', reindex_file)
+                except _ScanCancelledInFlight:
+                    if await _cancel_requested('index_changed_inflight'):
+                        return
+                    raise
                 normalized_path = str(normalize_path(sf.path, expand_user=False))
                 if result.success:
                     await clear_file_failure(db, normalized_path)
@@ -761,7 +893,12 @@ async def _run_scan_task(
                 for sf in changes.unchanged:
                     if await _cancel_requested('index_unchanged'):
                         return
-                    result = await _process_file(sf, 'reindexing_unchanged', reindex_file)
+                    try:
+                        result = await _process_file(sf, 'reindexing_unchanged', reindex_file)
+                    except _ScanCancelledInFlight:
+                        if await _cancel_requested('index_unchanged_inflight'):
+                            return
+                        raise
                     normalized_path = str(normalize_path(sf.path, expand_user=False))
                     if result.success:
                         await clear_file_failure(db, normalized_path)
@@ -809,34 +946,19 @@ async def _run_scan_task(
             status        = ScanStatus.COMPLETED,
             completed_at  = datetime.now(UTC),
         )
-        try:
-            await update_scan_record(db, scan_record)
-        except _SCAN_RUNTIME_EXCEPTIONS as exc:
-            # Log but don't fail - scan processing completed successfully
-            log.error(
-                'scan_completion_update_failed',
-                scan_id=scan_id,
-                error=str(exc),
-                exc_info=True,
-            )
-            # Still log completion so we have a record even if DB update failed
-            log.info(
-                'scan_completed_despite_update_failure',
-                scan_id  = scan_id,
-                scanned  = files_scanned,
-                indexed  = files_indexed,
-                errors   = errors,
-                deleted  = len(changes.deleted),
-            )
-        else:
-            log.info(
-                'scan_completed',
-                scan_id  = scan_id,
-                scanned  = files_scanned,
-                indexed  = files_indexed,
-                errors   = errors,
-                deleted  = len(changes.deleted),
-            )
+        await _update_scan_record_best_effort(
+            scan_record,
+            context='completed_terminal',
+            terminal=True,
+        )
+        log.info(
+            'scan_completed',
+            scan_id  = scan_id,
+            scanned  = files_scanned,
+            indexed  = files_indexed,
+            errors   = errors,
+            deleted  = len(changes.deleted),
+        )
 
         log.info(
             'scan_metrics_summary',
@@ -872,6 +994,12 @@ async def _run_scan_task(
         # explicit log avoids implying ANN build behavior.
         log.debug('scan_vector_index_skipped', reason='exact_search_mode')
 
+    except _ScanCancelledInFlight:
+        if await op_state.is_scan_cancel_requested(scan_id):
+            log.info('scan_cancelled', scan_id=scan_id, stage='inflight_fallback')
+            await _finalize_cancelled()
+            return
+        raise
     except _SCAN_RUNTIME_EXCEPTIONS as exc:
         log.error('scan_failed', scan_id=scan_id, error=str(exc), exc_info=True)
         scan_record = ScanRecord(
@@ -881,7 +1009,33 @@ async def _run_scan_task(
             errors       = errors + 1,
             completed_at = datetime.now(UTC),
         )
-        await update_scan_record(db, scan_record)
+        await _update_scan_record_best_effort(
+            scan_record,
+            context='failed_terminal',
+            terminal=True,
+        )
+    except Exception as exc:
+        # Last-resort guard: ensure scan status does not remain "running"
+        # when unexpected exceptions escape the scan loop.
+        log.error(
+            'scan_failed_unhandled_exception',
+            scan_id=scan_id,
+            error=str(exc),
+            exception_type=type(exc).__name__,
+            exc_info=True,
+        )
+        scan_record = ScanRecord(
+            id=scan_id,
+            started_at=scan_started_at,
+            status=ScanStatus.FAILED,
+            errors=errors + 1,
+            completed_at=datetime.now(UTC),
+        )
+        await _update_scan_record_best_effort(
+            scan_record,
+            context='failed_terminal_unhandled',
+            terminal=True,
+        )
 
     finally:
         await op_state.clear_scan_cancel(scan_id)
@@ -890,4 +1044,8 @@ async def _run_scan_task(
         except _SCAN_RUNTIME_EXCEPTIONS as exc:
             # Log but don't raise - connection closure failure shouldn't mask scan errors
             log.warning('db_close_failed', scan_id=scan_id, error=str(exc))
+        try:
+            await progress_db.close()
+        except _SCAN_RUNTIME_EXCEPTIONS as exc:
+            log.warning('progress_db_close_failed', scan_id=scan_id, error=str(exc))
         clear_contextvars()

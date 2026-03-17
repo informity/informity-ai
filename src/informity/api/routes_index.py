@@ -19,7 +19,7 @@ import informity.api.operation_state as op_state
 from informity.api.operation_state import resolve_running_scan
 from informity.api.schemas import IndexStatusResponse, RebuildRequest
 from informity.api.security import EndpointGuard
-from informity.config import reset_to_factory_defaults, settings
+from informity.config import DirNames, reset_to_factory_defaults, settings
 from informity.db.models import ScanRecord, ScanStatus
 from informity.db.sqlite import (
     get_chat_count,
@@ -200,6 +200,7 @@ async def get_index_status(
 @router.post('/api/index/reset')
 async def reset_index(
     background_tasks: BackgroundTasks,
+    force: bool = False,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
     # Delete ALL user data: files, chunks, vectors, scan history,
@@ -216,11 +217,10 @@ async def reset_index(
                 detail='A reset is already in progress. Please wait for it to complete.',
             )
 
-        # Refuse if a scan/rebuild is currently running — but clear stale scans.
-        # Uses the shared resolve_running_scan helper with force=False so recent scans
-        # block reset; stale scans (>STALE_SCAN_THRESHOLD_SECONDS) are auto-cleared.
+        # Refuse if a scan/rebuild is currently running unless force=true.
+        # Stale scans (>STALE_SCAN_THRESHOLD_SECONDS) are auto-cleared regardless.
         try:
-            await op_state.resolve_running_scan(db, force=False, operation='reset')
+            await op_state.resolve_running_scan(db, force=force, operation='reset')
         except HTTPException:
             await op_state.finish_reset(result=None)
             raise
@@ -260,11 +260,22 @@ async def _run_reset_task() -> None:
 
         db_counts = await reset_all_data(db)
 
-        # Delete all user data directories (diagnostics, logs)
+        # Delete all user data directories (chat traces, diagnostics, logs)
+        # Chat traces live under app_data_dir/chats/ when chat trace logging is enabled.
         # Diagnostics contains user chat traces, evaluations, reports (privacy-sensitive).
         # Logs contain runtime application logs (user-produced data).
+        chat_traces_deleted = False
         diagnostics_deleted = False
         logs_deleted = False
+
+        chat_traces_dir = settings.app_data_dir / DirNames.CHAT_LOGS
+        if chat_traces_dir.exists():
+            try:
+                await asyncio.to_thread(shutil.rmtree, chat_traces_dir)
+                chat_traces_deleted = True
+                log.info('chat_traces_deleted', path=str(chat_traces_dir))
+            except _INDEX_CLEANUP_EXCEPTIONS as exc:
+                log.error('reset_chat_traces_failed', error=str(exc), exc_info=True)
 
         if settings.diagnostics_dir and settings.diagnostics_dir.exists():
             try:
@@ -301,6 +312,7 @@ async def _run_reset_task() -> None:
             'metrics_deleted':     db_counts.get('response_diagnostics_metrics', 0),
             'storage_compacted':   bool(db_counts.get('storage_compacted', False)),
             'compaction_error':    db_counts.get('compaction_error'),
+            'chat_traces_deleted': chat_traces_deleted,
             'diagnostics_deleted': diagnostics_deleted,
             'logs_deleted':        logs_deleted,
         }

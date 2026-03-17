@@ -6,13 +6,6 @@ from dataclasses import dataclass
 from markdown_it import MarkdownIt
 from number_parser import parse_number
 
-_MISSING_EVIDENCE_PATTERNS = (
-    'missing evidence',
-    'no evidence',
-    'not found',
-    'insufficient evidence',
-    'evidence gap',
-)
 _CANONICAL_MISSING_EVIDENCE_PREFIX = 'Missing Evidence:'
 _CANONICAL_EVIDENCE_PATTERN = re.compile(
     r'evidence:\s*[^,\n][^,\n]*(?:,\s*page\s*[0-9]+)?',
@@ -732,7 +725,6 @@ def _evaluate_output_contract(
 
     missing_evidence_callout_ok: bool | None = None
     missing_evidence_callout_canonical: bool | None = None
-    missing_evidence_callout_legacy_only: bool | None = None
     if plan.requires_missing_evidence_callout:
         canonical_hit = False
         canonical_cell_pattern = re.compile(
@@ -751,13 +743,9 @@ def _evaluate_output_contract(
             if candidate.startswith(_CANONICAL_MISSING_EVIDENCE_PREFIX) or canonical_cell_pattern.search(raw_line):
                 canonical_hit = True
                 break
-        answer_folded = answer.casefold()
-        legacy_hit = any(pattern in answer_folded for pattern in _MISSING_EVIDENCE_PATTERNS)
         # Strict phase: canonical phrase is required for pass/fail.
-        # Legacy variants are retained only for migration telemetry.
         missing_evidence_callout_ok = canonical_hit
         missing_evidence_callout_canonical = canonical_hit
-        missing_evidence_callout_legacy_only = (not canonical_hit and legacy_hit)
 
     word_count = len(answer.split())
     word_count_ok: bool | None = None
@@ -946,7 +934,6 @@ def _evaluate_output_contract(
         'bullet_depth_ok': bullet_depth_ok,
         'missing_evidence_callout_ok': missing_evidence_callout_ok,
         'missing_evidence_callout_canonical': missing_evidence_callout_canonical,
-        'missing_evidence_callout_legacy_only': missing_evidence_callout_legacy_only,
         'word_count': word_count,
         'word_count_ok': word_count_ok,
         'top_level_bullet_count': top_level_bullet_count,

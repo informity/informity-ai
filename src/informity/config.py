@@ -13,7 +13,6 @@
 
 import json
 import os
-import shutil
 from pathlib import Path
 from typing import Literal
 
@@ -48,6 +47,10 @@ def _get_repo_root() -> Path:
     Starts from config.py location and walks up to find pyproject.toml.
     Falls back to current working directory if not found.
     """
+    env_repo_root = os.environ.get('INFORMITY_REPO_ROOT', '').strip()
+    if env_repo_root:
+        return normalize_path(Path(env_repo_root), expand_user=True)
+
     # config.py is at: src/informity/config.py
     # So repo root is: config.py -> informity -> src -> repo_root
     current = Path(__file__).resolve().parent.parent.parent
@@ -79,7 +82,6 @@ _DEFAULT_EMBEDDING_MODEL = 'nomic-ai/nomic-embed-text-v1.5'
 
 # Default reranker model (sentence-transformers cross-encoder)
 _DEFAULT_RERANKER_MODEL = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
-
 # Public aliases for schema/default consumers.
 DEFAULT_CLASSIFIER_LLM_MODEL_FILENAME = _DEFAULT_CLASSIFIER_LLM_MODEL_FILENAME
 DEFAULT_RERANKER_MODEL = _DEFAULT_RERANKER_MODEL
@@ -114,14 +116,15 @@ class DirNames:
     DB = 'db'
     LOGS = 'logs'
     DIAGNOSTICS = 'diagnostics'
+    MODELS = 'models'
     CHAT_LOGS = 'chats'  # Per-message trace logs: app_data_dir/chats/{chat_id}/{message_id}.json
 
     # Unified cache directory (at repo root, not committed to repo)
     CACHE = '.cache'  # Dot prefix since not committed to repo
 
-    # Cache subdirectories (all under .cache/ - fully flat structure)
-    LLM = 'chat-llm'  # Chat/RAG LLM models (*.gguf files) under .cache/chat-llm/
-    QUERY_CLASSIFIER_MODELS = 'query-classifier-llm'  # Query classifier model (*.gguf) under .cache/query-classifier-llm/
+    # Model/cache subdirectories
+    LLM = 'chat-llm'  # Chat/RAG LLM models (*.gguf files)
+    QUERY_CLASSIFIER_MODELS = 'query-classifier-llm'  # Query classifier model (*.gguf)
     DIAGNOSTICS_MODELS = 'models'  # Diagnostics LLM models (*.gguf files) under tools/diagnostics/models/
     HUGGINGFACE = 'huggingface'  # HuggingFace cache under .cache/huggingface/
     HUB = 'hub'  # HuggingFace hub cache under .cache/huggingface/hub/
@@ -288,8 +291,8 @@ class Settings(BaseSettings):
     cache_dir:     Path | None = Field(default=None)   # Unified cache root; default {repo_root}/DirNames.CACHE. Override via INFORMITY_CACHE_DIR.
     db_path:       Path | None = Field(default=None)   # Computed: app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
     # vectors_dir removed - vectors now stored in SQLite via sqlite-vec
-    models_dir:    Path | None = Field(default=None)   # Computed: {repo_root}/DirNames.CACHE / DirNames.LLM (RAG LLM models)
-    query_classifier_models_dir: Path | None = Field(default=None)  # Computed: {repo_root}/DirNames.CACHE / DirNames.QUERY_CLASSIFIER_MODELS (query classifier model)
+    models_dir:    Path | None = Field(default=None)   # Computed: desktop -> app_data_dir/DirNames.MODELS/DirNames.LLM; otherwise cache_dir/DirNames.LLM
+    query_classifier_models_dir: Path | None = Field(default=None)  # Computed: desktop -> app_data_dir/DirNames.MODELS/DirNames.QUERY_CLASSIFIER_MODELS; otherwise cache_dir/DirNames.QUERY_CLASSIFIER_MODELS
     logs_dir:      Path | None = Field(default=None)   # Computed: app_data_dir / DirNames.LOGS
     diagnostics_dir: Path | None = Field(default=None)  # Computed: app_data_dir / DirNames.DIAGNOSTICS
 
@@ -489,7 +492,7 @@ class Settings(BaseSettings):
     diagnostics_llm_analysis_enabled: bool = False
     # Directory for diagnostics analysis models.
     # Default: {repo_root}/tools/diagnostics/models (decoupled from .cache/).
-    diagnostics_models_dir: Path | None = Field(default=None)  # Computed: repo_root / DirNames.TOOLS / DirNames.DIAGNOSTICS / DirNames.DIAGNOSTICS_MODELS if None
+    diagnostics_models_dir: Path | None = Field(default=None)
     # Model filename to use for diagnostics analysis (default: DeepSeek R1 for analysis tasks).
     # User can override via config.json or INFORMITY_DIAGNOSTICS_LLM_MODEL_FILENAME env var.
     diagnostics_llm_model_filename: str = _DEFAULT_DIAGNOSTICS_LLM_MODEL_FILENAME
@@ -513,6 +516,8 @@ class Settings(BaseSettings):
     # -- UI (frontend-only; persisted so theme survives restarts) -------------
     # Color theme for the app UI: gray, purple, blue, green, orange, mono.
     ui_theme: Literal['gray', 'purple', 'blue', 'green', 'orange', 'mono'] = _DEFAULT_UI_THEME
+    # When true, show the macOS menu bar icon while the app is running.
+    enable_menu_bar_icon: bool = False
     # Default chat response mode for new messages when request does not specify response_mode.
     default_response_mode: Literal['balanced', 'analysis', 'research'] = _DEFAULT_RESPONSE_MODE
 
@@ -536,19 +541,31 @@ class Settings(BaseSettings):
         else:
             self.cache_dir = normalize_path(self.cache_dir, expand_user=True)
 
-        # LLM models directory: .cache/chat-llm/ (flat structure)
+        # Desktop runtime stores persistent model files under app_data_dir so they
+        # survive cache eviction and align with installed-app semantics.
+        desktop_session_mode = bool(os.environ.get('INFORMITY_TAURI_SESSION_TOKEN', '').strip())
+
+        # LLM models directory.
         if self.models_dir is None:
-            self.models_dir = self.cache_dir / DirNames.LLM
+            if desktop_session_mode:
+                self.models_dir = self.app_data_dir / DirNames.MODELS / DirNames.LLM
+            else:
+                self.models_dir = self.cache_dir / DirNames.LLM
         else:
             self.models_dir = normalize_path(self.models_dir, expand_user=True)
 
-        # Query classifier model directory: .cache/query-classifier-llm/ (isolated from main chat models)
+        # Query classifier model directory.
         if self.query_classifier_models_dir is None:
-            self.query_classifier_models_dir = self.cache_dir / DirNames.QUERY_CLASSIFIER_MODELS
+            if desktop_session_mode:
+                self.query_classifier_models_dir = (
+                    self.app_data_dir / DirNames.MODELS / DirNames.QUERY_CLASSIFIER_MODELS
+                )
+            else:
+                self.query_classifier_models_dir = self.cache_dir / DirNames.QUERY_CLASSIFIER_MODELS
         else:
             self.query_classifier_models_dir = normalize_path(self.query_classifier_models_dir, expand_user=True)
 
-        # Diagnostics models directory: tools/diagnostics/models/ (decoupled from .cache/)
+        # Diagnostics models directory: tools/diagnostics/models (decoupled from .cache/).
         if self.diagnostics_models_dir is None:
             self.diagnostics_models_dir = (
                 repo_root / DirNames.TOOLS / DirNames.DIAGNOSTICS / DirNames.DIAGNOSTICS_MODELS
@@ -562,172 +579,40 @@ class Settings(BaseSettings):
         else:
             self.db_path = normalize_path(self.db_path, expand_user=True)
 
-        # Guardrail: legacy root-level DB path (app_data_dir/informity.db) is no longer supported.
-        # If configured via config/env, force canonical location to prevent accidental recreation.
-        legacy_db_path = self.app_data_dir / f'{APP_SLUG}.db'
-        if self.db_path == legacy_db_path:
-            canonical_db_path = self.app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
-            log.warning(
-                'legacy_db_path_override_ignored',
-                configured_db_path=str(self.db_path),
-                canonical_db_path=str(canonical_db_path),
-            )
-            self.db_path = canonical_db_path
-
         # vectors_dir removed - vectors now stored in SQLite via sqlite-vec
         if self.logs_dir is None:
             self.logs_dir = self.app_data_dir / DirNames.LOGS
         if self.diagnostics_dir is None:
             self.diagnostics_dir = self.app_data_dir / DirNames.DIAGNOSTICS
 
-        # Proactively self-heal legacy DB location during settings initialization.
-        # Some CLI/tool paths import settings without calling ensure_directories();
-        # running cleanup here prevents root-level app_data_dir/{APP_SLUG}.db from lingering.
-        self._cleanup_legacy_db_location()
-        self._migrate_legacy_diagnostics_models_dir()
-
         return self
 
     # -- Directory Creation ---------------------------------------------------
-    def _cleanup_legacy_db_location(self) -> None:
-        """
-        Handle legacy DB path at app_data_dir/informity.db.
-        Current canonical path is app_data_dir/db/informity.db.
-        """
-        if self.db_path is None:
-            return
-
-        legacy_db = normalize_path(self.app_data_dir / f'{APP_SLUG}.db', expand_user=True)
-        target_db = normalize_path(self.db_path, expand_user=True)
-
-        # If user explicitly configured db_path to the legacy location, respect it.
-        if legacy_db == target_db:
-            return
-        if not legacy_db.exists():
-            return
-
-        legacy_size = legacy_db.stat().st_size
-
-        def _sidecars(path: Path) -> list[Path]:
-            return [
-                Path(f'{path}-journal'),
-                Path(f'{path}-wal'),
-                Path(f'{path}-shm'),
-            ]
-
-        # Migrate real legacy DB only when target doesn't exist.
-        if legacy_size > 0 and not target_db.exists():
-            try:
-                target_db.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(str(legacy_db), str(target_db))
-                for src, dst in zip(_sidecars(legacy_db), _sidecars(target_db), strict=False):
-                    if src.exists():
-                        shutil.move(str(src), str(dst))
-                log.warning(
-                    'legacy_db_path_migrated',
-                    from_path=str(legacy_db),
-                    to_path=str(target_db),
-                    size_bytes=legacy_size,
-                )
-            except OSError as exc:
-                log.error(
-                    'legacy_db_path_migration_failed',
-                    from_path=str(legacy_db),
-                    to_path=str(target_db),
-                    error=str(exc),
-                )
-            return
-
-        # Remove empty stray legacy DB and any sidecars.
-        if legacy_size == 0:
-            for path in [legacy_db, *_sidecars(legacy_db)]:
-                if path.exists():
-                    try:
-                        path.unlink()
-                    except OSError as exc:
-                        log.warning('legacy_db_cleanup_failed', path=str(path), error=str(exc))
-            log.info('legacy_empty_db_removed', path=str(legacy_db))
-            return
-
-        # Non-empty legacy DB exists while target DB also exists; preserve and warn.
-        log.warning(
-            'legacy_db_path_conflict_preserved',
-            legacy_path=str(legacy_db),
-            target_path=str(target_db),
-            legacy_size_bytes=legacy_size,
-        )
-
-    def _migrate_legacy_diagnostics_models_dir(self) -> None:
-        """
-        Migrate legacy diagnostics models from .cache/diagnostics-llm/ to
-        tools/diagnostics/models/ while preserving destination conflicts.
-        """
-        if self.cache_dir is None or self.diagnostics_models_dir is None:
-            return
-
-        legacy_dir = normalize_path(self.cache_dir / 'diagnostics-llm', expand_user=True)
-        target_dir = normalize_path(self.diagnostics_models_dir, expand_user=True)
-
-        if legacy_dir == target_dir or not legacy_dir.exists() or not legacy_dir.is_dir():
-            return
-
-        try:
-            target_dir.mkdir(parents=True, exist_ok=True)
-            for src in legacy_dir.iterdir():
-                dst = target_dir / src.name
-                if dst.exists():
-                    log.warning(
-                        'legacy_diagnostics_models_conflict_preserved',
-                        from_path=str(src),
-                        existing_path=str(dst),
-                    )
-                    continue
-                shutil.move(str(src), str(dst))
-
-            try:
-                legacy_dir.rmdir()
-            except OSError:
-                # Preserve non-empty legacy directory (e.g. conflict leftovers).
-                pass
-
-            log.info(
-                'legacy_diagnostics_models_migrated',
-                from_path=str(legacy_dir),
-                to_path=str(target_dir),
-            )
-        except OSError as exc:
-            log.warning(
-                'legacy_diagnostics_models_migration_failed',
-                from_path=str(legacy_dir),
-                to_path=str(target_dir),
-                error=str(exc),
-            )
-
     def ensure_directories(self) -> None:
         # Create all required directories if they don't exist.
-        # Unified cache structure (all under .cache/ - fully flat):
-        # - .cache/chat-llm/ - Chat/RAG LLM models (*.gguf files)
-        # - .cache/query-classifier-llm/ - Query classifier model (*.gguf file)
+        # Runtime directory structure:
+        # - models_dir - Chat/RAG LLM models (*.gguf files)
+        # - query_classifier_models_dir - Query classifier model (*.gguf file)
         # - tools/diagnostics/models/ - Diagnostics LLM models (*.gguf files)
         # - .cache/huggingface/hub/ - HuggingFace cache (LLM downloads, docling models)
         # - .cache/docling/ - Docling models (docling creates its own structure inside)
         cache_root = self.cache_dir
-        llm_dir = cache_root / DirNames.LLM if cache_root else None
-        query_classifier_dir = cache_root / DirNames.QUERY_CLASSIFIER_MODELS if cache_root else None
+        llm_dir = self.models_dir
+        query_classifier_dir = self.query_classifier_models_dir
         diagnostics_models_dir = self.diagnostics_models_dir
         hf_cache   = cache_root / DirNames.HUGGINGFACE if cache_root else None
         hf_hub     = hf_cache / DirNames.HUB if hf_cache else None
         docling_cache = cache_root / DirNames.DOCLING if cache_root else None
         db_dir     = self.app_data_dir / DirNames.DB
         # NOTE: diagnostics_chats_dir, diagnostics_reports_dir, and diagnostics_evaluations_dir
-        # are NOT created here. They are legacy fallback directories that should no longer be used.
+        # are NOT created here. The normal pipeline does not use those directories.
         # The normal pipeline uses runs/{run_id}/traces/ for evaluation traces and
         # app_data_dir/chats/ for user chat traces.
         dirs = [
-            # Unified cache structure (all under .cache/ - fully flat)
+            # Cache structure (non-model artifacts)
             cache_root,  # .cache/
-            llm_dir,  # .cache/chat-llm/
-            query_classifier_dir,  # .cache/query-classifier-llm/
+            llm_dir,  # models_dir (desktop default: app_data_dir/models/chat-llm)
+            query_classifier_dir,  # query_classifier_models_dir (desktop default: app_data_dir/models/query-classifier-llm)
             diagnostics_models_dir,  # tools/diagnostics/models/
             hf_cache,  # .cache/huggingface/
             hf_hub,  # .cache/huggingface/hub/
@@ -745,10 +630,6 @@ class Settings(BaseSettings):
         ensure_directories(directories_to_create)
         for directory in directories_to_create:
             log.info('created_directory', path=str(directory))
-
-        # Self-heal historical DB path to prevent stray files from reappearing.
-        self._cleanup_legacy_db_location()
-
 
 def get_chat_trace_logging() -> bool:
     """
@@ -851,6 +732,9 @@ def reset_to_factory_defaults() -> Settings:
         'llm_model_filename':      _DEFAULT_LLM_MODEL_FILENAME,
         'diagnostics_llm_model_filename': _DEFAULT_DIAGNOSTICS_LLM_MODEL_FILENAME,
         'diagnostics_llm_analysis_enabled': False,  # Disabled by default (opt-in feature)
+        'diagnostics_profile':     'standard',
+        'chat_trace_logging':      False,
+        'enable_raw_output_control': False,
         'adaptive_rag_tuning':     True,  # Enabled by default
         'ui_theme':                 _DEFAULT_UI_THEME,
         'default_response_mode':    _DEFAULT_RESPONSE_MODE,
@@ -1043,26 +927,26 @@ def _is_gguf_model_cached(model_filename: str, models_dir: Path | None) -> bool:
 
 
 def _is_docling_cached() -> bool:
-    """Check if docling models are cached."""
+    """Check if docling runtime artifacts are cached under cache/docling.
+
+    Important: runtime sets DOCLING_ARTIFACTS_PATH to cache/docling, so Hugging Face
+    hub snapshots alone are not sufficient to guarantee extraction works offline.
+    """
     cache_dir = settings.cache_dir
     if not cache_dir:
         cache_dir = _get_repo_root() / DirNames.CACHE
     docling_cache = cache_dir / DirNames.DOCLING
-
-    if not docling_cache.exists():
-        return False
-
-    # Check for model files (docling creates subdirectories with .bin, .safetensors, .onnx)
+    # Native docling artifact cache
     try:
-        for item in docling_cache.iterdir():
-            if item.is_dir():
-                if any(item.rglob('*.bin')) or any(item.rglob('*.safetensors')) or any(item.rglob('*.onnx')):
+        if docling_cache.exists():
+            for item in docling_cache.iterdir():
+                if item.is_dir():
+                    if any(item.rglob('*.bin')) or any(item.rglob('*.safetensors')) or any(item.rglob('*.onnx')):
+                        return True
+                elif item.suffix in ('.bin', '.safetensors', '.onnx', '.pt', '.pth'):
                     return True
-            elif item.suffix in ('.bin', '.safetensors', '.onnx', '.pt', '.pth'):
-                return True
     except OSError:
         pass
-
     return False
 
 

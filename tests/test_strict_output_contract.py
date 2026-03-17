@@ -144,7 +144,6 @@ def test_strict_output_contract_missing_evidence_accepts_bullet_prefixed_canonic
     )
     assert check['missing_evidence_callout_ok'] is True
     assert check['missing_evidence_callout_canonical'] is True
-    assert check['missing_evidence_callout_legacy_only'] is False
 
 
 def test_strict_output_contract_plan_requires_evidence_grounding_from_format_requirement() -> None:

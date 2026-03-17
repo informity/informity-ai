@@ -21,6 +21,7 @@ import { useBackendStatus } from '../context/useBackendStatus'
 import { isBackendConnectionError } from '../utils/networkErrors'
 import { proxyWheelToContainer } from '../utils/wheelProxy'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_STORAGE_KEY } from '../utils/uiTheme'
+import { setMenuBarIconEnabled } from '../tauriRuntime'
 import '../pages/PlaceholderPage.css'
 
 const UPDATABLE_KEYS = [
@@ -49,6 +50,7 @@ const UPDATABLE_KEYS = [
   'enable_raw_output_control',
   'log_level',
   'ui_theme',
+  'enable_menu_bar_icon',
   'default_response_mode',
 ] as const
 
@@ -77,6 +79,7 @@ interface FormState {
   enable_raw_output_control?: boolean
   log_level?: string
   ui_theme?: string
+  enable_menu_bar_icon?: boolean
   default_response_mode?: 'balanced' | 'analysis' | 'research'
   llm_model_filename?: string
 }
@@ -173,6 +176,13 @@ export function SettingsPage() {
       const updated = (await updateSettings(payload)) as SettingsData
       setSettings(updated)
       showToast('success', 'Settings saved')
+      if (typeof updated.enable_menu_bar_icon === 'boolean') {
+        try {
+          await setMenuBarIconEnabled(updated.enable_menu_bar_icon)
+        } catch (err) {
+          showToast('warning', `Menu bar icon update failed: ${getErrorMessage(err, 'Unknown error')}`)
+        }
+      }
       if (form.ui_theme) {
         const normalizedTheme = normalizeUiTheme(form.ui_theme) || UI_THEME_DEFAULT
         document.documentElement.setAttribute('data-accent', normalizedTheme)
@@ -243,12 +253,31 @@ export function SettingsPage() {
         await resetIndex()
       } catch (err) {
         if (resetPollingCancelledRef.current) return
-        // If reset is already running, attach to it instead of failing.
         if (err instanceof ApiError && err.status === 409) {
-          const status = (await getIndexStatus()) as IndexStatusData
-          if (resetPollingCancelledRef.current) return
-          if (status.reset_in_progress) {
-            showToast('info', 'Reset already in progress. Waiting for completion...')
+          const detail = `${err.detail || ''}`.toLowerCase()
+          if (detail.includes('reset is already in progress')) {
+            const status = (await getIndexStatus()) as IndexStatusData
+            if (resetPollingCancelledRef.current) return
+            if (status.reset_in_progress) {
+              showToast('info', 'Reset already in progress. Waiting for completion...')
+            } else {
+              throw err
+            }
+          } else if (detail.includes('already running')) {
+            const forceReset = await confirm({
+              title:       'Scan Running',
+              message:     'A scan is currently running. Stop it and continue with Reset All Data?',
+              confirmLabel: 'Stop Scan and Reset',
+              cancelLabel:  'Cancel',
+              variant:      'danger',
+              icon:       'ri-close-circle-line',
+            })
+            if (!forceReset) {
+              setSaving(false)
+              return
+            }
+            await resetIndex(true)
+            showToast('info', 'Stopping scan and starting reset...')
           } else {
             throw err
           }
@@ -319,6 +348,15 @@ export function SettingsPage() {
       }
     }
   }, [settings?.ui_theme])
+
+  useEffect(() => {
+    if (typeof settings?.enable_menu_bar_icon !== 'boolean') {
+      return
+    }
+    setMenuBarIconEnabled(settings.enable_menu_bar_icon).catch((err) => {
+      console.warn('menu bar icon startup sync failed', err)
+    })
+  }, [settings?.enable_menu_bar_icon])
 
   const handlePageWheel = useCallback((e: WheelEvent<HTMLDivElement>) => {
     const pageScroll = pageScrollRef.current

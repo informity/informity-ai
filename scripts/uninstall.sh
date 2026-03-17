@@ -11,8 +11,10 @@ set -e
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+APP_DISPLAY_NAME="Informity AI"
+
 # Same default as install and the app (data/ relative to repo root)
-APP_DATA_DIR="${INFORMITY_APP_DATA_DIR:-$REPO_ROOT/data}"
+APP_DATA_DIR="${INFORMITY_APP_DATA_DIR:-$HOME/Library/Application Support/$APP_DISPLAY_NAME}"
 if [[ "$APP_DATA_DIR" != /* ]]; then
     APP_DATA_DIR="$REPO_ROOT/$APP_DATA_DIR"
 fi

@@ -5,8 +5,11 @@ import { KeyboardShortcutsModal } from './KeyboardShortcutsModal'
 import { NetworkBanner } from './NetworkBanner'
 import { PageFooter } from './PageFooter'
 import { useBackendStatus } from '../context/useBackendStatus'
+import { listenDesktopMenuActions } from '../tauriRuntime'
 import '../pages/PlaceholderPage.css'
 import './Layout.css'
+
+const MENU_SCAN_NOW_PENDING_KEY = 'informity.menu.scan_now.pending'
 
 export function Layout() {
   const navigate = useNavigate()
@@ -56,6 +59,70 @@ export function Layout() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [navigate, pathname, offline])
+
+  useEffect(() => {
+    const isVisible = (element: HTMLElement) => {
+      const style = window.getComputedStyle(element)
+      return style.display !== 'none' && style.visibility !== 'hidden'
+    }
+
+    const focusPrimaryInput = () => {
+      const selectors = [
+        '.filter-search__input',
+        '.chat-view__textarea',
+        '.settings-input',
+      ]
+      for (const selector of selectors) {
+        const el = document.querySelector<HTMLElement>(selector)
+        if (!el || !isVisible(el)) continue
+        el.focus()
+        return
+      }
+    }
+
+    let unlisten: (() => void) | null = null
+    void listenDesktopMenuActions((action) => {
+      switch (action) {
+        case 'preferences':
+          navigate('/settings')
+          break
+        case 'new-chat':
+          if (offline) break
+          if (pathname !== '/chat') {
+            navigate('/chat')
+            setTimeout(() => window.dispatchEvent(new CustomEvent('new-chat')), 120)
+          } else {
+            window.dispatchEvent(new CustomEvent('new-chat'))
+          }
+          break
+        case 'scan-now':
+          try {
+            sessionStorage.setItem(MENU_SCAN_NOW_PENDING_KEY, '1')
+          } catch {
+            // ignore storage errors; direct event still covers mounted dashboard.
+          }
+          navigate('/dashboard')
+          window.dispatchEvent(new CustomEvent('menu-scan-now'))
+          break
+        case 'toggle-sidebar':
+          setCollapsed((c) => !c)
+          break
+        case 'focus-search':
+          focusPrimaryInput()
+          break
+        default:
+          break
+      }
+    }).then((fn) => {
+      unlisten = fn
+    })
+
+    return () => {
+      if (unlisten) {
+        unlisten()
+      }
+    }
+  }, [navigate, offline, pathname])
 
   return (
     <div className="layout">

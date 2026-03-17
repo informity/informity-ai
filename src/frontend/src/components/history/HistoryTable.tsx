@@ -248,9 +248,9 @@ export function HistoryTable({
                 Chat Title
                 <SortIcon sort={sort} order={order} column="title" />
               </th>
-              <th className="history-table__th history-table__th--right data-table__th data-table__th--right">Messages</th>
+              <th className="history-table__th history-table__th--messages history-table__th--right data-table__th data-table__th--right">Messages</th>
               <th
-                className={`history-table__th history-table__th--sortable history-table__th--right data-table__th data-table__th--sortable data-table__th--right ${
+                className={`history-table__th history-table__th--date history-table__th--sortable history-table__th--right data-table__th data-table__th--sortable data-table__th--right ${
                   sort === 'date' ? 'data-table__th--sorted' : ''
                 }`}
                 onClick={() => handleHeaderClick('date')}
@@ -258,7 +258,7 @@ export function HistoryTable({
                 Last Activity
                 <SortIcon sort={sort} order={order} column="date" />
               </th>
-              <th className="history-table__th history-table__th--right data-table__th data-table__th--right">Generation Time</th>
+              <th className="history-table__th history-table__th--duration history-table__th--right data-table__th data-table__th--right">Generation Time</th>
               <th className="history-table__th history-table__th--actions data-table__th" />
             </tr>
           </thead>
@@ -308,7 +308,7 @@ export function HistoryTable({
                             <div className="history-table__icon data-table__icon">
                               <i className={titleIconClass} aria-hidden style={{ fontSize: '1rem' }} />
                             </div>
-                            <span className="history-table__title-text">{title}</span>
+                            <span className="history-table__title-text" title={title}>{title}</span>
                           </div>
                           {chat.first_user_message && (
                             <div className="history-table__title-preview">{chat.first_user_message}</div>
@@ -317,13 +317,13 @@ export function HistoryTable({
                       )}
                     </div>
                   </td>
-                  <td className="history-table__td history-table__td--right data-table__td data-table__td--right">
+                  <td className="history-table__td history-table__td--messages history-table__td--right data-table__td data-table__td--right">
                     <span className="history-table__badge data-table__badge">{chat.message_count ?? 0}</span>
                   </td>
-                  <td className="history-table__td history-table__td--right data-table__td data-table__td--right">
+                  <td className="history-table__td history-table__td--date history-table__td--right data-table__td data-table__td--right">
                     {chat.last_message_at ? formatRelativeTime(chat.last_message_at) : '—'}
                   </td>
-                  <td className="history-table__td history-table__td--right data-table__td data-table__td--right">
+                  <td className="history-table__td history-table__td--duration history-table__td--right data-table__td data-table__td--right">
                     {chat.last_generation_seconds != null
                       ? formatDuration(chat.last_generation_seconds)
                       : '—'}

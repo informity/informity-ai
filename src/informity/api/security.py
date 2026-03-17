@@ -4,12 +4,60 @@
 # ==============================================================================
 
 import asyncio
+import os
+import secrets
 import time
 from collections import deque
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from typing import Mapping
 
 from fastapi import HTTPException
+
+TAURI_SESSION_HEADER = 'X-Informity-Session'
+_TAURI_DEV_ORIGINS: tuple[str, ...] = (
+    'http://127.0.0.1:5173',
+    'http://localhost:5173',
+)
+_TAURI_ORIGIN = 'tauri://localhost'
+
+
+def get_tauri_session_token_from_env(env: Mapping[str, str] | None = None) -> str | None:
+    # Read optional per-launch desktop session token injected by the Tauri host process.
+    values = env if env is not None else os.environ
+    token = (values.get('INFORMITY_TAURI_SESSION_TOKEN') or '').strip()
+    return token or None
+
+
+def is_tauri_desktop_mode(session_token: str | None) -> bool:
+    return bool(session_token)
+
+
+def is_tauri_session_authorized(
+    headers: Mapping[str, str],
+    expected_token: str | None,
+) -> bool:
+    if not expected_token:
+        return True
+    request_token = (headers.get(TAURI_SESSION_HEADER) or '').strip()
+    if not request_token:
+        return False
+    return secrets.compare_digest(request_token, expected_token)
+
+
+def get_cors_allow_origins(port: int, *, desktop_mode: bool) -> list[str]:
+    # In desktop session mode we only allow Tauri and local Vite dev origins.
+    if desktop_mode:
+        return [*_TAURI_DEV_ORIGINS, _TAURI_ORIGIN]
+
+    # Default web/dev server origins.
+    return [
+        f'http://localhost:{port}',
+        f'http://127.0.0.1:{port}',
+        'http://localhost:3000',
+        *_TAURI_DEV_ORIGINS,
+        _TAURI_ORIGIN,
+    ]
 
 
 class EndpointGuard:

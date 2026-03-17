@@ -5,6 +5,7 @@
 # ==============================================================================
 
 import sqlite3
+import threading
 from dataclasses import dataclass, field
 
 import structlog
@@ -31,7 +32,7 @@ _SQLITE_VEC_LOAD_EXCEPTIONS = (
 # Constants
 # ==============================================================================
 
-VECTOR_DIMENSION = get_effective_embedding_dimension()  # Backward-compat alias for tests; use runtime resolver below.
+VECTOR_DIMENSION = get_effective_embedding_dimension()
 
 
 def _get_expected_vector_dimension() -> int:
@@ -104,13 +105,31 @@ class VectorStore:
     # All methods use synchronous sqlite3 connections since they're called from
     # thread pool workers (asyncio.to_thread) or async contexts that can wait.
 
-    def store_embeddings(self, embeddings: list[ChunkEmbedding]) -> int:
-        """
-        Batch-insert chunk embeddings into SQLite vec_chunks table.
+    def __init__(self) -> None:
+        self._thread_local = threading.local()
 
-        Synchronous version for use in thread pool workers.
-        For async contexts, use store_embeddings_async() instead.
-        """
+    def _get_thread_connection(self) -> sqlite3.Connection:
+        # Reuse one sqlite connection per worker thread to avoid repeated
+        # sqlite-vec extension load/unload overhead on every operation.
+        conn = getattr(self._thread_local, 'conn', None)
+        if conn is not None:
+            return conn
+
+        db_path = str(settings.db_path)
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute('PRAGMA journal_mode=WAL')
+        conn.execute('PRAGMA foreign_keys=ON')
+        conn.execute('PRAGMA busy_timeout=5000')
+
+        if not _load_sqlite_vec_extension_sync(conn):
+            log.error('sqlite_vec_extension_not_loaded', action='vector_store_connection_init_failed')
+            raise RuntimeError('sqlite-vec extension could not be loaded')
+
+        self._thread_local.conn = conn
+        return conn
+
+    def store_embeddings(self, embeddings: list[ChunkEmbedding]) -> int:
         if not embeddings:
             return 0
 
@@ -121,11 +140,9 @@ class VectorStore:
             log.error('sqlite_vec_not_available', action='cannot_store_embeddings')
             raise RuntimeError('sqlite-vec extension not available') from None
 
-        # Serialize vectors to BLOB format
         records = []
         expected_dimension = _get_expected_vector_dimension()
         for e in embeddings:
-            # Validate vector dimension
             if len(e.vector) != expected_dimension:
                 log.warning(
                     'invalid_vector_dimension',
@@ -133,38 +150,29 @@ class VectorStore:
                     expected=expected_dimension,
                     actual=len(e.vector),
                     embedding_model=settings.embedding_model,
-                    action='skipping_chunk'
+                    action='skipping_chunk',
                 )
                 continue
 
-            # Serialize vector to BLOB
-            vector_blob = serialize_float32(e.vector)
-
-            records.append((
-                e.chunk_id,
-                e.file_id,
-                e.file_path,
-                e.chunk_text,
-                vector_blob,
-                e.year,
-                e.filename,
-                e.extension,
-                e.category,
-            ))
+            records.append(
+                (
+                    e.chunk_id,
+                    e.file_id,
+                    e.file_path,
+                    e.chunk_text,
+                    serialize_float32(e.vector),
+                    e.year,
+                    e.filename,
+                    e.extension,
+                    e.category,
+                )
+            )
 
         if not records:
             return 0
 
-        # Use synchronous sqlite3 connection (we're in a thread worker)
-        db_path = str(settings.db_path)
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-
+        conn = self._get_thread_connection()
         try:
-            # Load sqlite-vec extension
-            if not _load_sqlite_vec_extension_sync(conn):
-                log.error('sqlite_vec_extension_not_loaded', action='cannot_store_embeddings')
-                raise RuntimeError('sqlite-vec extension could not be loaded')
             conn.execute('BEGIN')
             conn.executemany(
                 '''
@@ -172,42 +180,25 @@ class VectorStore:
                 (chunk_id, file_id, file_path, chunk_text, vector, year, filename, extension, category)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''',
-                records
+                records,
             )
             conn.commit()
             return len(records)
         except sqlite3.Error:
             conn.rollback()
             raise
-        finally:
-            conn.close()
 
     async def store_embeddings_async(self, embeddings: list[ChunkEmbedding]) -> int:
-        """
-        Async version of store_embeddings for use in async contexts.
-
-        This wraps the synchronous store_embeddings() in a thread pool worker
-        since sqlite-vec requires synchronous sqlite3 connections.
-        """
         import asyncio
         return await asyncio.to_thread(self.store_embeddings, embeddings)
 
     def search_similar(
         self,
         query_vector: list[float],
-        top_k:        int = 5,
+        top_k: int = 5,
         where_clause: str | None = None,
         where_params: list[int | str] | None = None,
     ) -> list[dict]:
-        """
-        Search for the most similar chunks to a query vector.
-
-        Supports WHERE clause filtering (e.g., "year = 2023", "category = 'document'").
-        Returns list of dicts with: chunk_id, file_id, file_path, filename,
-        chunk_text, score (lower = more similar for cosine distance).
-
-        This is a synchronous method called from thread pool workers.
-        """
         try:
             import sqlite_vec
             serialize_float32 = sqlite_vec.serialize_float32
@@ -215,7 +206,6 @@ class VectorStore:
             log.error('sqlite_vec_not_available', action='cannot_search_vectors')
             return []
 
-        # Serialize query vector to BLOB
         expected_dimension = _get_expected_vector_dimension()
         if len(query_vector) != expected_dimension:
             log.warning(
@@ -228,62 +218,42 @@ class VectorStore:
             return []
         query_blob = serialize_float32(query_vector)
 
-        # Use synchronous sqlite3 connection (we're in a thread worker)
-        db_path = str(settings.db_path)
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
+        where_sql = f'WHERE {where_clause}' if where_clause else ''
+        query = f'''
+            SELECT chunk_id, file_id, file_path, filename, chunk_text, distance
+            FROM (
+                SELECT
+                    chunk_id,
+                    file_id,
+                    file_path,
+                    filename,
+                    chunk_text,
+                    vec_distance_cosine(vector, ?) as distance
+                FROM vec_chunks
+                {where_sql}
+            ) ranked
+            ORDER BY distance ASC
+            LIMIT ?
+        '''
 
-        try:
-            # Load sqlite-vec extension
-            if not _load_sqlite_vec_extension_sync(conn):
-                log.error('sqlite_vec_extension_not_loaded', action='cannot_search_vectors')
-                return []
+        params: list[object] = [query_blob]
+        if where_clause and where_params:
+            params.extend(where_params)
+        params.append(top_k)
 
-            # Build WHERE clause for metadata filtering
-            where_sql = ''
-            if where_clause:
-                where_sql = f'WHERE {where_clause}'
-
-            # Compute vec_distance_cosine() once in an inner query, then sort by alias.
-            # Lower distance = more similar (cosine distance: 0 = identical, 2 = opposite).
-            query = f'''
-                SELECT chunk_id, file_id, file_path, filename, chunk_text, distance
-                FROM (
-                    SELECT
-                        chunk_id,
-                        file_id,
-                        file_path,
-                        filename,
-                        chunk_text,
-                        vec_distance_cosine(vector, ?) as distance
-                    FROM vec_chunks
-                    {where_sql}
-                ) ranked
-                ORDER BY distance ASC
-                LIMIT ?
-            '''
-
-            params: list[object] = [query_blob]
-            if where_clause and where_params:
-                params.extend(where_params)
-            params.append(top_k)
-
-            cursor = conn.execute(query, params)
-            rows = cursor.fetchall()
-
-            return [
-                {
-                    'chunk_id':     row['chunk_id'],
-                    'file_id':      row['file_id'],
-                    'file_path':    row['file_path'],
-                    'filename':     row['filename'],
-                    'chunk_text':   row['chunk_text'],
-                    'score':        float(row['distance']),  # Distance (lower = more similar)
-                }
-                for row in rows
-            ]
-        finally:
-            conn.close()
+        conn = self._get_thread_connection()
+        rows = conn.execute(query, params).fetchall()
+        return [
+            {
+                'chunk_id': row['chunk_id'],
+                'file_id': row['file_id'],
+                'file_path': row['file_path'],
+                'filename': row['filename'],
+                'chunk_text': row['chunk_text'],
+                'score': float(row['distance']),
+            }
+            for row in rows
+        ]
 
     def search_top1_per_file(
         self,
@@ -292,7 +262,6 @@ class VectorStore:
         where_clause: str | None = None,
         where_params: list[int | str] | None = None,
     ) -> list[dict]:
-        # Return top-1 most similar chunk per file for the provided file IDs.
         if not file_ids:
             return []
 
@@ -314,148 +283,78 @@ class VectorStore:
             )
             return []
         query_blob = serialize_float32(query_vector)
-        db_path = str(settings.db_path)
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
 
-        try:
-            if not _load_sqlite_vec_extension_sync(conn):
-                log.error('sqlite_vec_extension_not_loaded', action='cannot_search_top1_per_file')
-                return []
+        file_ids_unique = list(dict.fromkeys(file_ids))
+        file_placeholders = ', '.join('?' * len(file_ids_unique))
+        where_parts: list[str] = [f'file_id IN ({file_placeholders})']
+        if where_clause:
+            where_parts.append(f'({where_clause})')
+        where_sql = ' AND '.join(where_parts)
 
-            file_ids_unique = list(dict.fromkeys(file_ids))
-            file_placeholders = ', '.join('?' * len(file_ids_unique))
-            where_parts: list[str] = [f'file_id IN ({file_placeholders})']
-            if where_clause:
-                where_parts.append(f'({where_clause})')
-            where_sql = ' AND '.join(where_parts)
-
-            query = f'''
-                WITH ranked AS (
-                    SELECT
-                        chunk_id,
-                        file_id,
-                        file_path,
-                        filename,
-                        chunk_text,
-                        vec_distance_cosine(vector, ?) AS distance,
-                        ROW_NUMBER() OVER (
-                            PARTITION BY file_id
-                            ORDER BY vec_distance_cosine(vector, ?) ASC
-                        ) AS rn
-                    FROM vec_chunks
-                    WHERE {where_sql}
-                )
+        query = f'''
+            WITH ranked AS (
                 SELECT
                     chunk_id,
                     file_id,
                     file_path,
                     filename,
                     chunk_text,
-                    distance
-                FROM ranked
-                WHERE rn = 1
-                ORDER BY distance ASC
-            '''
-            params: list[object] = [query_blob, query_blob, *file_ids_unique]
-            if where_clause and where_params:
-                params.extend(where_params)
-            cursor = conn.execute(query, params)
-            rows = cursor.fetchall()
-            return [
-                {
-                    'chunk_id': row['chunk_id'],
-                    'file_id': row['file_id'],
-                    'file_path': row['file_path'],
-                    'filename': row['filename'],
-                    'chunk_text': row['chunk_text'],
-                    'score': float(row['distance']),
-                }
-                for row in rows
-            ]
-        finally:
-            conn.close()
+                    vec_distance_cosine(vector, ?) AS distance,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY file_id
+                        ORDER BY vec_distance_cosine(vector, ?) ASC
+                    ) AS rn
+                FROM vec_chunks
+                WHERE {where_sql}
+            )
+            SELECT chunk_id, file_id, file_path, filename, chunk_text, distance
+            FROM ranked
+            WHERE rn = 1
+            ORDER BY distance ASC
+        '''
+        params: list[object] = [query_blob, query_blob, *file_ids_unique]
+        if where_clause and where_params:
+            params.extend(where_params)
+
+        conn = self._get_thread_connection()
+        rows = conn.execute(query, params).fetchall()
+        return [
+            {
+                'chunk_id': row['chunk_id'],
+                'file_id': row['file_id'],
+                'file_path': row['file_path'],
+                'filename': row['filename'],
+                'chunk_text': row['chunk_text'],
+                'score': float(row['distance']),
+            }
+            for row in rows
+        ]
 
     def delete_by_file_id(self, file_id: int) -> None:
-        """Remove all vectors for a given file."""
-        db_path = str(settings.db_path)
-        conn = sqlite3.connect(db_path)
-
-        try:
-            # Load sqlite-vec extension (needed for any vec_chunks operations)
-            if not _load_sqlite_vec_extension_sync(conn):
-                log.warning('sqlite_vec_extension_not_loaded', action='delete_may_fail')
-
-            conn.execute('DELETE FROM vec_chunks WHERE file_id = ?', (file_id,))
-            conn.commit()
-        finally:
-            conn.close()
+        conn = self._get_thread_connection()
+        conn.execute('DELETE FROM vec_chunks WHERE file_id = ?', (file_id,))
+        conn.commit()
 
     def drop_all(self) -> int:
-        """Delete all vectors from vec_chunks table."""
-        db_path = str(settings.db_path)
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-
-        try:
-            # Load sqlite-vec extension
-            if not _load_sqlite_vec_extension_sync(conn):
-                log.warning('sqlite_vec_extension_not_loaded', action='drop_all_may_fail')
-
-            # Get count before deletion
-            cursor = conn.execute('SELECT COUNT(*) as count FROM vec_chunks')
-            row = cursor.fetchone()
-            count = int(row['count']) if row else 0
-
-            # Delete all rows
-            conn.execute('DELETE FROM vec_chunks')
-            conn.commit()
-
-            log.info('sqlite_vec_drop_all_complete', rows_deleted=count)
-            return count
-        finally:
-            conn.close()
+        conn = self._get_thread_connection()
+        cursor = conn.execute('SELECT COUNT(*) as count FROM vec_chunks')
+        row = cursor.fetchone()
+        count = int(row['count']) if row else 0
+        conn.execute('DELETE FROM vec_chunks')
+        conn.commit()
+        log.info('sqlite_vec_drop_all_complete', rows_deleted=count)
+        return count
 
     def build_index(self) -> bool:
-        """
-        Placeholder for ANN index build.
-
-        Current implementation intentionally keeps exact cosine search semantics.
-        Metadata B-tree indexes are managed in SQLite schema migration/init.
-
-        Returns:
-            True to indicate no-op completed.
-        """
         log.info('vector_index_build_skipped', reason='exact_search_mode')
         return True
 
     def get_stats(self) -> dict:
-        """Return statistics about the vector store."""
-        db_path = str(settings.db_path)
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
-
-        try:
-            # Load sqlite-vec extension (needed for vec_chunks queries)
-            if not _load_sqlite_vec_extension_sync(conn):
-                log.warning('sqlite_vec_extension_not_loaded', action='stats_may_be_incomplete')
-
-            cursor = conn.execute('SELECT COUNT(*) as count FROM vec_chunks')
-            row = cursor.fetchone()
-            total_vectors = int(row['count']) if row else 0
-
-            # Storage size is part of SQLite database, not separate directory
-            # Get database file size
-            storage_bytes = 0
-            if settings.db_path and settings.db_path.exists():
-                storage_bytes = settings.db_path.stat().st_size
-
-            return {
-                'total_vectors': total_vectors,
-                'storage_bytes': storage_bytes,
-            }
-        finally:
-            conn.close()
+        conn = self._get_thread_connection()
+        row = conn.execute('SELECT COUNT(*) as count FROM vec_chunks').fetchone()
+        total_vectors = int(row['count']) if row else 0
+        storage_bytes = settings.db_path.stat().st_size if settings.db_path and settings.db_path.exists() else 0
+        return {'total_vectors': total_vectors, 'storage_bytes': storage_bytes}
 
 
 # ==============================================================================

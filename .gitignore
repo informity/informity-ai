@@ -60,6 +60,9 @@ data/
 # Frontend (Vite + React)
 src/frontend/node_modules/
 src/frontend/dist/
+src/frontend/src-tauri/backend/informity-backend*
+src/frontend/src-tauri/backend/*.tmp
+src/frontend/src-tauri/target/
 
 # Development tools
 htmlcov/

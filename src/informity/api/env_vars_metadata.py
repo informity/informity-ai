@@ -71,11 +71,21 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'Where the application stores database, vectors, models, and logs. Default is local (data/ under process cwd). Override for production (e.g. macOS Application Support).',
         [
             ('app_data_dir', 'Root directory for all app data (DB, vectors, models, logs, config).'),
-            ('cache_dir', 'Unified cache root (LLM models, Hugging Face cache, docling models). Default: {repo_root}/.cache.'),
+            ('cache_dir', 'Unified cache root for Hugging Face/docling artifacts and temporary runtime cache. Default: {repo_root}/.cache.'),
             ('db_path', f'SQLite database file path (default: app_data_dir/{DirNames.DB}/{APP_SLUG}.db).'),
             ('logs_dir', 'Directory for log files.'),
-            ('models_dir', 'Directory for GGUF LLM model files (application asset, survives reset).'),
-            ('query_classifier_models_dir', 'Directory for query-classifier GGUF model files (default: cache_dir/query-classifier-llm).'),
+            (
+                'models_dir',
+                f'Directory for GGUF LLM model files. Desktop default: '
+                f'app_data_dir/{DirNames.MODELS}/{DirNames.LLM} (persistent); '
+                f'otherwise cache_dir/{DirNames.LLM}.',
+            ),
+            (
+                'query_classifier_models_dir',
+                f'Directory for query-classifier GGUF model files. Desktop default: '
+                f'app_data_dir/{DirNames.MODELS}/{DirNames.QUERY_CLASSIFIER_MODELS}; '
+                f'otherwise cache_dir/{DirNames.QUERY_CLASSIFIER_MODELS}.',
+            ),
             # vectors_dir removed - vectors now stored in SQLite via sqlite-vec
         ],
     ),
@@ -93,6 +103,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'Frontend UI customization settings.',
         [
             ('ui_theme', 'Color theme for the app UI: gray, purple, blue, green, orange, mono. Applied via data-theme on <html>.'),
+            ('enable_menu_bar_icon', 'When true, show the menu bar icon while the app is running (macOS desktop runtime).'),
         ],
     ),
     (
@@ -169,7 +180,12 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('diagnostics_llm_max_issues_per_run', 'Maximum number of issues to analyze per run (limits analysis scope to prevent excessive processing time).'),
             ('diagnostics_llm_model_filename', 'GGUF filename in diagnostics_models_dir for LLM-powered analysis (default: DeepSeek R1 optimized for analysis tasks).'),
             ('diagnostics_llm_timeout_seconds', 'Maximum seconds for LLM inference during diagnostics analysis. Generous default so analysis can produce full results.'),
-            ('diagnostics_models_dir', 'Directory for diagnostics LLM model files (default: {repo_root}/tools/diagnostics/models). Separate from chat and classifier models.'),
+            (
+                'diagnostics_models_dir',
+                f'Directory for diagnostics LLM model files '
+                f'(default: {{repo_root}}/{DirNames.TOOLS}/{DirNames.DIAGNOSTICS}/{DirNames.DIAGNOSTICS_MODELS}). '
+                f'Separate from chat and classifier models.',
+            ),
         ],
     ),
 ]

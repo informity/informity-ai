@@ -2,13 +2,94 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <meta name="color-scheme" content="dark" />
+    <script>
+      try {
+        const allowed = new Set(['gray', 'purple', 'blue', 'green', 'orange', 'mono'])
+        const saved = localStorage.getItem('informity-ui-theme')
+        document.documentElement.setAttribute('data-accent', allowed.has(saved) ? saved : 'mono')
+      } catch {
+        document.documentElement.setAttribute('data-accent', 'mono')
+      }
+    </script>
+    <style>
+      html, body, #root { height: 100%; }
+      html, body, #root { margin: 0; background: #090909; }
+      :root {
+        --boot-bg: #090909;
+        --boot-accent: #8f8f8f;
+        --boot-text: #9a9a9a;
+      }
+      html[data-accent='gray'] {
+        --boot-accent: #8f8f8f;
+        --boot-text: #a8a8a8;
+      }
+      html[data-accent='blue'] {
+        --boot-accent: #6b9ec9;
+        --boot-text: #8fb8db;
+      }
+      html[data-accent='purple'] {
+        --boot-accent: #9d7bd8;
+        --boot-text: #b59ae5;
+      }
+      html[data-accent='green'] {
+        --boot-accent: #6b9e6b;
+        --boot-text: #89b989;
+      }
+      html[data-accent='orange'] {
+        --boot-accent: #d4854a;
+        --boot-text: #e0a477;
+      }
+      html[data-accent='mono'] {
+        --boot-accent: #8f8f8f;
+        --boot-text: #9a9a9a;
+      }
+      #boot-overlay {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 14px;
+        background: var(--boot-bg);
+        color: var(--boot-text);
+        transition: opacity 180ms ease;
+      }
+      #boot-overlay.boot-overlay--hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .boot-loader {
+        width: 26px;
+        height: 26px;
+        border: 2px solid rgba(255, 255, 255, 0.18);
+        border-top-color: var(--boot-accent);
+        border-radius: 50%;
+        animation: boot-spin 900ms linear infinite;
+      }
+      .boot-status {
+        margin: 0;
+        font: 500 13px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        letter-spacing: 0.01em;
+        color: var(--boot-text);
+      }
+      @keyframes boot-spin {
+        to { transform: rotate(360deg); }
+      }
+    </style>
     <link rel="icon" type="image/png" href="/favicon.png?v=1" />
     <link rel="apple-touch-icon" href="/favicon.png" />
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@4.8.0/fonts/remixicon.css" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Informity AI</title>
   </head>
-  <body>
+  <body style="margin: 0; background: #090909;">
+    <div id="boot-overlay" aria-live="polite" aria-label="Application startup">
+      <div class="boot-loader" aria-hidden="true"></div>
+      <p id="boot-status" class="boot-status">Starting Informity AI...</p>
+    </div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

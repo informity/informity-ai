@@ -11,7 +11,13 @@ set -e
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
-APP_DATA_DIR="${INFORMITY_APP_DATA_DIR:-$REPO_ROOT/data}"
+APP_DISPLAY_NAME="Informity AI"
+DIR_MODELS="models"
+DIR_CACHE=".cache"
+DIR_HUGGINGFACE="huggingface"
+DIR_DOCLING="docling"
+
+APP_DATA_DIR="${INFORMITY_APP_DATA_DIR:-$HOME/Library/Application Support/$APP_DISPLAY_NAME}"
 if [[ "$APP_DATA_DIR" != /* ]]; then
     APP_DATA_DIR="$REPO_ROOT/$APP_DATA_DIR"
 fi
@@ -23,15 +29,29 @@ TOOLS_DIR="tools"
 DIAGNOSTICS_DIR_NAME="diagnostics"
 DIAGNOSTICS_MODELS_DIR_NAME="models"
 DIAGNOSTICS_DIR="$REPO_ROOT/$TOOLS_DIR/$DIAGNOSTICS_DIR_NAME/$DIAGNOSTICS_MODELS_DIR_NAME"
-echo "  Preserving:   .cache/chat-llm/, .cache/query-classifier-llm/, $TOOLS_DIR/$DIAGNOSTICS_DIR_NAME/$DIAGNOSTICS_MODELS_DIR_NAME/"
+echo "  Preserving:   $APP_DATA_DIR/models/, $TOOLS_DIR/$DIAGNOSTICS_DIR_NAME/$DIAGNOSTICS_MODELS_DIR_NAME/"
 echo ""
 
 # ------------------------------------------------------------------------------
-# 1. Remove app data (config, database, logs)
+# 1. Remove app data (config, database, logs), preserving app_data/models
 # ------------------------------------------------------------------------------
 if [[ -d "$APP_DATA_DIR" ]]; then
     echo "Removing app data: $APP_DATA_DIR"
+    MODELS_DIR="$APP_DATA_DIR/$DIR_MODELS"
+    PRESERVED_MODELS_TMP=""
+    if [[ -d "$MODELS_DIR" ]]; then
+        PRESERVED_MODELS_TMP="$(mktemp -d)"
+        mv "$MODELS_DIR" "$PRESERVED_MODELS_TMP/$DIR_MODELS"
+        echo "  Preserved: $MODELS_DIR"
+    fi
+
     rm -rf "$APP_DATA_DIR"
+
+    if [[ -n "$PRESERVED_MODELS_TMP" ]] && [[ -d "$PRESERVED_MODELS_TMP/$DIR_MODELS" ]]; then
+        mkdir -p "$APP_DATA_DIR"
+        mv "$PRESERVED_MODELS_TMP/$DIR_MODELS" "$APP_DATA_DIR/$DIR_MODELS"
+        rmdir "$PRESERVED_MODELS_TMP" 2>/dev/null || true
+    fi
 else
     echo "App data dir not present: $APP_DATA_DIR"
 fi
@@ -59,24 +79,22 @@ else
 fi
 
 # ------------------------------------------------------------------------------
-# 4. Reset .cache EXCEPT model directories
+# 4. Reset .cache EXCEPT Hugging Face/docling artifacts needed for warm cache
 # ------------------------------------------------------------------------------
-CACHE_DIR="$REPO_ROOT/.cache"
-LLM_DIR="$CACHE_DIR/chat-llm"
-QUERY_CLASSIFIER_DIR="$CACHE_DIR/query-classifier-llm"
+CACHE_DIR="$REPO_ROOT/$DIR_CACHE"
 if [[ -d "$CACHE_DIR" ]]; then
-    echo "Resetting .cache (keeping model directories)..."
+    echo "Resetting .cache (keeping huggingface/docling caches)..."
     for item in "$CACHE_DIR"/*; do
-        if [[ -e "$item" ]] && [[ "$item" != "$LLM_DIR" ]] && [[ "$item" != "$QUERY_CLASSIFIER_DIR" ]]; then
+        if [[ -e "$item" ]] && [[ "$item" != "$CACHE_DIR/$DIR_HUGGINGFACE" ]] && [[ "$item" != "$CACHE_DIR/$DIR_DOCLING" ]]; then
             echo "  Removing: $item"
             rm -rf "$item"
         fi
     done
-    if [[ -d "$LLM_DIR" ]]; then
-        echo "  Preserved: $LLM_DIR"
+    if [[ -d "$CACHE_DIR/$DIR_HUGGINGFACE" ]]; then
+        echo "  Preserved: $CACHE_DIR/$DIR_HUGGINGFACE"
     fi
-    if [[ -d "$QUERY_CLASSIFIER_DIR" ]]; then
-        echo "  Preserved: $QUERY_CLASSIFIER_DIR"
+    if [[ -d "$CACHE_DIR/$DIR_DOCLING" ]]; then
+        echo "  Preserved: $CACHE_DIR/$DIR_DOCLING"
     fi
     if [[ -d "$DIAGNOSTICS_DIR" ]]; then
         echo "  Preserved: $DIAGNOSTICS_DIR"
@@ -104,6 +122,7 @@ echo ""
 # 6. Run install script (creates venv, npm install, downloads models)
 # ------------------------------------------------------------------------------
 export INFORMITY_APP_DATA_DIR="$APP_DATA_DIR"
+export INFORMITY_INSTALL_PROFILE=dev
 ./scripts/install.sh
 
 echo ""
