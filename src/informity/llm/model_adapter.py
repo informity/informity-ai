@@ -454,7 +454,7 @@ QWEN3_5_9B_PROFILE = ModelProfile(
     strip_meta_commentary = False,
     strip_citations       = True,
     dedupe_insufficient_context_after_stream = True,
-    supported_modes       = ('balanced', 'analysis', 'research'),
+    supported_modes       = ('balanced', 'analysis'),
 )
 
 

@@ -82,9 +82,22 @@ _STRICT_NUMERIC_TOKEN_PATTERN = re.compile(r'\$?\d[\d,]*(?:\.\d{1,2})?')
 _TABLE_SEPARATOR_PATTERN = re.compile(r'^\s*\|?\s*:?-{3,}(?:\s*\|\s*:?-{3,})+\s*\|?\s*$')
 _EMPTY_ORDERED_LIST_ITEM_PATTERN = re.compile(r'^\s*\d+\.\s*$')
 _CONTINUATION_COMPACTION_ENABLED = True
-_CONTINUATION_COMPACTION_MIN_PASS_INDEX = 2
-_CONTINUATION_COMPACTION_MIN_ANSWER_CHARS = 1600
-_CONTINUATION_COMPACT_HISTORY_MAX_CHARS = 1200
+
+
+def _get_compaction_params(response_mode: str) -> tuple[int, int, int]:
+    """
+    Return (min_pass_index, min_answer_chars, max_history_chars) for the active profile.
+
+    - min_pass_index: slower models compact sooner (30B at 6 t/s → pass 1; others → pass 2).
+    - min_answer_chars: research mode expects longer first-pass output, so compact later.
+    - max_history_chars: proportional to context window (context_length // 14).
+    """
+    from informity.llm.model_adapter import get_profile
+    profile = get_profile()
+    min_pass_index = max(1, round(profile.generation_tokens_per_second / 6.0))
+    min_answer_chars = 2400 if response_mode == 'research' else 1600
+    max_history_chars = profile.context_length // 14
+    return min_pass_index, min_answer_chars, max_history_chars
 
 
 # ==============================================================================
@@ -420,7 +433,7 @@ def _build_compacted_history_assistant_content(
     current_answer: str,
     unresolved_headings: list[str],
     pass_count: int,
-    max_chars: int = _CONTINUATION_COMPACT_HISTORY_MAX_CHARS,
+    max_chars: int,
 ) -> str:
     cleaned = sanitize_display_answer(current_answer or '')
     compact_source = cleaned if cleaned else (current_answer or '')
@@ -436,7 +449,7 @@ def _build_compacted_history_assistant_content(
     ]
     if unresolved_headings:
         lines.append('Unresolved headings:')
-        lines.extend(f'- {heading}' for heading in unresolved_headings[:8])
+        lines.extend(f'- {heading}' for heading in unresolved_headings)
     lines.extend([
         'Prior answer excerpt:',
         excerpt,
@@ -1150,6 +1163,9 @@ async def chat(
                 section_progress_last_completed_count = 0
                 pending_repair_requires_overwrite = False
                 locked_classification = None
+                compaction_min_pass, compaction_min_chars, compaction_max_history_chars = (
+                    _get_compaction_params(response_mode)
+                )
                 pass_index = 1
                 while pass_index <= max_total_passes:
                     pass_question = (
@@ -1176,8 +1192,8 @@ async def chat(
                         unresolved_headings = _extract_missing_headings(latest_output_contract_check)
                         should_compact_history = (
                             _CONTINUATION_COMPACTION_ENABLED
-                            and pass_index >= _CONTINUATION_COMPACTION_MIN_PASS_INDEX
-                            and len(assistant_history_content) >= _CONTINUATION_COMPACTION_MIN_ANSWER_CHARS
+                            and pass_index >= compaction_min_pass
+                            and len(assistant_history_content) >= compaction_min_chars
                             and not pending_repair_prompt
                         )
                         if should_compact_history:
@@ -1185,6 +1201,7 @@ async def chat(
                                 current_answer=assistant_history_content,
                                 unresolved_headings=unresolved_headings,
                                 pass_count=pass_index - 1,
+                                max_chars=compaction_max_history_chars,
                             )
                             if compacted_history and len(compacted_history) < len(assistant_history_content):
                                 compaction_events.append({
