@@ -5,6 +5,7 @@
 # ==============================================================================
 
 import asyncio
+import hashlib
 import json
 from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
@@ -16,6 +17,7 @@ from informity.config import settings
 from informity.db.models import (
     ChatMessage,
     Chunk,
+    ContinuationPassArtifact,
     IndexedFile,
     ScanErrorRecord,
     ScanRecord,
@@ -45,6 +47,7 @@ _SQLITE_EXTENSION_LOAD_EXCEPTIONS = (
 )
 _SQLITE_BUSY_TIMEOUT_MS = 5000
 _CHAT_PREVIEW_TRUNCATE_LENGTH = 100
+_CONTINUATION_ARTIFACT_RETENTION_DAYS = 30
 
 # ==============================================================================
 # Schema — DDL statements for all tables
@@ -212,6 +215,32 @@ CREATE INDEX IF NOT EXISTS idx_diagnostics_type ON response_diagnostics_metrics(
 CREATE INDEX IF NOT EXISTS idx_diagnostics_run_id ON response_diagnostics_metrics(run_id);
 CREATE INDEX IF NOT EXISTS idx_diagnostics_created_at ON response_diagnostics_metrics(created_at);
 
+CREATE TABLE IF NOT EXISTS continuation_pass_artifacts (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id             TEXT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    request_id          TEXT NOT NULL,
+    pass_index          INTEGER NOT NULL,
+    response_mode_used  TEXT,
+    stitch_mode         TEXT NOT NULL,
+    raw_answer          TEXT NOT NULL,
+    cleaned_answer      TEXT NOT NULL,
+    has_remaining_scope INTEGER DEFAULT 0,
+    completion_mode     TEXT,
+    next_action_reason  TEXT,
+    sources             TEXT,
+    pass_details        TEXT,
+    status_transitions  TEXT,
+    payload_hash        TEXT NOT NULL,
+    created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cont_pass_unique
+    ON continuation_pass_artifacts(chat_id, request_id, pass_index);
+CREATE INDEX IF NOT EXISTS idx_cont_pass_chat_id
+    ON continuation_pass_artifacts(chat_id);
+CREATE INDEX IF NOT EXISTS idx_cont_pass_created_at
+    ON continuation_pass_artifacts(created_at);
+
 -- Vector storage table (sqlite-vec)
 CREATE TABLE IF NOT EXISTS vec_chunks (
     chunk_id    INTEGER PRIMARY KEY,
@@ -242,6 +271,7 @@ DROP TRIGGER IF EXISTS chunks_fts_au;
 DROP TABLE IF EXISTS chunks_fts;
 DROP TABLE IF EXISTS vec_chunks;
 DROP TABLE IF EXISTS response_diagnostics_metrics;
+DROP TABLE IF EXISTS continuation_pass_artifacts;
 DROP TABLE IF EXISTS chat_messages;
 DROP TABLE IF EXISTS chunks;
 DROP TABLE IF EXISTS files;
@@ -362,7 +392,8 @@ async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
               (SELECT COUNT(*) FROM files) AS files_count,
               (SELECT COUNT(*) FROM chunks) AS chunks_count,
               (SELECT COUNT(*) FROM vec_chunks) AS vectors_count,
-              (SELECT COUNT(*) FROM chat_messages) AS chats_count
+              (SELECT COUNT(*) FROM chat_messages) AS chats_count,
+              (SELECT COUNT(*) FROM continuation_pass_artifacts) AS continuation_count
             '''
         )
         row = await cursor.fetchone()
@@ -374,6 +405,7 @@ async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
             and int(row['chunks_count']) == 0
             and int(row['vectors_count']) == 0
             and int(row['chats_count']) == 0
+            and int(row['continuation_count']) == 0
         )
         if not is_empty:
             return
@@ -445,12 +477,25 @@ async def _schema_columns_outdated(conn: aiosqlite.Connection) -> bool:
     chat_rows = await chat_cursor.fetchall()
     chat_columns = {row['name'] for row in chat_rows}
     required_chat_columns = {'next_action', 'next_action_reason'}
+    continuation_cursor = await conn.execute("PRAGMA table_info('continuation_pass_artifacts')")
+    continuation_rows = await continuation_cursor.fetchall()
+    continuation_columns = {row['name'] for row in continuation_rows}
+    required_continuation_columns = {
+        'chat_id',
+        'request_id',
+        'pass_index',
+        'stitch_mode',
+        'raw_answer',
+        'cleaned_answer',
+        'payload_hash',
+    }
 
     return (
         not required_files_columns.issubset(files_columns)
         or not required_chunks_columns.issubset(chunks_columns)
         or not required_diagnostics_columns.issubset(diagnostics_columns)
         or not required_chat_columns.issubset(chat_columns)
+        or not required_continuation_columns.issubset(continuation_columns)
     )
 
 
@@ -1291,6 +1336,101 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
     return message
 
 
+def _build_continuation_artifact_payload_hash(artifact: ContinuationPassArtifact) -> str:
+    payload = {
+        'chat_id': artifact.chat_id,
+        'request_id': artifact.request_id,
+        'pass_index': artifact.pass_index,
+        'response_mode_used': artifact.response_mode_used,
+        'stitch_mode': artifact.stitch_mode,
+        'raw_answer': artifact.raw_answer,
+        'cleaned_answer': artifact.cleaned_answer,
+        'has_remaining_scope': bool(artifact.has_remaining_scope),
+        'completion_mode': artifact.completion_mode,
+        'next_action_reason': artifact.next_action_reason,
+        'sources': artifact.sources,
+        'pass_details': artifact.pass_details,
+        'status_transitions': artifact.status_transitions,
+    }
+    payload_json = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
+    return hashlib.sha256(payload_json.encode('utf-8')).hexdigest()
+
+
+async def _prune_old_continuation_artifacts(db: aiosqlite.Connection) -> int:
+    if _CONTINUATION_ARTIFACT_RETENTION_DAYS <= 0:
+        return 0
+    cursor = await db.execute(
+        """
+        DELETE FROM continuation_pass_artifacts
+        WHERE created_at < datetime('now', ?)
+        """,
+        (f'-{_CONTINUATION_ARTIFACT_RETENTION_DAYS} days',),
+    )
+    return int(cursor.rowcount or 0)
+
+
+async def insert_continuation_pass_artifact(
+    db: aiosqlite.Connection,
+    artifact: ContinuationPassArtifact,
+) -> ContinuationPassArtifact:
+    # Ensure parent chat exists before writing continuation artifacts.
+    await ensure_chat_exists(db, artifact.chat_id)
+
+    payload_hash = _build_continuation_artifact_payload_hash(artifact)
+    artifact.payload_hash = payload_hash
+    cursor = await db.execute(
+        """
+        SELECT id, payload_hash
+        FROM continuation_pass_artifacts
+        WHERE chat_id = ? AND request_id = ? AND pass_index = ?
+        LIMIT 1
+        """,
+        (artifact.chat_id, artifact.request_id, artifact.pass_index),
+    )
+    existing = await cursor.fetchone()
+    if existing is not None:
+        existing_hash = str(existing['payload_hash'] or '')
+        if existing_hash == payload_hash:
+            artifact.id = int(existing['id'])
+            return artifact
+        raise RuntimeError(
+            'continuation_pass_artifact_conflict: existing row has different payload hash '
+            f'for key ({artifact.chat_id}, {artifact.request_id}, {artifact.pass_index})'
+        )
+
+    insert_cursor = await db.execute(
+        """
+        INSERT INTO continuation_pass_artifacts (
+            chat_id, request_id, pass_index, response_mode_used, stitch_mode,
+            raw_answer, cleaned_answer, has_remaining_scope, completion_mode,
+            next_action_reason, sources, pass_details, status_transitions,
+            payload_hash
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            artifact.chat_id,
+            artifact.request_id,
+            artifact.pass_index,
+            artifact.response_mode_used,
+            artifact.stitch_mode,
+            artifact.raw_answer,
+            artifact.cleaned_answer,
+            1 if artifact.has_remaining_scope else 0,
+            artifact.completion_mode,
+            artifact.next_action_reason,
+            json.dumps(artifact.sources, ensure_ascii=False),
+            json.dumps(artifact.pass_details, ensure_ascii=False),
+            json.dumps(artifact.status_transitions, ensure_ascii=False),
+            artifact.payload_hash,
+        ),
+    )
+    artifact.id = int(insert_cursor.lastrowid or 0) or None
+    await _prune_old_continuation_artifacts(db)
+    await db.commit()
+    return artifact
+
+
 async def get_chat(db: aiosqlite.Connection, chat_id: str) -> list[ChatMessage]:
     # Get all messages for a chat.
     cursor = await db.execute(
@@ -1915,6 +2055,7 @@ async def reset_all_data(db: aiosqlite.Connection) -> dict[str, object]:
         t: 0
         for t in (
             'response_diagnostics_metrics',
+            'continuation_pass_artifacts',
             'chat_messages',
             'chunks',
             'chats',

@@ -331,10 +331,10 @@ def test_structured_numeric_bullet_renderer_outputs_exact_count() -> None:
             'research_verification_brief',
         ),
         (
-            'Using only indexed tax/insurance/mortgage documents from 2022-2024, create a structured compliance brief '
+            'Using only indexed finance/insurance/lending documents from 2022-2024, create a structured compliance brief '
             'with these sections in order: 1) Executive Summary (max 140 words), 2) Year-by-Year Evidence Map '
-            '(2022, 2023, 2024), 3) Document Group Deep Dive (Informity business tax, Mercury insurance, '
-            'CMG Mortgage, IRS/FTB confirmations), 4) Risks and Gaps, 5) Action Checklist. '
+            '(2022, 2023, 2024), 3) Document Group Deep Dive (Group A finance docs, Group B insurance docs, '
+            'Group C lending docs, agency confirmations), 4) Risks and Gaps, 5) Action Checklist. '
             'In section 3, use nested bullets with exactly 3 levels.',
             'research_structured_compliance_brief',
         ),
@@ -383,10 +383,10 @@ def test_strict_composer_emits_contract_metrics_for_all_families(question: str, 
 
 def test_strict_composer_applies_for_compliance_brief_in_balanced_mode() -> None:
     question = (
-        'Using only indexed tax/insurance/mortgage documents from 2022-2024, create a structured compliance brief '
+        'Using only indexed finance/insurance/lending documents from 2022-2024, create a structured compliance brief '
         'with these sections in order: 1) Executive Summary (max 140 words), 2) Year-by-Year Evidence Map '
-        '(2022, 2023, 2024), 3) Document Group Deep Dive (Informity business tax, Mercury insurance, '
-        'CMG Mortgage, IRS/FTB confirmations), 4) Risks and Gaps, 5) Action Checklist. '
+        '(2022, 2023, 2024), 3) Document Group Deep Dive (Group A finance docs, Group B insurance docs, '
+        'Group C lending docs, agency confirmations), 4) Risks and Gaps, 5) Action Checklist. '
         'In section 3, use nested bullets with exactly 3 levels.'
     )
     chunks = [
@@ -412,10 +412,10 @@ def test_strict_composer_applies_for_compliance_brief_in_balanced_mode() -> None
 
 def test_strict_composer_applies_for_compliance_brief_in_analysis_mode() -> None:
     question = (
-        'Using only indexed tax/insurance/mortgage documents from 2022-2024, create a structured compliance brief '
+        'Using only indexed finance/insurance/lending documents from 2022-2024, create a structured compliance brief '
         'with these sections in order: 1) Executive Summary (max 140 words), 2) Year-by-Year Evidence Map '
-        '(2022, 2023, 2024), 3) Document Group Deep Dive (Informity business tax, Mercury insurance, '
-        'CMG Mortgage, IRS/FTB confirmations), 4) Risks and Gaps, 5) Action Checklist. '
+        '(2022, 2023, 2024), 3) Document Group Deep Dive (Group A finance docs, Group B insurance docs, '
+        'Group C lending docs, agency confirmations), 4) Risks and Gaps, 5) Action Checklist. '
         'In section 3, use nested bullets with exactly 3 levels.'
     )
     chunks = [
@@ -459,7 +459,7 @@ def test_strict_composer_skips_non_contract_analysis_query() -> None:
 
 def test_strict_composer_enforces_max_words_for_analysis_format_contract() -> None:
     question = (
-        'Using only indexed tax/insurance/mortgage documents from 2022-2024, produce ONE response with headings '
+        'Using only indexed finance/insurance/lending documents from 2022-2024, produce ONE response with headings '
         'in this exact order: ## Executive Summary, ## Year-by-Year Evidence Map, ## Document Group Deep Dive, '
         '## Risks and Gaps, ## Action Checklist. Constraints: total <= 520 words; no preamble; no closing commentary. '
         'Under "Year-by-Year Evidence Map", include exactly three subsections: ### 2022, ### 2023, ### 2024.'

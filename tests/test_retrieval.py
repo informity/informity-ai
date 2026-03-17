@@ -262,9 +262,9 @@ async def test_retrieve_chunks_preserves_filename_constraint_when_no_candidates(
         mock_reranker.rerank.side_effect = lambda _q, chunks: chunks
 
         results = await retrieve_chunks(
-            'Summarize the content of 2025 Rocket Mortgrage - 1098.pdf',
+            'Summarize the content of sample-lender-statement.pdf',
             top_k=5,
-            filename_filter='2025 Rocket Mortgrage - 1098.pdf',
+            filename_filter='sample-lender-statement.pdf',
             query_type='focused',
             db=mock_db,
         )
@@ -274,7 +274,7 @@ async def test_retrieve_chunks_preserves_filename_constraint_when_no_candidates(
         where_clause = mock_vector_store.search_similar.call_args[0][2]
         where_params = mock_vector_store.search_similar.call_args[0][3]
         assert 'filename LIKE' in where_clause
-        assert '%2025 Rocket Mortgrage - 1098.pdf%' in where_params
+        assert '%sample-lender-statement.pdf%' in where_params
 
 
 @pytest.mark.asyncio

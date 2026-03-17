@@ -28,7 +28,7 @@ from informity.api.schemas import (
 from informity.api.security import EndpointGuard
 from informity.chat_trace import flush_trace_writer, get_trace_writer
 from informity.config import settings
-from informity.db.models import ChatMessage
+from informity.db.models import ChatMessage, ContinuationPassArtifact
 from informity.db.sqlite import (
     delete_chat,
     get_chat,
@@ -38,6 +38,7 @@ from informity.db.sqlite import (
     get_connection,
     get_db,
     insert_chat_message,
+    insert_continuation_pass_artifact,
     insert_diagnostics_metrics,
     set_chat_title,
 )
@@ -78,6 +79,12 @@ _REFUSAL_PATTERNS = (
     "don't contain enough information",
 )
 _STRICT_NUMERIC_TOKEN_PATTERN = re.compile(r'\$?\d[\d,]*(?:\.\d{1,2})?')
+_TABLE_SEPARATOR_PATTERN = re.compile(r'^\s*\|?\s*:?-{3,}(?:\s*\|\s*:?-{3,})+\s*\|?\s*$')
+_EMPTY_ORDERED_LIST_ITEM_PATTERN = re.compile(r'^\s*\d+\.\s*$')
+_CONTINUATION_COMPACTION_ENABLED = True
+_CONTINUATION_COMPACTION_MIN_PASS_INDEX = 2
+_CONTINUATION_COMPACTION_MIN_ANSWER_CHARS = 1600
+_CONTINUATION_COMPACT_HISTORY_MAX_CHARS = 1200
 
 
 # ==============================================================================
@@ -408,6 +415,35 @@ def _build_auto_continue_pass_prompt(
     return '\n'.join(lines).strip()
 
 
+def _build_compacted_history_assistant_content(
+    *,
+    current_answer: str,
+    unresolved_headings: list[str],
+    pass_count: int,
+    max_chars: int = _CONTINUATION_COMPACT_HISTORY_MAX_CHARS,
+) -> str:
+    cleaned = sanitize_display_answer(current_answer or '')
+    compact_source = cleaned if cleaned else (current_answer or '')
+    compact_source = compact_source.strip()
+    if not compact_source:
+        return ''
+    excerpt = compact_source[:max_chars].strip()
+    if len(compact_source) > len(excerpt):
+        excerpt = f'{excerpt}\n...'
+    lines = [
+        f'Continuation summary from {pass_count} pass(es).',
+        'Preserve completed scope and continue unresolved sections only.',
+    ]
+    if unresolved_headings:
+        lines.append('Unresolved headings:')
+        lines.extend(f'- {heading}' for heading in unresolved_headings[:8])
+    lines.extend([
+        'Prior answer excerpt:',
+        excerpt,
+    ])
+    return '\n'.join(lines).strip()
+
+
 def _is_duplicate_continuation_pass(previous_answer: str | None, current_answer: str) -> bool:
     if not previous_answer:
         return False
@@ -654,6 +690,40 @@ def _has_continue_worthy_gap(
     return has_remaining_scope_signal
 
 
+def _detect_structural_incomplete_reason(answer: str) -> str | None:
+    text = str(answer or '')
+    if not text.strip():
+        return None
+    if text.count('```') % 2 != 0:
+        return 'unclosed_code_fence'
+    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
+    if not lines:
+        return None
+    last_line = lines[-1].rstrip()
+    has_markdown_table = any(_TABLE_SEPARATOR_PATTERN.match(line) for line in lines)
+    if has_markdown_table and last_line.lstrip().startswith('|') and not last_line.rstrip().endswith('|'):
+        return 'truncated_markdown_table_row'
+    if _EMPTY_ORDERED_LIST_ITEM_PATTERN.match(last_line):
+        return 'truncated_markdown_list_item'
+    return None
+
+
+def _mark_structural_output_gap(
+    output_contract_check: dict[str, object] | None,
+    *,
+    answer: str,
+) -> dict[str, object]:
+    normalized = dict(output_contract_check) if isinstance(output_contract_check, dict) else {}
+    structural_reason = _detect_structural_incomplete_reason(answer)
+    if not structural_reason:
+        return normalized
+    normalized['passed'] = False
+    normalized['has_content_gap'] = True
+    normalized.setdefault('failure_reason', structural_reason)
+    normalized['structural_incomplete_reason'] = structural_reason
+    return normalized
+
+
 def _mark_reasoning_only_contract_gap(
     output_contract_check: dict[str, object] | None,
 ) -> dict[str, object]:
@@ -878,6 +948,7 @@ async def chat(
     chat_id = request.chat_id or str(uuid.uuid4())
     stream_id = str(uuid.uuid4())
     request_id = str(get_contextvars().get('request_id') or '')
+    artifact_request_id = request_id or stream_id
 
     # Fetch chat history (excluding the current message we're about to add)
     history = await get_chat(db, chat_id)
@@ -945,6 +1016,7 @@ async def chat(
             timeout_occurred = False
             timeout_reason: str | None = None
             assistant_message_id: int | None = None
+            assistant_message_record: ChatMessage | None = None
             message_persisted = False
             cleaned_answer = ''
             completion_mode_override: str | None = None
@@ -962,6 +1034,7 @@ async def chat(
             continuation_passes = 0
             repair_pass_applied = False
             pass_details: list[dict[str, object]] = []
+            compaction_events: list[dict[str, object]] = []
             pending_repair_prompt: str | None = None
             latest_output_contract_check: dict[str, object] = {'passed': True}
             continuation_unresolved_headings: list[str] = []
@@ -1098,13 +1171,35 @@ async def chat(
                                 original_question=continuation_anchor_question,
                                 missing_headings=_extract_missing_headings(latest_output_contract_check),
                             )
+                        assistant_history_content = ''.join(answer_parts).strip()
+                        unresolved_headings = _extract_missing_headings(latest_output_contract_check)
+                        should_compact_history = (
+                            _CONTINUATION_COMPACTION_ENABLED
+                            and pass_index >= _CONTINUATION_COMPACTION_MIN_PASS_INDEX
+                            and len(assistant_history_content) >= _CONTINUATION_COMPACTION_MIN_ANSWER_CHARS
+                            and not pending_repair_prompt
+                        )
+                        if should_compact_history:
+                            compacted_history = _build_compacted_history_assistant_content(
+                                current_answer=assistant_history_content,
+                                unresolved_headings=unresolved_headings,
+                                pass_count=pass_index - 1,
+                            )
+                            if compacted_history and len(compacted_history) < len(assistant_history_content):
+                                compaction_events.append({
+                                    'pass_index': pass_index,
+                                    'before_chars': len(assistant_history_content),
+                                    'after_chars': len(compacted_history),
+                                    'reason': 'continuation_history_compaction',
+                                })
+                                assistant_history_content = compacted_history
                         pass_history = [
                             *base_history,
                             user_message,
                             ChatMessage(
                                 chat_id=chat_id,
                                 role='assistant',
-                                content=''.join(answer_parts).strip(),
+                                content=assistant_history_content,
                                 sources=[s.model_dump(mode='json') for s in source_map.values()],
                                 completion_mode='scoped_complete',
                                 has_remaining_scope=True,
@@ -1254,6 +1349,10 @@ async def chat(
                                 chat_id=chat_id,
                                 pass_index=pass_index,
                             )
+                    latest_output_contract_check = _mark_structural_output_gap(
+                        latest_output_contract_check,
+                        answer=pass_cleaned_answer or combined_answer,
+                    )
                     if section_progress_enabled:
                         section_progress_payload = _build_section_progress_payload(
                             plan=output_contract_plan,
@@ -1332,7 +1431,7 @@ async def chat(
                         has_remaining_scope_signal=pass_has_remaining_scope,
                         output_contract_check=latest_output_contract_check,
                     )
-                    pass_details.append({
+                    pass_detail = {
                         'pass_index': pass_index,
                         'is_continuation': pass_index > 1,
                         'raw_answer_length': len(pass_raw_answer),
@@ -1346,7 +1445,54 @@ async def chat(
                         'closure_pass_used': closure_pass_used,
                         'continuation_anchor_retry_used': continuation_anchor_retry_used,
                         'evidence_callout_retry_attempted': evidence_callout_retry_attempted,
-                    })
+                    }
+                    pass_details.append(pass_detail)
+                    pass_artifact_has_remaining_scope = pass_continue_worthy_gap
+                    pass_completion_mode = pass_completion_mode_override
+                    if not isinstance(pass_completion_mode, str) or pass_completion_mode not in _VALID_COMPLETION_MODES:
+                        pass_completion_mode = 'scoped_complete' if pass_continue_worthy_gap else 'complete'
+                    if pass_continue_worthy_gap and pass_completion_mode == 'complete':
+                        pass_completion_mode = 'scoped_complete'
+                    elif (not pass_continue_worthy_gap) and pass_completion_mode == 'scoped_complete':
+                        pass_completion_mode = 'complete'
+                    pass_artifact_has_remaining_scope = pass_completion_mode in {'partial', 'scoped_complete', 'stopped'}
+                    pass_next_action_reason: str | None = None
+                    failure_reason = latest_output_contract_check.get('failure_reason')
+                    if isinstance(failure_reason, str) and failure_reason.strip():
+                        pass_next_action_reason = failure_reason.strip()
+                    elif timeout_occurred and timeout_reason:
+                        pass_next_action_reason = timeout_reason
+                    pass_sources_payload = [source.model_dump(mode='json') for source in pass_sources]
+                    pass_stitch_mode = (
+                        'overwrite'
+                        if (pass_overwrites_prior_answer or force_overwrite_finance_conflict)
+                        else 'append'
+                    )
+                    pass_artifact = ContinuationPassArtifact(
+                        chat_id=chat_id,
+                        request_id=artifact_request_id,
+                        pass_index=pass_index,
+                        response_mode_used=response_mode_used,
+                        stitch_mode=pass_stitch_mode,
+                        raw_answer=pass_raw_answer,
+                        cleaned_answer=pass_cleaned_answer,
+                        has_remaining_scope=pass_artifact_has_remaining_scope,
+                        completion_mode=pass_completion_mode,
+                        next_action_reason=pass_next_action_reason,
+                        sources=pass_sources_payload,
+                        pass_details=pass_detail,
+                        status_transitions=list(status_transitions),
+                    )
+                    try:
+                        await insert_continuation_pass_artifact(db, pass_artifact)
+                    except _PERSISTENCE_EXCEPTIONS as artifact_error:
+                        log.warning(
+                            'chat_pass_artifact_persist_failed',
+                            chat_id=chat_id,
+                            request_id=artifact_request_id,
+                            pass_index=pass_index,
+                            error=str(artifact_error),
+                        )
                     pass_has_unresolved_targets = (
                         pass_continue_worthy_gap
                     )
@@ -1517,6 +1663,20 @@ async def chat(
                         # Prevent stale scoped-complete overrides from re-deriving remaining scope.
                         if completion_mode_override == 'scoped_complete':
                             completion_mode_override = None
+                latest_output_contract_check = _mark_structural_output_gap(
+                    latest_output_contract_check,
+                    answer=cleaned_answer or full_answer,
+                )
+                structural_incomplete_reason = latest_output_contract_check.get('structural_incomplete_reason')
+                if (
+                    isinstance(structural_incomplete_reason, str)
+                    and structural_incomplete_reason.strip()
+                    and completion_mode_override != 'stopped'
+                ):
+                    has_remaining_scope = True
+                    completion_mode_override = 'scoped_complete'
+                    if continuation_resolution_reason is None:
+                        continuation_resolution_reason = structural_incomplete_reason.strip()
                 # Structural-first continuation closure: if required headings are all present,
                 # treat the continuation as complete unless timeout/stop explicitly says otherwise.
                 if (
@@ -1526,8 +1686,11 @@ async def chat(
                     and completion_mode_override != 'stopped'
                 ):
                     missing_headings = latest_output_contract_check.get('missing_headings', [])
+                    structural_incomplete_reason = latest_output_contract_check.get('structural_incomplete_reason')
                     if isinstance(missing_headings, list) and not any(
                         isinstance(item, str) and item.strip() for item in missing_headings
+                    ) and not (
+                        isinstance(structural_incomplete_reason, str) and structural_incomplete_reason.strip()
                     ):
                         has_remaining_scope = False
                         if completion_mode_override == 'scoped_complete':
@@ -1641,11 +1804,13 @@ async def chat(
                 persist_db = await get_connection()
                 try:
                     assistant_message = await insert_chat_message(persist_db, assistant_message)
+                    assistant_message_record = assistant_message
                     assistant_message_id = assistant_message.id
                     message_persisted = assistant_message_id is not None
                 except _PERSISTENCE_EXCEPTIONS as persist_error:
                     log.warning('chat_response_persist_retry', chat_id=chat_id, error=str(persist_error))
                     assistant_message = await insert_chat_message(db, assistant_message)
+                    assistant_message_record = assistant_message
                     assistant_message_id = assistant_message.id
                     message_persisted = assistant_message_id is not None
                 finally:
@@ -1718,6 +1883,7 @@ async def chat(
                     persist_db = await get_connection()
                     try:
                         assistant_message = await insert_chat_message(persist_db, assistant_message)
+                        assistant_message_record = assistant_message
                         assistant_message_id = assistant_message.id
                         message_persisted = assistant_message_id is not None
                     finally:
@@ -1767,7 +1933,7 @@ async def chat(
                     try:
                         persist_db = await get_connection()
                         try:
-                            await insert_chat_message(persist_db, assistant_message)
+                            assistant_message_record = await insert_chat_message(persist_db, assistant_message)
                         finally:
                             await persist_db.close()
                     except _PERSISTENCE_EXCEPTIONS as persist_err:
@@ -1844,6 +2010,15 @@ async def chat(
                 next_action=next_action,
                 next_action_reason=next_action_reason,
             )
+            resolved_completion_mode = completion_mode
+            resolved_has_remaining_scope = done_has_remaining_scope
+            resolved_next_action = next_action
+            resolved_next_action_reason = next_action_reason
+            if assistant_message_record is not None:
+                resolved_completion_mode = assistant_message_record.completion_mode or resolved_completion_mode
+                resolved_has_remaining_scope = bool(assistant_message_record.has_remaining_scope)
+                resolved_next_action = assistant_message_record.next_action
+                resolved_next_action_reason = assistant_message_record.next_action_reason
 
             if metrics_raw_chunks_count <= 0 and trace_writer is not None and hasattr(trace_writer, 'get_sections'):
                 sections = trace_writer.get_sections()
@@ -1895,11 +2070,11 @@ async def chat(
                 'request_id': request_id if request_id else None,
                 'timeout_occurred': timeout_occurred,
                 'timeout_reason': timeout_reason,
-                'completion_mode': completion_mode,
-                'has_remaining_scope': done_has_remaining_scope,
+                'completion_mode': resolved_completion_mode,
+                'has_remaining_scope': resolved_has_remaining_scope,
                 'stopped_by_user': stopped_by_user,
-                'next_action': next_action,
-                'next_action_reason': next_action_reason,
+                'next_action': resolved_next_action,
+                'next_action_reason': resolved_next_action_reason,
                 'response_mode_used': response_mode_used,
                 'mode_adjustments_applied': mode_adjustments_applied,
                 'sources_count': len(sources),
@@ -1916,6 +2091,10 @@ async def chat(
                 'continuation_progress_state': continuation_progress_state,
                 'pass_details': pass_details,
                 'status_transitions': status_transitions,
+                'continuation_compaction': {
+                    'applied': bool(compaction_events),
+                    'events': compaction_events,
+                },
             }
             if resource_end_snapshot is None:
                 resource_end_snapshot = capture_resource_snapshot()
@@ -1931,7 +2110,10 @@ async def chat(
             log.info(
                 'chat_response_completed',
                 chat_id=chat_id,
-                completion_mode=completion_mode,
+                completion_mode=done_data.get('completion_mode'),
+                has_remaining_scope=done_data.get('has_remaining_scope'),
+                next_action=done_data.get('next_action'),
+                next_action_reason=done_data.get('next_action_reason'),
                 timeout_occurred=timeout_occurred,
                 timeout_reason=timeout_reason,
                 response_mode_used=response_mode_used,

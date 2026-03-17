@@ -12,12 +12,14 @@ from informity.api.routes_chat import (
     _build_grounding_repair_prompt,
     _build_section_progress_payload,
     _build_targeted_contract_repair_prompt,
+    _detect_structural_incomplete_reason,
     _enforce_completion_action_consistency,
     _enforce_continuation_chat_binding,
     _evaluate_grounding_repair_gate,
     _has_continue_worthy_gap,
     _has_unresolved_contract_targets,
     _is_continuation_request,
+    _mark_structural_output_gap,
     _mark_reasoning_only_contract_gap,
     _requires_full_rewrite_for_contract_repair,
     _resolve_completion_state,
@@ -503,6 +505,29 @@ def test_has_continue_worthy_gap_prefers_explicit_contract_flag_true() -> None:
         has_remaining_scope_signal=False,
         output_contract_check={'has_content_gap': True},
     ) is True
+
+
+def test_detect_structural_incomplete_reason_for_truncated_table_row() -> None:
+    answer = (
+        '| Field | Value |\n'
+        '|-----------|-------|\n'
+        '| Item A | Value A |\n'
+        '| Item B | Value B\n'
+    )
+    assert _detect_structural_incomplete_reason(answer) == 'truncated_markdown_table_row'
+
+
+def test_mark_structural_output_gap_sets_continue_worthy_flags() -> None:
+    answer = (
+        '| A | B |\n'
+        '|---|---|\n'
+        '| x | y\n'
+    )
+    normalized = _mark_structural_output_gap({'passed': True}, answer=answer)
+    assert normalized['passed'] is False
+    assert normalized['has_content_gap'] is True
+    assert normalized['failure_reason'] == 'truncated_markdown_table_row'
+    assert normalized['structural_incomplete_reason'] == 'truncated_markdown_table_row'
 
 
 def test_enforce_completion_action_consistency_none_action_normalizes_complete() -> None:
