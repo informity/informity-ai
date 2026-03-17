@@ -84,6 +84,7 @@ _REQUEST_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, Tim
 _WARMUP_TIMEOUT_SECONDS = 300.0
 _TAURI_SESSION_TOKEN = get_tauri_session_token_from_env()
 _DESKTOP_SESSION_MODE = is_tauri_desktop_mode(_TAURI_SESSION_TOKEN)
+_llm_warmup_task: asyncio.Task | None = None
 _MANAGED_PID_FILE_ENV = 'INFORMITY_MANAGED_PID_FILE'
 _MANAGED_PID_FILE_RAW = _os.environ.get(_MANAGED_PID_FILE_ENV, '').strip()
 _MANAGED_PID_FILE_PATH: Path | None = (
@@ -172,11 +173,84 @@ def _register_signal_handlers() -> None:
 
 
 # ==============================================================================
+# LLM Warmup
+# ==============================================================================
+
+async def _run_llm_warmup() -> None:
+    """
+    Warm up the LLM by running a minimal classification call.
+
+    This initializes Metal GPU shaders, allocates the KV cache, compiles the GBNF
+    JSON grammar, and populates the KV cache for the classification few-shot prefix.
+    After this runs, the first real user query incurs no cold-start latency.
+
+    Skipped if the model file is missing or larger than 20 GB (very large models
+    are slow enough to load that warmup would block startup for too long even in
+    the background). Models over 20 GB load lazily on first query.
+    """
+    try:
+        model_path = llm_engine._get_model_path()
+        if not model_path.exists():
+            log.info(
+                'llm_warmup_skipped_model_not_found',
+                model_path=str(model_path),
+                msg='Model file not found — will load on first query',
+            )
+            return
+        model_size_gb = model_path.stat().st_size / (1024 ** 3)
+        if model_size_gb > 20:
+            log.info(
+                'llm_warmup_skipped_large_model',
+                model_size_gb=round(model_size_gb, 1),
+                model=model_path.name,
+                msg='Skipping warmup for large model — will load on first query',
+            )
+            return
+        log.info('llm_warmup_starting', model=model_path.name, model_size_gb=round(model_size_gb, 1))
+        from informity.llm.model_adapter import get_profile
+        from informity.llm.query_classifier_llm import (
+            CLASSIFICATION_SYSTEM_PROMPT,
+            _CLASSIFICATION_FEW_SHOT,
+        )
+        profile = get_profile()
+        messages = [
+            {'role': 'system', 'content': CLASSIFICATION_SYSTEM_PROMPT},
+            *_CLASSIFICATION_FEW_SHOT,
+            {'role': 'user', 'content': 'warmup\n/no_think'},
+        ]
+        stops = profile.get_stop_sequences(reasoning_enabled=False)
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                llm_engine.model.create_chat_completion,
+                messages=messages,
+                max_tokens=1,
+                temperature=0.0,
+                stop=stops,
+                response_format={'type': 'json_object'},
+            ),
+            timeout=_WARMUP_TIMEOUT_SECONDS,
+        )
+        log.info('llm_warmup_completed')
+    except asyncio.CancelledError:
+        log.info('llm_warmup_cancelled')
+        raise
+    except TimeoutError:
+        log.warning(
+            'llm_warmup_timeout',
+            timeout_seconds=int(_WARMUP_TIMEOUT_SECONDS),
+            msg='LLM warmup timed out — model will respond on first query',
+        )
+    except _STARTUP_RUNTIME_EXCEPTIONS as exc:
+        log.warning('llm_warmup_failed', error=str(exc))
+
+
+# ==============================================================================
 # Lifespan — startup and shutdown logic
 # ==============================================================================
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
+    global _llm_warmup_task  # noqa: PLW0603
     # -- Startup --------------------------------------------------------------
     _register_signal_handlers()
     _write_managed_pid_file()
@@ -222,81 +296,41 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     except (ImportError, _STARTUP_RUNTIME_EXCEPTIONS) as exc:
         log.warning('adaptive_tuning_startup_failed', error=str(exc))
 
-    # Warm up LLM model to trigger Metal GPU compilation and cache initialization.
-    # This prevents the first user query from experiencing extreme cold-start latency
-    # (5+ seconds for GPU shader compilation + KV cache allocation). The warm-up
-    # tokenizes a minimal prompt to initialize Metal buffers without generating output.
-    # Skip in dev mode (reload) to avoid double-warmup on code changes.
-    # For very large models (30B+), warmup can take 5+ minutes, so we skip warmup
-    # entirely for models over 20GB and let them load lazily on first query.
+    # Warm up LLM model to trigger Metal GPU compilation, allocate the KV cache,
+    # compile the GBNF JSON grammar, and populate the KV cache for the
+    # classification few-shot prefix. After warmup, the first user query has no
+    # cold-start latency.
+    #
+    # Server mode: blocking warmup before the server accepts requests (same as before).
+    # Desktop mode: background task after yield so Tauri frontend can connect
+    #   immediately while the model loads behind the scenes.
+    # Skipped in dev mode (reload) to avoid double-warmup on code changes.
     if not settings.dev_reload and not _DESKTOP_SESSION_MODE:
-        try:
-            model_path = llm_engine._get_model_path()
-            if model_path.exists():
-                model_size_gb = model_path.stat().st_size / (1024 ** 3)
-
-                # Skip warmup for very large models (>20GB) — they'll load on first query
-                if model_size_gb > 20:
-                    log.info(
-                        'llm_warmup_skipped_large_model',
-                        model_size_gb=round(model_size_gb, 1),
-                        model=model_path.name,
-                        msg='Skipping warmup for large model — will load on first query',
-                    )
-                else:
-                    log.info('llm_warmup_starting')
-                    try:
-                        # Run tokenization in thread pool to avoid blocking event loop.
-                        # This triggers model load + Metal GPU initialization + shader compilation.
-                        # Use a tiny prompt (single token) so warmup is fast but still initializes GPU.
-                        # Set timeout to 300 seconds (5 minutes) for large models — if warmup takes
-                        # longer, we skip it and let the first query trigger lazy load.
-                        try:
-                            await asyncio.wait_for(
-                                asyncio.to_thread(
-                                    llm_engine.model.tokenize,
-                                    b'Hi',           # Minimal prompt (single token after BOS)
-                                    add_bos=False,   # Don't add BOS token (count only the prompt)
-                                    special=False,   # Don't process as special tokens
-                                ),
-                                timeout=_WARMUP_TIMEOUT_SECONDS,  # 5 minutes max for warmup
-                            )
-                            log.info('llm_warmup_completed')
-                        except TimeoutError:
-                            log.warning(
-                                'llm_warmup_timeout',
-                                timeout_seconds=int(_WARMUP_TIMEOUT_SECONDS),
-                                msg='LLM warmup timed out after 5 minutes — model will load on first query',
-                            )
-                    except _STARTUP_RUNTIME_EXCEPTIONS as exc:
-                        # Warmup failure should not prevent app startup — first query will
-                        # trigger lazy load as before. Log the error for diagnostics.
-                        log.warning('llm_warmup_failed', error=str(exc))
-            else:
-                log.info(
-                    'llm_warmup_skipped_model_not_found',
-                    model_path=str(model_path),
-                    msg='Model file not found — will load on first query',
-                )
-        except _STARTUP_RUNTIME_EXCEPTIONS as exc:
-            # If we can't even check the model path, skip warmup
-            log.warning('llm_warmup_skipped', error=str(exc), msg='Skipping warmup due to error')
-    elif _DESKTOP_SESSION_MODE:
-        log.info(
-            'llm_warmup_skipped_desktop_mode',
-            msg='Skipping startup warmup in desktop mode — model loads on first query',
-        )
+        await _run_llm_warmup()
 
     # Start file watcher for incremental indexing (if watched_directories configured)
     loop = asyncio.get_running_loop()
     start_watcher(loop)
 
     log.info('application_started')
+
+    # Desktop mode: schedule warmup as a background task now that the server is
+    # accepting connections. The Tauri frontend can connect and render the UI
+    # while the model loads behind the scenes. The task reference is stored so
+    # shutdown can cancel it cleanly if the user quits before loading finishes.
+    if not settings.dev_reload and _DESKTOP_SESSION_MODE:
+        _llm_warmup_task = asyncio.create_task(_run_llm_warmup(), name='llm_warmup_background')
+
     yield
 
     # -- Shutdown -------------------------------------------------------------
     log.info('application_shutting_down')
     _remove_managed_pid_file()
+
+    if _llm_warmup_task is not None and not _llm_warmup_task.done():
+        _llm_warmup_task.cancel()
+        with suppress(asyncio.CancelledError, Exception):
+            await _llm_warmup_task
 
     stop_watcher()
     _cleanup_models()
