@@ -73,22 +73,19 @@ async def answer_question(
                     'filename_filter': classification.filename_filter,
                     'duration_ms': round(classify_elapsed_ms, 2),
                 })
-            log.debug(
+            log.info(
                 'query_classified',
-                query=question,
                 intent=classification.intent,
                 route_candidate=classification.route_candidate,
                 confidence=classification.confidence,
                 year_filter=classification.year_filter,
                 category_filter=classification.category_filter,
-                is_metadata_query=classification.is_metadata_query,
-                is_file_list_query=classification.is_file_list_query,
+                duration_ms=round(classify_elapsed_ms, 1),
             )
             yield ('__classification__', classification)
         else:
-            log.debug(
+            log.info(
                 'query_classified_locked',
-                query=question,
                 intent=classification.intent,
                 route_candidate=classification.route_candidate,
                 confidence=classification.confidence,
@@ -97,6 +94,12 @@ async def answer_question(
         # 2. Route to appropriate handler
         for handler in _HANDLER_REGISTRY:
             if handler.matches(classification):
+                log.info(
+                    'route_dispatched',
+                    handler=type(handler).__name__,
+                    intent=classification.intent,
+                    route_candidate=classification.route_candidate,
+                )
                 async for item in handler.handle(
                     question=question,
                     classification=classification,
