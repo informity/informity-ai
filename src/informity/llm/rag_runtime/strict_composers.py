@@ -241,9 +241,9 @@ def _compose_long_synthesis(
         '## Verification Actions',
         '',
         f'1. Verify year-level source completeness for requested groups. {evidence}',
-        f'2. Verify property-tax amount lines directly from original pages. {evidence}',
-        f'3. Verify tax payment records against primary confirmations. {evidence}',
-        f'4. Verify insurance-related records for matching period coverage. {evidence}',
+        f'2. Verify numeric claim lines directly from original source pages. {evidence}',
+        f'3. Verify year-level record completeness for each indexed group. {evidence}',
+        f'4. Verify cross-group comparability before delta claims are finalized. {evidence}',
         f'5. Verify contradiction candidates using side-by-side page extracts. {evidence}',
         f'6. Verify final cross-year delta table after missing pages are resolved. {evidence}',
     ])
@@ -270,7 +270,7 @@ def _compose_cross_document_synthesis(
     lines = [
         '## Coverage Snapshot',
         '',
-        f'- Source inventory includes indexed finance-related records across requested periods. Evidence: {source_names.split(",")[0].strip() if source_names else evidence}',
+        f'- Source inventory includes indexed records across requested periods. Evidence: {source_names.split(",")[0].strip() if source_names else evidence}',
         f'- Missing Evidence: category-complete coverage is not yet validated for all years/groups. {evidence}',
         f'- Missing Evidence: cross-document comparability remains provisional pending additional verification. {evidence}',
         '',
@@ -281,7 +281,7 @@ def _compose_cross_document_synthesis(
     ]
     for year in table_years:
         lines.append(
-            f'| {year} | Mixed finance records | Missing Evidence | Missing Evidence: no fully verified cross-document amount set for {year}. |'
+            f'| {year} | Indexed records | Missing Evidence | Missing Evidence: no fully verified cross-document amount set for {year}. |'
         )
 
     lines.extend([
@@ -293,10 +293,10 @@ def _compose_cross_document_synthesis(
         '',
         '## Missing Evidence',
         '',
-        '- Missing Evidence: yearly tax-to-insurance coverage matrix is incomplete; Verification Action: validate missing year/group rows against primary pages.',
+        '- Missing Evidence: year/group coverage matrix is incomplete; Verification Action: validate missing year/group rows against primary pages.',
         '- Missing Evidence: cross-year amount continuity is not fully verifiable; Verification Action: re-extract yearly amounts from canonical source snippets.',
         '- Missing Evidence: contradiction candidates lack paired support; Verification Action: assemble side-by-side evidence blocks before adjudication.',
-        '- Missing Evidence: mortgage/tax/insurance alignment by period is partial; Verification Action: reconcile document timestamps and coverage windows.',
+        '- Missing Evidence: cross-group alignment by period is partial; Verification Action: reconcile document timestamps and coverage windows.',
         '- Missing Evidence: final aggregate deltas are not claim-safe yet; Verification Action: recompute deltas only after evidence completeness checks pass.',
         '',
         '## Follow-up Plan',
@@ -372,7 +372,7 @@ def _compose_yearly_delta_matrix(
         '',
         '## Evidence Coverage Matrix',
         '',
-        '| Year | Tax Docs | Insurance Docs | Mortgage Docs | Gaps |',
+        '| Year | Group A | Group B | Group C | Gaps |',
         '| --- | --- | --- | --- | --- |',
     ]
     for year in years:
@@ -396,9 +396,9 @@ def _compose_yearly_delta_matrix(
         '## Recommended Verification',
         '',
         f'1. Verify source continuity for each requested year/category. {evidence}',
-        f'2. Verify tax-document numeric fields from primary pages. {evidence}',
-        f'3. Verify insurance-document monetary fields from primary pages. {evidence}',
-        f'4. Verify mortgage-document coverage or explicitly confirm absence. {evidence}',
+        f'2. Verify primary source numeric fields from original pages. {evidence}',
+        f'3. Verify secondary source monetary fields from original pages. {evidence}',
+        f'4. Verify remaining indexed groups or explicitly confirm their absence. {evidence}',
         f'5. Verify cross-year comparability assumptions before delta claims. {evidence}',
         f'6. Verify canonical evidence metadata on each future numeric delta line. {evidence}',
         f'7. Verify final matrix completeness after missing pages are resolved. {evidence}',

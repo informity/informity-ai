@@ -4,11 +4,10 @@ import re
 
 _EVIDENCE_GROUNDED_QUERY_PATTERN = re.compile(r'\bevidence[-\s]*grounded\b', re.IGNORECASE)
 _CURRENCY_TOKEN_PATTERN = re.compile(r'\$?\d[\d,]*(?:\.\d{1,2})?')
-_PHRASE_VERIFICATION_PATTERNS = (
-    'foreign account',
-    'foreign accounts',
-    'fatca',
-)
+# Phrase-level hallucination guards: empty by default — corpus-specific phrases
+# would require per-user configuration and cannot be hardcoded here without
+# causing false positives on corpora where those phrases appear legitimately.
+_PHRASE_VERIFICATION_PATTERNS: tuple[str, ...] = ()
 _YEAR_TOKEN_MIN = 1000
 _YEAR_TOKEN_MAX = 2999
 _GROUNDING_VERIFIER_HEURISTIC_PROFILE = 'grounding_verifier_v1'
