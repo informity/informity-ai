@@ -207,8 +207,8 @@ def test_strict_output_contract_evidence_grounding_counts_numbered_list_items() 
     check = _evaluate_output_contract(
         answer=(
             '## Next Verification Steps\n'
-            '1. Validate tax amount against source\n'
-            '2. Confirm year mapping. Evidence: tax.pdf, page 4\n'
+            '1. Validate reported amount against source\n'
+            '2. Confirm year mapping. Evidence: source.pdf, page 4\n'
         ),
         plan=plan,
     )
@@ -436,7 +436,7 @@ def test_strict_output_contract_ignores_structural_subheading_bullets_with_missi
     check = _evaluate_output_contract(
         answer=(
             '- **Extracted Amounts**:\n'
-            '- **Missing Evidence**: no evidence was found for 2022 tax returns.\n'
+            '- **Missing Evidence**: no evidence was found for 2022 filing records.\n'
             '- Verified amount is $120. Evidence: ledger.pdf, page 2\n'
         ),
         plan=plan,
@@ -482,7 +482,7 @@ def test_strict_output_contract_flags_uncited_largest_delta_numeric_line() -> No
             '## Largest Increase\n'
             '- Largest increase is $660,109 due to reassessment.\n\n'
             '## Largest Decrease\n'
-            '- Largest decrease is $120,000. Evidence: tax.pdf, page 2\n'
+            '- Largest decrease is $120,000. Evidence: source.pdf, page 2\n'
         ),
         plan=plan,
     )

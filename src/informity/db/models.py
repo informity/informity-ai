@@ -132,3 +132,24 @@ class ChatMessage(BaseModel):
     next_action: str | None = None
     next_action_reason: str | None = None
     created_at:       datetime | None = None
+
+
+class ContinuationPassArtifact(BaseModel):
+    # Durable per-pass continuation artifact for diagnostics/compaction input.
+    # Non-authoritative: chat_messages.content remains canonical assistant raw output.
+    id: int | None = None
+    chat_id: str
+    request_id: str
+    pass_index: int
+    response_mode_used: str | None = None
+    stitch_mode: str  # 'append' | 'overwrite'
+    raw_answer: str = ''
+    cleaned_answer: str = ''
+    has_remaining_scope: bool = False
+    completion_mode: str | None = None
+    next_action_reason: str | None = None
+    sources: list[dict] = Field(default_factory=list)
+    pass_details: dict = Field(default_factory=dict)
+    status_transitions: list[dict] = Field(default_factory=list)
+    payload_hash: str = ''
+    created_at: datetime | None = None

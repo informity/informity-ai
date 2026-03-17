@@ -122,6 +122,23 @@ def _collapse_duplicate_insufficient_context_message(
     return collapsed, True
 
 
+def _resolve_sampling_params_for_response_mode(
+    *,
+    response_mode_used: str,
+    profile_temperature: float,
+    profile_top_p: float,
+) -> tuple[float, float, dict[str, object] | None]:
+    mode = str(response_mode_used or 'balanced').strip().lower()
+    if mode == 'analysis':
+        # Deterministic analysis mode reduces run-to-run continuation variance.
+        return 0.0, 1.0, {
+            'step': 'analysis_sampling_deterministic_enforced',
+            'temperature': {'from': profile_temperature, 'to': 0.0},
+            'top_p': {'from': profile_top_p, 'to': 1.0},
+        }
+    return profile_temperature, profile_top_p, None
+
+
 def _truncate_snippet(text: str, max_length: int = _CHUNK_SNIPPET_MAX_LENGTH) -> str:
     if len(text) <= max_length:
         return text
@@ -936,14 +953,21 @@ class RAGHandler:
             max_tokens = effective_max_tokens
             stop_sequences = profile.get_stop_sequences(effective_reasoning_enabled)
             soft_closeout_allowed = _generation_runtime._should_apply_soft_stream_closeout(format_requirements)
+            generation_temperature, generation_top_p, sampling_adjustment = _resolve_sampling_params_for_response_mode(
+                response_mode_used=response_mode_used,
+                profile_temperature=profile.temperature,
+                profile_top_p=profile.top_p,
+            )
+            if sampling_adjustment is not None:
+                mode_adjustments_applied.append(sampling_adjustment)
 
             # 5. Stream response; collect tokens for trace
             stream_summary: _generation_stream.StreamExecutionSummary | None = None
             async for item in _generation_stream.stream_generation_with_budget(
                 messages=messages,
                 max_tokens=max_tokens,
-                temperature=profile.temperature,
-                top_p=profile.top_p,
+                temperature=generation_temperature,
+                top_p=generation_top_p,
                 timeout_seconds=timeout_seconds,
                 stop_sequences=stop_sequences,
                 fit_to_budget_enabled=fit_to_budget_enabled,

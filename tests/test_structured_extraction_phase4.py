@@ -109,7 +109,7 @@ def test_should_not_run_for_summary_prompt_with_global_contract() -> None:
         field_hint=None,
     )
     question = (
-        'Summarize the content of retirement_scenarios_ss_delayed.md in <= 180 words. '
+        'Summarize the content of planning_scenarios.md in <= 180 words. '
         'Include exactly 3 bullets: objective, key tradeoff, decision implication.'
     )
     assert _should_run_structured_extraction(

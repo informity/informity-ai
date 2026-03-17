@@ -256,7 +256,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
       dockAnimationTimerRef.current = window.setTimeout(() => {
         setAnimateToDocked(false)
         dockAnimationTimerRef.current = null
-      }, 620)
+      }, 900)
     } else if (isCenteredComposer) {
       setAnimateToDocked(false)
       if (dockAnimationTimerRef.current != null) {
