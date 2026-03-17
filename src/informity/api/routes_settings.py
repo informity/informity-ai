@@ -232,7 +232,6 @@ _UPDATABLE_FIELDS: set[str] = {
     'chat_trace_user_retention_days',
     'chat_trace_evaluation_retention_days',
     'enable_raw_output_control',
-    'classifier_llm_model',
     'log_level',
     'ui_theme',
     'enable_menu_bar_icon',
@@ -274,10 +273,7 @@ async def get_settings() -> SettingsResponse:
     # Access config.settings to always get the current singleton value
     s = config.settings
 
-    # Resolve main and classifier model profiles for read-only display
     profile_info = _build_model_profile_info(s.llm_model_filename)
-
-    classifier_profile_info = _build_model_profile_info(s.classifier_llm_model)
 
     return SettingsResponse(
         watched_directories     = [str(p) for p in s.watched_directories],
@@ -318,12 +314,10 @@ async def get_settings() -> SettingsResponse:
         chat_trace_user_retention_days = s.chat_trace_user_retention_days,
         chat_trace_evaluation_retention_days = s.chat_trace_evaluation_retention_days,
         enable_raw_output_control = s.enable_raw_output_control,
-        classifier_llm_model   = s.classifier_llm_model,
         available_models      = await asyncio.to_thread(_list_available_models),
         file_type_options     = [FileTypeOption(**o) for o in get_file_type_options()],
         config_file_path      = str(_config_file_path()),
         model_profile         = profile_info,
-        classifier_model_profile = classifier_profile_info,
         ui_theme              = s.ui_theme,
         enable_menu_bar_icon  = s.enable_menu_bar_icon,
         default_response_mode = s.default_response_mode,
@@ -446,12 +440,6 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                             f"'{profile.name}'. Supported modes: {', '.join(supported_modes)}."
                         ),
                     )
-            if field_name == 'classifier_llm_model' and value is not None:
-                value = (value or '').strip()
-                if not value:
-                    raise HTTPException(status_code=400, detail='classifier_llm_model cannot be empty')
-                if not value.endswith('.gguf'):
-                    raise HTTPException(status_code=400, detail='classifier_llm_model must be a .gguf file')
             if field_name == 'llm_model_filename' and value is not None:
                 value = (value or '').strip()
                 if not value:

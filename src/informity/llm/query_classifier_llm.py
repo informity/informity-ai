@@ -1,18 +1,15 @@
 # ==============================================================================
 # Informity AI — LLM-Based Query Classifier
-# Uses a small LLM (Qwen2.5-3B) for query intent classification and metadata
-# extraction. Replaces regex-based classification with semantic understanding.
+# Uses the main LLM (via llm_engine) for query intent classification and
+# metadata extraction.
 # ==============================================================================
 
 import json
-import os
 import re
 import time
-from contextlib import redirect_stderr
 
 import structlog
 
-from informity.config import settings
 from informity.exceptions import LLMError
 from informity.file_patterns import get_all_supported_extensions
 from informity.llm.intent_normalization import normalize_intent_policy_fields
@@ -21,7 +18,7 @@ from informity.llm.intent_profiles import (
     rank_profile_candidates,
 )
 from informity.llm.metadata_filters import extract_metadata_filters
-from informity.llm.model_adapter import get_profile_for_filename
+from informity.llm.model_adapter import get_profile
 from informity.llm.nlp_heuristics import (
     extract_field_hint,
     extract_group_by,
@@ -326,472 +323,311 @@ CRITICAL: Output MUST start with { and end with }. No code blocks, no explanatio
 # LLM Query Classifier
 # ==============================================================================
 
-class LLMQueryClassifier:
-    """
-    LLM-based query classifier using a small model (Qwen2.5-3B).
-
-    Uses model profile for optimal configuration (temperature, max_tokens, etc.).
-    CPU-only to keep GPU free for main RAG model.
-    """
-
-    def __init__(self):
-        self._llm = None
-        self._model_path = None
-        self._profile = None
-
-    def _get_model_path(self):
-        """Resolve the full path to the classification model file."""
-        if self._model_path is None:
-            if settings.query_classifier_models_dir is None:
-                raise LLMError('query_classifier_models_dir not configured')
-            self._model_path = settings.query_classifier_models_dir / settings.classifier_llm_model
-        return self._model_path
-
-    def _load_model(self) -> None:
-        """Lazy load the classification model (CPU-only)."""
-        if self._llm is not None:
-            return
-
-        model_path = self._get_model_path()
-
-        if not model_path.exists():
-            local_only = settings.full_privacy or settings.llm_local_only
-            if local_only:
-                raise LLMError(
-                    f'Classification model not found at {model_path}. '
-                    'Place your GGUF file in the query classifier models directory '
-                    f'({settings.query_classifier_models_dir}) or turn off Full Privacy Mode to allow download.'
-                )
-            log.warning(
-                'classifier_model_not_found',
-                path=str(model_path),
-                filename=settings.classifier_llm_model,
-            )
-            # Could add download logic here if needed
-            raise LLMError(f'Classification model not found: {model_path}')
-
-        # Get profile for optimal configuration
-        self._profile = get_profile_for_filename(settings.classifier_llm_model)
-        ctx_len = self._profile.context_length
-
-        log.info(
-            'loading_classifier_model',
-            path=str(model_path),
-            context_length=ctx_len,
-            profile=self._profile.name,
-        )
-
-        try:
-            from llama_cpp import Llama
-
-            # Suppress C-layer messages (same pattern as main engine)
-            with open(os.devnull, 'w') as devnull, redirect_stderr(devnull):
-                # Use embedding_max_threads from config (default: 6) with cap of 8
-                # This allows tuning via config.json or env var without code changes
-                n_threads = min(settings.embedding_max_threads, 8)
-                # Don't pass chat_format - let GGUF embedded template take over (matches profile.prompt_format = NATIVE_GGUF)
-                # This is consistent with main LLM engine and respects the profile setting
-                self._llm = Llama(
-                    model_path=str(model_path),
-                    n_ctx=ctx_len,
-                    n_gpu_layers=0,  # CPU-only - keep GPU free for main RAG model
-                    n_threads=n_threads,  # Configurable via settings.embedding_max_threads
-                    verbose=False,
-                )
-        except ImportError as exc:
-            raise LLMError(
-                'llama-cpp-python not installed. Install with: uv pip install llama-cpp-python'
-            ) from exc
-        except _CLASSIFIER_RUNTIME_EXCEPTIONS as exc:
-            raise LLMError(f'Failed to load classification model: {exc}') from exc
-
-        log.debug('classifier_model_loaded', model=settings.classifier_llm_model)
-
-    def classify_query(self, query: str) -> QueryClassification:
-        """
-        Classify query using LLM with structured JSON output.
-
-        Args:
-            query: User query string
-
-        Returns:
-            QueryClassification with intent and extracted filters
-
-        Raises:
-            LLMError: If model loading or inference fails
-        """
-        classify_start = time.perf_counter()
-        if self._llm is None:
-            self._load_model()
-
-        # Build messages with system prompt
-        no_think = self._profile.no_think_token or ''
-        messages = [
-            {'role': 'system', 'content': CLASSIFICATION_SYSTEM_PROMPT},
-            {'role': 'user', 'content': f'{query}\n{no_think}'},  # Disable reasoning (e.g. /no_think for Qwen3)
-        ]
-
-        # Get optimal settings from profile
-        max_tokens = self._profile.max_tokens_focused  # Use focused limit (100 tokens)
-        temperature = self._profile.temperature  # 0.0 for deterministic
-        stop_sequences = self._profile.get_stop_sequences(reasoning_enabled=False)
-
-        # For classification, enforce no reasoning by adding <think> as stop sequence
-        # This prevents the model from outputting <think> tags (upstream prevention, app-compliant)
-        # Keep structural stop + add reasoning prevention
-        if '<|im_end|>' in stop_sequences:
-            classification_stops = ['<|im_end|>', '<think>']
-        else:
-            classification_stops = [*stop_sequences, '<think>']
-
-        # Generate classification (fast, deterministic)
-        # Use JSON mode to enforce valid JSON output at token level (eliminates parse errors)
-        try:
-            response = self._llm.create_chat_completion(
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                stop=classification_stops,
-                response_format={'type': 'json_object'},  # Enforces valid JSON via GBNF grammar
-            )
-        except _CLASSIFIER_RUNTIME_EXCEPTIONS as exc:
-            raise LLMError(f'Classification inference failed: {exc}') from exc
-
-        # Extract content from response
-        if not response or 'choices' not in response or not response['choices']:
-            log.error(
-                'classifier_empty_response',
-                response_present=bool(response),
-                choices_present=bool(response and 'choices' in response),
-            )
-            raise LLMError('Empty response from classification model')
-
-        choice = response['choices'][0]
-        if 'message' not in choice or 'content' not in choice['message']:
-            log.error(
-                'classifier_invalid_response_structure',
-                choice_keys=sorted(choice.keys()) if isinstance(choice, dict) else [],
-            )
-            raise LLMError('Invalid response structure from classification model')
-
-        content = choice['message']['content']
-        if content is None:
-            content = ''
-        content = content.strip()
-
-        # Check if content is empty
-        if not content:
-            log.error(
-                'classifier_empty_content',
-                query_length=len(query),
-                payload_redacted=True,
-                finish_reason=choice.get('finish_reason'),
-            )
-            raise LLMError('Empty content in classification response - model may have stopped early')
-
-        # Parse JSON (JSON mode ensures valid JSON structure, so parse should always succeed)
-        # JSON mode uses GBNF grammar to constrain output at token level, eliminating parse errors
-        try:
-            data = json.loads(content)
-        except json.JSONDecodeError as exc:
-            # This should be extremely rare with JSON mode, but log for debugging if it occurs
-            log.error(
-                'classifier_json_parse_failed',
-                content_length=len(content),
-                query_length=len(query),
-                payload_redacted=True,
-                error=str(exc),
-                finish_reason=choice.get('finish_reason'),
-            )
-            raise LLMError(f'Failed to parse classification JSON (unexpected with JSON mode): {exc}. Content: {content[:200]}') from exc
-
-        # Validate and extract fields
-        intent = data.get('intent', 'focused')
-        if intent not in ('metadata', 'focused', 'coverage', 'simple'):
-            log.warning(
-                'invalid_intent_from_classifier',
-                intent=intent,
-                query_length=len(query),
-            )
-            intent = 'focused'  # Safe fallback
-
-        response_shape = str(data.get('response_shape', 'narrative_synthesis')).strip().lower()
-        if response_shape not in {'structured_extract', 'narrative_synthesis'}:
-            response_shape = 'narrative_synthesis'
-
-        llm_intent = intent
-
-        year = data.get('year')
-        if year is not None:
-            try:
-                year = int(year)
-                # Validate year range
-                if not (1900 <= year <= 2099):
-                    year = None
-            except (ValueError, TypeError):
-                year = None
-
-        # Guardrail: multi-year queries should not collapse into a single-year classification filter.
-        # Retrieval will apply generic IN-range/list filters via metadata filter extraction.
-        explicit_years = {int(m.group(0)) for m in re.finditer(r'\b(?:19|20)\d{2}\b', query)}
-        if len(explicit_years) > 1:
-            year = None
-
-        # Category extraction: only for metadata queries
-        # For content queries (focused/coverage), category filtering causes conflicts
-        # when LLM incorrectly extracts category (e.g., "document" from word "content")
-        # Let extension or semantic search handle filtering instead
-        category = None
-        if intent == 'metadata':
-            # Only extract category for metadata queries ("show me document files")
-            category = data.get('category')
-            if category not in ('document', 'plaintext', 'data', 'web', 'code'):
-                category = None
-
-        file_type = data.get('file_type')
-        if file_type and not file_type.startswith('.'):
-            file_type = f'.{file_type}'
-
-        phase2_constraints = _extract_phase2_constraints(query)
-        explicit_file_type = (
-            str(phase2_constraints['file_type'])
-            if isinstance(phase2_constraints.get('file_type'), str)
-            else None
-        )
-        if intent in ('focused', 'coverage') and file_type is not None and explicit_file_type is None:
-            log.debug(
-                'classifier_file_type_filter_dropped_no_explicit_extension',
-                file_type=file_type,
-                intent=intent,
-            )
-            file_type = None
-
-        if file_type is None and isinstance(phase2_constraints.get('file_type'), str):
-            file_type = str(phase2_constraints['file_type'])
-
-        # For metadata queries with file_type but no category, infer category from extension
-        # This handles queries like "show me all .xlsx files" → category="data"
-        if intent == 'metadata' and category is None and file_type:
-            inferred_category = _infer_category_from_file_type(file_type)
-            if inferred_category:
-                category = inferred_category
-                log.debug(
-                    'category_inferred_from_file_type',
-                    file_type=file_type,
-                    inferred_category=category,
-                )
-
-        filename_raw = data.get('filename')
-        filename = str(filename_raw).strip() if isinstance(filename_raw, str) else None
-        if not filename:
-            filename = None
-        if intent in ('focused', 'coverage') and filename is not None and not _is_exact_filename_constraint(filename):
-            log.debug(
-                'classifier_filename_filter_dropped_non_exact',
-                filename=filename,
-                intent=intent,
-            )
-            filename = None
-        block_type = data.get('block_type')
-        if block_type not in ('table', 'form', 'narrative'):
-            block_type = None
-        # Section constraints must be explicitly grounded in user phrasing
-        # ("section/part/schedule ..."), not inferred ad-hoc by the classifier model.
-        phase2_section_hint = phase2_constraints.get('section_hint')
-        section = str(phase2_section_hint) if isinstance(phase2_section_hint, str) else None
-
-        group_by_value = phase2_constraints.get('group_by')
-        if isinstance(group_by_value, str) and group_by_value in {'year', 'category', 'file'}:
-            group_by = group_by_value
-        else:
-            group_by = None
-
-        field_hint_value = phase2_constraints.get('field_hint')
-        field_hint = str(field_hint_value) if isinstance(field_hint_value, str) else None
-        aggregation_semantics = bool(phase2_constraints.get('aggregation_semantics'))
-        period_comparison_semantics = bool(phase2_constraints.get('period_comparison_semantics'))
-        extraction_task = bool(phase2_constraints.get('extraction_task'))
-        has_multi_year_scope = len(explicit_years) > 1
-        subtype: str | None = None
-        if intent == 'metadata':
-            subtype = 'file_inventory'
-        elif intent in ('focused', 'coverage'):
-            if (
-                (aggregation_semantics or period_comparison_semantics)
-                and (
-                    group_by == 'year'
-                    or has_multi_year_scope
-                    or extraction_task
-                    or period_comparison_semantics
-                )
-            ):
-                subtype = 'aggregate_by_period'
-            elif response_shape == 'structured_extract' or field_hint is not None:
-                subtype = 'extract_structured_values'
-
-        (
-            intent,
-            subtype,
-            response_shape,
-            normalization_reason_codes,
-        ) = normalize_intent_policy_fields(
-            query=query,
-            intent=intent,
-            subtype=subtype,
-            response_shape=response_shape,
-            group_by=group_by,
-            filename_filter=filename,
-            has_multi_year_scope=has_multi_year_scope,
-        )
-        if intent == 'focused' and _is_inventory_plus_content_coverage_query(query):
-            intent = 'coverage'
-            response_shape = 'narrative_synthesis'
-            subtype = None
-            if 'policy_inventory_plus_content_to_coverage' not in normalization_reason_codes:
-                normalization_reason_codes.append('policy_inventory_plus_content_to_coverage')
-
-        source_terms_value = phase2_constraints.get('source_terms')
-        source_terms = [str(v) for v in source_terms_value] if isinstance(source_terms_value, list) else []
-
-        # Determine metadata flags
-        is_metadata_query = (intent == 'metadata')
-        # File listing is a specific metadata subtype, not equivalent to all metadata intents.
-        # Keep this data-agnostic and pattern-based so metadata fallbacks do not dump all files.
-        is_file_list_query = bool(intent == 'metadata' and _FILE_LIST_PATTERN.search(query))
-
-        # Allow filename filter for all intents when classifier provides one explicitly.
-        effective_filename_filter = filename
-        # Structural filters are only relevant to focused/coverage retrieval.
-        effective_block_type_filter = block_type if intent in ('focused', 'coverage') else None
-        effective_section_filter = section if intent in ('focused', 'coverage') else None
-        llm_route_candidate_raw = data.get('route_candidate')
-        llm_route_candidate = str(llm_route_candidate_raw).strip() if isinstance(llm_route_candidate_raw, str) else None
-        route_candidate, confidence, reason_codes = _resolve_route_candidate(
-            llm_route_candidate=llm_route_candidate,
-            intent=intent,
-            response_shape=response_shape,
-            subtype=subtype,
-            group_by=group_by,
-        )
-        if (
-            intent == 'focused'
-            and filename is not None
-            and _is_filename_summary_query(query)
-            and route_candidate == 'structured_field_extraction'
-        ):
-            route_candidate = 'targeted_fact_lookup'
-            response_shape = 'narrative_synthesis'
-            if 'policy_filename_summary_to_targeted_fact' not in reason_codes:
-                reason_codes.append('policy_filename_summary_to_targeted_fact')
-        for reason_code in normalization_reason_codes:
-            if reason_code not in reason_codes:
-                reason_codes.append(reason_code)
-        alternatives = rank_profile_candidates(
-            route_candidate=route_candidate,
-            confidence=confidence,
-        )[1:]
-        missing_slots: list[str] = []
-        if route_candidate == 'continuation_or_refinement' and not effective_section_filter:
-            missing_slots.append('section_hint')
-
-        classification = QueryClassification(
-            intent=intent,
-            response_shape=response_shape,
-            route_candidate=route_candidate,
-            confidence=confidence,
-            alternatives=alternatives,
-            reason_codes=reason_codes,
-            missing_slots=missing_slots,
-            subtype=subtype,
-            has_multi_year_scope=has_multi_year_scope,
-            group_by=group_by,
-            field_hint=field_hint,
-            source_terms=source_terms,
-            year_filter=year,
-            category_filter=category,
-            file_type_filter=file_type,
-            filename_filter=effective_filename_filter,
-            block_type_filter=effective_block_type_filter,
-            section_filter=effective_section_filter,
-            is_metadata_query=is_metadata_query,
-            is_file_list_query=is_file_list_query,
-        )
-
-        # Log classification decision and outcome for prompt tuning
-        log.info(
-            'query_classification',
-            query_length=len(query),
-            payload_redacted=True,
-            duration_ms=round((time.perf_counter() - classify_start) * 1000, 2),
-            classification={
-                'intent': classification.intent,
-                'llm_intent': llm_intent,
-                'response_shape': classification.response_shape,
-                'route_candidate': classification.route_candidate,
-                'confidence': classification.confidence,
-                'alternatives': classification.alternatives,
-                'reason_codes': classification.reason_codes,
-                'missing_slots': classification.missing_slots,
-                'subtype': classification.subtype,
-                'has_multi_year_scope': classification.has_multi_year_scope,
-                'group_by': classification.group_by,
-                'field_hint': classification.field_hint,
-                'source_terms': classification.source_terms,
-                'year_filter': classification.year_filter,
-                'category_filter': classification.category_filter,
-                'file_type_filter': classification.file_type_filter,
-                'filename_filter': classification.filename_filter,
-                'block_type_filter': classification.block_type_filter,
-                'section_filter': classification.section_filter,
-            },
-        )
-
-        return classification
-
-    def unload(self) -> None:
-        """Unload the model and free memory."""
-        if self._llm is not None:
-            del self._llm
-            self._llm = None
-            self._profile = None
-            import gc
-            gc.collect()
-            log.debug('classifier_model_unloaded')
-
-
-# ==============================================================================
-# Global Instance (Lazy Initialization)
-# ==============================================================================
-
-_classifier: LLMQueryClassifier | None = None
-
 
 def classify_query_llm(query: str) -> QueryClassification:
     """
-    Main entry point for LLM-based query classification.
-
-    Uses a global singleton instance for efficiency (model loaded once).
+    Classify query using the main LLM engine with structured JSON output.
 
     Args:
         query: User query string
 
     Returns:
         QueryClassification with intent and extracted filters
-    """
-    global _classifier
-    if _classifier is None:
-        _classifier = LLMQueryClassifier()
-    return _classifier.classify_query(query)
 
-
-def unload_classifier() -> None:
+    Raises:
+        LLMError: If inference fails
     """
-    Unload the classifier model and free memory.
+    from informity.llm.engine import llm_engine
 
-    Called during application shutdown to release resources.
-    Safe to call even if classifier was never loaded.
-    """
-    global _classifier
-    if _classifier is not None:
-        _classifier.unload()
-        _classifier = None
+    classify_start = time.perf_counter()
+    profile = get_profile()
+    messages = profile.prepare_messages(
+        [
+            {'role': 'system', 'content': CLASSIFICATION_SYSTEM_PROMPT},
+            {'role': 'user', 'content': query},
+        ],
+        query_type='simple',  # reasoning=False → /no_think injected for think-capable models
+    )
+    stops = profile.get_stop_sequences(reasoning_enabled=False)
+    # JSON mode (GBNF grammar) constrains output to valid JSON; reasoning is disabled via /no_think
+
+    try:
+        response = llm_engine.model.create_chat_completion(
+            messages=messages,
+            max_tokens=120,   # classification is always short
+            temperature=0.0,  # deterministic
+            stop=stops,
+            response_format={'type': 'json_object'},  # Enforces valid JSON via GBNF grammar
+        )
+    except _CLASSIFIER_RUNTIME_EXCEPTIONS as exc:
+        raise LLMError(f'Classification inference failed: {exc}') from exc
+
+    # Extract content from response
+    if not response or 'choices' not in response or not response['choices']:
+        log.error(
+            'classifier_empty_response',
+            response_present=bool(response),
+            choices_present=bool(response and 'choices' in response),
+        )
+        raise LLMError('Empty response from classification model')
+
+    choice = response['choices'][0]
+    if 'message' not in choice or 'content' not in choice['message']:
+        log.error(
+            'classifier_invalid_response_structure',
+            choice_keys=sorted(choice.keys()) if isinstance(choice, dict) else [],
+        )
+        raise LLMError('Invalid response structure from classification model')
+
+    content = choice['message']['content']
+    if content is None:
+        content = ''
+    content = content.strip()
+
+    if not content:
+        log.error(
+            'classifier_empty_content',
+            query_length=len(query),
+            payload_redacted=True,
+            finish_reason=choice.get('finish_reason'),
+        )
+        raise LLMError('Empty content in classification response - model may have stopped early')
+
+    # Parse JSON (JSON mode ensures valid JSON structure, so parse should always succeed)
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError as exc:
+        log.error(
+            'classifier_json_parse_failed',
+            content_length=len(content),
+            query_length=len(query),
+            payload_redacted=True,
+            error=str(exc),
+            finish_reason=choice.get('finish_reason'),
+        )
+        raise LLMError(f'Failed to parse classification JSON (unexpected with JSON mode): {exc}. Content: {content[:200]}') from exc
+
+    # Validate and extract fields
+    intent = data.get('intent', 'focused')
+    if intent not in ('metadata', 'focused', 'coverage', 'simple'):
+        log.warning(
+            'invalid_intent_from_classifier',
+            intent=intent,
+            query_length=len(query),
+        )
+        intent = 'focused'  # Safe fallback
+
+    response_shape = str(data.get('response_shape', 'narrative_synthesis')).strip().lower()
+    if response_shape not in {'structured_extract', 'narrative_synthesis'}:
+        response_shape = 'narrative_synthesis'
+
+    llm_intent = intent
+
+    year = data.get('year')
+    if year is not None:
+        try:
+            year = int(year)
+            if not (1900 <= year <= 2099):
+                year = None
+        except (ValueError, TypeError):
+            year = None
+
+    # Guardrail: multi-year queries should not collapse into a single-year classification filter.
+    explicit_years = {int(m.group(0)) for m in re.finditer(r'\b(?:19|20)\d{2}\b', query)}
+    if len(explicit_years) > 1:
+        year = None
+
+    # Category extraction: only for metadata queries
+    category = None
+    if intent == 'metadata':
+        category = data.get('category')
+        if category not in ('document', 'plaintext', 'data', 'web', 'code'):
+            category = None
+
+    file_type = data.get('file_type')
+    if file_type and not file_type.startswith('.'):
+        file_type = f'.{file_type}'
+
+    phase2_constraints = _extract_phase2_constraints(query)
+    explicit_file_type = (
+        str(phase2_constraints['file_type'])
+        if isinstance(phase2_constraints.get('file_type'), str)
+        else None
+    )
+    if intent in ('focused', 'coverage') and file_type is not None and explicit_file_type is None:
+        log.debug(
+            'classifier_file_type_filter_dropped_no_explicit_extension',
+            file_type=file_type,
+            intent=intent,
+        )
+        file_type = None
+
+    if file_type is None and isinstance(phase2_constraints.get('file_type'), str):
+        file_type = str(phase2_constraints['file_type'])
+
+    if intent == 'metadata' and category is None and file_type:
+        inferred_category = _infer_category_from_file_type(file_type)
+        if inferred_category:
+            category = inferred_category
+            log.debug(
+                'category_inferred_from_file_type',
+                file_type=file_type,
+                inferred_category=category,
+            )
+
+    filename_raw = data.get('filename')
+    filename = str(filename_raw).strip() or None if isinstance(filename_raw, str) else None
+    if intent in ('focused', 'coverage') and filename is not None and not _is_exact_filename_constraint(filename):
+        log.debug(
+            'classifier_filename_filter_dropped_non_exact',
+            filename=filename,
+            intent=intent,
+        )
+        filename = None
+    block_type = data.get('block_type')
+    if block_type not in ('table', 'form', 'narrative'):
+        block_type = None
+    # Section constraints must be explicitly grounded in user phrasing
+    phase2_section_hint = phase2_constraints.get('section_hint')
+    section = str(phase2_section_hint) if isinstance(phase2_section_hint, str) else None
+
+    group_by_value = phase2_constraints.get('group_by')
+    if isinstance(group_by_value, str) and group_by_value in {'year', 'category', 'file'}:
+        group_by = group_by_value
+    else:
+        group_by = None
+
+    field_hint_value = phase2_constraints.get('field_hint')
+    field_hint = str(field_hint_value) if isinstance(field_hint_value, str) else None
+    aggregation_semantics = bool(phase2_constraints.get('aggregation_semantics'))
+    period_comparison_semantics = bool(phase2_constraints.get('period_comparison_semantics'))
+    extraction_task = bool(phase2_constraints.get('extraction_task'))
+    has_multi_year_scope = len(explicit_years) > 1
+    subtype: str | None = None
+    if intent == 'metadata':
+        subtype = 'file_inventory'
+    elif intent in ('focused', 'coverage'):
+        if (
+            (aggregation_semantics or period_comparison_semantics)
+            and (
+                group_by == 'year'
+                or has_multi_year_scope
+                or extraction_task
+                or period_comparison_semantics
+            )
+        ):
+            subtype = 'aggregate_by_period'
+        elif response_shape == 'structured_extract' or field_hint is not None:
+            subtype = 'extract_structured_values'
+
+    (
+        intent,
+        subtype,
+        response_shape,
+        normalization_reason_codes,
+    ) = normalize_intent_policy_fields(
+        query=query,
+        intent=intent,
+        subtype=subtype,
+        response_shape=response_shape,
+        group_by=group_by,
+        filename_filter=filename,
+        has_multi_year_scope=has_multi_year_scope,
+    )
+    if intent == 'focused' and _is_inventory_plus_content_coverage_query(query):
+        intent = 'coverage'
+        response_shape = 'narrative_synthesis'
+        subtype = None
+        if 'policy_inventory_plus_content_to_coverage' not in normalization_reason_codes:
+            normalization_reason_codes.append('policy_inventory_plus_content_to_coverage')
+
+    source_terms_value = phase2_constraints.get('source_terms')
+    source_terms = [str(v) for v in source_terms_value] if isinstance(source_terms_value, list) else []
+
+    is_metadata_query = (intent == 'metadata')
+    is_file_list_query = bool(intent == 'metadata' and _FILE_LIST_PATTERN.search(query))
+
+    effective_block_type_filter = block_type if intent in ('focused', 'coverage') else None
+    effective_section_filter = section if intent in ('focused', 'coverage') else None
+    llm_route_candidate_raw = data.get('route_candidate')
+    llm_route_candidate = str(llm_route_candidate_raw).strip() if isinstance(llm_route_candidate_raw, str) else None
+    route_candidate, confidence, reason_codes = _resolve_route_candidate(
+        llm_route_candidate=llm_route_candidate,
+        intent=intent,
+        response_shape=response_shape,
+        subtype=subtype,
+        group_by=group_by,
+    )
+    if (
+        intent == 'focused'
+        and filename is not None
+        and _is_filename_summary_query(query)
+        and route_candidate == 'structured_field_extraction'
+    ):
+        route_candidate = 'targeted_fact_lookup'
+        response_shape = 'narrative_synthesis'
+        if 'policy_filename_summary_to_targeted_fact' not in reason_codes:
+            reason_codes.append('policy_filename_summary_to_targeted_fact')
+    for reason_code in normalization_reason_codes:
+        if reason_code not in reason_codes:
+            reason_codes.append(reason_code)
+    alternatives = rank_profile_candidates(
+        route_candidate=route_candidate,
+        confidence=confidence,
+    )[1:]
+    missing_slots: list[str] = []
+    if route_candidate == 'continuation_or_refinement' and not effective_section_filter:
+        missing_slots.append('section_hint')
+
+    classification = QueryClassification(
+        intent=intent,
+        response_shape=response_shape,
+        route_candidate=route_candidate,
+        confidence=confidence,
+        alternatives=alternatives,
+        reason_codes=reason_codes,
+        missing_slots=missing_slots,
+        subtype=subtype,
+        has_multi_year_scope=has_multi_year_scope,
+        group_by=group_by,
+        field_hint=field_hint,
+        source_terms=source_terms,
+        year_filter=year,
+        category_filter=category,
+        file_type_filter=file_type,
+        filename_filter=filename,
+        block_type_filter=effective_block_type_filter,
+        section_filter=effective_section_filter,
+        is_metadata_query=is_metadata_query,
+        is_file_list_query=is_file_list_query,
+    )
+
+    log.info(
+        'query_classification',
+        query_length=len(query),
+        payload_redacted=True,
+        duration_ms=round((time.perf_counter() - classify_start) * 1000, 2),
+        classification={
+            'intent': classification.intent,
+            'llm_intent': llm_intent,
+            'response_shape': classification.response_shape,
+            'route_candidate': classification.route_candidate,
+            'confidence': classification.confidence,
+            'alternatives': classification.alternatives,
+            'reason_codes': classification.reason_codes,
+            'missing_slots': classification.missing_slots,
+            'subtype': classification.subtype,
+            'has_multi_year_scope': classification.has_multi_year_scope,
+            'group_by': classification.group_by,
+            'field_hint': classification.field_hint,
+            'source_terms': classification.source_terms,
+            'year_filter': classification.year_filter,
+            'category_filter': classification.category_filter,
+            'file_type_filter': classification.file_type_filter,
+            'filename_filter': classification.filename_filter,
+            'block_type_filter': classification.block_type_filter,
+            'section_filter': classification.section_filter,
+        },
+    )
+
+    return classification

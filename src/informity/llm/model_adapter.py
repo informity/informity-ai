@@ -396,8 +396,7 @@ QWEN3_14B_PROFILE = ModelProfile(
     rag_context_ratio_analysis = 0.68,
     rag_context_ratio_research = 0.62,
 
-    stop_sequences              = _CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
-    stop_sequences_no_reasoning = (),
+    stop_sequences  = _CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
 
     strip_meta_commentary = False,
     strip_citations       = True,
@@ -450,8 +449,7 @@ QWEN3_5_9B_PROFILE = ModelProfile(
     rag_context_ratio_analysis = 0.66,
     rag_context_ratio_research = 0.60,
 
-    stop_sequences              = _CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
-    stop_sequences_no_reasoning = (),
+    stop_sequences  = _CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
 
     strip_meta_commentary = False,
     strip_citations       = True,
@@ -520,8 +518,7 @@ QWEN3_30B_A3B_PROFILE = ModelProfile(
 
     # Do not include citation text stops for Qwen3: they can appear inside
     # <think> reasoning and prematurely terminate generation before final answer.
-    stop_sequences              = _CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
-    stop_sequences_no_reasoning = (),  # Used for simple/coverage when reasoning disabled
+    stop_sequences  = _CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
 
     strip_meta_commentary = False,  # 30B model follows Rule #5 — no need
     strip_citations       = True,   # Keep citation stripping as safety net
@@ -573,79 +570,10 @@ DEEPSEEK_R1_DISTILL_PROFILE = ModelProfile(
     rag_context_ratio_analysis = 0.75,
     rag_context_ratio_research = 0.75,
 
-    stop_sequences              = _CHATML_STRUCTURAL + _CITATION + _FALLBACK_PHRASE_STOPS,
-    stop_sequences_no_reasoning = (),
+    stop_sequences  = _CHATML_STRUCTURAL + _CITATION + _FALLBACK_PHRASE_STOPS,
 
     strip_meta_commentary = True,
     strip_citations       = True,
-    supported_modes       = ('balanced', 'analysis'),
-)
-
-
-# -- Qwen2.5 3B Classifier ------------------------------------------------------
-# Larger classifier model (3B params) for improved query intent accuracy.
-# Used exclusively for classifying user queries (metadata/focused/coverage/simple).
-# CPU-only (n_gpu_layers=0) to keep GPU free for main RAG model.
-#
-# Classification-specific optimizations:
-# - Temperature 0.0 for deterministic output (same query → same classification)
-# - Max tokens 150 (3B may be slightly more verbose; 100-150 tokens for JSON)
-# - No reasoning (ReasoningMode.NEVER) - classification is simple slot-filling
-# - Fast timeouts (30s) - classification should complete in <500ms
-# - Small context (4096) - Qwen2.5-3B has 32K native; 4K is ample for classification
-#
-# Qwen2.5-3B-Instruct uses ChatML format; no /no_think (standard instruct model).
-# Expected performance on M3 Pro/Max:
-# - Latency: 100-200ms per classification (slightly slower than 1.7B, better accuracy)
-# - Memory: ~2.5GB RAM (model + context)
-QWEN2_5_3B_CLASSIFIER_PROFILE = ModelProfile(
-    name              = 'Qwen2.5 3B Instruct',
-    family            = ModelFamily.CHATML,
-    filename_patterns = ('qwen2.5-3b', 'qwen-2.5-3b', 'qwen2.5-3b-instruct'),
-
-    # Disable reasoning - Qwen2.5-3B-Instruct has no <think> blocks; use empty string
-    supports_think_blocks         = False,
-    reasoning_mode               = ReasoningMode.NEVER,
-    no_think_token               = '',  # No /no_think for Qwen2.5; empty prevents "query\nNone"
-
-    prompt_format          = PromptFormat.NATIVE_GGUF,
-    coverage_prompt_format = PromptFormat.NATIVE_GGUF,
-
-    # Classification-specific token limits
-    max_tokens_simple   = 150,   # 3B may be slightly more verbose; 150 tokens ample
-    max_tokens_focused  = 150,
-    max_tokens_coverage = 150,
-    max_tokens_analysis = 150,
-    max_tokens_research = 150,
-    coverage_top_k      = 0,
-    top_k_analysis      = 0,
-    top_k_research      = 0,
-    min_tokens_coverage = 0,
-
-    # Fast timeouts - classification should be quick
-    timeout_seconds_simple   = 30,
-    timeout_seconds_focused  = 30,
-    timeout_seconds_coverage = 30,
-    timeout_seconds_analysis = 30,
-    timeout_seconds_research = 30,
-
-    # Qwen2.5-3B has 32K context; 2K is ample for classification (query + prompt only)
-    context_length = 2048,
-    generation_tokens_per_second = 12.0,
-    temperature    = 0.0,     # Deterministic - same query must produce same classification
-    top_p          = 1.0,     # No sampling - deterministic output
-    rag_top_k      = 0,
-
-    rag_max_score            = 0.0,
-    rag_context_ratio        = 0.0,
-    rag_context_ratio_analysis = 0.0,
-    rag_context_ratio_research = 0.0,
-
-    stop_sequences              = _CHATML_STRUCTURAL,
-    stop_sequences_no_reasoning = (),
-
-    strip_meta_commentary = False,
-    strip_citations       = False,
     supported_modes       = ('balanced', 'analysis'),
 )
 
@@ -690,8 +618,7 @@ DEFAULT_PROFILE = ModelProfile(
     rag_context_ratio_analysis = 0.70,
     rag_context_ratio_research = 0.70,
 
-    stop_sequences              = _CHATML_STRUCTURAL + _CITATION + _FALLBACK_PHRASE_STOPS,
-    stop_sequences_no_reasoning = (),
+    stop_sequences  = _CHATML_STRUCTURAL + _CITATION + _FALLBACK_PHRASE_STOPS,
 
     strip_meta_commentary = True,
     strip_citations       = True,
@@ -703,10 +630,8 @@ DEFAULT_PROFILE = ModelProfile(
 # Profile Registry — ordered list, first match wins
 # ==============================================================================
 
-# Order matters: more specific patterns first. Classifier profile before RAG so
-# Qwen2.5-3B-Instruct matches classifier; R1 before Qwen3 30B for diagnostics.
+# Order matters: more specific patterns first. R1 before Qwen3 30B for diagnostics.
 _PROFILE_REGISTRY: list[ModelProfile] = [
-    QWEN2_5_3B_CLASSIFIER_PROFILE,  # Qwen2.5-3B-Instruct-Q4_K_M (query classifier)
     DEEPSEEK_R1_DISTILL_PROFILE,   # DeepSeek-R1-Distill-Qwen-14B (diagnostics)
     QWEN3_5_9B_PROFILE,            # Qwen3.5-9B-Q4_K_M (balanced/analysis/research RAG)
     QWEN3_14B_PROFILE,             # Qwen3-14B-Q5_K_M (balanced RAG profile)

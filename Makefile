@@ -14,25 +14,22 @@ HOST          := 127.0.0.1
 PORT          := 8420
 APP_DISPLAY_NAME := Informity AI
 DIR_MODELS := models
-DIR_CHAT_LLM := chat-llm
-DIR_QUERY_CLASSIFIER_LLM := query-classifier-llm
+DIR_LLM := llm
 DIR_HUGGINGFACE := huggingface
 DIR_HUB := hub
 DIR_DOCLING := docling
 
 # Use macOS Application Support as the default runtime data root so
-# `make run` / `make dev` match bundled-app behavior.
+# `make run` / `make dev` match bundled-app behavior (same as config.py default).
 APP_DATA_DIR  := $(HOME)/Library/Application Support/$(APP_DISPLAY_NAME)
 APP_CACHE_DIR := $(APP_DATA_DIR)/cache
 APP_MODELS_ROOT_DIR := $(APP_DATA_DIR)/$(DIR_MODELS)
-APP_MODELS_DIR := $(APP_MODELS_ROOT_DIR)/$(DIR_CHAT_LLM)
-APP_CLASSIFIER_MODELS_DIR := $(APP_MODELS_ROOT_DIR)/$(DIR_QUERY_CLASSIFIER_LLM)
+APP_MODELS_DIR := $(APP_MODELS_ROOT_DIR)/$(DIR_LLM)
 APP_HF_HUB_DIR := $(APP_CACHE_DIR)/$(DIR_HUGGINGFACE)/$(DIR_HUB)
 APP_DOCLING_CACHE_DIR := $(APP_CACHE_DIR)/$(DIR_DOCLING)
 export INFORMITY_APP_DATA_DIR := $(APP_DATA_DIR)
 export INFORMITY_CACHE_DIR := $(APP_CACHE_DIR)
 export INFORMITY_MODELS_DIR := $(APP_MODELS_DIR)
-export INFORMITY_QUERY_CLASSIFIER_MODELS_DIR := $(APP_CLASSIFIER_MODELS_DIR)
 
 # ==============================================================================
 # Targets

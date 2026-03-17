@@ -11,7 +11,6 @@ from pydantic import BaseModel, Field
 
 from informity.config import (
     APP_DISPLAY_NAME,
-    DEFAULT_CLASSIFIER_LLM_MODEL_FILENAME,
     DEFAULT_RERANKER_MODEL,
 )
 from informity.db.sqlite import CANONICAL_DIAGNOSTICS_QUERY_TYPES, CANONICAL_DIAGNOSTICS_TYPES
@@ -231,12 +230,10 @@ class SettingsResponse(BaseModel):
     chat_trace_user_retention_days: int = 30
     chat_trace_evaluation_retention_days: int = 30
     enable_raw_output_control: bool = False   # Show control to fetch raw model output per assistant message
-    classifier_llm_model:   str        = DEFAULT_CLASSIFIER_LLM_MODEL_FILENAME  # Model filename for query classification (read-only, always LLM-based)
     available_models:       list[str]        = Field(default_factory=list)
     file_type_options:      list[FileTypeOption] = Field(default_factory=list)  # Canonical list for UI
     config_file_path:       str               = ''
     model_profile:          ModelProfileInfo | None = None  # Main model profile (read-only)
-    classifier_model_profile: ModelProfileInfo | None = None  # Query classification model profile (read-only)
     ui_theme:               str               = 'mono'     # Color theme: gray, purple, blue, green, orange, mono
     enable_menu_bar_icon:   bool              = False      # Show menu bar icon while app is running (macOS desktop runtime)
     default_response_mode: Literal['balanced', 'analysis', 'research'] = 'balanced'  # Default chat response mode
@@ -286,7 +283,6 @@ class SettingsUpdateRequest(BaseModel):
     chat_trace_user_retention_days: int | None = None
     chat_trace_evaluation_retention_days: int | None = None
     enable_raw_output_control: bool | None = None   # Show control to fetch raw model output per assistant message
-    classifier_llm_model:  str | None  = None  # Model filename for query classification (advanced, rarely changed)
     ui_theme:             str | None  = None  # Color theme: gray, purple, blue, green, orange, mono
     enable_menu_bar_icon: bool | None = None  # Show menu bar icon while app is running (macOS desktop runtime)
     default_response_mode: Literal['balanced', 'analysis', 'research'] | None = None  # Default chat response mode

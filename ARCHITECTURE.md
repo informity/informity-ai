@@ -33,13 +33,13 @@ APP_DISPLAY_NAME = 'Informity AI'   # User-facing product name (UI, prompts, API
 # Applied when exclude_macos_system / exclude_developer_data are True (Settings).
 
 class Settings(BaseSettings):
-    # Paths (default: data/ relative to process cwd; override for production)
-    app_data_dir: Path = Path('data')   # Resolved to absolute in validator
-    cache_dir:    Path | None = Field(default=None)  # Unified cache root; default {repo_root}/.cache. Override via INFORMITY_CACHE_DIR.
+    # Paths (macOS default: ~/Library/Application Support/Informity AI; override via INFORMITY_APP_DATA_DIR)
+    app_data_dir: Path = ...            # macOS: ~/Library/Application Support/Informity AI; other: data/ relative to cwd
+    cache_dir:    Path | None = Field(default=None)  # Unified cache root; default app_data_dir/cache. Override via INFORMITY_CACHE_DIR.
     db_path:       Path | None = Field(default=None)  # Computed: app_data_dir / 'db' / f'{APP_SLUG}.db'
     # Note: vectors_dir removed - vectors now stored in SQLite database (vec_chunks table) via sqlite-vec extension
-    models_dir:    Path | None = Field(default=None)  # Computed: cache_dir / 'llm' (RAG LLM models, flat structure)
-    diagnostics_models_dir: Path | None = Field(default=None)  # Computed: {repo_root}/tools/diagnostics/models (diagnostics LLM models, decoupled from cache_dir)
+    models_dir:    Path | None = Field(default=None)  # Computed: app_data_dir/models/llm (shared between desktop and dev)
+    diagnostics_models_dir: Path | None = Field(default=None)  # Computed: {repo_root}/tools/diagnostics/models (diagnostics LLM models, decoupled from app_data_dir)
     logs_dir:      Path | None = Field(default=None)   # Computed: app_data_dir / 'logs'
 
     # Scanner
@@ -75,11 +75,11 @@ class Settings(BaseSettings):
     llm_local_only: bool = True   # Synced from full_privacy when set via UI
 
     # LLM — model configurable via env / config.json
-    # Current default: Qwen 30B A3B (Q5_K_M quantization)
-    llm_model_filename:   str   = 'Qwen3-30B-A3B-Q5_K_M.gguf'
+    # Current default: Qwen3 14B (Q5_K_M quantization)
+    llm_model_filename:   str   = 'Qwen3-14B-Q5_K_M.gguf'
     llm_context_length:   int   = 16384  # 16K is ample; profile may override for other models
     llm_max_tokens:      int   = 2048
-    llm_temperature:      float = 0.1
+    llm_temperature:      float = 0.2
     # NOTE: rag_top_k and rag_coverage_top_k are NOT in config — retrieval top-k is model-profile-only.
     # Use model_adapter.get_retrieval_top_k(query_type); future adaptive tuning may override there.
     rag_max_score:        float = 0.8   # Max L2 distance for relevant chunk (lower = stricter)
@@ -107,9 +107,6 @@ class Settings(BaseSettings):
     diagnostics_llm_timeout_seconds:   int  = 600     # Timeout for LLM analysis
     diagnostics_llm_max_issues_per_run: int = 10      # Maximum number of issues to analyze per run
     diagnostics_dir:               Path | None = Field(default=None)  # Computed: app_data_dir / 'diagnostics'
-
-    # Query Classification (LLM-based, always enabled)
-    classifier_llm_model:   str  = 'Qwen2.5-3B-Instruct-Q4_K_M.gguf'  # Model filename (must be in models_dir)
 
     model_config = {'env_prefix': 'INFORMITY_'}
 
@@ -297,7 +294,7 @@ class FileTypeOption(BaseModel):
 class ModelProfileInfo(BaseModel):
     # Read-only model profile information for the Settings UI.
     # All values are determined by the model profile — not user-editable.
-    name:                    str       # "Llama 3.1 8B"
+    name:                    str       # e.g. "Qwen3 14B"
     family:                  str       # "chatml", "llama", etc.
     supports_reasoning:      bool      # Can use <think> blocks
     reasoning_mode:          str       # "Focused queries only", "Off", etc.
@@ -407,7 +404,7 @@ class HealthResponse(BaseModel):
 - Retrieval top-k (`rag_top_k`, `coverage_top_k`) is NOT in config — model-profile-only via `model_adapter.get_retrieval_top_k()`. When `adaptive_rag_tuning` is enabled, corpus-aware values override from `indexer.adaptive_tuning` cache.
 - Exports `APP_SLUG`, `APP_DISPLAY_NAME`; preset pattern lists `EXCLUDE_MACOS_SYSTEM_PATTERNS`, `EXCLUDE_DEVELOPER_PATTERNS`; `DiagnosticsConstants` (run ID prefixes, chat ID prefixes); `DirNames` class (directory name constants).
 - Provides singleton `settings`; `ensure_directories()`; `get_effective_ignore_patterns(settings)` to combine preset (when enabled) + custom ignore patterns.
-- Computes derived paths: `cache_dir` at repo root (default: `{repo_root}/.cache`), `models_dir` (`cache_dir / DirNames.LLM`), `diagnostics_models_dir` (`{repo_root}/tools/diagnostics/models`, decoupled from `cache_dir`), user data paths from `app_data_dir`.
+- Computes derived paths: `cache_dir` (default: `app_data_dir/cache`), `models_dir` (default: `app_data_dir/models/llm` — shared between desktop .app and dev/tools so models are never duplicated), `diagnostics_models_dir` (`{repo_root}/tools/diagnostics/models`, decoupled from `app_data_dir`), user data paths from `app_data_dir`.
 - Uses `utils.path_utils.normalize_path()` and `normalize_paths()` for path resolution, `utils.json_utils.serialize_config()` for config file serialization, `utils.directory_utils.ensure_directories()` for directory creation.
 - Applies CPU thread limits at import time (`embedding_max_threads` → OMP_NUM_THREADS etc., TOKENIZERS_PARALLELISM=false) before any heavy libs load.
 - Provides `configure_hf_environment()` to set HF cache paths and offline flags based on settings.
@@ -502,7 +499,7 @@ class HealthResponse(BaseModel):
 - **Imported by:** main (lifespan), api.routes_scan, api.routes_index, llm.model_adapter (get_retrieval_top_k)
 
 ### `llm/engine.py`
-- Loads GGUF via llama-cpp-python (lazy); default `llm_model_filename` = `Qwen3-30B-A3B-Q5_K_M.gguf`; Apple Metal by default.
+- Loads GGUF via llama-cpp-python (lazy); default `llm_model_filename` = `Qwen3-14B-Q5_K_M.gguf`; Apple Metal by default.
 - Provides `generate`, `generate_stream`; `count_tokens(text)` for RAG prompt budget. Handles model download when not local-only.
 - Uses `utils.directory_utils.ensure_file_directory()` for model directory creation.
 - **Imports:** llama_cpp, huggingface_hub, config, utils.directory_utils
@@ -510,7 +507,7 @@ class HealthResponse(BaseModel):
 
 ### `llm/model_adapter.py`
 - Per-model configuration via frozen `ModelProfile` dataclass. Each supported model has its own profile with prompt format, reasoning behavior, token limits, stop sequences, and post-processing rules.
-- Profiles: `QWEN3_30B_A3B_PROFILE`, `DEEPSEEK_R1_DISTILL_PROFILE`, `QWEN2_5_3B_CLASSIFIER_PROFILE`, `DEFAULT_PROFILE`.
+- Profiles: `QWEN3_14B_PROFILE`, `QWEN3_5_9B_PROFILE`, `QWEN3_30B_A3B_PROFILE`, `DEEPSEEK_R1_DISTILL_PROFILE`, `DEFAULT_PROFILE`.
 - Enums: `ModelFamily` (CHATML, LLAMA, MISTRAL), `PromptFormat` (NATIVE_GGUF, CHATML), `ReasoningMode` (ALWAYS, FOCUSED_ONLY, NEVER).
 - Profile methods: `get_stop_sequences(reasoning_enabled)`, `get_max_tokens(query_type)`, `get_reasoning_enabled(query_type)`, `get_prompt_format(query_type)`, `prepare_messages(messages, query_type)`.
 - `get_profile()` / `get_profile_for_filename(filename)` for profile resolution.
@@ -524,7 +521,7 @@ class HealthResponse(BaseModel):
 - **Imported by:** api.routes_chat
 
 ### `llm/query_classifier.py`
-- LLM-only query classification. Delegates to `query_classifier_llm.classify_query_llm()` (Qwen2.5-3B). Extracts year, category, file_type, filename filters; detects intent ('metadata', 'focused', 'coverage', 'simple').
+- LLM-only query classification. Delegates to `query_classifier_llm.classify_query_llm()` (uses main LLM engine). Extracts year, category, file_type, filename filters; detects intent ('metadata', 'focused', 'coverage', 'simple').
 - Returns `QueryClassification` dataclass with intent, filters (`year_filter`, `category_filter`, `file_type_filter`, `filename_filter`), and flags (`is_metadata_query`, `is_file_list_query`).
 - **Imports:** structlog; lazy: query_classifier_llm
 - **Imported by:** llm.rag, llm.handlers.*
@@ -815,21 +812,20 @@ main.py ← logging_config (configure_logging before loggers)
 
 | What | Path |
 |---|---|
-| App data root (default) | `data/` (relative to process cwd, resolved to absolute) |
+| App data root | macOS: `~/Library/Application Support/Informity AI` (default, shared with .app); override via `INFORMITY_APP_DATA_DIR` |
 | SQLite database | `{app_data_dir}/db/informity.db` |
 | SQLite vectors | Stored in `vec_chunks` table within SQLite database (sqlite-vec extension) |
-| LLM models (RAG) | `{repo_root}/.cache/llm/` (application asset, survives reset.sh) |
-| LLM models (diagnostics) | `{repo_root}/tools/diagnostics/models/` (decoupled from unified cache) |
+| LLM models (RAG) | `{app_data_dir}/models/llm/` (shared between desktop .app and dev tools) |
+| LLM models (diagnostics) | `{repo_root}/tools/diagnostics/models/` (decoupled from app data) |
 | Config file | `{app_data_dir}/config.json` |
 | Logs | `{app_data_dir}/logs/` |
-| Unified cache root | `{repo_root}/.cache/` (default) or `{cache_dir}/` if set |
+| Unified cache root | `{app_data_dir}/cache/` (default) or override via `INFORMITY_CACHE_DIR` |
 | Hugging Face cache (embedding + reranker) | `{cache_dir}/huggingface/hub/` (hub/ + modules/) |
 | Docling models | `{cache_dir}/docling/` (docling creates its own structure inside) |
 | Diagnostics directory | `{app_data_dir}/diagnostics/` (default) or `{diagnostics_dir}/` if set |
 | Diagnostics evaluation runs | `{diagnostics_dir}/runs/{run_id}/` (queries/ with golden_queries.json, queries.json; traces/; results/ with run.json, report.md, report.json, llm_insights.json, tasks.json, tasks.md) |
 | Trace files (evaluation) | `{diagnostics_dir}/runs/{run_id}/traces/{chat_id}--{message_id}.json` |
 | Trace files (user chats) | `{diagnostics_dir}/chats/{chat_id}/{message_id}.json` (when chat_trace_logging enabled) |
-| Production override | Set `INFORMITY_APP_DATA_DIR=~/Library/Application Support/Informity AI` (or similar) |
 
 ---
 
@@ -855,7 +851,7 @@ main.py ← logging_config (configure_logging before loggers)
 | `DELETE` | `/api/chat/chats/{chat_id}` | Delete chat and messages | No |
 | `GET` | `/api/settings` | Get current settings | No |
 | `PUT` | `/api/settings` | Update settings (partial) | No |
-| `POST` | `/api/settings/reset` | Reset all settings to factory defaults (Llama 3.1 8B) | No |
+| `POST` | `/api/settings/reset` | Reset all settings to factory defaults (Qwen3 14B) | No |
 | `GET` | `/api/config/env-vars` | Env variable groups for Configuration page | No |
 | `GET` | `/api/file-types` | Canonical file type options | No |
 | `GET` | `/api/health` | Health check (HealthResponse) | No |

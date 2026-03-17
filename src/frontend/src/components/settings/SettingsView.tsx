@@ -171,12 +171,10 @@ interface SettingsData {
   enable_menu_bar_icon?: boolean
   default_response_mode?: 'balanced' | 'analysis' | 'research'
   llm_model_filename?: string
-  classifier_llm_model?: string
   available_models?: string[]
   embedding_model?: string
   rag_reranker_model?: string
   model_profile?: ModelProfile
-  classifier_model_profile?: ModelProfile
   file_type_options?: FileTypeOption[]
 }
 
@@ -423,7 +421,6 @@ export function SettingsView({
   }
 
   const profile = effectiveProfile
-  const classifierProfile = settings.classifier_model_profile
   const diagnosticsPreset = DIAGNOSTICS_PROFILE_PRESETS[form.diagnostics_profile || '']
   const diagnosticsProfileRows = diagnosticsPreset
     ? [
@@ -980,44 +977,6 @@ export function SettingsView({
           </>
         )}
 
-        {classifierProfile && (
-          <>
-            <div className="settings-subsection settings-subsection--profile">
-              <div className="settings-subsection-head ui-subsection-head">
-                <div className="settings-subsection-title ui-subsection-title">
-                  <i className="ri-git-branch-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-                  Query Classification Model
-                </div>
-                <p className="settings-subsection-description ui-subsection-description">Lightweight model that analyzes your questions to understand intent and extract metadata filters for accurate search.</p>
-              </div>
-            </div>
-            <div className="settings-control-group">
-              <label className="settings-control-label" htmlFor="settings-classifier-model">Model</label>
-              <input
-                id="settings-classifier-model"
-                type="text"
-                className="settings-input settings-input--readonly"
-                value={settings.classifier_llm_model || ''}
-                readOnly
-                disabled
-              />
-            </div>
-            <div className="settings-profile-grid">
-              <ProfileRow label="Profile" value={classifierProfile.name} />
-              <ProfileRow label="Family" value={classifierProfile.family} />
-              <ProfileRow label="Reasoning" value={classifierProfile.reasoning_mode} />
-              <ProfileRow label="Max tokens (S/F/C)" value={formatMaxTokensTriplet(classifierProfile)} />
-              <ProfileRow label="Context length" value={String(classifierProfile.context_length)} />
-              <ProfileRow label="Temperature" value={String(classifierProfile.temperature)} />
-              <ProfileRow label="Nucleus sampling (top_p)" value={String(classifierProfile.top_p ?? '--')} />
-              <ProfileRow label="Focused retrieval (top-k)" value={String(classifierProfile.rag_top_k ?? '--')} />
-              <ProfileRow label="Coverage retrieval (top-k)" value={String(classifierProfile.coverage_top_k ?? '--')} />
-              <ProfileRow label="Prompt format" value={classifierProfile.prompt_format ?? '--'} />
-              <ProfileRow label="Document matching threshold" value={String(classifierProfile.rag_max_score ?? '--')} />
-              <ProfileRow label="Context ratio" value={String(classifierProfile.rag_context_ratio ?? '--')} />
-            </div>
-          </>
-        )}
 
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">

@@ -13,6 +13,7 @@
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Literal
 
@@ -65,8 +66,13 @@ def _get_repo_root() -> Path:
 # Defaults
 # ==============================================================================
 
-# Local to application: "data" relative to process cwd (resolved in validator / loader).
-_DEFAULT_APP_DATA_DIR = Path('data')
+# macOS: ~/Library/Application Support/Informity AI (same as the desktop .app bundle).
+# Other platforms: "data" relative to process cwd (resolved in validator / loader).
+_DEFAULT_APP_DATA_DIR = (
+    Path.home() / 'Library' / 'Application Support' / APP_DISPLAY_NAME
+    if sys.platform == 'darwin'
+    else Path('data')
+)
 
 # Default model for reset-to-factory and first load: Qwen 14B (Q5_K_M).
 _DEFAULT_LLM_MODEL_FILENAME = 'Qwen3-14B-Q5_K_M.gguf'
@@ -74,16 +80,12 @@ _DEFAULT_LLM_MODEL_FILENAME = 'Qwen3-14B-Q5_K_M.gguf'
 # Default diagnostics analysis model filename (DeepSeek R1 optimized for analysis tasks).
 _DEFAULT_DIAGNOSTICS_LLM_MODEL_FILENAME = 'DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf'
 
-# Default query classification model filename (Qwen2.5-3B optimized for classification accuracy).
-_DEFAULT_CLASSIFIER_LLM_MODEL_FILENAME = 'Qwen2.5-3B-Instruct-Q4_K_M.gguf'
-
 # Default embedding model (sentence-transformers)
 _DEFAULT_EMBEDDING_MODEL = 'nomic-ai/nomic-embed-text-v1.5'
 
 # Default reranker model (sentence-transformers cross-encoder)
 _DEFAULT_RERANKER_MODEL = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
-# Public aliases for schema/default consumers.
-DEFAULT_CLASSIFIER_LLM_MODEL_FILENAME = _DEFAULT_CLASSIFIER_LLM_MODEL_FILENAME
+# Public alias for schema/default consumers.
 DEFAULT_RERANKER_MODEL = _DEFAULT_RERANKER_MODEL
 
 # Default Hugging Face repository for LLM model downloads
@@ -119,16 +121,15 @@ class DirNames:
     MODELS = 'models'
     CHAT_LOGS = 'chats'  # Per-message trace logs: app_data_dir/chats/{chat_id}/{message_id}.json
 
-    # Unified cache directory (at repo root, not committed to repo)
-    CACHE = '.cache'  # Dot prefix since not committed to repo
+    # Unified cache directory (under app_data_dir, not committed to repo)
+    CACHE = 'cache'
 
     # Model/cache subdirectories
-    LLM = 'chat-llm'  # Chat/RAG LLM models (*.gguf files)
-    QUERY_CLASSIFIER_MODELS = 'query-classifier-llm'  # Query classifier model (*.gguf)
+    LLM = 'llm'  # LLM models (*.gguf files)
     DIAGNOSTICS_MODELS = 'models'  # Diagnostics LLM models (*.gguf files) under tools/diagnostics/models/
-    HUGGINGFACE = 'huggingface'  # HuggingFace cache under .cache/huggingface/
-    HUB = 'hub'  # HuggingFace hub cache under .cache/huggingface/hub/
-    DOCLING = 'docling'  # Docling models under .cache/docling/ (flat, docling creates its own structure inside)
+    HUGGINGFACE = 'huggingface'  # HuggingFace cache under cache/huggingface/
+    HUB = 'hub'  # HuggingFace hub cache under cache/huggingface/hub/
+    DOCLING = 'docling'  # Docling models under cache/docling/ (flat, docling creates its own structure inside)
 
     # Diagnostics subdirectories (under diagnostics_dir)
     RUNS = 'runs'
@@ -292,7 +293,6 @@ class Settings(BaseSettings):
     db_path:       Path | None = Field(default=None)   # Computed: app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
     # vectors_dir removed - vectors now stored in SQLite via sqlite-vec
     models_dir:    Path | None = Field(default=None)   # Computed: desktop -> app_data_dir/DirNames.MODELS/DirNames.LLM; otherwise cache_dir/DirNames.LLM
-    query_classifier_models_dir: Path | None = Field(default=None)  # Computed: desktop -> app_data_dir/DirNames.MODELS/DirNames.QUERY_CLASSIFIER_MODELS; otherwise cache_dir/DirNames.QUERY_CLASSIFIER_MODELS
     logs_dir:      Path | None = Field(default=None)   # Computed: app_data_dir / DirNames.LOGS
     diagnostics_dir: Path | None = Field(default=None)  # Computed: app_data_dir / DirNames.DIAGNOSTICS
 
@@ -507,12 +507,6 @@ class Settings(BaseSettings):
     diagnostics_alert_max_first_token_seconds: float = 45.0
     diagnostics_alert_max_rss_delta_mb: float = 1024.0
 
-    # -- Query Classification ------------------------------------------------------
-    # LLM-based query classification is always enabled (no user toggle).
-    # Model filename for query classification (default: Qwen2.5-3B-Instruct-Q4_K_M).
-    # Must be in query_classifier_models_dir (.cache/query-classifier-llm/). User can override via config.json or env var.
-    classifier_llm_model: str = _DEFAULT_CLASSIFIER_LLM_MODEL_FILENAME
-
     # -- UI (frontend-only; persisted so theme survives restarts) -------------
     # Color theme for the app UI: gray, purple, blue, green, orange, mono.
     ui_theme: Literal['gray', 'purple', 'blue', 'green', 'orange', 'mono'] = _DEFAULT_UI_THEME
@@ -532,38 +526,24 @@ class Settings(BaseSettings):
         # Resolve relative paths (e.g. ./data) to absolute
         self.app_data_dir = normalize_path(self.app_data_dir, expand_user=True)
 
-        # Get repo root for unified cache (application assets, not user data)
+        # Repo root: used for diagnostics tooling paths (tools/diagnostics/models).
         repo_root = _get_repo_root()
 
-        # Unified cache directory at repo root (all models, HuggingFace cache, docling, etc.)
+        # Cache directory: defaults to app_data_dir/cache (same root as models, DB, logs).
+        # On macOS this is ~/Library/Application Support/Informity AI/cache, shared between
+        # the desktop .app and dev/tool runs. Override via INFORMITY_CACHE_DIR env var.
         if self.cache_dir is None:
-            self.cache_dir = repo_root / DirNames.CACHE
+            self.cache_dir = self.app_data_dir / DirNames.CACHE
         else:
             self.cache_dir = normalize_path(self.cache_dir, expand_user=True)
 
-        # Desktop runtime stores persistent model files under app_data_dir so they
-        # survive cache eviction and align with installed-app semantics.
-        desktop_session_mode = bool(os.environ.get('INFORMITY_TAURI_SESSION_TOKEN', '').strip())
-
-        # LLM models directory.
+        # LLM models directory: always under app_data_dir/models/llm.
+        # This is the same location used by the desktop .app bundle, so dev tooling
+        # (diagnostics, tests) shares the installed models without duplication.
         if self.models_dir is None:
-            if desktop_session_mode:
-                self.models_dir = self.app_data_dir / DirNames.MODELS / DirNames.LLM
-            else:
-                self.models_dir = self.cache_dir / DirNames.LLM
+            self.models_dir = self.app_data_dir / DirNames.MODELS / DirNames.LLM
         else:
             self.models_dir = normalize_path(self.models_dir, expand_user=True)
-
-        # Query classifier model directory.
-        if self.query_classifier_models_dir is None:
-            if desktop_session_mode:
-                self.query_classifier_models_dir = (
-                    self.app_data_dir / DirNames.MODELS / DirNames.QUERY_CLASSIFIER_MODELS
-                )
-            else:
-                self.query_classifier_models_dir = self.cache_dir / DirNames.QUERY_CLASSIFIER_MODELS
-        else:
-            self.query_classifier_models_dir = normalize_path(self.query_classifier_models_dir, expand_user=True)
 
         # Diagnostics models directory: tools/diagnostics/models (decoupled from .cache/).
         if self.diagnostics_models_dir is None:
@@ -590,33 +570,30 @@ class Settings(BaseSettings):
     # -- Directory Creation ---------------------------------------------------
     def ensure_directories(self) -> None:
         # Create all required directories if they don't exist.
-        # Runtime directory structure:
-        # - models_dir - Chat/RAG LLM models (*.gguf files)
-        # - query_classifier_models_dir - Query classifier model (*.gguf file)
+        # Runtime directory structure (all under app_data_dir except diagnostics_models_dir):
+        # - app_data_dir/models/llm/ - Chat/RAG LLM models (*.gguf files)
         # - tools/diagnostics/models/ - Diagnostics LLM models (*.gguf files)
-        # - .cache/huggingface/hub/ - HuggingFace cache (LLM downloads, docling models)
-        # - .cache/docling/ - Docling models (docling creates its own structure inside)
+        # - app_data_dir/cache/huggingface/hub/ - HuggingFace cache
+        # - app_data_dir/cache/docling/ - Docling models
         cache_root = self.cache_dir
         llm_dir = self.models_dir
-        query_classifier_dir = self.query_classifier_models_dir
         diagnostics_models_dir = self.diagnostics_models_dir
-        hf_cache   = cache_root / DirNames.HUGGINGFACE if cache_root else None
-        hf_hub     = hf_cache / DirNames.HUB if hf_cache else None
-        docling_cache = cache_root / DirNames.DOCLING if cache_root else None
-        db_dir     = self.app_data_dir / DirNames.DB
+        hf_cache      = cache_root / DirNames.HUGGINGFACE
+        hf_hub        = hf_cache / DirNames.HUB
+        docling_cache = cache_root / DirNames.DOCLING
+        db_dir        = self.app_data_dir / DirNames.DB
         # NOTE: diagnostics_chats_dir, diagnostics_reports_dir, and diagnostics_evaluations_dir
         # are NOT created here. The normal pipeline does not use those directories.
         # The normal pipeline uses runs/{run_id}/traces/ for evaluation traces and
         # app_data_dir/chats/ for user chat traces.
         dirs = [
             # Cache structure (non-model artifacts)
-            cache_root,  # .cache/
-            llm_dir,  # models_dir (desktop default: app_data_dir/models/chat-llm)
-            query_classifier_dir,  # query_classifier_models_dir (desktop default: app_data_dir/models/query-classifier-llm)
-            diagnostics_models_dir,  # tools/diagnostics/models/
-            hf_cache,  # .cache/huggingface/
-            hf_hub,  # .cache/huggingface/hub/
-            docling_cache,  # .cache/docling/
+            cache_root,
+            llm_dir,
+            diagnostics_models_dir,
+            hf_cache,
+            hf_hub,
+            docling_cache,
             # User data (in app_data_dir, cleared by reset.sh)
             self.app_data_dir,
             db_dir,
@@ -808,15 +785,10 @@ def configure_hf_environment() -> bool:
     # Set Hugging Face cache paths and offline flags based on the current settings.
     # Called during LLM model downloads (main.py, llm/engine.py), docling model loading,
     # and sentence-transformers (embedding/reranker) model loading.
-    # Uses unified cache_dir (at repo root) so all HF artefacts are in one place.
+    # Uses unified cache_dir (under app_data_dir) so all HF artefacts are in one place.
     # Returns True when offline mode is active.
 
-    cache_dir = settings.cache_dir
-    if cache_dir is None:
-        # Fallback: use repo root / cache (shouldn't happen after _compute_derived_paths)
-        cache_dir = _get_repo_root() / DirNames.CACHE
-
-    project_hf_home = cache_dir / DirNames.HUGGINGFACE
+    project_hf_home = settings.cache_dir / DirNames.HUGGINGFACE
     project_hf_hub = project_hf_home / DirNames.HUB
 
     # Always use project cache (never fall back to default ~/.cache location)
@@ -849,7 +821,6 @@ def configure_hf_environment() -> bool:
                     f'  - Reranker: {settings.rag_reranker_model}\n'
                     '  - Docling models (for document extraction)\n'
                     f'  - LLM: {settings.llm_model_filename or "not configured"}\n'
-                    + f'  - Classifier LLM: {settings.classifier_llm_model}\n'
                     + '\n'
                     'After install completes, models will be cached and Full Privacy will work without network access.'
                 )
@@ -932,10 +903,7 @@ def _is_docling_cached() -> bool:
     Important: runtime sets DOCLING_ARTIFACTS_PATH to cache/docling, so Hugging Face
     hub snapshots alone are not sufficient to guarantee extraction works offline.
     """
-    cache_dir = settings.cache_dir
-    if not cache_dir:
-        cache_dir = _get_repo_root() / DirNames.CACHE
-    docling_cache = cache_dir / DirNames.DOCLING
+    docling_cache = settings.cache_dir / DirNames.DOCLING
     # Native docling artifact cache
     try:
         if docling_cache.exists():
@@ -965,11 +933,7 @@ def are_required_models_cached() -> bool:
         True if all required models are cached, False otherwise.
     """
 
-    # Get HF hub cache directory (project cache only - no fallback to default)
-    cache_dir = settings.cache_dir
-    if cache_dir is None:
-        cache_dir = _get_repo_root() / DirNames.CACHE
-    hf_hub_cache = cache_dir / DirNames.HUGGINGFACE / DirNames.HUB
+    hf_hub_cache = settings.cache_dir / DirNames.HUGGINGFACE / DirNames.HUB
 
     # Check embedding model (project cache only)
     embedding_model = settings.embedding_model
@@ -992,12 +956,6 @@ def are_required_models_cached() -> bool:
     llm_filename = settings.llm_model_filename
     if llm_filename and not _is_gguf_model_cached(llm_filename, settings.models_dir):
         log.debug('llm_model_not_cached', model=llm_filename)
-        return False
-
-    # Check classifier LLM model (always used for query intent classification)
-    classifier_filename = settings.classifier_llm_model
-    if classifier_filename and not _is_gguf_model_cached(classifier_filename, settings.query_classifier_models_dir):
-        log.debug('classifier_model_not_cached', model=classifier_filename)
         return False
 
     return True

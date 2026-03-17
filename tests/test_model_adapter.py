@@ -10,7 +10,6 @@ import pytest
 from informity.llm.model_adapter import (
     DEEPSEEK_R1_DISTILL_PROFILE,
     DEFAULT_PROFILE,
-    QWEN2_5_3B_CLASSIFIER_PROFILE,
     QWEN3_14B_PROFILE,
     QWEN3_30B_A3B_PROFILE,
     ModelFamily,
@@ -41,10 +40,10 @@ class TestGetProfileForFilename:
         assert profile is DEEPSEEK_R1_DISTILL_PROFILE
         assert profile.name == 'DeepSeek R1 Distill'
 
-    def test_qwen2_5_3b_classifier_detected(self) -> None:
+    def test_qwen2_5_3b_returns_default(self) -> None:
+        # No dedicated Qwen2.5-3B profile; falls through to default
         profile = get_profile_for_filename('Qwen2.5-3B-Instruct-Q4_K_M.gguf')
-        assert profile is QWEN2_5_3B_CLASSIFIER_PROFILE
-        assert profile.name == 'Qwen2.5 3B Instruct'
+        assert profile is DEFAULT_PROFILE
 
     def test_qwen3_14b_detected(self) -> None:
         # Qwen3 14B has a dedicated balanced profile
@@ -131,11 +130,11 @@ class TestQwen330BA3BProfile:
         assert '<|im_start|>' in stops
         assert '<|endoftext|>' in stops
 
-    def test_stop_sequences_no_reasoning_same(self, profile: ModelProfile) -> None:
-        # /no_think handles suppression — no extra stops needed
-        reasoning    = profile.get_stop_sequences(reasoning_enabled=True)
+    def test_stop_sequences_no_reasoning_does_not_stop_on_think(self, profile: ModelProfile) -> None:
+        # /no_think token is used to suppress reasoning; <think> is NOT a stop sequence
+        # (stopping on <think> would produce empty responses if model starts with a think block)
         no_reasoning = profile.get_stop_sequences(reasoning_enabled=False)
-        assert reasoning == no_reasoning
+        assert '<think>' not in no_reasoning
 
     def test_prepare_messages_appends_no_think(self, profile: ModelProfile) -> None:
         messages = [

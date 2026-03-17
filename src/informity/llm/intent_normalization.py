@@ -6,9 +6,6 @@
 from __future__ import annotations
 
 import re
-from dataclasses import replace
-
-from informity.llm.query_classifier import QueryClassification
 
 _NARRATIVE_BRIEF_PATTERN = re.compile(r'\b(report|brief|evidence map|risk[s]? and gaps|action checklist)\b', re.IGNORECASE)
 _CROSS_SET_COMPARISON_PATTERN = re.compile(
@@ -16,6 +13,14 @@ _CROSS_SET_COMPARISON_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _CROSS_SET_SCOPE_PATTERN = re.compile(r'\b(files?|documents?|categories?)\b', re.IGNORECASE)
+_BROAD_SCOPE_SIGNAL_PATTERN = re.compile(
+    r'\b(all|every|each|across all|across the|throughout)\b',
+    re.IGNORECASE,
+)
+_PLURAL_DOCUMENT_PATTERN = re.compile(
+    r'\b(documents|files|reports|sources)\b',
+    re.IGNORECASE,
+)
 
 
 def normalize_intent_policy_fields(
@@ -43,6 +48,15 @@ def normalize_intent_policy_fields(
         reason_codes.append('policy_cross_year_focus_to_coverage')
 
     if (
+        normalized_intent == 'focused'
+        and _BROAD_SCOPE_SIGNAL_PATTERN.search(query)
+        and _PLURAL_DOCUMENT_PATTERN.search(query)
+        and filename_filter is None
+    ):
+        normalized_intent = 'coverage'
+        reason_codes.append('policy_plural_multi_scope_to_coverage')
+
+    if (
         normalized_intent in {'focused', 'metadata'}
         and _CROSS_SET_COMPARISON_PATTERN.search(query)
         and _CROSS_SET_SCOPE_PATTERN.search(query)
@@ -61,41 +75,3 @@ def normalize_intent_policy_fields(
             reason_codes.append('policy_narrative_brief_aggregate_subtype')
 
     return normalized_intent, normalized_subtype, normalized_response_shape, reason_codes
-
-
-def normalize_query_classification(
-    *,
-    query: str,
-    classification: QueryClassification,
-) -> tuple[QueryClassification, list[str]]:
-    intent, subtype, response_shape, reasons = normalize_intent_policy_fields(
-        query=query,
-        intent=classification.intent,
-        subtype=classification.subtype,
-        response_shape=classification.response_shape,
-        group_by=classification.group_by,
-        filename_filter=classification.filename_filter,
-        has_multi_year_scope=classification.has_multi_year_scope,
-    )
-    if not reasons:
-        return classification, []
-
-    merged_reason_codes = [*classification.reason_codes]
-    for reason in reasons:
-        if reason not in merged_reason_codes:
-            merged_reason_codes.append(reason)
-
-    normalized = replace(
-        classification,
-        intent=intent,  # type: ignore[arg-type]
-        subtype=subtype,  # type: ignore[arg-type]
-        response_shape=response_shape,  # type: ignore[arg-type]
-        reason_codes=merged_reason_codes,
-        is_metadata_query=(intent == 'metadata'),
-        is_file_list_query=(
-            intent == 'metadata'
-            and bool(classification.is_file_list_query)
-        ),
-    )
-    return normalized, reasons
-

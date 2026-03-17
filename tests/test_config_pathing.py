@@ -20,15 +20,12 @@ def test_desktop_session_uses_app_data_model_paths(
     assert settings.db_path == app_data_resolved / DirNames.DB / f"{APP_SLUG}.db"
     assert settings.logs_dir == app_data_resolved / DirNames.LOGS
     assert settings.models_dir == app_data_resolved / DirNames.MODELS / DirNames.LLM
-    assert settings.query_classifier_models_dir == (
-        app_data_resolved / DirNames.MODELS / DirNames.QUERY_CLASSIFIER_MODELS
-    )
     assert settings.diagnostics_models_dir.as_posix().endswith(
         f"/{DirNames.TOOLS}/{DirNames.DIAGNOSTICS}/{DirNames.DIAGNOSTICS_MODELS}"
     )
 
 
-def test_non_desktop_session_uses_cache_model_paths(
+def test_non_desktop_session_uses_app_data_model_paths(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
@@ -37,12 +34,9 @@ def test_non_desktop_session_uses_cache_model_paths(
     monkeypatch.delenv("INFORMITY_TAURI_SESSION_TOKEN", raising=False)
 
     settings = Settings(app_data_dir=app_data, cache_dir=cache_dir)
-    cache_dir_resolved = cache_dir.resolve()
+    app_data_resolved = app_data.resolve()
 
-    assert settings.models_dir == cache_dir_resolved / DirNames.LLM
-    assert settings.query_classifier_models_dir == (
-        cache_dir_resolved / DirNames.QUERY_CLASSIFIER_MODELS
-    )
+    assert settings.models_dir == app_data_resolved / DirNames.MODELS / DirNames.LLM
     assert settings.diagnostics_models_dir.as_posix().endswith(
         f"/{DirNames.TOOLS}/{DirNames.DIAGNOSTICS}/{DirNames.DIAGNOSTICS_MODELS}"
     )
