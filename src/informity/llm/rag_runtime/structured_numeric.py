@@ -491,12 +491,6 @@ def _render_year_aggregate_answer(
             display_years = normalized_required_years
     else:
         display_years = sorted(set(values_by_year.keys()) | set(available_years or []))
-        if str(field_hint or '').strip().casefold() == 'box_1' and display_years:
-            # For Box 1 W2 extraction without explicit years, prefer recent years instead of
-            # emitting long historical ranges that tend to include OCR-noise numerics.
-            max_display_year = max(display_years)
-            min_recent_year = max_display_year - 3
-            display_years = [year for year in display_years if year >= min_recent_year]
         if display_years:
             min_display_year = min(display_years)
             max_display_year = max(display_years)
@@ -800,28 +794,6 @@ async def _try_structured_value_extraction(
             if current is None or float(row.get('confidence', 0.0)) > float(current.get('confidence', 0.0)):
                 best_by_file[file_id] = row
         selected_rows = list(best_by_file.values())
-        if str(classification.field_hint or '').strip().casefold() == 'box_1':
-            box1_rows: list[dict[str, object]] = []
-            for row in selected_rows:
-                field_label = str(row.get('field_label', '') or '').casefold()
-                evidence_span = str(row.get('evidence_span', '') or '').casefold()
-                combined = f'{field_label} {evidence_span}'
-                has_box1_cue = (
-                    'box 1' in combined
-                    or 'wages, tips, other compensation' in combined
-                    or 'wages, tips, other comp' in combined
-                    or 'wages tips other compensation' in combined
-                    or 'wages tips other comp' in combined
-                )
-                has_known_noise = (
-                    'any amount over $5,000' in combined
-                    or 'dependent care benefits' in combined
-                    or 'section 125' in combined
-                )
-                if not has_box1_cue or has_known_noise:
-                    continue
-                box1_rows.append(row)
-            selected_rows = box1_rows
         if required_years:
             min_required_year = min(required_years)
             max_required_year = max(required_years)
@@ -845,7 +817,6 @@ async def _try_structured_value_extraction(
         if (
             not required_years
             and len([year for year in grouped_years if year != 'Unknown Year']) < 2
-            and str(classification.field_hint or '').strip().casefold() != 'box_1'
         ):
             return None
     else:
