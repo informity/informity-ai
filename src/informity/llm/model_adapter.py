@@ -120,11 +120,25 @@ class ModelProfile:
     max_tokens_focused:  int = 2048
     max_tokens_coverage: int = 2048
     max_tokens_analysis: int | None = None
+    # Research mode is the highest-depth response mode. Distinct values confirmed 2026-03-18:
+    # max_tokens_research > max_tokens_analysis (more content), timeout_seconds_research > analysis
+    # (allow longer generation), top_k_research >= top_k_analysis (wider evidence pool),
+    # rag_context_ratio_research < analysis (allocate more context budget to documents).
+    # Prompt: prompt_builder.py injects _RESEARCH_MODE_PROMPT_ADDENDUM when response_mode='research'.
+    # Fallback: all four fields fall back to analysis/base values when None or 0.
     max_tokens_research: int | None = None
     coverage_top_k:      int = 25    # Chunks for coverage queries
     top_k_analysis:      int | None = None
     top_k_research:      int | None = None
     min_tokens_coverage: int = 400   # Suppress EOS for first N tokens on coverage
+
+    # -- Per-query-type top_k overrides ----------------------------------------
+    # When set (> 0), these override rag_top_k for the specific query type.
+    # Defaults of 0 mean "fall back to rag_top_k".
+    # Suggested calibration: simple → 6, focused → 12, coverage → 24.
+    rag_top_k_simple:   int = 0   # 0 = use rag_top_k
+    rag_top_k_focused:  int = 0   # 0 = use rag_top_k
+    rag_top_k_coverage: int = 0   # 0 = use coverage_top_k
 
     # -- Timeout configuration (model-specific) --------------------------------
     timeout_seconds_simple:   int = 120   # Wall-clock timeout for simple queries
@@ -161,7 +175,7 @@ class ModelProfile:
     extra_eos_tokens: tuple[str, ...] = ()  # Additional EOS tokens to suppress for min_tokens
 
     # -- Public API ------------------------------------------------------------
-    supported_modes: tuple[str, ...] = ('balanced', 'analysis')
+    supported_modes: tuple[str, ...] = ('analysis',)
 
     # -- Public API ------------------------------------------------------------
 
@@ -190,7 +204,7 @@ class ModelProfile:
 
     def get_mode_max_tokens(self, query_type: str, response_mode: str) -> int:
         base = self.get_max_tokens(query_type)
-        mode = (response_mode or 'balanced').strip().lower()
+        mode = (response_mode or 'analysis').strip().lower()
         if mode == 'research':
             if isinstance(self.max_tokens_research, int) and self.max_tokens_research > 0:
                 return self.max_tokens_research
@@ -205,7 +219,7 @@ class ModelProfile:
 
     def get_mode_timeout_seconds(self, query_type: str, response_mode: str) -> int:
         base = self.get_timeout_seconds(query_type)
-        mode = (response_mode or 'balanced').strip().lower()
+        mode = (response_mode or 'analysis').strip().lower()
         if mode == 'research':
             if isinstance(self.timeout_seconds_research, int) and self.timeout_seconds_research > 0:
                 return self.timeout_seconds_research
@@ -219,7 +233,7 @@ class ModelProfile:
         return base
 
     def get_mode_top_k(self, response_mode: str, base_top_k: int) -> int:
-        mode = (response_mode or 'balanced').strip().lower()
+        mode = (response_mode or 'analysis').strip().lower()
         if mode == 'research':
             if isinstance(self.top_k_research, int) and self.top_k_research > 0:
                 return self.top_k_research
@@ -233,7 +247,7 @@ class ModelProfile:
         return base_top_k
 
     def get_mode_context_ratio(self, response_mode: str) -> float:
-        mode = (response_mode or 'balanced').strip().lower()
+        mode = (response_mode or 'analysis').strip().lower()
         if mode == 'research':
             if isinstance(self.rag_context_ratio_research, float) and self.rag_context_ratio_research > 0:
                 return self.rag_context_ratio_research
@@ -309,6 +323,9 @@ class ModelProfile:
             'temperature':             self.temperature,
             'top_p':                    self.top_p,
             'rag_top_k':               self.rag_top_k,
+            'rag_top_k_simple':        self.rag_top_k_simple or self.rag_top_k,
+            'rag_top_k_focused':       self.rag_top_k_focused or self.rag_top_k,
+            'rag_top_k_coverage':      self.rag_top_k_coverage or self.coverage_top_k,
             'rag_max_score':           self.rag_max_score,
             'rag_context_ratio':       self.rag_context_ratio,
             'rag_context_ratio_analysis': self.rag_context_ratio_analysis or self.rag_context_ratio,
@@ -396,17 +413,21 @@ QWEN3_14B_PROFILE = ModelProfile(
     rag_context_ratio_analysis = 0.68,
     rag_context_ratio_research = 0.62,
 
+    rag_top_k_simple   = 6,   # Simple queries need fewer candidates
+    rag_top_k_focused  = 12,  # Focused queries benefit from slightly wider pool
+    rag_top_k_coverage = 0,   # Use coverage_top_k (15) as configured
+
     stop_sequences  = _CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
 
     strip_meta_commentary = False,
     strip_citations       = True,
-    supported_modes       = ('balanced', 'analysis'),
+    supported_modes       = ('analysis',),
 )
 
 
 # -- Qwen3.5 9B Instruct ------------------------------------------------------
 # Mid-size profile tuned for local Q4_K_M inference:
-# - Supports analysis + research mode budgets
+# - Analysis mode only (research mode not supported — rejected with 422)
 # - Uses focused-only reasoning to keep simple/coverage responsive
 # - Uses native GGUF template (no forced ChatML fallback)
 QWEN3_5_9B_PROFILE = ModelProfile(
@@ -449,12 +470,16 @@ QWEN3_5_9B_PROFILE = ModelProfile(
     rag_context_ratio_analysis = 0.66,
     rag_context_ratio_research = 0.60,
 
+    rag_top_k_simple   = 6,
+    rag_top_k_focused  = 12,
+    rag_top_k_coverage = 0,   # Use coverage_top_k (16)
+
     stop_sequences  = _CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
 
     strip_meta_commentary = False,
     strip_citations       = True,
     dedupe_insufficient_context_after_stream = True,
-    supported_modes       = ('balanced', 'analysis'),
+    supported_modes       = ('analysis',),
 )
 
 
@@ -516,6 +541,10 @@ QWEN3_30B_A3B_PROFILE = ModelProfile(
     rag_context_ratio_analysis = 0.65,
     rag_context_ratio_research = 0.60,
 
+    rag_top_k_simple   = 6,
+    rag_top_k_focused  = 12,
+    rag_top_k_coverage = 0,   # Use coverage_top_k (18)
+
     # Do not include citation text stops for Qwen3: they can appear inside
     # <think> reasoning and prematurely terminate generation before final answer.
     stop_sequences  = _CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
@@ -523,7 +552,7 @@ QWEN3_30B_A3B_PROFILE = ModelProfile(
     strip_meta_commentary = False,  # 30B model follows Rule #5 — no need
     strip_citations       = True,   # Keep citation stripping as safety net
     dedupe_insufficient_context_after_stream = True,  # Fallback phrase stops are disabled for this profile
-    supported_modes       = ('balanced', 'analysis', 'research'),
+    supported_modes       = ('analysis', 'research'),
 )
 
 
@@ -574,7 +603,7 @@ DEEPSEEK_R1_DISTILL_PROFILE = ModelProfile(
 
     strip_meta_commentary = True,
     strip_citations       = True,
-    supported_modes       = ('balanced', 'analysis'),
+    supported_modes       = ('analysis',),
 )
 
 
@@ -622,7 +651,7 @@ DEFAULT_PROFILE = ModelProfile(
 
     strip_meta_commentary = True,
     strip_citations       = True,
-    supported_modes       = ('balanced', 'analysis'),
+    supported_modes       = ('analysis',),
 )
 
 
@@ -633,7 +662,7 @@ DEFAULT_PROFILE = ModelProfile(
 # Order matters: more specific patterns first. R1 before Qwen3 30B for diagnostics.
 _PROFILE_REGISTRY: list[ModelProfile] = [
     DEEPSEEK_R1_DISTILL_PROFILE,   # DeepSeek-R1-Distill-Qwen-14B (diagnostics)
-    QWEN3_5_9B_PROFILE,            # Qwen3.5-9B-Q4_K_M (balanced/analysis/research RAG)
+    QWEN3_5_9B_PROFILE,            # Qwen3.5-9B-Q4_K_M (analysis RAG)
     QWEN3_14B_PROFILE,             # Qwen3-14B-Q5_K_M (balanced RAG profile)
     QWEN3_30B_A3B_PROFILE,         # Qwen3-30B-A3B-Q4_K_M (primary RAG)
 ]
@@ -668,25 +697,36 @@ def get_profile() -> ModelProfile:
     return get_profile_for_filename(settings.llm_model_filename)
 
 
-def get_retrieval_top_k(query_type: str, response_mode: str = 'balanced') -> int:
+def get_retrieval_top_k(query_type: str, response_mode: str = 'analysis') -> int:
     """
     Return effective top-k for retrieval.
 
-    When adaptive_rag_tuning is enabled and cache is valid, returns corpus-aware value.
-    Otherwise returns model profile base. See .internal/features/adaptive-tuning.md.
+    Resolution order (highest priority first):
+    1. Adaptive tuning (corpus-aware override, when enabled).
+    2. Per-query-type profile override (rag_top_k_simple/focused/coverage when > 0).
+    3. Mode-based profile value (top_k_analysis / top_k_research when set).
+    4. Base profile value (rag_top_k for focused/simple; coverage_top_k for coverage).
 
-    Args:
-        query_type: 'focused' or 'coverage'
-
-    Returns:
-        Number of chunks to retrieve
+    All top-k values must come from model profile — no config/env override path.
     """
     from informity.indexer.adaptive_tuning import get_effective_top_k
 
-    effective = get_effective_top_k(query_type)
-    if effective is not None:
-        return get_profile().get_mode_top_k(response_mode, effective)
     profile = get_profile()
+
+    # 1. Adaptive tuning (corpus-aware)
+    adaptive = get_effective_top_k(query_type)
+    if adaptive is not None:
+        return profile.get_mode_top_k(response_mode, adaptive)
+
+    # 2. Per-query-type override (when set > 0 — only for base query types, not mode)
+    if query_type == 'simple' and profile.rag_top_k_simple > 0:
+        return profile.rag_top_k_simple
+    if query_type == 'focused' and profile.rag_top_k_focused > 0:
+        return profile.rag_top_k_focused
+    if query_type == 'coverage' and profile.rag_top_k_coverage > 0:
+        return profile.rag_top_k_coverage
+
+    # 3. Mode-adjusted base value
     mode_base = profile.coverage_top_k if query_type == 'coverage' else profile.rag_top_k
     return profile.get_mode_top_k(response_mode, mode_base)
 

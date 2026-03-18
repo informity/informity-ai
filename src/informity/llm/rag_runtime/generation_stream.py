@@ -9,9 +9,13 @@ import time
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
 
+import structlog
+
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
 from informity.llm.rag_runtime import strict_output_contract as _strict_output_contract
 from informity.llm.streaming import stream_llm
+
+log = structlog.get_logger(__name__)
 
 STREAM_SUMMARY_EVENT = '__stream_summary__'
 
@@ -27,6 +31,13 @@ class StreamExecutionSummary:
     completion_mode: str
     has_remaining_scope: bool
     output_contract_check: dict[str, object]
+    # Per-stage latency breakdown (set by rag.py after streaming completes).
+    # All values are wall-clock milliseconds measured with perf_counter.
+    embed_ms: float | None = None           # Query embedding time
+    vector_search_ms: float | None = None   # Vector ANN search time
+    rerank_ms: float | None = None          # Cross-encoder reranker time
+    prompt_build_ms: float | None = None    # Context assembly + message build time
+    ttft_ms: float | None = None            # Time to first generated token
 
 
 def _is_section_boundary(token: str) -> bool:
@@ -151,6 +162,11 @@ async def stream_generation_with_budget(
             'missing_headings': output_contract_check.get('missing_headings', []),
             'order_violations': output_contract_check.get('order_violations', []),
         })
+        log.info(
+            'output_contract_check_failed',
+            missing_headings=output_contract_check.get('missing_headings', []),
+            order_violations=output_contract_check.get('order_violations', []),
+        )
     completion_mode = 'partial' if timeout_reason else 'complete'
     if stream_recovery_reason is not None:
         completion_mode = 'scoped_complete'
@@ -160,9 +176,6 @@ async def stream_generation_with_budget(
         generation_skipped=False,
         applied_degradations=applied_degradations,
     )
-    if not bool(output_contract_check.get('passed', True)):
-        completion_mode = 'scoped_complete'
-        has_remaining_scope = True
 
     yield (STREAM_SUMMARY_EVENT, StreamExecutionSummary(
         token_count=token_count,

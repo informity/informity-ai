@@ -1,7 +1,7 @@
 # ==============================================================================
 # Informity AI — SQLite Database Module (v2)
 # Async connection management via aiosqlite. All SQL queries live here.
-# Simplified v2 version: no FTS5, updated chunks schema with parent_id/page_number/section_path
+# v2: sqlite-vec for vector search, FTS5 for candidate augmentation.
 # ==============================================================================
 
 import asyncio
@@ -47,7 +47,6 @@ _SQLITE_EXTENSION_LOAD_EXCEPTIONS = (
 )
 _SQLITE_BUSY_TIMEOUT_MS = 5000
 _CHAT_PREVIEW_TRUNCATE_LENGTH = 100
-_CONTINUATION_ARTIFACT_RETENTION_DAYS = 30
 
 # ==============================================================================
 # Schema — DDL statements for all tables
@@ -262,13 +261,47 @@ CREATE INDEX IF NOT EXISTS idx_vec_chunks_category ON vec_chunks(category);
 CREATE INDEX IF NOT EXISTS idx_vec_chunks_extension ON vec_chunks(extension);
 CREATE INDEX IF NOT EXISTS idx_vec_chunks_filename ON vec_chunks(filename);
 CREATE INDEX IF NOT EXISTS idx_vec_chunks_filters_composite ON vec_chunks(year, category, extension);
+
+-- FTS5 full-text index for candidate augmentation in focused retrieval.
+-- FTS5 provides additional candidate chunk IDs to the vector search pool before
+-- reranking. The reranker remains the sole scorer — FTS5 contributes recall only.
+-- Metadata columns (year, filename, extension, category) are UNINDEXED so the
+-- same WHERE clause used for vec_chunks applies directly to FTS5 results.
+CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(
+    chunk_text,
+    chunk_id  UNINDEXED,
+    file_id   UNINDEXED,
+    file_path UNINDEXED,
+    year      UNINDEXED,
+    filename  UNINDEXED,
+    extension UNINDEXED,
+    category  UNINDEXED,
+    tokenize='porter unicode61'
+);
+
+CREATE TRIGGER IF NOT EXISTS fts_chunks_ai AFTER INSERT ON vec_chunks BEGIN
+    INSERT INTO fts_chunks(rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
+    VALUES (new.chunk_id, new.chunk_text, new.chunk_id, new.file_id, new.file_path, new.year, new.filename, new.extension, new.category);
+END;
+
+CREATE TRIGGER IF NOT EXISTS fts_chunks_ad AFTER DELETE ON vec_chunks BEGIN
+    INSERT INTO fts_chunks(fts_chunks, rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
+    VALUES ('delete', old.chunk_id, old.chunk_text, old.chunk_id, old.file_id, old.file_path, old.year, old.filename, old.extension, old.category);
+END;
+
+CREATE TRIGGER IF NOT EXISTS fts_chunks_au AFTER UPDATE ON vec_chunks BEGIN
+    INSERT INTO fts_chunks(fts_chunks, rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
+    VALUES ('delete', old.chunk_id, old.chunk_text, old.chunk_id, old.file_id, old.file_path, old.year, old.filename, old.extension, old.category);
+    INSERT INTO fts_chunks(rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
+    VALUES (new.chunk_id, new.chunk_text, new.chunk_id, new.file_id, new.file_path, new.year, new.filename, new.extension, new.category);
+END;
 """
 
 _RESET_DROP_SQL = '''
-DROP TRIGGER IF EXISTS chunks_fts_ai;
-DROP TRIGGER IF EXISTS chunks_fts_ad;
-DROP TRIGGER IF EXISTS chunks_fts_au;
-DROP TABLE IF EXISTS chunks_fts;
+DROP TRIGGER IF EXISTS fts_chunks_ai;
+DROP TRIGGER IF EXISTS fts_chunks_ad;
+DROP TRIGGER IF EXISTS fts_chunks_au;
+DROP TABLE IF EXISTS fts_chunks;
 DROP TABLE IF EXISTS vec_chunks;
 DROP TABLE IF EXISTS response_diagnostics_metrics;
 DROP TABLE IF EXISTS continuation_pass_artifacts;
@@ -1357,16 +1390,25 @@ def _build_continuation_artifact_payload_hash(artifact: ContinuationPassArtifact
 
 
 async def _prune_old_continuation_artifacts(db: aiosqlite.Connection) -> int:
-    if _CONTINUATION_ARTIFACT_RETENTION_DAYS <= 0:
+    retention_days = int(settings.continuation_artifact_retention_days)
+    if retention_days <= 0:
         return 0
     cursor = await db.execute(
         """
         DELETE FROM continuation_pass_artifacts
         WHERE created_at < datetime('now', ?)
         """,
-        (f'-{_CONTINUATION_ARTIFACT_RETENTION_DAYS} days',),
+        (f'-{retention_days} days',),
     )
     return int(cursor.rowcount or 0)
+
+
+async def prune_continuation_artifacts(db: aiosqlite.Connection) -> int:
+    """Public entry point for startup-time artifact pruning. Returns pruned row count."""
+    pruned = await _prune_old_continuation_artifacts(db)
+    if pruned > 0:
+        log.info('continuation_artifacts_pruned', pruned_count=pruned, retention_days=int(settings.continuation_artifact_retention_days))
+    return pruned
 
 
 async def insert_continuation_pass_artifact(

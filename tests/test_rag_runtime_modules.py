@@ -6,11 +6,9 @@ from informity.llm.rag_runtime.retrieval_validation import (
     _apply_coverage_evidence_floor_override,
     _build_continuation_retrieval_query,
     _derive_continuation_source_terms,
-    _detect_scope_reset,
     _evaluate_continuation_anchor_gate,
     _evaluate_source_diversity_gate,
     _extract_prior_has_remaining_scope,
-    _is_continuation_utterance,
 )
 from informity.llm.rag_runtime.strict_composers import try_compose_strict_contract_answer
 from informity.llm.rag_runtime.structured_numeric import (
@@ -22,11 +20,6 @@ from informity.llm.rag_runtime.structured_numeric import (
     _render_finance_conflict_bullets,
     _render_structured_rows_bullets_answer,
 )
-
-
-def test_retrieval_validation_scope_reset_detection() -> None:
-    assert _detect_scope_reset('ignore previous context and start over') is True
-    assert _detect_scope_reset('continue the same analysis') is False
 
 
 def test_retrieval_validation_source_diversity_coverage_gate() -> None:
@@ -257,13 +250,6 @@ def test_retrieval_validation_builds_continuation_query_from_prior_user_scope() 
         history=history,
     )
     assert 'Build a report for 2022-2024' in query
-
-
-def test_retrieval_validation_detects_polite_and_short_continuation_utterances() -> None:
-    assert _is_continuation_utterance('Continue please') is True
-    assert _is_continuation_utterance('More') is True
-    assert _is_continuation_utterance('The rest.') is True
-    assert _is_continuation_utterance('Summarize this document') is False
 
 
 def test_retrieval_validation_uses_short_continuation_prompt_for_prior_context() -> None:

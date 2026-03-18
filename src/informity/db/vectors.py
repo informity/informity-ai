@@ -4,6 +4,7 @@
 # v2: Unified storage (vectors in same SQLite file as metadata).
 # ==============================================================================
 
+import re
 import sqlite3
 import threading
 from dataclasses import dataclass, field
@@ -18,6 +19,18 @@ from informity.indexer.embedder import get_effective_embedding_dimension
 # ==============================================================================
 
 log = structlog.get_logger(__name__)
+
+_FTS5_SPECIAL_CHARS = re.compile(r'["\(\)\*\^\-]')
+_FTS5_BOOLEAN_OPS   = re.compile(r'\b(AND|OR|NOT)\b', re.IGNORECASE)
+
+
+def _sanitize_fts5_query(query: str) -> str:
+    """Remove FTS5 syntax characters to prevent query parsing errors."""
+    sanitized = _FTS5_SPECIAL_CHARS.sub(' ', query)
+    sanitized = _FTS5_BOOLEAN_OPS.sub(' ', sanitized)
+    return ' '.join(sanitized.split())
+
+
 _SQLITE_VEC_LOAD_EXCEPTIONS = (
     ImportError,
     AttributeError,
@@ -329,6 +342,75 @@ class VectorStore:
             }
             for row in rows
         ]
+
+    def fts5_augment_candidates(
+        self,
+        query: str,
+        limit: int,
+        existing_ids: set[int],
+        where_clause: str | None = None,
+        where_params: list[int | str] | None = None,
+        neutral_score: float = 1.0,
+    ) -> list[dict]:
+        """
+        Run FTS5 keyword search and return candidate dicts for chunk IDs not
+        already in existing_ids. Returns at most `limit` net-new candidates.
+
+        FTS5 provides candidate recall only — all returned chunks receive
+        neutral_score so the reranker remains the sole scorer. The same
+        WHERE clause used for vec_chunks (year, extension, filename filters)
+        applies directly to FTS5 UNINDEXED columns.
+        """
+        sanitized = _sanitize_fts5_query(query)
+        if not sanitized:
+            return []
+
+        conn = self._get_thread_connection()
+
+        fts_where_parts: list[str] = ['fts_chunks MATCH ?']
+        fts_params: list[object] = [sanitized]
+
+        if where_clause:
+            fts_where_parts.append(where_clause)
+            if where_params:
+                fts_params.extend(where_params)
+
+        fts_where = ' AND '.join(fts_where_parts)
+        # Over-fetch to account for dedup against existing_ids
+        fetch_limit = limit * 2
+
+        fts_query = f"""
+            SELECT chunk_id, file_id, file_path, filename, chunk_text
+            FROM fts_chunks
+            WHERE {fts_where}
+            ORDER BY rank
+            LIMIT ?
+        """
+        fts_params.append(fetch_limit)
+
+        try:
+            rows = conn.execute(fts_query, fts_params).fetchall()
+        except sqlite3.Error as exc:
+            log.warning('fts5_search_failed', error=str(exc), query_preview=sanitized[:80])
+            return []
+
+        results: list[dict] = []
+        for row in rows:
+            chunk_id = int(row['chunk_id'])
+            if chunk_id in existing_ids:
+                continue
+            results.append({
+                'chunk_id':   chunk_id,
+                'file_id':    row['file_id'],
+                'file_path':  row['file_path'] or '',
+                'filename':   row['filename'] or '',
+                'chunk_text': row['chunk_text'] or '',
+                'score':      neutral_score,
+            })
+            if len(results) >= limit:
+                break
+
+        return results
 
     def delete_by_file_id(self, file_id: int) -> None:
         conn = self._get_thread_connection()

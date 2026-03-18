@@ -98,10 +98,10 @@ _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT = (
 )
 LOG_LEVEL_ALLOWED_VALUES: tuple[str, ...] = ('debug', 'info', 'warning', 'warn', 'error')
 UI_THEME_ALLOWED_VALUES: tuple[str, ...] = ('gray', 'purple', 'blue', 'green', 'orange', 'mono')
-RESPONSE_MODE_ALLOWED_VALUES: tuple[str, ...] = ('balanced', 'analysis', 'research')
+RESPONSE_MODE_ALLOWED_VALUES: tuple[str, ...] = ('analysis', 'research')
 _DEFAULT_LOG_LEVEL = 'info'
 _DEFAULT_UI_THEME = 'mono'
-_DEFAULT_RESPONSE_MODE = 'balanced'
+_DEFAULT_RESPONSE_MODE = 'analysis'
 
 
 # ==============================================================================
@@ -289,7 +289,7 @@ def _load_config_file_values() -> dict:
 class Settings(BaseSettings):
     # -- Paths ----------------------------------------------------------------
     app_data_dir:  Path       = _DEFAULT_APP_DATA_DIR
-    cache_dir:     Path | None = Field(default=None)   # Unified cache root; default {repo_root}/DirNames.CACHE. Override via INFORMITY_CACHE_DIR.
+    cache_dir:     Path | None = Field(default=None)   # Unified cache root; default app_data_dir/DirNames.CACHE. Override via INFORMITY_CACHE_DIR.
     db_path:       Path | None = Field(default=None)   # Computed: app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
     # vectors_dir removed - vectors now stored in SQLite via sqlite-vec
     models_dir:    Path | None = Field(default=None)   # Computed: desktop -> app_data_dir/DirNames.MODELS/DirNames.LLM; otherwise cache_dir/DirNames.LLM
@@ -395,6 +395,13 @@ class Settings(BaseSettings):
     adaptive_top_k_coverage_max:             int   = 30    # Max top-k for coverage (timeout prevention)
     adaptive_top_k_staleness_hours:          int   = 24    # Recompute if cache older than this
     adaptive_top_k_staleness_delta:          float = 0.2    # Recompute if chunk delta > 20%
+    # Classification confidence band thresholds.
+    # confidence_band='high' when confidence >= classification_confidence_high_threshold.
+    # confidence_band='medium' when confidence >= classification_confidence_medium_threshold.
+    # confidence_band='low' otherwise. These gate route selection and multi-step retrieval.
+    # Last calibration: 2026-03-18 (provenance flags item; values derived from original three-tier constants).
+    classification_confidence_high_threshold: float = 0.80
+    classification_confidence_medium_threshold: float = 0.55
     # Retrieval quality gates (runtime policy; avoid hardcoded thresholds in handlers).
     retrieval_relevance_threshold_focused:    float = 0.03
     retrieval_relevance_threshold_coverage:   float = 0.02
@@ -415,6 +422,27 @@ class Settings(BaseSettings):
     retrieval_widening_retry_multiplier: float = 1.5
     retrieval_widening_retry_extra_k: int = 4
     retrieval_widening_retry_cap: int = 40
+    # Maximum number of files sent to the per-file fallback batch in coverage retrieval.
+    # Prevents unbounded latency on large corpora where the global search misses many files.
+    # When the cap fires, remaining files are skipped and logged.
+    coverage_per_file_fallback_limit: int = 20
+    # Maximum net-new chunk candidates FTS5 keyword search may add to the vector search pool
+    # before reranking (focused queries only). FTS5 augmentation recovers exact-match pool
+    # misses (e.g., document title queries not semantically close to any indexed vector).
+    # Cap prevents high-frequency terms from swamping the reranker. Set to 0 to disable.
+    fts5_candidate_limit: int = 10
+    # Minimum tokens allocated per planned answer section.
+    # When the query planner produces N sections, effective_max_tokens is floored at
+    # N × tokens_per_section_floor to prevent truncation of multi-section responses.
+    tokens_per_section_floor: int = 300
+    # Maximum number of consecutive continuation passes before the chain is terminated.
+    # Counts assistant messages with has_remaining_scope=True at the tail of the history.
+    # When reached, the response is a short content-covered notice and has_remaining_scope is cleared.
+    max_continuation_depth: int = 3
+    # Retention window for continuation pass artifacts.
+    # Artifacts older than this are pruned on insert and on startup.
+    # Set to 0 to disable pruning.
+    continuation_artifact_retention_days: int = 30
     # Structured numeric extraction plausibility guards (runtime policy; avoid hardcoded thresholds).
     extraction_numeric_max_abs_value: float = 100000000.0
     extraction_numeric_max_unformatted_digits: int = 9
@@ -431,6 +459,11 @@ class Settings(BaseSettings):
     chat_auto_continue_default_max_rounds: int = 2
     chat_auto_continue_hard_cap: int = 3
     chat_auto_continue_prompt: str = _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT
+    # Query planner (llm/planner.py) — controls the planning pass that runs
+    # before generation to decompose complex queries and produce an answer outline.
+    planner_max_tokens: int = 512
+    planner_max_steps: int = 5
+    planner_max_sections: int = 8
     # Fit-to-budget rollout controls (Phase 5):
     # - dev: enabled only in dev_reload sessions
     # - power_users: deterministic subset rollout (~35%)
@@ -491,7 +524,7 @@ class Settings(BaseSettings):
     # Default: False (opt-in feature). Set to True to enable LLM-powered analysis.
     diagnostics_llm_analysis_enabled: bool = False
     # Directory for diagnostics analysis models.
-    # Default: {repo_root}/tools/diagnostics/models (decoupled from .cache/).
+    # Default: {repo_root}/tools/diagnostics/models
     diagnostics_models_dir: Path | None = Field(default=None)
     # Model filename to use for diagnostics analysis (default: DeepSeek R1 for analysis tasks).
     # User can override via config.json or INFORMITY_DIAGNOSTICS_LLM_MODEL_FILENAME env var.
@@ -513,7 +546,7 @@ class Settings(BaseSettings):
     # When true, show the macOS menu bar icon while the app is running.
     enable_menu_bar_icon: bool = False
     # Default chat response mode for new messages when request does not specify response_mode.
-    default_response_mode: Literal['balanced', 'analysis', 'research'] = _DEFAULT_RESPONSE_MODE
+    default_response_mode: Literal['analysis', 'research'] = _DEFAULT_RESPONSE_MODE
 
     # -- Pydantic Settings Config ---------------------------------------------
     model_config = {
@@ -545,7 +578,7 @@ class Settings(BaseSettings):
         else:
             self.models_dir = normalize_path(self.models_dir, expand_user=True)
 
-        # Diagnostics models directory: tools/diagnostics/models (decoupled from .cache/).
+        # Diagnostics models directory: tools/diagnostics/models.
         if self.diagnostics_models_dir is None:
             self.diagnostics_models_dir = (
                 repo_root / DirNames.TOOLS / DirNames.DIAGNOSTICS / DirNames.DIAGNOSTICS_MODELS
@@ -558,6 +591,18 @@ class Settings(BaseSettings):
             self.db_path = self.app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
         else:
             self.db_path = normalize_path(self.db_path, expand_user=True)
+
+        # Guardrail: reject legacy root-level DB path (app_data_dir/informity.db).
+        # If configured via env var to the old location, silently redirect to canonical path.
+        legacy_db_path = self.app_data_dir / f'{APP_SLUG}.db'
+        if self.db_path == legacy_db_path:
+            canonical_db_path = self.app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
+            log.warning(
+                'legacy_db_path_override_ignored',
+                configured_db_path=str(self.db_path),
+                canonical_db_path=str(canonical_db_path),
+            )
+            self.db_path = canonical_db_path
 
         # vectors_dir removed - vectors now stored in SQLite via sqlite-vec
         if self.logs_dir is None:
@@ -607,6 +652,24 @@ class Settings(BaseSettings):
         ensure_directories(directories_to_create)
         for directory in directories_to_create:
             log.info('created_directory', path=str(directory))
+
+        # Remove stray empty legacy DB at app_data_dir root (created before db/ subdirectory
+        # was introduced). Only deletes the file when it is empty (0 bytes) — a non-empty
+        # file at that path would indicate a real conflict and is left untouched.
+        legacy_db = self.app_data_dir / f'{APP_SLUG}.db'
+        if legacy_db.exists() and legacy_db.stat().st_size == 0:
+            for stray in [
+                legacy_db,
+                Path(f'{legacy_db}-journal'),
+                Path(f'{legacy_db}-wal'),
+                Path(f'{legacy_db}-shm'),
+            ]:
+                if stray.exists():
+                    try:
+                        stray.unlink()
+                    except OSError as exc:
+                        log.warning('legacy_db_cleanup_failed', path=str(stray), error=str(exc))
+            log.info('legacy_empty_db_removed', path=str(legacy_db))
 
 def get_chat_trace_logging() -> bool:
     """

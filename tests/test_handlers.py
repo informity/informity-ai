@@ -987,8 +987,10 @@ class TestRAGHandler:
         metrics_events = [item for item in results if isinstance(item, tuple) and item[0] == '__metrics__']
         assert metrics_events
         metrics = metrics_events[0][1]
-        assert metrics.get('suggested_completion_mode') == 'scoped_complete'
-        assert metrics.get('has_remaining_scope') is True
+        # NC-2 invariant: contract failure must NOT trigger continuation.
+        assert metrics.get('has_remaining_scope') is False
+        assert metrics.get('suggested_completion_mode') in ('complete', None)
+        # Contract failure must be visible in trace fields only.
         output_contract = metrics.get('output_contract_check')
         assert isinstance(output_contract, dict)
         assert output_contract.get('passed') is False

@@ -18,6 +18,7 @@ from informity.llm.metadata_filters import (
     build_where_clause_and_params,
     extract_metadata_filters,
 )
+from informity.config import settings
 from informity.llm.model_adapter import get_profile
 
 log = structlog.get_logger(__name__)
@@ -59,6 +60,7 @@ async def retrieve_chunks(
     query_type: str = 'focused',  # 'focused' or 'coverage'
     db: aiosqlite.Connection | None = None,
     trace: object | None = None,
+    timing_output: dict | None = None,
 ) -> list[dict]:
     """
     Unified retrieval path: embed query → vector search (optional WHERE) → rerank → top-k.
@@ -160,6 +162,7 @@ async def retrieve_chunks(
     # Initialize file_ids and seen_files at function scope (used for coverage queries and trace metrics)
     file_ids: list[int] = []
     seen_files: set[int] = set()  # Track files covered by global search (for file-anchored retrieval)
+    fts5_augmented_count: int = 0  # Net-new candidates added by FTS5 augmentation (focused only)
     profile = get_profile()
 
     # 3. File-anchored retrieval for coverage queries
@@ -205,7 +208,15 @@ async def retrieve_chunks(
             where_params,
         )
         if max_score is not None:
+            raw_before_score_filter = len(all_results)
             all_results = [r for r in all_results if r.get('score', float('inf')) <= max_score]
+            if raw_before_score_filter > 0 and not all_results:
+                log.info(
+                    'l2_threshold_eliminated_all_candidates',
+                    query_type='coverage',
+                    max_score=max_score,
+                    raw_candidates=raw_before_score_filter,
+                )
 
         # Group by file_id and take top-1 per file
         file_id_set = set(file_ids)
@@ -222,16 +233,29 @@ async def retrieve_chunks(
         # to avoid N+1 vector queries while preserving exhaustive coverage semantics.
         missing_file_ids = file_id_set - seen_files
         if missing_file_ids:
-            log.debug(
-                'coverage_fallback_batch',
-                missing_count=len(missing_file_ids),
-                total_files=len(file_ids),
-                coverage_pct=round((len(seen_files) / len(file_ids)) * 100, 1),
-            )
+            per_file_fallback_limit = int(settings.coverage_per_file_fallback_limit)
+            capped = len(missing_file_ids) > per_file_fallback_limit
+            fallback_file_ids = sorted(missing_file_ids)[:per_file_fallback_limit]
+            if capped:
+                log.info(
+                    'coverage_fallback_batch_capped',
+                    missing_count=len(missing_file_ids),
+                    cap=per_file_fallback_limit,
+                    skipped_count=len(missing_file_ids) - per_file_fallback_limit,
+                    total_files=len(file_ids),
+                    coverage_pct=round((len(seen_files) / len(file_ids)) * 100, 1),
+                )
+            else:
+                log.debug(
+                    'coverage_fallback_batch',
+                    missing_count=len(missing_file_ids),
+                    total_files=len(file_ids),
+                    coverage_pct=round((len(seen_files) / len(file_ids)) * 100, 1),
+                )
             fallback_results = await asyncio.to_thread(
                 vector_store.search_top1_per_file,
                 query_vector,
-                list(missing_file_ids),
+                fallback_file_ids,
                 where_clause,
                 where_params,
             )
@@ -279,8 +303,37 @@ async def retrieve_chunks(
             where_params,
         )
         if max_score is not None:
+            raw_before_score_filter = len(results)
             results = [r for r in results if r.get('score', float('inf')) <= max_score]
+            if raw_before_score_filter > 0 and not results:
+                log.info(
+                    'l2_threshold_eliminated_all_candidates',
+                    query_type='focused',
+                    max_score=max_score,
+                    raw_candidates=raw_before_score_filter,
+                )
         search_elapsed_ms = (time.perf_counter() - start) * 1000
+
+        # FTS5 candidate augmentation — add exact-match pool candidates before reranking.
+        # Candidate-only: FTS5 contributes chunk IDs to the pool, reranker remains sole scorer.
+        if settings.fts5_candidate_limit > 0:
+            existing_ids = {r['chunk_id'] for r in results}
+            fts5_candidates = await asyncio.to_thread(
+                vector_store.fts5_augment_candidates,
+                query,
+                settings.fts5_candidate_limit,
+                existing_ids,
+                where_clause,
+                where_params if where_params else None,
+            )
+            if fts5_candidates:
+                fts5_augmented_count = len(fts5_candidates)
+                results = results + fts5_candidates
+                log.debug(
+                    'fts5_candidates_augmented',
+                    count=fts5_augmented_count,
+                    total_pool=len(results),
+                )
 
     if not results:
         retrieval_mode = 'file_anchored' if query_type == 'coverage' else 'vector'
@@ -504,6 +557,7 @@ async def retrieve_chunks(
             'children_after_structural_filter': len(filtered_child_chunks),
             'parents_fetched':     len(parent_chunks),
             'filename_filter_relaxed': filename_filter_relaxed,
+            'fts5_augmented_count': fts5_augmented_count if query_type != 'coverage' else 0,
         }
         if query_type == 'coverage' and db is not None:
             # Add file-anchored retrieval metrics (reuse file_ids from coverage query branch)
@@ -541,5 +595,10 @@ async def retrieve_chunks(
         search_duration_ms=round(search_elapsed_ms, 1),
         rerank_duration_ms=round(rerank_elapsed_ms, 1),
     )
+
+    if timing_output is not None:
+        timing_output['embed_ms'] = round(embed_elapsed_ms, 1)
+        timing_output['vector_search_ms'] = round(search_elapsed_ms, 1)
+        timing_output['rerank_ms'] = round(rerank_elapsed_ms, 1)
 
     return final
