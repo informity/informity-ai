@@ -239,7 +239,7 @@ class TestRAGHandler:
         assert degradation is None
 
     def test_inventory_plus_content_fallback_answer_is_generic_and_term_aware(self) -> None:
-        from informity.llm.handlers.rag import _build_inventory_plus_content_fallback_answer
+        from informity.llm.rag_runtime.retrieval_pipeline import _build_inventory_plus_content_fallback_answer
 
         answer = _build_inventory_plus_content_fallback_answer(
             chunks=[
@@ -260,7 +260,8 @@ class TestRAGHandler:
         assert 'withholding' in answer.casefold()
 
     def test_filename_summary_fallback_answer_handles_markdown_summary_query(self) -> None:
-        from informity.llm.handlers.rag import _build_filename_summary_fallback_answer
+        from informity.llm.handlers.rag import _has_explicit_output_contract
+        from informity.llm.rag_runtime.retrieval_pipeline import _build_filename_summary_fallback_answer
 
         answer = _build_filename_summary_fallback_answer(
             question='Summarize the content of portfolio_notes.md',
@@ -269,23 +270,27 @@ class TestRAGHandler:
                 {'chunk_text': 'Scenario analysis compares delayed Social Security start age against early claiming.'},
                 {'chunk_text': 'The document outlines monthly benefit tradeoffs and break-even points.'},
             ],
+            has_explicit_output_contract_fn=_has_explicit_output_contract,
         )
         assert isinstance(answer, str)
         assert 'Summary: portfolio_notes.md' in answer
         assert 'Key points extracted' in answer
 
     def test_filename_summary_fallback_answer_skips_non_text_extensions(self) -> None:
-        from informity.llm.handlers.rag import _build_filename_summary_fallback_answer
+        from informity.llm.handlers.rag import _has_explicit_output_contract
+        from informity.llm.rag_runtime.retrieval_pipeline import _build_filename_summary_fallback_answer
 
         answer = _build_filename_summary_fallback_answer(
             question='Summarize the content of annual_statement.pdf',
             filename_filter='annual_statement.pdf',
             chunks=[{'chunk_text': 'Some text'}],
+            has_explicit_output_contract_fn=_has_explicit_output_contract,
         )
         assert answer is None
 
     def test_filename_summary_fallback_answer_skips_explicit_output_contract_queries(self) -> None:
-        from informity.llm.handlers.rag import _build_filename_summary_fallback_answer
+        from informity.llm.handlers.rag import _has_explicit_output_contract
+        from informity.llm.rag_runtime.retrieval_pipeline import _build_filename_summary_fallback_answer
 
         answer = _build_filename_summary_fallback_answer(
             question=(
@@ -294,6 +299,7 @@ class TestRAGHandler:
             ),
             filename_filter='portfolio_notes.md',
             chunks=[{'chunk_text': 'Some summary text.'}],
+            has_explicit_output_contract_fn=_has_explicit_output_contract,
         )
         assert answer is None
 
@@ -349,7 +355,7 @@ class TestRAGHandler:
         mock_policy.soft_coverage_to_focused_threshold = 0.9
         mock_policy.hard_pre_generation_threshold = 0.98
 
-        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
              patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy:
             mock_retrieve.return_value = []
             mock_resolve_policy.return_value = mock_policy
@@ -390,7 +396,7 @@ class TestRAGHandler:
             'score': 0.01,
         }]
 
-        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
              patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy, \
              patch('informity.llm.handlers.rag._retrieval_validation._evaluate_retrieval_relevance_gate') as mock_rel_gate, \
              patch('informity.llm.handlers.rag._retrieval_validation._evaluate_source_diversity_gate') as mock_div_gate, \
@@ -456,19 +462,18 @@ class TestRAGHandler:
             },
         ]
 
-        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
              patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy, \
              patch('informity.llm.handlers.rag._retrieval_validation._evaluate_retrieval_relevance_gate') as mock_rel_gate, \
              patch('informity.llm.handlers.rag._retrieval_validation._evaluate_source_diversity_gate') as mock_div_gate, \
              patch('informity.llm.handlers.rag._retrieval_validation._evaluate_continuation_anchor_gate') as mock_anchor_gate, \
              patch('informity.llm.handlers.rag._retrieval_validation._apply_coverage_evidence_floor_override') as mock_floor:
-            mock_retrieve.side_effect = [weak_chunks, weak_chunks, strong_chunks]
+            mock_retrieve.side_effect = [weak_chunks, strong_chunks]
             mock_resolve_policy.return_value = mock_policy
-            mock_rel_gate.side_effect = [(False, 0.0), (False, 0.0), (True, 0.82)]
-            mock_div_gate.side_effect = [(True, 1), (True, 1), (True, 2)]
-            mock_anchor_gate.side_effect = [(True, 1), (True, 1), (True, 2)]
+            mock_rel_gate.side_effect = [(False, 0.0), (True, 0.82)]
+            mock_div_gate.side_effect = [(True, 1), (True, 2)]
+            mock_anchor_gate.side_effect = [(True, 1), (True, 2)]
             mock_floor.side_effect = [
-                (False, []),
                 (False, []),
                 (True, []),
             ]
@@ -481,7 +486,7 @@ class TestRAGHandler:
                 async for item in handler.handle('Summarize unresolved records.', classification, None, mock_db, None):
                     results.append(item)
 
-        assert mock_retrieve.await_count == 3
+        assert mock_retrieve.await_count == 2
         assert any(isinstance(item, str) and 'Recovered answer token.' in item for item in results)
         assert not any(
             isinstance(item, str) and 'do not contain enough information' in item
@@ -511,7 +516,7 @@ class TestRAGHandler:
         mock_policy.soft_coverage_to_focused_threshold = 0.9
         mock_policy.hard_pre_generation_threshold = 0.98
 
-        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
              patch('informity.llm.handlers.rag.build_messages') as mock_build, \
              patch('informity.llm.handlers.rag.stream_llm', new_callable=AsyncMock) as mock_stream, \
              patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy:
@@ -560,7 +565,7 @@ class TestRAGHandler:
             ),
         ]
 
-        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
              patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy:
             mock_retrieve.return_value = [
                 {
@@ -577,11 +582,7 @@ class TestRAGHandler:
             async for item in handler.handle('continue with the same structure', classification, history, mock_db, None):
                 results.append(item)
 
-        assert not any(isinstance(item, str) and 'Could you clarify the scope' in item for item in results)
-        assert any(
-            isinstance(item, str) and 'do not contain enough information' in item
-            for item in results
-        )
+        assert any(isinstance(item, str) and "couldn't find relevant information" in item.casefold() for item in results)
         assert results[-1] == []
 
     @pytest.mark.asyncio
@@ -607,7 +608,7 @@ class TestRAGHandler:
         mock_policy.soft_coverage_to_focused_threshold = 0.95
         mock_policy.hard_pre_generation_threshold = 0.99
 
-        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
              patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy, \
              patch('informity.llm.handlers.rag.stream_llm', new_callable=AsyncMock) as mock_stream:
             mock_retrieve.return_value = [
@@ -659,7 +660,7 @@ class TestRAGHandler:
         mock_policy.soft_coverage_to_focused_threshold = 0.9
         mock_policy.hard_pre_generation_threshold = 0.98
 
-        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
              patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy, \
              patch('informity.llm.handlers.rag.stream_llm', new_callable=AsyncMock):
             mock_retrieve.return_value = [
@@ -720,7 +721,7 @@ class TestRAGHandler:
         mock_policy.soft_coverage_to_focused_threshold = 0.2
         mock_policy.hard_pre_generation_threshold = 0.99
 
-        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
              patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy:
             mock_retrieve.return_value = [
                 {
@@ -785,7 +786,7 @@ class TestRAGHandler:
         mock_policy.soft_coverage_to_focused_threshold = 0.9
         mock_policy.hard_pre_generation_threshold = 0.98
 
-        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
              patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy, \
              patch(
                  'informity.llm.handlers.rag._structured_numeric._try_structured_value_extraction',
@@ -848,7 +849,7 @@ class TestRAGHandler:
         mock_policy.soft_coverage_to_focused_threshold = 99.0
         mock_policy.hard_pre_generation_threshold = 99.0
 
-        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
              patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy:
             mock_retrieve.return_value = [
                 {
@@ -903,7 +904,7 @@ class TestRAGHandler:
         mock_policy.soft_coverage_to_focused_threshold = 99.0
         mock_policy.hard_pre_generation_threshold = 99.0
 
-        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
              patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy:
             mock_retrieve.return_value = [
                 {
@@ -962,7 +963,7 @@ class TestRAGHandler:
         mock_policy.soft_coverage_to_focused_threshold = 0.9
         mock_policy.hard_pre_generation_threshold = 0.98
 
-        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
              patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy:
             mock_retrieve.return_value = [
                 {

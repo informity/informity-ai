@@ -215,7 +215,7 @@ class TestModelProfileMethods:
             'max_tokens_simple', 'max_tokens_focused', 'max_tokens_coverage', 'max_tokens_analysis', 'max_tokens_research',
             'coverage_top_k', 'top_k_analysis', 'top_k_research', 'min_tokens_coverage',
             'prompt_format', 'coverage_prompt_format', 'context_length',
-            'temperature', 'top_p', 'rag_top_k',
+            'temperature', 'top_p', 'rag_top_k', 'rag_top_k_simple', 'rag_top_k_focused', 'rag_top_k_coverage',
             'rag_max_score', 'rag_context_ratio', 'rag_context_ratio_analysis', 'rag_context_ratio_research',
             'timeout_seconds_simple', 'timeout_seconds_focused', 'timeout_seconds_coverage', 'timeout_seconds_analysis', 'timeout_seconds_research',
         }
@@ -252,7 +252,15 @@ class TestGetRetrievalTopK:
         from informity.llm.model_adapter import get_profile
 
         profile = get_profile()
-        analysis_top_k = profile.top_k_analysis or profile.rag_top_k
-        research_top_k = profile.top_k_research or analysis_top_k
-        assert get_retrieval_top_k('focused', response_mode='analysis') == analysis_top_k
-        assert get_retrieval_top_k('focused', response_mode='research') == research_top_k
+        # Per-query-type override (rag_top_k_focused) takes priority over mode-based top_k.
+        # Only when rag_top_k_focused == 0 does the mode-based value (top_k_analysis) apply.
+        if profile.rag_top_k_focused > 0:
+            expected_focused_analysis = profile.rag_top_k_focused
+            expected_focused_research = profile.rag_top_k_focused
+        else:
+            analysis_base = profile.top_k_analysis or profile.rag_top_k
+            research_base = profile.top_k_research or analysis_base
+            expected_focused_analysis = analysis_base
+            expected_focused_research = research_base
+        assert get_retrieval_top_k('focused', response_mode='analysis') == expected_focused_analysis
+        assert get_retrieval_top_k('focused', response_mode='research') == expected_focused_research

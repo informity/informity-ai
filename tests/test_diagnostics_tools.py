@@ -271,7 +271,7 @@ def test_pipeline_auto_adjusts_evaluate_step_timeout_floor(tmp_path, monkeypatch
         _run_id,
         queries_file=None,
         query_timeout_seconds=None,
-        response_mode='balanced',
+        response_mode='analysis',
         llm_model_filename=None,
         timeout_seconds=None,
     ):
@@ -290,7 +290,7 @@ def test_pipeline_auto_adjusts_evaluate_step_timeout_floor(tmp_path, monkeypatch
     )
     assert success
     assert captured.get('timeout_seconds') == 420.0
-    assert captured.get('response_mode') == 'balanced'
+    assert captured.get('response_mode') == 'analysis'
 
 
 def test_generate_balanced_queries_deterministic() -> None:

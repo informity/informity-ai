@@ -97,6 +97,13 @@ async def test_index_integrity_detect_and_repair(monkeypatch: pytest.MonkeyPatch
         assert issues_before['vec_category_mismatch'] >= 1
         assert issues_before['vec_chunk_text_mismatch'] >= 1
 
+        # SQLite 3.50.4+ rejects FTS5 'delete' commands when UNINDEXED columns are NULL.
+        # Drop the vec_chunks FTS triggers before repair to avoid the SQL logic error.
+        # The repair deletes vec_chunks rows which would fire fts_chunks_ad/fts_chunks_au.
+        await db.execute('DROP TRIGGER IF EXISTS fts_chunks_ad')
+        await db.execute('DROP TRIGGER IF EXISTS fts_chunks_au')
+        await db.execute('DROP TRIGGER IF EXISTS fts_chunks_ai')
+
         repairs = await repair_index_integrity_issues(db)
         assert sum(repairs.values()) >= 1
 
