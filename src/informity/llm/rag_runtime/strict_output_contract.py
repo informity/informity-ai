@@ -406,6 +406,11 @@ def _build_output_contract_plan(
 
 
 def _build_contract_prompt_requirements(plan: OutputContractPlan) -> list[str]:
+    # Structural rules only: heading presence and section order.
+    # Removed micro-rules: exact bullet counts, evidence citation format strings,
+    # word limits, bullet depth requirements, per-heading evidence variants,
+    # missing-evidence callout phrases. These are prescriptive format constraints
+    # that belong in the model profile system_prompt_addendum, not injected per-query.
     requirements: list[str] = []
     if plan.required_headings and plan.enforce_order:
         ordered = ' -> '.join(plan.required_headings)
@@ -420,72 +425,7 @@ def _build_contract_prompt_requirements(plan: OutputContractPlan) -> list[str]:
                 'use this heading template shape (one heading per line):\n'
                 f'{heading_template}'
             )
-    if isinstance(plan.required_bullet_depth, int) and plan.required_bullet_depth >= 3:
-        requirements.append(
-            'in sections where nested bullets are required, ensure at least one bullet path reaches '
-            'depth 3 (Parent -> Child -> Grandchild); child-only depth 2 is not sufficient. '
-            'Example structure:\n- Parent\n  - Child\n    - Grandchild'
-        )
-    if plan.requires_missing_evidence_callout:
-        requirements.append(
-            'include explicit missing-evidence callouts using the phrase "Missing Evidence:" '
-            'for requested groups/years where evidence is absent'
-        )
-        requirements.append(
-            'include at least one line that starts exactly with "Missing Evidence:" '
-            'when any requested evidence is absent'
-        )
-    if isinstance(plan.max_words, int) and plan.max_words > 0:
-        requirements.append(f'keep total response length to at most {plan.max_words} words')
-    if isinstance(plan.exact_top_level_bullets, int) and plan.exact_top_level_bullets > 0:
-        if isinstance(plan.exact_top_level_bullets_section, str) and plan.exact_top_level_bullets_section.strip():
-            requirements.append(
-                f'under heading "{plan.exact_top_level_bullets_section}", '
-                f'output exactly {plan.exact_top_level_bullets} bullet list items using "- " prefix'
-            )
-        else:
-            requirements.append(
-                f'output exactly {plan.exact_top_level_bullets} top-level bullet items using "- " prefix; '
-                'do not use sub-bullets'
-            )
-    if plan.requires_evidence_grounding:
-        requirements.append(
-            'for every claim-bearing bullet/list item, include evidence metadata in canonical form '
-            '"Evidence: {filename}, page {N}" (or "Evidence: {filename}" when page is unavailable)'
-        )
-        requirements.append(
-            'for narrative claim paragraphs, include at least one evidence line per paragraph block '
-            'using the same canonical "Evidence:" format'
-        )
-        required_heading_keys = {_normalize_heading_key(heading) for heading in plan.required_headings}
-        if 'next verification steps' in required_heading_keys:
-            requirements.append(
-                'under heading "## Next Verification Steps", every numbered or bulleted step must include canonical '
-                '"Evidence: {filename}, page {N}" (or "Evidence: {filename}") metadata'
-            )
-        if {'largest increase', 'largest decrease'} & required_heading_keys:
-            requirements.append(
-                'under headings "## Largest Increase" and "## Largest Decrease", express numeric delta claims as '
-                'bullet items and include canonical "Evidence:" metadata on each delta claim'
-            )
-            requirements.append(
-                'do not emit uncited numeric delta lines in "Largest Increase/Decrease"; '
-                'each numeric line must include canonical "Evidence:" or explicit "Missing Evidence:"'
-            )
-        if 'contradictions and gaps' in required_heading_keys:
-            requirements.append(
-                'under "## Contradictions and Gaps", do not use bare "No contradictions found" lines; '
-                'include canonical "Evidence:" or explicit "Missing Evidence:" on each contradiction line'
-            )
-        if {'findings by year', 'cross-year deltas'} & required_heading_keys:
-            requirements.append(
-                'under "## Findings by Year" and "## Cross-Year Deltas", every source, amount, and contradiction bullet '
-                'must include canonical "Evidence:" metadata; if support is absent, use "Missing Evidence:" instead'
-            )
-        requirements.append(
-            'do not infer missing facts; when evidence is insufficient for a required claim, output "Not found"'
-        )
-    elif plan.requires_not_found_fallback:
+    if plan.requires_not_found_fallback or plan.requires_evidence_grounding:
         requirements.append('when evidence is insufficient for a required claim, output "Not found"')
     return requirements
 
@@ -743,6 +683,13 @@ def _evaluate_output_contract(
             if candidate.startswith(_CANONICAL_MISSING_EVIDENCE_PREFIX) or canonical_cell_pattern.search(raw_line):
                 canonical_hit = True
                 break
+        # A dedicated ## Missing Evidence section heading is semantically equivalent to calling out
+        # missing evidence — accept it as satisfying the callout requirement.
+        if not canonical_hit:
+            for heading_key in heading_positions:
+                if 'missing evidence' in heading_key:
+                    canonical_hit = True
+                    break
         # Strict phase: canonical phrase is required for pass/fail.
         missing_evidence_callout_ok = canonical_hit
         missing_evidence_callout_canonical = canonical_hit

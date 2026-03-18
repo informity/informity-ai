@@ -117,6 +117,7 @@ async def test_retrieve_chunks_calls_reranker(mock_db):
             {'chunk_id': 2, 'chunk_text': 'chunk 2', 'score': 0.7},
         ]
         mock_vector_store.search_similar.return_value = mock_chunks
+        mock_vector_store.fts5_augment_candidates.return_value = []
         mock_reranker.rerank.return_value = mock_chunks
 
         await retrieve_chunks('test query', top_k=5, db=mock_db)
@@ -224,6 +225,7 @@ async def test_retrieve_chunks_applies_block_type_filter(mock_db):
             {'chunk_id': 1, 'chunk_text': 'chunk 1', 'score': 0.2},
             {'chunk_id': 2, 'chunk_text': 'chunk 2', 'score': 0.1},
         ]
+        mock_vector_store.fts5_augment_candidates.return_value = []
         mock_reranker.rerank.side_effect = lambda _q, chunks: chunks
 
         await retrieve_chunks('show me table data', top_k=5, block_type_filter='table', db=mock_db)
@@ -243,6 +245,7 @@ async def test_retrieve_chunks_applies_section_filter(mock_db):
             {'chunk_id': 1, 'chunk_text': 'chunk 1', 'score': 0.2},
             {'chunk_id': 2, 'chunk_text': 'chunk 2', 'score': 0.1},
         ]
+        mock_vector_store.fts5_augment_candidates.return_value = []
         mock_reranker.rerank.side_effect = lambda _q, chunks: chunks
 
         await retrieve_chunks('what is in conclusion section', top_k=5, section_filter='conclusion', db=mock_db)
@@ -303,6 +306,7 @@ async def test_retrieve_chunks_parent_fallback_does_not_inject_zero_score_when_m
          patch('informity.llm.retrieval.get_chunks_by_parent_ids', new_callable=AsyncMock) as mock_get_parents:
         mock_embedder.embed_query.return_value = [0.1] * 768
         mock_vector_store.search_similar.return_value = [{'chunk_id': 10, 'score': 0.1}]
+        mock_vector_store.fts5_augment_candidates.return_value = []
         mock_reranker.rerank.return_value = [{'chunk_id': 10}]  # score intentionally missing
         mock_get_parents.return_value = [
             {

@@ -68,11 +68,7 @@ def test_strict_output_contract_builds_prompt_requirements_for_order_and_depth()
     )
     requirements = _build_contract_prompt_requirements(plan)
     assert any('section skeleton in order' in item for item in requirements)
-    assert any('at the level shown' in item for item in requirements)
     assert any('heading template shape' in item for item in requirements)
-    assert any('reaches depth 3' in item for item in requirements)
-    assert any('Missing Evidence:' in item for item in requirements)
-    assert any('starts exactly with "Missing Evidence:"' in item for item in requirements)
 
 
 def test_strict_output_contract_plan_extracts_exact_order_headings_from_question() -> None:
@@ -114,8 +110,6 @@ def test_strict_output_contract_plan_extracts_top_level_bullet_phrase() -> None:
     assert plan.max_words == 180
     assert plan.exact_top_level_bullets == 3
     assert plan.exact_top_level_bullets_section is None
-    requirements = _build_contract_prompt_requirements(plan)
-    assert any('do not use sub-bullets' in item for item in requirements)
 
 
 def test_strict_output_contract_plan_extracts_section_scoped_top_level_bullets() -> None:
@@ -127,10 +121,6 @@ def test_strict_output_contract_plan_extracts_section_scoped_top_level_bullets()
     )
     assert plan.exact_top_level_bullets == 5
     assert plan.exact_top_level_bullets_section == '## Missing Evidence'
-
-    requirements = _build_contract_prompt_requirements(plan)
-    assert any('under heading "## Missing Evidence"' in item for item in requirements)
-    assert any('using "- " prefix' in item for item in requirements)
 
 
 def test_strict_output_contract_missing_evidence_accepts_bullet_prefixed_canonical_line() -> None:
@@ -214,31 +204,6 @@ def test_strict_output_contract_evidence_grounding_counts_numbered_list_items() 
     )
     assert check['evidence_claim_block_count'] == 2
     assert check['evidence_grounding_ok'] is False
-
-
-def test_strict_output_contract_prompt_adds_verification_and_delta_guidance() -> None:
-    plan = _build_output_contract_plan(
-        question=(
-            'Required headings in exact order: ## Scope, ## Largest Increase, ## Largest Decrease, '
-            '## Next Verification Steps. Keep claims evidence-grounded.'
-        ),
-        format_requirements=[],
-    )
-    requirements = _build_contract_prompt_requirements(plan)
-    assert any('every numbered or bulleted step must include canonical' in item for item in requirements)
-    assert any('express numeric delta claims as bullet items' in item for item in requirements)
-
-
-def test_strict_output_contract_prompt_adds_findings_cross_year_evidence_guidance() -> None:
-    plan = _build_output_contract_plan(
-        question=(
-            'Required headings in exact order: ## Scope, ## Findings by Year, ## Cross-Year Deltas, '
-            '## Next Verification Steps. Keep claims evidence-grounded.'
-        ),
-        format_requirements=[],
-    )
-    requirements = _build_contract_prompt_requirements(plan)
-    assert any('every source, amount, and contradiction bullet' in item for item in requirements)
 
 
 def test_strict_output_contract_missing_evidence_accepts_table_cell_marker() -> None:

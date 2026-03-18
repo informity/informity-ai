@@ -10,7 +10,7 @@ import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import aiosqlite
 import structlog
@@ -37,6 +37,9 @@ from informity.db.sqlite import (
     get_chats,
     get_connection,
     get_db,
+    get_distinct_categories,
+    get_distinct_years,
+    get_file_count,
     insert_chat_message,
     insert_continuation_pass_artifact,
     insert_diagnostics_metrics,
@@ -46,8 +49,9 @@ from informity.diagnostics.grounding_verifier import run_grounding_verifier
 from informity.diagnostics.observer import EvalMetrics, detect_issues
 from informity.diagnostics.resource_snapshot import build_resource_delta, capture_resource_snapshot
 from informity.llm.model_adapter import get_profile
+from informity.llm.planner import PLANNING_ELIGIBLE_ROUTES, QueryPlan, build_corpus_summary, build_plan
+from informity.llm.query_classifier import classify_query
 from informity.llm.rag import answer_question
-from informity.llm.rag_runtime import retrieval_validation as _retrieval_validation
 from informity.llm.rag_runtime import strict_output_contract as _strict_output_contract
 from informity.llm.rag_runtime import structured_numeric as _structured_numeric
 from informity.utils.json_utils import serialize_api_response
@@ -55,16 +59,17 @@ from informity.utils.json_utils import serialize_api_response
 # Trace logging constants
 MAX_ANSWER_PREVIEW_LENGTH = 1500  # Maximum length of answer preview in trace logs
 DISPLAY_FALLBACK_MESSAGE = answer_sanitization.DISPLAY_FALLBACK_MESSAGE
-SSE_PHASE_ORDER = {'chat': 1, 'token': 2, 'budget': 2, 'timeout': 2, 'sources': 3, 'cleaned': 4, 'error': 4, 'done': 5}
+SSE_PHASE_ORDER = {'chat': 1, 'plan_step': 1, 'token': 2, 'budget': 2, 'timeout': 2, 'sources': 3, 'cleaned': 4, 'error': 4, 'done': 5}
 SSE_STATUS_ORDER = {
     'classifying': 1,
-    'retrieving': 2,
-    'generating': 3,
-    'continuing': 4,
-    'finalizing': 5,
+    'planning':    2,
+    'retrieving':  3,
+    'generating':  4,
+    'continuing':  5,
+    'finalizing':  6,
 }
 MAX_CHAT_MESSAGE_CHARS = 20000
-_VALID_RESPONSE_MODES = {'balanced', 'analysis', 'research'}
+_VALID_RESPONSE_MODES = {'analysis', 'research'}
 _VALID_COMPLETION_MODES = {'complete', 'partial', 'scoped_complete', 'stopped'}
 _PERSISTENCE_EXCEPTIONS = (aiosqlite.Error, ValueError, RuntimeError, OSError)
 _STREAM_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, ConnectionError, aiosqlite.Error)
@@ -81,23 +86,6 @@ _REFUSAL_PATTERNS = (
 _STRICT_NUMERIC_TOKEN_PATTERN = re.compile(r'\$?\d[\d,]*(?:\.\d{1,2})?')
 _TABLE_SEPARATOR_PATTERN = re.compile(r'^\s*\|?\s*:?-{3,}(?:\s*\|\s*:?-{3,})+\s*\|?\s*$')
 _EMPTY_ORDERED_LIST_ITEM_PATTERN = re.compile(r'^\s*\d+\.\s*$')
-_CONTINUATION_COMPACTION_ENABLED = True
-
-
-def _get_compaction_params(response_mode: str) -> tuple[int, int, int]:
-    """
-    Return (min_pass_index, min_answer_chars, max_history_chars) for the active profile.
-
-    - min_pass_index: slower models compact sooner (30B at 6 t/s → pass 1; others → pass 2).
-    - min_answer_chars: research mode expects longer first-pass output, so compact later.
-    - max_history_chars: proportional to context window (context_length // 14).
-    """
-    from informity.llm.model_adapter import get_profile
-    profile = get_profile()
-    min_pass_index = max(1, round(profile.generation_tokens_per_second / 6.0))
-    min_answer_chars = 2400 if response_mode == 'research' else 1600
-    max_history_chars = profile.context_length // 14
-    return min_pass_index, min_answer_chars, max_history_chars
 
 
 # ==============================================================================
@@ -113,9 +101,9 @@ def build_display_blocks(cleaned_answer: str) -> list[dict[str, str]]:
 
 
 def resolve_response_mode(request_mode: str | None) -> str:
-    mode = str(request_mode or settings.default_response_mode or 'balanced').strip().lower()
+    mode = str(request_mode or settings.default_response_mode or 'analysis').strip().lower()
     if mode not in _VALID_RESPONSE_MODES:
-        return 'balanced'
+        return 'analysis'
     return mode
 
 
@@ -123,7 +111,7 @@ def enforce_response_mode_supported(response_mode: str) -> None:
     profile = get_profile()
     supported_modes = tuple(str(mode).strip().lower() for mode in getattr(profile, 'supported_modes', ()) if mode)
     if not supported_modes:
-        supported_modes = ('balanced', 'analysis')
+        supported_modes = ('analysis',)
     if response_mode in supported_modes:
         return
     raise HTTPException(
@@ -373,8 +361,25 @@ def _is_auto_continue_contract_eligible(plan: _strict_output_contract.OutputCont
     )
 
 
+_CONTINUATION_PHRASES = frozenset({
+    'continue', 'continue please', 'please continue', 'go on', 'carry on',
+    'resume', 'proceed', 'keep going', 'go ahead', 'next', 'next section',
+    'next part', 'more', 'more please', 'the rest', 'rest',
+})
+_CONTINUATION_PATTERN = re.compile(
+    r'^\s*(continue|go on|carry on|resume|proceed|keep going|go ahead)\b',
+    re.IGNORECASE,
+)
+
+
 def _is_continuation_request(question: str) -> bool:
-    return _retrieval_validation._is_continuation_utterance(question or '')
+    """Lightweight pre-classification continuation check for session binding and history resolution."""
+    normalized = ' '.join((question or '').strip().split())
+    if not normalized:
+        return False
+    if normalized.casefold().rstrip('.!?') in _CONTINUATION_PHRASES:
+        return True
+    return bool(_CONTINUATION_PATTERN.search(normalized))
 
 
 def _resolve_continuation_anchor_question(*, question: str, history: list[ChatMessage]) -> str:
@@ -396,6 +401,19 @@ def _resolve_continuation_anchor_question(*, question: str, history: list[ChatMe
             continue
         return candidate
     return normalized_question
+
+
+def _count_continuation_chain_depth(history: list[ChatMessage]) -> int:
+    """Count consecutive assistant messages with has_remaining_scope=True at the tail of history."""
+    depth = 0
+    for message in reversed(history):
+        if message.role != 'assistant':
+            continue
+        if message.has_remaining_scope:
+            depth += 1
+        else:
+            break
+    return depth
 
 
 def _extract_missing_headings(output_contract_check: dict[str, object]) -> list[str]:
@@ -428,35 +446,6 @@ def _build_auto_continue_pass_prompt(
     return '\n'.join(lines).strip()
 
 
-def _build_compacted_history_assistant_content(
-    *,
-    current_answer: str,
-    unresolved_headings: list[str],
-    pass_count: int,
-    max_chars: int,
-) -> str:
-    cleaned = sanitize_display_answer(current_answer or '')
-    compact_source = cleaned if cleaned else (current_answer or '')
-    compact_source = compact_source.strip()
-    if not compact_source:
-        return ''
-    excerpt = compact_source[:max_chars].strip()
-    if len(compact_source) > len(excerpt):
-        excerpt = f'{excerpt}\n...'
-    lines = [
-        f'Continuation summary from {pass_count} pass(es).',
-        'Preserve completed scope and continue unresolved sections only.',
-    ]
-    if unresolved_headings:
-        lines.append('Unresolved headings:')
-        lines.extend(f'- {heading}' for heading in unresolved_headings)
-    lines.extend([
-        'Prior answer excerpt:',
-        excerpt,
-    ])
-    return '\n'.join(lines).strip()
-
-
 def _is_duplicate_continuation_pass(previous_answer: str | None, current_answer: str) -> bool:
     if not previous_answer:
         return False
@@ -473,7 +462,7 @@ def _is_duplicate_continuation_pass(previous_answer: str | None, current_answer:
 
 
 def _build_continuing_status_message(response_mode: str) -> str:
-    mode = str(response_mode or 'balanced').strip().lower()
+    mode = str(response_mode or 'analysis').strip().lower()
     if mode == 'analysis':
         return 'Continuing analysis...'
     if mode == 'research':
@@ -1047,7 +1036,6 @@ async def chat(
             continuation_passes = 0
             repair_pass_applied = False
             pass_details: list[dict[str, object]] = []
-            compaction_events: list[dict[str, object]] = []
             pending_repair_prompt: str | None = None
             latest_output_contract_check: dict[str, object] = {'passed': True}
             continuation_unresolved_headings: list[str] = []
@@ -1060,6 +1048,9 @@ async def chat(
             resource_metrics: dict[str, object] = {}
             exhausted_pass_budget_with_remaining_scope = False
             previous_pass_raw_answer: str | None = None
+            previous_pass_cleaned_answer: str | None = None
+            active_query_plan: QueryPlan | None = None
+            planning_latency_ms: float | None = None
 
             try:
                 def _build_status_event(
@@ -1127,13 +1118,115 @@ async def chat(
                     question=continuation_anchor_question,
                     format_requirements=format_requirements,
                 )
+
+                # Pre-classify to gate planning and lock classification for all passes.
+                # Planning adds structural value only for multi-section synthesis routes;
+                # running it on focused/simple/metadata queries wastes 9-28s with no benefit.
+                # On failure, falls through to None so planning runs unconditionally (safe fallback).
+                locked_classification = None
+                try:
+                    locked_classification = await asyncio.to_thread(
+                        classify_query, continuation_anchor_question,
+                    )
+                    log.info(
+                        'query_pre_classified',
+                        chat_id=chat_id,
+                        route_candidate=locked_classification.route_candidate,
+                        confidence=locked_classification.confidence,
+                    )
+                except (RuntimeError, ValueError, TypeError, OSError) as exc:
+                    log.warning('pre_classification_failed', chat_id=chat_id, error=str(exc))
+                    locked_classification = None
+
+                # Override continuation_request with the authoritative classifier result.
+                if locked_classification is not None:
+                    continuation_request = locked_classification.is_continuation
+
+                # Continuation chain depth guard.
+                # Count consecutive assistant messages with has_remaining_scope=True at the tail of
+                # history. When the chain reaches max_continuation_depth, terminate with a short
+                # content-covered notice rather than re-entering the RAG pipeline.
+                continuation_chain_depth = _count_continuation_chain_depth(history)
+                continuation_depth_exceeded = (
+                    continuation_request
+                    and continuation_chain_depth >= int(settings.max_continuation_depth)
+                )
+                if continuation_depth_exceeded:
+                    log.info(
+                        'continuation_chain_depth_limit_reached',
+                        chat_id=chat_id,
+                        chain_depth=continuation_chain_depth,
+                        max_depth=settings.max_continuation_depth,
+                    )
+
+                # Planning pass: build a QueryPlan using the active model.
+                # If the planner produces answer_sections, override output_contract_plan
+                # required_headings and enforce_order with the plan's answer outline.
+                # Falls through with heuristic output_contract_plan on any failure.
+                # Gated on planning-eligible routes to avoid latency on focused/simple queries.
+                if (
+                    response_mode in ('research', 'analysis')
+                    and (
+                        locked_classification is None
+                        or locked_classification.route_candidate in PLANNING_ELIGIBLE_ROUTES
+                    )
+                ):
+                    try:
+                        _planning_status = _build_status_event('planning', message='Planning response...')
+                        if _planning_status is not None:
+                            yield _planning_status
+                        _corpus_years = await get_distinct_years(db)
+                        _corpus_categories = await get_distinct_categories(db)
+                        _corpus_file_count = await get_file_count(db)
+                        _corpus_summary = build_corpus_summary(
+                            _corpus_years, _corpus_categories, _corpus_file_count,
+                        )
+                        _plan_start = time.time()
+                        active_query_plan = await asyncio.to_thread(
+                            build_plan, continuation_anchor_question, _corpus_summary,
+                        )
+                        planning_latency_ms = round((time.time() - _plan_start) * 1000, 2)
+                    except (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError) as exc:
+                        log.warning('planning_pass_failed', chat_id=chat_id, error=str(exc))
+                        active_query_plan = None
+
+                    if active_query_plan is not None and active_query_plan.answer_sections:
+                        plan_headings = tuple(s.heading for s in active_query_plan.answer_sections)
+                        output_contract_plan = replace(
+                            output_contract_plan,
+                            required_headings=plan_headings,
+                            enforce_order=True,
+                        )
+                        log.info(
+                            'planner_override_output_contract',
+                            chat_id=chat_id,
+                            answer_sections_count=len(active_query_plan.answer_sections),
+                            planning_latency_ms=planning_latency_ms,
+                        )
+
+                if trace_writer is not None and active_query_plan is not None:
+                    trace_writer.record('plan', {
+                        'answer_sections_count': len(active_query_plan.answer_sections),
+                        'steps_requested': len(active_query_plan.steps),
+                        'aggregation_mode': active_query_plan.aggregation_mode,
+                        'output_shape': active_query_plan.output_shape,
+                        'planner_latency_ms': planning_latency_ms,
+                    })
+
                 finance_conflict_contract = (
                     isinstance(output_contract_plan.exact_top_level_bullets, int)
                     and output_contract_plan.exact_top_level_bullets > 0
                     and _structured_numeric._is_finance_conflict_prompt(continuation_anchor_question)
                 )
                 strict_deterministic_mode = _has_contract_requirements(output_contract_plan)
-                strict_max_repair_passes = 1
+                strict_max_repair_passes = (
+                    min(
+                        max(1, len(output_contract_plan.required_headings) - 1),
+                        max(1, settings.chat_auto_continue_hard_cap - 1),
+                    )
+                    if output_contract_plan.required_headings
+                    else 1
+                )
                 auto_continue_enabled, max_auto_continue_rounds, auto_continue_prompt = _resolve_auto_continue_policy()
                 auto_continue_contract_eligible = _is_auto_continue_contract_eligible(output_contract_plan)
                 closure_pass_budget = strict_max_repair_passes if strict_deterministic_mode else (1 if auto_continue_contract_eligible else 0)
@@ -1155,12 +1248,23 @@ async def chat(
                 )
                 section_progress_last_completed_count = 0
                 pending_repair_requires_overwrite = False
-                locked_classification = None
-                compaction_min_pass, compaction_min_chars, compaction_max_history_chars = (
-                    _get_compaction_params(response_mode)
-                )
                 pass_index = 1
                 while pass_index <= max_total_passes:
+                    # Depth-exceeded short-circuit: emit a single notice token and exit.
+                    # Downstream code (sources/cleaned/persist/done) handles the rest normally.
+                    if continuation_depth_exceeded and pass_index == 1:
+                        _gen_status = _build_status_event('generating', message='Generating response...')
+                        if _gen_status is not None:
+                            yield _gen_status
+                        notice = 'All available content on this topic has been covered.'
+                        _update_sse_phase('token')
+                        yield {'event': 'token', 'data': notice}
+                        answer_parts.append(notice)
+                        generation_seconds = time.time() - start_time
+                        has_remaining_scope = False
+                        completion_mode_override = 'complete'
+                        break
+
                     pass_question = (
                         _build_auto_continue_pass_prompt(
                             auto_continue_prompt=auto_continue_prompt,
@@ -1183,27 +1287,47 @@ async def chat(
                             )
                         assistant_history_content = ''.join(answer_parts).strip()
                         unresolved_headings = _extract_missing_headings(latest_output_contract_check)
-                        should_compact_history = (
-                            _CONTINUATION_COMPACTION_ENABLED
-                            and pass_index >= compaction_min_pass
-                            and len(assistant_history_content) >= compaction_min_chars
-                            and not pending_repair_prompt
-                        )
-                        if should_compact_history:
-                            compacted_history = _build_compacted_history_assistant_content(
-                                current_answer=assistant_history_content,
-                                unresolved_headings=unresolved_headings,
-                                pass_count=pass_index - 1,
-                                max_chars=compaction_max_history_chars,
-                            )
-                            if compacted_history and len(compacted_history) < len(assistant_history_content):
-                                compaction_events.append({
-                                    'pass_index': pass_index,
-                                    'before_chars': len(assistant_history_content),
-                                    'after_chars': len(compacted_history),
-                                    'reason': 'continuation_history_compaction',
-                                })
-                                assistant_history_content = compacted_history
+                        if active_query_plan is not None and active_query_plan.answer_sections:
+                            # Plan-anchored verbatim context: plan anchor + breadcrumbs + last section.
+                            # No compaction — the LLM receives the plan scope for remaining sections,
+                            # heading-only breadcrumbs for completed sections, and the full verbatim
+                            # text of the most recently completed section.
+                            _unresolved_set = set(unresolved_headings)
+                            _remaining_sections = [
+                                s for s in active_query_plan.answer_sections
+                                if s.heading in _unresolved_set
+                            ]
+                            _completed_sections = [
+                                s for s in active_query_plan.answer_sections
+                                if s.heading not in _unresolved_set
+                            ]
+                            _ctx_lines: list[str] = []
+                            if _remaining_sections:
+                                _ctx_lines.append('Sections to complete:')
+                                for _sec in _remaining_sections:
+                                    _ctx_lines.append(f'{_sec.heading}: {_sec.scope}')
+                            if _completed_sections:
+                                _ctx_lines.append('')
+                                _ctx_lines.append('Completed sections (do not repeat):')
+                                for _sec in _completed_sections:
+                                    _ctx_lines.append(f'- {_sec.heading}')
+                            if previous_pass_cleaned_answer:
+                                _verbatim_budget = max(512, get_profile().context_length // 8)
+                                _verbatim = previous_pass_cleaned_answer
+                                if len(_verbatim) > _verbatim_budget:
+                                    _truncated = _verbatim[:_verbatim_budget]
+                                    _last_para = _truncated.rfind('\n\n')
+                                    _verbatim = (
+                                        _truncated[:_last_para].strip()
+                                        if _last_para > 0
+                                        else _truncated.strip()
+                                    )
+                                _ctx_lines.extend([
+                                    '',
+                                    'Most recent completed section (continue from this point):',
+                                    _verbatim,
+                                ])
+                            assistant_history_content = '\n'.join(_ctx_lines).strip()
                         pass_history = [
                             *base_history,
                             user_message,
@@ -1231,6 +1355,20 @@ async def chat(
                     pass_answer_parts: list[str] = []
                     answer_length_before_pass = len(''.join(answer_parts))
 
+                    # Emit "retrieving" status for pass 1 when classification is pre-computed.
+                    # Normally this fires from the __classification__ intercept below, but when
+                    # locked_classification is pre-set answer_question() skips classification
+                    # and never yields ('__classification__', ...).
+                    if pass_index == 1 and locked_classification is not None:
+                        _retrieval_message = (
+                            'Checking document index...'
+                            if locked_classification.is_metadata_query
+                            else 'Searching for relevant information...'
+                        )
+                        retrieving_status = _build_status_event('retrieving', message=_retrieval_message)
+                        if retrieving_status is not None:
+                            yield retrieving_status
+
                     async for item in answer_question(
                         question=pass_question,
                         chat_id=chat_id,
@@ -1239,6 +1377,9 @@ async def chat(
                         trace=trace_writer,
                         response_mode=response_mode,
                         classification=locked_classification,
+                        diagnostics_context=(
+                            {'query_plan': active_query_plan} if active_query_plan is not None else None
+                        ),
                     ):
                         if stop_event.is_set() and _is_stream_stopped_by_user(stream_id):
                             raise UserStopRequestedError
@@ -1286,6 +1427,15 @@ async def chat(
                             }
                             continue
 
+                        if isinstance(item, tuple) and len(item) == 2 and item[0] == '__plan_step__':
+                            step_payload = item[1] if isinstance(item[1], dict) else {}
+                            _update_sse_phase('plan_step')
+                            yield {
+                                'event': 'plan_step',
+                                'data': serialize_api_response(step_payload),
+                            }
+                            continue
+
                         if isinstance(item, tuple) and len(item) == 2 and item[0] == '__metrics__':
                             metrics_payload = item[1] if isinstance(item[1], dict) else {}
                             budget_metrics = metrics_payload
@@ -1297,7 +1447,7 @@ async def chat(
                                 default=metrics_raw_chunks_count,
                             )
                             mode_value = metrics_payload.get('response_mode_used')
-                            if isinstance(mode_value, str) and mode_value in {'balanced', 'analysis', 'research'}:
+                            if isinstance(mode_value, str) and mode_value in {'analysis', 'research'}:
                                 response_mode_used = mode_value
                             adjustments_value = metrics_payload.get('mode_adjustments_applied')
                             if isinstance(adjustments_value, list):
@@ -1612,6 +1762,7 @@ async def chat(
                             break
 
                     previous_pass_raw_answer = pass_raw_answer
+                    previous_pass_cleaned_answer = pass_cleaned_answer
                     pending_repair_prompt = repair_prompt
                     pending_repair_requires_overwrite = False
                     if force_continuation_anchor_retry:
@@ -1626,9 +1777,6 @@ async def chat(
                         pending_repair_requires_overwrite = _requires_full_rewrite_for_contract_repair(
                             latest_output_contract_check
                         )
-                    if strict_deterministic_mode and pending_repair_prompt:
-                        # Strict path is deterministic: repair pass rewrites prior answer, never appends.
-                        pending_repair_requires_overwrite = True
                     if force_contract_closure_pass:
                         closure_pass_used = True
                     if repair_prompt:
@@ -1674,6 +1822,11 @@ async def chat(
                             output_contract_check=latest_output_contract_check,
                         )
                         if contract_has_content_gap:
+                            log.info(
+                                'contract_content_gap_triggers_continuation',
+                                source='has_content_gap',
+                                missing_headings=latest_output_contract_check.get('missing_headings', []),
+                            )
                             completion_mode_override = 'scoped_complete'
                             has_remaining_scope = True
                         elif not timeout_occurred and completion_mode_override != 'stopped':
@@ -1701,6 +1854,11 @@ async def chat(
                     and structural_incomplete_reason.strip()
                     and completion_mode_override != 'stopped'
                 ):
+                    log.info(
+                        'structural_gap_triggers_continuation',
+                        source='structural_incomplete_reason',
+                        reason=str(structural_incomplete_reason).strip(),
+                    )
                     has_remaining_scope = True
                     completion_mode_override = 'scoped_complete'
                     if continuation_resolution_reason is None:
@@ -2119,9 +2277,21 @@ async def chat(
                 'continuation_progress_state': continuation_progress_state,
                 'pass_details': pass_details,
                 'status_transitions': status_transitions,
-                'continuation_compaction': {
-                    'applied': bool(compaction_events),
-                    'events': compaction_events,
+                'query_plan': {
+                    'planned': active_query_plan is not None,
+                    'answer_sections_count': (
+                        len(active_query_plan.answer_sections) if active_query_plan else 0
+                    ),
+                    'steps_count': (
+                        len(active_query_plan.steps) if active_query_plan else 0
+                    ),
+                    'aggregation_mode': (
+                        active_query_plan.aggregation_mode if active_query_plan else None
+                    ),
+                    'output_shape': (
+                        active_query_plan.output_shape if active_query_plan else None
+                    ),
+                    'planning_latency_ms': planning_latency_ms,
                 },
             }
             if resource_end_snapshot is None:
