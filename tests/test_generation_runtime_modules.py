@@ -185,10 +185,13 @@ def test_generation_runtime_strict_pre_retrieval_guard_applies_caps() -> None:
     )
 
     assert strict_ordered_mode is True
-    assert timeout_seconds == 75
-    assert top_k == 8
+    # With default response_mode='analysis', amplification applies:
+    # timeout cap = min(210, int(75 * 1.45)) = 108; top_k cap = min(14, 8+2) = 10;
+    # timeout_aware_max_tokens floor = min(2180, 720+180) = 900
+    assert timeout_seconds == 108
+    assert top_k == 10
     assert reasoning_enabled is False
-    assert max_tokens == 720
+    assert max_tokens == 900
     assert any(item.get('step') == 'strict_pre_retrieval_top_k_cap' for item in degradations)
     assert any(item.get('step') == 'strict_pre_retrieval_timeout_cap' for item in degradations)
     assert any(item.get('step') == 'strict_pre_retrieval_disable_reasoning' for item in degradations)
@@ -250,10 +253,13 @@ def test_generation_runtime_strict_pre_retrieval_guard_relaxes_caps_for_complex_
     )
 
     assert strict_ordered_mode is True
-    assert timeout_seconds == 120
-    assert top_k == 10
+    # With default response_mode='analysis', amplification applies:
+    # timeout cap = min(210, int(120 * 1.45)) = 174; top_k cap = min(14, 10+2) = 12;
+    # timeout_aware_max_tokens = int((174 * 0.68 * 9.0) / 0.78) = 1365
+    assert timeout_seconds == 174
+    assert top_k == 12
     assert reasoning_enabled is False
-    assert max_tokens == 900
+    assert max_tokens == 1365
     assert any(item.get('step') == 'strict_pre_retrieval_top_k_cap' for item in degradations)
     assert any(item.get('step') == 'strict_pre_retrieval_timeout_cap' for item in degradations)
     assert any(item.get('step') == 'strict_pre_retrieval_disable_reasoning' for item in degradations)

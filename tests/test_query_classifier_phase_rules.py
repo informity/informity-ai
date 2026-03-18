@@ -7,7 +7,7 @@ from informity.llm.query_classifier_llm import (
 
 
 def test_route_candidate_prefers_structured_profile_for_aggregation_extract() -> None:
-    route_candidate, confidence, reason_codes = _resolve_route_candidate(
+    route_candidate, deterministic_override, reason_codes = _resolve_route_candidate(
         llm_route_candidate=None,
         intent='focused',
         response_shape='structured_extract',
@@ -15,7 +15,7 @@ def test_route_candidate_prefers_structured_profile_for_aggregation_extract() ->
         group_by='year',
     )
     assert route_candidate == 'structured_field_extraction'
-    assert confidence >= 0.8
+    assert deterministic_override is False
     assert 'policy_default_selected' in reason_codes
 
 
@@ -35,30 +35,36 @@ def test_route_candidate_enforces_comparative_for_coverage_aggregate() -> None:
 def test_phase2_extracts_grouping_field_and_source_terms() -> None:
     query = 'Extract Box 1 values by year from FormA forms and files where filenames contain "FormA" or "FormB".'
     constraints = _extract_phase2_constraints(query)
-    assert constraints['group_by'] == 'year'
+    # group_by is now extracted from LLM JSON output, not returned by _extract_phase2_constraints
+    assert 'group_by' not in constraints
     assert constraints['field_hint'] == 'box_1'
     assert 'FormA' in constraints['source_terms']
     assert 'FormB' in constraints['source_terms']
 
 
 def test_phase2_extracts_source_term_from_mention_clause() -> None:
+    # "mention clause" patterns no longer produce source_terms via regex fallback;
+    # source_terms extraction requires an explicit filename contains filter.
     query = 'Which files mention FormA, and what do those files say about withholding or wages?'
     constraints = _extract_phase2_constraints(query)
-    assert constraints['source_terms'] == ['FormA']
+    assert constraints['source_terms'] == []
 
 
 def test_phase2_extracts_section_hint() -> None:
+    # group_by and section_hint are now extracted from LLM JSON output,
+    # not returned by _extract_phase2_constraints.
     query = 'Compare values per file from section liabilities across the indexed documents.'
     constraints = _extract_phase2_constraints(query)
-    assert constraints['group_by'] == 'file'
-    assert isinstance(constraints['section_hint'], str)
-    assert constraints['section_hint'].startswith('liabilities')
+    assert 'group_by' not in constraints
+    assert 'section_hint' not in constraints
 
 
 def test_phase2_ignores_numeric_section_instruction() -> None:
+    # section_hint is now extracted from LLM JSON output,
+    # not returned by _extract_phase2_constraints.
     query = 'In section 3, use nested bullets with exactly 3 levels and then summarize.'
     constraints = _extract_phase2_constraints(query)
-    assert constraints['section_hint'] is None
+    assert 'section_hint' not in constraints
 
 
 def test_phase2_detects_year_by_year_aggregation_semantics() -> None:
@@ -74,7 +80,7 @@ def test_phase2_detects_year_over_year_period_comparison_semantics() -> None:
 
 
 def test_route_candidate_prefers_audit_brief_for_multi_section_coverage_report() -> None:
-    route_candidate, confidence, reason_codes = _resolve_route_candidate(
+    route_candidate, deterministic_override, reason_codes = _resolve_route_candidate(
         llm_route_candidate='audit_or_compliance_brief',
         intent='coverage',
         response_shape='narrative_synthesis',
@@ -82,7 +88,7 @@ def test_route_candidate_prefers_audit_brief_for_multi_section_coverage_report()
         group_by='year',
     )
     assert route_candidate == 'audit_or_compliance_brief'
-    assert confidence >= 0.8
+    assert deterministic_override is False
     assert 'llm_profile_selected' in reason_codes
 
 
@@ -96,7 +102,7 @@ def test_inventory_plus_content_query_pattern_detects_coverage_shape() -> None:
 
 
 def test_route_candidate_rejects_focused_profile_for_coverage_intent() -> None:
-    route_candidate, confidence, reason_codes = _resolve_route_candidate(
+    route_candidate, deterministic_override, reason_codes = _resolve_route_candidate(
         llm_route_candidate='targeted_fact_lookup',
         intent='coverage',
         response_shape='narrative_synthesis',
@@ -104,7 +110,7 @@ def test_route_candidate_rejects_focused_profile_for_coverage_intent() -> None:
         group_by=None,
     )
     assert route_candidate == 'cross_document_synthesis'
-    assert confidence >= 0.75
+    assert deterministic_override is False
     assert 'policy_default_selected' in reason_codes
 
 

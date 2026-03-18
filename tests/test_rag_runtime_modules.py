@@ -247,6 +247,7 @@ def test_retrieval_validation_builds_continuation_query_from_prior_user_scope() 
         route_candidate='continuation_or_refinement',
         prior_has_remaining_scope=True,
         scope_reset_detected=False,
+        is_continuation=True,
         history=history,
     )
     assert 'Build a report for 2022-2024' in query
@@ -262,6 +263,7 @@ def test_retrieval_validation_uses_short_continuation_prompt_for_prior_context()
         route_candidate='continuation_or_refinement',
         prior_has_remaining_scope=True,
         scope_reset_detected=False,
+        is_continuation=True,
         history=history,
     )
     assert 'Extract unresolved risks by year for 2022-2024' in query
@@ -367,7 +369,7 @@ def test_strict_composer_emits_contract_metrics_for_all_families(question: str, 
     assert output_contract_check.get('passed') is True
 
 
-def test_strict_composer_applies_for_compliance_brief_in_balanced_mode() -> None:
+def test_strict_composer_applies_for_compliance_brief_in_analysis_mode() -> None:
     question = (
         'Using only indexed finance/insurance/lending documents from 2022-2024, create a structured compliance brief '
         'with these sections in order: 1) Executive Summary (max 140 words), 2) Year-by-Year Evidence Map '
@@ -386,7 +388,7 @@ def test_strict_composer_applies_for_compliance_brief_in_balanced_mode() -> None
     result = try_compose_strict_contract_answer(
         question=question,
         chunks=chunks,
-        response_mode='balanced',
+        response_mode='analysis',
     )
     assert result is not None
     _, _, metrics = result

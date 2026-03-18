@@ -359,9 +359,10 @@ def test_build_grounding_repair_prompt_includes_reason_specific_guidance() -> No
 def test_resolve_response_mode_falls_back_to_settings_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, 'default_response_mode', 'analysis')
     assert resolve_response_mode(None) == 'analysis'
-    assert resolve_response_mode('balanced') == 'balanced'
+    # 'balanced' is no longer a valid response mode; invalid modes fall back to 'analysis'
+    assert resolve_response_mode('balanced') == 'analysis'
     assert resolve_response_mode('research') == 'research'
-    assert resolve_response_mode('invalid') == 'balanced'
+    assert resolve_response_mode('invalid') == 'analysis'
 
 
 def test_enforce_response_mode_supported_rejects_unsupported_mode(
