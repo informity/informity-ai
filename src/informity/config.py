@@ -343,8 +343,8 @@ class Settings(BaseSettings):
     # Default: 6 (~50% of a 12-core M3 Pro) for a balance between
     # indexing speed and keeping the system responsive during scans.
     embedding_max_threads: int = 6
-    # CPU threads for llama-cpp-python (separate from embedding threads —
-    # llama-cpp uses its own threading and is not controlled by OMP_NUM_THREADS).
+    # CPU threads for xllamacpp (separate from embedding threads —
+    # xllamacpp uses its own threading and is not controlled by OMP_NUM_THREADS).
     # Set to 0 for automatic. Default: 4 to leave cores for embedder/reranker/OS.
     llm_cpu_threads: int = 4
     # When True, enable OCR (Optical Character Recognition) for image-only PDFs

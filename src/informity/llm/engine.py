@@ -560,6 +560,74 @@ class LLMEngine:
         )
         remove_models_dir_cache()
 
+    # -- Synchronous chat completion ------------------------------------------
+
+    def chat_complete(
+        self,
+        messages: list[dict],
+        max_tokens: int = 400,
+        temperature: float = 0.0,
+        stop: list[str] | None = None,
+        response_format: dict | None = None,
+    ) -> dict:
+        """
+        Synchronous (blocking) chat completion via xllamacpp.
+
+        Uses server.handle_chat_completions with stream=False. Returns a dict
+        compatible with the OpenAI chat completions format:
+        {'choices': [{'message': {'content': '...'}}]}.
+
+        Intended for internal callers (classifier, planner, warmup) that need
+        deterministic, non-streaming responses.
+
+        Raises:
+            LLMError: If inference fails.
+        """
+        server = self._loaded_server
+
+        payload_dict: dict = {
+            'messages':    messages,
+            'max_tokens':  max_tokens,
+            'temperature': temperature,
+            'stop':        stop or [],
+            'stream':      False,
+        }
+        if response_format is not None:
+            payload_dict['response_format'] = response_format
+        payload = json.dumps(payload_dict)
+
+        collected: list[dict] = []
+
+        def _cb(chunk: object) -> None:
+            if isinstance(chunk, dict):
+                collected.append(chunk)
+            elif isinstance(chunk, (str, bytes)):
+                raw = chunk if isinstance(chunk, str) else chunk.decode('utf-8', errors='replace')
+                if raw.startswith('data:'):
+                    raw = raw[5:].strip()
+                with suppress(json.JSONDecodeError, ValueError):
+                    collected.append(json.loads(raw))
+
+        try:
+            server.handle_chat_completions(payload, _cb)  # type: ignore[attr-defined]
+        except Exception as exc:
+            raise LLMError(f'Chat completion inference failed: {exc}') from exc
+
+        # Assemble content from collected chunks.
+        # Non-streaming: {'choices': [{'message': {'content': '...'}}]}
+        # Streaming delta: {'choices': [{'delta': {'content': '...'}}]}
+        content_parts: list[str] = []
+        for chunk in collected:
+            for choice in chunk.get('choices', []):
+                msg = choice.get('message', {})
+                if msg.get('content'):
+                    content_parts.append(msg['content'])
+                delta = choice.get('delta', {})
+                if delta.get('content'):
+                    content_parts.append(delta['content'])
+
+        return {'choices': [{'message': {'content': ''.join(content_parts)}}]}
+
     # -- Streaming generation -------------------------------------------------
 
     async def generate_stream(

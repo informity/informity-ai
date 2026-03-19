@@ -8,28 +8,19 @@ import pytest
 from informity.llm.engine import LLMEngine, _truncate_messages_to_fit
 
 
-class _TokenCountingModel:
-    metadata: dict[str, str] = {}
-
-    def tokenize(self, data: bytes, add_bos: bool = False, special: bool = False) -> list[str]:
-        _ = (add_bos, special)
-        return data.decode('utf-8').split()
-
-
 def test_truncate_messages_removes_history_before_system_content() -> None:
-    model = _TokenCountingModel()
     messages = [
         {'role': 'system', 'content': 'You are helpful.\n\nContext:\n[Source: 1] baseline context.'},
-        {'role': 'user', 'content': 'old question ' * 45},
-        {'role': 'assistant', 'content': 'old answer ' * 45},
+        {'role': 'user', 'content': 'old question ' * 500},
+        {'role': 'assistant', 'content': 'old answer ' * 500},
         {'role': 'user', 'content': 'current question'},
     ]
 
     truncated, info = _truncate_messages_to_fit(
-        model=model,  # type: ignore[arg-type]
+        chat_template='',
         messages=messages,
-        context_length=260,
-        max_tokens=100,
+        context_length=700,
+        max_tokens=50,
         force_chatml=True,
     )
 
@@ -40,12 +31,11 @@ def test_truncate_messages_removes_history_before_system_content() -> None:
 
 
 def test_truncate_messages_truncates_system_context_chunks_when_needed() -> None:
-    model = _TokenCountingModel()
     system_content = (
         'Rules for answering.\n\nContext:\n'
-        '[Source: 1] ' + ('alpha ' * 35) + '\n\n'
-        '[Source: 2] ' + ('beta ' * 35) + '\n\n'
-        '[Source: 3] ' + ('gamma ' * 35)
+        '[Source: 1] ' + ('alpha ' * 100) + '\n\n'
+        '[Source: 2] ' + ('beta ' * 100) + '\n\n'
+        '[Source: 3] ' + ('gamma ' * 100)
     )
     messages = [
         {'role': 'system', 'content': system_content},
@@ -53,10 +43,10 @@ def test_truncate_messages_truncates_system_context_chunks_when_needed() -> None
     ]
 
     truncated, info = _truncate_messages_to_fit(
-        model=model,  # type: ignore[arg-type]
+        chat_template='',
         messages=messages,
-        context_length=320,
-        max_tokens=170,
+        context_length=400,
+        max_tokens=50,
         force_chatml=True,
     )
 
@@ -69,7 +59,7 @@ def test_truncate_messages_truncates_system_context_chunks_when_needed() -> None
 @pytest.mark.asyncio
 async def test_generate_stream_emits_timeout_notice_and_marker(monkeypatch: pytest.MonkeyPatch) -> None:
     engine = LLMEngine()
-    engine._model = object()  # type: ignore[assignment]
+    engine._server = object()  # type: ignore[assignment]
 
     monkeypatch.setattr('informity.llm.engine.get_profile', lambda: SimpleNamespace(context_length=4096))
     monkeypatch.setattr(
@@ -85,10 +75,10 @@ async def test_generate_stream_emits_timeout_notice_and_marker(monkeypatch: pyte
     )
 
     def _silent_worker(
-        model, messages, max_tok, temp, top_p_val, stop_seqs, loop, queue, exception_holder, cancel_event,
-        min_tokens=0, force_chatml=False, extra_eos_tokens=(),  # type: ignore[no-untyped-def]
+        server, chat_template, messages, max_tok, temp, top_p_val, stop_seqs,  # type: ignore[no-untyped-def]
+        loop, queue, exception_holder, cancel_event, force_chatml=False,
     ) -> None:
-        _ = (model, messages, max_tok, temp, top_p_val, stop_seqs, loop, queue, exception_holder, min_tokens, force_chatml, extra_eos_tokens)
+        _ = (server, chat_template, messages, max_tok, temp, top_p_val, stop_seqs, loop, queue, exception_holder, force_chatml)
         while not cancel_event.is_set():
             time.sleep(0.01)
 

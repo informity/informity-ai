@@ -495,7 +495,7 @@ def classify_query_llm(query: str) -> QueryClassification:
     # JSON mode (GBNF grammar) constrains output to valid JSON; /no_think suppresses thinking tokens
 
     try:
-        response = llm_engine.model.create_chat_completion(
+        response = llm_engine.chat_complete(
             messages=messages,
             max_tokens=400,   # larger to fit group_by, source_terms array, is_continuation/is_scope_reset, and long filenames
             temperature=0.0,  # deterministic
