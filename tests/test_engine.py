@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from informity.llm.engine import LLMEngine, _truncate_messages_to_fit
+from informity.llm.engine import _STREAM_END, LLMEngine, _truncate_messages_to_fit
 
 
 def test_truncate_messages_removes_history_before_system_content() -> None:
@@ -94,3 +94,78 @@ async def test_generate_stream_emits_timeout_notice_and_marker(monkeypatch: pyte
     assert any(isinstance(item, str) and 'Response truncated: generation time limit' in item for item in outputs)
     timeout_markers = [item for item in outputs if isinstance(item, tuple) and item[0] == '__timeout__']
     assert timeout_markers
+
+
+def _make_stream_worker_that_emits(tokens: list[str]):
+    """Return a _run_stream_worker replacement that emits the given token strings."""
+    def _worker(server, messages, max_tok, temp, top_p_val, stop_seqs,  # type: ignore[no-untyped-def]
+                loop, queue, exception_holder, cancel_event) -> None:
+        for token in tokens:
+            if cancel_event.is_set():
+                break
+            loop.call_soon_threadsafe(queue.put_nowait, token)
+        loop.call_soon_threadsafe(queue.put_nowait, ('__finish_reason__', 'stop'))
+        loop.call_soon_threadsafe(queue.put_nowait, _STREAM_END)
+    return _worker
+
+
+def _common_engine_monkeypatches(monkeypatch: pytest.MonkeyPatch, worker_fn) -> LLMEngine:  # type: ignore[no-untyped-def]
+    engine = LLMEngine()
+    engine._server = object()  # type: ignore[assignment]
+    monkeypatch.setattr('informity.llm.engine.get_profile', lambda: SimpleNamespace(context_length=4096))
+    monkeypatch.setattr(
+        'informity.llm.engine._truncate_messages_to_fit',
+        lambda **kwargs: (kwargs['messages'], {'truncated': False, 'original_tokens': 1, 'available_budget': 3900}),
+    )
+    monkeypatch.setattr('informity.llm.engine._run_stream_worker', worker_fn)
+    return engine
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_flushes_partial_buffer_at_stream_end(monkeypatch: pytest.MonkeyPatch) -> None:
+    # The think-block filter keeps up to 6 chars buffered to detect split '<think>' tags.
+    # On normal stream end (_STREAM_END), those buffered chars must be flushed or the
+    # last word of short answers is silently dropped.
+    engine = _common_engine_monkeypatches(
+        monkeypatch,
+        _make_stream_worker_that_emits(['Hello', ' world']),
+    )
+    output = ''.join(
+        item for item in [i async for i in engine.generate_stream(
+            messages=[{'role': 'user', 'content': 'hi'}],
+        )]
+        if isinstance(item, str)
+    )
+    assert output == 'Hello world', f'Expected full answer, got {output!r}'
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_strips_think_block_from_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Qwen3 reasoning-enabled queries prefix the answer with <think>...</think>.
+    # generate_stream must strip the think block; only the answer text is yielded.
+    tokens = ['<think>', 'thinking content here', '</think>', 'The answer is 42.']
+    engine = _common_engine_monkeypatches(monkeypatch, _make_stream_worker_that_emits(tokens))
+    output = ''.join(
+        item for item in [i async for i in engine.generate_stream(
+            messages=[{'role': 'user', 'content': 'question'}],
+        )]
+        if isinstance(item, str)
+    )
+    assert '<think>' not in output
+    assert 'thinking content here' not in output
+    assert 'The answer is 42.' in output
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_no_think_block_passes_through(monkeypatch: pytest.MonkeyPatch) -> None:
+    # When no think block is present (reasoning disabled via /no_think), every
+    # token must pass through to the consumer unmodified.
+    tokens = ['The', ' answer', ' is', ' 42.']
+    engine = _common_engine_monkeypatches(monkeypatch, _make_stream_worker_that_emits(tokens))
+    output = ''.join(
+        item for item in [i async for i in engine.generate_stream(
+            messages=[{'role': 'user', 'content': 'question'}],
+        )]
+        if isinstance(item, str)
+    )
+    assert output == 'The answer is 42.'
