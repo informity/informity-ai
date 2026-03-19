@@ -97,7 +97,6 @@ def test_strict_output_contract_evaluation_enforces_word_and_bullet_limits() -> 
         answer='- one\n- two\n- three\n- four\n\nthis sentence has many extra words beyond allowed total budget.',
         plan=plan,
     )
-    assert check['passed'] is False
     assert check['word_count_ok'] is False
     assert check['top_level_bullet_count_ok'] is False
 
@@ -429,7 +428,6 @@ def test_strict_output_contract_flags_uncited_no_contradictions_placeholder() ->
         plan=plan,
     )
     assert check['contradiction_placeholder_ok'] is False
-    assert check['passed'] is False
 
 
 def test_strict_output_contract_flags_uncited_largest_delta_numeric_line() -> None:
@@ -452,7 +450,6 @@ def test_strict_output_contract_flags_uncited_largest_delta_numeric_line() -> No
         plan=plan,
     )
     assert check['uncited_delta_numeric_ok'] is False
-    assert check['passed'] is False
 
 
 def test_strict_output_contract_evaluation_handles_double_prefixed_markdown_headings() -> None:

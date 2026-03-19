@@ -162,7 +162,7 @@ async def test_get_diagnostics_returns_system_and_index_stats(
 
     monkeypatch.setattr(routes_system.settings, 'app_data_dir', app_data_dir)
     monkeypatch.setattr(routes_system.settings, 'db_path', db_path)
-    monkeypatch.setattr(routes_system, 'llm_engine', SimpleNamespace(model=object(), _get_model_path=lambda: model_path))
+    monkeypatch.setattr(routes_system, 'llm_engine', SimpleNamespace(is_loaded=True, _get_model_path=lambda: model_path))
     monkeypatch.setattr(routes_system, 'get_file_count', AsyncMock(return_value=5))
     monkeypatch.setattr(routes_system, 'get_chunk_count', AsyncMock(return_value=12))
     monkeypatch.setattr(routes_system, 'get_indexed_content_size_bytes', AsyncMock(return_value=2048))
