@@ -850,17 +850,15 @@ def _evaluate_output_contract(
         # Presence check only: enforcement stays permissive unless request requires this fallback.
         not_found_fallback_ok = ('not found' in answer.casefold())
 
+    # passed reflects structural compliance only (heading presence and order).
+    # All other checks (evidence grounding, bullet counts, word limits, callout
+    # phrases) were removed from _build_contract_prompt_requirements per NC-2;
+    # enforcing them here would gate on criteria the model was never instructed to
+    # follow. Those metrics remain in the returned dict as trace-observable quality
+    # signals with no gate semantics.
     passed = (
         not missing_headings
         and not order_violations
-        and (bullet_depth_ok is not False)
-        and (missing_evidence_callout_ok is not False)
-        and (word_count_ok is not False)
-        and (top_level_bullet_count_ok is not False)
-        and (evidence_grounding_ok is not False)
-        and (contradiction_placeholder_ok is not False)
-        and (uncited_delta_numeric_ok is not False)
-        and (not_found_fallback_ok is not False)
     )
 
     return {

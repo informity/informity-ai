@@ -87,7 +87,7 @@ class ChatRequest(BaseModel):
     # Request to send a message in a chat.
     message:  str
     chat_id:  str | None = None   # None = start new chat
-    response_mode: Literal['balanced', 'analysis', 'research'] | None = None
+    response_mode: Literal['analysis', 'research'] | None = None
     run_id: str | None = None      # Optional diagnostics run correlation ID
 
 
@@ -236,7 +236,7 @@ class SettingsResponse(BaseModel):
     model_profile:          ModelProfileInfo | None = None  # Main model profile (read-only)
     ui_theme:               str               = 'mono'     # Color theme: gray, purple, blue, green, orange, mono
     enable_menu_bar_icon:   bool              = False      # Show menu bar icon while app is running (macOS desktop runtime)
-    default_response_mode: Literal['balanced', 'analysis', 'research'] = 'balanced'  # Default chat response mode
+    default_response_mode: Literal['analysis', 'research'] = 'analysis'  # Default chat response mode
     cpu_priority_nice:      int = 10  # 0 = off, >0 lowers process priority at startup
 
 
@@ -285,7 +285,7 @@ class SettingsUpdateRequest(BaseModel):
     enable_raw_output_control: bool | None = None   # Show control to fetch raw model output per assistant message
     ui_theme:             str | None  = None  # Color theme: gray, purple, blue, green, orange, mono
     enable_menu_bar_icon: bool | None = None  # Show menu bar icon while app is running (macOS desktop runtime)
-    default_response_mode: Literal['balanced', 'analysis', 'research'] | None = None  # Default chat response mode
+    default_response_mode: Literal['analysis', 'research'] | None = None  # Default chat response mode
     cpu_priority_nice:    int | None = None
 
 

@@ -52,12 +52,18 @@ export type DisplayBlock =
   | DisplayTableBlock
   | DisplayUnknownBlock
 
-export type ResponseMode = 'balanced' | 'analysis' | 'research'
+export type ResponseMode = 'analysis' | 'research'
 export type CompletionMode = 'complete' | 'partial' | 'scoped_complete' | 'stopped'
 export type NextAction = 'none' | 'continue' | 'regenerate'
 export type NextActionReason = 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled'
 export type ContinuationProgressState = 'progressed' | 'stalled' | 'budget_exhausted'
-export type StreamStatusState = 'classifying' | 'retrieving' | 'generating' | 'continuing' | 'finalizing'
+export type StreamStatusState = 'classifying' | 'planning' | 'retrieving' | 'generating' | 'continuing' | 'finalizing'
+
+export interface PlanStepPayload {
+  step_id?: number
+  description?: string
+  status?: 'running' | 'done' | 'empty'
+}
 
 export interface StreamStatusPayload {
   state?: StreamStatusState
@@ -86,8 +92,6 @@ export interface StreamDonePayload {
   budget_metrics?: Record<string, unknown>
   budget_checkpoints?: Array<Record<string, unknown>>
   continuation_passes?: number
-  stitched_answer_used?: boolean
-  stitch_policy_version?: string
   contract_repair_pass_applied?: boolean
   output_contract_check?: Record<string, unknown>
   continuation_resolution_reason?: string | null
@@ -146,6 +150,7 @@ export interface ChatMessageDisplay {
   nextActionReason?: NextActionReason | null
   continuationPasses?: number
   continueLabel?: 'Continue' | 'Continue Again'
+  streamPlanSteps?: Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>
 }
 
 export interface StreamChatCallbacks {
@@ -156,6 +161,7 @@ export interface StreamChatCallbacks {
   onSources?: (sources: ChatSourceReference[]) => void
   onCleaned?: (cleanedAnswer: string) => void
   onStatus?: (status: StreamStatusPayload) => void
+  onPlanStep?: (payload: PlanStepPayload) => void
   onDone?: (data?: StreamDonePayload) => void
   onError?: (err: Error) => void
   signal?: AbortSignal

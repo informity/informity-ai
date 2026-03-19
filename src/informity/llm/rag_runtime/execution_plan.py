@@ -15,7 +15,7 @@ from informity.llm.intent_profiles import IntentProfilePolicy, get_intent_profil
 from informity.llm.model_adapter import ModelProfile, get_profile, get_retrieval_top_k
 from informity.llm.query_classifier import QueryClassification
 
-_VALID_RESPONSE_MODES = {'balanced', 'analysis', 'research'}
+_VALID_RESPONSE_MODES = {'analysis', 'research'}
 
 
 @dataclass
@@ -72,9 +72,9 @@ async def build_execution_plan(
         selected_policy = get_intent_profile_policy('clarification_or_disambiguation')
         query_type = selected_policy.preferred_retrieval_mode
 
-    response_mode_used = str(response_mode or 'balanced').strip().lower()
+    response_mode_used = str(response_mode or 'analysis').strip().lower()
     if response_mode_used not in _VALID_RESPONSE_MODES:
-        response_mode_used = 'balanced'
+        response_mode_used = 'analysis'
 
     retrieval_top_k = get_retrieval_top_k(query_type, response_mode=response_mode_used)
     timeout_seconds = profile.get_mode_timeout_seconds(query_type, response_mode_used)

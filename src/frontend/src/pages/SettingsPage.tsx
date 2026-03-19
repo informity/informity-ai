@@ -80,7 +80,7 @@ interface FormState {
   log_level?: string
   ui_theme?: string
   enable_menu_bar_icon?: boolean
-  default_response_mode?: 'balanced' | 'analysis' | 'research'
+  default_response_mode?: 'analysis' | 'research'
   llm_model_filename?: string
 }
 

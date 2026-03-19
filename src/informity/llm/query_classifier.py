@@ -8,10 +8,13 @@ from typing import Literal
 
 import structlog
 
+from informity.config import settings
+
 log = structlog.get_logger(__name__)
 
-CONFIDENCE_HIGH_THRESHOLD = 0.80
-CONFIDENCE_MEDIUM_THRESHOLD = 0.55
+# Exported as module-level constants for backward compat; authoritative values are in Settings.
+CONFIDENCE_HIGH_THRESHOLD: float = float(settings.classification_confidence_high_threshold)
+CONFIDENCE_MEDIUM_THRESHOLD: float = float(settings.classification_confidence_medium_threshold)
 
 
 @dataclass
@@ -63,12 +66,19 @@ class QueryClassification:
     section_filter: str | None = None
     is_metadata_query: bool = False
     is_file_list_query: bool = False
+    is_continuation: bool = False
+    is_scope_reset: bool = False
+    # Provenance flags — describe how route_candidate was selected.
+    # deterministic_override: True when a hard aggregate rule fired (e.g. policy_aggregate_route_enforced).
+    # llm_confidence: raw confidence reported by the LLM (0.0 when LLM did not emit a confidence field).
+    deterministic_override: bool = False
+    llm_confidence: float = 0.0
 
     @property
     def confidence_band(self) -> Literal['high', 'medium', 'low']:
-        if self.confidence >= CONFIDENCE_HIGH_THRESHOLD:
+        if self.confidence >= settings.classification_confidence_high_threshold:
             return 'high'
-        if self.confidence >= CONFIDENCE_MEDIUM_THRESHOLD:
+        if self.confidence >= settings.classification_confidence_medium_threshold:
             return 'medium'
         return 'low'
 
