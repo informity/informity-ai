@@ -667,8 +667,13 @@ class LLMEngine:
         #   temperature:     Sampling temperature. Defaults to config value.
         #   top_p:           Nucleus sampling. Defaults to 1.0.
         #   stop:            Stop sequences to halt generation.
-        #   force_chatml:    When True, use ChatML format instead of the GGUF
-        #                    native template (suppresses reasoning on coverage).
+        #   force_chatml:    When True, use ChatML format for token-budget
+        #                    estimation in _truncate_messages_to_fit only.
+        #                    Has no effect on actual generation — the server
+        #                    applies the GGUF template internally via
+        #                    handle_chat_completions regardless of this flag.
+        #                    Reasoning suppression is controlled by /no_think
+        #                    in the user message (model_adapter.prepare_messages).
         #   timeout_seconds: Wall-clock generation timeout. Defaults to 120s.
         #
         # Yields:
@@ -783,6 +788,17 @@ class LLMEngine:
                     break
 
                 if item is _STREAM_END:
+                    # Flush the partial-tag safety buffer.  The inner loop keeps
+                    # up to 6 chars buffered to detect a split '<think>' tag; on
+                    # normal stream end those chars must be emitted or they are
+                    # silently lost (e.g. the final word of a short answer).
+                    if not _in_think_block and _think_partial:
+                        if first_token_ms is None:
+                            first_token_ms = (time.perf_counter() - start) * 1000
+                        token_count += 1
+                        total_text  += _think_partial
+                        yield _think_partial
+                        _think_partial = ''
                     break
                 if isinstance(item, tuple) and len(item) == 2 and item[0] == '__finish_reason__':
                     finish_reason = item[1]
