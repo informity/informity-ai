@@ -219,7 +219,7 @@ async def _run_llm_warmup() -> None:
         stops = profile.get_stop_sequences(reasoning_enabled=False)
         await asyncio.wait_for(
             asyncio.to_thread(
-                llm_engine.model.create_chat_completion,
+                llm_engine.chat_complete,
                 messages=messages,
                 max_tokens=1,
                 temperature=0.0,
@@ -239,8 +239,8 @@ async def _run_llm_warmup() -> None:
         gen_stops = profile.get_stop_sequences(reasoning_enabled=False)
         await asyncio.wait_for(
             asyncio.to_thread(
-                llm_engine.model.create_chat_completion,
-                gen_messages,
+                llm_engine.chat_complete,
+                messages=gen_messages,
                 max_tokens=1,
                 temperature=0.1,
                 stop=gen_stops,

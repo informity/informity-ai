@@ -101,7 +101,7 @@ After models are in place, the app runs fully offline with no internet required.
 - **SQLite** via aiosqlite — metadata, config, chat history, vector storage (via sqlite-vec extension)
 - **sqlite-vec** — vector storage extension for SQLite (embeddings stored in `vec_chunks` table)
 - **sentence-transformers** (nomic-embed-text-v1.5) — embedding generation; (ms-marco-MiniLM-L-6-v2) — optional cross-encoder re-ranking
-- **llama-cpp-python** (with Metal/GPU) — local LLM inference (default: Qwen3 14B Q5_K_M)
+- **xllamacpp** (with Metal/GPU) — local LLM inference (default: Qwen3 14B Q5_K_M)
 
 ## Project Structure
 
@@ -126,7 +126,7 @@ src/informity/
 │   ├── reranker.py        # Cross-encoder re-ranking (mandatory for all queries)
 │   └── pipeline.py        # index_file, reindex_file, remove_file — orchestration
 ├── llm/
-│   ├── engine.py          # LLM inference (llama-cpp-python, Metal)
+│   ├── engine.py          # LLM inference (xllamacpp, Metal)
 │   ├── model_adapter.py   # Per-model profiles (Qwen3 14B, 9B, 30B A3B, DeepSeek R1)
 │   ├── rag.py             # QueryRouter — dispatches to handlers based on intent
 │   ├── query_classifier.py # Structured slot extraction + decision tree

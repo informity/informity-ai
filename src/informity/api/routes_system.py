@@ -87,7 +87,7 @@ async def get_diagnostics(request: Request) -> DiagnosticsResponse:
     disk_used_gb = disk.used / (1024 ** 3)
 
     # Get model info
-    model_loaded = llm_engine.model is not None
+    model_loaded = llm_engine.is_loaded
     model_filename = None
     model_size_gb = None
     if model_loaded:

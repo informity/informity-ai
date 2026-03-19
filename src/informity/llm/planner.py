@@ -259,7 +259,7 @@ def build_plan(query: str, corpus_summary: str) -> QueryPlan | None:
     ]
 
     try:
-        response = llm_engine.model.create_chat_completion(
+        response = llm_engine.chat_complete(
             messages=messages,
             max_tokens=settings.planner_max_tokens,
             temperature=0.0,
