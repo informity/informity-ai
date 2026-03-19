@@ -75,10 +75,10 @@ async def test_generate_stream_emits_timeout_notice_and_marker(monkeypatch: pyte
     )
 
     def _silent_worker(
-        server, chat_template, messages, max_tok, temp, top_p_val, stop_seqs,  # type: ignore[no-untyped-def]
-        loop, queue, exception_holder, cancel_event, force_chatml=False,
+        server, messages, max_tok, temp, top_p_val, stop_seqs,  # type: ignore[no-untyped-def]
+        loop, queue, exception_holder, cancel_event,
     ) -> None:
-        _ = (server, chat_template, messages, max_tok, temp, top_p_val, stop_seqs, loop, queue, exception_holder, force_chatml)
+        _ = (server, messages, max_tok, temp, top_p_val, stop_seqs, loop, queue, exception_holder)
         while not cancel_event.is_set():
             time.sleep(0.01)
 
