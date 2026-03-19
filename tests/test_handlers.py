@@ -604,7 +604,7 @@ class TestRAGHandler:
         mock_policy.stream_soft_limit_ratio = 0.8
         mock_policy.soft_top_k_threshold = 0.2
         mock_policy.soft_reasoning_threshold = 0.9
-        mock_policy.soft_output_cap_threshold = 0.2
+        mock_policy.soft_output_cap_threshold = 0.15  # actual post_retrieval_ratio ~0.178 after preflight degradations
         mock_policy.soft_coverage_to_focused_threshold = 0.95
         mock_policy.hard_pre_generation_threshold = 0.99
 
@@ -621,8 +621,6 @@ class TestRAGHandler:
                 },
             ]
             mock_resolve_policy.return_value = mock_policy
-            mock_stream.return_value = AsyncMock()
-            mock_stream.return_value.__aiter__.return_value = ['should not stream']
 
             results: list[object] = []
             async for item in handler.handle('summarize this quickly', classification, None, mock_db, None):
