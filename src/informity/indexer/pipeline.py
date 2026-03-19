@@ -15,7 +15,6 @@ from typing import TYPE_CHECKING, Union
 import aiosqlite
 import structlog
 
-from informity.config import settings
 from informity.db.models import Chunk, IndexedFile
 from informity.db.sqlite import (
     delete_chunks_for_file,

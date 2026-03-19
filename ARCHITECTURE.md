@@ -499,10 +499,11 @@ class HealthResponse(BaseModel):
 - **Imported by:** main (lifespan), api.routes_scan, api.routes_index, llm.model_adapter (get_retrieval_top_k)
 
 ### `llm/engine.py`
-- Loads GGUF via llama-cpp-python (lazy); default `llm_model_filename` = `Qwen3-14B-Q5_K_M.gguf`; Apple Metal by default.
-- Provides `generate`, `generate_stream`; `count_tokens(text)` for RAG prompt budget. Handles model download when not local-only.
+- Loads GGUF via xllamacpp (CommonParams + Server, in-process); default `llm_model_filename` = `Qwen3-14B-Q5_K_M.gguf`; Apple Metal by default.
+- Chat template extracted from GGUF metadata via `gguf.GGUFReader` at load time. Token counting via tiktoken cl100k_base (±15% approximation).
+- Provides `generate_stream`; `count_tokens(text)` for RAG prompt budget. Handles model download when not local-only.
 - Uses `utils.directory_utils.ensure_file_directory()` for model directory creation.
-- **Imports:** llama_cpp, huggingface_hub, config, utils.directory_utils
+- **Imports:** xllamacpp, gguf, tiktoken, huggingface_hub, config, utils.directory_utils
 - **Imported by:** llm.rag
 
 ### `llm/model_adapter.py`
@@ -693,7 +694,7 @@ class HealthResponse(BaseModel):
 - **Imported by:** api.routes_chat (lazy conditional), diagnostics.tools.evaluate
 
 ### `informity/diagnostics/quality.py`
-- LLM-powered quality scoring (batch evaluation only, expensive): `score_faithfulness()`, `score_context_precision()`, `score_answer_relevance()`. Uses local LLM via llama-cpp-python.
+- LLM-powered quality scoring (batch evaluation only, expensive): `score_faithfulness()`, `score_context_precision()`, `score_answer_relevance()`. Uses local LLM via xllamacpp (through llm.engine).
 - **Imports:** llm.engine (for local LLM access)
 - **Imported by:** diagnostics.tools.pipeline (optional, `--quality` flag)
 

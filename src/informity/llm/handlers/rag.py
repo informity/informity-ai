@@ -378,8 +378,6 @@ class RAGHandler:
             effective_top_k = retrieval_outcome.effective_top_k
             effective_response_shape = retrieval_outcome.effective_response_shape
             retrieval_relevance_score = retrieval_outcome.retrieval_relevance_score
-            distinct_sources_count = retrieval_outcome.distinct_sources_count
-            retrieval_quality_score = retrieval_outcome.retrieval_quality_score
             validation_gates = retrieval_outcome.validation_gates
             fallback_events = retrieval_outcome.fallback_events
             applied_degradations = retrieval_outcome.applied_degradations

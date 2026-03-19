@@ -49,7 +49,12 @@ from informity.diagnostics.grounding_verifier import run_grounding_verifier
 from informity.diagnostics.observer import EvalMetrics, detect_issues
 from informity.diagnostics.resource_snapshot import build_resource_delta, capture_resource_snapshot
 from informity.llm.model_adapter import get_profile
-from informity.llm.planner import PLANNING_ELIGIBLE_ROUTES, QueryPlan, build_corpus_summary, build_plan
+from informity.llm.planner import (
+    PLANNING_ELIGIBLE_ROUTES,
+    QueryPlan,
+    build_corpus_summary,
+    build_plan,
+)
 from informity.llm.query_classifier import classify_query
 from informity.llm.rag import answer_question
 from informity.llm.rag_runtime import strict_output_contract as _strict_output_contract

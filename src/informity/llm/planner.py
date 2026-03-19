@@ -7,7 +7,7 @@
 
 import json
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Literal
 
 import structlog

@@ -31,8 +31,8 @@ import structlog
 import uvicorn
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException
 from starlette.middleware.base import BaseHTTPMiddleware
 from structlog.contextvars import bind_contextvars, clear_contextvars
@@ -58,7 +58,12 @@ from informity.version import APP_VERSION
 # This is needed for sentence-transformers (embedding/reranker), LLM downloads (huggingface-hub), and docling models.
 configure_hf_environment()
 
-from informity.db.sqlite import clear_stale_running_scans, get_connection, init_db, prune_continuation_artifacts
+from informity.db.sqlite import (
+    clear_stale_running_scans,
+    get_connection,
+    init_db,
+    prune_continuation_artifacts,
+)
 from informity.indexer.adaptive_tuning import update_tuning_cache
 from informity.indexer.embedder import embedder
 from informity.indexer.reranker import reranker

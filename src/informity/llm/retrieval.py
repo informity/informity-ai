@@ -9,6 +9,7 @@ import time
 import aiosqlite
 import structlog
 
+from informity.config import settings
 from informity.db.sqlite import get_chunks_by_parent_ids
 from informity.db.vectors import vector_store
 from informity.indexer.embedder import embedder
@@ -18,7 +19,6 @@ from informity.llm.metadata_filters import (
     build_where_clause_and_params,
     extract_metadata_filters,
 )
-from informity.config import settings
 from informity.llm.model_adapter import get_profile
 
 log = structlog.get_logger(__name__)
