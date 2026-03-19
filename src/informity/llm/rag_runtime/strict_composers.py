@@ -623,7 +623,7 @@ def try_compose_strict_contract_answer(
     response_mode: str,
 ) -> tuple[str, list[ChatSourceReference], dict[str, object]] | None:
     mode = str(response_mode or '').strip().lower()
-    if mode not in {'research', 'balanced', 'analysis'}:
+    if mode not in {'research', 'analysis'}:
         return None
     format_requirements = _structured_numeric._derive_format_requirements(question)
     evidence_requirement = _strict_output_contract.EVIDENCE_GROUNDING_REQUIREMENT

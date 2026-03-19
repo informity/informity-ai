@@ -235,9 +235,10 @@ def build_file_list_pattern() -> Pattern[str]:
         Compiled regex pattern
     """
     # Combine list/show patterns with file query patterns
-    # Matches: (list|show|what|which) (all)? files?
+    # Matches: (list|show|what|which) (all)? (optional_modifier)? files?
+    # e.g. "list all files", "list all indexed documents", "show all PDF documents"
     return re.compile(
-        rf'\b({IMPERATIVE_VERBS}|{QUESTION_WORDS})\s+(all\s+)?{DOCUMENT_TYPES}\b',
+        rf'\b({IMPERATIVE_VERBS}|{QUESTION_WORDS})\s+(all\s+(?:\w+\s+)?)?{DOCUMENT_TYPES}\b',
         re.IGNORECASE
     )
 

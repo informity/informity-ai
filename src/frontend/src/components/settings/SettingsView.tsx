@@ -21,8 +21,7 @@ const TRACE_REDACTION_OPTIONS = [
   { value: 'off', label: 'Off (Least Private)' },
 ]
 const DEFAULT_RESPONSE_MODE_OPTIONS = [
-  { value: 'balanced', label: 'Balanced (Recommended)' },
-  { value: 'analysis', label: 'Analysis' },
+  { value: 'analysis', label: 'Analysis (Default)' },
   { value: 'research', label: 'Research' },
 ]
 const LOG_LEVEL_OPTIONS = [
@@ -122,7 +121,7 @@ function clamp(value: number, min: number, max: number): number {
 interface ModelProfile {
   name?: string
   family?: string
-  supported_modes?: Array<'balanced' | 'analysis' | 'research'>
+  supported_modes?: Array<'analysis' | 'research'>
   reasoning_mode?: string
   max_tokens_simple?: number
   max_tokens_focused?: number
@@ -169,7 +168,7 @@ interface SettingsData {
   enable_raw_output_control?: boolean
   ui_theme?: string
   enable_menu_bar_icon?: boolean
-  default_response_mode?: 'balanced' | 'analysis' | 'research'
+  default_response_mode?: 'analysis' | 'research'
   llm_model_filename?: string
   available_models?: string[]
   embedding_model?: string
@@ -204,7 +203,7 @@ interface FormState {
   enable_raw_output_control: boolean
   ui_theme: string
   enable_menu_bar_icon: boolean
-  default_response_mode: 'balanced' | 'analysis' | 'research'
+  default_response_mode: 'analysis' | 'research'
   llm_model_filename: string
 }
 
@@ -219,23 +218,23 @@ interface SettingsViewProps {
 }
 
 function normalizeSupportedModes(
-  modes: Array<'balanced' | 'analysis' | 'research'> | string[] | undefined,
-): Array<'balanced' | 'analysis' | 'research'> {
-  if (!Array.isArray(modes)) return ['balanced', 'analysis', 'research']
-  const filtered: Array<'balanced' | 'analysis' | 'research'> = []
+  modes: Array<'analysis' | 'research'> | string[] | undefined,
+): Array<'analysis' | 'research'> {
+  if (!Array.isArray(modes)) return ['analysis']
+  const filtered: Array<'analysis' | 'research'> = []
   for (const mode of modes) {
-    if (mode === 'balanced' || mode === 'analysis' || mode === 'research') {
+    if (mode === 'analysis' || mode === 'research') {
       filtered.push(mode)
     }
   }
-  return filtered.length > 0 ? filtered : ['balanced', 'analysis', 'research']
+  return filtered.length > 0 ? filtered : ['analysis']
 }
 
 function buildFormState(settings: SettingsData): FormState {
   const normalizedTheme = normalizeUiTheme(settings.ui_theme)
   const supportedModes = normalizeSupportedModes(settings.model_profile?.supported_modes)
-  const defaultMode = settings.default_response_mode ?? 'balanced'
-  const resolvedDefaultMode = supportedModes.includes(defaultMode) ? defaultMode : supportedModes[0] ?? 'balanced'
+  const defaultMode = settings.default_response_mode ?? 'analysis'
+  const resolvedDefaultMode = supportedModes.includes(defaultMode) ? defaultMode : supportedModes[0] ?? 'analysis'
   return {
     watched_directories: [...(settings.watched_directories || [])],
     ignore_patterns: [...(settings.ignore_patterns || [])],
@@ -295,13 +294,15 @@ export function SettingsView({
   const [form, setForm] = useState<FormState>(() => buildFormState(settings || {}))
   const [activeTab, setActiveTab] = useState<SettingsTab>('general')
   const [previewProfile, setPreviewProfile] = useState<ModelProfile | null>(null)
+  const [modelProfileNames, setModelProfileNames] = useState<Map<string, string>>(new Map())
+  const [sortedModelFilenames, setSortedModelFilenames] = useState<string[]>([])
   const [dirInput, setDirInput] = useState('')
   const [ignoreInput, setIgnoreInput] = useState('')
   const persistedModel = settings?.llm_model_filename ?? ''
   const effectiveProfile = previewProfile ?? settings?.model_profile
   const supportedResponseModes = normalizeSupportedModes(effectiveProfile?.supported_modes)
   const defaultResponseModeOptions = DEFAULT_RESPONSE_MODE_OPTIONS.filter((option) => (
-    supportedResponseModes.includes(option.value as 'balanced' | 'analysis' | 'research')
+    supportedResponseModes.includes(option.value as 'analysis' | 'research')
   ))
 
   useEffect(() => {
@@ -334,10 +335,30 @@ export function SettingsView({
   }, [form.llm_model_filename, persistedModel, settings])
 
   useEffect(() => {
+    const models = settings?.available_models ?? []
+    if (models.length === 0) return
+    let cancelled = false
+    Promise.all(
+      models.map((filename) =>
+        getModelProfile(filename)
+          .then((data) => ({ filename, name: (data as ModelProfile).name ?? filename }))
+          .catch(() => ({ filename, name: filename })),
+      ),
+    ).then((results) => {
+      if (cancelled) return
+      const getBSize = (name: string) => { const m = name.match(/(\d+)B/i); return m ? parseInt(m[1], 10) : Infinity }
+      results.sort((a, b) => getBSize(a.name) - getBSize(b.name))
+      setModelProfileNames(new Map(results.map((r) => [r.filename, r.name])))
+      setSortedModelFilenames(results.map((r) => r.filename))
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [settings?.available_models])
+
+  useEffect(() => {
     if (!supportedResponseModes.includes(form.default_response_mode)) {
       setForm((prev) => ({
         ...prev,
-        default_response_mode: supportedResponseModes[0] ?? 'balanced',
+        default_response_mode: supportedResponseModes[0] ?? 'analysis',
       }))
     }
   }, [form.default_response_mode, supportedResponseModes])
@@ -517,8 +538,8 @@ export function SettingsView({
           </div>
           <select
             className="settings-select"
-            value={form.default_response_mode ?? 'balanced'}
-            onChange={(e) => update('default_response_mode', e.target.value as 'balanced' | 'analysis' | 'research')}
+            value={form.default_response_mode ?? 'analysis'}
+            onChange={(e) => update('default_response_mode', e.target.value as 'analysis' | 'research')}
           >
             {defaultResponseModeOptions.map((o) => (
               <option key={o.value} value={o.value}>
@@ -955,15 +976,16 @@ export function SettingsView({
                 value={form.llm_model_filename || settings.llm_model_filename || ''}
                 onChange={(e) => update('llm_model_filename', e.target.value)}
               >
-                {(settings.available_models || []).map((modelName) => (
+                {(sortedModelFilenames.length > 0 ? sortedModelFilenames : settings.available_models || []).map((modelName) => (
                   <option key={modelName} value={modelName}>
-                    {modelName}
+                    {modelProfileNames.get(modelName) ?? modelName}
                   </option>
                 ))}
               </select>
             </div>
             <div className="settings-profile-grid">
               <ProfileRow label="Profile" value={profile.name} />
+              <ProfileRow label="Model" value={form.llm_model_filename || settings.llm_model_filename} />
               <ProfileRow label="Family" value={profile.family} />
               <ProfileRow label="Reasoning" value={profile.reasoning_mode} />
               <ProfileRow label="Max tokens (S/F/C)" value={formatMaxTokensTriplet(profile)} />

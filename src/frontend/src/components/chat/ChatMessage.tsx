@@ -37,19 +37,20 @@ interface ChatMessageProps {
     remaining: string[]
     total: number
   }
+  streamPlanSteps?: Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>
   isPartial?: boolean
   hasRemainingScope?: boolean
   completionMode?: 'complete' | 'partial' | 'scoped_complete' | 'stopped'
   stoppedByUser?: boolean
-  responseModeUsed?: 'balanced' | 'analysis' | 'research'
+  responseModeUsed?: 'analysis' | 'research'
   nextAction?: 'none' | 'continue' | 'regenerate'
   nextActionReason?: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | null
   continueLabel?: 'Continue' | 'Continue Again'
   createdAt?: string
   generationSeconds?: number
   enableRawOutputControl?: boolean
-  onContinue?: (responseMode?: 'balanced' | 'analysis' | 'research', anchorMessageId?: number) => void
-  onRegenerate?: (responseMode?: 'balanced' | 'analysis' | 'research') => void
+  onContinue?: (responseMode?: 'analysis' | 'research', anchorMessageId?: number) => void
+  onRegenerate?: (responseMode?: 'analysis' | 'research') => void
   canContinue?: boolean
   canRegenerate?: boolean
   actionsDisabled?: boolean
@@ -66,11 +67,12 @@ function ChatMessageComponent({
   isStreaming = false,
   streamStatusText,
   streamSectionProgress,
+  streamPlanSteps,
   isPartial = false,
   hasRemainingScope = false,
   completionMode = 'complete',
   stoppedByUser = false,
-  responseModeUsed = 'balanced',
+  responseModeUsed = 'analysis',
   nextAction = 'none',
   continueLabel = 'Continue',
   createdAt,
@@ -126,16 +128,8 @@ function ChatMessageComponent({
     && (!isStopped || hasMeaningfulAssistantContent)
   const showRegenerate = !isUser && nextAction === 'regenerate' && !!onRegenerate
   const isExtendedMode = responseModeUsed === 'analysis' || responseModeUsed === 'research'
-  const modeMetaLabel = responseModeUsed === 'research'
-    ? 'Research'
-    : responseModeUsed === 'analysis'
-      ? 'Analysis'
-      : 'Balanced'
-  const modeMetaIcon = responseModeUsed === 'research'
-    ? 'ri-search-ai-3-line'
-    : responseModeUsed === 'analysis'
-      ? 'ri-flask-line'
-      : 'ri-scales-3-line'
+  const modeMetaLabel = responseModeUsed === 'research' ? 'Research' : 'Analysis'
+  const modeMetaIcon = responseModeUsed === 'research' ? 'ri-search-ai-3-line' : 'ri-flask-line'
   const showResearchSectionProgress = (
     responseModeUsed === 'research'
     && !!streamSectionProgress
@@ -147,6 +141,7 @@ function ChatMessageComponent({
   const remainingProgressText = showResearchSectionProgress
     ? streamSectionProgress.remaining.map((heading) => heading.replace(/^#{1,6}\s*/, '').trim()).join(' · ')
     : ''
+  const showPlanSteps = !!streamPlanSteps && streamPlanSteps.length > 0
   const assistantMetaItems = [] as Array<{ key: string; node: ReactElement }>
   if (generationSeconds != null) {
     assistantMetaItems.push({
@@ -347,6 +342,16 @@ function ChatMessageComponent({
                             {remainingProgressText ? ` | ${remainingProgressText}` : ''}
                           </span>
                         )}
+                        {showPlanSteps && (
+                          <span className="chat-message__plan-steps">
+                            {streamPlanSteps!.map(step => (
+                              <span key={step.step_id} className={`chat-message__plan-step chat-message__plan-step--${step.status}`}>
+                                {step.status === 'done' ? '\u2713' : step.status === 'empty' ? '\u2212' : '\u25cc'}
+                                {' '}{step.description}
+                              </span>
+                            ))}
+                          </span>
+                        )}
                       </span>
                     )}
                   </span>
@@ -492,6 +497,7 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.isStreaming === next.isStreaming &&
     prev.streamStatusText === next.streamStatusText &&
     prev.streamSectionProgress === next.streamSectionProgress &&
+    prev.streamPlanSteps === next.streamPlanSteps &&
     prev.isPartial === next.isPartial &&
     prev.hasRemainingScope === next.hasRemainingScope &&
     prev.completionMode === next.completionMode &&

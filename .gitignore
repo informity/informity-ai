@@ -42,9 +42,6 @@ data/
 *.sqlite
 *.sqlite3
 
-# Application assets (at repo root, too large for git)
-.cache/
-
 # LLM models (too large for git)
 *.gguf
 *.bin

@@ -13,6 +13,7 @@ import type {
   DisplayBlock,
   NextAction,
   NextActionReason,
+  PlanStepPayload,
   ResponseMode,
   StreamDonePayload,
 } from '../types/api'
@@ -37,6 +38,7 @@ const STREAM_WATCHDOG_TIMEOUT_MESSAGE = 'Connection lost while waiting for respo
 const STREAM_WATCHDOG_INTERRUPTED_MESSAGE = 'Response was interrupted due to connection inactivity.'
 const STREAM_STATUS_LABELS: Record<string, string> = {
   classifying: 'Analyzing your request...',
+  planning: 'Planning response...',
   retrieving: 'Searching for relevant information...',
   generating: 'Generating response...',
   finalizing: 'Finalizing answer...',
@@ -138,6 +140,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const streamRevealCharIndexRef = useRef(0)
   const streamWatchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const streamWatchdogTimedOutRef = useRef(false)
+  const streamPlanStepsRef = useRef<Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>>([])
   const currentChatIdRef = useRef<string | null>(null)
   const isStreamingRef = useRef(false)
   const lastAutoContinuedMessageIdRef = useRef<number | null>(null)
@@ -243,7 +246,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           completionMode,
           stoppedByUser,
           timeoutReason: null,
-          responseModeUsed: m.response_mode_used ?? 'balanced',
+          responseModeUsed: m.response_mode_used ?? 'analysis',
           nextAction,
           nextActionReason,
           continueLabel: 'Continue',
@@ -309,7 +312,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
 
   const sendMessage = useCallback(async (
     text: string,
-    responseMode: ResponseMode = 'balanced',
+    responseMode: ResponseMode = 'analysis',
     options?: { isInternal?: boolean },
   ) => {
     const message = text.trim()
@@ -366,6 +369,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     streamRevealCharIndexRef.current = 0
     streamRevealActiveRef.current = false
     streamPendingDoneRef.current = null
+    streamPlanStepsRef.current = []
     clearRevealTimer()
     streamSessionRef.current += 1
     const sessionId = streamSessionRef.current
@@ -444,6 +448,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           isStreaming: false,
           streamStatusText: undefined,
           streamSectionProgress: undefined,
+          streamPlanSteps: undefined,
           isPartial,
           hasRemainingScope,
           completionMode,
@@ -471,6 +476,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 isStreaming: false,
                 streamStatusText: undefined,
                 streamSectionProgress: undefined,
+                streamPlanSteps: undefined,
                 isPartial,
                 hasRemainingScope,
                 completionMode,
@@ -526,6 +532,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           isStreaming: true,
           streamStatusText: undefined,
           streamSectionProgress: undefined,
+          streamPlanSteps: undefined,
         }
         applyStreamDraftToVisibleMessages()
         streamRevealTimerRef.current = setTimeout(runCleanedReveal, CLEANED_REVEAL_INTERVAL_MS)
@@ -572,12 +579,14 @@ export function ChatProvider({ children }: ChatProviderProps) {
           streamRevealCharIndexRef.current = 0
           streamRevealActiveRef.current = true
           streamContentRef.current = ''
+          streamPlanStepsRef.current = []
           streamDraftRef.current = {
             ...(streamDraftRef.current || assistantDraft),
             content: '',
             isStreaming: true,
             streamStatusText: undefined,
             streamSectionProgress: undefined,
+            streamPlanSteps: undefined,
           }
           if (streamThrottleRef.current) {
             clearTimeout(streamThrottleRef.current)
@@ -629,6 +638,28 @@ export function ChatProvider({ children }: ChatProviderProps) {
           }
           applyStreamDraftToVisibleMessages()
         },
+        onPlanStep: (payload: PlanStepPayload) => {
+          if (streamSessionRef.current !== sessionId) return
+          touchStreamWatchdog()
+          const { step_id, description, status } = payload
+          if (typeof step_id !== 'number' || typeof description !== 'string') return
+          const stepStatus = status === 'done' || status === 'empty' ? status : 'running'
+          const existing = streamPlanStepsRef.current
+          const idx = existing.findIndex(s => s.step_id === step_id)
+          if (idx >= 0) {
+            const updated = [...existing]
+            updated[idx] = { step_id, description, status: stepStatus }
+            streamPlanStepsRef.current = updated
+          } else {
+            streamPlanStepsRef.current = [...existing, { step_id, description, status: stepStatus }]
+          }
+          streamDraftRef.current = {
+            ...(streamDraftRef.current || assistantDraft),
+            streamPlanSteps: [...streamPlanStepsRef.current],
+            isStreaming: true,
+          }
+          applyStreamDraftToVisibleMessages()
+        },
         onDone: (data) => {
           if (streamSessionRef.current !== sessionId) return
           clearStreamWatchdog()
@@ -672,6 +703,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                       isStreaming: false,
                       streamStatusText: undefined,
                       streamSectionProgress: undefined,
+                      streamPlanSteps: undefined,
                       completionMode: 'partial',
                       hasRemainingScope: true,
                       nextAction: 'regenerate',
@@ -707,6 +739,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                     isStreaming: false,
                     streamStatusText: undefined,
                     streamSectionProgress: undefined,
+                    streamPlanSteps: undefined,
                     completionMode: 'stopped',
                     stoppedByUser: true,
                     hasRemainingScope: true,
@@ -745,6 +778,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                   isStreaming: false,
                   streamStatusText: undefined,
                   streamSectionProgress: undefined,
+                  streamPlanSteps: undefined,
                 }
               }
               return next
@@ -767,7 +801,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
   }, [applyStreamDraftToVisibleMessages, clearRevealTimer, clearStreamWatchdog, isViewingGeneratingChat])
 
   const continueLastScope = useCallback(async (
-    responseMode: ResponseMode = 'balanced',
+    responseMode: ResponseMode = 'analysis',
     anchorMessageId?: number,
   ) => {
     if (typeof anchorMessageId === 'number') {

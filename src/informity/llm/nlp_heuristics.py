@@ -1,10 +1,12 @@
+# ==============================================================================
+# Informity AI — NLP Heuristics (pure regex/string implementation)
+# Lightweight query feature extraction using only re and string operations.
+# Spacy dependency removed: all extraction is now regex-based.
+# ==============================================================================
+
 from __future__ import annotations
 
 import re
-
-import spacy
-from spacy.matcher import Matcher
-from spacy.tokens import Doc
 
 _ALNUM_TOKEN_PATTERN = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$')
 _ORDINAL_ONLY_PATTERN = re.compile(r'^(?:\d+|[ivxlcdm]+|[a-z])$', re.IGNORECASE)
@@ -38,71 +40,76 @@ _PERIOD_COMPARISON_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r'\bdeltas?\b', re.IGNORECASE),
 )
 
+# Regex patterns replacing spacy Matcher patterns
+_GROUP_BY_PATTERN = re.compile(
+    r'\b(?:group(?:ed)?\s+by\s+(year|category|file)|(by|per)\s+(year|category|file))\b',
+    re.IGNORECASE,
+)
+_FIELD_HINT_PATTERN = re.compile(r'\b(box|line|field)\s+(\d+[A-Za-z]?)\b', re.IGNORECASE)
+_SECTION_ANCHOR_PATTERN = re.compile(r'\b(?:section|part|schedule)\s+', re.IGNORECASE)
+_MENTION_ANCHOR_PATTERN = re.compile(
+    r'\b(?:mention|mentions|mentioned|mentioning)\s+(\S+)', re.IGNORECASE
+)
 
-def _build_nlp() -> tuple[spacy.Language, Matcher]:
-    nlp = spacy.blank('en')
-    matcher = Matcher(nlp.vocab)
-    matcher.add('GROUP_BY_YEAR', [[{'LOWER': {'IN': ['by', 'per']}}, {'LOWER': 'year'}]])
-    matcher.add('GROUP_BY_CATEGORY', [[{'LOWER': {'IN': ['by', 'per']}}, {'LOWER': 'category'}]])
-    matcher.add('GROUP_BY_FILE', [[{'LOWER': {'IN': ['by', 'per']}}, {'LOWER': 'file'}]])
-    matcher.add(
-        'GROUP_BY_GROUPED',
-        [[{'LOWER': {'IN': ['group', 'grouped']}}, {'LOWER': 'by'}, {'LOWER': {'IN': ['year', 'category', 'file']}}]],
-    )
-    matcher.add('FIELD_HINT', [[{'LOWER': {'IN': ['box', 'line', 'field']}}, {'TEXT': {'REGEX': r'^\d+[A-Za-z]?$'}}]])
-    matcher.add('SECTION_ANCHOR', [[{'LOWER': {'IN': ['section', 'part', 'schedule']}}]])
-    matcher.add('MENTION_ANCHOR', [[{'LOWER': {'IN': ['mention', 'mentions', 'mentioned', 'mentioning']}}]])
-    return nlp, matcher
-
-
-_NLP, _MATCHER = _build_nlp()
-
-
-def parse_query(query: str) -> Doc:
-    return _NLP(query or '')
+# Pre-compiled patterns for semantic checks
+_BY_PER_YEAR_PATTERN = re.compile(r'\b(?:by|per)\s+year\b', re.IGNORECASE)
+_AGGREGATION_TERM_PATTERN = re.compile(
+    r'\b(?:aggregate|aggregated|summary|summaries|total)\b', re.IGNORECASE
+)
+_EXTRACTION_TASK_PATTERN = re.compile(
+    r'\b(?:create|produce|extract|calculate|sum|total|compare|compile|build)\b', re.IGNORECASE
+)
 
 
-def extract_group_by(doc: Doc) -> str | None:
-    for match_id, start, end in _MATCHER(doc):
-        label = doc.vocab.strings[match_id]
-        if label == 'GROUP_BY_YEAR':
-            return 'year'
-        if label == 'GROUP_BY_CATEGORY':
-            return 'category'
-        if label == 'GROUP_BY_FILE':
-            return 'file'
-        if label == 'GROUP_BY_GROUPED' and end - start >= 3:
-            value = doc[start + 2].lower_
-            if value in {'year', 'category', 'file'}:
-                return value
+class _ParsedQuery:
+    """Lightweight parsed query container replacing spacy Doc."""
+
+    __slots__ = ('text',)
+
+    def __init__(self, text: str) -> None:
+        self.text = text
+
+
+def parse_query(query: str) -> _ParsedQuery:
+    return _ParsedQuery(query or '')
+
+
+def extract_group_by(doc: _ParsedQuery) -> str | None:
+    for m in _GROUP_BY_PATTERN.finditer(doc.text):
+        # Group 1: "group by X" or "grouped by X"
+        if m.group(1):
+            return m.group(1).lower()
+        # Group 3: "by X" or "per X"
+        if m.group(3):
+            return m.group(3).lower()
     return None
 
 
-def extract_field_hint(doc: Doc) -> str | None:
-    for match_id, start, end in _MATCHER(doc):
-        if doc.vocab.strings[match_id] != 'FIELD_HINT':
-            continue
-        if end - start < 2:
-            continue
-        return f"{doc[start].lower_}_{doc[start + 1].text.lower()}"
+def extract_field_hint(doc: _ParsedQuery) -> str | None:
+    m = _FIELD_HINT_PATTERN.search(doc.text)
+    if m:
+        return f'{m.group(1).lower()}_{m.group(2).lower()}'
     return None
 
 
-def extract_section_hint(doc: Doc) -> str | None:
-    for match_id, _start, end in _MATCHER(doc):
-        if doc.vocab.strings[match_id] != 'SECTION_ANCHOR':
-            continue
-        tokens: list[str] = []
-        for token in doc[end:end + 6]:
-            text = token.text.strip()
-            if not text:
-                continue
-            if token.is_punct:
+def extract_section_hint(doc: _ParsedQuery) -> str | None:
+    for m in _SECTION_ANCHOR_PATTERN.finditer(doc.text):
+        remainder = doc.text[m.end():]
+        word_tokens: list[str] = []
+        for wm in re.finditer(r'\S+', remainder):
+            word = wm.group()
+            stripped = word.rstrip('.,;:!?')
+            if not stripped:
                 break
-            if token.lower_ in _STOP_SECTION_TOKENS:
+            if stripped.lower() in _STOP_SECTION_TOKENS:
                 break
-            tokens.append(text)
-        candidate = ' '.join(tokens).strip(' .,:;')
+            word_tokens.append(stripped)
+            # Word ended with punctuation — include token then stop
+            if word != stripped:
+                break
+            if len(word_tokens) >= 6:
+                break
+        candidate = ' '.join(word_tokens).strip(' .,:;')
         if not candidate:
             continue
         if _ORDINAL_ONLY_PATTERN.fullmatch(candidate):
@@ -111,56 +118,46 @@ def extract_section_hint(doc: Doc) -> str | None:
     return None
 
 
-def extract_mention_target(doc: Doc) -> str | None:
-    for match_id, _start, end in _MATCHER(doc):
-        if doc.vocab.strings[match_id] != 'MENTION_ANCHOR':
-            continue
-        if end >= len(doc):
-            continue
-        candidate = doc[end].text.strip().strip('.,:;!?')
+def extract_mention_target(doc: _ParsedQuery) -> str | None:
+    m = _MENTION_ANCHOR_PATTERN.search(doc.text)
+    if m:
+        candidate = m.group(1).strip().strip('.,:;!?')
         if _ALNUM_TOKEN_PATTERN.fullmatch(candidate):
             return candidate
     return None
 
 
-def has_aggregation_semantics(doc: Doc) -> bool:
-    lowered = doc.text.lower()
-    if 'year-by-year' in lowered:
+def has_aggregation_semantics(doc: _ParsedQuery) -> bool:
+    text = doc.text
+    if 'year-by-year' in text.lower():
         return True
-    if any(token.lower_ in _AGGREGATION_TERMS for token in doc):
+    if _AGGREGATION_TERM_PATTERN.search(text):
         return True
-    return any(
-        doc[idx].lower_ in {'by', 'per'} and doc[idx + 1].lower_ == 'year'
-        for idx in range(len(doc) - 1)
-    )
+    return bool(_BY_PER_YEAR_PATTERN.search(text))
 
 
-def has_period_comparison_semantics(doc: Doc) -> bool:
+def has_period_comparison_semantics(doc: _ParsedQuery) -> bool:
     lowered = doc.text.lower()
     return any(pattern.search(lowered) for pattern in _PERIOD_COMPARISON_PATTERNS)
 
 
-def has_extraction_task(doc: Doc) -> bool:
-    return any(token.lower_ in _EXTRACTION_TASK_TERMS for token in doc)
+def has_extraction_task(doc: _ParsedQuery) -> bool:
+    return bool(_EXTRACTION_TASK_PATTERN.search(doc.text))
 
 
-def is_inventory_plus_content_coverage(doc: Doc) -> bool:
-    has_file_term = any(token.lower_ in {'file', 'files'} for token in doc)
-    has_mention = any(token.lower_.startswith('mention') for token in doc)
-    has_what_do = any(
-        doc[idx].lower_ == 'what' and doc[idx + 1].lower_ == 'do'
-        for idx in range(len(doc) - 1)
-    )
-    has_say = any(token.lower_ == 'say' for token in doc)
-    has_connector = any(token.lower_ in {'and', 'then'} for token in doc)
+def is_inventory_plus_content_coverage(doc: _ParsedQuery) -> bool:
+    text = doc.text.lower()
+    has_file_term = bool(re.search(r'\bfiles?\b', text))
+    has_mention = bool(re.search(r'\bmentions?\b|\bmentioned\b|\bmentioning\b', text))
+    has_what_do = bool(re.search(r'\bwhat\s+do\b', text))
+    has_say = bool(re.search(r'\bsay\b', text))
+    has_connector = bool(re.search(r'\b(?:and|then)\b', text))
     return has_file_term and has_mention and has_what_do and has_say and has_connector
 
 
-def is_filename_summary_query(doc: Doc) -> bool:
-    has_summary_verb = any(token.lower_ in _SUMMARY_VERBS for token in doc)
-    has_what_does = any(
-        doc[idx].lower_ == 'what' and doc[idx + 1].lower_ == 'does'
-        for idx in range(len(doc) - 1)
-    )
-    has_content_term = any(token.lower_ in _SUMMARY_CONTENT_TOKENS for token in doc)
+def is_filename_summary_query(doc: _ParsedQuery) -> bool:
+    text = doc.text.lower()
+    has_summary_verb = bool(re.search(r'\b(?:summarize|summarise|describe)\b', text))
+    has_what_does = bool(re.search(r'\bwhat\s+does\b', text))
+    has_content_term = bool(re.search(r'\b(?:content|contain|contains|summary)\b', text))
     return has_content_term and (has_summary_verb or has_what_does)

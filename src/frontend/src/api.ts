@@ -3,7 +3,7 @@
  * Single place for all fetch() calls. Components never call fetch directly.
  */
 
-import type { StreamChatCallbacks, StreamDonePayload } from './types/api'
+import type { PlanStepPayload, StreamChatCallbacks, StreamDonePayload } from './types/api'
 
 function getApiBase(): string {
   return window.__INFORMITY_API_BASE__ || import.meta.env.VITE_API_URL || 'http://localhost:8420'
@@ -212,9 +212,9 @@ export async function streamChat(
   message: string,
   chatId: string | null,
   callbacks: StreamChatCallbacks,
-  responseMode: 'balanced' | 'analysis' | 'research' = 'balanced',
+  responseMode: 'analysis' | 'research' = 'analysis',
 ): Promise<void> {
-  const { onToken, onChatId, onStreamId, onRequestId, onSources, onDone, onError, onCleaned, onStatus, signal } = callbacks
+  const { onToken, onChatId, onStreamId, onRequestId, onSources, onDone, onError, onCleaned, onStatus, onPlanStep, signal } = callbacks
   let doneData: StreamDonePayload | null = null
   const streamState = { seenSources: false, seenCleaned: false, seenDone: false }
   const url = `${getApiBase()}/api/chat`
@@ -279,6 +279,7 @@ export async function streamChat(
                 onSources,
                 onCleaned,
                 onStatus,
+                onPlanStep,
               }, streamState)
               if (currentEvent === 'done' && result) doneData = result
             }
@@ -299,6 +300,7 @@ export async function streamChat(
                 onSources,
                 onCleaned,
                 onStatus,
+                onPlanStep,
               }, streamState)
               if (currentEvent === 'done' && result) doneData = result
             }
@@ -319,6 +321,7 @@ export async function streamChat(
           onSources,
           onCleaned,
           onStatus,
+          onPlanStep,
         }, streamState)
         if (currentEvent === 'done' && result) doneData = result
       }
@@ -333,12 +336,12 @@ export async function streamChat(
 function handleEvent(
   event: string,
   data: string,
-  callbacks: Pick<StreamChatCallbacks, 'onToken' | 'onChatId' | 'onStreamId' | 'onRequestId' | 'onSources' | 'onCleaned' | 'onStatus'>,
+  callbacks: Pick<StreamChatCallbacks, 'onToken' | 'onChatId' | 'onStreamId' | 'onRequestId' | 'onSources' | 'onCleaned' | 'onStatus' | 'onPlanStep'>,
   state: { seenSources: boolean; seenCleaned: boolean; seenDone: boolean },
 ): StreamDonePayload | undefined {
   if (state.seenDone && event !== 'done') return undefined
 
-  const { onToken, onChatId, onStreamId, onRequestId, onSources, onCleaned, onStatus } = callbacks
+  const { onToken, onChatId, onStreamId, onRequestId, onSources, onCleaned, onStatus, onPlanStep } = callbacks
   switch (event) {
     case 'token':
       if (state.seenCleaned || state.seenSources) return undefined
@@ -382,6 +385,15 @@ function handleEvent(
         onStatus?.(parsed)
       } catch {
         onStatus?.({})
+      }
+      break
+    }
+    case 'plan_step': {
+      try {
+        const parsed = JSON.parse(data) as PlanStepPayload
+        onPlanStep?.(parsed)
+      } catch {
+        // ignore
       }
       break
     }

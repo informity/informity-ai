@@ -431,7 +431,7 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                     str(mode).strip().lower()
                     for mode in getattr(profile, 'supported_modes', ())
                     if mode
-                ) or ('balanced', 'analysis')
+                ) or ('analysis',)
                 if value not in supported_modes:
                     raise HTTPException(
                         status_code=400,

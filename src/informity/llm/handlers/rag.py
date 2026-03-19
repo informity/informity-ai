@@ -15,41 +15,28 @@ from informity.api.schemas import ChatSourceReference
 from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.fit_to_budget_tuning import resolve_fit_to_budget_policy
-from informity.llm.intent_profiles import get_intent_profile_policy
-from informity.llm.model_adapter import get_retrieval_top_k
+from informity.llm.planner import QueryPlan
 from informity.llm.prompt_builder import build_messages
 from informity.llm.query_classifier import QueryClassification
-from informity.llm.rag_runtime import deterministic_fallbacks as _deterministic_fallbacks
 from informity.llm.rag_runtime import execution_plan as _execution_plan
 from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_plan as _generation_plan
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
 from informity.llm.rag_runtime import generation_stream as _generation_stream
 from informity.llm.rag_runtime import generation_terminal as _generation_terminal
-from informity.llm.rag_runtime import retrieval_gatekeeper as _retrieval_gatekeeper
+from informity.llm.rag_runtime import retrieval_pipeline as _retrieval_pipeline
 from informity.llm.rag_runtime import retrieval_plan as _retrieval_plan
 from informity.llm.rag_runtime import retrieval_validation as _retrieval_validation
 from informity.llm.rag_runtime import structured_numeric as _structured_numeric
-from informity.llm.retrieval import retrieve_chunks
+from informity.llm.rag_runtime.retrieval_pipeline import _build_clarification_fallback_message
 from informity.llm.streaming import stream_llm
 
 log = structlog.get_logger(__name__)
 _HANDLER_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, asyncio.TimeoutError)
 
-_STRUCTURED_EXTRACTION_SUBTYPES = _structured_numeric._STRUCTURED_EXTRACTION_SUBTYPES
-_INSUFFICIENT_CONTEXT_RESPONSE = 'The available documents do not contain enough information to answer this question.'
-_CHUNK_SNIPPET_MAX_LENGTH = 220
-_CHUNK_SNIPPET_ELLIPSIS_LENGTH = 3
+_INSUFFICIENT_CONTEXT_RESPONSE = _retrieval_pipeline._INSUFFICIENT_CONTEXT_RESPONSE
 _CHUNK_PREVIEW_MAX_LENGTH = 200
 _FALLBACK_SOURCE_LIMIT = 8
-_FILENAME_SUMMARY_MAX_SNIPPETS = 5
-_INVENTORY_MATCH_SNIPPET_CONTEXT_BEFORE = 90
-_INVENTORY_MATCH_SNIPPET_CONTEXT_AFTER = 170
-_FILENAME_SUMMARY_FALLBACK_PATTERN = re.compile(
-    r'\b(?:summari[sz]e|what\s+does|what\s+is\s+in|describe)\b.*\b(?:content|contain|contains|summary)\b',
-    re.IGNORECASE,
-)
-_FILENAME_SUMMARY_DETERMINISTIC_EXTENSIONS = ('.md', '.txt')
 _OUTPUT_CONTRACT_WORD_LIMIT_PATTERN = re.compile(
     r'\b(?:<=?|at\s+most|max(?:imum)?)\s*\d+\s+words?\b',
     re.IGNORECASE,
@@ -57,14 +44,6 @@ _OUTPUT_CONTRACT_WORD_LIMIT_PATTERN = re.compile(
 _OUTPUT_CONTRACT_BULLET_LIMIT_PATTERN = re.compile(
     r'\bexactly\s+\d+\s+bullets?\b',
     re.IGNORECASE,
-)
-_CLARIFICATION_METADATA_FALLBACK = (
-    'Could you clarify the scope (for example: target year, file type, or specific section) '
-    'so I can answer accurately?'
-)
-_CLARIFICATION_GENERIC_FALLBACK = (
-    "I couldn't find relevant information. Could you clarify what you're looking for, "
-    'or specify the document or topic?'
 )
 
 
@@ -76,35 +55,6 @@ def _has_explicit_output_contract(question: str) -> bool:
     if 'output must contain' in question.casefold():
         return True
     return bool(_structured_numeric._derive_format_requirements(question))
-
-
-def _is_continuation_request(question: str) -> bool:
-    return _retrieval_validation._is_continuation_utterance(question or '')
-
-
-def _build_clarification_fallback_message(classification: QueryClassification) -> str:
-    is_metadata_scope = (
-        classification.intent == 'metadata'
-        or classification.route_candidate == 'metadata_inventory'
-        or classification.is_metadata_query
-    )
-    if is_metadata_scope:
-        return _CLARIFICATION_METADATA_FALLBACK
-    return _CLARIFICATION_GENERIC_FALLBACK
-
-
-def _compute_widened_retry_top_k(
-    *,
-    current_top_k: int,
-    query_type: str,
-    response_mode: str,
-) -> int:
-    base_top_k = max(current_top_k, 1)
-    widened = int(round(base_top_k * float(settings.retrieval_widening_retry_multiplier)))
-    widened += int(settings.retrieval_widening_retry_extra_k)
-    floor_top_k = get_retrieval_top_k(query_type, response_mode=response_mode)
-    widened = max(widened, floor_top_k, base_top_k + 1)
-    return min(widened, int(settings.retrieval_widening_retry_cap))
 
 
 def _collapse_duplicate_insufficient_context_message(
@@ -128,7 +78,7 @@ def _resolve_sampling_params_for_response_mode(
     profile_temperature: float,
     profile_top_p: float,
 ) -> tuple[float, float, dict[str, object] | None]:
-    mode = str(response_mode_used or 'balanced').strip().lower()
+    mode = str(response_mode_used or 'analysis').strip().lower()
     if mode == 'analysis':
         # Deterministic analysis mode reduces run-to-run continuation variance.
         return 0.0, 1.0, {
@@ -137,13 +87,6 @@ def _resolve_sampling_params_for_response_mode(
             'top_p': {'from': profile_top_p, 'to': 1.0},
         }
     return profile_temperature, profile_top_p, None
-
-
-def _truncate_snippet(text: str, max_length: int = _CHUNK_SNIPPET_MAX_LENGTH) -> str:
-    if len(text) <= max_length:
-        return text
-    trim_length = max(0, max_length - _CHUNK_SNIPPET_ELLIPSIS_LENGTH)
-    return f'{text[:trim_length]}...'
 
 
 def _truncate_preview(text: str, max_length: int = _CHUNK_PREVIEW_MAX_LENGTH) -> str:
@@ -170,108 +113,6 @@ def _deduplicate_prompt_chunks(chunks: list[dict]) -> list[dict]:
         seen_signatures.add(signature)
         deduped_chunks.append(chunk)
     return deduped_chunks
-
-
-def _build_inventory_plus_content_fallback_answer(
-    *,
-    chunks: list[dict],
-    source_terms: list[str],
-) -> str | None:
-    if not chunks:
-        return None
-
-    normalized_terms = [
-        str(term).strip()
-        for term in source_terms
-        if str(term).strip()
-    ]
-    keywords = [term.casefold() for term in normalized_terms]
-
-    file_snippets: list[tuple[str, str]] = []
-    seen_files: set[str] = set()
-    for chunk in chunks:
-        filename = str(chunk.get('filename', 'unknown')).strip() or 'unknown'
-        file_key = filename.casefold()
-        if file_key in seen_files:
-            continue
-        seen_files.add(file_key)
-
-        text = re.sub(r'\s+', ' ', str(chunk.get('chunk_text', '') or '')).strip()
-        if not text:
-            continue
-
-        snippet = _truncate_snippet(text)
-        lowered = text.casefold()
-        for keyword in keywords:
-            if not keyword:
-                continue
-            idx = lowered.find(keyword)
-            if idx >= 0:
-                start = max(0, idx - _INVENTORY_MATCH_SNIPPET_CONTEXT_BEFORE)
-                end = min(len(text), idx + _INVENTORY_MATCH_SNIPPET_CONTEXT_AFTER)
-                snippet = text[start:end].strip()
-                break
-        snippet = _truncate_snippet(snippet)
-        file_snippets.append((filename, snippet))
-        if len(file_snippets) >= _FALLBACK_SOURCE_LIMIT:
-            break
-
-    if not file_snippets:
-        return None
-
-    lines = ['Files that match the requested terms and relevant content:', '']
-    if normalized_terms:
-        lines.append(f"Requested terms: {', '.join(normalized_terms[:8])}")
-        lines.append('')
-    for filename, snippet in file_snippets:
-        lines.append(f'- **{filename}**: {snippet}')
-    lines.extend([
-        '',
-        'Summary: These files contain the requested term matches with evidence snippets from indexed content.',
-    ])
-    return '\n'.join(lines).strip()
-
-
-def _build_filename_summary_fallback_answer(
-    *,
-    question: str,
-    filename_filter: str | None,
-    chunks: list[dict],
-) -> str | None:
-    normalized_filename = str(filename_filter or '').strip()
-    if not normalized_filename:
-        return None
-    if not normalized_filename.casefold().endswith(_FILENAME_SUMMARY_DETERMINISTIC_EXTENSIONS):
-        return None
-    if not _FILENAME_SUMMARY_FALLBACK_PATTERN.search(question):
-        return None
-    if _has_explicit_output_contract(question):
-        return None
-    if not chunks:
-        return None
-
-    lines = [f'### Summary: {normalized_filename}', '']
-    unique_snippets: list[str] = []
-    seen: set[str] = set()
-    for chunk in chunks:
-        text = re.sub(r'\s+', ' ', str(chunk.get('chunk_text', '') or '')).strip()
-        if not text:
-            continue
-        snippet = _truncate_snippet(text)
-        key = snippet.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        unique_snippets.append(snippet)
-        if len(unique_snippets) >= _FILENAME_SUMMARY_MAX_SNIPPETS:
-            break
-    if not unique_snippets:
-        return None
-
-    lines.append('Key points extracted from indexed sections:')
-    for snippet in unique_snippets:
-        lines.append(f'- {snippet}')
-    return '\n'.join(lines).strip()
 
 
 class RAGHandler:
@@ -301,6 +142,13 @@ class RAGHandler:
         This is the existing RAG logic extracted into a handler.
         """
         try:
+            # Extract QueryPlan from diagnostics_context if provided (Phase 5 multi-step retrieval).
+            _query_plan: QueryPlan | None = None
+            if diagnostics_context is not None:
+                _raw_plan = diagnostics_context.get('query_plan')
+                if isinstance(_raw_plan, QueryPlan) and _raw_plan.steps:
+                    _query_plan = _raw_plan
+
             # 1. Determine query type for proper retrieval and LLM settings
             plan = await _execution_plan.build_execution_plan(
                 question=question,
@@ -337,6 +185,16 @@ class RAGHandler:
                         profile_name=profile.name,
                         fallback_fields=research_fallback_fields,
                         fallback_to='analysis_or_base_profile_values',
+                    )
+                else:
+                    log.info(
+                        'research_mode_active',
+                        profile_name=profile.name,
+                        max_tokens_research=profile.max_tokens_research,
+                        timeout_seconds_research=profile.timeout_seconds_research,
+                        top_k_research=profile.top_k_research,
+                        rag_context_ratio_research=profile.rag_context_ratio_research,
+                        prompt_addendum='research_mode_prompt_addendum',
                     )
             retrieval_filename_filter = classification.filename_filter
             retrieval_context = _retrieval_plan.build_retrieval_context(
@@ -431,6 +289,21 @@ class RAGHandler:
                 strict_ordered_mode=strict_ordered_mode,
             )
 
+            # Reconcile max_tokens with planner section count.
+            # If the query plan has N answer sections, the token budget floor is
+            # N × tokens_per_section_floor to prevent mid-response truncation.
+            if _query_plan is not None and _query_plan.answer_sections:
+                section_floor = len(_query_plan.answer_sections) * int(settings.tokens_per_section_floor)
+                if section_floor > effective_max_tokens:
+                    log.info(
+                        'token_budget_section_floor_applied',
+                        answer_sections=len(_query_plan.answer_sections),
+                        tokens_per_section_floor=int(settings.tokens_per_section_floor),
+                        previous_max_tokens=effective_max_tokens,
+                        new_max_tokens=section_floor,
+                    )
+                    effective_max_tokens = section_floor
+
             if trace is not None:
                 trace.record('intent', {
                     'model_profile':     profile.name,
@@ -457,342 +330,62 @@ class RAGHandler:
                     'fallback_events': fallback_events,
                 })
 
-            # 2. Retrieve chunks with appropriate top_k (unified retrieval path)
-            # For coverage queries, uses file-anchored retrieval (one chunk per file)
-            retrieval_result = await _retrieval_plan.run_initial_retrieval_plan(
+            # 2. Retrieve chunks, validate, and apply all fallbacks via retrieval pipeline
+            retrieval_outcome = await _retrieval_pipeline.run_retrieval_pipeline(
+                question=question,
                 retrieval_question=retrieval_question,
                 classification=classification,
-                selected_policy_profile_id=selected_policy.profile_id,
+                query_plan=_query_plan,
                 effective_query_type=effective_query_type,
                 effective_top_k=effective_top_k,
-                profile_rag_max_score=profile.rag_max_score,
+                effective_max_tokens=effective_max_tokens,
+                effective_response_shape=effective_response_shape,
+                timeout_seconds=timeout_seconds,
                 source_terms_for_retrieval=source_terms_for_retrieval,
                 continuation_source_terms=continuation_source_terms,
                 prior_has_remaining_scope=prior_has_remaining_scope,
                 scope_reset_detected=scope_reset_detected,
-                retrieval_filename_filter=retrieval_filename_filter,
-                db=db,
-                trace=trace,
-                fallback_events=fallback_events,
-                retrieve_with_constraints_fn=_retrieval_validation._retrieve_with_staged_structural_constraints,
-                retrieve_fn=retrieve_chunks,
-            )
-            chunks = retrieval_result.chunks
-            constraint_relaxation_applied = retrieval_result.constraint_relaxation_applied
-            fallback_events = retrieval_result.fallback_events
-            retrieval_elapsed_ms = retrieval_result.retrieval_elapsed_ms
-
-            log.debug('chunks_retrieved', count=len(chunks), query_type=effective_query_type)
-
-            if not chunks:
-                fallback_profile = get_intent_profile_policy(selected_policy.fallback_target_route)
-                fallback_events.append({
-                    'fallback_from': selected_policy.profile_id,
-                    'fallback_to': fallback_profile.profile_id,
-                    'fallback_reason': 'empty_retrieval_result',
-                })
-                fallback_chunks = await retrieve_chunks(
-                    query=retrieval_question,
-                    top_k=get_retrieval_top_k(
-                        fallback_profile.preferred_retrieval_mode,
-                        response_mode=response_mode_used,
-                    ),
-                    max_score=profile.rag_max_score,
-                    year_filter=classification.year_filter,
-                    category_filter=classification.category_filter,
-                    extension_filter=classification.file_type_filter,
-                    filename_filter=retrieval_filename_filter,
-                    source_terms_filter=source_terms_for_retrieval,
-                    block_type_filter=None,
-                    section_filter=None,
-                    query_type=fallback_profile.preferred_retrieval_mode,
-                    db=db,
-                    trace=trace,
-                )
-                if fallback_chunks:
-                    chunks = fallback_chunks
-                    effective_query_type = fallback_profile.preferred_retrieval_mode
-                    effective_top_k = min(effective_top_k, len(chunks))
-                else:
-                    has_remaining_scope = False
-                    yield ('__metrics__', _generation_terminal.build_generation_skipped_metrics_payload(
-                        query_type=effective_query_type,
-                        response_mode_used=response_mode_used,
-                        mode_adjustments_applied=mode_adjustments_applied,
-                        timeout_seconds=timeout_seconds,
-                        retrieval_elapsed_ms=retrieval_elapsed_ms,
-                        preflight_projected_seconds=preflight_projected_seconds,
-                        preflight_ratio=preflight_ratio,
-                        applied_degradations=applied_degradations,
-                        fallback_events=fallback_events,
-                        has_remaining_scope=has_remaining_scope,
-                        validation_gates={'retrieval_relevance_gate': False, 'source_diversity_gate': False},
-                    ))
-                    yield _INSUFFICIENT_CONTEXT_RESPONSE
-                    yield []
-                    return
-
-            retrieval_relevance_passed, retrieval_relevance_score = _retrieval_validation._evaluate_retrieval_relevance_gate(
-                chunks=chunks,
-                query_type=effective_query_type,
-                route_candidate=selected_policy.profile_id,
-                has_strong_anchor=bool(
-                    classification.filename_filter
-                    or (classification.year_filter is not None and source_terms_for_retrieval)
-                ),
-            )
-            source_diversity_passed, distinct_sources_count = _retrieval_validation._evaluate_source_diversity_gate(
-                chunks=chunks,
-                query_type=effective_query_type,
-            )
-            retrieval_relevance_passed, fallback_events = _retrieval_validation._apply_coverage_evidence_floor_override(
-                retrieval_relevance_passed=retrieval_relevance_passed,
-                query_type=effective_query_type,
-                subtype=classification.subtype,
-                group_by=classification.group_by,
-                response_shape=classification.response_shape,
-                distinct_sources_count=distinct_sources_count,
-                chunk_count=len(chunks),
-                fallback_events=fallback_events,
-                route_profile_id=selected_policy.profile_id,
-                retrieval_relevance_score=retrieval_relevance_score,
-            )
-            current_source_keys = _retrieval_validation._extract_current_source_keys(chunks)
-            continuation_anchor_passed, anchor_overlap_count = _retrieval_validation._evaluate_continuation_anchor_gate(
-                route_candidate=classification.route_candidate,
-                scope_reset_detected=scope_reset_detected,
                 prior_source_anchors=prior_source_anchors,
-                current_source_keys=current_source_keys,
-                prior_has_remaining_scope=prior_has_remaining_scope,
-            )
-            validation_gates = {
-                'retrieval_relevance_gate': retrieval_relevance_passed,
-                'source_diversity_gate': source_diversity_passed,
-                'continuation_anchor_gate': continuation_anchor_passed,
-            }
-            if trace is not None:
-                trace.record('validation_gates', {
-                    'gates': validation_gates,
-                    'retrieval_relevance_score': round(retrieval_relevance_score, 3),
-                    'distinct_sources_count': distinct_sources_count,
-                    'scope_reset_detected': scope_reset_detected,
-                    'anchor_overlap_count': anchor_overlap_count,
-                    'constraint_relaxation_applied': constraint_relaxation_applied,
-                })
-            recovery_result = await _retrieval_gatekeeper.run_validation_recovery_when_failed(
-                chunks=chunks,
-                effective_query_type=effective_query_type,
-                effective_top_k=effective_top_k,
-                retrieval_relevance_passed=retrieval_relevance_passed,
-                source_diversity_passed=source_diversity_passed,
-                continuation_anchor_passed=continuation_anchor_passed,
-                retrieval_relevance_score=retrieval_relevance_score,
-                distinct_sources_count=distinct_sources_count,
-                anchor_overlap_count=anchor_overlap_count,
-                validation_gates=validation_gates,
-                fallback_events=fallback_events,
-                classification=classification,
+                retrieval_filename_filter=retrieval_filename_filter,
                 selected_policy_profile_id=selected_policy.profile_id,
                 selected_policy_fallback_target_route=selected_policy.fallback_target_route,
-                source_terms_for_retrieval=source_terms_for_retrieval,
-                scope_reset_detected=scope_reset_detected,
-                prior_source_anchors=prior_source_anchors,
-                prior_has_remaining_scope=prior_has_remaining_scope,
-                retrieval_question=retrieval_question,
-                retrieval_filename_filter=retrieval_filename_filter,
-                response_mode_used=response_mode_used,
                 profile_rag_max_score=profile.rag_max_score,
+                response_mode_used=response_mode_used,
+                applied_degradations=applied_degradations,
+                fallback_events=fallback_events,
+                mode_adjustments_applied=mode_adjustments_applied,
+                preflight_projected_seconds=preflight_projected_seconds,
+                preflight_ratio=preflight_ratio,
                 db=db,
                 trace=trace,
-                retrieve_fn=retrieve_chunks,
-                get_retrieval_top_k_fn=get_retrieval_top_k,
-                get_intent_profile_policy_fn=get_intent_profile_policy,
-                compute_widened_retry_top_k_fn=_compute_widened_retry_top_k,
+                has_explicit_output_contract_fn=_has_explicit_output_contract,
+                truncate_preview_fn=_truncate_preview,
+                normalize_relevance_score_fn=_retrieval_validation._normalize_relevance_score,
             )
-            chunks = recovery_result.chunks
-            effective_query_type = recovery_result.effective_query_type
-            effective_top_k = recovery_result.effective_top_k
-            retrieval_relevance_passed = recovery_result.retrieval_relevance_passed
-            source_diversity_passed = recovery_result.source_diversity_passed
-            continuation_anchor_passed = recovery_result.continuation_anchor_passed
-            retrieval_relevance_score = recovery_result.retrieval_relevance_score
-            distinct_sources_count = recovery_result.distinct_sources_count
-            anchor_overlap_count = recovery_result.anchor_overlap_count
-            validation_gates = recovery_result.validation_gates
-            fallback_events = recovery_result.fallback_events
-            if not retrieval_relevance_passed or not source_diversity_passed or not continuation_anchor_passed:
-                has_remaining_scope = False
-                yield ('__metrics__', _generation_terminal.build_generation_skipped_metrics_payload(
-                    query_type=effective_query_type,
-                    response_mode_used=response_mode_used,
-                    mode_adjustments_applied=mode_adjustments_applied,
-                    timeout_seconds=timeout_seconds,
-                    retrieval_elapsed_ms=retrieval_elapsed_ms,
-                    preflight_projected_seconds=preflight_projected_seconds,
-                    preflight_ratio=preflight_ratio,
-                    applied_degradations=applied_degradations,
-                    fallback_events=fallback_events,
-                    has_remaining_scope=has_remaining_scope,
-                    validation_gates=validation_gates,
-                ))
-                if (
-                    not _is_continuation_request(question)
-                    and (
-                        classification.route_candidate == 'clarification_or_disambiguation'
-                        or classification.confidence_band == 'low'
-                        or not continuation_anchor_passed
-                    )
-                ):
-                    yield _build_clarification_fallback_message(classification)
-                    yield []
-                    return
-                yield _INSUFFICIENT_CONTEXT_RESPONSE
-                yield []
+            # Forward plan_step events to SSE stream
+            for _evt in retrieval_outcome.plan_step_events:
+                yield _evt
+            # Terminal retrieval outcome: skip generation
+            if isinstance(retrieval_outcome, _retrieval_pipeline.RetrievalFailure):
+                has_remaining_scope = retrieval_outcome.has_remaining_scope
+                yield ('__metrics__', retrieval_outcome.metrics_payload)
+                yield retrieval_outcome.response_message
+                yield retrieval_outcome.sources
                 return
-
-            deterministic_fallback = await _deterministic_fallbacks.try_strict_or_structured_fallback(
-                question=question,
-                classification=classification,
-                response_shape=effective_response_shape,
-                chunks=chunks,
-                response_mode=response_mode_used,
-                db=db,
-                trace=trace,
-            )
-            if deterministic_fallback.kind == 'strict':
-                strict_answer = deterministic_fallback.answer or ''
-                strict_sources = deterministic_fallback.sources or []
-                strict_metrics = deterministic_fallback.strict_metrics or {}
-                if trace is not None:
-                    trace.record('strict_composer', {
-                        'applied': True,
-                        'family': strict_metrics.get('strict_composer_family'),
-                        'sources_count': strict_metrics.get('strict_composer_sources_count'),
-                        'claim_count': strict_metrics.get('strict_claim_count'),
-                        'fallback_claim_count': strict_metrics.get('strict_fallback_claim_count'),
-                        'unsupported_claim_count': strict_metrics.get('strict_unsupported_claim_count'),
-                        'evidence_coverage_rate': strict_metrics.get('strict_evidence_coverage_rate'),
-                        'claim_emission_decisions_preview': strict_metrics.get('strict_claim_emission_decisions_preview'),
-                    })
-                    trace.record('llm', {
-                        'token_count': 0,
-                        'max_tokens': effective_max_tokens,
-                        'first_token_ms': None,
-                        'total_elapsed_ms': 0.0,
-                        'model_profile': profile.name,
-                        'stream_recovery_reason': None,
-                        'output_contract_check': strict_metrics.get('output_contract_check'),
-                    })
-                yield ('__metrics__', _generation_terminal.build_generation_skipped_metrics_payload(
-                    query_type=effective_query_type,
-                    response_mode_used=response_mode_used,
-                    mode_adjustments_applied=mode_adjustments_applied,
-                    timeout_seconds=timeout_seconds,
-                    retrieval_elapsed_ms=retrieval_elapsed_ms,
-                    preflight_projected_seconds=preflight_projected_seconds,
-                    preflight_ratio=preflight_ratio,
-                    applied_degradations=applied_degradations,
-                    fallback_events=fallback_events,
-                    has_remaining_scope=False,
-                    extra_fields=strict_metrics,
-                ))
-                yield strict_answer
-                yield strict_sources
-                return
-
-            if deterministic_fallback.kind == 'structured':
-                structured_answer = deterministic_fallback.answer or ''
-                structured_sources = deterministic_fallback.sources or []
-                structured_metrics = deterministic_fallback.structured_metrics or {}
-                yield ('__metrics__', _generation_terminal.build_generation_skipped_metrics_payload(
-                    query_type=effective_query_type,
-                    response_mode_used=response_mode_used,
-                    mode_adjustments_applied=mode_adjustments_applied,
-                    timeout_seconds=timeout_seconds,
-                    retrieval_elapsed_ms=retrieval_elapsed_ms,
-                    preflight_projected_seconds=preflight_projected_seconds,
-                    preflight_ratio=preflight_ratio,
-                    applied_degradations=applied_degradations,
-                    fallback_events=fallback_events,
-                    has_remaining_scope=False,
-                    extra_fields=structured_metrics,
-                ))
-                yield structured_answer
-                yield structured_sources
-                return
-            filename_summary_fallback_answer = _build_filename_summary_fallback_answer(
-                question=question,
-                filename_filter=classification.filename_filter,
-                chunks=chunks,
-            )
-            if filename_summary_fallback_answer is not None:
-                applied_degradations.append({
-                    'step': 'filename_summary_deterministic_fallback',
-                    'filename_filter': classification.filename_filter,
-                    'reason': 'focused_filename_summary_latency_guard',
-                })
-                fallback_sources = _generation_terminal.build_limited_fallback_sources(
-                    chunks=chunks,
-                    limit=_FALLBACK_SOURCE_LIMIT,
-                    truncate_preview_fn=_truncate_preview,
-                    normalize_relevance_score_fn=_retrieval_validation._normalize_relevance_score,
-                )
-                yield ('__metrics__', _generation_terminal.build_generation_skipped_metrics_payload(
-                    query_type=effective_query_type,
-                    response_mode_used=response_mode_used,
-                    mode_adjustments_applied=mode_adjustments_applied,
-                    timeout_seconds=timeout_seconds,
-                    retrieval_elapsed_ms=retrieval_elapsed_ms,
-                    preflight_projected_seconds=preflight_projected_seconds,
-                    preflight_ratio=preflight_ratio,
-                    applied_degradations=applied_degradations,
-                    fallback_events=fallback_events,
-                    has_remaining_scope=False,
-                ))
-                yield filename_summary_fallback_answer
-                yield fallback_sources
-                return
-            if 'policy_inventory_plus_content_to_coverage' in classification.reason_codes:
-                fallback_answer = _build_inventory_plus_content_fallback_answer(
-                    chunks=chunks,
-                    source_terms=classification.source_terms,
-                )
-                if fallback_answer:
-                    applied_degradations.append({
-                        'step': 'inventory_plus_content_deterministic_fallback',
-                        'reason': 'policy_inventory_plus_content_to_coverage',
-                    })
-                    fallback_sources = _generation_terminal.build_limited_fallback_sources(
-                        chunks=chunks,
-                        limit=_FALLBACK_SOURCE_LIMIT,
-                        truncate_preview_fn=_truncate_preview,
-                        normalize_relevance_score_fn=_retrieval_validation._normalize_relevance_score,
-                    )
-                    yield ('__metrics__', _generation_terminal.build_generation_skipped_metrics_payload(
-                        query_type=effective_query_type,
-                        response_mode_used=response_mode_used,
-                        mode_adjustments_applied=mode_adjustments_applied,
-                        timeout_seconds=timeout_seconds,
-                        retrieval_elapsed_ms=retrieval_elapsed_ms,
-                        preflight_projected_seconds=preflight_projected_seconds,
-                        preflight_ratio=preflight_ratio,
-                        applied_degradations=applied_degradations,
-                        fallback_events=fallback_events,
-                        has_remaining_scope=False,
-                    ))
-                    yield fallback_answer
-                    yield fallback_sources
-                    return
-            if (
-                effective_response_shape == 'structured_extract'
-                and classification.subtype in _STRUCTURED_EXTRACTION_SUBTYPES
-            ):
-                fallback_events.append({
-                    'fallback_from': 'structured_field_extraction',
-                    'fallback_to': 'targeted_fact_lookup',
-                    'fallback_reason': 'structured_extraction_insufficient',
-                })
-                effective_response_shape = 'narrative_synthesis'
+            # Unpack retrieval success state for generation stage
+            chunks = retrieval_outcome.chunks
+            effective_query_type = retrieval_outcome.effective_query_type
+            effective_top_k = retrieval_outcome.effective_top_k
+            effective_response_shape = retrieval_outcome.effective_response_shape
+            retrieval_relevance_score = retrieval_outcome.retrieval_relevance_score
+            distinct_sources_count = retrieval_outcome.distinct_sources_count
+            retrieval_quality_score = retrieval_outcome.retrieval_quality_score
+            validation_gates = retrieval_outcome.validation_gates
+            fallback_events = retrieval_outcome.fallback_events
+            applied_degradations = retrieval_outcome.applied_degradations
+            retrieval_elapsed_ms = retrieval_outcome.retrieval_elapsed_ms
+            retrieve_timing = retrieval_outcome.retrieve_timing
+            _gatekeeper_demoted_query_type = retrieval_outcome.gatekeeper_demoted_query_type
 
             # 3. Build messages
             generation_plan = _generation_plan.build_generation_prompt_plan(
@@ -823,6 +416,13 @@ class RAGHandler:
                 route_candidate=classification.route_candidate,
                 dedupe_prompt_chunks_fn=_deduplicate_prompt_chunks,
                 derive_format_requirements_fn=_structured_numeric._derive_format_requirements,
+                # Skip the pre-closeout quality check when the gatekeeper demoted a coverage query
+                # to focused mode via fallback. The check — "don't generate for a focused query with
+                # uncertain relevance under budget pressure" — does not apply: the original query was
+                # coverage-typed, so low reranker scores are expected (chunks are anchored by year
+                # filter, not semantic similarity). The gatekeeper's fallback already confirms that
+                # sufficient evidence exists.
+                skip_precloseout_quality_check=_gatekeeper_demoted_query_type,
             )
             chunks = generation_plan.chunks
             effective_query_type = generation_plan.effective_query_type
@@ -876,7 +476,7 @@ class RAGHandler:
                     },
                 ))
                 if (
-                    not _is_continuation_request(question)
+                    not classification.is_continuation
                     and (
                         classification.route_candidate == 'clarification_or_disambiguation'
                         or classification.confidence_band == 'low'
@@ -1006,6 +606,15 @@ class RAGHandler:
                     'step': 'missing_stream_summary_guard',
                     'reason': 'stream_summary_not_emitted',
                 })
+
+            # Populate per-stage timing fields on stream_summary.
+            # retrieve_timing comes from the primary retrieval; prompt_build_ms and ttft_ms
+            # are computed from existing stage measurements.
+            stream_summary.embed_ms = retrieve_timing.get('embed_ms')
+            stream_summary.vector_search_ms = retrieve_timing.get('vector_search_ms')
+            stream_summary.rerank_ms = retrieve_timing.get('rerank_ms')
+            stream_summary.prompt_build_ms = round(prompt_elapsed_ms, 1)
+            stream_summary.ttft_ms = stream_summary.first_token_ms
 
             token_count = stream_summary.token_count
             first_token_ms = stream_summary.first_token_ms

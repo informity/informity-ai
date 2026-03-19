@@ -21,9 +21,6 @@ from informity.llm.metadata_filters import extract_metadata_filters
 from informity.llm.model_adapter import get_profile
 from informity.llm.nlp_heuristics import (
     extract_field_hint,
-    extract_group_by,
-    extract_mention_target,
-    extract_section_hint,
     has_aggregation_semantics,
     has_extraction_task,
     has_period_comparison_semantics,
@@ -45,32 +42,6 @@ _CLASSIFIER_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError)
 
 _FILE_LIST_PATTERN = build_file_list_pattern()
 _SUPPORTED_EXTENSIONS_CASEFOLD = tuple(ext.casefold() for ext in get_all_supported_extensions())
-# Confidence scores for route candidate resolution.
-# Ordering: aggregate policy (deterministic multi-signal) > LLM-selected (single-signal) > policy default (fallback).
-# Values are intentionally non-equal so tie-breaking is deterministic.
-_ROUTE_CONFIDENCE_AGGREGATE_POLICY = 0.88  # multi-signal deterministic policy agreement
-_ROUTE_CONFIDENCE_LLM_SELECTED     = 0.86  # LLM output alone, no additional policy signals
-_ROUTE_CONFIDENCE_POLICY_DEFAULT   = 0.76  # fallback when no strong signal present
-
-
-def _derive_policy_default_confidence(
-    *,
-    intent: str,
-    response_shape: str,
-    subtype: str | None,
-    group_by: str | None,
-) -> float:
-    signal_count = 0
-    if response_shape == 'structured_extract':
-        signal_count += 1
-    if subtype in {'aggregate_by_period', 'extract_structured_values'}:
-        signal_count += 1
-    if intent == 'coverage' and group_by in {'year', 'category', 'file'}:
-        signal_count += 1
-    if intent in {'metadata', 'simple'}:
-        signal_count += 1
-    confidence = _ROUTE_CONFIDENCE_POLICY_DEFAULT + (0.04 * min(signal_count, 2))
-    return min(confidence, _ROUTE_CONFIDENCE_AGGREGATE_POLICY)
 
 
 def _extract_phase2_constraints(query: str) -> dict[str, object]:
@@ -78,16 +49,16 @@ def _extract_phase2_constraints(query: str) -> dict[str, object]:
     Extract deterministic Phase 2 constraints from query text.
 
     Returns structured fields used for trace visibility and downstream routing:
-    - group_by: 'year'|'category'|'file'|None
     - field_hint: normalized structured field hint (for example, 'box_1')
-    - section_hint: short section hint
-    - source_terms: filename/source contains tokens extracted via metadata filters
+    - aggregation_semantics / period_comparison_semantics / extraction_task: semantic flags
+    - source_terms: filename/source contains tokens extracted via metadata filters (regex fallback)
     - file_type: fallback extension filter when present in metadata filters
+
+    Note: group_by and section are now extracted directly from LLM JSON output.
+    source_terms here serves as a regex fallback if the LLM output is empty.
     """
     doc = parse_query(query)
-    group_by = extract_group_by(doc)
     field_hint = extract_field_hint(doc)
-    section_hint = extract_section_hint(doc)
 
     source_terms: list[str] = []
     file_type: str | None = None
@@ -102,15 +73,8 @@ def _extract_phase2_constraints(query: str) -> dict[str, object]:
         ):
             file_type = metadata_filter.value
 
-    if not source_terms:
-        mention_term = extract_mention_target(doc)
-        if mention_term:
-            source_terms = [mention_term]
-
     return {
-        'group_by': group_by,
         'field_hint': field_hint,
-        'section_hint': section_hint,
         'aggregation_semantics': has_aggregation_semantics(doc),
         'period_comparison_semantics': has_period_comparison_semantics(doc),
         'extraction_task': has_extraction_task(doc),
@@ -146,7 +110,15 @@ def _resolve_route_candidate(
     response_shape: str,
     subtype: str | None,
     group_by: str | None,
-) -> tuple[IntentProfileId, float, list[str]]:
+) -> tuple[IntentProfileId, bool, list[str]]:
+    """
+    Resolve the routing profile and provenance for the given classification signals.
+
+    Returns:
+        (route_candidate, deterministic_override, reason_codes)
+        deterministic_override: True when a hard aggregate rule fired (policy_aggregate_route_enforced),
+            meaning the LLM route was not consulted or was overridden.
+    """
     reason_codes: list[str] = []
     force_aggregate_route = intent == 'coverage' and subtype == 'aggregate_by_period'
     default_route_candidate: IntentProfileId
@@ -181,27 +153,29 @@ def _resolve_route_candidate(
         'coverage': {'cross_document_synthesis', 'comparative_analysis', 'audit_or_compliance_brief'},
     }
     route_candidate: IntentProfileId = default_route_candidate
+    deterministic_override: bool
     if force_aggregate_route:
+        # Hard aggregate rule: aggregate_by_period always maps to comparative_analysis.
         route_candidate = 'comparative_analysis'
         reason_codes.append('policy_aggregate_route_enforced')
-        confidence = _ROUTE_CONFIDENCE_AGGREGATE_POLICY
+        deterministic_override = True
     elif (
         isinstance(llm_route_candidate, str)
         and llm_route_candidate in valid_candidates
         and llm_route_candidate in allowed_by_intent.get(intent, set())
+        # When the response shape is structured_extract, the default route is
+        # structured_field_extraction. Don't let an LLM-selected coverage-only route
+        # override this: structured_field_extraction better handles explicit table/extract
+        # output contracts, and coverage routes don't allow structured_extract shapes.
+        and not (response_shape == 'structured_extract' and llm_route_candidate in allowed_by_intent.get('coverage', set()))
     ):
         route_candidate = llm_route_candidate  # LLM-selected profile, validated against enum set
         reason_codes.append('llm_profile_selected')
-        confidence = _ROUTE_CONFIDENCE_LLM_SELECTED
+        deterministic_override = False
     else:
         reason_codes.append('policy_default_selected')
-        confidence = _derive_policy_default_confidence(
-            intent=intent,
-            response_shape=response_shape,
-            subtype=subtype,
-            group_by=group_by,
-        )
-    return route_candidate, confidence, reason_codes
+        deterministic_override = False
+    return route_candidate, deterministic_override, reason_codes
 
 
 # ==============================================================================
@@ -250,7 +224,8 @@ _CLASSIFICATION_FEW_SHOT_PAIRS: tuple[tuple[str, str], ...] = (
         '{"intent": "metadata", "response_shape": "narrative_synthesis",'
         ' "route_candidate": "metadata_inventory", "year": null,'
         ' "category": "document", "file_type": ".pdf", "filename": null,'
-        ' "block_type": null, "section": null}',
+        ' "block_type": null, "section": null, "group_by": null, "source_terms": [],'
+        ' "is_continuation": false, "is_scope_reset": false}',
     ),
     (
         'what information is in 2022 Acme Invoice.pdf?',
@@ -258,14 +233,96 @@ _CLASSIFICATION_FEW_SHOT_PAIRS: tuple[tuple[str, str], ...] = (
         ' "route_candidate": "targeted_fact_lookup", "year": 2022,'
         ' "category": null, "file_type": ".pdf",'
         ' "filename": "2022 Acme Invoice.pdf",'
-        ' "block_type": null, "section": null}',
+        ' "block_type": null, "section": null, "group_by": null, "source_terms": [],'
+        ' "is_continuation": false, "is_scope_reset": false}',
     ),
     (
         'how many documents are indexed?',
         '{"intent": "metadata", "response_shape": "narrative_synthesis",'
         ' "route_candidate": "metadata_inventory", "year": null,'
         ' "category": null, "file_type": null, "filename": null,'
-        ' "block_type": null, "section": null}',
+        ' "block_type": null, "section": null, "group_by": null, "source_terms": [],'
+        ' "is_continuation": false, "is_scope_reset": false}',
+    ),
+    (
+        'continue',
+        '{"intent": "simple", "response_shape": "narrative_synthesis",'
+        ' "route_candidate": "continuation_or_refinement", "year": null,'
+        ' "category": null, "file_type": null, "filename": null,'
+        ' "block_type": null, "section": null, "group_by": null, "source_terms": [],'
+        ' "is_continuation": true, "is_scope_reset": false}',
+    ),
+    (
+        'start over, I want to ask about something else entirely',
+        '{"intent": "simple", "response_shape": "narrative_synthesis",'
+        ' "route_candidate": "clarification_or_disambiguation", "year": null,'
+        ' "category": null, "file_type": null, "filename": null,'
+        ' "block_type": null, "section": null, "group_by": null, "source_terms": [],'
+        ' "is_continuation": false, "is_scope_reset": true}',
+    ),
+    (
+        'what kind of documents do you have indexed?',
+        '{"intent": "simple", "response_shape": "narrative_synthesis",'
+        ' "route_candidate": "clarification_or_disambiguation", "year": null,'
+        ' "category": null, "file_type": null, "filename": null,'
+        ' "block_type": null, "section": null, "group_by": null, "source_terms": [],'
+        ' "is_continuation": false, "is_scope_reset": false}',
+    ),
+    (
+        'tell me about the documents from 2021',
+        '{"intent": "coverage", "response_shape": "narrative_synthesis",'
+        ' "route_candidate": "cross_document_synthesis", "year": 2021,'
+        ' "category": null, "file_type": null, "filename": null,'
+        ' "block_type": null, "section": null, "group_by": null, "source_terms": [],'
+        ' "is_continuation": false, "is_scope_reset": false}',
+    ),
+    (
+        'find any document mentioning FATCA or foreign account reporting',
+        '{"intent": "focused", "response_shape": "narrative_synthesis",'
+        ' "route_candidate": "targeted_fact_lookup", "year": null,'
+        ' "category": null, "file_type": null, "filename": null,'
+        ' "block_type": null, "section": null, "group_by": null, "source_terms": [],'
+        ' "is_continuation": false, "is_scope_reset": false}',
+    ),
+    (
+        'what does the employment contract say about termination?',
+        '{"intent": "focused", "response_shape": "narrative_synthesis",'
+        ' "route_candidate": "targeted_fact_lookup", "year": null,'
+        ' "category": null, "file_type": null, "filename": null,'
+        ' "block_type": null, "section": null, "group_by": null, "source_terms": ["employment contract"],'
+        ' "is_continuation": false, "is_scope_reset": false}',
+    ),
+    (
+        'compare revenue by year across all annual reports',
+        '{"intent": "coverage", "response_shape": "narrative_synthesis",'
+        ' "route_candidate": "comparative_analysis", "year": null,'
+        ' "category": null, "file_type": null, "filename": null,'
+        ' "block_type": null, "section": null, "group_by": "year", "source_terms": [],'
+        ' "is_continuation": false, "is_scope_reset": false}',
+    ),
+    (
+        'which indexed documents mention project deadlines? list all files and summarize what each one says',
+        '{"intent": "coverage", "response_shape": "narrative_synthesis",'
+        ' "route_candidate": "cross_document_synthesis", "year": null,'
+        ' "category": null, "file_type": null, "filename": null,'
+        ' "block_type": null, "section": null, "group_by": null, "source_terms": [],'
+        ' "is_continuation": false, "is_scope_reset": false}',
+    ),
+    (
+        'what are the most common themes mentioned across all indexed documents?',
+        '{"intent": "coverage", "response_shape": "narrative_synthesis",'
+        ' "route_candidate": "cross_document_synthesis", "year": null,'
+        ' "category": null, "file_type": null, "filename": null,'
+        ' "block_type": null, "section": null, "group_by": null, "source_terms": [],'
+        ' "is_continuation": false, "is_scope_reset": false}',
+    ),
+    (
+        'create a report with sections ## Overview, ## Supporting Documents, ## Key Data, ## Action Items. Under ## Key Data include a markdown table.',
+        '{"intent": "coverage", "response_shape": "narrative_synthesis",'
+        ' "route_candidate": "cross_document_synthesis", "year": null,'
+        ' "category": null, "file_type": null, "filename": null,'
+        ' "block_type": null, "section": null, "group_by": null, "source_terms": [],'
+        ' "is_continuation": false, "is_scope_reset": false}',
     ),
 )
 
@@ -291,7 +348,11 @@ You are a query intent classifier. Output this exact JSON structure:
   "file_type": <null|".pdf"|".txt"|".docx"|".xlsx"|...>,
   "filename": <null|string>,
   "block_type": <null|"table"|"form"|"narrative">,
-  "section": <null|string>
+  "section": <null|string>,
+  "group_by": <null|"year"|"category"|"file">,
+  "source_terms": <[]|[string...]>,
+  "is_continuation": <true|false>,
+  "is_scope_reset": <true|false>
 }
 
 FIELD RULES:
@@ -301,66 +362,105 @@ FIELD RULES:
 - filename: Set when query has explicit filename constraint (exact file name or filename contains pattern)
 - block_type: For focused/coverage only when user explicitly asks for table/form/narrative content
 - section: For focused/coverage section targeting (e.g., "introduction", "conclusion"). Null if none
+- group_by: Set to "year", "category", or "file" when query explicitly groups or compares by that dimension (e.g. "by year", "per year", "by category", "group by file"). Null otherwise
+- source_terms: Array of informal document reference terms (e.g. ["employment contract", "Q3 report"]). Only include named document references that narrow which files to search. Use [] for concept keywords (FATCA, inflation) or when no specific document is referenced
+- is_continuation: true ONLY for brief bare continuation phrases ("continue", "go on", "more", "next section", "the rest", "keep going"). False for queries with any specific content — "more about the cash flow section" is a NEW focused query (false), not a continuation
+- is_scope_reset: true ONLY when user explicitly abandons the current topic ("start over", "ignore everything above", "never mind, different question"). "start over on X" is a NEW focused query on X (false), not a scope reset
 - response_shape:
-  - structured_extract: user asks for direct field/row extraction or numeric extraction tables from source text
-  - narrative_synthesis: user asks for summaries, briefs, comparisons, evidence maps, risks, recommendations
+  - structured_extract: user asks for a SINGLE table or field-by-field extraction as the ENTIRE response (no surrounding sections)
+  - narrative_synthesis: user asks for summaries, briefs, comparisons, evidence maps, risks, recommendations — and ANY multi-section response with ## headings (even if one section contains an embedded table)
 
 INTENT TYPES:
-- metadata: Any query whose answer is a list of files or a file count — enumerating files by name, type, year, or category. The answer is a file inventory, not document content.
-- focused: Read or extract content from a specific document or small set of documents.
-- coverage: Synthesize, compare, or aggregate content across multiple documents.
-- simple: Greetings, clarifications, system questions unrelated to document content.
+- metadata: Structural questions about the file index: file counts, file listings, which years/types/categories are present. The answer comes from file metadata only, not from document content.
+- focused: Read or extract content from a specific document or a small set of documents identified by name or concept.
+- coverage: Synthesize, compare, or aggregate content across many documents — or find which documents contain a concept.
+- simple: Greetings, capability questions ("what can you do", "what kind of documents do you have", "what information is available"), or general conversation unrelated to reading document content.
 
 CRITICAL ROUTING RULE:
 - If the answer is a list or count of files themselves = metadata. File type, category, and year are filters on the file list, not content operations.
 - If the answer requires reading what is inside documents = focused (one/few docs) or coverage (many docs).
 - "List all X files" / "How many X files" / "Show files from year Y" = metadata (file inventory).
 - "What is in X.pdf" / "Summarize X.pdf" / "What does X say about Y" = focused or coverage (content).
+- "What kind of documents do you have" / "What can you help with" / "What information is available" = simple (capability question, not a file listing or content retrieval).
+- "Tell me about documents from 2021" / "What do the 2022 records show" = coverage (requires reading content, not just listing files).
+- "Find any document mentioning X" / "Which document contains X" = focused (stop at first/best match; targeted concept lookup).
+- "Which documents contain X, list all of them" / "Which indexed documents have Y, list files and details" = coverage (corpus-wide survey requiring content reading from every document).
+- "X mentioned across all indexed documents" / "across all documents" / "across all indexed" = coverage (aggregation across entire corpus).
+- "Produce a response with sections ## A, ## B, ## C" (multi-section output with required headings) = coverage + narrative_synthesis even if one section contains a table. Only use structured_extract when the ENTIRE response is a single table or field list with no surrounding sections.
 - category must be null for focused/coverage; use category only for metadata queries.
 
 EXAMPLES (output JSON only):
 
 Query: "how many PDFs do I have from 2022?"
-Output: {"intent": "metadata", "response_shape": "narrative_synthesis", "route_candidate": "metadata_inventory", "year": 2022, "category": "document", "file_type": ".pdf", "filename": null, "block_type": null, "section": null}
+Output: {"intent": "metadata", "response_shape": "narrative_synthesis", "route_candidate": "metadata_inventory", "year": 2022, "category": "document", "file_type": ".pdf", "filename": null, "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": false}
 
 Query: "how many years of documents do I have?"
-Output: {"intent": "metadata", "response_shape": "narrative_synthesis", "route_candidate": "metadata_inventory", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
+Output: {"intent": "metadata", "response_shape": "narrative_synthesis", "route_candidate": "metadata_inventory", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": false}
 
 Query: "list all files from 2023"
-Output: {"intent": "metadata", "response_shape": "narrative_synthesis", "route_candidate": "metadata_inventory", "year": 2023, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
+Output: {"intent": "metadata", "response_shape": "narrative_synthesis", "route_candidate": "metadata_inventory", "year": 2023, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": false}
 
-Query: "list all document files"
-Output: {"intent": "metadata", "response_shape": "narrative_synthesis", "route_candidate": "metadata_inventory", "year": null, "category": "document", "file_type": null, "filename": null, "block_type": null, "section": null}
+Query: "continue"
+Output: {"intent": "simple", "response_shape": "narrative_synthesis", "route_candidate": "continuation_or_refinement", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": true, "is_scope_reset": false}
 
-Query: "list all plaintext files"
-Output: {"intent": "metadata", "response_shape": "narrative_synthesis", "route_candidate": "metadata_inventory", "year": null, "category": "plaintext", "file_type": null, "filename": null, "block_type": null, "section": null}
+Query: "more detail on the cash flow section"
+Output: {"intent": "focused", "response_shape": "narrative_synthesis", "route_candidate": "targeted_fact_lookup", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": "cash flow", "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": false}
+
+Query: "start over, I want to ask something completely different"
+Output: {"intent": "simple", "response_shape": "narrative_synthesis", "route_candidate": "clarification_or_disambiguation", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": true}
 
 Query: "what does the employment contract say about vacation days?"
-Output: {"intent": "focused", "response_shape": "narrative_synthesis", "route_candidate": "targeted_fact_lookup", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
+Output: {"intent": "focused", "response_shape": "narrative_synthesis", "route_candidate": "targeted_fact_lookup", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": null, "source_terms": ["employment contract"], "is_continuation": false, "is_scope_reset": false}
 
 Query: "what information is in 2022 Acme Invoice.pdf?"
-Output: {"intent": "focused", "response_shape": "narrative_synthesis", "route_candidate": "targeted_fact_lookup", "year": 2022, "category": null, "file_type": ".pdf", "filename": "2022 Acme Invoice.pdf", "block_type": null, "section": null}
+Output: {"intent": "focused", "response_shape": "narrative_synthesis", "route_candidate": "targeted_fact_lookup", "year": 2022, "category": null, "file_type": ".pdf", "filename": "2022 Acme Invoice.pdf", "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": false}
 
 Query: "summarize the content of 2018 Company Report.pdf"
-Output: {"intent": "focused", "response_shape": "narrative_synthesis", "route_candidate": "targeted_fact_lookup", "year": 2018, "category": null, "file_type": ".pdf", "filename": "2018 Company Report.pdf", "block_type": null, "section": null}
+Output: {"intent": "focused", "response_shape": "narrative_synthesis", "route_candidate": "targeted_fact_lookup", "year": 2018, "category": null, "file_type": ".pdf", "filename": "2018 Company Report.pdf", "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": false}
 
 Query: "extract the summary table values from the annual report"
-Output: {"intent": "focused", "response_shape": "structured_extract", "route_candidate": "structured_field_extraction", "year": null, "category": null, "file_type": null, "filename": null, "block_type": "table", "section": null}
+Output: {"intent": "focused", "response_shape": "structured_extract", "route_candidate": "structured_field_extraction", "year": null, "category": null, "file_type": null, "filename": null, "block_type": "table", "section": null, "group_by": null, "source_terms": ["annual report"], "is_continuation": false, "is_scope_reset": false}
 
 Query: "summarize the key findings across all annual reports"
-Output: {"intent": "coverage", "response_shape": "narrative_synthesis", "route_candidate": "cross_document_synthesis", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
+Output: {"intent": "coverage", "response_shape": "narrative_synthesis", "route_candidate": "cross_document_synthesis", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": false}
+
+Query: "compare revenue by year across all annual reports"
+Output: {"intent": "coverage", "response_shape": "narrative_synthesis", "route_candidate": "comparative_analysis", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": "year", "source_terms": [], "is_continuation": false, "is_scope_reset": false}
 
 Query: "Build a compliance reconciliation brief across 3 years with required sections and evidence-backed deltas."
-Output: {"intent": "coverage", "response_shape": "narrative_synthesis", "route_candidate": "audit_or_compliance_brief", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
+Output: {"intent": "coverage", "response_shape": "narrative_synthesis", "route_candidate": "audit_or_compliance_brief", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": "year", "source_terms": [], "is_continuation": false, "is_scope_reset": false}
 
 Query: "hello, what can you do?"
-Output: {"intent": "simple", "response_shape": "narrative_synthesis", "route_candidate": "clarification_or_disambiguation", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null}
+Output: {"intent": "simple", "response_shape": "narrative_synthesis", "route_candidate": "clarification_or_disambiguation", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": false}
+
+Query: "what kind of documents do you have indexed?"
+Output: {"intent": "simple", "response_shape": "narrative_synthesis", "route_candidate": "clarification_or_disambiguation", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": false}
+
+Query: "tell me about the documents from 2021"
+Output: {"intent": "coverage", "response_shape": "narrative_synthesis", "route_candidate": "cross_document_synthesis", "year": 2021, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": false}
+
+Query: "find any document mentioning FATCA or foreign account reporting"
+Output: {"intent": "focused", "response_shape": "narrative_synthesis", "route_candidate": "targeted_fact_lookup", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": false}
+
+Query: "how much is the largest amount mentioned in any document?"
+Output: {"intent": "focused", "response_shape": "narrative_synthesis", "route_candidate": "targeted_fact_lookup", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": false}
+
+Query: "which indexed documents mention project deadlines? list all files and summarize what each one says"
+Output: {"intent": "coverage", "response_shape": "narrative_synthesis", "route_candidate": "cross_document_synthesis", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": false}
+
+Query: "what are the most common themes mentioned across all indexed documents?"
+Output: {"intent": "coverage", "response_shape": "narrative_synthesis", "route_candidate": "cross_document_synthesis", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": false}
+
+Query: "create a report with sections ## Overview, ## Supporting Documents, ## Key Data, ## Action Items. Under ## Key Data include a markdown table."
+Output: {"intent": "coverage", "response_shape": "narrative_synthesis", "route_candidate": "cross_document_synthesis", "year": null, "category": null, "file_type": null, "filename": null, "block_type": null, "section": null, "group_by": null, "source_terms": [], "is_continuation": false, "is_scope_reset": false}
 
 EDGE CASES:
-- Ambiguous = prefer "focused"
+- Ambiguous (single-doc vs multi-doc unclear, no scope signal) = prefer "focused"
+- Queries with "across all documents", "across all indexed", "all indexed documents", or asking to survey/list from the entire corpus = "coverage" regardless of other signals
 - Multiple intents = choose the intent that determines retrieval strategy
 - Greeting + non-document question = "simple"
 - Greeting + document question = classify by document task (metadata/focused/coverage), not "simple"
+- "What kind of documents" / "what do you have" / "what can you help with" / "what information is available" = "simple" even if they mention "documents" — these are capability questions, not file listings or content retrievals
 
 CRITICAL: Output MUST start with { and end with }. No code blocks, no explanations."""
 
@@ -397,7 +497,7 @@ def classify_query_llm(query: str) -> QueryClassification:
     try:
         response = llm_engine.model.create_chat_completion(
             messages=messages,
-            max_tokens=180,   # slightly larger to fit long filenames
+            max_tokens=400,   # larger to fit group_by, source_terms array, is_continuation/is_scope_reset, and long filenames
             temperature=0.0,  # deterministic
             stop=stops,
             response_format={'type': 'json_object'},  # Enforces valid JSON via GBNF grammar
@@ -530,15 +630,14 @@ def classify_query_llm(query: str) -> QueryClassification:
     block_type = data.get('block_type')
     if block_type not in ('table', 'form', 'narrative'):
         block_type = None
-    # Section constraints must be explicitly grounded in user phrasing
-    phase2_section_hint = phase2_constraints.get('section_hint')
-    section = str(phase2_section_hint) if isinstance(phase2_section_hint, str) else None
 
-    group_by_value = phase2_constraints.get('group_by')
-    if isinstance(group_by_value, str) and group_by_value in {'year', 'category', 'file'}:
-        group_by = group_by_value
-    else:
-        group_by = None
+    # Section: use LLM output directly (LLM has full query context).
+    section_raw = data.get('section')
+    section = str(section_raw).strip() if isinstance(section_raw, str) and str(section_raw).strip() else None
+
+    # group_by: use LLM output directly.
+    llm_group_by = data.get('group_by')
+    group_by = llm_group_by if isinstance(llm_group_by, str) and llm_group_by in {'year', 'category', 'file'} else None
 
     field_hint_value = phase2_constraints.get('field_hint')
     field_hint = str(field_hint_value) if isinstance(field_hint_value, str) else None
@@ -584,8 +683,17 @@ def classify_query_llm(query: str) -> QueryClassification:
         if 'policy_inventory_plus_content_to_coverage' not in normalization_reason_codes:
             normalization_reason_codes.append('policy_inventory_plus_content_to_coverage')
 
-    source_terms_value = phase2_constraints.get('source_terms')
-    source_terms = [str(v) for v in source_terms_value] if isinstance(source_terms_value, list) else []
+    # source_terms: use LLM output first; fall back to regex-based metadata_filters extraction.
+    llm_source_terms = data.get('source_terms')
+    if isinstance(llm_source_terms, list) and llm_source_terms:
+        source_terms = [str(v) for v in llm_source_terms if str(v).strip()]
+    else:
+        fallback_source_terms = phase2_constraints.get('source_terms')
+        source_terms = [str(v) for v in fallback_source_terms] if isinstance(fallback_source_terms, list) else []
+
+    # is_continuation / is_scope_reset: use LLM output directly.
+    is_continuation = bool(data.get('is_continuation'))
+    is_scope_reset = bool(data.get('is_scope_reset'))
 
     is_metadata_query = (intent == 'metadata')
     is_file_list_query = bool(intent == 'metadata' and _FILE_LIST_PATTERN.search(query))
@@ -594,13 +702,25 @@ def classify_query_llm(query: str) -> QueryClassification:
     effective_section_filter = section if intent in ('focused', 'coverage') else None
     llm_route_candidate_raw = data.get('route_candidate')
     llm_route_candidate = str(llm_route_candidate_raw).strip() if isinstance(llm_route_candidate_raw, str) else None
-    route_candidate, confidence, reason_codes = _resolve_route_candidate(
+    route_candidate, deterministic_override, reason_codes = _resolve_route_candidate(
         llm_route_candidate=llm_route_candidate,
         intent=intent,
         response_shape=response_shape,
         subtype=subtype,
         group_by=group_by,
     )
+    # llm_confidence: reserved for future LLM self-reported confidence; 0.0 until LLM emits a "confidence" field.
+    llm_confidence = 0.0
+    # Derive numeric confidence from provenance for downstream confidence_band consumers.
+    # deterministic_override (hard aggregate rule) → 'high' band.
+    # llm_profile_selected → 'high' band.
+    # policy_default_selected → 'medium' band.
+    if deterministic_override:
+        confidence = 0.9
+    elif 'llm_profile_selected' in reason_codes:
+        confidence = 0.85
+    else:
+        confidence = 0.75
     if (
         intent == 'focused'
         and filename is not None
@@ -643,6 +763,10 @@ def classify_query_llm(query: str) -> QueryClassification:
         section_filter=effective_section_filter,
         is_metadata_query=is_metadata_query,
         is_file_list_query=is_file_list_query,
+        is_continuation=is_continuation,
+        is_scope_reset=is_scope_reset,
+        deterministic_override=deterministic_override,
+        llm_confidence=llm_confidence,
     )
 
     log.info(
@@ -670,6 +794,10 @@ def classify_query_llm(query: str) -> QueryClassification:
             'filename_filter': classification.filename_filter,
             'block_type_filter': classification.block_type_filter,
             'section_filter': classification.section_filter,
+            'is_continuation': classification.is_continuation,
+            'is_scope_reset': classification.is_scope_reset,
+            'deterministic_override': classification.deterministic_override,
+            'llm_confidence': classification.llm_confidence,
         },
     )
 

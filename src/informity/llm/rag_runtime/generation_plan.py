@@ -64,6 +64,7 @@ def build_generation_prompt_plan(
     route_candidate: str,
     dedupe_prompt_chunks_fn: Callable[[list[dict]], list[dict]],
     derive_format_requirements_fn: Callable[[str], list[str]],
+    skip_precloseout_quality_check: bool = False,
 ) -> GenerationPromptPlan:
     prompt_start = time.perf_counter()
     chunks = dedupe_prompt_chunks_fn(chunks)
@@ -100,7 +101,8 @@ def build_generation_prompt_plan(
     pre_closeout_quality_check_passed = True
     pre_closeout_quality_check_reason: str | None = None
     if (
-        fit_to_budget_enabled
+        not skip_precloseout_quality_check
+        and fit_to_budget_enabled
         and effective_query_type == 'focused'
         and post_retrieval_ratio >= policy_soft_output_cap_threshold
         and retrieval_relevance_score < float(retrieval_precloseout_min_relevance_score)

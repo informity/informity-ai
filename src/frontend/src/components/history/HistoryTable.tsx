@@ -20,10 +20,9 @@ const SORT_COLUMNS = ['title', 'date']
 type SortColumn = (typeof SORT_COLUMNS)[number]
 type SortOrder = 'asc' | 'desc'
 
-function getModeMeta(mode?: 'balanced' | 'analysis' | 'research'): { icon: string; label: string } | null {
+function getModeMeta(mode?: 'analysis' | 'research'): { icon: string; label: string } | null {
   if (mode === 'research') return { icon: 'ri-search-ai-3-line', label: 'Research' }
   if (mode === 'analysis') return { icon: 'ri-flask-line', label: 'Analysis' }
-  if (mode === 'balanced') return { icon: 'ri-scales-3-line', label: 'Balanced' }
   return null
 }
 

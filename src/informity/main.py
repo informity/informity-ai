@@ -58,7 +58,7 @@ from informity.version import APP_VERSION
 # This is needed for sentence-transformers (embedding/reranker), LLM downloads (huggingface-hub), and docling models.
 configure_hf_environment()
 
-from informity.db.sqlite import clear_stale_running_scans, get_connection, init_db
+from informity.db.sqlite import clear_stale_running_scans, get_connection, init_db, prune_continuation_artifacts
 from informity.indexer.adaptive_tuning import update_tuning_cache
 from informity.indexer.embedder import embedder
 from informity.indexer.reranker import reranker
@@ -84,7 +84,6 @@ _REQUEST_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, Tim
 _WARMUP_TIMEOUT_SECONDS = 300.0
 _TAURI_SESSION_TOKEN = get_tauri_session_token_from_env()
 _DESKTOP_SESSION_MODE = is_tauri_desktop_mode(_TAURI_SESSION_TOKEN)
-_llm_warmup_task: asyncio.Task | None = None
 _MANAGED_PID_FILE_ENV = 'INFORMITY_MANAGED_PID_FILE'
 _MANAGED_PID_FILE_RAW = _os.environ.get(_MANAGED_PID_FILE_ENV, '').strip()
 _MANAGED_PID_FILE_PATH: Path | None = (
@@ -224,6 +223,25 @@ async def _run_llm_warmup() -> None:
             ),
             timeout=_WARMUP_TIMEOUT_SECONDS,
         )
+        log.info('llm_warmup_classifier_completed')
+
+        # Generation warmup: run a short dummy call through the production prompt path
+        # (build_messages + free-text generation) to warm up any Metal shaders not
+        # triggered by the classifier pass (different format: no JSON grammar, different
+        # stop sequences, free-text generation temperature).
+        from informity.llm.prompt_builder import build_messages as _build_gen_messages
+        gen_messages = _build_gen_messages('warmup', context_chunks=[], response_mode='analysis')
+        gen_stops = profile.get_stop_sequences(reasoning_enabled=False)
+        await asyncio.wait_for(
+            asyncio.to_thread(
+                llm_engine.model.create_chat_completion,
+                gen_messages,
+                max_tokens=1,
+                temperature=0.1,
+                stop=gen_stops,
+            ),
+            timeout=_WARMUP_TIMEOUT_SECONDS,
+        )
         log.info('llm_warmup_completed')
     except asyncio.CancelledError:
         log.info('llm_warmup_cancelled')
@@ -238,13 +256,39 @@ async def _run_llm_warmup() -> None:
         log.warning('llm_warmup_failed', error=str(exc))
 
 
+async def _run_embedder_warmup() -> None:
+    """
+    Warm up the embedding model by running a minimal encode call.
+
+    This loads the SentenceTransformer model into memory and initializes MPS
+    (Metal) kernels so the first real user query incurs no cold-start latency.
+    """
+    try:
+        log.info('embedder_warmup_starting', model=settings.embedding_model)
+        await asyncio.wait_for(
+            asyncio.to_thread(embedder.embed_query, 'warmup'),
+            timeout=_WARMUP_TIMEOUT_SECONDS,
+        )
+        log.info('embedder_warmup_completed')
+    except asyncio.CancelledError:
+        log.info('embedder_warmup_cancelled')
+        raise
+    except TimeoutError:
+        log.warning(
+            'embedder_warmup_timeout',
+            timeout_seconds=int(_WARMUP_TIMEOUT_SECONDS),
+            msg='Embedder warmup timed out — model will load on first query',
+        )
+    except _STARTUP_RUNTIME_EXCEPTIONS as exc:
+        log.warning('embedder_warmup_failed', error=str(exc))
+
+
 # ==============================================================================
 # Lifespan — startup and shutdown logic
 # ==============================================================================
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    global _llm_warmup_task  # noqa: PLW0603
     # -- Startup --------------------------------------------------------------
     _register_signal_handlers()
     _write_managed_pid_file()
@@ -279,6 +323,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Clear any RUNNING scan records left from a previous process (crash/restart)
     await clear_stale_running_scans()
 
+    # Prune expired continuation pass artifacts (TTL-based cleanup even during low-write periods).
+    try:
+        conn = await get_connection()
+        try:
+            await prune_continuation_artifacts(conn)
+        finally:
+            await conn.close()
+    except _STARTUP_RUNTIME_EXCEPTIONS as exc:
+        log.warning('continuation_artifact_startup_prune_failed', error=str(exc))
+
     # Populate adaptive top-k cache from corpus stats (if enabled).
     # Startup is an explicit lifecycle event, so force recompute now.
     try:
@@ -300,7 +354,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     #   immediately while the model loads behind the scenes.
     # Skipped in dev mode (reload) to avoid double-warmup on code changes.
     if not settings.dev_reload and not _DESKTOP_SESSION_MODE:
-        await _run_llm_warmup()
+        await asyncio.gather(_run_llm_warmup(), _run_embedder_warmup())
 
     # Start file watcher for incremental indexing (if watched_directories configured)
     loop = asyncio.get_running_loop()
@@ -308,23 +362,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     log.info('application_started')
 
-    # Desktop mode: schedule warmup as a background task now that the server is
-    # accepting connections. The Tauri frontend can connect and render the UI
-    # while the model loads behind the scenes. The task reference is stored so
-    # shutdown can cancel it cleanly if the user quits before loading finishes.
-    if not settings.dev_reload and _DESKTOP_SESSION_MODE:
-        _llm_warmup_task = asyncio.create_task(_run_llm_warmup(), name='llm_warmup_background')
-
     yield
 
     # -- Shutdown -------------------------------------------------------------
     log.info('application_shutting_down')
     _remove_managed_pid_file()
-
-    if _llm_warmup_task is not None and not _llm_warmup_task.done():
-        _llm_warmup_task.cancel()
-        with suppress(asyncio.CancelledError, Exception):
-            await _llm_warmup_task
 
     stop_watcher()
     _cleanup_models()

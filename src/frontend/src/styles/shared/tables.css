@@ -28,7 +28,7 @@
   font-size: var(--font-size-base);
   color: var(--color-text-muted);
   background: transparent;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 82%, white);
+  border-bottom: 1px var(--layout-divider-style) color-mix(in srgb, var(--color-border) 82%, white);
   white-space: nowrap;
   position: relative;
 }
@@ -102,7 +102,7 @@
 
 .data-table__td {
   padding: 0.5rem 0.75rem;
-  border-bottom: 1px solid var(--color-border-subtle);
+  border-bottom: 1px var(--layout-divider-style) var(--layout-divider-color);
   vertical-align: middle;
 }
 

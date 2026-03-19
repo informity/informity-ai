@@ -1,5 +1,4 @@
 import math
-import re
 
 import aiosqlite
 
@@ -7,43 +6,6 @@ from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.retrieval import retrieve_chunks
-
-_SCOPE_RESET_PATTERN = re.compile(
-    r'\b(start over|ignore (the )?(previous|prior)|new scope|different document|different file|switch to)\b',
-    re.IGNORECASE,
-)
-_GENERIC_CONTINUE_PATTERN = re.compile(
-    r'^\s*(continue|go on|carry on|resume|proceed|keep going|go ahead)\b',
-    re.IGNORECASE,
-)
-_GENERIC_CONTINUE_PHRASES = {
-    'continue',
-    'continue please',
-    'please continue',
-    'go on',
-    'carry on',
-    'resume',
-    'proceed',
-    'keep going',
-    'go ahead',
-    'next',
-    'next section',
-    'next part',
-    'more',
-    'more please',
-    'the rest',
-    'rest',
-}
-
-
-def _is_continuation_utterance(text: str) -> bool:
-    normalized = ' '.join((text or '').strip().split())
-    if not normalized:
-        return False
-    normalized_casefold = normalized.casefold().rstrip('.!?')
-    if normalized_casefold in _GENERIC_CONTINUE_PHRASES:
-        return True
-    return bool(_GENERIC_CONTINUE_PATTERN.search(normalized))
 
 
 def _normalize_relevance_score(raw_score: float) -> float:
@@ -98,10 +60,6 @@ def _evaluate_source_diversity_gate(
     return len(distinct_sources) >= 2, len(distinct_sources)
 
 
-def _detect_scope_reset(question: str) -> bool:
-    return bool(_SCOPE_RESET_PATTERN.search(question))
-
-
 def _extract_prior_source_anchors(history: list[ChatMessage] | None) -> set[str]:
     if not history:
         return set()
@@ -151,6 +109,7 @@ def _build_continuation_retrieval_query(
     route_candidate: str,
     prior_has_remaining_scope: bool,
     scope_reset_detected: bool,
+    is_continuation: bool = False,
     history: list[ChatMessage] | None,
 ) -> str:
     normalized_question = question.strip()
@@ -160,7 +119,7 @@ def _build_continuation_retrieval_query(
         return normalized_question
     if not normalized_question:
         return normalized_question
-    if not _is_continuation_utterance(normalized_question):
+    if not is_continuation:
         return normalized_question
     last_user_question = _extract_last_user_question(history)
     if not last_user_question:
@@ -319,6 +278,7 @@ async def _retrieve_with_staged_structural_constraints(
     db: aiosqlite.Connection,
     trace: object | None,
     retrieve_fn=retrieve_chunks,
+    timing_output: dict | None = None,
 ) -> tuple[list[dict], str]:
     """
     Retrieve with baseline-first strategy for structural constraints.
@@ -344,6 +304,7 @@ async def _retrieve_with_staged_structural_constraints(
         query_type=effective_query_type,
         db=db,
         trace=trace,
+        timing_output=timing_output,
     )
     if not baseline_chunks or not has_structural_constraints:
         return baseline_chunks, 'none'
@@ -374,6 +335,7 @@ async def _retrieve_with_staged_structural_constraints(
         query_type=effective_query_type,
         db=db,
         trace=trace,
+        timing_output=timing_output,
     )
     if not constrained_chunks:
         return baseline_chunks, 'both'
@@ -406,6 +368,7 @@ async def _retrieve_with_staged_structural_constraints(
             query_type=effective_query_type,
             db=db,
             trace=trace,
+            timing_output=timing_output,
         )
         if section_relaxed_chunks:
             section_relaxed_passed, _ = _evaluate_retrieval_relevance_gate(

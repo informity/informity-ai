@@ -34,6 +34,7 @@ class InitialRetrievalResult:
     effective_top_k: int
     fallback_events: list[dict[str, object]]
     retrieval_elapsed_ms: float
+    retrieve_timing: dict  # Per-stage timing: embed_ms, vector_search_ms, rerank_ms
 
 
 def build_retrieval_context(
@@ -42,7 +43,7 @@ def build_retrieval_context(
     classification: QueryClassification,
     history: list[ChatMessage] | None,
 ) -> RetrievalContext:
-    scope_reset_detected = _retrieval_validation._detect_scope_reset(question)
+    scope_reset_detected = classification.is_scope_reset
     prior_source_anchors = _retrieval_validation._extract_prior_source_anchors(history)
     prior_has_remaining_scope = _retrieval_validation._extract_prior_has_remaining_scope(history)
     continuation_source_terms = _retrieval_validation._derive_continuation_source_terms(
@@ -60,6 +61,7 @@ def build_retrieval_context(
         route_candidate=classification.route_candidate,
         prior_has_remaining_scope=prior_has_remaining_scope,
         scope_reset_detected=scope_reset_detected,
+        is_continuation=classification.is_continuation,
         history=history,
     )
     return RetrievalContext(
@@ -92,6 +94,7 @@ async def run_initial_retrieval_plan(
     retrieve_fn: Callable[..., Awaitable[list[dict]]],
 ) -> InitialRetrievalResult:
     retrieval_start = time.perf_counter()
+    retrieve_timing: dict = {}
     retrieval_classification = QueryClassification(
         intent=classification.intent,
         response_shape=classification.response_shape,
@@ -153,6 +156,7 @@ async def run_initial_retrieval_plan(
             db=db,
             trace=trace,
             retrieve_fn=retrieve_fn,
+            timing_output=retrieve_timing,
         )
         if chunks:
             fallback_events.append({
@@ -172,6 +176,7 @@ async def run_initial_retrieval_plan(
             db=db,
             trace=trace,
             retrieve_fn=retrieve_fn,
+            timing_output=retrieve_timing,
         )
     if not chunks and profile_rag_max_score is not None:
         fallback_events.append({
@@ -189,6 +194,7 @@ async def run_initial_retrieval_plan(
             db=db,
             trace=trace,
             retrieve_fn=retrieve_fn,
+            timing_output=retrieve_timing,
         )
     retrieval_elapsed_ms = (time.perf_counter() - retrieval_start) * 1000
     return InitialRetrievalResult(
@@ -198,4 +204,5 @@ async def run_initial_retrieval_plan(
         effective_top_k=effective_top_k,
         fallback_events=fallback_events,
         retrieval_elapsed_ms=retrieval_elapsed_ms,
+        retrieve_timing=retrieve_timing,
     )

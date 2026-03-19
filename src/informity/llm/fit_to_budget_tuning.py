@@ -26,7 +26,7 @@ _ROLLOUT_POWER_USERS_BUCKET_LIMIT = 35
 _DEFAULT_TUNING_MIN_SAMPLES = 20
 _DEFAULT_TUNING_LOOKBACK_DAYS = 14
 _MIN_DYNAMIC_COMPLETION_SAMPLES = 5
-_SUPPORTED_RESPONSE_MODES = {'balanced', 'analysis', 'research'}
+_SUPPORTED_RESPONSE_MODES = {'analysis', 'research'}
 _DEFAULT_SOFT_TOP_K = 0.60
 _DEFAULT_SOFT_REASONING = 0.75
 _DEFAULT_SOFT_OUTPUT = 0.85
@@ -310,9 +310,9 @@ async def resolve_fit_to_budget_policy(
     timeout_seconds: int,
     response_mode: str | None = None,
 ) -> FitToBudgetPolicy:
-    normalized_mode = str(response_mode or 'balanced').strip().lower()
+    normalized_mode = str(response_mode or 'analysis').strip().lower()
     if normalized_mode not in _SUPPORTED_RESPONSE_MODES:
-        normalized_mode = 'balanced'
+        normalized_mode = 'analysis'
     stage, enabled = _resolve_rollout_enabled()
     cache_key = f'{query_type}:{normalized_mode}:{stage}:{enabled}:{timeout_seconds}'
     now = time.time()

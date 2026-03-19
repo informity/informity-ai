@@ -197,7 +197,7 @@
   width: 100%;
   min-width: 24rem;
   border-collapse: collapse;
-  border: 1px solid var(--color-border);
+  border: 1px var(--layout-divider-style) var(--color-border);
   border-radius: var(--border-radius-sm);
   overflow: hidden;
 }
@@ -213,14 +213,15 @@
   font-size: var(--font-size-base);
   font-weight: 600;
   color: var(--color-text-muted);
-  background: var(--surface-table-head);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 82%, white);
+  background: transparent;
+  border-bottom: 1px var(--layout-divider-style) color-mix(in srgb, var(--color-border) 82%, white);
+  white-space: nowrap;
 }
 
 .chat-message__table-scroll td {
   font-size: var(--font-size-base);
   color: var(--color-text);
-  border-bottom: 1px solid var(--color-border-subtle);
+  border-bottom: 1px var(--layout-divider-style) var(--layout-divider-color);
 }
 
 .chat-message__table-scroll th,

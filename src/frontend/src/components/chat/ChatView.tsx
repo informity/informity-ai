@@ -13,20 +13,19 @@ import { getCurrentChat, getSettings, updateSettings } from '../../api'
 import { logApiError } from '../../utils/logApiError'
 import './ChatView.css'
 
-const CHAT_INPUT_MIN_HEIGHT = 84
+const CHAT_INPUT_MIN_HEIGHT = 104
 const CHAT_INPUT_MAX_HEIGHT = 304
 const FORCE_NEW_CHAT_KEY = 'informity_force_new_chat'
-type ResponseMode = 'balanced' | 'analysis' | 'research'
+type ResponseMode = 'analysis' | 'research'
 const RESPONSE_MODE_LABELS: Record<ResponseMode, string> = {
-  balanced: 'Balanced',
   analysis: 'Analysis',
   research: 'Research',
 }
 const RESPONSE_MODE_ICONS: Record<ResponseMode, string> = {
-  balanced: 'ri-scales-3-line',
   analysis: 'ri-flask-line',
   research: 'ri-search-ai-3-line',
 }
+const ALL_RESPONSE_MODES: ResponseMode[] = ['analysis', 'research']
 
 interface ChatViewProps {
   prefillMessage?: string
@@ -61,8 +60,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     clearError,
   } = useChatContext()
   const [inputValue, setInputValue] = useState(prefillMessage)
-  const [responseMode, setResponseMode] = useState<ResponseMode>('balanced')
-  const [supportedModes, setSupportedModes] = useState<ResponseMode[]>(['balanced', 'analysis'])
+  const [responseMode, setResponseMode] = useState<ResponseMode>('analysis')
+  const [supportedModes, setSupportedModes] = useState<ResponseMode[]>(['analysis'])
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [animateToDocked, setAnimateToDocked] = useState(false)
@@ -101,18 +100,17 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
         const settings = data as ChatSettingsResponse
         const profileModes = Array.isArray(settings.model_profile?.supported_modes)
           ? settings.model_profile.supported_modes.filter((mode): mode is ResponseMode => (
-            mode === 'balanced' || mode === 'analysis' || mode === 'research'
+            mode === 'analysis' || mode === 'research'
           ))
           : []
-        const defaultModes: ResponseMode[] = ['balanced', 'analysis']
-        const modes: ResponseMode[] = profileModes.length > 0 ? profileModes : defaultModes
+        const modes: ResponseMode[] = profileModes.length > 0 ? profileModes : ['analysis']
         setSupportedModes(modes)
         const preferred = settings.default_response_mode
         if (preferred && modes.includes(preferred)) {
           setResponseMode(preferred)
           return
         }
-        setResponseMode(modes[0] ?? 'balanced')
+        setResponseMode(modes[0] ?? 'analysis')
       })
       .catch((err) => logApiError(err, 'ChatView.getSettings.defaultResponseMode'))
     return () => {
@@ -256,7 +254,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
       dockAnimationTimerRef.current = window.setTimeout(() => {
         setAnimateToDocked(false)
         dockAnimationTimerRef.current = null
-      }, 900)
+      }, 1200)
     } else if (isCenteredComposer) {
       setAnimateToDocked(false)
       if (dockAnimationTimerRef.current != null) {
@@ -279,12 +277,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     scheduleAutoFollow()
   }, [isStreaming, streamContent, scheduleAutoFollow])
 
-  const handleContinue = useCallback((mode: ResponseMode = 'balanced', anchorMessageId?: number) => {
+  const handleContinue = useCallback((mode: ResponseMode = 'analysis', anchorMessageId?: number) => {
     if (offline) return
     void continueLastScope(mode, anchorMessageId)
   }, [offline, continueLastScope])
 
-  const handleRegenerate = useCallback((assistantMessageIndex: number, mode: ResponseMode = 'balanced') => {
+  const handleRegenerate = useCallback((assistantMessageIndex: number, mode: ResponseMode = 'analysis') => {
     if (offline) return
     if (isStreaming) return
     const previousUser = [...messages]
@@ -450,6 +448,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                       isStreaming={msg.isStreaming}
                       streamStatusText={msg.streamStatusText}
                       streamSectionProgress={msg.streamSectionProgress}
+                      streamPlanSteps={msg.streamPlanSteps}
                       isPartial={msg.isPartial}
                       hasRemainingScope={msg.hasRemainingScope}
                       completionMode={msg.completionMode}
@@ -511,24 +510,37 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                       </button>
                       {modeMenuOpen && (
                         <div className="chat-view__mode-menu" role="menu">
-                          {supportedModes.map((mode) => (
-                            <button
-                              key={mode}
-                              type="button"
-                              className={`chat-view__mode-option${responseMode === mode ? ' chat-view__mode-option--active' : ''}`}
-                              role="menuitemradio"
-                              aria-checked={responseMode === mode}
-                              disabled={offline || isStreaming}
-                              onClick={() => {
-                                setResponseMode(mode)
-                                setModeMenuOpen(false)
-                                persistDefaultResponseMode(mode)
-                              }}
-                            >
-                              <i className={RESPONSE_MODE_ICONS[mode]} aria-hidden />
-                              <span>{RESPONSE_MODE_LABELS[mode]}</span>
-                            </button>
-                          ))}
+                          {ALL_RESPONSE_MODES.map((mode) => {
+                            const available = supportedModes.includes(mode)
+                            const btn = (
+                              <button
+                                type="button"
+                                className={`chat-view__mode-option${responseMode === mode ? ' chat-view__mode-option--active' : ''}${!available ? ' chat-view__mode-option--unavailable' : ''}`}
+                                role="menuitemradio"
+                                aria-checked={responseMode === mode}
+                                aria-disabled={!available}
+                                disabled={offline || isStreaming || !available}
+                                onClick={() => {
+                                  setResponseMode(mode)
+                                  setModeMenuOpen(false)
+                                  persistDefaultResponseMode(mode)
+                                }}
+                              >
+                                <i className={RESPONSE_MODE_ICONS[mode]} aria-hidden />
+                                <span>{RESPONSE_MODE_LABELS[mode]}</span>
+                                {!available && <i className="ri-lock-line chat-view__mode-option-lock" aria-hidden />}
+                              </button>
+                            )
+                            if (!available) {
+                              return (
+                                <span key={mode} className="chat-view__mode-option-wrap ui-tooltip-trigger">
+                                  {btn}
+                                  <span className="ui-tooltip ui-tooltip--nowrap">Requires larger model.</span>
+                                </span>
+                              )
+                            }
+                            return <span key={mode} className="chat-view__mode-option-wrap">{btn}</span>
+                          })}
                         </div>
                       )}
                     </div>

@@ -36,7 +36,7 @@ const baseSettings = {
   chat_trace_evaluation_retention_days: 30,
   enable_raw_output_control: false,
   ui_theme: 'blue',
-  default_response_mode: 'balanced' as const,
+  default_response_mode: 'analysis' as const,
   llm_model_filename: 'main.gguf',
   available_models: ['main.gguf'],
   embedding_model: 'embed.gguf',

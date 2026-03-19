@@ -189,7 +189,7 @@ def _apply_strict_ordered_output_budget(
     max_tokens: int,
     reasoning_enabled: bool,
     strict_contract_complexity: bool = False,
-    response_mode: str = 'balanced',
+    response_mode: str = 'analysis',
 ) -> tuple[dict[str, int], int, bool, dict[str, object] | None]:
     has_strict_order = any(
         _strict_output_contract._is_ordered_headings_requirement(item)
@@ -198,7 +198,7 @@ def _apply_strict_ordered_output_budget(
     if not has_strict_order:
         return output_constraints, max_tokens, reasoning_enabled, None
 
-    normalized_mode = str(response_mode or 'balanced').strip().lower()
+    normalized_mode = str(response_mode or 'analysis').strip().lower()
     # Research mode should preserve strict structure but not force short-output caps.
     # Depth limits are controlled by profile budgets in research mode.
     if normalized_mode == 'research':
@@ -299,7 +299,7 @@ def _apply_strict_format_prompt_controls(
     applied_degradations: list[dict[str, object]],
     min_output_budget_floor: int | None = None,
 ) -> tuple[list[str], dict[str, int], int, bool, list[dict], list[dict[str, object]]]:
-    normalized_mode = str(response_mode or 'balanced').strip().lower()
+    normalized_mode = str(response_mode or 'analysis').strip().lower()
     format_requirements = derive_format_requirements_fn(question)
     format_requirements = _augment_strict_ordered_format_requirements(format_requirements)
     has_strict_ordered_headings = any(
@@ -415,7 +415,7 @@ def _apply_strict_pre_retrieval_guard(
     applied_degradations: list[dict[str, object]],
     derive_format_requirements_fn,
     profile_name: str = '',
-    response_mode: str = 'balanced',
+    response_mode: str = 'analysis',
 ) -> tuple[int, int, bool, int, list[dict[str, object]], bool]:
     format_requirements = derive_format_requirements_fn(question)
     has_strict_order = any(
@@ -425,7 +425,7 @@ def _apply_strict_pre_retrieval_guard(
     if not has_strict_order:
         return timeout_seconds, top_k, reasoning_enabled, max_tokens, applied_degradations, False
 
-    normalized_mode = str(response_mode or 'balanced').strip().lower()
+    normalized_mode = str(response_mode or 'analysis').strip().lower()
     if normalized_mode == 'research':
         # Keep strict-ordered mode semantics (for contract handling), but do not
         # preemptively degrade retrieval/generation budgets in research mode.
@@ -542,7 +542,7 @@ def _apply_preflight_budget_degradations(
     focused_timeout_seconds: int,
     output_constraints: dict[str, int],
     applied_degradations: list[dict[str, object]],
-    response_mode: str = 'balanced',
+    response_mode: str = 'analysis',
     strict_ordered_mode: bool = False,
 ) -> tuple[str, int, bool, int, int, dict[str, int], list[dict[str, object]], float, float]:
     effective_query_type = query_type

@@ -42,7 +42,7 @@ def build_messages(
     history: list[ChatMessage] | None = None,
     output_constraints: dict[str, int] | None = None,
     format_requirements: list[str] | None = None,
-    response_mode: str = 'balanced',
+    response_mode: str = 'analysis',
 ) -> list[dict[str, str]]:
     # Build messages for LLM. Context chunks formatted with [Source: N] labels
     # for LLM understanding (document boundaries, structure, provenance).
@@ -76,7 +76,7 @@ def build_messages(
         f"Current date: {_current_utc_date_iso()}\n\n"
         f"Context:\n{context_text}"
     )
-    if str(response_mode or 'balanced').strip().lower() == 'research':
+    if str(response_mode or 'analysis').strip().lower() == 'research':
         system_content += f"\n\n{_RESEARCH_MODE_PROMPT_ADDENDUM}"
     if output_constraints:
         constraints: list[str] = []
