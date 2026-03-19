@@ -8,9 +8,8 @@ import os
 import secrets
 import time
 from collections import deque
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Mapping
 from contextlib import asynccontextmanager
-from typing import Mapping
 
 from fastapi import HTTPException
 

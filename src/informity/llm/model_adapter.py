@@ -171,9 +171,6 @@ class ModelProfile:
     strip_citations:       bool = True
     dedupe_insufficient_context_after_stream: bool = False
 
-    # -- EOS token handling -----------------------------------------------------
-    extra_eos_tokens: tuple[str, ...] = ()  # Additional EOS tokens to suppress for min_tokens
-
     # -- Public API ------------------------------------------------------------
     supported_modes: tuple[str, ...] = ('analysis',)
 

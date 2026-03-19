@@ -175,7 +175,7 @@ class ModelProfileInfo(BaseModel):
     coverage_top_k:          int       # Chunks retrieved for coverage queries
     top_k_analysis:          int       # Retrieval top-k for analysis mode
     top_k_research:          int       # Retrieval top-k for research mode
-    min_tokens_coverage:     int       # Min tokens before EOS for coverage
+    min_tokens_coverage:     int       # Min tokens target for coverage (pipeline-enforced)
     prompt_format:           str       # "Native (GGUF template)", "ChatML"
     coverage_prompt_format:  str       # Prompt format for coverage queries
     context_length:          int       # Max context window (tokens)

@@ -82,7 +82,7 @@ SCAN_TERMINAL_UPDATE_RETRIES = 3
 SCAN_TERMINAL_UPDATE_RETRY_DELAY_SECONDS = 0.2
 
 
-class _ScanCancelledInFlight(Exception):
+class _ScanCancelledInFlightError(Exception):
     """Raised when a scan cancellation request arrives during file processing."""
 
 # ==============================================================================
@@ -528,7 +528,7 @@ async def _run_scan_task(
                         handler_task.cancel()
                         with contextlib.suppress(asyncio.CancelledError, Exception):
                             await asyncio.wait_for(handler_task, timeout=0.1)
-                        raise _ScanCancelledInFlight()
+                        raise _ScanCancelledInFlightError()
 
                     wait_timeout = SCAN_CANCEL_POLL_INTERVAL_SECONDS
                     if deadline is not None:
@@ -587,7 +587,7 @@ async def _run_scan_task(
                     path=str(sf.path),
                     error=result.error,
                 )
-        except _ScanCancelledInFlight:
+        except _ScanCancelledInFlightError:
             raise
         except TimeoutError:
             errors += 1
@@ -835,7 +835,7 @@ async def _run_scan_task(
                     return
                 try:
                     result = await _process_file(sf, 'indexing_file', index_file)
-                except _ScanCancelledInFlight:
+                except _ScanCancelledInFlightError:
                     if await _cancel_requested('index_new_inflight'):
                         return
                     raise
@@ -865,7 +865,7 @@ async def _run_scan_task(
                     return
                 try:
                     result = await _process_file(sf, 'reindexing_file', reindex_file)
-                except _ScanCancelledInFlight:
+                except _ScanCancelledInFlightError:
                     if await _cancel_requested('index_changed_inflight'):
                         return
                     raise
@@ -895,7 +895,7 @@ async def _run_scan_task(
                         return
                     try:
                         result = await _process_file(sf, 'reindexing_unchanged', reindex_file)
-                    except _ScanCancelledInFlight:
+                    except _ScanCancelledInFlightError:
                         if await _cancel_requested('index_unchanged_inflight'):
                             return
                         raise
@@ -994,7 +994,7 @@ async def _run_scan_task(
         # explicit log avoids implying ANN build behavior.
         log.debug('scan_vector_index_skipped', reason='exact_search_mode')
 
-    except _ScanCancelledInFlight:
+    except _ScanCancelledInFlightError:
         if await op_state.is_scan_cancel_requested(scan_id):
             log.info('scan_cancelled', scan_id=scan_id, stage='inflight_fallback')
             await _finalize_cancelled()

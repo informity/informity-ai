@@ -8,7 +8,6 @@
 # RetrievalFailure: terminal response (no generation needed) with metrics payload.
 # ==============================================================================
 
-import asyncio
 import re
 from dataclasses import dataclass, field
 
@@ -20,13 +19,13 @@ from informity.llm.intent_profiles import get_intent_profile_policy
 from informity.llm.model_adapter import get_retrieval_top_k
 from informity.llm.planner import PLANNING_ELIGIBLE_ROUTES, QueryPlan, _filters_to_kwargs
 from informity.llm.query_classifier import QueryClassification
-from informity.llm.retrieval import retrieve_chunks
 from informity.llm.rag_runtime import deterministic_fallbacks as _deterministic_fallbacks
 from informity.llm.rag_runtime import generation_terminal as _generation_terminal
 from informity.llm.rag_runtime import retrieval_gatekeeper as _retrieval_gatekeeper
 from informity.llm.rag_runtime import retrieval_plan as _retrieval_plan
 from informity.llm.rag_runtime import retrieval_validation as _retrieval_validation
 from informity.llm.rag_runtime import structured_numeric as _structured_numeric
+from informity.llm.retrieval import retrieve_chunks
 
 log = structlog.get_logger(__name__)
 
@@ -623,7 +622,7 @@ async def run_retrieval_pipeline(
                     'chunks_after_dedup': len(chunks),
                     'steps': _step_trace_entries,
                 })
-        except (RuntimeError, ValueError, TypeError, OSError, asyncio.TimeoutError) as _step_exc:
+        except (TimeoutError, RuntimeError, ValueError, TypeError, OSError) as _step_exc:
             log.warning('multi_step_retrieval_failed', error=str(_step_exc))
             # Fallback: use initial + gatekeeper-recovered chunks unchanged
 

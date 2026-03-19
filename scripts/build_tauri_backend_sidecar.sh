@@ -71,13 +71,13 @@ uv run --with pyinstaller pyinstaller \
   --exclude-module thinc.tests \
   --exclude-module torch.fx.passes.tests \
   --collect-data number_parser \
-  --collect-data llama_cpp \
+  --collect-data xllamacpp \
   --collect-data tiktoken \
   --collect-all docling \
   --collect-all docling_parse \
   --collect-all docling_ibm_models \
   --collect-all docx \
-  --collect-binaries llama_cpp \
+  --collect-binaries xllamacpp \
   --copy-metadata docling \
   --copy-metadata docling-core \
   --copy-metadata docling-parse \
