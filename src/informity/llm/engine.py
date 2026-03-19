@@ -477,11 +477,12 @@ class LLMEngine:
             from xllamacpp import CommonParams, Server  # type: ignore[import-untyped]
 
             params = CommonParams()
-            params.model.path  = str(model_path)
-            params.n_ctx       = ctx_len
-            params.n_gpu_layers = -1                       # Offload all layers to Metal GPU
-            params.n_batch     = 512                       # Reduce peak CPU during prompt prefill
-            params.n_threads   = settings.llm_cpu_threads  # Cap CPU threads
+            params.model.path             = str(model_path)
+            params.n_ctx                  = ctx_len
+            params.n_gpu_layers           = -1    # Offload all layers to Metal GPU
+            params.n_batch                = 512   # Reduce peak CPU during prompt prefill
+            params.cpuparams.n_threads    = settings.llm_cpu_threads  # Cap CPU threads
+            params.cpuparams_batch.n_threads = settings.llm_cpu_threads
 
             # Read chat template from GGUF metadata before constructing Server,
             # while we still have direct file access.
@@ -493,6 +494,8 @@ class LLMEngine:
 
         except ImportError as exc:
             raise LLMError(f'xllamacpp is not installed: {exc}') from exc
+        except AttributeError as exc:
+            raise LLMError(f'xllamacpp parameter mapping failed — API mismatch: {exc}') from exc
         except ValueError as exc:
             raise LLMError(f'Invalid model configuration: {exc}') from exc
         except RuntimeError as exc:
