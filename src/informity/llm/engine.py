@@ -274,7 +274,6 @@ def _truncate_messages_to_fit(
 
 def _run_stream_worker(
     server: object,
-    chat_template: str,
     messages: list[dict[str, str]],
     max_tok: int,
     temp: float,
@@ -284,27 +283,24 @@ def _run_stream_worker(
     queue: asyncio.Queue[str | object],
     exception_holder: list[BaseException],
     cancel_event: threading.Event,
-    force_chatml: bool = False,
 ) -> None:
     # Run the blocking xllamacpp generation call in a background thread.
-    # Renders the prompt using the GGUF's Jinja2 chat template (or ChatML
-    # when force_chatml is set), then calls server.handle_completions with
-    # a streaming callback. Each text chunk is pushed to the asyncio queue
-    # via call_soon_threadsafe so the event loop is never blocked.
+    # Sends messages via handle_chat_completions (OpenAI-compatible chat API)
+    # with stream=True. Each text chunk from the delta stream is pushed to
+    # the asyncio queue via call_soon_threadsafe so the event loop is never
+    # blocked.
+    #
+    # Response format: OpenAI chat completions streaming delta —
+    #   {"choices": [{"delta": {"content": "token"}, "finish_reason": null}]}
+    # Final chunk: {"choices": [{"delta": {}, "finish_reason": "stop"}]}
     #
     # Cancellation: when cancel_event is set (consumer disconnect or timeout),
     # the callback stops pushing tokens. C++ generation may continue briefly
     # until the current n_predict budget is exhausted; output is discarded.
     try:
-        if force_chatml:
-            prompt = _fallback_chatml_prompt(messages)
-            log.debug('chatml_forced', prompt_len=len(prompt), prompt_tail=repr(prompt[-80:]))
-        else:
-            prompt = _messages_to_prompt(chat_template, messages)
-
         payload = json.dumps({
-            'prompt':      prompt,
-            'n_predict':   max_tok,
+            'messages':    messages,
+            'max_tokens':  max_tok,
             'temperature': temp,
             'top_p':       top_p_val,
             'stop':        stop_seqs or [],
@@ -336,11 +332,28 @@ def _run_stream_worker(
             else:
                 return
 
-            token = data.get('content', '') if isinstance(data, dict) else ''
+            if not isinstance(data, dict):
+                return
+
+            # OpenAI chat completions streaming format: choices[0].delta.content
+            choices = data.get('choices') or []
+            choice = choices[0] if choices else {}
+            delta = choice.get('delta') or {}
+            token = delta.get('content') or ''
+
+            # Fallback: llama.cpp native completions format uses top-level 'content'
+            if not token:
+                token = data.get('content') or ''
+
             if token and not cancel_event.is_set():
                 loop.call_soon_threadsafe(queue.put_nowait, token)
 
-            if isinstance(data, dict) and data.get('stop', False):
+            # Finish reason from OpenAI format
+            fr = choice.get('finish_reason')
+            if fr:
+                finish_reason = _normalize_finish_reason(fr)
+            elif data.get('stop', False):
+                # Legacy llama.cpp server format
                 if data.get('stopped_eos', False) or data.get('stopped_word', False):
                     finish_reason = 'stop'
                 elif data.get('stopped_limit', False):
@@ -348,7 +361,7 @@ def _run_stream_worker(
                 else:
                     finish_reason = _normalize_finish_reason(data.get('stop_type'))
 
-        server.handle_completions(payload, _callback)  # type: ignore[attr-defined]
+        server.handle_chat_completions(payload, _callback)  # type: ignore[attr-defined]
 
         if cancel_event.is_set():
             finish_reason = 'cancelled'
@@ -705,7 +718,6 @@ class LLMEngine:
             max_tokens      = max_tok,
             temperature     = temp,
             top_p           = top_p_val,
-            force_chatml    = force_chatml,
             timeout_seconds = wall_clock,
             context_length  = context_len,
         )
@@ -721,8 +733,8 @@ class LLMEngine:
 
         worker = threading.Thread(
             target = _run_stream_worker,
-            args   = (server, self._chat_template, messages, max_tok, temp, top_p_val,
-                      stop_seqs, loop, queue, exception_holder, cancel_event, force_chatml),
+            args   = (server, messages, max_tok, temp, top_p_val,
+                      stop_seqs, loop, queue, exception_holder, cancel_event),
             name   = 'llm-stream-worker',
             daemon = True,
         )
@@ -731,6 +743,12 @@ class LLMEngine:
         finish_reason: str | None = None
         timeout_occurred = False
         timeout_reason: str | None = None
+
+        # Think-block filter state — strips <think>...</think> from the token stream.
+        # Qwen3 models emit a think block before the answer when reasoning is enabled.
+        # These blocks should not be included in the displayed answer or word counts.
+        _in_think_block = False
+        _think_partial   = ''  # accumulates partial tag text to detect split-token boundaries
 
         try:
             while True:
@@ -769,11 +787,46 @@ class LLMEngine:
                 if isinstance(item, tuple) and len(item) == 2 and item[0] == '__finish_reason__':
                     finish_reason = item[1]
                     continue
+
+                raw_token = str(item)
+
+                # Think-block filtering: accumulate into a rolling buffer and strip
+                # <think>...</think> regions before emitting to the consumer.
+                _think_partial += raw_token
+                emit_text = ''
+                while _think_partial:
+                    if not _in_think_block:
+                        start_pos = _think_partial.find('<think>')
+                        if start_pos == -1:
+                            # No think block opening. Keep last 6 chars buffered in case
+                            # '<think>' is split across tokens; emit the rest.
+                            safe_len = max(0, len(_think_partial) - 6)
+                            emit_text += _think_partial[:safe_len]
+                            _think_partial = _think_partial[safe_len:]
+                            break
+                        # Emit text before the think block, then enter think mode.
+                        emit_text += _think_partial[:start_pos]
+                        _in_think_block = True
+                        _think_partial = _think_partial[start_pos + len('<think>'):]
+                    else:
+                        end_pos = _think_partial.find('</think>')
+                        if end_pos == -1:
+                            # Still inside think block — discard buffered content,
+                            # keep last 7 chars in case '</think>' is split.
+                            _think_partial = _think_partial[max(0, len(_think_partial) - 7):]
+                            break
+                        # Discard up to and including </think>, exit think mode.
+                        _in_think_block = False
+                        _think_partial = _think_partial[end_pos + len('</think>'):]
+
+                if not emit_text:
+                    continue
+
                 if first_token_ms is None:
                     first_token_ms = (time.perf_counter() - start) * 1000
                 token_count += 1
-                total_text  += str(item)
-                yield str(item)
+                total_text  += emit_text
+                yield emit_text
 
             worker.join(timeout=60.0)
             if worker.is_alive():
