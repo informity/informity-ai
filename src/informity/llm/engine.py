@@ -298,6 +298,8 @@ def _run_stream_worker(
     # the callback stops pushing tokens. C++ generation may continue briefly
     # until the current n_predict budget is exhausted; output is discarded.
     try:
+        from informity.llm.model_adapter import get_profile
+        _tmpl_kwargs = get_profile().chat_template_kwargs
         payload = json.dumps({
             'messages':    messages,
             'max_tokens':  max_tok,
@@ -305,6 +307,7 @@ def _run_stream_worker(
             'top_p':       top_p_val,
             'stop':        stop_seqs or [],
             'stream':      True,
+            **({'chat_template_kwargs': _tmpl_kwargs} if _tmpl_kwargs else {}),
         })
 
         finish_reason: str | None = None
@@ -601,6 +604,8 @@ class LLMEngine:
         """
         server = self._loaded_server
 
+        from informity.llm.model_adapter import get_profile
+        _tmpl_kwargs = get_profile().chat_template_kwargs
         payload_dict: dict = {
             'messages':    messages,
             'max_tokens':  max_tokens,
@@ -610,6 +615,8 @@ class LLMEngine:
         }
         if response_format is not None:
             payload_dict['response_format'] = response_format
+        if _tmpl_kwargs:
+            payload_dict['chat_template_kwargs'] = _tmpl_kwargs
         payload = json.dumps(payload_dict)
 
         collected: list[dict] = []

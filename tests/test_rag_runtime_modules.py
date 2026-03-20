@@ -398,35 +398,6 @@ def test_strict_composer_applies_for_compliance_brief_in_analysis_mode() -> None
     assert output_contract_check.get('passed') is True
 
 
-def test_strict_composer_applies_for_compliance_brief_in_analysis_mode() -> None:
-    question = (
-        'Using only indexed finance/insurance/lending documents from 2022-2024, create a structured compliance brief '
-        'with these sections in order: 1) Executive Summary (max 140 words), 2) Year-by-Year Evidence Map '
-        '(2022, 2023, 2024), 3) Document Group Deep Dive (Group A finance docs, Group B insurance docs, '
-        'Group C lending docs, agency confirmations), 4) Risks and Gaps, 5) Action Checklist. '
-        'In section 3, use nested bullets with exactly 3 levels.'
-    )
-    chunks = [
-        {
-            'filename': 'sample-evidence.pdf',
-            'file_path': '/docs/sample-evidence.pdf',
-            'chunk_text': 'sample evidence text with year and values',
-            'score': 0.91,
-        },
-    ]
-    result = try_compose_strict_contract_answer(
-        question=question,
-        chunks=chunks,
-        response_mode='analysis',
-    )
-    assert result is not None
-    _, _, metrics = result
-    assert metrics.get('strict_composer_family') == 'research_structured_compliance_brief'
-    output_contract_check = metrics.get('output_contract_check')
-    assert isinstance(output_contract_check, dict)
-    assert output_contract_check.get('passed') is True
-
-
 def test_strict_composer_skips_non_contract_balanced_query() -> None:
     result = try_compose_strict_contract_answer(
         question='How many files are indexed?',

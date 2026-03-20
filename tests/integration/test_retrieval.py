@@ -15,13 +15,12 @@
 #   year=None: remaining 9 files (18 chunks)
 # ==============================================================================
 
-import pytest
 import aiosqlite
+import pytest
 
 from informity.config import settings
-from informity.llm.retrieval import retrieve_chunks
 from informity.llm.rag_runtime.retrieval_pipeline import _INSUFFICIENT_CONTEXT_RESPONSE
-
+from informity.llm.retrieval import retrieve_chunks
 
 # ---------------------------------------------------------------------------
 # Per-test DB connection

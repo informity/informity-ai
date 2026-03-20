@@ -12,9 +12,9 @@ from informity.db.models import ChatMessage
 from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.query_handler import QueryHandler
 from informity.llm.handlers.rag import RAGHandler
-from informity.llm.rag_runtime.retrieval_pipeline import _deduplicate_prompt_chunks
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification
+from informity.llm.rag_runtime.retrieval_pipeline import _deduplicate_prompt_chunks
 
 
 class TestHandlerProtocol:
@@ -240,7 +240,9 @@ class TestRAGHandler:
         assert degradation is None
 
     def test_inventory_plus_content_fallback_answer_is_generic_and_term_aware(self) -> None:
-        from informity.llm.rag_runtime.retrieval_pipeline import _build_inventory_plus_content_fallback_answer
+        from informity.llm.rag_runtime.retrieval_pipeline import (
+            _build_inventory_plus_content_fallback_answer,
+        )
 
         answer = _build_inventory_plus_content_fallback_answer(
             chunks=[
@@ -262,7 +264,9 @@ class TestRAGHandler:
 
     def test_filename_summary_fallback_answer_handles_markdown_summary_query(self) -> None:
         from informity.llm.handlers.rag import _has_explicit_output_contract
-        from informity.llm.rag_runtime.retrieval_pipeline import _build_filename_summary_fallback_answer
+        from informity.llm.rag_runtime.retrieval_pipeline import (
+            _build_filename_summary_fallback_answer,
+        )
 
         answer = _build_filename_summary_fallback_answer(
             question='Summarize the content of portfolio_notes.md',
@@ -279,7 +283,9 @@ class TestRAGHandler:
 
     def test_filename_summary_fallback_answer_skips_non_text_extensions(self) -> None:
         from informity.llm.handlers.rag import _has_explicit_output_contract
-        from informity.llm.rag_runtime.retrieval_pipeline import _build_filename_summary_fallback_answer
+        from informity.llm.rag_runtime.retrieval_pipeline import (
+            _build_filename_summary_fallback_answer,
+        )
 
         answer = _build_filename_summary_fallback_answer(
             question='Summarize the content of annual_statement.pdf',
@@ -291,7 +297,9 @@ class TestRAGHandler:
 
     def test_filename_summary_fallback_answer_skips_explicit_output_contract_queries(self) -> None:
         from informity.llm.handlers.rag import _has_explicit_output_contract
-        from informity.llm.rag_runtime.retrieval_pipeline import _build_filename_summary_fallback_answer
+        from informity.llm.rag_runtime.retrieval_pipeline import (
+            _build_filename_summary_fallback_answer,
+        )
 
         answer = _build_filename_summary_fallback_answer(
             question=(

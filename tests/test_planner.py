@@ -6,12 +6,7 @@
 
 from __future__ import annotations
 
-import pytest
-
 from informity.llm.planner import (
-    AnswerSection,
-    PlanStep,
-    QueryPlan,
     RetrievalFilters,
     _filters_to_kwargs,
     _normalize_output_shape,
@@ -21,7 +16,6 @@ from informity.llm.planner import (
     _validate_and_build_plan,
     build_corpus_summary,
 )
-
 
 # ==============================================================================
 # build_corpus_summary

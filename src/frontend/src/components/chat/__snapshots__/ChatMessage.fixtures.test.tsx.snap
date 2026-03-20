@@ -41,10 +41,10 @@ exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatt
       >
         <i
           aria-hidden="true"
-          class="ri-scales-3-line chat-message__meta-icon"
+          class="ri-flask-line chat-message__meta-icon"
         />
         <span>
-          Balanced
+          Analysis
         </span>
       </div>
     </div>
@@ -149,10 +149,10 @@ exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatt
       >
         <i
           aria-hidden="true"
-          class="ri-scales-3-line chat-message__meta-icon"
+          class="ri-flask-line chat-message__meta-icon"
         />
         <span>
-          Balanced
+          Analysis
         </span>
       </div>
     </div>
@@ -253,10 +253,10 @@ exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatt
       >
         <i
           aria-hidden="true"
-          class="ri-scales-3-line chat-message__meta-icon"
+          class="ri-flask-line chat-message__meta-icon"
         />
         <span>
-          Balanced
+          Analysis
         </span>
       </div>
     </div>
@@ -391,10 +391,10 @@ exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatt
       >
         <i
           aria-hidden="true"
-          class="ri-scales-3-line chat-message__meta-icon"
+          class="ri-flask-line chat-message__meta-icon"
         />
         <span>
-          Balanced
+          Analysis
         </span>
       </div>
     </div>
@@ -461,10 +461,10 @@ exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatt
       >
         <i
           aria-hidden="true"
-          class="ri-scales-3-line chat-message__meta-icon"
+          class="ri-flask-line chat-message__meta-icon"
         />
         <span>
-          Balanced
+          Analysis
         </span>
       </div>
     </div>
@@ -538,10 +538,10 @@ exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatt
       >
         <i
           aria-hidden="true"
-          class="ri-scales-3-line chat-message__meta-icon"
+          class="ri-flask-line chat-message__meta-icon"
         />
         <span>
-          Balanced
+          Analysis
         </span>
       </div>
     </div>

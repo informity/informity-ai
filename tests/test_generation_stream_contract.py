@@ -28,7 +28,7 @@ async def _mock_stream_llm_missing_heading(
     top_p: float,
     timeout_seconds: int,
     stop_sequences: list,
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str]:
     """Yields a response that satisfies only the first required heading, not the second."""
     tokens = ['## ', 'Scope\n', 'Some scope details here.\n']
     for token in tokens:
@@ -43,7 +43,7 @@ async def _mock_stream_llm_complete(
     top_p: float,
     timeout_seconds: int,
     stop_sequences: list,
-) -> AsyncGenerator[str, None]:
+) -> AsyncGenerator[str]:
     """Yields a response that satisfies all required headings."""
     tokens = ['## ', 'Scope\n', 'Details.\n\n', '## ', 'Method\n', 'More details.\n']
     for token in tokens:

@@ -50,6 +50,8 @@ const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; icon: string }> = [
   { id: 'diagnostics', label: 'Diagnostics', icon: 'ri-pulse-line' },
   { id: 'system', label: 'System', icon: 'ri-server-line' },
 ]
+const SETTINGS_ACTIVE_TAB_STORAGE_KEY = 'informity.settings.activeTab'
+const SETTINGS_TAB_IDS = new Set<SettingsTab>(SETTINGS_TABS.map((tab) => tab.id))
 const DIAGNOSTICS_PROFILE_PRESETS: Record<string, {
   logLevel: string
   traceLogging: string
@@ -282,6 +284,18 @@ function formatMaxTokensTriplet(profile?: ModelProfile): string {
   return `${simple} / ${focused} / ${coverage}`
 }
 
+function getInitialActiveTab(): SettingsTab {
+  try {
+    const saved = localStorage.getItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY)
+    if (saved && SETTINGS_TAB_IDS.has(saved as SettingsTab)) {
+      return saved as SettingsTab
+    }
+  } catch {
+    // Ignore localStorage errors and use default tab.
+  }
+  return 'general'
+}
+
 export function SettingsView({
   settings,
   fileTypeOptions,
@@ -292,7 +306,7 @@ export function SettingsView({
   saving,
 }: SettingsViewProps) {
   const [form, setForm] = useState<FormState>(() => buildFormState(settings || {}))
-  const [activeTab, setActiveTab] = useState<SettingsTab>('general')
+  const [activeTab, setActiveTab] = useState<SettingsTab>(getInitialActiveTab)
   const [previewProfile, setPreviewProfile] = useState<ModelProfile | null>(null)
   const [modelProfileNames, setModelProfileNames] = useState<Map<string, string>>(new Map())
   const [sortedModelFilenames, setSortedModelFilenames] = useState<string[]>([])
@@ -311,6 +325,14 @@ export function SettingsView({
       setPreviewProfile(null)
     }
   }, [settings])
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, activeTab)
+    } catch {
+      // Ignore localStorage errors.
+    }
+  }, [activeTab])
 
   useEffect(() => {
     const selected = form.llm_model_filename
