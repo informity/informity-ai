@@ -11,7 +11,8 @@ import pytest
 from informity.db.models import ChatMessage
 from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.query_handler import QueryHandler
-from informity.llm.handlers.rag import RAGHandler, _deduplicate_prompt_chunks
+from informity.llm.handlers.rag import RAGHandler
+from informity.llm.rag_runtime.retrieval_pipeline import _deduplicate_prompt_chunks
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification
 

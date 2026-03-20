@@ -111,7 +111,7 @@ async def get_diagnostics(request: Request) -> DiagnosticsResponse:
     vectors_size_mb = 0.0
     try:
         stats = await asyncio.to_thread(vector_store.get_stats)
-        vectors_size_bytes = stats.get('storage_bytes', 0)  # Changed from 'size_bytes' to 'storage_bytes'
+        vectors_size_bytes = stats.get('storage_bytes', 0)
         vectors_size_mb = vectors_size_bytes / (1024 ** 2)
     except _SYSTEM_DIAGNOSTICS_EXCEPTIONS:
         pass

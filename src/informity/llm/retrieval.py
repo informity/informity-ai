@@ -166,8 +166,6 @@ async def retrieve_chunks(
     profile = get_profile()
 
     # 3. File-anchored retrieval for coverage queries
-    filename_filter_relaxed = False
-
     if query_type == 'coverage' and db is not None:
         # Get all file_ids matching structured metadata filters.
         # This preserves coverage semantics for constrained sets (including filename contains).
@@ -367,7 +365,6 @@ async def retrieve_chunks(
                 'block_type_filter':   safe_block_type_filter,
                 'section_filter':      safe_section_filter,
                 'max_score':           max_score,
-                'filename_filter_relaxed': filename_filter_relaxed,
             })
         return []
 
@@ -556,7 +553,6 @@ async def retrieve_chunks(
             'children_reranked':   len(reranked_children),
             'children_after_structural_filter': len(filtered_child_chunks),
             'parents_fetched':     len(parent_chunks),
-            'filename_filter_relaxed': filename_filter_relaxed,
             'fts5_augmented_count': fts5_augmented_count if query_type != 'coverage' else 0,
         }
         if query_type == 'coverage' and db is not None:

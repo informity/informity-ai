@@ -109,8 +109,11 @@ def _deduplicate_prompt_chunks(chunks: list[dict]) -> list[dict]:
     seen: set[tuple[str, str]] = set()
     result: list[dict] = []
     for chunk in chunks:
-        source = str(chunk.get('filename', '') or '').strip().casefold()
+        source = str(chunk.get('file_path') or chunk.get('filename') or '').strip().casefold()
         text = ' '.join(str(chunk.get('chunk_text', '') or '').split()).strip().casefold()
+        if not source or not text:
+            result.append(chunk)
+            continue
         key = (source, text)
         if key in seen:
             continue

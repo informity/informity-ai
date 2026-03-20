@@ -178,7 +178,7 @@ async def _chunk_embed_store(
         # Build mapping: parent_chunk_index -> parent SQLite ID
         parent_index_to_id: dict[int, int] = {
             parent.chunk_index: parent_id
-            for parent, parent_id in zip(parent_chunks, parent_chunk_ids, strict=False)
+            for parent, parent_id in zip(parent_chunks, parent_chunk_ids, strict=True)
         }
 
         # Step 5: Insert child chunks with parent_id set
@@ -230,7 +230,7 @@ async def _chunk_embed_store(
             # Filter out chunks that exceed embedding model's context window
             valid_chunks = []
             valid_chunk_ids = []
-            for child, chunk_id in zip(batch_child_chunks, batch_child_chunk_ids, strict=False):
+            for child, chunk_id in zip(batch_child_chunks, batch_child_chunk_ids, strict=True):
                 if child.token_count > _EMBEDDING_MODEL_MAX_TOKENS:
                     skipped_count += 1
                     log.warning(

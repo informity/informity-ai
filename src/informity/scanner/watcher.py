@@ -147,7 +147,7 @@ class _InformityEventHandler(FileSystemEventHandler):
     def _enqueue_delete(self, path: Path) -> None:
         # Deleted path might not exist; we still want to remove from DB by path.
         ext = path.suffix.lower()
-        if ext in settings.supported_extensions:
+        if ext in _get_cached_supported_extensions_set():
             self._debouncer.enqueue(path, 'delete')
 
     def on_created(self, event: FileSystemEvent) -> None:

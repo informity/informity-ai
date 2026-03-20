@@ -61,15 +61,6 @@ _CITATION = (
     '\nSources',
 )
 
-# Citation artifacts (without [Source conflicts) - for models using [Source: N] citation format
-# Excludes '[Source' and '[ Source' to allow v2 citation format [Source: N]
-_CITATION_ARTIFACTS = (
-    '(Source',
-    '( Source',
-    'Sources:',
-    '\nSources',
-)
-
 # Qwen3-specific: Chinese accessibility prompts that may leak after answer
 _QWEN_CHINESE_STOPS = (
     '无障碍模式',  # "Accessibility mode"
@@ -173,8 +164,6 @@ class ModelProfile:
 
     # -- Public API ------------------------------------------------------------
     supported_modes: tuple[str, ...] = ('analysis',)
-
-    # -- Public API ------------------------------------------------------------
 
     def get_stop_sequences(self, reasoning_enabled: bool) -> list[str]:
         """Return stop sequences, with extras appended when reasoning is off."""

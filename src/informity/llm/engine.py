@@ -404,23 +404,6 @@ class LLMEngine:
     def is_loaded(self) -> bool:
         return self._server is not None
 
-    def ensure_ready(self) -> None:
-        """
-        Ensure the model is fully loaded and ready for use.
-        Triggers lazy loading and runs a minimal completion to verify
-        Metal GPU initialisation is complete.
-
-        Raises:
-            LLMError: If model loading or verification fails.
-        """
-        server = self._loaded_server
-        try:
-            warmup_payload = json.dumps({'prompt': 'test', 'n_predict': 1, 'temperature': 0.0})
-            server.handle_completions(warmup_payload)  # type: ignore[attr-defined]
-            log.debug('llm_model_ready_verified', msg='Model readiness verified via warmup completion')
-        except Exception as exc:
-            raise LLMError(f'Model verification failed — model may not be fully ready: {exc}') from exc
-
     def unload(self) -> None:
         """Unload the model and free GPU memory."""
         if self._server is not None:
