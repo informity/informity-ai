@@ -22,7 +22,7 @@ import shutil
 import threading
 import time
 from collections.abc import AsyncGenerator
-from contextlib import redirect_stderr, suppress
+from contextlib import suppress
 from pathlib import Path
 
 import structlog
@@ -501,9 +501,26 @@ class LLMEngine:
             # while we still have direct file access.
             self._chat_template = _read_gguf_chat_template(model_path)
 
-            # Suppress C-layer output (Metal init messages, n_ctx warnings, etc.)
-            with open(os.devnull, 'w') as devnull, redirect_stderr(devnull):
+            # Suppress C-layer verbosity: per-request slot/timing logs written
+            # directly to stdout by the llama.cpp server layer.
+            params.verbosity = -1
+
+            # Suppress C-layer init output (Metal init, model loading progress,
+            # n_ctx warnings) by redirecting OS-level fd 1/2 to /dev/null.
+            # Python's redirect_stderr only covers sys.stderr; C stdio uses fd
+            # numbers directly, so an fd-level redirect is required.
+            _devnull_fd = os.open(os.devnull, os.O_WRONLY)
+            _saved_out, _saved_err = os.dup(1), os.dup(2)
+            os.dup2(_devnull_fd, 1)
+            os.dup2(_devnull_fd, 2)
+            try:
                 self._server = Server(params)
+            finally:
+                os.dup2(_saved_out, 1)
+                os.dup2(_saved_err, 2)
+                os.close(_devnull_fd)
+                os.close(_saved_out)
+                os.close(_saved_err)
 
         except ImportError as exc:
             raise LLMError(f'xllamacpp is not installed: {exc}') from exc
