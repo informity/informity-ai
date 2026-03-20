@@ -78,7 +78,6 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
                 'models_dir',
                 f'Directory for GGUF LLM model files. Default: app_data_dir/{DirNames.MODELS}/{DirNames.LLM}.',
             ),
-            # vectors_dir removed - vectors now stored in SQLite via sqlite-vec
         ],
     ),
     (

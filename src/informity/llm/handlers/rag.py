@@ -4,7 +4,6 @@
 # ==============================================================================
 
 import asyncio
-import hashlib
 import re
 from collections.abc import AsyncGenerator
 
@@ -93,26 +92,6 @@ def _truncate_preview(text: str, max_length: int = _CHUNK_PREVIEW_MAX_LENGTH) ->
     return text[:max_length]
 
 
-def _deduplicate_prompt_chunks(chunks: list[dict]) -> list[dict]:
-    # Remove exact normalized duplicates for the same source only.
-    # Avoid prefix-based signatures, which can collapse distinct evidence chunks
-    # that share templated openings.
-    deduped_chunks: list[dict] = []
-    seen_signatures: set[tuple[str, str]] = set()
-    for chunk in chunks:
-        source_key = str(chunk.get('file_path') or chunk.get('filename') or '').strip().casefold()
-        text = str(chunk.get('chunk_text', '')).strip()
-        normalized_text = re.sub(r'\s+', ' ', text).casefold()
-        if not source_key or not normalized_text:
-            deduped_chunks.append(chunk)
-            continue
-        content_hash = hashlib.sha1(normalized_text.encode('utf-8')).hexdigest()
-        signature = (source_key, content_hash)
-        if signature in seen_signatures:
-            continue
-        seen_signatures.add(signature)
-        deduped_chunks.append(chunk)
-    return deduped_chunks
 
 
 class RAGHandler:
@@ -412,7 +391,7 @@ class RAGHandler:
                 timeout_seconds=timeout_seconds,
                 response_mode=response_mode_used,
                 route_candidate=classification.route_candidate,
-                dedupe_prompt_chunks_fn=_deduplicate_prompt_chunks,
+                dedupe_prompt_chunks_fn=_retrieval_pipeline._deduplicate_prompt_chunks,
                 derive_format_requirements_fn=_structured_numeric._derive_format_requirements,
                 # Skip the pre-closeout quality check when the gatekeeper demoted a coverage query
                 # to focused mode via fallback. The check — "don't generate for a focused query with
