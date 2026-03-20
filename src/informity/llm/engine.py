@@ -657,9 +657,9 @@ class LLMEngine:
         timeout_seconds: float | None     = None,
     ) -> AsyncGenerator[str | tuple[str, object]]:
         # Stream generated tokens one at a time as an async generator.
-        # Renders the prompt via the GGUF's Jinja2 chat template, then drives
-        # xllamacpp's handle_completions in a background thread. Tokens are
-        # delivered to the asyncio event loop via a thread-safe queue.
+        # Sends messages via handle_chat_completions in a background thread.
+        # Tokens (OpenAI chat streaming delta format) are delivered to the
+        # asyncio event loop via a thread-safe queue.
         #
         # Args:
         #   messages:        Chat messages (system, user, assistant turns).
