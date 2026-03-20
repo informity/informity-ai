@@ -495,9 +495,9 @@ class Settings(BaseSettings):
     # - custom: manual override mode (advanced users)
     diagnostics_profile: Literal['standard', 'troubleshooting', 'custom'] = 'standard'
     # Diagnostics strict contract gates (EH-09 rollback control):
-    # - False (default): do not hard-fail on strict schema/grounding gates.
-    # - True: enforce strict schema/grounding gates as test failures.
-    diagnostics_strict_contract_gates_enforced: bool = False
+    # - False: do not hard-fail on strict schema/grounding gates.
+    # - True (default): enforce strict schema/grounding gates as test failures.
+    diagnostics_strict_contract_gates_enforced: bool = True
     # Application log level: debug, info, warning, error. Default info to reduce noise.
     # Third-party loggers (e.g. aiosqlite) are always set to WARNING in logging_config.
     log_level: str = _DEFAULT_LOG_LEVEL

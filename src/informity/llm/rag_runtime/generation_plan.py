@@ -95,6 +95,7 @@ def build_generation_prompt_plan(
         focused_max_tokens=focused_max_tokens,
         focused_timeout_seconds=focused_timeout_seconds,
         applied_degradations=applied_degradations,
+        route_candidate=route_candidate,
         min_output_budget_floor=min_output_budget_floor,
     )
 

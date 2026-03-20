@@ -178,6 +178,59 @@ async def run_initial_retrieval_plan(
             retrieve_fn=retrieve_fn,
             timing_output=retrieve_timing,
         )
+    source_terms_relaxed_retry_eligible = (
+        len(chunks) <= 1
+        and bool(source_terms_for_retrieval)
+        and retrieval_filename_filter is None
+    )
+    if source_terms_relaxed_retry_eligible:
+        fallback_events.append({
+            'fallback_from': selected_policy_profile_id,
+            'fallback_to': selected_policy_profile_id,
+            'fallback_reason': 'retry_without_source_terms_filter',
+            'source_terms_count': len(source_terms_for_retrieval),
+            'initial_chunk_count': len(chunks),
+        })
+        relaxed_classification = QueryClassification(
+            intent=classification.intent,
+            response_shape=classification.response_shape,
+            route_candidate=classification.route_candidate,
+            confidence=classification.confidence,
+            alternatives=classification.alternatives,
+            reason_codes=classification.reason_codes,
+            missing_slots=classification.missing_slots,
+            subtype=classification.subtype,
+            group_by=classification.group_by,
+            field_hint=classification.field_hint,
+            source_terms=[],
+            year_filter=classification.year_filter,
+            category_filter=classification.category_filter,
+            file_type_filter=classification.file_type_filter,
+            filename_filter=retrieval_filename_filter,
+            block_type_filter=classification.block_type_filter,
+            section_filter=classification.section_filter,
+            is_metadata_query=classification.is_metadata_query,
+            is_file_list_query=classification.is_file_list_query,
+        )
+        relaxed_chunks, relaxed_constraint_relaxation = await retrieve_with_constraints_fn(
+            question=retrieval_question,
+            effective_top_k=effective_top_k,
+            profile_max_score=profile_rag_max_score,
+            classification=relaxed_classification,
+            effective_query_type=effective_query_type,
+            route_profile_id=selected_policy_profile_id,
+            db=db,
+            trace=trace,
+            retrieve_fn=retrieve_fn,
+            timing_output=retrieve_timing,
+        )
+        if relaxed_chunks:
+            chunks = relaxed_chunks
+            constraint_relaxation_applied = (
+                f'{relaxed_constraint_relaxation}|source_terms_relaxed'
+                if relaxed_constraint_relaxation != 'none'
+                else 'source_terms_relaxed'
+            )
     if not chunks and profile_rag_max_score is not None:
         fallback_events.append({
             'fallback_from': selected_policy_profile_id,

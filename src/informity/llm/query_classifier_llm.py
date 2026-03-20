@@ -42,6 +42,22 @@ _CLASSIFIER_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError)
 
 _FILE_LIST_PATTERN = build_file_list_pattern()
 _SUPPORTED_EXTENSIONS_CASEFOLD = tuple(ext.casefold() for ext in get_all_supported_extensions())
+_SIMPLE_CAPABILITY_QUERY_PATTERN = re.compile(
+    r'\b(?:what\s+can\s+you\s+do|what\s+kind\s+of\s+documents|what\s+information\s+is\s+available)\b',
+    re.IGNORECASE,
+)
+_CONTENT_QUERY_ENTITY_PATTERN = re.compile(
+    r'\b(?:indexed|records?|documents?|files?)\b',
+    re.IGNORECASE,
+)
+_CONTENT_QUERY_ACTION_PATTERN = re.compile(
+    r'\b(?:show|list|find|summari[sz]e|compare|extract|analy[sz]e|which|what\s+does|tell\s+me\s+about)\b',
+    re.IGNORECASE,
+)
+_CORPUS_WIDE_SCOPE_PATTERN = re.compile(
+    r'\b(?:across\s+all|all\s+indexed|all\s+documents?)\b',
+    re.IGNORECASE,
+)
 
 
 def _extract_phase2_constraints(query: str) -> dict[str, object]:
@@ -101,6 +117,47 @@ def _is_inventory_plus_content_coverage_query(query: str) -> bool:
 
 def _is_filename_summary_query(query: str) -> bool:
     return nlp_is_filename_summary_query(parse_query(query))
+
+
+def _should_override_simple_intent(
+    *,
+    query: str,
+    is_continuation: bool,
+    is_scope_reset: bool,
+    year: int | None,
+    file_type: str | None,
+    filename: str | None,
+    source_terms: list[str],
+    field_hint: str | None,
+    group_by: str | None,
+    block_type: str | None,
+    section: str | None,
+    aggregation_semantics: bool,
+    period_comparison_semantics: bool,
+    extraction_task: bool,
+) -> bool:
+    if is_continuation or is_scope_reset:
+        return False
+    if _SIMPLE_CAPABILITY_QUERY_PATTERN.search(query):
+        return False
+    if (
+        year is not None
+        or file_type is not None
+        or filename is not None
+        or bool(source_terms)
+        or field_hint is not None
+        or group_by is not None
+        or block_type is not None
+        or section is not None
+        or aggregation_semantics
+        or period_comparison_semantics
+        or extraction_task
+    ):
+        return True
+    return bool(
+        _CONTENT_QUERY_ENTITY_PATTERN.search(query)
+        and _CONTENT_QUERY_ACTION_PATTERN.search(query)
+    )
 
 
 def _resolve_route_candidate(
@@ -494,61 +551,137 @@ def classify_query_llm(query: str) -> QueryClassification:
     stops = profile.get_stop_sequences(reasoning_enabled=False)
     # JSON mode (GBNF grammar) constrains output to valid JSON; /no_think suppresses thinking tokens
 
-    try:
-        response = llm_engine.chat_complete(
-            messages=messages,
-            max_tokens=400,   # larger to fit group_by, source_terms array, is_continuation/is_scope_reset, and long filenames
-            temperature=0.0,  # deterministic
-            stop=stops,
-            response_format={'type': 'json_object'},  # Enforces valid JSON via GBNF grammar
-        )
-    except _CLASSIFIER_RUNTIME_EXCEPTIONS as exc:
-        raise LLMError(f'Classification inference failed: {exc}') from exc
+    max_attempts = 2
+    data: dict[str, object] | None = None
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            response = llm_engine.chat_complete(
+                messages=messages,
+                max_tokens=400,   # larger to fit group_by, source_terms array, is_continuation/is_scope_reset, and long filenames
+                temperature=0.0,  # deterministic
+                stop=stops,
+                response_format={'type': 'json_object'},  # Enforces valid JSON via GBNF grammar
+            )
+        except _CLASSIFIER_RUNTIME_EXCEPTIONS as exc:
+            last_error = exc
+            if attempt < max_attempts:
+                log.warning(
+                    'classifier_retry_scheduled',
+                    reason='inference_failed',
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    error=str(exc),
+                )
+                continue
+            raise LLMError(f'Classification inference failed: {exc}') from exc
 
-    # Extract content from response
-    if not response or 'choices' not in response or not response['choices']:
-        log.error(
-            'classifier_empty_response',
-            response_present=bool(response),
-            choices_present=bool(response and 'choices' in response),
-        )
-        raise LLMError('Empty response from classification model')
+        if not response or 'choices' not in response or not response['choices']:
+            last_error = ValueError('empty_response')
+            if attempt < max_attempts:
+                log.warning(
+                    'classifier_retry_scheduled',
+                    reason='empty_response',
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                )
+                continue
+            log.error(
+                'classifier_empty_response',
+                response_present=bool(response),
+                choices_present=bool(response and 'choices' in response),
+            )
+            raise LLMError('Empty response from classification model')
 
-    choice = response['choices'][0]
-    if 'message' not in choice or 'content' not in choice['message']:
-        log.error(
-            'classifier_invalid_response_structure',
-            choice_keys=sorted(choice.keys()) if isinstance(choice, dict) else [],
-        )
-        raise LLMError('Invalid response structure from classification model')
+        choice = response['choices'][0]
+        if 'message' not in choice or 'content' not in choice['message']:
+            last_error = ValueError('invalid_response_structure')
+            if attempt < max_attempts:
+                log.warning(
+                    'classifier_retry_scheduled',
+                    reason='invalid_response_structure',
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    choice_keys=sorted(choice.keys()) if isinstance(choice, dict) else [],
+                )
+                continue
+            log.error(
+                'classifier_invalid_response_structure',
+                choice_keys=sorted(choice.keys()) if isinstance(choice, dict) else [],
+            )
+            raise LLMError('Invalid response structure from classification model')
 
-    content = choice['message']['content']
-    if content is None:
-        content = ''
-    content = content.strip()
+        content = choice['message']['content']
+        if content is None:
+            content = ''
+        content = content.strip()
 
-    if not content:
-        log.error(
-            'classifier_empty_content',
-            query_length=len(query),
-            payload_redacted=True,
-            finish_reason=choice.get('finish_reason'),
-        )
-        raise LLMError('Empty content in classification response - model may have stopped early')
+        if not content:
+            last_error = ValueError('empty_content')
+            if attempt < max_attempts:
+                log.warning(
+                    'classifier_retry_scheduled',
+                    reason='empty_content',
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    query_length=len(query),
+                    payload_redacted=True,
+                    finish_reason=choice.get('finish_reason'),
+                )
+                continue
+            log.error(
+                'classifier_empty_content',
+                query_length=len(query),
+                payload_redacted=True,
+                finish_reason=choice.get('finish_reason'),
+            )
+            raise LLMError('Empty content in classification response - model may have stopped early')
 
-    # Parse JSON (JSON mode ensures valid JSON structure, so parse should always succeed)
-    try:
-        data = json.loads(content)
-    except json.JSONDecodeError as exc:
-        log.error(
-            'classifier_json_parse_failed',
-            content_length=len(content),
-            query_length=len(query),
-            payload_redacted=True,
-            error=str(exc),
-            finish_reason=choice.get('finish_reason'),
+        try:
+            parsed = json.loads(content)
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            if attempt < max_attempts:
+                log.warning(
+                    'classifier_retry_scheduled',
+                    reason='json_parse_failed',
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    content_length=len(content),
+                    payload_redacted=True,
+                    error=str(exc),
+                    finish_reason=choice.get('finish_reason'),
+                )
+                continue
+            log.error(
+                'classifier_json_parse_failed',
+                content_length=len(content),
+                query_length=len(query),
+                payload_redacted=True,
+                error=str(exc),
+                finish_reason=choice.get('finish_reason'),
+            )
+            raise LLMError(f'Failed to parse classification JSON (unexpected with JSON mode): {exc}. Content: {content[:200]}') from exc
+
+        if not isinstance(parsed, dict):
+            last_error = ValueError('parsed_payload_not_object')
+            if attempt < max_attempts:
+                log.warning(
+                    'classifier_retry_scheduled',
+                    reason='parsed_payload_not_object',
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                )
+                continue
+            raise LLMError('Invalid classifier payload: expected JSON object')
+
+        data = parsed
+        break
+
+    if data is None:
+        raise LLMError(
+            f'Classification failed after {max_attempts} attempts: {last_error or "unknown_error"}'
         )
-        raise LLMError(f'Failed to parse classification JSON (unexpected with JSON mode): {exc}. Content: {content[:200]}') from exc
 
     # Validate and extract fields
     intent = data.get('intent', 'focused')
@@ -694,6 +827,38 @@ def classify_query_llm(query: str) -> QueryClassification:
     # is_continuation / is_scope_reset: use LLM output directly.
     is_continuation = bool(data.get('is_continuation'))
     is_scope_reset = bool(data.get('is_scope_reset'))
+
+    if intent == 'simple' and _should_override_simple_intent(
+        query=query,
+        is_continuation=is_continuation,
+        is_scope_reset=is_scope_reset,
+        year=year,
+        file_type=file_type,
+        filename=filename,
+        source_terms=source_terms,
+        field_hint=field_hint,
+        group_by=group_by,
+        block_type=block_type,
+        section=section,
+        aggregation_semantics=aggregation_semantics,
+        period_comparison_semantics=period_comparison_semantics,
+        extraction_task=extraction_task,
+    ):
+        if (
+            group_by in {'year', 'category', 'file'}
+            or has_multi_year_scope
+            or aggregation_semantics
+            or period_comparison_semantics
+            or _CORPUS_WIDE_SCOPE_PATTERN.search(query)
+        ):
+            intent = 'coverage'
+            if subtype is None:
+                subtype = 'aggregate_by_period' if (group_by == 'year' or has_multi_year_scope) else subtype
+        else:
+            intent = 'focused'
+        response_shape = 'narrative_synthesis'
+        if 'policy_simple_override_content_query' not in normalization_reason_codes:
+            normalization_reason_codes.append('policy_simple_override_content_query')
 
     is_metadata_query = (intent == 'metadata')
     is_file_list_query = bool(intent == 'metadata' and _FILE_LIST_PATTERN.search(query))
