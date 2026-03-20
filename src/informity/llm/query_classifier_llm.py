@@ -42,22 +42,6 @@ _CLASSIFIER_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError)
 
 _FILE_LIST_PATTERN = build_file_list_pattern()
 _SUPPORTED_EXTENSIONS_CASEFOLD = tuple(ext.casefold() for ext in get_all_supported_extensions())
-_SIMPLE_CAPABILITY_QUERY_PATTERN = re.compile(
-    r'\b(?:what\s+can\s+you\s+do|what\s+kind\s+of\s+documents|what\s+information\s+is\s+available)\b',
-    re.IGNORECASE,
-)
-_CONTENT_QUERY_ENTITY_PATTERN = re.compile(
-    r'\b(?:indexed|records?|documents?|files?)\b',
-    re.IGNORECASE,
-)
-_CONTENT_QUERY_ACTION_PATTERN = re.compile(
-    r'\b(?:show|list|find|summari[sz]e|compare|extract|analy[sz]e|which|what\s+does|tell\s+me\s+about)\b',
-    re.IGNORECASE,
-)
-_CORPUS_WIDE_SCOPE_PATTERN = re.compile(
-    r'\b(?:across\s+all|all\s+indexed|all\s+documents?)\b',
-    re.IGNORECASE,
-)
 
 
 def _extract_phase2_constraints(query: str) -> dict[str, object]:
@@ -121,9 +105,9 @@ def _is_filename_summary_query(query: str) -> bool:
 
 def _should_override_simple_intent(
     *,
-    query: str,
     is_continuation: bool,
     is_scope_reset: bool,
+    has_multi_year_scope: bool,
     year: int | None,
     file_type: str | None,
     filename: str | None,
@@ -138,9 +122,9 @@ def _should_override_simple_intent(
 ) -> bool:
     if is_continuation or is_scope_reset:
         return False
-    if _SIMPLE_CAPABILITY_QUERY_PATTERN.search(query):
-        return False
-    if (
+    return (
+        has_multi_year_scope
+        or
         year is not None
         or file_type is not None
         or filename is not None
@@ -152,11 +136,6 @@ def _should_override_simple_intent(
         or aggregation_semantics
         or period_comparison_semantics
         or extraction_task
-    ):
-        return True
-    return bool(
-        _CONTENT_QUERY_ENTITY_PATTERN.search(query)
-        and _CONTENT_QUERY_ACTION_PATTERN.search(query)
     )
 
 
@@ -829,9 +808,9 @@ def classify_query_llm(query: str) -> QueryClassification:
     is_scope_reset = bool(data.get('is_scope_reset'))
 
     if intent == 'simple' and _should_override_simple_intent(
-        query=query,
         is_continuation=is_continuation,
         is_scope_reset=is_scope_reset,
+        has_multi_year_scope=has_multi_year_scope,
         year=year,
         file_type=file_type,
         filename=filename,
@@ -849,7 +828,6 @@ def classify_query_llm(query: str) -> QueryClassification:
             or has_multi_year_scope
             or aggregation_semantics
             or period_comparison_semantics
-            or _CORPUS_WIDE_SCOPE_PATTERN.search(query)
         ):
             intent = 'coverage'
             if subtype is None:

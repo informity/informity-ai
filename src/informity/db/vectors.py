@@ -20,13 +20,13 @@ from informity.indexer.embedder import get_effective_embedding_dimension
 
 log = structlog.get_logger(__name__)
 
-_FTS5_SPECIAL_CHARS = re.compile(r'["\(\)\*\^\-]')
-_FTS5_BOOLEAN_OPS   = re.compile(r'\b(AND|OR|NOT)\b', re.IGNORECASE)
+_FTS5_BOOLEAN_OPS = re.compile(r'\b(AND|OR|NOT)\b', re.IGNORECASE)
+_FTS5_NON_WORD_CHARS = re.compile(r'[^\w\s]')
 
 
 def _sanitize_fts5_query(query: str) -> str:
-    """Remove FTS5 syntax characters to prevent query parsing errors."""
-    sanitized = _FTS5_SPECIAL_CHARS.sub(' ', query)
+    """Normalize user text into conservative plain-token MATCH input."""
+    sanitized = _FTS5_NON_WORD_CHARS.sub(' ', query)
     sanitized = _FTS5_BOOLEAN_OPS.sub(' ', sanitized)
     return ' '.join(sanitized.split())
 
@@ -141,6 +141,24 @@ class VectorStore:
 
         self._thread_local.conn = conn
         return conn
+
+    def _get_fts_chunks_columns(self, conn: sqlite3.Connection) -> set[str]:
+        columns = getattr(self._thread_local, 'fts_chunks_columns', None)
+        if isinstance(columns, set) and columns:
+            return columns
+
+        try:
+            rows = conn.execute('PRAGMA table_info(fts_chunks)').fetchall()
+        except sqlite3.Error:
+            rows = []
+
+        resolved = {
+            str(row['name']).strip().casefold()
+            for row in rows
+            if isinstance(row, sqlite3.Row) and row['name']
+        }
+        self._thread_local.fts_chunks_columns = resolved
+        return resolved
 
     def store_embeddings(self, embeddings: list[ChunkEmbedding]) -> int:
         if not embeddings:
@@ -366,6 +384,20 @@ class VectorStore:
             return []
 
         conn = self._get_thread_connection()
+        fts_columns = self._get_fts_chunks_columns(conn)
+        file_path_select = (
+            'file_path AS file_path'
+            if 'file_path' in fts_columns
+            else "'' AS file_path"
+        )
+        filename_select = (
+            'filename AS filename'
+            if 'filename' in fts_columns
+            else "'' AS filename"
+        )
+        select_fields = (
+            f'chunk_id, file_id, {file_path_select}, {filename_select}, chunk_text'
+        )
 
         fts_where_parts: list[str] = ['fts_chunks MATCH ?']
         fts_params: list[object] = [sanitized]
@@ -380,7 +412,7 @@ class VectorStore:
         fetch_limit = limit * 2
 
         fts_query = f"""
-            SELECT chunk_id, file_id, file_path, filename, chunk_text
+            SELECT {select_fields}
             FROM fts_chunks
             WHERE {fts_where}
             ORDER BY rank
@@ -395,8 +427,8 @@ class VectorStore:
             # Compatibility fallback for older/mismatched local schemas:
             # retry once with MATCH-only clause to preserve keyword augmentation.
             if where_clause and ('no such column' in error_text.casefold() or 'fts_chunks' in error_text.casefold()):
-                fallback_query = """
-                    SELECT chunk_id, file_id, file_path, filename, chunk_text
+                fallback_query = f"""
+                    SELECT {select_fields}
                     FROM fts_chunks
                     WHERE fts_chunks MATCH ?
                     ORDER BY rank

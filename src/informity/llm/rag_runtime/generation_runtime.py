@@ -20,6 +20,10 @@ _COVERAGE_ROUTE_TOPK_GUARD_IDS = {
     'comparative_analysis',
     'audit_or_compliance_brief',
 }
+_FOCUSED_ROUTE_DEGRADATION_GUARD_IDS = {
+    'targeted_fact_lookup',
+    'structured_field_extraction',
+}
 _STRICT_ORDERED_TIMEOUT_AWARE_MIN_MAX_TOKENS = 720
 _STRICT_COMPLEX_ORDERED_MAX_WORDS = 520  # higher cap for multi-section complex formats — see completed/output-length-control-strategies.md
 _STRICT_COMPLEX_ORDERED_MAX_ROWS = 24    # proportionally higher row cap for complex ordered formats
@@ -32,12 +36,12 @@ _STRICT_COMPLEX_ORDERED_PRE_RETRIEVAL_MAX_TOKENS_CAP = 1800
 _STRICT_COMPLEX_ORDERED_TIMEOUT_AWARE_MIN_MAX_TOKENS = 900
 _FOCUSED_POST_RETRIEVAL_MAX_CONTEXT_CHARS = 5200
 _FOCUSED_POST_RETRIEVAL_MAX_CHUNK_CHARS = 1200
-_COVERAGE_PREFILL_MAX_CONTEXT_CHARS = 14000
-_COVERAGE_PREFILL_MAX_CHUNK_CHARS = 1800
+_COVERAGE_PREFILL_MAX_CONTEXT_CHARS = 20000
+_COVERAGE_PREFILL_MAX_CHUNK_CHARS = 2200
 _DIAGNOSTICS_DEPTH_CONTEXT_CHARS_FLOOR = 22000
-_SOURCE_SCOPED_COVERAGE_TOP_K_CAP = 10
-_SOURCE_SCOPED_COVERAGE_TIMEOUT_CAP_SECONDS = 120
-_SOURCE_SCOPED_COVERAGE_MAX_TOKENS_CAP = 720
+_SOURCE_SCOPED_COVERAGE_TOP_K_CAP = 14
+_SOURCE_SCOPED_COVERAGE_TIMEOUT_CAP_SECONDS = 220
+_SOURCE_SCOPED_COVERAGE_MAX_TOKENS_CAP = 1600
 
 
 def _apply_source_scoped_coverage_guard(
@@ -85,15 +89,6 @@ def _apply_source_scoped_coverage_guard(
             'reason': 'source_scoped_coverage_latency_guard',
         })
         adjusted_max_tokens = _SOURCE_SCOPED_COVERAGE_MAX_TOKENS_CAP
-
-    if adjusted_reasoning_enabled:
-        applied_degradations.append({
-            'step': 'source_scoped_coverage_disable_reasoning',
-            'from': True,
-            'to': False,
-            'reason': 'source_scoped_coverage_latency_guard',
-        })
-        adjusted_reasoning_enabled = False
 
     return (
         adjusted_timeout_seconds,
@@ -574,12 +569,17 @@ def _apply_preflight_budget_degradations(
         effective_query_type == 'coverage'
         and str(route_candidate or '').strip() in _COVERAGE_ROUTE_TOPK_GUARD_IDS
     )
+    focused_route_degradation_guard_enabled = (
+        effective_query_type == 'focused'
+        and str(route_candidate or '').strip() in _FOCUSED_ROUTE_DEGRADATION_GUARD_IDS
+    )
 
     if (
         fit_to_budget_enabled
         and ratio >= policy_soft_top_k_threshold
         and effective_top_k > 6
         and not coverage_route_topk_guard_enabled
+        and not focused_route_degradation_guard_enabled
     ):
         old_top_k = effective_top_k
         effective_top_k = max(6, int(effective_top_k * 0.7))
@@ -605,7 +605,13 @@ def _apply_preflight_budget_degradations(
     effective_reasoning_threshold = policy_soft_reasoning_threshold
     if effective_query_type == 'focused':
         effective_reasoning_threshold = min(effective_reasoning_threshold, 0.72)
-    if fit_to_budget_enabled and ratio >= effective_reasoning_threshold and effective_reasoning_enabled:
+    if (
+        fit_to_budget_enabled
+        and ratio >= effective_reasoning_threshold
+        and effective_reasoning_enabled
+        and not coverage_route_topk_guard_enabled
+        and not focused_route_degradation_guard_enabled
+    ):
         effective_reasoning_enabled = False
         applied_degradations.append({
             'step': 'disable_reasoning',
@@ -640,9 +646,9 @@ def _apply_preflight_budget_degradations(
             }
         else:
             effective_output_constraints = {
-                'max_sections': 6 if effective_query_type == 'coverage' else 4,
-                'max_rows': 24 if effective_query_type == 'coverage' else 12,
-                'max_words': 550 if effective_query_type == 'coverage' else 420,
+                'max_sections': 8 if effective_query_type == 'coverage' else 4,
+                'max_rows': 30 if effective_query_type == 'coverage' else 12,
+                'max_words': 900 if effective_query_type == 'coverage' else 420,
             }
         if strict_ordered_mode:
             # Strict-ordered contracts already carry explicit structure and often a prompt-level word budget.
@@ -655,7 +661,7 @@ def _apply_preflight_budget_degradations(
         else:
             effective_max_tokens = min(
                 effective_max_tokens,
-                1200 if effective_query_type == 'coverage' else 900,
+                1800 if effective_query_type == 'coverage' else 900,
             )
         applied_degradations.append({
             'step': 'cap_output_structure',
@@ -829,6 +835,8 @@ def _apply_post_retrieval_budget_degradations(
             })
 
     coverage_context_cap = _COVERAGE_PREFILL_MAX_CONTEXT_CHARS
+    if coverage_route_topk_guard_enabled:
+        coverage_context_cap = max(coverage_context_cap, 26000)
     if diagnostics_depth_mode:
         coverage_context_cap = max(coverage_context_cap, _DIAGNOSTICS_DEPTH_CONTEXT_CHARS_FLOOR)
     if effective_query_type == 'coverage' and context_chars > coverage_context_cap:
@@ -919,8 +927,4 @@ def _apply_post_retrieval_budget_degradations(
         applied_degradations,
         projected_seconds,
         ratio,
-    )
-    coverage_route_topk_guard_enabled = (
-        effective_query_type == 'coverage'
-        and str(route_candidate or '').strip() in _COVERAGE_ROUTE_TOPK_GUARD_IDS
     )

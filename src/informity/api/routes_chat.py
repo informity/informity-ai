@@ -835,6 +835,65 @@ def _build_section_progress_payload(
     }
 
 
+def _build_source_grounded_recovery_prompt(
+    *,
+    original_question: str,
+) -> str:
+    return (
+        'Your previous answer was too brief or refused despite retrieved evidence. '
+        'Regenerate a complete source-grounded answer for the same request.\n'
+        '- Do not refuse if relevant evidence exists.\n'
+        '- Cover all distinct items present in sources (no arbitrary subset).\n'
+        '- Prefer concise tables/lists when the request asks for "all".\n'
+        '- Keep claims tied to cited source evidence.\n\n'
+        'Original request:\n'
+        f'{original_question.strip()}'
+    )
+
+
+def _normalize_contract_list(value: object) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item.strip()]
+
+
+def _contract_unresolved_score(output_contract_check: dict[str, object]) -> tuple[int, int, int, int, int]:
+    return (
+        0 if bool(output_contract_check.get('passed', True)) else 1,
+        len(_normalize_contract_list(output_contract_check.get('missing_headings'))),
+        len(_normalize_contract_list(output_contract_check.get('order_violations'))),
+        0 if bool(output_contract_check.get('evidence_grounding_ok', True)) else 1,
+        0 if bool(output_contract_check.get('missing_evidence_callout_ok', True)) else 1,
+    )
+
+
+def _should_accept_contract_overwrite(
+    *,
+    previous_answer: str,
+    overwrite_answer: str,
+    plan: _strict_output_contract.OutputContractPlan,
+) -> bool:
+    if not previous_answer.strip():
+        return True
+    previous_check = _strict_output_contract._evaluate_output_contract(
+        answer=previous_answer,
+        plan=plan,
+    )
+    overwrite_check = _strict_output_contract._evaluate_output_contract(
+        answer=overwrite_answer,
+        plan=plan,
+    )
+    return _contract_unresolved_score(overwrite_check) <= _contract_unresolved_score(previous_check)
+
+
+def _should_override_output_contract_from_plan(plan: QueryPlan | None) -> bool:
+    if plan is None:
+        return False
+    # Single-section outlines are often too brittle as strict heading contracts
+    # and can collapse otherwise complete answers during repair passes.
+    return len(plan.answer_sections) >= 2
+
+
 def _resolve_auto_continue_policy() -> tuple[bool, int, str]:
     enabled = bool(settings.chat_auto_continue_enabled)
     default_rounds = max(0, int(settings.chat_auto_continue_default_max_rounds))
@@ -1195,7 +1254,7 @@ async def chat(
                         log.warning('planning_pass_failed', chat_id=chat_id, error=str(exc))
                         active_query_plan = None
 
-                    if active_query_plan is not None and active_query_plan.answer_sections:
+                    if _should_override_output_contract_from_plan(active_query_plan):
                         plan_headings = tuple(s.heading for s in active_query_plan.answer_sections)
                         output_contract_plan = replace(
                             output_contract_plan,
@@ -1206,6 +1265,14 @@ async def chat(
                             'planner_override_output_contract',
                             chat_id=chat_id,
                             answer_sections_count=len(active_query_plan.answer_sections),
+                            planning_latency_ms=planning_latency_ms,
+                        )
+                    elif active_query_plan is not None and active_query_plan.answer_sections:
+                        log.info(
+                            'planner_override_output_contract_skipped',
+                            chat_id=chat_id,
+                            answer_sections_count=len(active_query_plan.answer_sections),
+                            reason='single_section_plan',
                             planning_latency_ms=planning_latency_ms,
                         )
 
@@ -1226,8 +1293,8 @@ async def chat(
                 strict_deterministic_mode = _has_contract_requirements(output_contract_plan)
                 strict_max_repair_passes = (
                     min(
-                        max(1, len(output_contract_plan.required_headings) - 1),
-                        max(1, settings.chat_auto_continue_hard_cap - 1),
+                        max(2, len(output_contract_plan.required_headings)),
+                        max(2, settings.chat_auto_continue_hard_cap - 1),
                     )
                     if output_contract_plan.required_headings
                     else 1
@@ -1238,12 +1305,15 @@ async def chat(
                 closure_pass_used = False
                 continuation_anchor_retry_used = False
                 evidence_callout_retry_attempted = False
+                source_grounded_recovery_retry_used = False
                 base_history = list(history)
                 max_total_passes = (
                     1 + strict_max_repair_passes
                     if strict_deterministic_mode
                     else 1 + max_auto_continue_rounds + closure_pass_budget
                 )
+                if not strict_deterministic_mode:
+                    max_total_passes = max(max_total_passes, 2)
                 strict_reasoning_retry_extension_used = False
                 strict_reasoning_retry_extra_passes = 1
                 required_headings_last_missing: set[str] | None = None
@@ -1358,7 +1428,8 @@ async def chat(
                     pass_has_remaining_scope = False
                     pass_completion_mode_override: str | None = None
                     pass_answer_parts: list[str] = []
-                    answer_length_before_pass = len(''.join(answer_parts))
+                    answer_before_pass = ''.join(answer_parts)
+                    answer_length_before_pass = len(answer_before_pass)
 
                     # Emit "retrieving" status for pass 1 when classification is pre-computed.
                     # Normally this fires from the __classification__ intercept below, but when
@@ -1505,7 +1576,29 @@ async def chat(
                             chat_id=chat_id,
                             pass_index=pass_index,
                         )
-                    if (pass_overwrites_prior_answer or force_overwrite_finance_conflict) and pass_raw_answer:
+                    overwrite_requested = (
+                        (pass_overwrites_prior_answer or force_overwrite_finance_conflict)
+                        and bool(pass_raw_answer)
+                    )
+                    overwrite_allowed = overwrite_requested
+                    if (
+                        overwrite_requested
+                        and _has_contract_requirements(output_contract_plan)
+                        and answer_before_pass.strip()
+                    ):
+                        overwrite_allowed = _should_accept_contract_overwrite(
+                            previous_answer=answer_before_pass,
+                            overwrite_answer=pass_raw_answer,
+                            plan=output_contract_plan,
+                        )
+                        if not overwrite_allowed:
+                            log.info(
+                                'chat_contract_overwrite_rejected_regression',
+                                chat_id=chat_id,
+                                pass_index=pass_index,
+                            )
+                            answer_parts = [answer_before_pass]
+                    if overwrite_allowed:
                         combined_answer = pass_raw_answer
                     else:
                         combined_answer = ''.join(answer_parts).strip()
@@ -1562,7 +1655,7 @@ async def chat(
                         original_question=continuation_anchor_question,
                     )
 
-                    if (pass_overwrites_prior_answer or force_overwrite_finance_conflict) and pass_raw_answer:
+                    if overwrite_allowed:
                         answer_parts = [pass_raw_answer]
                         added_answer_chars = len(pass_raw_answer)
                     else:
@@ -1726,6 +1819,15 @@ async def chat(
                         and (pass_has_unresolved_targets or pass_refusal_detected)
                         and not pass_sources_exhausted
                     )
+                    force_source_grounded_recovery_pass = (
+                        (not strict_deterministic_mode)
+                        and (not continuation_request)
+                        and (not source_grounded_recovery_retry_used)
+                        and pass_refusal_detected
+                        and pass_has_unresolved_targets
+                        and len(pass_sources) > 0
+                        and pass_index < max_total_passes
+                    )
                     if strict_deterministic_mode:
                         can_auto_continue = (
                             pass_index < max_total_passes
@@ -1745,6 +1847,7 @@ async def chat(
                                 )
                                 or force_contract_closure_pass
                                 or force_continuation_anchor_retry
+                                or force_source_grounded_recovery_pass
                             )
                         )
                     if not can_auto_continue:
@@ -1773,6 +1876,12 @@ async def chat(
                     if force_continuation_anchor_retry:
                         pending_repair_prompt = _build_continuation_anchor_retry_prompt(continuation_anchor_question)
                         continuation_anchor_retry_used = True
+                    elif force_source_grounded_recovery_pass:
+                        pending_repair_prompt = _build_source_grounded_recovery_prompt(
+                            original_question=continuation_anchor_question,
+                        )
+                        pending_repair_requires_overwrite = True
+                        source_grounded_recovery_retry_used = True
                     elif force_contract_closure_pass and not pending_repair_prompt:
                         pending_repair_prompt = _build_contract_closure_prompt(
                             output_contract_check=latest_output_contract_check,
@@ -1782,6 +1891,25 @@ async def chat(
                         pending_repair_requires_overwrite = _requires_full_rewrite_for_contract_repair(
                             latest_output_contract_check
                         )
+                        if not pending_repair_requires_overwrite:
+                            missing_headings_for_rewrite = latest_output_contract_check.get('missing_headings')
+                            order_violations_for_rewrite = latest_output_contract_check.get('order_violations')
+                            pending_repair_requires_overwrite = bool(
+                                (
+                                    isinstance(missing_headings_for_rewrite, list)
+                                    and any(
+                                        isinstance(item, str) and item.strip()
+                                        for item in missing_headings_for_rewrite
+                                    )
+                                )
+                                or (
+                                    isinstance(order_violations_for_rewrite, list)
+                                    and any(
+                                        isinstance(item, str) and item.strip()
+                                        for item in order_violations_for_rewrite
+                                    )
+                                )
+                            )
                     if force_contract_closure_pass:
                         closure_pass_used = True
                     if repair_prompt:
