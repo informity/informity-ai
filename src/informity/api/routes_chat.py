@@ -1002,7 +1002,7 @@ async def chat(
                     log.warning(
                         'chat_sse_out_of_order',
                         chat_id=chat_id,
-                        event=event_name,
+                        event_name=event_name,
                         current_phase=sse_tracker.current_phase,
                         event_phase=SSE_PHASE_ORDER.get(event_name, 0),
                     )

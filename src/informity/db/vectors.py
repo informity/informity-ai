@@ -391,8 +391,30 @@ class VectorStore:
         try:
             rows = conn.execute(fts_query, fts_params).fetchall()
         except sqlite3.Error as exc:
-            log.warning('fts5_search_failed', error=str(exc), query_preview=sanitized[:80])
-            return []
+            error_text = str(exc)
+            # Compatibility fallback for older/mismatched local schemas:
+            # retry once with MATCH-only clause to preserve keyword augmentation.
+            if where_clause and ('no such column' in error_text.casefold() or 'fts_chunks' in error_text.casefold()):
+                fallback_query = """
+                    SELECT chunk_id, file_id, file_path, filename, chunk_text
+                    FROM fts_chunks
+                    WHERE fts_chunks MATCH ?
+                    ORDER BY rank
+                    LIMIT ?
+                """
+                try:
+                    rows = conn.execute(fallback_query, [sanitized, fetch_limit]).fetchall()
+                    log.warning(
+                        'fts5_search_filter_compat_fallback',
+                        error=error_text,
+                        query_preview=sanitized[:80],
+                    )
+                except sqlite3.Error as fallback_exc:
+                    log.warning('fts5_search_failed', error=str(fallback_exc), query_preview=sanitized[:80])
+                    return []
+            else:
+                log.warning('fts5_search_failed', error=error_text, query_preview=sanitized[:80])
+                return []
 
         results: list[dict] = []
         for row in rows:

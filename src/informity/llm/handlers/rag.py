@@ -264,6 +264,7 @@ class RAGHandler:
                 focused_timeout_seconds=profile.get_timeout_seconds('focused'),
                 output_constraints=output_constraints,
                 applied_degradations=applied_degradations,
+                route_candidate=selected_policy.profile_id,
                 response_mode=response_mode_used,
                 strict_ordered_mode=strict_ordered_mode,
             )

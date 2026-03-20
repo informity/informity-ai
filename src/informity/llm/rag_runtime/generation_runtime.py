@@ -15,6 +15,11 @@ _STRICT_ORDERED_MAX_CHUNK_CHARS = 900
 _STRICT_ORDERED_PRE_RETRIEVAL_TOP_K_CAP = 8
 _STRICT_ORDERED_PRE_RETRIEVAL_TIMEOUT_CAP_SECONDS = 75
 _STRICT_ORDERED_PRE_RETRIEVAL_MAX_TOKENS_CAP = 1800
+_COVERAGE_ROUTE_TOPK_GUARD_IDS = {
+    'cross_document_synthesis',
+    'comparative_analysis',
+    'audit_or_compliance_brief',
+}
 _STRICT_ORDERED_TIMEOUT_AWARE_MIN_MAX_TOKENS = 720
 _STRICT_COMPLEX_ORDERED_MAX_WORDS = 520  # higher cap for multi-section complex formats — see completed/output-length-control-strategies.md
 _STRICT_COMPLEX_ORDERED_MAX_ROWS = 24    # proportionally higher row cap for complex ordered formats
@@ -542,6 +547,7 @@ def _apply_preflight_budget_degradations(
     focused_timeout_seconds: int,
     output_constraints: dict[str, int],
     applied_degradations: list[dict[str, object]],
+    route_candidate: str | None = None,
     response_mode: str = 'analysis',
     strict_ordered_mode: bool = False,
 ) -> tuple[str, int, bool, int, int, dict[str, int], list[dict[str, object]], float, float]:
@@ -564,7 +570,17 @@ def _apply_preflight_budget_degradations(
         max_tokens=effective_max_tokens,
     )
 
-    if fit_to_budget_enabled and ratio >= policy_soft_top_k_threshold and effective_top_k > 6:
+    coverage_route_topk_guard_enabled = (
+        effective_query_type == 'coverage'
+        and str(route_candidate or '').strip() in _COVERAGE_ROUTE_TOPK_GUARD_IDS
+    )
+
+    if (
+        fit_to_budget_enabled
+        and ratio >= policy_soft_top_k_threshold
+        and effective_top_k > 6
+        and not coverage_route_topk_guard_enabled
+    ):
         old_top_k = effective_top_k
         effective_top_k = max(6, int(effective_top_k * 0.7))
         applied_degradations.append({
@@ -670,6 +686,7 @@ def _apply_preflight_budget_degradations(
         and ratio >= policy_soft_coverage_to_focused_threshold
         and effective_query_type == 'coverage'
         and subtype != 'aggregate_by_period'
+        and not coverage_route_topk_guard_enabled
     ):
         old_top_k = effective_top_k
         effective_query_type = 'focused'
@@ -727,6 +744,7 @@ def _apply_post_retrieval_budget_degradations(
     focused_max_tokens: int,
     focused_timeout_seconds: int,
     applied_degradations: list[dict[str, object]],
+    route_candidate: str | None = None,
     min_output_budget_floor: int | None = None,
 ) -> tuple[list[dict], str, int, bool, int, int, int, list[dict[str, object]], float, float]:
     effective_chunks = list(chunks)
@@ -735,6 +753,10 @@ def _apply_post_retrieval_budget_degradations(
     effective_reasoning_enabled = reasoning_enabled
     effective_max_tokens = max_tokens
     effective_timeout_seconds = timeout_seconds
+    coverage_route_topk_guard_enabled = (
+        effective_query_type == 'coverage'
+        and str(route_candidate or '').strip() in _COVERAGE_ROUTE_TOPK_GUARD_IDS
+    )
     context_chars = sum(len(str(chunk.get('chunk_text', ''))) for chunk in effective_chunks)
 
     projected_seconds, ratio = _estimate_budget_ratio(
@@ -762,6 +784,7 @@ def _apply_post_retrieval_budget_degradations(
         and ratio >= policy_soft_top_k_threshold
         and len(effective_chunks) > 4
         and not diagnostics_depth_mode
+        and not coverage_route_topk_guard_enabled
     ):
         old_chunk_count = len(effective_chunks)
         reduced_count = max(4, int(old_chunk_count * 0.6))
@@ -855,6 +878,7 @@ def _apply_post_retrieval_budget_degradations(
         and effective_query_type == 'coverage'
         and len(effective_chunks) > 8
         and subtype != 'aggregate_by_period'
+        and not coverage_route_topk_guard_enabled
     ):
         old_chunk_count = len(effective_chunks)
         effective_chunks = effective_chunks[:8]
@@ -895,4 +919,8 @@ def _apply_post_retrieval_budget_degradations(
         applied_degradations,
         projected_seconds,
         ratio,
+    )
+    coverage_route_topk_guard_enabled = (
+        effective_query_type == 'coverage'
+        and str(route_candidate or '').strip() in _COVERAGE_ROUTE_TOPK_GUARD_IDS
     )

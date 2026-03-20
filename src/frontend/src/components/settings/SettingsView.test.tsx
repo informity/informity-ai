@@ -39,7 +39,11 @@ const baseSettings = {
   ui_theme: 'blue',
   default_response_mode: 'analysis' as const,
   llm_model_filename: 'main.gguf',
-  available_models: ['main.gguf'],
+  available_models: ['main.gguf', 'alt.gguf'],
+  model_profile: {
+    name: 'Qwen 14B',
+    supported_modes: ['analysis', 'research'] as const,
+  },
   embedding_model: 'embed.gguf',
   rag_reranker_model: 'reranker.gguf',
 }
@@ -107,5 +111,23 @@ describe('SettingsView tabs and action bar behavior', () => {
     expect(screen.queryByRole('button', { name: 'Discard Changes' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Reset Settings/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Reset All/i })).toBeInTheDocument()
+  })
+
+  it('keeps model selection editable and saves selected model when tab state is restored', async () => {
+    localStorage.setItem('informity.settings.activeTab', 'models')
+    const { onSave } = renderSettingsView()
+
+    const modelSelect = screen.getByLabelText('Model') as HTMLSelectElement
+    expect(modelSelect.value).toBe('main.gguf')
+
+    fireEvent.change(modelSelect, { target: { value: 'alt.gguf' } })
+    expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('alt.gguf')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Settings' }))
+
+    expect(onSave).toHaveBeenCalledTimes(1)
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({ llm_model_filename: 'alt.gguf' }),
+    )
   })
 })
