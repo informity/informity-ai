@@ -6,7 +6,6 @@ import pytest
 
 from informity.chat_trace import _ChatTraceWriter
 
-
 # ==============================================================================
 # Summary envelope: plan section
 # ==============================================================================

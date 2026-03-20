@@ -9,6 +9,7 @@ vi.mock('../../api', () => ({
 
 afterEach(() => {
   cleanup()
+  localStorage.clear()
 })
 
 const baseSettings = {
@@ -81,6 +82,17 @@ describe('SettingsView tabs and action bar behavior', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Diagnostics' }))
     expect(screen.getByRole('tab', { name: 'Diagnostics' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('tab', { name: 'General' })).toHaveAttribute('aria-selected', 'false')
+  })
+
+  it('restores active tab from localStorage and persists updates', async () => {
+    localStorage.setItem('informity.settings.activeTab', 'diagnostics')
+    renderSettingsView()
+
+    expect(screen.getByRole('tab', { name: 'Diagnostics' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'General' })).toHaveAttribute('aria-selected', 'false')
+
+    fireEvent.click(screen.getByRole('tab', { name: 'System' }))
+    expect(localStorage.getItem('informity.settings.activeTab')).toBe('system')
   })
 
   it('shows Save/Discard on non-System tabs and hides them on System', async () => {

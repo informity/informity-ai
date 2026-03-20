@@ -10,6 +10,7 @@ import pytest
 from informity.llm.model_adapter import (
     DEEPSEEK_R1_DISTILL_PROFILE,
     DEFAULT_PROFILE,
+    QWEN3_5_9B_PROFILE,
     QWEN3_14B_PROFILE,
     QWEN3_30B_A3B_PROFILE,
     ModelFamily,
@@ -166,6 +167,36 @@ class TestQwen330BA3BProfile:
 
 
 # ==============================================================================
+# Qwen3.5 9B Profile (non-thinking template mode)
+# ==============================================================================
+
+
+class TestQwen359BProfile:
+    @pytest.fixture
+    def profile(self) -> ModelProfile:
+        return QWEN3_5_9B_PROFILE
+
+    def test_reasoning_disabled_by_profile(self, profile: ModelProfile) -> None:
+        assert profile.reasoning_mode == ReasoningMode.NEVER
+        assert profile.no_think_token is None
+
+    def test_sampling_defaults_for_non_thinking_mode(self, profile: ModelProfile) -> None:
+        assert profile.temperature == 0.7
+        assert profile.top_p == 0.8
+
+    def test_template_kwargs_disable_thinking(self, profile: ModelProfile) -> None:
+        assert profile.chat_template_kwargs == {'enable_thinking': False}
+
+    def test_prepare_messages_does_not_append_no_think_token(self, profile: ModelProfile) -> None:
+        messages = [
+            {'role': 'system', 'content': 'System.'},
+            {'role': 'user', 'content': 'Summarize the indexed evidence.'},
+        ]
+        result = profile.prepare_messages(messages, 'focused')
+        assert result[-1]['content'] == messages[-1]['content']
+
+
+# ==============================================================================
 # Default Profile
 # ==============================================================================
 
@@ -234,13 +265,17 @@ class TestModelProfileMethods:
 
 
 class TestGetRetrievalTopK:
-    def test_returns_profile_values(self) -> None:
+    def test_returns_profile_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # Disable adaptive tuning so we test raw profile values, not corpus-tuned overrides.
+        from informity.config import settings as _settings
+        monkeypatch.setattr(_settings, 'adaptive_rag_tuning', False)
         # Uses get_profile() which depends on settings.llm_model_filename
-        # Default config uses Qwen3 30B: focused=10, coverage=18
+        # Default config uses Qwen3 30B: focused=12 (rag_top_k_focused),
+        # coverage=14 (top_k_analysis=14 overrides coverage_top_k=18 for analysis mode)
         from informity.config import settings
         if 'qwen3' in settings.llm_model_filename.lower() and '30b' in settings.llm_model_filename.lower():
-            assert get_retrieval_top_k('focused') == 10
-            assert get_retrieval_top_k('coverage') == 18
+            assert get_retrieval_top_k('focused') == 12
+            assert get_retrieval_top_k('coverage') == 14
         else:
             # Fallback: just ensure we get ints from profile
             focused = get_retrieval_top_k('focused')

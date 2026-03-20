@@ -12,7 +12,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import StrEnum
 from pathlib import Path
 
@@ -161,6 +161,12 @@ class ModelProfile:
     strip_meta_commentary: bool = True
     strip_citations:       bool = True
     dedupe_insufficient_context_after_stream: bool = False
+
+    # -- Generation template control -------------------------------------------
+    # Passed as chat_template_kwargs in the xllamacpp payload. Used for models
+    # that control thinking via template variables (e.g. Qwen3.5 enable_thinking)
+    # rather than user-message tokens (e.g. Qwen3 /no_think).
+    chat_template_kwargs: dict = field(default_factory=dict)
 
     # -- Public API ------------------------------------------------------------
     supported_modes: tuple[str, ...] = ('analysis',)
@@ -421,9 +427,12 @@ QWEN3_5_9B_PROFILE = ModelProfile(
     family            = ModelFamily.CHATML,
     filename_patterns = ('qwen3.5-9b', 'qwen-3.5-9b', 'qwen3-5-9b'),
 
+    # Qwen3.5 uses enable_thinking template variable, not /no_think user token.
+    # Thinking disabled via chat_template_kwargs; reasoning_mode=NEVER because
+    # we cannot selectively enable reasoning per-query without token-level control.
     supports_think_blocks = True,
-    reasoning_mode        = ReasoningMode.FOCUSED_ONLY,
-    no_think_token        = '',  # Qwen3.5 does not use /no_think control token
+    reasoning_mode        = ReasoningMode.NEVER,
+    no_think_token        = None,
 
     prompt_format          = PromptFormat.NATIVE_GGUF,
     coverage_prompt_format = PromptFormat.NATIVE_GGUF,
@@ -447,8 +456,8 @@ QWEN3_5_9B_PROFILE = ModelProfile(
     # Qwen3.5 supports long context; 24K is a practical local sweet spot for Q4_K_M.
     context_length = 24576,
     generation_tokens_per_second = 12.0,
-    temperature    = 0.15,
-    top_p          = 0.9,
+    temperature    = 0.7,   # Recommended for non-thinking mode (was 0.15 — too low)
+    top_p          = 0.8,   # Recommended for non-thinking mode
     rag_top_k      = 10,
 
     rag_max_score             = 0.91,
@@ -466,6 +475,12 @@ QWEN3_5_9B_PROFILE = ModelProfile(
     strip_citations       = True,
     dedupe_insufficient_context_after_stream = True,
     supported_modes       = ('analysis',),
+
+    # Pass enable_thinking=False to the Qwen3.5 GGUF template so it prefills
+    # <think>\n\n</think>\n\n (empty think block) instead of <think>\n (forced
+    # thinking). Without this, the template always forces thinking mode which
+    # breaks GBNF-grammar classification and produces empty answers.
+    chat_template_kwargs = {'enable_thinking': False},
 )
 
 

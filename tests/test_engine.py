@@ -1,11 +1,19 @@
 from __future__ import annotations
 
+import asyncio
+import json
+import threading
 import time
 from types import SimpleNamespace
 
 import pytest
 
-from informity.llm.engine import _STREAM_END, LLMEngine, _truncate_messages_to_fit
+from informity.llm.engine import (
+    _STREAM_END,
+    LLMEngine,
+    _run_stream_worker,
+    _truncate_messages_to_fit,
+)
 
 
 def test_truncate_messages_removes_history_before_system_content() -> None:
@@ -169,3 +177,63 @@ async def test_generate_stream_no_think_block_passes_through(monkeypatch: pytest
         if isinstance(item, str)
     )
     assert output == 'The answer is 42.'
+
+
+@pytest.mark.asyncio
+async def test_stream_worker_includes_chat_template_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_payload: dict[str, object] = {}
+
+    class _FakeServer:
+        def handle_chat_completions(self, payload: str, callback) -> None:  # type: ignore[no-untyped-def]
+            nonlocal captured_payload
+            captured_payload = json.loads(payload)
+            callback({'choices': [{'delta': {}, 'finish_reason': 'stop'}]})
+
+    monkeypatch.setattr(
+        'informity.llm.model_adapter.get_profile',
+        lambda: SimpleNamespace(chat_template_kwargs={'enable_thinking': False}),
+    )
+
+    queue: asyncio.Queue[str | object] = asyncio.Queue()
+    exception_holder: list[BaseException] = []
+    _run_stream_worker(
+        server=_FakeServer(),
+        messages=[{'role': 'user', 'content': 'Hi'}],
+        max_tok=32,
+        temp=0.0,
+        top_p_val=1.0,
+        stop_seqs=[],
+        loop=asyncio.get_running_loop(),
+        queue=queue,
+        exception_holder=exception_holder,
+        cancel_event=threading.Event(),
+    )
+
+    assert exception_holder == []
+    assert captured_payload['chat_template_kwargs'] == {'enable_thinking': False}
+
+
+def test_chat_complete_includes_chat_template_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_payload: dict[str, object] = {}
+
+    class _FakeServer:
+        def handle_chat_completions(self, payload: str, callback) -> None:  # type: ignore[no-untyped-def]
+            nonlocal captured_payload
+            captured_payload = json.loads(payload)
+            callback({'choices': [{'message': {'content': 'ok'}}]})
+
+    monkeypatch.setattr(
+        'informity.llm.model_adapter.get_profile',
+        lambda: SimpleNamespace(chat_template_kwargs={'enable_thinking': False}),
+    )
+
+    engine = LLMEngine()
+    engine._server = _FakeServer()  # type: ignore[assignment]
+    response = engine.chat_complete(
+        messages=[{'role': 'user', 'content': 'Hello'}],
+        max_tokens=16,
+        temperature=0.0,
+    )
+
+    assert response['choices'][0]['message']['content'] == 'ok'
+    assert captured_payload['chat_template_kwargs'] == {'enable_thinking': False}
