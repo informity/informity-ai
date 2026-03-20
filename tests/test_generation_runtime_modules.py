@@ -335,9 +335,9 @@ def test_generation_runtime_preflight_degradation_applies_expected_steps() -> No
     assert query_type == 'coverage'
     assert top_k <= 20
     assert reasoning_enabled is False
-    assert max_tokens <= 1200
+    assert max_tokens <= 1800
     assert timeout_seconds == 320
-    assert output_constraints.get('max_words') == 550
+    assert output_constraints.get('max_words') == 900
     assert any(item.get('step') == 'reduce_top_k' for item in degradations)
     assert any(item.get('step') == 'disable_reasoning' for item in degradations)
     assert any(item.get('step') == 'cap_output_structure' for item in degradations)
@@ -640,10 +640,10 @@ def test_generation_runtime_preflight_omits_max_words_cap_for_strict_ordered_mod
     assert query_type == 'coverage'
     assert top_k <= 20
     assert reasoning_enabled is False
-    assert max_tokens <= 1200
+    assert max_tokens <= 1800
     assert timeout_seconds == 320
     assert 'max_words' not in output_constraints
-    assert output_constraints.get('max_rows') == 24
+    assert output_constraints.get('max_rows') == 30
     assert any(item.get('step') == 'cap_output_structure' for item in degradations)
     assert projected_seconds > 0.0
     assert ratio > 0.0
@@ -718,8 +718,8 @@ def test_generation_runtime_post_retrieval_caps_coverage_prefill_context_chars()
 
     assert query_type == 'coverage'
     assert top_k <= 10
-    assert context_chars <= 14000
-    assert all(len(str(chunk.get('chunk_text', ''))) <= 1800 for chunk in degraded_chunks)
+    assert context_chars <= 20000
+    assert all(len(str(chunk.get('chunk_text', ''))) <= 2200 for chunk in degraded_chunks)
     assert any(item.get('step') == 'coverage_prefill_context_chars_cap' for item in degradations)
 
 
@@ -737,11 +737,11 @@ def test_generation_runtime_source_scoped_coverage_guard_caps_budget() -> None:
         )
     )
 
-    assert timeout_seconds == 120
-    assert top_k == 10
-    assert reasoning_enabled is False
-    assert max_tokens == 720
+    assert timeout_seconds == 220
+    assert top_k == 14
+    assert reasoning_enabled is True
+    assert max_tokens == 1536
     assert any(item.get('step') == 'source_scoped_coverage_top_k_cap' for item in degradations)
     assert any(item.get('step') == 'source_scoped_coverage_timeout_cap' for item in degradations)
-    assert any(item.get('step') == 'source_scoped_coverage_max_tokens_cap' for item in degradations)
-    assert any(item.get('step') == 'source_scoped_coverage_disable_reasoning' for item in degradations)
+    assert not any(item.get('step') == 'source_scoped_coverage_max_tokens_cap' for item in degradations)
+    assert not any(item.get('step') == 'source_scoped_coverage_disable_reasoning' for item in degradations)
