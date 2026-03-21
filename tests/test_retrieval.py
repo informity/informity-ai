@@ -8,8 +8,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from informity.llm.metadata_filters import MetadataFilter, extract_metadata_filters
-from informity.llm.retrieval import _get_file_ids_matching_metadata_filters, retrieve_chunks
+from informity.llm.metadata_filters import extract_metadata_filters
+from informity.llm.retrieval import retrieve_chunks
 
 
 def _make_async_mock_db():
@@ -35,29 +35,6 @@ def _make_async_mock_db():
 @pytest.fixture
 def mock_db():
     return _make_async_mock_db()
-
-
-@pytest.mark.asyncio
-async def test_get_file_ids_matching_metadata_filters_supports_filename_contains_any():
-    mock_cursor = MagicMock()
-    mock_cursor.fetchall = AsyncMock(return_value=[{'id': 11}, {'id': 22}])
-    mock_db = MagicMock()
-    mock_db.execute = AsyncMock(return_value=mock_cursor)
-
-    filters = [
-        MetadataFilter(field='filename', operator='contains_any', value=['FormA', 'FormB']),
-        MetadataFilter(field='year', operator='eq', value=2023),
-    ]
-
-    file_ids = await _get_file_ids_matching_metadata_filters(mock_db, filters)
-
-    mock_db.execute.assert_called_once()
-    sql = mock_db.execute.call_args[0][0]
-    params = mock_db.execute.call_args[0][1]
-    assert file_ids == [11, 22]
-    assert 'filename LIKE ?' in sql
-    assert 'year = ?' in sql
-    assert params == ['%FormA%', '%FormB%', 2023]
 
 
 @pytest.mark.asyncio
@@ -127,37 +104,13 @@ async def test_retrieve_chunks_calls_reranker(mock_db):
 
 
 @pytest.mark.asyncio
-async def test_retrieve_chunks_coverage_mode(mock_db):
-    # Coverage mode should use file-anchored retrieval
-    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
-         patch('informity.llm.retrieval._get_file_ids_matching_metadata_filters', new_callable=AsyncMock) as mock_get_files, \
-         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
-         patch('informity.llm.retrieval.reranker') as mock_reranker:
-
-        mock_embedder.embed_query.return_value = [0.1] * 768
-        mock_get_files.return_value = [1, 2, 3]
-        mock_vector_store.search_similar.return_value = []
-        mock_reranker.rerank.return_value = []
-
-        await retrieve_chunks('all files', top_k=10, query_type='coverage', db=mock_db)
-
-        # Should have called metadata-filter-based file id selection for coverage mode
-        mock_get_files.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_retrieve_chunks_coverage_uses_profile_candidate_policy(mock_db):
+async def test_retrieve_chunks_uses_profile_candidate_top_k(mock_db):
     with patch('informity.llm.retrieval.embedder') as mock_embedder, \
          patch('informity.llm.retrieval.get_profile') as mock_get_profile, \
-         patch('informity.llm.retrieval._get_file_ids_matching_metadata_filters', new_callable=AsyncMock) as mock_get_files, \
          patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
          patch('informity.llm.retrieval.reranker') as mock_reranker:
         mock_embedder.embed_query.return_value = [0.1] * 768
-        mock_get_profile.return_value = SimpleNamespace(
-            coverage_candidate_multiplier=4,
-            coverage_min_candidates=20,
-        )
-        mock_get_files.return_value = [1, 2, 3]
+        mock_get_profile.return_value = SimpleNamespace(retrieval_top_k_candidates=20)
         mock_vector_store.search_similar.return_value = []
         mock_reranker.rerank.return_value = []
 
@@ -187,32 +140,6 @@ async def test_retrieve_chunks_returns_top_k(mock_db):
 
         # Should return top_k results
         assert len(results) <= 5
-
-
-@pytest.mark.asyncio
-async def test_retrieve_chunks_coverage_uses_batched_fallback(mock_db):
-    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
-         patch('informity.llm.retrieval._get_file_ids_matching_metadata_filters', new_callable=AsyncMock) as mock_get_files, \
-         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
-         patch('informity.llm.retrieval.reranker') as mock_reranker:
-        mock_embedder.embed_query.return_value = [0.1] * 768
-        mock_get_files.return_value = [1, 2]
-        # Global search covers file 1 only.
-        mock_vector_store.search_similar.return_value = [
-            {'chunk_id': 1, 'file_id': 1, 'file_path': '/f1', 'filename': 'f1', 'chunk_text': 'c1', 'score': 0.1},
-        ]
-        # Batched fallback covers missing file 2.
-        mock_vector_store.search_top1_per_file.return_value = [
-            {'chunk_id': 2, 'file_id': 2, 'file_path': '/f2', 'filename': 'f2', 'chunk_text': 'c2', 'score': 0.2},
-        ]
-        mock_reranker.rerank.return_value = [
-            {'chunk_id': 1, 'file_id': 1, 'file_path': '/f1', 'filename': 'f1', 'chunk_text': 'c1', 'score': 0.1},
-            {'chunk_id': 2, 'file_id': 2, 'file_path': '/f2', 'filename': 'f2', 'chunk_text': 'c2', 'score': 0.2},
-        ]
-
-        await retrieve_chunks('coverage question', top_k=2, query_type='coverage', db=mock_db)
-
-        mock_vector_store.search_top1_per_file.assert_called_once()
 
 
 @pytest.mark.asyncio

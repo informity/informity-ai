@@ -138,11 +138,6 @@ _SETTINGS_ALLOWED_VALUE_RULES: dict[str, tuple[tuple[str, ...], bool, str]] = {
         False,
         _allowed_values_detail('ui_theme', config.UI_THEME_ALLOWED_VALUES),
     ),
-    'default_response_mode': (
-        config.RESPONSE_MODE_ALLOWED_VALUES,
-        False,
-        _allowed_values_detail('default_response_mode', config.RESPONSE_MODE_ALLOWED_VALUES),
-    ),
 }
 
 
@@ -235,7 +230,6 @@ _UPDATABLE_FIELDS: set[str] = {
     'log_level',
     'ui_theme',
     'enable_menu_bar_icon',
-    'default_response_mode',
     'cpu_priority_nice',
 }
 # NOTE: Profile-controlled fields removed from _UPDATABLE_FIELDS:
@@ -320,7 +314,6 @@ async def get_settings() -> SettingsResponse:
         model_profile         = profile_info,
         ui_theme              = s.ui_theme,
         enable_menu_bar_icon  = s.enable_menu_bar_icon,
-        default_response_mode = s.default_response_mode,
         cpu_priority_nice     = s.cpu_priority_nice,
     )
 
@@ -424,22 +417,6 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
             if field_name == 'diagnostics_profile' and value is not None:
                 diagnostics_profile_value = value
                 continue
-            if field_name == 'default_response_mode' and value is not None:
-                target_model = str(updates.get('llm_model_filename') or config.settings.llm_model_filename).strip()
-                profile = get_profile_for_filename(target_model)
-                supported_modes = tuple(
-                    str(mode).strip().lower()
-                    for mode in getattr(profile, 'supported_modes', ())
-                    if mode
-                ) or ('analysis',)
-                if value not in supported_modes:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=(
-                            f"default_response_mode '{value}' is not supported by active model "
-                            f"'{profile.name}'. Supported modes: {', '.join(supported_modes)}."
-                        ),
-                    )
             if field_name == 'llm_model_filename' and value is not None:
                 value = (value or '').strip()
                 if not value:

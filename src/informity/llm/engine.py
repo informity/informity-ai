@@ -851,10 +851,6 @@ class LLMEngine:
                 total_text  += emit_text
                 yield emit_text
 
-            worker.join(timeout=60.0)
-            if worker.is_alive():
-                log.warning('llm_stream_worker_timeout', msg='Worker thread did not exit within 60s')
-
             if timeout_occurred:
                 timeout_notice = f'\n\n[Response truncated: generation time limit ({int(wall_clock)}s) reached]'
                 total_text += timeout_notice
@@ -896,6 +892,21 @@ class LLMEngine:
             raise
 
         finally:
+            # Always attempt worker cleanup, including cancellation paths.
+            # Previously this only happened on the normal completion path,
+            # which could leave the native generation thread running after
+            # timeout/cancellation and trigger process-level instability.
+            if worker.is_alive():
+                cancel_event.set()
+                worker.join(timeout=60.0)
+                if worker.is_alive():
+                    log.warning(
+                        'llm_stream_worker_timeout',
+                        msg='Worker thread did not exit within 60s',
+                        cancelled=cancel_event.is_set(),
+                        timeout_occurred=timeout_occurred,
+                    )
+
             elapsed_ms = (time.perf_counter() - start) * 1000
             log.info(
                 'llm_stream_completed',

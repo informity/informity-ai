@@ -212,7 +212,6 @@ export async function streamChat(
   message: string,
   chatId: string | null,
   callbacks: StreamChatCallbacks,
-  responseMode: 'analysis' | 'research' = 'analysis',
 ): Promise<void> {
   const { onToken, onChatId, onStreamId, onRequestId, onSources, onDone, onError, onCleaned, onStatus, onPlanStep, signal } = callbacks
   let doneData: StreamDonePayload | null = null
@@ -222,7 +221,6 @@ export async function streamChat(
   const body = JSON.stringify({
     message: message.trim(),
     chat_id: chatId || null,
-    response_mode: responseMode,
   })
 
   try {

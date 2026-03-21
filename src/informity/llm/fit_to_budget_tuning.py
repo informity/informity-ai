@@ -26,7 +26,7 @@ _ROLLOUT_POWER_USERS_BUCKET_LIMIT = 35
 _DEFAULT_TUNING_MIN_SAMPLES = 20
 _DEFAULT_TUNING_LOOKBACK_DAYS = 14
 _MIN_DYNAMIC_COMPLETION_SAMPLES = 5
-_SUPPORTED_RESPONSE_MODES = {'analysis', 'research'}
+_SUPPORTED_RESPONSE_MODES = {'analysis'}
 _DEFAULT_SOFT_TOP_K = 0.60
 _DEFAULT_SOFT_REASONING = 0.75
 _DEFAULT_SOFT_OUTPUT = 0.85
@@ -357,7 +357,7 @@ async def resolve_fit_to_budget_policy(
         stream_soft_limit_ratio=stream_soft_limit,
         first_token_late_ratio=first_token_late,
     )
-    if normalized_mode in {'analysis', 'research'}:
+    if normalized_mode == 'analysis':
         # Deep Analysis relaxes budget reductions while preserving hard guardrails.
         policy = FitToBudgetPolicy(
             enabled=policy.enabled,

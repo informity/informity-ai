@@ -15,6 +15,7 @@ import os
 import sys
 from pathlib import Path
 
+
 # CRITICAL: Set HF cache paths BEFORE any imports that might initialize huggingface_hub
 # This ensures models are downloaded to app data cache, not ~/.cache/huggingface/hub/
 def _setup_hf_cache_early() -> None:

@@ -14,7 +14,6 @@ from informity.api.schemas import ChatSourceReference
 from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.fit_to_budget_tuning import resolve_fit_to_budget_policy
-from informity.llm.planner import QueryPlan
 from informity.llm.prompt_builder import build_messages
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.rag_runtime import execution_plan as _execution_plan
@@ -77,14 +76,7 @@ def _resolve_sampling_params_for_response_mode(
     profile_temperature: float,
     profile_top_p: float,
 ) -> tuple[float, float, dict[str, object] | None]:
-    mode = str(response_mode_used or 'analysis').strip().lower()
-    if mode == 'analysis':
-        # Deterministic analysis mode reduces run-to-run continuation variance.
-        return 0.0, 1.0, {
-            'step': 'analysis_sampling_deterministic_enforced',
-            'temperature': {'from': profile_temperature, 'to': 0.0},
-            'top_p': {'from': profile_top_p, 'to': 1.0},
-        }
+    # Phase 1 reset: no mode-based sampling overrides.
     return profile_temperature, profile_top_p, None
 
 
@@ -112,7 +104,6 @@ class RAGHandler:
         history:        list[ChatMessage] | None,
         db:             aiosqlite.Connection,
         trace:          object | None,
-        response_mode:  str | None = None,
         diagnostics_context: dict[str, object] | None = None,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         """
@@ -121,18 +112,10 @@ class RAGHandler:
         This is the existing RAG logic extracted into a handler.
         """
         try:
-            # Extract QueryPlan from diagnostics_context if provided (Phase 5 multi-step retrieval).
-            _query_plan: QueryPlan | None = None
-            if diagnostics_context is not None:
-                _raw_plan = diagnostics_context.get('query_plan')
-                if isinstance(_raw_plan, QueryPlan) and _raw_plan.steps:
-                    _query_plan = _raw_plan
-
             # 1. Determine query type for proper retrieval and LLM settings
             plan = await _execution_plan.build_execution_plan(
                 question=question,
                 classification=classification,
-                response_mode=response_mode,
                 diagnostics_context=diagnostics_context,
                 db=db,
                 resolve_fit_to_budget_policy_fn=resolve_fit_to_budget_policy,
@@ -156,25 +139,6 @@ class RAGHandler:
             strict_ordered_mode = plan.strict_ordered_mode
             fallback_events = plan.fallback_events
 
-            if response_mode_used == 'research':
-                research_fallback_fields = profile.get_research_fallback_fields()
-                if research_fallback_fields:
-                    log.warning(
-                        'research_mode_profile_fallback',
-                        profile_name=profile.name,
-                        fallback_fields=research_fallback_fields,
-                        fallback_to='analysis_or_base_profile_values',
-                    )
-                else:
-                    log.info(
-                        'research_mode_active',
-                        profile_name=profile.name,
-                        max_tokens_research=profile.max_tokens_research,
-                        timeout_seconds_research=profile.timeout_seconds_research,
-                        top_k_research=profile.top_k_research,
-                        rag_context_ratio_research=profile.rag_context_ratio_research,
-                        prompt_addendum='research_mode_prompt_addendum',
-                    )
             retrieval_filename_filter = classification.filename_filter
             retrieval_context = _retrieval_plan.build_retrieval_context(
                 question=question,
@@ -185,8 +149,11 @@ class RAGHandler:
             prior_source_anchors = retrieval_context.prior_source_anchors
             prior_has_remaining_scope = retrieval_context.prior_has_remaining_scope
             continuation_source_terms = retrieval_context.continuation_source_terms
-            source_terms_for_retrieval = retrieval_context.source_terms_for_retrieval
             retrieval_question = retrieval_context.retrieval_question
+            source_terms_for_retrieval = list(classification.source_terms or [])
+            for term in continuation_source_terms:
+                if term not in source_terms_for_retrieval:
+                    source_terms_for_retrieval.append(term)
             (
                 timeout_seconds,
                 effective_top_k,
@@ -269,21 +236,6 @@ class RAGHandler:
                 strict_ordered_mode=strict_ordered_mode,
             )
 
-            # Reconcile max_tokens with planner section count.
-            # If the query plan has N answer sections, the token budget floor is
-            # N × tokens_per_section_floor to prevent mid-response truncation.
-            if _query_plan is not None and _query_plan.answer_sections:
-                section_floor = len(_query_plan.answer_sections) * int(settings.tokens_per_section_floor)
-                if section_floor > effective_max_tokens:
-                    log.info(
-                        'token_budget_section_floor_applied',
-                        answer_sections=len(_query_plan.answer_sections),
-                        tokens_per_section_floor=int(settings.tokens_per_section_floor),
-                        previous_max_tokens=effective_max_tokens,
-                        new_max_tokens=section_floor,
-                    )
-                    effective_max_tokens = section_floor
-
             if trace is not None:
                 trace.record('intent', {
                     'model_profile':     profile.name,
@@ -315,13 +267,11 @@ class RAGHandler:
                 question=question,
                 retrieval_question=retrieval_question,
                 classification=classification,
-                query_plan=_query_plan,
                 effective_query_type=effective_query_type,
                 effective_top_k=effective_top_k,
                 effective_max_tokens=effective_max_tokens,
                 effective_response_shape=effective_response_shape,
                 timeout_seconds=timeout_seconds,
-                source_terms_for_retrieval=source_terms_for_retrieval,
                 continuation_source_terms=continuation_source_terms,
                 prior_has_remaining_scope=prior_has_remaining_scope,
                 scope_reset_detected=scope_reset_detected,
@@ -484,49 +434,6 @@ class RAGHandler:
                     'duration_ms':        round(prompt_elapsed_ms, 1),
                 })
 
-            if fit_to_budget_enabled and post_retrieval_ratio >= policy.hard_pre_generation_threshold:
-                has_remaining_scope = _generation_runtime._has_remaining_scope(
-                    timeout_reason=None,
-                    stream_recovery_reason='hard_pre_generation_scope_reduction',
-                    generation_skipped=True,
-                    applied_degradations=applied_degradations,
-                )
-                scoped_response = (
-                    'I narrowed the request automatically to stay within the response time budget.\n\n'
-                    f'- **Completed scope:** analyzed top {len(chunks)} most relevant context chunk(s).\n'
-                    '- **Omitted scope:** exhaustive cross-document expansion was skipped for this turn.\n'
-                    '- **Next step:** ask a follow-up for the remaining sections if you need full coverage.'
-                )
-                scoped_metrics_payload = _generation_terminal.build_generation_skipped_metrics_payload(
-                    query_type=effective_query_type,
-                    response_mode_used=response_mode_used,
-                    mode_adjustments_applied=mode_adjustments_applied,
-                    timeout_seconds=timeout_seconds,
-                    retrieval_elapsed_ms=retrieval_elapsed_ms,
-                    preflight_projected_seconds=preflight_projected_seconds,
-                    preflight_ratio=preflight_ratio,
-                    applied_degradations=applied_degradations,
-                    fallback_events=fallback_events,
-                    has_remaining_scope=has_remaining_scope,
-                    suggested_completion_mode='scoped_complete',
-                    post_retrieval_projected_seconds=post_retrieval_projected_seconds,
-                    post_retrieval_ratio=post_retrieval_ratio,
-                )
-                scoped_metrics_payload['prompt_duration_ms'] = round(prompt_elapsed_ms, 1)
-                scoped_metrics_payload['fit_to_budget_rollout_stage'] = policy.rollout_stage
-                scoped_metrics_payload['fit_to_budget_enabled'] = fit_to_budget_enabled
-                scoped_metrics_payload['fit_to_budget_sample_count'] = policy.sample_count
-                scoped_metrics_payload['fit_to_budget_timeout_rate'] = policy.timeout_rate
-                yield ('__metrics__', scoped_metrics_payload)
-                yield scoped_response
-                sources = _generation_closeout.build_source_references(
-                    chunks=chunks,
-                    truncate_preview_fn=_truncate_preview,
-                    normalize_relevance_score_fn=_retrieval_validation._normalize_relevance_score,
-                )
-                yield sources
-                return
-
             # 4. Get model profile settings for query type
             max_tokens = effective_max_tokens
             stop_sequences = profile.get_stop_sequences(effective_reasoning_enabled)
@@ -578,7 +485,6 @@ class RAGHandler:
                     soft_budget_checkpoints_hit=[],
                     completion_mode='scoped_complete',
                     has_remaining_scope=True,
-                    output_contract_check={'passed': False, 'error': 'missing_stream_summary'},
                 )
                 applied_degradations.append({
                     'step': 'missing_stream_summary_guard',
@@ -601,7 +507,6 @@ class RAGHandler:
             stream_recovery_reason = stream_summary.stream_recovery_reason
             completion_mode = stream_summary.completion_mode
             has_remaining_scope = stream_summary.has_remaining_scope
-            output_contract_check = stream_summary.output_contract_check
             checkpoints_hit = stream_summary.soft_budget_checkpoints_hit
 
             metrics_payload = _generation_closeout.build_generation_metrics_payload(
@@ -630,7 +535,6 @@ class RAGHandler:
                 fallback_events=fallback_events,
                 has_remaining_scope=has_remaining_scope,
                 stream_recovery_reason=stream_recovery_reason,
-                output_contract_check=output_contract_check,
             )
             yield ('__metrics__', metrics_payload)
             _generation_closeout.record_generation_trace(
@@ -641,7 +545,6 @@ class RAGHandler:
                 llm_elapsed_ms=llm_elapsed_ms,
                 profile_name=profile.name,
                 stream_recovery_reason=stream_recovery_reason,
-                output_contract_check=output_contract_check,
             )
             _generation_closeout.log_generation_completion(
                 log=log,

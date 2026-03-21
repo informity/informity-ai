@@ -4,6 +4,7 @@ import asyncio
 import json
 import threading
 import time
+from contextlib import suppress
 from types import SimpleNamespace
 
 import pytest
@@ -177,6 +178,37 @@ async def test_generate_stream_no_think_block_passes_through(monkeypatch: pytest
         if isinstance(item, str)
     )
     assert output == 'The answer is 42.'
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_cancellation_cleans_up_worker(monkeypatch: pytest.MonkeyPatch) -> None:
+    worker_stopped = threading.Event()
+
+    def _blocking_worker(
+        server, messages, max_tok, temp, top_p_val, stop_seqs,  # type: ignore[no-untyped-def]
+        loop, queue, exception_holder, cancel_event,
+    ) -> None:
+        _ = (server, messages, max_tok, temp, top_p_val, stop_seqs, exception_holder)
+        try:
+            while not cancel_event.is_set():
+                time.sleep(0.01)
+        finally:
+            worker_stopped.set()
+            loop.call_soon_threadsafe(queue.put_nowait, _STREAM_END)
+
+    engine = _common_engine_monkeypatches(monkeypatch, _blocking_worker)
+    stream = engine.generate_stream(messages=[{'role': 'user', 'content': 'cancel me'}], timeout_seconds=10.0)
+    next_item = asyncio.create_task(stream.__anext__())
+
+    await asyncio.sleep(0.05)
+    next_item.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await next_item
+
+    with suppress(Exception):
+        await stream.aclose()
+
+    assert worker_stopped.wait(timeout=1.0), 'Expected worker to stop after stream cancellation'
 
 
 @pytest.mark.asyncio

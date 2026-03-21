@@ -15,8 +15,6 @@ from informity.llm.intent_profiles import IntentProfilePolicy, get_intent_profil
 from informity.llm.model_adapter import ModelProfile, get_profile, get_retrieval_top_k
 from informity.llm.query_classifier import QueryClassification
 
-_VALID_RESPONSE_MODES = {'analysis', 'research'}
-
 
 @dataclass
 class RAGExecutionPlan:
@@ -46,7 +44,6 @@ async def build_execution_plan(
     *,
     question: str,
     classification: QueryClassification,
-    response_mode: str | None,
     diagnostics_context: dict[str, object] | None,
     db: aiosqlite.Connection,
     resolve_fit_to_budget_policy_fn: Callable[..., Awaitable[object]] = resolve_fit_to_budget_policy,
@@ -72,13 +69,11 @@ async def build_execution_plan(
         selected_policy = get_intent_profile_policy('clarification_or_disambiguation')
         query_type = selected_policy.preferred_retrieval_mode
 
-    response_mode_used = str(response_mode or 'analysis').strip().lower()
-    if response_mode_used not in _VALID_RESPONSE_MODES:
-        response_mode_used = 'analysis'
+    response_mode_used = 'analysis'
 
-    retrieval_top_k = get_retrieval_top_k(query_type, response_mode=response_mode_used)
-    timeout_seconds = profile.get_mode_timeout_seconds(query_type, response_mode_used)
-    max_tokens = profile.get_mode_max_tokens(query_type, response_mode_used)
+    retrieval_top_k = get_retrieval_top_k(query_type)
+    timeout_seconds = profile.get_mode_timeout_seconds(query_type)
+    max_tokens = profile.get_mode_max_tokens(query_type)
     reasoning_enabled = profile.get_reasoning_enabled(query_type)
 
     mode_adjustments_applied: list[dict[str, object]] = []
@@ -87,13 +82,12 @@ async def build_execution_plan(
         min_words_value = diagnostics_context.get('output_shape_min_words')
         if isinstance(min_words_value, int) and min_words_value > 0:
             diagnostics_min_words = min_words_value
-    if response_mode_used in {'analysis', 'research'}:
-        mode_adjustments_applied.append({
-            'step': f'{response_mode_used}_profile_budget_applied',
-            'top_k': {'to': retrieval_top_k},
-            'timeout_seconds': {'to': timeout_seconds},
-            'max_tokens': {'to': max_tokens},
-        })
+    mode_adjustments_applied.append({
+        'step': 'analysis_profile_budget_applied',
+        'top_k': {'to': retrieval_top_k},
+        'timeout_seconds': {'to': timeout_seconds},
+        'max_tokens': {'to': max_tokens},
+    })
 
     policy = await resolve_fit_to_budget_policy_fn(
         db=db,

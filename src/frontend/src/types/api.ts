@@ -52,12 +52,11 @@ export type DisplayBlock =
   | DisplayTableBlock
   | DisplayUnknownBlock
 
-export type ResponseMode = 'analysis' | 'research'
 export type CompletionMode = 'complete' | 'partial' | 'scoped_complete' | 'stopped'
 export type NextAction = 'none' | 'continue' | 'regenerate'
 export type NextActionReason = 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled'
 export type ContinuationProgressState = 'progressed' | 'stalled' | 'budget_exhausted'
-export type StreamStatusState = 'classifying' | 'planning' | 'retrieving' | 'generating' | 'continuing' | 'finalizing'
+export type StreamStatusState = 'classifying' | 'retrieving' | 'generating' | 'continuing' | 'finalizing'
 
 export interface PlanStepPayload {
   step_id?: number
@@ -92,15 +91,13 @@ export interface StreamDonePayload {
   budget_metrics?: Record<string, unknown>
   budget_checkpoints?: Array<Record<string, unknown>>
   continuation_passes?: number
-  contract_repair_pass_applied?: boolean
-  output_contract_check?: Record<string, unknown>
   continuation_resolution_reason?: string | null
   continuation_progress_state?: ContinuationProgressState
   next_action?: NextAction
   next_action_reason?: NextActionReason | null
   pass_details?: Array<Record<string, unknown>>
   status_transitions?: Array<Record<string, unknown>>
-  response_mode_used?: ResponseMode
+  response_mode_used?: 'analysis'
   mode_adjustments_applied?: Array<Record<string, unknown>>
 }
 
@@ -111,7 +108,7 @@ export interface ChatMessageApi {
   sources?: ChatSourceReference[]
   display_blocks?: DisplayBlock[]
   is_internal?: boolean
-  response_mode_used?: ResponseMode
+  response_mode_used?: 'analysis'
   completion_mode?: CompletionMode
   stopped_by_user?: boolean
   has_remaining_scope?: boolean
@@ -141,7 +138,7 @@ export interface ChatMessageDisplay {
   completionMode?: CompletionMode
   stoppedByUser?: boolean
   timeoutReason?: string | null
-  responseModeUsed?: ResponseMode
+  responseModeUsed?: 'analysis'
   createdAt?: string
   generationSeconds?: number
   continuationResolutionReason?: string | null
@@ -193,5 +190,5 @@ export interface ChatListItem {
   message_count?: number
   first_user_message?: string
   last_generation_seconds?: number
-  last_response_mode_used?: ResponseMode
+  last_response_mode_used?: 'analysis'
 }

@@ -37,12 +37,10 @@ const baseSettings = {
   chat_trace_evaluation_retention_days: 30,
   enable_raw_output_control: false,
   ui_theme: 'blue',
-  default_response_mode: 'analysis' as const,
   llm_model_filename: 'main.gguf',
   available_models: ['main.gguf', 'alt.gguf'],
   model_profile: {
     name: 'Qwen 14B',
-    supported_modes: ['analysis', 'research'] as const,
   },
   embedding_model: 'embed.gguf',
   rag_reranker_model: 'reranker.gguf',

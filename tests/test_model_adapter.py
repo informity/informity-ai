@@ -47,7 +47,7 @@ class TestGetProfileForFilename:
         assert profile is DEFAULT_PROFILE
 
     def test_qwen3_14b_detected(self) -> None:
-        # Qwen3 14B has a dedicated balanced profile
+        # Qwen3 14B has a dedicated analysis profile
         profile = get_profile_for_filename('Qwen3-14B-Q4_K_M.gguf')
         assert profile is QWEN3_14B_PROFILE
 
@@ -113,8 +113,9 @@ class TestQwen330BA3BProfile:
         assert profile.get_max_tokens('focused') == 1536
         assert profile.get_max_tokens('coverage') == 2048
 
-    def test_coverage_top_k(self, profile: ModelProfile) -> None:
-        assert profile.coverage_top_k == 18
+    def test_retrieval_top_k_fields(self, profile: ModelProfile) -> None:
+        assert profile.retrieval_top_k_candidates > 0
+        assert profile.retrieval_top_k_final > 0
 
     def test_context_length(self, profile: ModelProfile) -> None:
         assert profile.context_length == 24576
@@ -206,8 +207,9 @@ class TestDefaultProfile:
         assert DEFAULT_PROFILE.supports_think_blocks is True
         assert DEFAULT_PROFILE.reasoning_mode == ReasoningMode.FOCUSED_ONLY
 
-    def test_coverage_top_k_standard(self) -> None:
-        assert DEFAULT_PROFILE.coverage_top_k == 15
+    def test_retrieval_top_k_standard(self) -> None:
+        assert DEFAULT_PROFILE.retrieval_top_k_candidates == 25
+        assert DEFAULT_PROFILE.retrieval_top_k_final == 12
 
     def test_no_think_token(self) -> None:
         # Default also supports /no_think (safe for ChatML models)
@@ -242,13 +244,14 @@ class TestModelProfileMethods:
     def test_to_display_dict_contains_all_keys(self) -> None:
         display = QWEN3_30B_A3B_PROFILE.to_display_dict()
         expected_keys = {
-            'name', 'family', 'supported_modes', 'supports_reasoning', 'reasoning_mode',
-            'max_tokens_simple', 'max_tokens_focused', 'max_tokens_coverage', 'max_tokens_analysis', 'max_tokens_research',
-            'coverage_top_k', 'top_k_analysis', 'top_k_research', 'min_tokens_coverage',
+            'name', 'family', 'supports_reasoning', 'reasoning_mode',
+            'max_tokens_simple', 'max_tokens_focused', 'max_tokens_coverage', 'max_tokens_analysis',
+            'coverage_top_k', 'top_k_analysis', 'min_tokens_coverage',
             'prompt_format', 'coverage_prompt_format', 'context_length',
-            'temperature', 'top_p', 'rag_top_k', 'rag_top_k_simple', 'rag_top_k_focused', 'rag_top_k_coverage',
-            'rag_max_score', 'rag_context_ratio', 'rag_context_ratio_analysis', 'rag_context_ratio_research',
-            'timeout_seconds_simple', 'timeout_seconds_focused', 'timeout_seconds_coverage', 'timeout_seconds_analysis', 'timeout_seconds_research',
+            'temperature', 'top_p', 'rag_top_k', 'retrieval_top_k_candidates', 'retrieval_top_k_final',
+            'rag_top_k_simple', 'rag_top_k_focused', 'rag_top_k_coverage',
+            'rag_max_score', 'rag_context_ratio', 'rag_context_ratio_analysis',
+            'timeout_seconds_simple', 'timeout_seconds_focused', 'timeout_seconds_coverage', 'timeout_seconds_analysis',
         }
         assert expected_keys == set(display.keys())
 
@@ -266,36 +269,9 @@ class TestModelProfileMethods:
 
 class TestGetRetrievalTopK:
     def test_returns_profile_values(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        # Disable adaptive tuning so we test raw profile values, not corpus-tuned overrides.
-        from informity.config import settings as _settings
-        monkeypatch.setattr(_settings, 'adaptive_rag_tuning', False)
-        # Uses get_profile() which depends on settings.llm_model_filename
-        # Default config uses Qwen3 30B: focused=12 (rag_top_k_focused),
-        # coverage=14 (top_k_analysis=14 overrides coverage_top_k=18 for analysis mode)
-        from informity.config import settings
-        if 'qwen3' in settings.llm_model_filename.lower() and '30b' in settings.llm_model_filename.lower():
-            assert get_retrieval_top_k('focused') == 12
-            assert get_retrieval_top_k('coverage') == 14
-        else:
-            # Fallback: just ensure we get ints from profile
-            focused = get_retrieval_top_k('focused')
-            coverage = get_retrieval_top_k('coverage')
-            assert isinstance(focused, int) and focused >= 0
-            assert isinstance(coverage, int) and coverage >= 0
-
-    def test_response_mode_specific_top_k(self) -> None:
+        _ = monkeypatch
         from informity.llm.model_adapter import get_profile
 
         profile = get_profile()
-        # Per-query-type override (rag_top_k_focused) takes priority over mode-based top_k.
-        # Only when rag_top_k_focused == 0 does the mode-based value (top_k_analysis) apply.
-        if profile.rag_top_k_focused > 0:
-            expected_focused_analysis = profile.rag_top_k_focused
-            expected_focused_research = profile.rag_top_k_focused
-        else:
-            analysis_base = profile.top_k_analysis or profile.rag_top_k
-            research_base = profile.top_k_research or analysis_base
-            expected_focused_analysis = analysis_base
-            expected_focused_research = research_base
-        assert get_retrieval_top_k('focused', response_mode='analysis') == expected_focused_analysis
-        assert get_retrieval_top_k('focused', response_mode='research') == expected_focused_research
+        assert get_retrieval_top_k('focused') == profile.retrieval_top_k_final
+        assert get_retrieval_top_k('coverage') == profile.retrieval_top_k_final

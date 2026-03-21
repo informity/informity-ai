@@ -3,8 +3,6 @@
 # Tests message construction with context chunks and history
 # ==============================================================================
 
-import re
-
 from informity.db.models import ChatMessage
 from informity.llm.prompt_builder import build_messages
 
@@ -142,27 +140,25 @@ class TestPromptBuilder:
         messages = build_messages('Question', [])
 
         assert 'Answer using ONLY' in messages[0]['content']
-        assert 'markdown formatting' in messages[0]['content']
+        assert 'Use markdown:' in messages[0]['content']
         assert 'not contain enough information' in messages[0]['content']
 
-    def test_system_prompt_includes_current_utc_date_anchor(self) -> None:
+    def test_system_prompt_includes_context_anchor(self) -> None:
         messages = build_messages('Question', [])
         content = messages[0]['content']
 
-        assert 'Current date: ' in content
-        match = re.search(r'Current date:\s+(\d{4}-\d{2}-\d{2})', content)
-        assert match is not None
+        assert 'Context:' in content
 
-    def test_research_mode_adds_depth_instructions(self) -> None:
-        messages = build_messages('Question', [], response_mode='research')
-        assert 'Research mode instructions:' in messages[0]['content']
-        assert 'Prefer comprehensive, evidence-grounded coverage over brevity.' in messages[0]['content']
+    def test_builder_does_not_include_research_instructions(self) -> None:
+        messages = build_messages('Question', [])
+        assert 'Research mode instructions:' not in messages[0]['content']
+        assert 'Prefer comprehensive, evidence-grounded coverage over brevity.' not in messages[0]['content']
 
-    def test_non_research_mode_does_not_add_research_instructions(self) -> None:
-        messages = build_messages('Question', [], response_mode='analysis')
+    def test_builder_keeps_single_route_prompt_contract(self) -> None:
+        messages = build_messages('Question', [])
         assert 'Research mode instructions:' not in messages[0]['content']
 
-    def test_sanitizes_assistant_history_before_prompt_inclusion(self) -> None:
+    def test_preserves_assistant_history_verbatim(self) -> None:
         history = [
             ChatMessage(chat_id='test', role='user', content='Prior question'),
             ChatMessage(chat_id='test', role='assistant', content='<think>hidden chain</think>\nVisible answer'),
@@ -171,17 +167,17 @@ class TestPromptBuilder:
         messages = build_messages('Follow-up', [], history)
 
         assert messages[-2]['role'] == 'assistant'
-        assert messages[-2]['content'] == 'Visible answer'
-        assert '<think>' not in messages[-2]['content']
+        assert messages[-2]['content'] == '<think>hidden chain</think>\nVisible answer'
 
-    def test_skips_assistant_history_when_sanitization_removes_all_content(self) -> None:
+    def test_keeps_assistant_history_when_reasoning_only(self) -> None:
         history = [
             ChatMessage(chat_id='test', role='assistant', content='<think>reasoning only</think>'),
         ]
 
         messages = build_messages('Follow-up', [], history)
 
-        # system + current user question only (assistant history removed as empty after sanitization)
-        assert len(messages) == 2
+        # system + assistant history + current user question
+        assert len(messages) == 3
         assert messages[0]['role'] == 'system'
-        assert messages[1]['role'] == 'user'
+        assert messages[1]['role'] == 'assistant'
+        assert messages[2]['role'] == 'user'

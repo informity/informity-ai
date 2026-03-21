@@ -25,8 +25,8 @@ class EvalMetrics:
     """
     Evaluation metrics for a single query response.
 
-    Fields use OTel naming conventions (via openinference-semantic-conventions)
-    for future compatibility with observability tools.
+    Fields use OTel-style naming conventions (via openinference-semantic-conventions)
+    for diagnostics consistency across observers.
     """
     chat_id: str
     question: str

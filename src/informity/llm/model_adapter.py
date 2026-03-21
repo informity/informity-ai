@@ -107,20 +107,13 @@ class ModelProfile:
     coverage_prompt_format: PromptFormat = PromptFormat.NATIVE_GGUF
 
     # -- Token limits ----------------------------------------------------------
+    max_tokens:          int = 6000
     max_tokens_simple:   int = 1024
     max_tokens_focused:  int = 2048
     max_tokens_coverage: int = 2048
     max_tokens_analysis: int | None = None
-    # Research mode is the highest-depth response mode. Distinct values confirmed 2026-03-18:
-    # max_tokens_research > max_tokens_analysis (more content), timeout_seconds_research > analysis
-    # (allow longer generation), top_k_research >= top_k_analysis (wider evidence pool),
-    # rag_context_ratio_research < analysis (allocate more context budget to documents).
-    # Prompt: prompt_builder.py injects _RESEARCH_MODE_PROMPT_ADDENDUM when response_mode='research'.
-    # Fallback: all four fields fall back to analysis/base values when None or 0.
-    max_tokens_research: int | None = None
     coverage_top_k:      int = 25    # Chunks for coverage queries
     top_k_analysis:      int | None = None
-    top_k_research:      int | None = None
     min_tokens_coverage: int = 400   # Suppress EOS for first N tokens on coverage
 
     # -- Per-query-type top_k overrides ----------------------------------------
@@ -136,7 +129,6 @@ class ModelProfile:
     timeout_seconds_focused:  int = 180   # Wall-clock timeout for focused queries
     timeout_seconds_coverage: int = 240   # Wall-clock timeout for coverage queries (larger models need more time)
     timeout_seconds_analysis: int | None = None
-    timeout_seconds_research: int | None = None
 
     # -- Model-specific tuning (profile-controlled, read-only in UI) -----------
     context_length: int   = 16384   # Max context window (model architecture limit)
@@ -144,14 +136,13 @@ class ModelProfile:
     temperature:    float  = 0.1     # Sampling temperature (0 = deterministic)
     top_p:          float  = 1.0    # Nucleus sampling (1.0 = disabled; e.g. 0.95 for R1)
     rag_top_k:      int   = 18      # Chunks to retrieve before filtering
+    retrieval_top_k_candidates: int = 25  # Candidate pool before reranking
+    retrieval_top_k_final: int = 12       # Final parent chunks after reranking
 
     # -- RAG retrieval tuning (model-specific optimal values) ------------------
     rag_max_score:            float = 0.95  # Max L2 distance for relevant chunk (lower = stricter)
     rag_context_ratio:        float = 0.75  # Share of prompt budget for context (rest for history)
     rag_context_ratio_analysis: float | None = None
-    rag_context_ratio_research: float | None = None
-    coverage_candidate_multiplier: int = 3  # Candidate pool scale for coverage retrieval.
-    coverage_min_candidates: int = 50       # Minimum candidate pool size for coverage retrieval.
 
     # -- Stop sequences --------------------------------------------------------
     stop_sequences:              tuple[str, ...] = ()
@@ -167,9 +158,6 @@ class ModelProfile:
     # that control thinking via template variables (e.g. Qwen3.5 enable_thinking)
     # rather than user-message tokens (e.g. Qwen3 /no_think).
     chat_template_kwargs: dict = field(default_factory=dict)
-
-    # -- Public API ------------------------------------------------------------
-    supported_modes: tuple[str, ...] = ('analysis',)
 
     def get_stop_sequences(self, reasoning_enabled: bool) -> list[str]:
         """Return stop sequences, with extras appended when reasoning is off."""
@@ -194,76 +182,26 @@ class ModelProfile:
             return self.timeout_seconds_coverage
         return self.timeout_seconds_focused
 
-    def get_mode_max_tokens(self, query_type: str, response_mode: str) -> int:
-        base = self.get_max_tokens(query_type)
-        mode = (response_mode or 'analysis').strip().lower()
-        if mode == 'research':
-            if isinstance(self.max_tokens_research, int) and self.max_tokens_research > 0:
-                return self.max_tokens_research
-            if isinstance(self.max_tokens_analysis, int) and self.max_tokens_analysis > 0:
-                return self.max_tokens_analysis
-            return base
-        if mode == 'analysis':
-            if isinstance(self.max_tokens_analysis, int) and self.max_tokens_analysis > 0:
-                return self.max_tokens_analysis
-            return base
-        return base
+    def get_mode_max_tokens(self, query_type: str) -> int:
+        # Single-mode runtime: generation budget is mode-agnostic.
+        _ = query_type
+        return self.max_tokens
 
-    def get_mode_timeout_seconds(self, query_type: str, response_mode: str) -> int:
+    def get_mode_timeout_seconds(self, query_type: str) -> int:
         base = self.get_timeout_seconds(query_type)
-        mode = (response_mode or 'analysis').strip().lower()
-        if mode == 'research':
-            if isinstance(self.timeout_seconds_research, int) and self.timeout_seconds_research > 0:
-                return self.timeout_seconds_research
-            if isinstance(self.timeout_seconds_analysis, int) and self.timeout_seconds_analysis > 0:
-                return self.timeout_seconds_analysis
-            return base
-        if mode == 'analysis':
-            if isinstance(self.timeout_seconds_analysis, int) and self.timeout_seconds_analysis > 0:
-                return self.timeout_seconds_analysis
-            return base
+        if isinstance(self.timeout_seconds_analysis, int) and self.timeout_seconds_analysis > 0:
+            return self.timeout_seconds_analysis
         return base
 
-    def get_mode_top_k(self, response_mode: str, base_top_k: int) -> int:
-        mode = (response_mode or 'analysis').strip().lower()
-        if mode == 'research':
-            if isinstance(self.top_k_research, int) and self.top_k_research > 0:
-                return self.top_k_research
-            if isinstance(self.top_k_analysis, int) and self.top_k_analysis > 0:
-                return self.top_k_analysis
-            return base_top_k
-        if mode == 'analysis':
-            if isinstance(self.top_k_analysis, int) and self.top_k_analysis > 0:
-                return self.top_k_analysis
-            return base_top_k
+    def get_mode_top_k(self, base_top_k: int) -> int:
+        if isinstance(self.top_k_analysis, int) and self.top_k_analysis > 0:
+            return self.top_k_analysis
         return base_top_k
 
-    def get_mode_context_ratio(self, response_mode: str) -> float:
-        mode = (response_mode or 'analysis').strip().lower()
-        if mode == 'research':
-            if isinstance(self.rag_context_ratio_research, float) and self.rag_context_ratio_research > 0:
-                return self.rag_context_ratio_research
-            if isinstance(self.rag_context_ratio_analysis, float) and self.rag_context_ratio_analysis > 0:
-                return self.rag_context_ratio_analysis
-            return self.rag_context_ratio
-        if mode == 'analysis':
-            if isinstance(self.rag_context_ratio_analysis, float) and self.rag_context_ratio_analysis > 0:
-                return self.rag_context_ratio_analysis
-            return self.rag_context_ratio
+    def get_mode_context_ratio(self) -> float:
+        if isinstance(self.rag_context_ratio_analysis, float) and self.rag_context_ratio_analysis > 0:
+            return self.rag_context_ratio_analysis
         return self.rag_context_ratio
-
-    def get_research_fallback_fields(self) -> list[str]:
-        """Return research fields that will fall back to analysis/base values."""
-        missing: list[str] = []
-        if not isinstance(self.max_tokens_research, int) or self.max_tokens_research <= 0:
-            missing.append('max_tokens_research')
-        if not isinstance(self.timeout_seconds_research, int) or self.timeout_seconds_research <= 0:
-            missing.append('timeout_seconds_research')
-        if not isinstance(self.top_k_research, int) or self.top_k_research <= 0:
-            missing.append('top_k_research')
-        if not isinstance(self.rag_context_ratio_research, float) or self.rag_context_ratio_research <= 0:
-            missing.append('rag_context_ratio_research')
-        return missing
 
     def get_reasoning_enabled(self, query_type: str) -> bool:
         """Whether reasoning (<think> blocks) should be enabled for this query type."""
@@ -293,21 +231,14 @@ class ModelProfile:
         return {
             'name':                    self.name,
             'family':                  str(self.family),
-            'supported_modes':         list(self.supported_modes),
             'supports_reasoning':      self.supports_think_blocks,
             'reasoning_mode':          _reasoning_labels.get(self.reasoning_mode, str(self.reasoning_mode)),
             'max_tokens_simple':       self.max_tokens_simple,
             'max_tokens_focused':      self.max_tokens_focused,
             'max_tokens_coverage':     self.max_tokens_coverage,
             'max_tokens_analysis':     self.max_tokens_analysis or self.max_tokens_coverage,
-            'max_tokens_research':     (
-                self.max_tokens_research
-                or self.max_tokens_analysis
-                or self.max_tokens_coverage
-            ),
             'coverage_top_k':          self.coverage_top_k,
             'top_k_analysis':          self.top_k_analysis or self.rag_top_k,
-            'top_k_research':          self.top_k_research or self.top_k_analysis or self.rag_top_k,
             'min_tokens_coverage':     self.min_tokens_coverage,
             'prompt_format':           _format_labels.get(self.prompt_format, str(self.prompt_format)),
             'coverage_prompt_format':  _format_labels.get(self.coverage_prompt_format, str(self.coverage_prompt_format)),
@@ -315,26 +246,18 @@ class ModelProfile:
             'temperature':             self.temperature,
             'top_p':                    self.top_p,
             'rag_top_k':               self.rag_top_k,
+            'retrieval_top_k_candidates': self.retrieval_top_k_candidates,
+            'retrieval_top_k_final':   self.retrieval_top_k_final,
             'rag_top_k_simple':        self.rag_top_k_simple or self.rag_top_k,
             'rag_top_k_focused':       self.rag_top_k_focused or self.rag_top_k,
             'rag_top_k_coverage':      self.rag_top_k_coverage or self.coverage_top_k,
             'rag_max_score':           self.rag_max_score,
             'rag_context_ratio':       self.rag_context_ratio,
             'rag_context_ratio_analysis': self.rag_context_ratio_analysis or self.rag_context_ratio,
-            'rag_context_ratio_research': (
-                self.rag_context_ratio_research
-                or self.rag_context_ratio_analysis
-                or self.rag_context_ratio
-            ),
             'timeout_seconds_simple':   self.timeout_seconds_simple,
             'timeout_seconds_focused':  self.timeout_seconds_focused,
             'timeout_seconds_coverage': self.timeout_seconds_coverage,
             'timeout_seconds_analysis': self.timeout_seconds_analysis or self.timeout_seconds_coverage,
-            'timeout_seconds_research': (
-                self.timeout_seconds_research
-                or self.timeout_seconds_analysis
-                or self.timeout_seconds_coverage
-            ),
         }
 
     def prepare_messages(
@@ -382,17 +305,14 @@ QWEN3_14B_PROFILE = ModelProfile(
     max_tokens_focused  = 1280,
     max_tokens_coverage = 1536,
     max_tokens_analysis = 3072,
-    max_tokens_research = 5120,
     coverage_top_k      = 15,
     top_k_analysis      = 14,
-    top_k_research      = 16,
     min_tokens_coverage = 200,
 
     timeout_seconds_simple   = 140,
     timeout_seconds_focused  = 240,
     timeout_seconds_coverage = 320,
     timeout_seconds_analysis = 450,
-    timeout_seconds_research = 600,
 
     context_length = 16384,
     generation_tokens_per_second = 9.0,
@@ -403,7 +323,6 @@ QWEN3_14B_PROFILE = ModelProfile(
     rag_max_score            = 0.92,
     rag_context_ratio        = 0.70,
     rag_context_ratio_analysis = 0.68,
-    rag_context_ratio_research = 0.62,
 
     rag_top_k_simple   = 6,   # Simple queries need fewer candidates
     rag_top_k_focused  = 12,  # Focused queries benefit from slightly wider pool
@@ -413,13 +332,11 @@ QWEN3_14B_PROFILE = ModelProfile(
 
     strip_meta_commentary = False,
     strip_citations       = True,
-    supported_modes       = ('analysis',),
 )
 
 
 # -- Qwen3.5 9B Instruct ------------------------------------------------------
 # Mid-size profile tuned for local Q4_K_M inference:
-# - Analysis mode only (research mode not supported — rejected with 422)
 # - Uses focused-only reasoning to keep simple/coverage responsive
 # - Uses native GGUF template (no forced ChatML fallback)
 QWEN3_5_9B_PROFILE = ModelProfile(
@@ -441,17 +358,14 @@ QWEN3_5_9B_PROFILE = ModelProfile(
     max_tokens_focused  = 1408,
     max_tokens_coverage = 1792,
     max_tokens_analysis = 3072,
-    max_tokens_research = 6144,
     coverage_top_k      = 16,
     top_k_analysis      = 14,
-    top_k_research      = 18,
     min_tokens_coverage = 200,
 
     timeout_seconds_simple   = 130,
     timeout_seconds_focused  = 220,
     timeout_seconds_coverage = 320,
     timeout_seconds_analysis = 420,
-    timeout_seconds_research = 720,
 
     # Qwen3.5 supports long context; 24K is a practical local sweet spot for Q4_K_M.
     context_length = 24576,
@@ -463,7 +377,6 @@ QWEN3_5_9B_PROFILE = ModelProfile(
     rag_max_score             = 0.91,
     rag_context_ratio         = 0.68,
     rag_context_ratio_analysis = 0.66,
-    rag_context_ratio_research = 0.60,
 
     rag_top_k_simple   = 6,
     rag_top_k_focused  = 12,
@@ -474,7 +387,6 @@ QWEN3_5_9B_PROFILE = ModelProfile(
     strip_meta_commentary = False,
     strip_citations       = True,
     dedupe_insufficient_context_after_stream = True,
-    supported_modes       = ('analysis',),
 
     # Pass enable_thinking=False to the Qwen3.5 GGUF template so it prefills
     # <think>\n\n</think>\n\n (empty think block) instead of <think>\n (forced
@@ -516,10 +428,8 @@ QWEN3_30B_A3B_PROFILE = ModelProfile(
     max_tokens_focused  = 1536,    # Focused queries: single-question answers
     max_tokens_coverage = 2048,    # Coverage queries: lists, comparisons, summaries
     max_tokens_analysis = 3072,
-    max_tokens_research = 8192,
     coverage_top_k      = 18,       # Reduced from 25: 30B is slower, need to prevent timeout on coverage queries
     top_k_analysis      = 14,
-    top_k_research      = 20,
                                     # 18 chunks is still comprehensive but more realistic for generation speed
                                     # Count queries now use SQL path (Fix #1), so coverage_top_k only affects list queries
     min_tokens_coverage = 200,      # Same as 14B: prevent premature stops
@@ -528,7 +438,6 @@ QWEN3_30B_A3B_PROFILE = ModelProfile(
     timeout_seconds_focused  = 280,   # Focused queries with 30B can be long on dense documents
     timeout_seconds_coverage = 420,   # Coverage queries may require large-table synthesis
     timeout_seconds_analysis = 450,
-    timeout_seconds_research = 900,
 
     context_length = 24576,  # 24K for RAG; 30B native 32K, but 24K is ample and faster
     generation_tokens_per_second = 6.0,
@@ -540,7 +449,6 @@ QWEN3_30B_A3B_PROFILE = ModelProfile(
     rag_max_score            = 0.90,  # Stricter than 14B: better model can be more selective
     rag_context_ratio        = 0.65,  # More context budget for complex queries (24K context)
     rag_context_ratio_analysis = 0.65,
-    rag_context_ratio_research = 0.60,
 
     rag_top_k_simple   = 6,
     rag_top_k_focused  = 12,
@@ -553,7 +461,6 @@ QWEN3_30B_A3B_PROFILE = ModelProfile(
     strip_meta_commentary = False,  # 30B model follows Rule #5 — no need
     strip_citations       = True,   # Keep citation stripping as safety net
     dedupe_insufficient_context_after_stream = True,  # Fallback phrase stops are disabled for this profile
-    supported_modes       = ('analysis', 'research'),
 )
 
 
@@ -577,17 +484,14 @@ DEEPSEEK_R1_DISTILL_PROFILE = ModelProfile(
     max_tokens_focused  = 4096,   # Quality analysis can produce long JSON
     max_tokens_coverage = 4096,
     max_tokens_analysis = 4096,
-    max_tokens_research = 4096,
     coverage_top_k      = 20,
     top_k_analysis      = 20,
-    top_k_research      = 20,
     min_tokens_coverage = 200,
 
     timeout_seconds_simple   = 120,   # Diagnostics analysis: adequate for simple queries
     timeout_seconds_focused  = 180,   # Diagnostics analysis: longer timeout for focused queries
     timeout_seconds_coverage = 240,   # Diagnostics analysis: generous timeout for coverage queries
     timeout_seconds_analysis = 240,
-    timeout_seconds_research = 240,
 
     context_length = 16384,
     generation_tokens_per_second = 12.0,
@@ -598,13 +502,11 @@ DEEPSEEK_R1_DISTILL_PROFILE = ModelProfile(
     rag_max_score            = 0.90,
     rag_context_ratio        = 0.75,
     rag_context_ratio_analysis = 0.75,
-    rag_context_ratio_research = 0.75,
 
     stop_sequences  = _CHATML_STRUCTURAL + _CITATION + _FALLBACK_PHRASE_STOPS,
 
     strip_meta_commentary = True,
     strip_citations       = True,
-    supported_modes       = ('analysis',),
 )
 
 
@@ -625,17 +527,14 @@ DEFAULT_PROFILE = ModelProfile(
     max_tokens_focused  = 2048,
     max_tokens_coverage = 2048,
     max_tokens_analysis = 3072,
-    max_tokens_research = 3072,
     coverage_top_k      = 15,
     top_k_analysis      = 14,
-    top_k_research      = 14,
     min_tokens_coverage = 100,
 
     timeout_seconds_simple   = 120,   # Conservative default for unknown models
     timeout_seconds_focused  = 150,   # Conservative default for unknown models
     timeout_seconds_coverage = 180,   # Conservative default for unknown models
     timeout_seconds_analysis = 450,
-    timeout_seconds_research = 450,
 
     context_length = 8192,
     generation_tokens_per_second = 12.0,
@@ -646,13 +545,11 @@ DEFAULT_PROFILE = ModelProfile(
     rag_max_score            = 0.95,
     rag_context_ratio        = 0.75,
     rag_context_ratio_analysis = 0.70,
-    rag_context_ratio_research = 0.70,
 
     stop_sequences  = _CHATML_STRUCTURAL + _CITATION + _FALLBACK_PHRASE_STOPS,
 
     strip_meta_commentary = True,
     strip_citations       = True,
-    supported_modes       = ('analysis',),
 )
 
 
@@ -664,7 +561,7 @@ DEFAULT_PROFILE = ModelProfile(
 _PROFILE_REGISTRY: list[ModelProfile] = [
     DEEPSEEK_R1_DISTILL_PROFILE,   # DeepSeek-R1-Distill-Qwen-14B (diagnostics)
     QWEN3_5_9B_PROFILE,            # Qwen3.5-9B-Q4_K_M (analysis RAG)
-    QWEN3_14B_PROFILE,             # Qwen3-14B-Q5_K_M (balanced RAG profile)
+    QWEN3_14B_PROFILE,             # Qwen3-14B-Q5_K_M (analysis RAG profile)
     QWEN3_30B_A3B_PROFILE,         # Qwen3-30B-A3B-Q4_K_M (primary RAG)
 ]
 
@@ -698,38 +595,11 @@ def get_profile() -> ModelProfile:
     return get_profile_for_filename(settings.llm_model_filename)
 
 
-def get_retrieval_top_k(query_type: str, response_mode: str = 'analysis') -> int:
-    """
-    Return effective top-k for retrieval.
-
-    Resolution order (highest priority first):
-    1. Adaptive tuning (corpus-aware override, when enabled).
-    2. Per-query-type profile override (rag_top_k_simple/focused/coverage when > 0).
-    3. Mode-based profile value (top_k_analysis / top_k_research when set).
-    4. Base profile value (rag_top_k for focused/simple; coverage_top_k for coverage).
-
-    All top-k values must come from model profile — no config/env override path.
-    """
-    from informity.indexer.adaptive_tuning import get_effective_top_k
-
+def get_retrieval_top_k(query_type: str) -> int:
+    """Return model-profile-owned final retrieval top-k (query-type agnostic)."""
+    _ = query_type
     profile = get_profile()
-
-    # 1. Adaptive tuning (corpus-aware)
-    adaptive = get_effective_top_k(query_type)
-    if adaptive is not None:
-        return profile.get_mode_top_k(response_mode, adaptive)
-
-    # 2. Per-query-type override (when set > 0 — only for base query types, not mode)
-    if query_type == 'simple' and profile.rag_top_k_simple > 0:
-        return profile.rag_top_k_simple
-    if query_type == 'focused' and profile.rag_top_k_focused > 0:
-        return profile.rag_top_k_focused
-    if query_type == 'coverage' and profile.rag_top_k_coverage > 0:
-        return profile.rag_top_k_coverage
-
-    # 3. Mode-adjusted base value
-    mode_base = profile.coverage_top_k if query_type == 'coverage' else profile.rag_top_k
-    return profile.get_mode_top_k(response_mode, mode_base)
+    return max(1, int(profile.retrieval_top_k_final))
 
 
 # ==============================================================================

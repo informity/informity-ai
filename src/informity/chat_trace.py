@@ -262,8 +262,6 @@ class _ChatTraceWriter:
         request = self._get_latest_step_payload('request')
         intent = self._get_latest_step_payload('intent')
         retrieval = self._get_latest_step_payload('retrieval')
-        plan = self._get_latest_step_payload('plan')
-        multi_step_retrieval = self._get_latest_step_payload('multi_step_retrieval')
         llm = self._get_latest_step_payload('llm')
         sources = self._get_latest_step_payload('sources')
         response = self._get_latest_step_payload('response')
@@ -277,14 +275,6 @@ class _ChatTraceWriter:
         raw_chunks_count = self._coerce_non_negative_int(retrieval.get('raw_chunks_count')) or 0
         matching_files = self._coerce_non_negative_int(retrieval.get('matching_files'))
         files_covered_after_fallback = self._coerce_non_negative_int(retrieval.get('files_covered_after_fallback'))
-
-        plan_answer_sections_count = self._coerce_non_negative_int(plan.get('answer_sections_count'))
-        plan_steps_requested = self._coerce_non_negative_int(plan.get('steps_requested'))
-        plan_aggregation_mode = self._coerce_string(plan.get('aggregation_mode'))
-        plan_output_shape = self._coerce_string(plan.get('output_shape'))
-        plan_planner_latency_ms = self._coerce_non_negative_float(plan.get('planner_latency_ms'))
-        plan_steps_executed = self._coerce_non_negative_int(multi_step_retrieval.get('steps_executed'))
-        plan_steps_empty = self._coerce_non_negative_int(multi_step_retrieval.get('steps_empty'))
 
         llm_total_elapsed_ms = self._coerce_non_negative_float(llm.get('total_elapsed_ms'))
         llm_token_count = self._coerce_non_negative_int(llm.get('token_count'))
@@ -319,15 +309,6 @@ class _ChatTraceWriter:
                 'intent': intent_value,
                 'subtype': subtype_value,
                 'query_type': query_type,
-            },
-            'plan': {
-                'answer_sections_count': plan_answer_sections_count,
-                'steps_requested': plan_steps_requested,
-                'steps_executed': plan_steps_executed,
-                'steps_empty': plan_steps_empty,
-                'aggregation_mode': plan_aggregation_mode,
-                'output_shape': plan_output_shape,
-                'planner_latency_ms': plan_planner_latency_ms,
             },
             'retrieval': {
                 'raw_chunks_count': raw_chunks_count,

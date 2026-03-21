@@ -192,13 +192,16 @@ def _apply_coverage_evidence_floor_override(
 ) -> tuple[bool, list[dict[str, object]]]:
     hard_floor_enabled = bool(settings.retrieval_coverage_evidence_floor_hard_floor_enabled)
     hard_floor_min_score = float(settings.retrieval_coverage_evidence_floor_min_score)
+    schema_driven_shape = response_shape in {'metadata_table', 'structured_extract'}
     score_clears_hard_floor = (not hard_floor_enabled) or retrieval_relevance_score >= hard_floor_min_score
+    if schema_driven_shape:
+        score_clears_hard_floor = True
 
     coverage_evidence_floor_eligible = (
         subtype == 'aggregate_by_period'
         or group_by in {'year', 'category', 'file'}
         or (
-            response_shape == 'narrative_synthesis'
+            response_shape in {'narrative_synthesis', 'metadata_table', 'hybrid'}
             and route_profile_id in {'comparative_analysis', 'cross_document_synthesis', 'audit_or_compliance_brief'}
         )
     )
@@ -298,7 +301,6 @@ async def _retrieve_with_staged_structural_constraints(
         category_filter=classification.category_filter,
         extension_filter=classification.file_type_filter,
         filename_filter=classification.filename_filter,
-        source_terms_filter=classification.source_terms,
         block_type_filter=None,
         section_filter=None,
         query_type=effective_query_type,
@@ -313,10 +315,7 @@ async def _retrieve_with_staged_structural_constraints(
         chunks=baseline_chunks,
         query_type=effective_query_type,
         route_candidate=route_profile_id,
-        has_strong_anchor=bool(
-            classification.filename_filter
-            or (classification.year_filter is not None and classification.source_terms)
-        ),
+        has_strong_anchor=bool(classification.filename_filter),
     )
     if not baseline_passed:
         return baseline_chunks, 'none'
@@ -329,7 +328,6 @@ async def _retrieve_with_staged_structural_constraints(
         category_filter=classification.category_filter,
         extension_filter=classification.file_type_filter,
         filename_filter=classification.filename_filter,
-        source_terms_filter=classification.source_terms,
         block_type_filter=classification.block_type_filter,
         section_filter=classification.section_filter,
         query_type=effective_query_type,
@@ -344,10 +342,7 @@ async def _retrieve_with_staged_structural_constraints(
         chunks=constrained_chunks,
         query_type=effective_query_type,
         route_candidate=route_profile_id,
-        has_strong_anchor=bool(
-            classification.filename_filter
-            or (classification.year_filter is not None and classification.source_terms)
-        ),
+        has_strong_anchor=bool(classification.filename_filter),
     )
     if constrained_passed:
         return constrained_chunks, 'none'
@@ -362,7 +357,6 @@ async def _retrieve_with_staged_structural_constraints(
             category_filter=classification.category_filter,
             extension_filter=classification.file_type_filter,
             filename_filter=classification.filename_filter,
-            source_terms_filter=classification.source_terms,
             block_type_filter=classification.block_type_filter,
             section_filter=None,
             query_type=effective_query_type,
@@ -375,10 +369,7 @@ async def _retrieve_with_staged_structural_constraints(
                 chunks=section_relaxed_chunks,
                 query_type=effective_query_type,
                 route_candidate=route_profile_id,
-                has_strong_anchor=bool(
-                    classification.filename_filter
-                    or (classification.year_filter is not None and classification.source_terms)
-                ),
+                has_strong_anchor=bool(classification.filename_filter),
             )
             if section_relaxed_passed:
                 return section_relaxed_chunks, 'section'

@@ -182,11 +182,10 @@ def _register_signal_handlers() -> None:
 
 async def _run_llm_warmup() -> None:
     """
-    Warm up the LLM by running a minimal classification call.
+    Warm up the generation LLM by running a minimal production-path call.
 
-    This initializes Metal GPU shaders, allocates the KV cache, compiles the GBNF
-    JSON grammar, and populates the KV cache for the classification few-shot prefix.
-    After this runs, the first real user query incurs no cold-start latency.
+    This initializes Metal GPU shaders and allocates generation runtime state so
+    the first real user query avoids a cold-start penalty.
 
     Skipped if the model file is missing or larger than 20 GB (very large models
     are slow enough to load that warmup would block startup for too long even in
@@ -212,38 +211,17 @@ async def _run_llm_warmup() -> None:
             return
         log.info('llm_warmup_starting', model=model_path.name, model_size_gb=round(model_size_gb, 1))
         from informity.llm.model_adapter import get_profile
-        from informity.llm.query_classifier_llm import build_classification_messages
         profile = get_profile()
-        no_think_suffix = f'\n{profile.no_think_token}' if profile.no_think_token else ''
-        messages = build_classification_messages('warmup', no_think_suffix)
+        from informity.llm.prompt_builder import build_messages as _build_gen_messages
+        messages = _build_gen_messages('warmup', context_chunks=[], response_mode='analysis')
         stops = profile.get_stop_sequences(reasoning_enabled=False)
         await asyncio.wait_for(
             asyncio.to_thread(
                 llm_engine.chat_complete,
                 messages=messages,
                 max_tokens=1,
-                temperature=0.0,
-                stop=stops,
-                response_format={'type': 'json_object'},
-            ),
-            timeout=_WARMUP_TIMEOUT_SECONDS,
-        )
-        log.info('llm_warmup_classifier_completed')
-
-        # Generation warmup: run a short dummy call through the production prompt path
-        # (build_messages + free-text generation) to warm up any Metal shaders not
-        # triggered by the classifier pass (different format: no JSON grammar, different
-        # stop sequences, free-text generation temperature).
-        from informity.llm.prompt_builder import build_messages as _build_gen_messages
-        gen_messages = _build_gen_messages('warmup', context_chunks=[], response_mode='analysis')
-        gen_stops = profile.get_stop_sequences(reasoning_enabled=False)
-        await asyncio.wait_for(
-            asyncio.to_thread(
-                llm_engine.chat_complete,
-                messages=gen_messages,
-                max_tokens=1,
                 temperature=0.1,
-                stop=gen_stops,
+                stop=stops,
             ),
             timeout=_WARMUP_TIMEOUT_SECONDS,
         )
@@ -286,6 +264,32 @@ async def _run_embedder_warmup() -> None:
         )
     except _STARTUP_RUNTIME_EXCEPTIONS as exc:
         log.warning('embedder_warmup_failed', error=str(exc))
+
+
+async def _run_intent_router_warmup() -> None:
+    """
+    Warm up intent-router embeddings so first classification is not cold.
+    """
+    try:
+        from informity.llm.intent_router import get_intent_router
+
+        log.info('intent_router_warmup_starting')
+        await asyncio.wait_for(
+            asyncio.to_thread(get_intent_router().classify_intent, 'List indexed files.'),
+            timeout=_WARMUP_TIMEOUT_SECONDS,
+        )
+        log.info('intent_router_warmup_completed')
+    except asyncio.CancelledError:
+        log.info('intent_router_warmup_cancelled')
+        raise
+    except TimeoutError:
+        log.warning(
+            'intent_router_warmup_timeout',
+            timeout_seconds=int(_WARMUP_TIMEOUT_SECONDS),
+            msg='Intent router warmup timed out — router will initialize on first classification',
+        )
+    except _STARTUP_RUNTIME_EXCEPTIONS as exc:
+        log.warning('intent_router_warmup_failed', error=str(exc))
 
 
 # ==============================================================================
@@ -349,17 +353,13 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     except (ImportError, _STARTUP_RUNTIME_EXCEPTIONS) as exc:
         log.warning('adaptive_tuning_startup_failed', error=str(exc))
 
-    # Warm up LLM model to trigger Metal GPU compilation, allocate the KV cache,
-    # compile the GBNF JSON grammar, and populate the KV cache for the
-    # classification few-shot prefix. After warmup, the first user query has no
-    # cold-start latency.
-    #
-    # Server mode: blocking warmup before the server accepts requests (same as before).
-    # Desktop mode: background task after yield so Tauri frontend can connect
-    #   immediately while the model loads behind the scenes.
+    # Warm up generation, embeddings, and intent-router index.
+    # Server mode: blocking warmup before the server accepts requests.
+    # Desktop mode: skip startup warmup to avoid blocking app launch.
     # Skipped in dev mode (reload) to avoid double-warmup on code changes.
     if not settings.dev_reload and not _DESKTOP_SESSION_MODE:
         await asyncio.gather(_run_llm_warmup(), _run_embedder_warmup())
+        await _run_intent_router_warmup()
 
     # Start file watcher for incremental indexing (if watched_directories configured)
     loop = asyncio.get_running_loop()

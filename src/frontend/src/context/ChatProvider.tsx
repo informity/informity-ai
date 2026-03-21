@@ -14,7 +14,6 @@ import type {
   NextAction,
   NextActionReason,
   PlanStepPayload,
-  ResponseMode,
   StreamDonePayload,
 } from '../types/api'
 
@@ -31,14 +30,13 @@ const CLEANED_REVEAL_CHARS_PER_TICK = 8
 const CONTINUE_SCOPED_PROMPT = 'Continue with the remaining sections from your last answer. Keep the same structure and avoid repeating completed sections.'
 const FORCE_NEW_CHAT_KEY = 'informity_force_new_chat'
 const ACTIVE_GENERATION_REJECT_MESSAGE = 'Please wait for the current answer to finish or press Stop.'
-// Keep watchdog well above backend generation hard limits (research can run up to 900s
-// on large local models). This timer is only a dead-connection guard.
+// Keep watchdog well above backend generation hard limits.
+// This timer is only a dead-connection guard.
 const STREAM_INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000
 const STREAM_WATCHDOG_TIMEOUT_MESSAGE = 'Connection lost while waiting for response. Please try again.'
 const STREAM_WATCHDOG_INTERRUPTED_MESSAGE = 'Response was interrupted due to connection inactivity.'
 const STREAM_STATUS_LABELS: Record<string, string> = {
   classifying: 'Analyzing your request...',
-  planning: 'Planning response...',
   retrieving: 'Searching for relevant information...',
   generating: 'Generating response...',
   finalizing: 'Finalizing answer...',
@@ -46,14 +44,12 @@ const STREAM_STATUS_LABELS: Record<string, string> = {
 
 type DonePayload = StreamDonePayload
 
-function getContinuingStatusLabel(mode: ResponseMode): string {
-  if (mode === 'analysis') return 'Continuing analysis...'
-  if (mode === 'research') return 'Continuing research...'
-  return 'Continuing...'
+function getContinuingStatusLabel(): string {
+  return 'Continuing analysis...'
 }
 
-function getStreamStatusLabel(state: string, mode: ResponseMode): string | undefined {
-  if (state === 'continuing') return getContinuingStatusLabel(mode)
+function getStreamStatusLabel(state: string): string | undefined {
+  if (state === 'continuing') return getContinuingStatusLabel()
   return STREAM_STATUS_LABELS[state]
 }
 
@@ -312,7 +308,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
 
   const sendMessage = useCallback(async (
     text: string,
-    responseMode: ResponseMode = 'analysis',
     options?: { isInternal?: boolean },
   ) => {
     const message = text.trim()
@@ -349,14 +344,10 @@ export function ChatProvider({ children }: ChatProviderProps) {
       isStreaming: true,
       isContinuation: isInternalMessage,
       streamStatusText: isInternalMessage
-        ? getContinuingStatusLabel(responseMode)
-        : responseMode === 'research'
-          ? 'Running research...'
-          : responseMode === 'analysis'
-            ? 'Running analysis...'
-            : 'Thinking...',
+        ? getContinuingStatusLabel()
+        : 'Running analysis...',
       isPartial: false,
-      responseModeUsed: responseMode,
+      responseModeUsed: 'analysis',
       streamSectionProgress: undefined,
       createdAt: now,
     }
@@ -411,7 +402,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         const hasRemainingScope = data?.has_remaining_scope
           ?? (isPartial || completionMode === 'scoped_complete' || completionMode === 'stopped')
         const timeoutReason = data?.timeout_reason ?? null
-        const responseModeUsed = data?.response_mode_used ?? responseMode
+        const responseModeUsed = data?.response_mode_used ?? 'analysis'
         const continuationPasses = typeof data?.continuation_passes === 'number'
           ? data.continuation_passes
           : 0
@@ -613,10 +604,9 @@ export function ChatProvider({ children }: ChatProviderProps) {
         onStatus: (status) => {
           if (streamSessionRef.current !== sessionId) return
           touchStreamWatchdog()
-          const statusMode = (streamDraftRef.current?.responseModeUsed || responseMode) as ResponseMode
           const nextStatusText = typeof status?.message === 'string' && status.message.trim()
             ? status.message.trim()
-            : (status?.state ? getStreamStatusLabel(status.state, statusMode) : undefined)
+            : (status?.state ? getStreamStatusLabel(status.state) : undefined)
           const sectionProgressPayload = status?.section_progress
           const normalizedSectionProgress =
             sectionProgressPayload
@@ -793,21 +783,18 @@ export function ChatProvider({ children }: ChatProviderProps) {
           setActiveGenerationRequestId(null)
           streamWatchdogTimedOutRef.current = false
         },
-      }, responseMode)
+      })
     } finally {
       clearStreamWatchdog()
       sendInFlightRef.current = false
     }
   }, [applyStreamDraftToVisibleMessages, clearRevealTimer, clearStreamWatchdog, isViewingGeneratingChat])
 
-  const continueLastScope = useCallback(async (
-    responseMode: ResponseMode = 'analysis',
-    anchorMessageId?: number,
-  ) => {
+  const continueLastScope = useCallback(async (anchorMessageId?: number) => {
     if (typeof anchorMessageId === 'number') {
       lastAutoContinuedMessageIdRef.current = anchorMessageId
     }
-    await sendMessage(CONTINUE_SCOPED_PROMPT, responseMode, { isInternal: true })
+    await sendMessage(CONTINUE_SCOPED_PROMPT, { isInternal: true })
   }, [sendMessage])
 
   const stopStreaming = useCallback(async (): Promise<boolean> => {

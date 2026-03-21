@@ -138,7 +138,6 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'Local LLM model, context length, and retrieval-augmented generation tuning.',
         [
             ('chat_history_messages', 'Number of previous chat messages to include in prompt context. Lower values free up tokens for more document context.'),
-            ('default_response_mode', 'Default response mode for chat when request does not specify one: balanced, analysis, or research.'),
             ('llm_context_length', 'Context window size in tokens for the LLM.'),
             ('llm_cpu_threads', 'Max CPU threads for llama-cpp generation (0 = auto; set lower to keep system responsive during chat).'),
             ('llm_hf_repo', 'Hugging Face repository for automatic LLM model downloads (e.g., "Qwen/Qwen3-14B-GGUF").'),

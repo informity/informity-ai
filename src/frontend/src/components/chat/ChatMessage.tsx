@@ -42,15 +42,15 @@ interface ChatMessageProps {
   hasRemainingScope?: boolean
   completionMode?: 'complete' | 'partial' | 'scoped_complete' | 'stopped'
   stoppedByUser?: boolean
-  responseModeUsed?: 'analysis' | 'research'
+  responseModeUsed?: 'analysis'
   nextAction?: 'none' | 'continue' | 'regenerate'
   nextActionReason?: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | null
   continueLabel?: 'Continue' | 'Continue Again'
   createdAt?: string
   generationSeconds?: number
   enableRawOutputControl?: boolean
-  onContinue?: (responseMode?: 'analysis' | 'research', anchorMessageId?: number) => void
-  onRegenerate?: (responseMode?: 'analysis' | 'research') => void
+  onContinue?: (anchorMessageId?: number) => void
+  onRegenerate?: () => void
   canContinue?: boolean
   canRegenerate?: boolean
   actionsDisabled?: boolean
@@ -127,18 +127,18 @@ function ChatMessageComponent({
     && !!onContinue
     && (!isStopped || hasMeaningfulAssistantContent)
   const showRegenerate = !isUser && nextAction === 'regenerate' && !!onRegenerate
-  const isExtendedMode = responseModeUsed === 'analysis' || responseModeUsed === 'research'
-  const modeMetaLabel = responseModeUsed === 'research' ? 'Research' : 'Analysis'
-  const modeMetaIcon = responseModeUsed === 'research' ? 'ri-search-ai-3-line' : 'ri-flask-line'
-  const showResearchSectionProgress = (
-    responseModeUsed === 'research'
+  const isExtendedMode = responseModeUsed === 'analysis'
+  const modeMetaLabel = 'Analysis'
+  const modeMetaIcon = 'ri-flask-line'
+  const showSectionProgress = (
+    responseModeUsed === 'analysis'
     && !!streamSectionProgress
     && streamSectionProgress.total > 0
   )
-  const completedProgressText = showResearchSectionProgress
+  const completedProgressText = showSectionProgress
     ? streamSectionProgress.completed.map((heading) => heading.replace(/^#{1,6}\s*/, '')).join(' · ')
     : ''
-  const remainingProgressText = showResearchSectionProgress
+  const remainingProgressText = showSectionProgress
     ? streamSectionProgress.remaining.map((heading) => heading.replace(/^#{1,6}\s*/, '').trim()).join(' · ')
     : ''
   const showPlanSteps = !!streamPlanSteps && streamPlanSteps.length > 0
@@ -235,7 +235,7 @@ function ChatMessageComponent({
         <button
           type="button"
           className="chat-message__continue-inline"
-          onClick={() => onContinue?.(responseModeUsed, messageId)}
+          onClick={() => onContinue?.(messageId)}
           disabled={actionsDisabled || !canContinue}
           aria-label={continueLabel}
         >
@@ -252,7 +252,7 @@ function ChatMessageComponent({
         <button
           type="button"
           className="chat-message__continue-inline"
-          onClick={() => onRegenerate?.(responseModeUsed)}
+          onClick={() => onRegenerate?.()}
           disabled={actionsDisabled || !canRegenerate}
           aria-label="Regenerate from your last prompt"
         >
@@ -335,8 +335,8 @@ function ChatMessageComponent({
                     <span className="chat-message__typing-dot" />
                     {(streamStatusText || isExtendedMode) && (
                       <span className="chat-message__typing-status">
-                        <span>{streamStatusText || (responseModeUsed === 'research' ? 'Running research...' : 'Running analysis...')}</span>
-                        {showResearchSectionProgress && (
+                        <span>{streamStatusText || 'Running analysis...'}</span>
+                        {showSectionProgress && (
                           <span className="chat-message__typing-progress">
                             {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections...'}
                             {remainingProgressText ? ` | ${remainingProgressText}` : ''}
@@ -373,8 +373,8 @@ function ChatMessageComponent({
                         <span className="chat-message__typing-dot" />
                         {(streamStatusText || isExtendedMode) && (
                           <span className="chat-message__typing-status">
-                            <span>{streamStatusText || (responseModeUsed === 'research' ? 'Running research...' : 'Running analysis...')}</span>
-                            {showResearchSectionProgress && (
+                            <span>{streamStatusText || 'Running analysis...'}</span>
+                            {showSectionProgress && (
                               <span className="chat-message__typing-progress">
                                 {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections...'}
                                 {remainingProgressText ? ` | ${remainingProgressText}` : ''}

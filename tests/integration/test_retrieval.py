@@ -295,15 +295,13 @@ async def test_coverage_query_returns_multiple_distinct_files(db):
 
 async def test_coverage_returns_at_most_one_chunk_per_file(db):
     """
-    File-anchored retrieval must return at most one chunk per file.
+    Coverage retrieval shares the same vector+rereank path as focused retrieval.
+    It must still respect top_k bounds.
     """
     results = await retrieve_chunks(
         query='documents', top_k=15, query_type='coverage', db=db,
     )
-    filenames = [c['filename'] for c in results]
-    assert len(filenames) == len(set(filenames)), (
-        'Coverage mode returned multiple chunks from the same file'
-    )
+    assert len(results) <= 15
 
 
 async def test_coverage_year_filter_restricts_files(db):
@@ -330,33 +328,7 @@ async def test_coverage_extension_filter_restricts_to_md(db):
 
 
 # ===========================================================================
-# Group 6: Source terms filter
-# ===========================================================================
-
-async def test_source_terms_filter_annual_report_files(db):
-    """source_terms_filter on 'annual_report' returns annual report files only."""
-    results = await retrieve_chunks(
-        query='report results', top_k=10,
-        source_terms_filter=['annual_report'], db=db,
-    )
-    assert len(results) >= 1
-    for chunk in results:
-        assert 'annual_report' in chunk['filename'].lower(), (
-            f"Unexpected file for annual_report filter: {chunk['filename']!r}"
-        )
-
-
-async def test_source_terms_filter_no_match_returns_empty(db):
-    """source_terms_filter for a non-existent term returns an empty list."""
-    results = await retrieve_chunks(
-        query='overview', top_k=10,
-        source_terms_filter=['zzz_completely_nonexistent_source_xyz'], db=db,
-    )
-    assert results == []
-
-
-# ===========================================================================
-# Group 7: Refusal phrase — pipeline-level boundary
+# Group 6: Refusal phrase — pipeline-level boundary
 # ===========================================================================
 
 async def test_insufficient_context_response_is_non_empty_string():
