@@ -20,12 +20,6 @@ const SORT_COLUMNS = ['title', 'date']
 type SortColumn = (typeof SORT_COLUMNS)[number]
 type SortOrder = 'asc' | 'desc'
 
-function getModeMeta(mode?: 'analysis' | 'research'): { icon: string; label: string } | null {
-  if (mode === 'research') return { icon: 'ri-search-ai-3-line', label: 'Research' }
-  if (mode === 'analysis') return { icon: 'ri-flask-line', label: 'Analysis' }
-  return null
-}
-
 function sortChats(chats: ChatListItem[], field: string, order: string): ChatListItem[] {
   return [...chats].sort((a, b) => {
     let valA: string
@@ -267,8 +261,6 @@ export function HistoryTable({
               const title =
                 chat.title || (preview.length > 60 ? preview.substring(0, 60) + '…' : preview) || 'Untitled'
               const isEditing = editingChatId === chat.chat_id
-              const modeMeta = getModeMeta(chat.last_response_mode_used)
-              const titleIconClass = modeMeta?.icon || 'ri-chat-4-line'
 
               return (
                 <tr
@@ -305,7 +297,7 @@ export function HistoryTable({
                         <>
                           <div className="history-table__title-row">
                             <div className="history-table__icon data-table__icon">
-                              <i className={titleIconClass} aria-hidden style={{ fontSize: '1rem' }} />
+                              <i className="ri-chat-4-line" aria-hidden style={{ fontSize: '1rem' }} />
                             </div>
                             <span className="history-table__title-text" title={title}>{title}</span>
                           </div>

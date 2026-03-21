@@ -98,10 +98,8 @@ _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT = (
 )
 LOG_LEVEL_ALLOWED_VALUES: tuple[str, ...] = ('debug', 'info', 'warning', 'warn', 'error')
 UI_THEME_ALLOWED_VALUES: tuple[str, ...] = ('gray', 'purple', 'blue', 'green', 'orange', 'mono')
-RESPONSE_MODE_ALLOWED_VALUES: tuple[str, ...] = ('analysis', 'research')
 _DEFAULT_LOG_LEVEL = 'info'
 _DEFAULT_UI_THEME = 'mono'
-_DEFAULT_RESPONSE_MODE = 'analysis'
 
 
 # ==============================================================================
@@ -413,32 +411,15 @@ class Settings(BaseSettings):
     retrieval_coverage_evidence_floor_hard_floor_enabled: bool = False
     retrieval_coverage_evidence_floor_min_score: float = 0.05
     retrieval_precloseout_min_relevance_score: float = 0.62
-    # Grounding repair gate for contract-heavy answers. Values are intentionally
-    # centralized here to keep continuation behavior policy-driven.
-    chat_grounding_repair_min_coverage_rate: float = 0.4
-    chat_grounding_repair_max_unsupported_claims: int = 0
-    chat_grounding_repair_max_not_found_count: int = 12
     # Deterministic retrieval widening before terminal unresolved closeout.
     retrieval_widening_retry_multiplier: float = 1.5
     retrieval_widening_retry_extra_k: int = 4
     retrieval_widening_retry_cap: int = 40
-    # Maximum number of files sent to the per-file fallback batch in coverage retrieval.
-    # Prevents unbounded latency on large corpora where the global search misses many files.
-    # When the cap fires, remaining files are skipped and logged.
-    coverage_per_file_fallback_limit: int = 20
     # Maximum net-new chunk candidates FTS5 keyword search may add to the vector search pool
     # before reranking (focused queries only). FTS5 augmentation recovers exact-match pool
     # misses (e.g., document title queries not semantically close to any indexed vector).
     # Cap prevents high-frequency terms from swamping the reranker. Set to 0 to disable.
     fts5_candidate_limit: int = 10
-    # Minimum tokens allocated per planned answer section.
-    # When the query planner produces N sections, effective_max_tokens is floored at
-    # N × tokens_per_section_floor to prevent truncation of multi-section responses.
-    tokens_per_section_floor: int = 300
-    # Maximum number of consecutive continuation passes before the chain is terminated.
-    # Counts assistant messages with has_remaining_scope=True at the tail of the history.
-    # When reached, the response is a short content-covered notice and has_remaining_scope is cleared.
-    max_continuation_depth: int = 3
     # Retention window for continuation pass artifacts.
     # Artifacts older than this are pruned on insert and on startup.
     # Set to 0 to disable pruning.
@@ -459,11 +440,6 @@ class Settings(BaseSettings):
     chat_auto_continue_default_max_rounds: int = 2
     chat_auto_continue_hard_cap: int = 3
     chat_auto_continue_prompt: str = _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT
-    # Query planner (llm/planner.py) — controls the planning pass that runs
-    # before generation to decompose complex queries and produce an answer outline.
-    planner_max_tokens: int = 512
-    planner_max_steps: int = 5
-    planner_max_sections: int = 8
     # Fit-to-budget rollout controls (Phase 5):
     # - dev: enabled only in dev_reload sessions
     # - power_users: deterministic subset rollout (~35%)
@@ -494,10 +470,6 @@ class Settings(BaseSettings):
     # - troubleshooting: richer diagnostics for incident analysis
     # - custom: manual override mode (advanced users)
     diagnostics_profile: Literal['standard', 'troubleshooting', 'custom'] = 'standard'
-    # Diagnostics strict contract gates (EH-09 rollback control):
-    # - False: do not hard-fail on strict schema/grounding gates.
-    # - True (default): enforce strict schema/grounding gates as test failures.
-    diagnostics_strict_contract_gates_enforced: bool = True
     # Application log level: debug, info, warning, error. Default info to reduce noise.
     # Third-party loggers (e.g. aiosqlite) are always set to WARNING in logging_config.
     log_level: str = _DEFAULT_LOG_LEVEL
@@ -545,9 +517,6 @@ class Settings(BaseSettings):
     ui_theme: Literal['gray', 'purple', 'blue', 'green', 'orange', 'mono'] = _DEFAULT_UI_THEME
     # When true, show the macOS menu bar icon while the app is running.
     enable_menu_bar_icon: bool = False
-    # Default chat response mode for new messages when request does not specify response_mode.
-    default_response_mode: Literal['analysis', 'research'] = _DEFAULT_RESPONSE_MODE
-
     # -- Pydantic Settings Config ---------------------------------------------
     model_config = {
         'env_prefix': 'INFORMITY_',
@@ -591,18 +560,6 @@ class Settings(BaseSettings):
             self.db_path = self.app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
         else:
             self.db_path = normalize_path(self.db_path, expand_user=True)
-
-        # Guardrail: reject legacy root-level DB path (app_data_dir/informity.db).
-        # If configured via env var to the old location, silently redirect to canonical path.
-        legacy_db_path = self.app_data_dir / f'{APP_SLUG}.db'
-        if self.db_path == legacy_db_path:
-            canonical_db_path = self.app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
-            log.warning(
-                'legacy_db_path_override_ignored',
-                configured_db_path=str(self.db_path),
-                canonical_db_path=str(canonical_db_path),
-            )
-            self.db_path = canonical_db_path
 
         # vectors_dir removed - vectors now stored in SQLite via sqlite-vec
         if self.logs_dir is None:
@@ -652,24 +609,6 @@ class Settings(BaseSettings):
         ensure_directories(directories_to_create)
         for directory in directories_to_create:
             log.info('created_directory', path=str(directory))
-
-        # Remove stray empty legacy DB at app_data_dir root (created before db/ subdirectory
-        # was introduced). Only deletes the file when it is empty (0 bytes) — a non-empty
-        # file at that path would indicate a real conflict and is left untouched.
-        legacy_db = self.app_data_dir / f'{APP_SLUG}.db'
-        if legacy_db.exists() and legacy_db.stat().st_size == 0:
-            for stray in [
-                legacy_db,
-                Path(f'{legacy_db}-journal'),
-                Path(f'{legacy_db}-wal'),
-                Path(f'{legacy_db}-shm'),
-            ]:
-                if stray.exists():
-                    try:
-                        stray.unlink()
-                    except OSError as exc:
-                        log.warning('legacy_db_cleanup_failed', path=str(stray), error=str(exc))
-            log.info('legacy_empty_db_removed', path=str(legacy_db))
 
 def get_chat_trace_logging() -> bool:
     """
@@ -777,7 +716,6 @@ def reset_to_factory_defaults() -> Settings:
         'enable_raw_output_control': False,
         'adaptive_rag_tuning':     True,  # Enabled by default
         'ui_theme':                 _DEFAULT_UI_THEME,
-        'default_response_mode':    _DEFAULT_RESPONSE_MODE,
     }
     config_path.write_text(
         serialize_config(default_config),

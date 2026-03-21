@@ -1,257 +1,132 @@
-# ==============================================================================
-# Informity AI — Query Classifier Tests
-# Tests query classification (intent detection and filter extraction)
-# Uses mocked LLM classifier — LLM-only, no regex fallback
-# ==============================================================================
-
-from unittest.mock import patch
-
 import pytest
 
+from informity.llm.intent_router import (
+    IntentPrediction,
+    get_intent_router,
+    set_intent_router_for_testing,
+)
 from informity.llm.query_classifier import QueryClassification, classify_query
 
 
-def _mock_classify_query_llm(query: str) -> QueryClassification:
-    """
-    Mock LLM classifier for tests. Returns expected classifications for test queries.
-    Keeps tests fast and deterministic without requiring classifier model.
-    """
-    q = query.lower()
-    # Metadata file list first: "list all files", "show me all" (exclude "list all years")
-    if any(x in q for x in ['list all', 'show me all', 'display']) and 'years' not in q:
-        year = 2022 if '2022' in q else None
-        return QueryClassification(
-            intent='metadata',
-            year_filter=year,
-            category_filter=None,
-            file_type_filter=None,
-            filename_filter=None,
-            is_metadata_query=True,
-            is_file_list_query=True,
-        )
-    # Coverage
-    if any(x in q for x in ['all the years', 'all years', 'every document', 'all files', 'all the categories', 'list all years']):
-        return QueryClassification(
-            intent='coverage',
-            year_filter=None,
-            category_filter=None,
-            file_type_filter=None,
-            filename_filter=None,
-            is_metadata_query=False,
-            is_file_list_query=False,
-        )
-    # Metadata count
-    if 'how many' in q:
-        year = 2023 if '2023' in q else 2022 if '2022' in q else None
-        file_type = '.pdf' if 'pdf' in q else None
-        category = 'document' if 'document' in q and 'pdf' in q else None
-        return QueryClassification(
-            intent='metadata',
-            year_filter=year,
-            category_filter=category,
-            file_type_filter=file_type,
-            filename_filter=None,
-            is_metadata_query=True,
-            is_file_list_query=True,
-        )
-    # Simple
-    if any(x in q for x in ['hello', 'hi', 'hey', 'thanks']):
-        return QueryClassification(
-            intent='simple',
-            year_filter=None,
-            category_filter=None,
-            file_type_filter=None,
-            filename_filter=None,
-            is_metadata_query=False,
-            is_file_list_query=False,
-        )
-    # Coverage
-    if any(x in q for x in ['all the years', 'all years', 'every document', 'all files', 'all the categories', 'list all years']):
-        return QueryClassification(
-            intent='coverage',
-            year_filter=None,
-            category_filter=None,
-            file_type_filter=None,
-            filename_filter=None,
-            is_metadata_query=False,
-            is_file_list_query=False,
-        )
-    # Focused with filters
-    if 'pdf' in q and '2023' in q and 'say about' in q:
-        return QueryClassification(
-            intent='focused',
-            year_filter=2023,
-            category_filter=None,
-            file_type_filter='.pdf',
-            filename_filter=None,
-            is_metadata_query=False,
-            is_file_list_query=False,
-        )
-    # Focused
-    if 'quantum' in q or 'what is' in q and 'ai' in q:
-        return QueryClassification(
-            intent='focused',
-            year_filter=None,
-            category_filter=None,
-            file_type_filter=None,
-            filename_filter=None,
-            is_metadata_query=False,
-            is_file_list_query=False,
-        )
-    # Metadata with filters (files from, documents in, etc.)
-    if 'from 2023' in q or 'in 2020' in q or 'year 2021' in q:
-        year = 2023 if '2023' in q else 2020 if '2020' in q else 2021 if '2021' in q else None
-        file_type = '.pdf' if 'pdf' in q else None
-        category = 'document' if 'document' in q else None
-        return QueryClassification(
-            intent='metadata',
-            year_filter=year,
-            category_filter=category,
-            file_type_filter=file_type,
-            filename_filter=None,
-            is_metadata_query=True,
-            is_file_list_query=True,
-        )
-    # Metadata category/file type
-    if 'document files' in q or 'pdf' in q:
-        return QueryClassification(
-            intent='metadata',
-            year_filter=2023 if '2023' in q else None,
-            category_filter='document' if 'document' in q else None,
-            file_type_filter='.pdf' if 'pdf' in q else None,
-            filename_filter=None,
-            is_metadata_query=True,
-            is_file_list_query=True,
-        )
-    # Default focused
-    return QueryClassification(
-        intent='focused',
-        year_filter=None,
-        category_filter=None,
-        file_type_filter=None,
-        filename_filter=None,
-        is_metadata_query=False,
-        is_file_list_query=False,
-    )
+class _FakeIntentRouter:
+    def classify_intent(self, query: str) -> IntentPrediction:
+        lowered = query.casefold()
+        if 'how many' in lowered or 'what file types' in lowered or 'what years' in lowered:
+            return IntentPrediction('metadata', 0.95, [('metadata', 0.95)], ['test_fake_router'])
+        if lowered.strip() == 'hello' or 'information is available' in lowered:
+            return IntentPrediction('simple', 0.9, [('simple', 0.9)], ['test_fake_router'])
+        if 'what kind of documents' in lowered:
+            return IntentPrediction('metadata', 0.9, [('metadata', 0.9)], ['test_fake_router'])
+        if 'compare' in lowered:
+            return IntentPrediction('coverage', 0.9, [('coverage', 0.9)], ['test_fake_router'])
+        return IntentPrediction('focused', 0.85, [('focused', 0.85)], ['test_fake_router'])
 
 
 @pytest.fixture(autouse=True)
-def _mock_llm_classifier():
-    """Mock LLM classifier so tests run without the classifier model."""
-    with patch('informity.llm.query_classifier_llm.classify_query_llm', side_effect=_mock_classify_query_llm):
+def _fake_router() -> None:
+    original = get_intent_router()
+    set_intent_router_for_testing(_FakeIntentRouter())
+    try:
         yield
+    finally:
+        set_intent_router_for_testing(original)
 
 
-class TestQueryClassifier:
-    # Test intent detection
+def test_metadata_route_for_count_query() -> None:
+    result = classify_query('How many PDF files from 2023 are indexed?')
+    assert isinstance(result, QueryClassification)
+    assert result.intent == 'metadata'
+    assert result.route_candidate == 'metadata_inventory'
+    assert result.year_filter == 2023
+    assert result.file_type_filter == '.pdf'
+    assert result.is_metadata_query is True
 
-    def test_metadata_count_query(self) -> None:
-        result = classify_query('how many files')
-        assert result.intent == 'metadata'
-        assert result.is_metadata_query is True
 
-    def test_metadata_count_with_filter(self) -> None:
-        result = classify_query('how many PDFs from 2023')
-        assert result.intent == 'metadata'
-        assert result.is_metadata_query is True
-        assert result.year_filter == 2023
-        assert result.file_type_filter == '.pdf'
+def test_simple_route_for_greeting() -> None:
+    result = classify_query('hello')
+    assert result.intent == 'simple'
+    assert result.route_candidate == 'clarification_or_disambiguation'
 
-    def test_file_list_query(self) -> None:
-        result = classify_query('list all files')
-        assert result.intent == 'metadata'
-        assert result.is_file_list_query is True
 
-    def test_file_list_with_filter(self) -> None:
-        result = classify_query('show me all documents from 2022')
-        assert result.intent == 'metadata'
-        assert result.is_file_list_query is True
-        assert result.year_filter == 2022
+def test_rag_route_for_domain_question() -> None:
+    result = classify_query('Summarize lender discrepancies by year from the indexed records.')
+    assert result.intent == 'focused'
+    assert result.route_candidate == 'targeted_fact_lookup'
+    assert result.is_metadata_query is False
 
-    def test_coverage_query(self) -> None:
-        result = classify_query('what are all the years')
-        assert result.intent == 'coverage'
 
-    def test_coverage_query_patterns(self) -> None:
-        queries = [
-            'list all years',
-            'every document',
-            'all files',
-            'what are all the categories',
-        ]
-        for query in queries:
-            result = classify_query(query)
-            assert result.intent == 'coverage', f"Failed for: {query}"
+def test_corpus_capability_query_routes_to_metadata() -> None:
+    result = classify_query('What kind of documents do you have indexed?')
+    assert result.intent == 'metadata'
+    assert result.route_candidate == 'metadata_inventory'
+    assert result.is_metadata_query is True
 
-    def test_focused_query(self) -> None:
-        result = classify_query('what is quantum computing')
-        assert result.intent == 'focused'
 
-    def test_focused_query_with_filters(self) -> None:
-        result = classify_query('what do PDFs from 2023 say about AI')
-        assert result.intent == 'focused'
-        assert result.year_filter == 2023
-        assert result.file_type_filter == '.pdf'
+def test_general_capabilities_query_stays_simple() -> None:
+    result = classify_query('Can you help me understand what information is available?')
+    assert result.intent == 'simple'
+    assert result.route_candidate == 'clarification_or_disambiguation'
 
-    def test_simple_query(self) -> None:
-        result = classify_query('hello')
-        assert result.intent == 'simple'
 
-    def test_simple_greeting(self) -> None:
-        queries = ['hi', 'hello', 'hey', 'thanks']
-        for query in queries:
-            result = classify_query(query)
-            assert result.intent == 'simple', f"Failed for: {query}"
+def test_filename_slot_extraction() -> None:
+    result = classify_query('Summarize content in sample-lender-statement.pdf')
+    assert result.filename_filter == 'sample-lender-statement.pdf'
 
-    # Test filter extraction
 
-    def test_year_extraction(self) -> None:
-        result = classify_query('files from 2023')
-        assert result.year_filter == 2023
+def test_structured_schema_overrides_metadata_prediction_to_rag() -> None:
+    class _MetadataOnlyRouter:
+        def classify_intent(self, _query: str) -> IntentPrediction:
+            return IntentPrediction('metadata', 0.9, [('metadata', 0.9)], ['forced_metadata'])
 
-    def test_year_extraction_various_formats(self) -> None:
-        queries = [
-            'files from 2023',
-            'documents in 2020',
-            'reports from year 2021',
-        ]
-        for query in queries:
-            result = classify_query(query)
-            assert result.year_filter is not None, f"Failed to extract year from: {query}"
+    original = get_intent_router()
+    set_intent_router_for_testing(_MetadataOnlyRouter())
+    try:
+        result = classify_query(
+            'Compare numeric amounts across indexed records and output only a markdown table '
+            'with columns: Line Item, Amount, Source Snippet.'
+        )
+    finally:
+        set_intent_router_for_testing(original)
 
-    def test_category_extraction(self) -> None:
-        result = classify_query('document files')
-        assert result.category_filter == 'document'
+    assert result.intent in ('focused', 'coverage')
+    assert result.route_candidate in ('structured_field_extraction', 'comparative_analysis')
+    assert result.deterministic_override is True
+    assert 'deterministic_override_structured_schema_request' in result.reason_codes
 
-    def test_file_type_extraction(self) -> None:
-        result = classify_query('PDF files')
-        assert result.file_type_filter == '.pdf'
 
-    def test_multiple_filters(self) -> None:
-        result = classify_query('PDF documents from 2023')
-        assert result.file_type_filter == '.pdf'
-        assert result.category_filter == 'document'
-        assert result.year_filter == 2023
+def test_inventory_capability_remains_metadata_without_override() -> None:
+    class _MetadataOnlyRouter:
+        def classify_intent(self, _query: str) -> IntentPrediction:
+            return IntentPrediction('metadata', 0.9, [('metadata', 0.9)], ['forced_metadata'])
 
-    def test_no_filters(self) -> None:
-        result = classify_query('what is AI')
-        assert result.year_filter is None
-        assert result.category_filter is None
-        assert result.file_type_filter is None
+    original = get_intent_router()
+    set_intent_router_for_testing(_MetadataOnlyRouter())
+    try:
+        result = classify_query('What kind of documents do you have indexed?')
+    finally:
+        set_intent_router_for_testing(original)
 
-    # Test QueryClassification dataclass
+    assert result.intent == 'metadata'
+    assert result.route_candidate == 'metadata_inventory'
+    assert result.deterministic_override is False
 
-    def test_query_classification_structure(self) -> None:
-        result = classify_query('how many files')
-        assert isinstance(result, QueryClassification)
-        assert hasattr(result, 'intent')
-        assert hasattr(result, 'subtype')
-        assert hasattr(result, 'group_by')
-        assert hasattr(result, 'field_hint')
-        assert hasattr(result, 'source_terms')
-        assert hasattr(result, 'year_filter')
-        assert hasattr(result, 'category_filter')
-        assert hasattr(result, 'file_type_filter')
-        assert hasattr(result, 'is_metadata_query')
-        assert hasattr(result, 'is_file_list_query')
 
+def test_inventory_with_evidence_request_overrides_to_rag() -> None:
+    class _MetadataOnlyRouter:
+        def classify_intent(self, _query: str) -> IntentPrediction:
+            return IntentPrediction('metadata', 0.9, [('metadata', 0.9)], ['forced_metadata'])
+
+    original = get_intent_router()
+    set_intent_router_for_testing(_MetadataOnlyRouter())
+    try:
+        result = classify_query(
+            'Which indexed documents contain numeric amounts or financial figures? '
+            'List the files and the key amounts found.'
+        )
+    finally:
+        set_intent_router_for_testing(original)
+
+    assert result.intent in ('focused', 'coverage')
+    assert result.route_candidate in ('targeted_fact_lookup', 'cross_document_synthesis')
+    assert result.deterministic_override is True
+    assert 'deterministic_override_inventory_with_evidence_request' in result.reason_codes

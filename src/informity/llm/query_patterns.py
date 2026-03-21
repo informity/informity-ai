@@ -76,6 +76,36 @@ CONFLICT_AMOUNT_KEYWORDS: str = (
     r'\bfinance[-\s]*related\b.*\bconflict\b.*\b(?:totals?|balances?)\b'
 )
 
+# Continuation cues for follow-up generation on prior context.
+CONTINUATION_KEYWORDS: str = (
+    r'\b(continue|go\s+on|keep\s+going|next\s+section|the\s+rest)\b'
+)
+
+# Structured output schema directives (format-first requests).
+STRUCTURED_OUTPUT_SCHEMA_KEYWORDS: str = (
+    r'\b(markdown\s+table|columns?|output\s+only|format|headings?\s+in\s+exact\s+order|'
+    r'exact\s+column\s+names?|rows?\s+as)\b'
+)
+
+# Analysis/synthesis action directives that imply content generation (not inventory metadata).
+ANALYSIS_ACTION_KEYWORDS: str = (
+    r'\b(summarize|compare|analyze|synthesize|explain|evaluate|assess|review|'
+    r'find\s+one|recommendation|implication|tradeoff|with\s+evidence)\b'
+)
+
+# Inventory/capability metadata phrasing for indexed corpus.
+INVENTORY_CAPABILITY_KEYWORDS: str = (
+    r'\b(what\s+kind\s+of\s+(files?|documents?)\s+do\s+you\s+have|'
+    r'what\s+(files?|documents?)\s+are\s+indexed|what\s+is\s+indexed)\b'
+)
+
+# Evidence/value extraction cues that indicate content synthesis is needed, not
+# metadata-only inventory listing.
+EVIDENCE_VALUE_EXTRACTION_KEYWORDS: str = (
+    r'\b(evidence|snippet|key\s+amounts?|key\s+values?|numeric|figures?|'
+    r'financial|amounts?|values?|found|mentions?|contains?)\b'
+)
+
 
 # ==============================================================================
 # Compiled Pattern Builders
@@ -323,3 +353,38 @@ def build_conflict_amount_pattern() -> Pattern[str]:
     Matches prompts asking for finance-related conflicts on totals/balances.
     """
     return re.compile(CONFLICT_AMOUNT_KEYWORDS, re.IGNORECASE | re.DOTALL)
+
+
+def build_continuation_pattern() -> Pattern[str]:
+    """
+    Build regex pattern for continuation follow-up requests.
+    """
+    return re.compile(CONTINUATION_KEYWORDS, re.IGNORECASE)
+
+
+def build_structured_output_schema_pattern() -> Pattern[str]:
+    """
+    Build regex pattern for explicit structured output schema requests.
+    """
+    return re.compile(STRUCTURED_OUTPUT_SCHEMA_KEYWORDS, re.IGNORECASE)
+
+
+def build_analysis_action_pattern() -> Pattern[str]:
+    """
+    Build regex pattern for analysis/synthesis action directives.
+    """
+    return re.compile(ANALYSIS_ACTION_KEYWORDS, re.IGNORECASE)
+
+
+def build_inventory_capability_pattern() -> Pattern[str]:
+    """
+    Build regex pattern for corpus inventory capability metadata requests.
+    """
+    return re.compile(INVENTORY_CAPABILITY_KEYWORDS, re.IGNORECASE)
+
+
+def build_evidence_value_extraction_pattern() -> Pattern[str]:
+    """
+    Build regex pattern for evidence/value extraction cues.
+    """
+    return re.compile(EVIDENCE_VALUE_EXTRACTION_KEYWORDS, re.IGNORECASE)

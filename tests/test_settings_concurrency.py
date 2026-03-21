@@ -38,18 +38,17 @@ async def test_concurrent_settings_and_current_chat_updates_keep_valid_config(
 
 
 @pytest.mark.asyncio
-async def test_default_response_mode_rejects_mode_not_supported_by_model(
+async def test_unknown_settings_field_is_ignored_and_rejected_as_empty_update(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config.settings, 'app_data_dir', tmp_path)
-    monkeypatch.setattr(config.settings, 'llm_model_filename', 'Qwen3-14B-Q5_K_M.gguf')
-    monkeypatch.setattr(routes_settings, '_list_available_models', lambda: ['Qwen3-14B-Q5_K_M.gguf'])
+    monkeypatch.setattr(routes_settings, '_list_available_models', lambda: [])
 
     with pytest.raises(HTTPException) as exc_info:
-        await routes_settings.update_settings(SettingsUpdateRequest(default_response_mode='research'))
+        await routes_settings.update_settings(SettingsUpdateRequest.model_validate({'legacy_field': 'value'}))
     assert exc_info.value.status_code == 400
-    assert 'not supported by active model' in str(exc_info.value.detail)
+    assert 'No fields provided to update' in str(exc_info.value.detail)
 
 
 @pytest.mark.asyncio

@@ -8,7 +8,6 @@ from pathlib import Path
 
 from PIL import Image, ImageDraw
 
-
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = ROOT / ".archive" / "informity-logo-white.png"
 ICONS_DIR = ROOT / "src/frontend" / "src-tauri" / "icons"

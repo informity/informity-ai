@@ -53,7 +53,7 @@ def get_category_for_extension(extension: str) -> FileCategory:
     This is the single source of truth for extension→category classification.
     Used by:
     - indexer/classifier.py (at index time)
-    - query_classifier_llm.py (for metadata queries only)
+    - llm/query_classifier.py (for deterministic slot extraction)
 
     Args:
         extension: File extension (e.g., '.pdf', '.md', 'txt')

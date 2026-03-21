@@ -20,11 +20,9 @@ export interface ChatContextValue {
   goToGeneratingChat: () => Promise<void>
   sendMessage: (
     text: string,
-    responseMode?: 'analysis' | 'research',
     options?: { isInternal?: boolean },
   ) => Promise<void>
   continueLastScope: (
-    responseMode?: 'analysis' | 'research',
     anchorMessageId?: number,
   ) => Promise<void>
   stopStreaming: () => Promise<boolean>

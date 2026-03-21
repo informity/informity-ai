@@ -14,10 +14,8 @@ from dataclasses import dataclass, field
 import aiosqlite
 import structlog
 
-from informity.config import settings
 from informity.llm.intent_profiles import get_intent_profile_policy
 from informity.llm.model_adapter import get_retrieval_top_k
-from informity.llm.planner import PLANNING_ELIGIBLE_ROUTES, QueryPlan, _filters_to_kwargs
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.rag_runtime import deterministic_fallbacks as _deterministic_fallbacks
 from informity.llm.rag_runtime import generation_terminal as _generation_terminal
@@ -44,7 +42,6 @@ _FILENAME_SUMMARY_FALLBACK_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _FILENAME_SUMMARY_DETERMINISTIC_EXTENSIONS = ('.md', '.txt')
-_MULTI_STEP_RETRIEVAL_ROUTES = PLANNING_ELIGIBLE_ROUTES
 _STRUCTURED_EXTRACTION_SUBTYPES = _structured_numeric._STRUCTURED_EXTRACTION_SUBTYPES
 
 _INSUFFICIENT_CONTEXT_RESPONSE = (
@@ -246,13 +243,11 @@ async def run_retrieval_pipeline(
     question: str,
     retrieval_question: str,
     classification: QueryClassification,
-    query_plan: QueryPlan | None,
     effective_query_type: str,
     effective_top_k: int,
     effective_max_tokens: int,
     effective_response_shape: str,
     timeout_seconds: int,
-    source_terms_for_retrieval: list[str],
     continuation_source_terms: list[str],
     prior_has_remaining_scope: bool,
     scope_reset_detected: bool,
@@ -274,9 +269,9 @@ async def run_retrieval_pipeline(
     normalize_relevance_score_fn: object,
 ) -> 'RetrievalSuccess | RetrievalFailure':
     """
-    Run the full retrieval pipeline:
+    Run the retrieval pipeline:
       initial retrieval → empty fallback → validation gates → gatekeeper recovery
-      → gate failure check → multi-step retrieval → deterministic fallbacks.
+      → gate failure check → deterministic fallbacks.
 
     Returns RetrievalSuccess (chunks + all gate/metric state) or RetrievalFailure
     (terminal: no LLM generation needed).
@@ -298,7 +293,6 @@ async def run_retrieval_pipeline(
         effective_query_type=effective_query_type,
         effective_top_k=effective_top_k,
         profile_rag_max_score=profile_rag_max_score,
-        source_terms_for_retrieval=source_terms_for_retrieval,
         continuation_source_terms=continuation_source_terms,
         prior_has_remaining_scope=prior_has_remaining_scope,
         scope_reset_detected=scope_reset_detected,
@@ -330,16 +324,12 @@ async def run_retrieval_pipeline(
         })
         fallback_chunks = await retrieve_chunks(
             query=retrieval_question,
-            top_k=get_retrieval_top_k(
-                fallback_profile.preferred_retrieval_mode,
-                response_mode=response_mode_used,
-            ),
+            top_k=get_retrieval_top_k(fallback_profile.preferred_retrieval_mode),
             max_score=profile_rag_max_score,
             year_filter=classification.year_filter,
             category_filter=classification.category_filter,
             extension_filter=classification.file_type_filter,
             filename_filter=retrieval_filename_filter,
-            source_terms_filter=source_terms_for_retrieval,
             block_type_filter=None,
             section_filter=None,
             query_type=fallback_profile.preferred_retrieval_mode,
@@ -351,7 +341,33 @@ async def run_retrieval_pipeline(
             effective_query_type = fallback_profile.preferred_retrieval_mode
             effective_top_k = min(effective_top_k, len(chunks))
         else:
-            return RetrievalFailure(
+            schema_contract_recovery_chunks: list[dict] = []
+            if has_explicit_output_contract_fn(question):
+                schema_contract_recovery_chunks = await retrieve_chunks(
+                    query=retrieval_question,
+                    top_k=get_retrieval_top_k('coverage'),
+                    max_score=profile_rag_max_score,
+                    year_filter=classification.year_filter,
+                    category_filter=classification.category_filter,
+                    extension_filter=classification.file_type_filter,
+                    filename_filter=None,
+                    block_type_filter=None,
+                    section_filter=None,
+                    query_type='coverage',
+                    db=db,
+                    trace=trace,
+                )
+            if schema_contract_recovery_chunks:
+                chunks = schema_contract_recovery_chunks
+                effective_query_type = 'coverage'
+                effective_top_k = min(effective_top_k, len(chunks))
+                fallback_events.append({
+                    'fallback_from': selected_policy_profile_id,
+                    'fallback_to': selected_policy_profile_id,
+                    'fallback_reason': 'schema_contract_empty_retrieval_recovery',
+                })
+            else:
+                return RetrievalFailure(
                 response_message=_INSUFFICIENT_CONTEXT_RESPONSE,
                 sources=[],
                 metrics_payload=_generation_terminal.build_generation_skipped_metrics_payload(
@@ -367,8 +383,8 @@ async def run_retrieval_pipeline(
                     has_remaining_scope=False,
                     validation_gates={'retrieval_relevance_gate': False, 'source_diversity_gate': False},
                 ),
-                has_remaining_scope=False,
-            )
+                    has_remaining_scope=False,
+                )
 
     # -------------------------------------------------------------------------
     # 3. Validation gates
@@ -379,10 +395,7 @@ async def run_retrieval_pipeline(
             chunks=chunks,
             query_type=effective_query_type,
             route_candidate=selected_policy_profile_id,
-            has_strong_anchor=bool(
-                classification.filename_filter
-                or (classification.year_filter is not None and source_terms_for_retrieval)
-            ),
+            has_strong_anchor=bool(classification.filename_filter),
         )
     )
     source_diversity_passed, distinct_sources_count = (
@@ -447,11 +460,10 @@ async def run_retrieval_pipeline(
         validation_gates=validation_gates,
         fallback_events=fallback_events,
         classification=classification,
-        effective_response_shape=effective_response_shape,
-        selected_policy_profile_id=selected_policy_profile_id,
-        selected_policy_fallback_target_route=selected_policy_fallback_target_route,
-        source_terms_for_retrieval=source_terms_for_retrieval,
-        scope_reset_detected=scope_reset_detected,
+                effective_response_shape=effective_response_shape,
+                selected_policy_profile_id=selected_policy_profile_id,
+                selected_policy_fallback_target_route=selected_policy_fallback_target_route,
+                scope_reset_detected=scope_reset_detected,
         prior_source_anchors=prior_source_anchors,
         prior_has_remaining_scope=prior_has_remaining_scope,
         retrieval_question=retrieval_question,
@@ -493,7 +505,22 @@ async def run_retrieval_pipeline(
     # 5. Gate failure → terminal
     # -------------------------------------------------------------------------
 
-    if not retrieval_relevance_passed or not source_diversity_passed or not continuation_anchor_passed:
+    validation_failed = (
+        not retrieval_relevance_passed
+        or not source_diversity_passed
+        or not continuation_anchor_passed
+    )
+    schema_driven_structured_request = (
+        effective_response_shape in {'structured_extract', 'metadata_table'}
+        and has_explicit_output_contract_fn(question)
+    )
+    allow_structured_gate_bypass = (
+        validation_failed
+        and schema_driven_structured_request
+        and continuation_anchor_passed
+        and bool(chunks)
+    )
+    if validation_failed and not allow_structured_gate_bypass:
         use_clarification = (
             not classification.is_continuation
             and (
@@ -524,168 +551,25 @@ async def run_retrieval_pipeline(
             ),
             has_remaining_scope=False,
         )
+    if allow_structured_gate_bypass:
+        fallback_events.append({
+            'fallback_from': selected_policy_profile_id,
+            'fallback_to': selected_policy_profile_id,
+            'fallback_reason': 'schema_driven_gate_bypass',
+        })
 
     # -------------------------------------------------------------------------
-    # 6. Multi-step retrieval augmentation
-    # Activation gate: route must be planning-eligible and confidence_band='high'.
-    # Plan step events are collected and returned in the result for SSE forwarding.
+    # 6. Deterministic fallbacks (structured, filename summary, inventory)
     # -------------------------------------------------------------------------
 
-    if (
-        query_plan is not None
-        and classification.route_candidate in _MULTI_STEP_RETRIEVAL_ROUTES
-        and classification.confidence_band == 'high'
-    ):
-        try:
-            _step_chunks_merged: list[dict] = list(chunks)
-            _seen_step_ids: set[str] = {
-                str(c.get('chunk_id') or c.get('id') or '').strip()
-                for c in chunks
-                if str(c.get('chunk_id') or c.get('id') or '').strip()
-            }
-            _steps_executed = 0
-            _steps_empty = 0
-            _step_trace_entries: list[dict] = []
-            for _step in query_plan.steps:
-                plan_step_events.append(('__plan_step__', {
-                    'step_id': _step.step_id,
-                    'description': _step.description,
-                    'status': 'running',
-                }))
-                _step_result = await retrieve_chunks(
-                    query=_step.sub_query,
-                    top_k=effective_top_k,
-                    max_score=profile_rag_max_score,
-                    query_type=_step.retrieval_mode,
-                    db=db,
-                    trace=None,
-                    **_filters_to_kwargs(_step.filters),
-                )
-                if not _step_result:
-                    # One widening retry per step (top_k × 1.5, no filter relaxation)
-                    _retry_top_k = min(
-                        int(effective_top_k * 1.5) + 1,
-                        int(settings.retrieval_widening_retry_cap),
-                    )
-                    _step_result = await retrieve_chunks(
-                        query=_step.sub_query,
-                        top_k=_retry_top_k,
-                        max_score=profile_rag_max_score,
-                        query_type=_step.retrieval_mode,
-                        db=db,
-                        trace=None,
-                        **_filters_to_kwargs(_step.filters),
-                    )
-                _steps_executed += 1
-                _step_trace_entries.append({
-                    'step_id': _step.step_id,
-                    'sub_query': _step.sub_query,
-                    'chunks_returned': len(_step_result) if _step_result else 0,
-                })
-                if not _step_result:
-                    _steps_empty += 1
-                    log.info(
-                        'plan_step_empty',
-                        step_id=_step.step_id,
-                        sub_query=_step.sub_query,
-                        description=_step.description,
-                    )
-                    plan_step_events.append(('__plan_step__', {
-                        'step_id': _step.step_id,
-                        'description': _step.description,
-                        'status': 'empty',
-                    }))
-                    continue
-                for _c in _step_result:
-                    _cid = str(_c.get('chunk_id') or _c.get('id') or '').strip()
-                    if _cid and _cid in _seen_step_ids:
-                        continue
-                    if _cid:
-                        _seen_step_ids.add(_cid)
-                    _step_chunks_merged.append(_c)
-                plan_step_events.append(('__plan_step__', {
-                    'step_id': _step.step_id,
-                    'description': _step.description,
-                    'status': 'done',
-                }))
-            chunks = _deduplicate_prompt_chunks(_step_chunks_merged)
-            log.info(
-                'multi_step_retrieval_augmented',
-                route_candidate=classification.route_candidate,
-                steps_executed=_steps_executed,
-                steps_empty=_steps_empty,
-                chunks_before=len(_step_chunks_merged) - _steps_executed,
-                chunks_after=len(chunks),
-            )
-            if trace is not None:
-                trace.record('multi_step_retrieval', {
-                    'steps_executed': _steps_executed,
-                    'steps_empty': _steps_empty,
-                    'chunks_before_dedup': len(_step_chunks_merged),
-                    'chunks_after_dedup': len(chunks),
-                    'steps': _step_trace_entries,
-                })
-        except (TimeoutError, RuntimeError, ValueError, TypeError, OSError) as _step_exc:
-            log.warning('multi_step_retrieval_failed', error=str(_step_exc))
-            # Fallback: use initial + gatekeeper-recovered chunks unchanged
-
-    # -------------------------------------------------------------------------
-    # 7. Deterministic fallbacks (strict, structured, filename summary, inventory)
-    # -------------------------------------------------------------------------
-
-    deterministic_fallback = await _deterministic_fallbacks.try_strict_or_structured_fallback(
+    deterministic_fallback = await _deterministic_fallbacks.try_structured_fallback(
         question=question,
         classification=classification,
         response_shape=effective_response_shape,
         chunks=chunks,
-        response_mode=response_mode_used,
         db=db,
         trace=trace,
     )
-
-    if deterministic_fallback.kind == 'strict':
-        strict_answer = deterministic_fallback.answer or ''
-        strict_sources = deterministic_fallback.sources or []
-        strict_metrics = deterministic_fallback.strict_metrics or {}
-        if trace is not None:
-            trace.record('strict_composer', {
-                'applied': True,
-                'family': strict_metrics.get('strict_composer_family'),
-                'sources_count': strict_metrics.get('strict_composer_sources_count'),
-                'claim_count': strict_metrics.get('strict_claim_count'),
-                'fallback_claim_count': strict_metrics.get('strict_fallback_claim_count'),
-                'unsupported_claim_count': strict_metrics.get('strict_unsupported_claim_count'),
-                'evidence_coverage_rate': strict_metrics.get('strict_evidence_coverage_rate'),
-                'claim_emission_decisions_preview': strict_metrics.get('strict_claim_emission_decisions_preview'),
-            })
-            trace.record('llm', {
-                'token_count': 0,
-                'max_tokens': effective_max_tokens,
-                'first_token_ms': None,
-                'total_elapsed_ms': 0.0,
-                'model_profile': None,
-                'stream_recovery_reason': None,
-                'output_contract_check': strict_metrics.get('output_contract_check'),
-            })
-        return RetrievalFailure(
-            response_message=strict_answer,
-            sources=strict_sources,
-            metrics_payload=_generation_terminal.build_generation_skipped_metrics_payload(
-                query_type=effective_query_type,
-                response_mode_used=response_mode_used,
-                mode_adjustments_applied=mode_adjustments_applied,
-                timeout_seconds=timeout_seconds,
-                retrieval_elapsed_ms=retrieval_elapsed_ms,
-                preflight_projected_seconds=preflight_projected_seconds,
-                preflight_ratio=preflight_ratio,
-                applied_degradations=applied_degradations,
-                fallback_events=fallback_events,
-                has_remaining_scope=False,
-                extra_fields=strict_metrics,
-            ),
-            has_remaining_scope=False,
-            plan_step_events=plan_step_events,
-        )
 
     if deterministic_fallback.kind == 'structured':
         structured_answer = deterministic_fallback.answer or ''
@@ -798,7 +682,7 @@ async def run_retrieval_pipeline(
         effective_response_shape = 'narrative_synthesis'
 
     # -------------------------------------------------------------------------
-    # 8. Success — pass chunks and all gate state to generation
+    # 7. Success — pass chunks and all gate state to generation
     # -------------------------------------------------------------------------
 
     return RetrievalSuccess(

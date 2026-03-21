@@ -9,23 +9,13 @@ import { PageHeader } from '../PageHeader'
 import { ServiceUnavailableState } from '../ServiceUnavailableState'
 import { useChatContext } from '../../context/useChatContext'
 import { useBackendStatus } from '../../context/useBackendStatus'
-import { getCurrentChat, getSettings, updateSettings } from '../../api'
+import { getCurrentChat } from '../../api'
 import { logApiError } from '../../utils/logApiError'
 import './ChatView.css'
 
 const CHAT_INPUT_MIN_HEIGHT = 104
 const CHAT_INPUT_MAX_HEIGHT = 304
 const FORCE_NEW_CHAT_KEY = 'informity_force_new_chat'
-type ResponseMode = 'analysis' | 'research'
-const RESPONSE_MODE_LABELS: Record<ResponseMode, string> = {
-  analysis: 'Analysis',
-  research: 'Research',
-}
-const RESPONSE_MODE_ICONS: Record<ResponseMode, string> = {
-  analysis: 'ri-flask-line',
-  research: 'ri-search-ai-3-line',
-}
-const ALL_RESPONSE_MODES: ResponseMode[] = ['analysis', 'research']
 
 interface ChatViewProps {
   prefillMessage?: string
@@ -34,13 +24,6 @@ interface ChatViewProps {
 
 interface GetCurrentChatResponse {
   current_chat_id?: string
-}
-
-interface ChatSettingsResponse {
-  default_response_mode?: ResponseMode
-  model_profile?: {
-    supported_modes?: ResponseMode[]
-  }
 }
 
 export function ChatView({ prefillMessage = '', initialChatId = null }: ChatViewProps) {
@@ -60,9 +43,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     clearError,
   } = useChatContext()
   const [inputValue, setInputValue] = useState(prefillMessage)
-  const [responseMode, setResponseMode] = useState<ResponseMode>('analysis')
-  const [supportedModes, setSupportedModes] = useState<ResponseMode[]>(['analysis'])
-  const [modeMenuOpen, setModeMenuOpen] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [animateToDocked, setAnimateToDocked] = useState(false)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -75,7 +55,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   const autoFollowRafRef = useRef<number | null>(null)
   const showScrollRef = useRef(false)
   const isNearBottomRef = useRef(true)
-  const modeMenuRef = useRef<HTMLDivElement>(null)
 
   const isForceNewChatRequested = useCallback((): boolean => {
     try {
@@ -91,52 +70,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   useEffect(() => {
     if (prefillMessage) setInputValue(prefillMessage)
   }, [prefillMessage])
-
-  useEffect(() => {
-    let cancelled = false
-    getSettings()
-      .then((data) => {
-        if (cancelled) return
-        const settings = data as ChatSettingsResponse
-        const profileModes = Array.isArray(settings.model_profile?.supported_modes)
-          ? settings.model_profile.supported_modes.filter((mode): mode is ResponseMode => (
-            mode === 'analysis' || mode === 'research'
-          ))
-          : []
-        const modes: ResponseMode[] = profileModes.length > 0 ? profileModes : ['analysis']
-        setSupportedModes(modes)
-        const preferred = settings.default_response_mode
-        if (preferred && modes.includes(preferred)) {
-          setResponseMode(preferred)
-          return
-        }
-        setResponseMode(modes[0] ?? 'analysis')
-      })
-      .catch((err) => logApiError(err, 'ChatView.getSettings.defaultResponseMode'))
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const persistDefaultResponseMode = useCallback((mode: ResponseMode) => {
-    if (!supportedModes.includes(mode)) return
-    updateSettings({ default_response_mode: mode })
-      .catch((err) => logApiError(err, 'ChatView.persistDefaultResponseMode'))
-  }, [supportedModes])
-
-  useEffect(() => {
-    const handlePointerDown = (event: MouseEvent) => {
-      if (!modeMenuRef.current) return
-      if (modeMenuRef.current.contains(event.target as Node)) return
-      setModeMenuOpen(false)
-    }
-    document.addEventListener('mousedown', handlePointerDown)
-    return () => document.removeEventListener('mousedown', handlePointerDown)
-  }, [])
-
-  useEffect(() => {
-    if (offline) setModeMenuOpen(false)
-  }, [offline])
 
   useEffect(() => {
     if (isForceNewChatRequested()) return
@@ -277,12 +210,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     scheduleAutoFollow()
   }, [isStreaming, streamContent, scheduleAutoFollow])
 
-  const handleContinue = useCallback((mode: ResponseMode = 'analysis', anchorMessageId?: number) => {
+  const handleContinue = useCallback((anchorMessageId?: number) => {
     if (offline) return
-    void continueLastScope(mode, anchorMessageId)
+    void continueLastScope(anchorMessageId)
   }, [offline, continueLastScope])
 
-  const handleRegenerate = useCallback((assistantMessageIndex: number, mode: ResponseMode = 'analysis') => {
+  const handleRegenerate = useCallback((assistantMessageIndex: number) => {
     if (offline) return
     if (isStreaming) return
     const previousUser = [...messages]
@@ -290,7 +223,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
       .reverse()
       .find((msg) => msg.role === 'user' && !msg.isInternal && !!msg.content?.trim())
     if (!previousUser) return
-    void sendMessage(previousUser.content, mode)
+    void sendMessage(previousUser.content)
   }, [offline, isStreaming, messages, sendMessage])
 
   const handleNewChat = useCallback(() => {
@@ -313,9 +246,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     if (!text) return
 
     setInputValue('')
-    setModeMenuOpen(false)
-    await sendMessage(text, responseMode)
-  }, [offline, inputValue, responseMode, sendMessage])
+    await sendMessage(text)
+  }, [offline, inputValue, sendMessage])
 
   const handleStop = useCallback(() => {
     if (offline) return
@@ -460,7 +392,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                       generationSeconds={msg.generationSeconds}
                       enableRawOutputControl={enableRawOutputControl}
                       onContinue={handleContinue}
-                      onRegenerate={(mode) => handleRegenerate(i, mode)}
+                      onRegenerate={() => handleRegenerate(i)}
                       canContinue={!offline && !isStreaming}
                       canRegenerate={!offline && !isStreaming}
                       actionsDisabled={offline}
@@ -494,56 +426,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                     disabled={offline || isStreaming}
                   />
                   <div className="chat-view__controls-row">
-                    <div ref={modeMenuRef} className="chat-view__mode-selector">
-                      <button
-                        type="button"
-                        className="chat-view__mode-button"
-                        onClick={() => setModeMenuOpen((open) => !open)}
-                        disabled={offline || isStreaming}
-                        aria-haspopup="menu"
-                        aria-expanded={modeMenuOpen}
-                        aria-label="Select response mode"
-                      >
-                        <i className={RESPONSE_MODE_ICONS[responseMode]} aria-hidden />
-                        <span>{RESPONSE_MODE_LABELS[responseMode]}</span>
-                        <i className="ri-arrow-down-s-line" aria-hidden />
-                      </button>
-                      {modeMenuOpen && (
-                        <div className="chat-view__mode-menu" role="menu">
-                          {ALL_RESPONSE_MODES.map((mode) => {
-                            const available = supportedModes.includes(mode)
-                            const btn = (
-                              <button
-                                type="button"
-                                className={`chat-view__mode-option${responseMode === mode ? ' chat-view__mode-option--active' : ''}${!available ? ' chat-view__mode-option--unavailable' : ''}`}
-                                role="menuitemradio"
-                                aria-checked={responseMode === mode}
-                                aria-disabled={!available}
-                                disabled={offline || isStreaming || !available}
-                                onClick={() => {
-                                  setResponseMode(mode)
-                                  setModeMenuOpen(false)
-                                  persistDefaultResponseMode(mode)
-                                }}
-                              >
-                                <i className={RESPONSE_MODE_ICONS[mode]} aria-hidden />
-                                <span>{RESPONSE_MODE_LABELS[mode]}</span>
-                                {!available && <i className="ri-lock-line chat-view__mode-option-lock" aria-hidden />}
-                              </button>
-                            )
-                            if (!available) {
-                              return (
-                                <span key={mode} className="chat-view__mode-option-wrap ui-tooltip-trigger">
-                                  {btn}
-                                  <span className="ui-tooltip ui-tooltip--nowrap">Requires larger model.</span>
-                                </span>
-                              )
-                            }
-                            return <span key={mode} className="chat-view__mode-option-wrap">{btn}</span>
-                          })}
-                        </div>
-                      )}
-                    </div>
                     {isStreaming ? (
                       <button
                         type="button"

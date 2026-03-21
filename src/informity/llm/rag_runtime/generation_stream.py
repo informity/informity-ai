@@ -12,7 +12,6 @@ from dataclasses import dataclass
 import structlog
 
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
-from informity.llm.rag_runtime import strict_output_contract as _strict_output_contract
 from informity.llm.streaming import stream_llm
 
 log = structlog.get_logger(__name__)
@@ -30,7 +29,6 @@ class StreamExecutionSummary:
     soft_budget_checkpoints_hit: list[int]
     completion_mode: str
     has_remaining_scope: bool
-    output_contract_check: dict[str, object]
     # Per-stage latency breakdown (set by rag.py after streaming completes).
     # All values are wall-clock milliseconds measured with perf_counter.
     embed_ms: float | None = None           # Query embedding time
@@ -65,7 +63,7 @@ async def stream_generation_with_budget(
     dedupe_insufficient_context_after_stream: bool,
     insufficient_context_response: str,
     applied_degradations: list[dict[str, object]],
-    output_contract_plan: _strict_output_contract.OutputContractPlan,
+    output_contract_plan: object | None,
     collapse_duplicate_message_fn: Callable[[str], tuple[str, bool]],
     stream_llm_fn: Callable[..., AsyncGenerator[str | tuple[str, object]]] = stream_llm,
 ) -> AsyncGenerator[str | tuple[str, object]]:
@@ -152,21 +150,6 @@ async def stream_generation_with_budget(
                 'step': 'post_stream_duplicate_insufficient_context_dedup',
                 'reason': 'duplicate_insufficient_context_phrase_collapsed',
             })
-    output_contract_check = _strict_output_contract._evaluate_output_contract(
-        answer=''.join(answer_parts),
-        plan=output_contract_plan,
-    )
-    if not bool(output_contract_check.get('passed', True)):
-        applied_degradations.append({
-            'step': 'strict_output_contract_incomplete',
-            'missing_headings': output_contract_check.get('missing_headings', []),
-            'order_violations': output_contract_check.get('order_violations', []),
-        })
-        log.info(
-            'output_contract_check_failed',
-            missing_headings=output_contract_check.get('missing_headings', []),
-            order_violations=output_contract_check.get('order_violations', []),
-        )
     completion_mode = 'partial' if timeout_reason else 'complete'
     if stream_recovery_reason is not None:
         completion_mode = 'scoped_complete'
@@ -186,5 +169,4 @@ async def stream_generation_with_budget(
         soft_budget_checkpoints_hit=sorted(int(ratio * 100) for ratio in checkpoints_emitted),
         completion_mode=completion_mode,
         has_remaining_scope=has_remaining_scope,
-        output_contract_check=output_contract_check,
     ))

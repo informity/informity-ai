@@ -1,39 +1,23 @@
 # ==============================================================================
 # Informity AI — Prompt Builder (v2)
-# 3-rule system prompt, structured context formatting with source labels
+# Static system prompt + context formatting only
 # ==============================================================================
 
-from datetime import UTC, datetime
-
-from informity.answer_sanitization import sanitize_display_answer
 from informity.config import settings
 from informity.db.models import ChatMessage
 
-_SYSTEM_PROMPT = """You are a document Q&A assistant.
+_SYSTEM_PROMPT = """You are a research assistant answering questions from a private document corpus.
 
 Rules:
-1. Answer using ONLY the provided context excerpts.
-2. Use markdown formatting when the answer has structure (multiple values, lists, or comparisons). For single-fact answers, use plain text.
-3. If the context contains NO relevant information, say "The available documents do not contain enough information to answer this question."
-4. Never infer missing facts. If evidence is insufficient for a specific required claim, output "Not found" for that claim.
-5. If retrieved chunks contain conflicting values for the same field, report each value with its source document. Do not blend, average, or choose silently.
-6. Start directly with answer content. Do not begin with meta-commentary phrases (for example "Based on", "According to", "The documents show", "The context indicates").
-7. Do not cite [Source: N] labels in the answer; these labels are metadata only.
-8. Do not output HTML tags (for example <br>). In markdown table cells, separate multiple items with "; ".
+1. Answer using ONLY the provided documents. Never infer, speculate, or use outside knowledge.
+2. If the documents do not contain enough information to answer, say so directly.
+3. Follow the user's requested output format exactly when specified (for example: "output only a markdown table", exact column names, exact section headings, exact bullet format).
+4. Preserve required labels/terms from the user request verbatim when they are part of the requested output schema (for example: source, snippet, objective, tradeoff, decision).
+5. For delimiter schemas like "A | B | C", include an exact header/template line with those labels before listing values.
+6. Use markdown: headers for multi-topic answers, tables for comparisons, bullet lists for enumerations.
+7. If values conflict across documents, report each value with its source document.
+8. Start with the answer directly. Do not start with meta-commentary.
 """
-
-_RESEARCH_MODE_PROMPT_ADDENDUM = """Research mode instructions:
-- Prefer comprehensive, evidence-grounded coverage over brevity.
-- Fully satisfy every required heading and subsection before concluding.
-- When evidence exists, include concrete figures, dates, and identifiers.
-- If evidence is missing, write "Missing evidence for <topic>".
-- If no evidence exists for a required section, write "Not found" under that section.
-- Do not generate verification actions that are not explicitly supported by context."""
-
-
-def _current_utc_date_iso() -> str:
-    # Canonical date anchor for temporal reasoning in prompts.
-    return datetime.now(UTC).strftime('%Y-%m-%d')
 
 
 def build_messages(
@@ -44,6 +28,7 @@ def build_messages(
     format_requirements: list[str] | None = None,
     response_mode: str = 'analysis',
 ) -> list[dict[str, str]]:
+    _ = (output_constraints, format_requirements, response_mode)
     # Build messages for LLM. Context chunks formatted with [Source: N] labels
     # for LLM understanding (document boundaries, structure, provenance).
     # Labels are informational only — not for citation in answers.
@@ -71,30 +56,7 @@ def build_messages(
     context_text = "\n\n".join(context_parts)
 
     # Build system message
-    system_content = (
-        f"{_SYSTEM_PROMPT}\n\n"
-        f"Current date: {_current_utc_date_iso()}\n\n"
-        f"Context:\n{context_text}"
-    )
-    if str(response_mode or 'analysis').strip().lower() == 'research':
-        system_content += f"\n\n{_RESEARCH_MODE_PROMPT_ADDENDUM}"
-    if output_constraints:
-        constraints: list[str] = []
-        max_sections = output_constraints.get('max_sections')
-        max_rows = output_constraints.get('max_rows')
-        max_words = output_constraints.get('max_words')
-        if isinstance(max_sections, int) and max_sections > 0:
-            constraints.append(f'use at most {max_sections} sections')
-        if isinstance(max_rows, int) and max_rows > 0:
-            constraints.append(f'use at most {max_rows} table rows or list items')
-        if isinstance(max_words, int) and max_words > 0:
-            constraints.append(f'keep the answer under about {max_words} words')
-        if constraints:
-            system_content += '\n\nOutput budget constraints: ' + '; '.join(constraints) + '.'
-    if format_requirements:
-        normalized_requirements = [item.strip() for item in format_requirements if item and item.strip()]
-        if normalized_requirements:
-            system_content += '\n\nRequired output format:\n- ' + '\n- '.join(normalized_requirements)
+    system_content = f"{_SYSTEM_PROMPT}\n\nContext:\n{context_text}"
 
     # Build messages list
     messages = [{'role': 'system', 'content': system_content}]
@@ -104,10 +66,6 @@ def build_messages(
         history_limit = settings.chat_history_messages
         for msg in history[-history_limit:]:  # Last N messages (configurable)
             history_content = msg.content or ''
-            if msg.role == 'assistant':
-                history_content = sanitize_display_answer(history_content)
-                if not history_content:
-                    continue
             messages.append({'role': msg.role, 'content': history_content})
 
     # Add current question

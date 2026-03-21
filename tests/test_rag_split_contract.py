@@ -7,7 +7,6 @@ import pytest
 from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_stream as _generation_stream
 from informity.llm.rag_runtime import generation_terminal as _generation_terminal
-from informity.llm.rag_runtime.strict_output_contract import _build_output_contract_plan
 
 
 @pytest.mark.asyncio
@@ -32,7 +31,7 @@ async def test_generation_stream_emits_checkpoint_with_query_type_and_summary() 
         dedupe_insufficient_context_after_stream=False,
         insufficient_context_response='insufficient',
         applied_degradations=[],
-        output_contract_plan=_build_output_contract_plan(question='test', format_requirements=[]),
+        output_contract_plan=None,
         collapse_duplicate_message_fn=lambda value: (value, False),
         stream_llm_fn=_fake_stream_llm,
     ):
@@ -59,7 +58,7 @@ async def test_generation_stream_emits_checkpoint_with_query_type_and_summary() 
 def test_generation_closeout_metrics_payload_contract_shape() -> None:
     payload = _generation_closeout.build_generation_metrics_payload(
         query_type='focused',
-        response_mode_used='balanced',
+        response_mode_used='analysis',
         mode_adjustments_applied=[],
         timeout_seconds=120,
         retrieval_elapsed_ms=42.34,
@@ -83,13 +82,11 @@ def test_generation_closeout_metrics_payload_contract_shape() -> None:
         fallback_events=[],
         has_remaining_scope=False,
         stream_recovery_reason=None,
-        output_contract_check={'passed': True},
     )
     assert payload['generation_skipped'] is False
     assert payload['query_type'] == 'focused'
     assert payload['first_token_latency_ms'] == 123.5
     assert payload['soft_budget_checkpoints_hit'] == [60, 80]
-    assert payload['output_contract_check'] == {'passed': True}
 
 
 def test_generation_terminal_builds_generation_skipped_payload_and_limited_sources() -> None:

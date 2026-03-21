@@ -20,10 +20,6 @@ const TRACE_REDACTION_OPTIONS = [
   { value: 'strict', label: 'Strict' },
   { value: 'off', label: 'Off (Least Private)' },
 ]
-const DEFAULT_RESPONSE_MODE_OPTIONS = [
-  { value: 'analysis', label: 'Analysis (Default)' },
-  { value: 'research', label: 'Research' },
-]
 const LOG_LEVEL_OPTIONS = [
   { value: 'debug', label: 'Debug' },
   { value: 'info', label: 'Info (Recommended)' },
@@ -123,7 +119,6 @@ function clamp(value: number, min: number, max: number): number {
 interface ModelProfile {
   name?: string
   family?: string
-  supported_modes?: Array<'analysis' | 'research'>
   reasoning_mode?: string
   max_tokens_simple?: number
   max_tokens_focused?: number
@@ -170,7 +165,6 @@ interface SettingsData {
   enable_raw_output_control?: boolean
   ui_theme?: string
   enable_menu_bar_icon?: boolean
-  default_response_mode?: 'analysis' | 'research'
   llm_model_filename?: string
   available_models?: string[]
   embedding_model?: string
@@ -205,7 +199,6 @@ interface FormState {
   enable_raw_output_control: boolean
   ui_theme: string
   enable_menu_bar_icon: boolean
-  default_response_mode: 'analysis' | 'research'
   llm_model_filename: string
 }
 
@@ -219,24 +212,8 @@ interface SettingsViewProps {
   saving: boolean
 }
 
-function normalizeSupportedModes(
-  modes: Array<'analysis' | 'research'> | string[] | undefined,
-): Array<'analysis' | 'research'> {
-  if (!Array.isArray(modes)) return ['analysis']
-  const filtered: Array<'analysis' | 'research'> = []
-  for (const mode of modes) {
-    if (mode === 'analysis' || mode === 'research') {
-      filtered.push(mode)
-    }
-  }
-  return filtered.length > 0 ? filtered : ['analysis']
-}
-
 function buildFormState(settings: SettingsData): FormState {
   const normalizedTheme = normalizeUiTheme(settings.ui_theme)
-  const supportedModes = normalizeSupportedModes(settings.model_profile?.supported_modes)
-  const defaultMode = settings.default_response_mode ?? 'analysis'
-  const resolvedDefaultMode = supportedModes.includes(defaultMode) ? defaultMode : supportedModes[0] ?? 'analysis'
   return {
     watched_directories: [...(settings.watched_directories || [])],
     ignore_patterns: [...(settings.ignore_patterns || [])],
@@ -263,7 +240,6 @@ function buildFormState(settings: SettingsData): FormState {
     enable_raw_output_control: settings.enable_raw_output_control ?? false,
     ui_theme: normalizedTheme ?? UI_THEME_DEFAULT,
     enable_menu_bar_icon: settings.enable_menu_bar_icon ?? false,
-    default_response_mode: resolvedDefaultMode,
     llm_model_filename: settings.llm_model_filename ?? '',
   }
 }
@@ -314,10 +290,6 @@ export function SettingsView({
   const [ignoreInput, setIgnoreInput] = useState('')
   const persistedModel = settings?.llm_model_filename ?? ''
   const effectiveProfile = previewProfile ?? settings?.model_profile
-  const supportedResponseModes = normalizeSupportedModes(effectiveProfile?.supported_modes)
-  const defaultResponseModeOptions = DEFAULT_RESPONSE_MODE_OPTIONS.filter((option) => (
-    supportedResponseModes.includes(option.value as 'analysis' | 'research')
-  ))
 
   useEffect(() => {
     if (settings) {
@@ -375,15 +347,6 @@ export function SettingsView({
     }).catch(() => {})
     return () => { cancelled = true }
   }, [settings?.available_models])
-
-  useEffect(() => {
-    if (!supportedResponseModes.includes(form.default_response_mode)) {
-      setForm((prev) => ({
-        ...prev,
-        default_response_mode: supportedResponseModes[0] ?? 'analysis',
-      }))
-    }
-  }, [form.default_response_mode, supportedResponseModes])
 
   if (!settings) return null
 
@@ -547,29 +510,6 @@ export function SettingsView({
           Chat
         </div>
         <p className="settings-section-description">Conversation context and answer quality options.</p>
-
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-chat-ai-2-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Default Response Mode
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">
-              Default response depth for new chat messages when no per-message mode is chosen.
-            </p>
-          </div>
-          <select
-            className="settings-select"
-            value={form.default_response_mode ?? 'analysis'}
-            onChange={(e) => update('default_response_mode', e.target.value as 'analysis' | 'research')}
-          >
-            {defaultResponseModeOptions.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
 
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">

@@ -35,7 +35,6 @@ def build_generation_metrics_payload(
     fallback_events: list[dict[str, object]],
     has_remaining_scope: bool,
     stream_recovery_reason: str | None,
-    output_contract_check: dict[str, object],
 ) -> dict[str, object]:
     return {
         'query_type': query_type,
@@ -63,7 +62,6 @@ def build_generation_metrics_payload(
         'fallback_events': fallback_events,
         'has_remaining_scope': has_remaining_scope,
         'stream_recovery_reason': stream_recovery_reason,
-        'output_contract_check': output_contract_check,
         'generation_skipped': False,
     }
 
@@ -77,7 +75,6 @@ def record_generation_trace(
     llm_elapsed_ms: float,
     profile_name: str,
     stream_recovery_reason: str | None,
-    output_contract_check: dict[str, object],
 ) -> None:
     if trace is None:
         return
@@ -88,7 +85,6 @@ def record_generation_trace(
         'total_elapsed_ms': round(llm_elapsed_ms, 1),
         'model_profile': profile_name,
         'stream_recovery_reason': stream_recovery_reason,
-        'output_contract_check': output_contract_check,
     })
 
 

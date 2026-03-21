@@ -7,61 +7,24 @@ import pytest
 from informity.chat_trace import _ChatTraceWriter
 
 # ==============================================================================
-# Summary envelope: plan section
+# Summary envelope: no planning artifacts
 # ==============================================================================
 
-def test_summary_envelope_plan_section_all_none_for_non_planned_query() -> None:
+def test_summary_envelope_has_no_plan_section() -> None:
     writer = _ChatTraceWriter(chat_id='c1', message_id='m1')
-    writer.record('request', {'question': 'What is revenue?', 'response_mode': 'balanced'})
+    writer.record('request', {'question': 'What is revenue?'})
     envelope = writer.get_summary_envelope()
-    plan = envelope.get('plan', {})
-    assert plan['answer_sections_count'] is None
-    assert plan['steps_requested'] is None
-    assert plan['steps_executed'] is None
-    assert plan['steps_empty'] is None
-    assert plan['aggregation_mode'] is None
-    assert plan['output_shape'] is None
-    assert plan['planner_latency_ms'] is None
-
-
-def test_summary_envelope_plan_section_populated_for_planned_query() -> None:
-    writer = _ChatTraceWriter(chat_id='c2', message_id='m2')
-    writer.record('plan', {
-        'answer_sections_count': 3,
-        'steps_requested': 2,
-        'aggregation_mode': 'compare',
-        'output_shape': 'hybrid',
-        'planner_latency_ms': 142.5,
-    })
-    writer.record('multi_step_retrieval', {
-        'steps_executed': 2,
-        'steps_empty': 0,
-    })
-    envelope = writer.get_summary_envelope()
-    plan = envelope.get('plan', {})
-    assert plan['answer_sections_count'] == 3
-    assert plan['steps_requested'] == 2
-    assert plan['steps_executed'] == 2
-    assert plan['steps_empty'] == 0
-    assert plan['aggregation_mode'] == 'compare'
-    assert plan['output_shape'] == 'hybrid'
-    assert plan['planner_latency_ms'] == 142.5
-
-
-def test_summary_envelope_plan_section_present_in_all_traces() -> None:
-    writer = _ChatTraceWriter(chat_id='c3', message_id='m3')
-    envelope = writer.get_summary_envelope()
-    assert 'plan' in envelope
+    assert 'plan' not in envelope
 
 
 def test_summary_envelope_existing_fields_unaffected_by_plan_addition() -> None:
-    writer = _ChatTraceWriter(chat_id='c4', message_id='m4')
+    writer = _ChatTraceWriter(chat_id='c2', message_id='m2')
     writer.record('retrieval', {'raw_chunks_count': 8, 'matching_files': 3})
     writer.record('llm', {'total_elapsed_ms': 1200.0, 'token_count': 250})
     envelope = writer.get_summary_envelope()
     assert envelope['retrieval']['raw_chunks_count'] == 8
     assert envelope['llm']['total_elapsed_ms'] == 1200.0
-    assert 'plan' in envelope
+    assert 'plan' not in envelope
 
 
 @pytest.mark.asyncio

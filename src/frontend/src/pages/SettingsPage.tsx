@@ -7,7 +7,6 @@ import type { WheelEvent } from 'react'
 import {
   getSettings,
   getIndexStatus,
-  getModelProfile,
   updateSettings,
   resetSettings,
   resetIndex,
@@ -52,7 +51,6 @@ const UPDATABLE_KEYS = [
   'log_level',
   'ui_theme',
   'enable_menu_bar_icon',
-  'default_response_mode',
 ] as const
 
 interface FormState {
@@ -81,21 +79,7 @@ interface FormState {
   log_level?: string
   ui_theme?: string
   enable_menu_bar_icon?: boolean
-  default_response_mode?: 'analysis' | 'research'
   llm_model_filename?: string
-}
-
-function normalizeSupportedModes(
-  modes: Array<'analysis' | 'research'> | string[] | undefined,
-): Array<'analysis' | 'research'> {
-  if (!Array.isArray(modes)) return ['analysis']
-  const filtered: Array<'analysis' | 'research'> = []
-  for (const mode of modes) {
-    if (mode === 'analysis' || mode === 'research') {
-      filtered.push(mode)
-    }
-  }
-  return filtered.length > 0 ? filtered : ['analysis']
 }
 
 function buildPayload(form: FormState): Record<string, unknown> {
@@ -187,26 +171,6 @@ export function SettingsPage() {
     setSaving(true)
     try {
       const payload = buildPayload(form)
-      const nextModelFilename = String(
-        payload.llm_model_filename ?? settings?.llm_model_filename ?? '',
-      ).trim()
-      const nextResponseMode = payload.default_response_mode
-      if (
-        nextModelFilename &&
-        (nextResponseMode === 'analysis' || nextResponseMode === 'research')
-      ) {
-        try {
-          const profile = await getModelProfile(nextModelFilename) as {
-            supported_modes?: Array<'analysis' | 'research'> | string[]
-          }
-          const supportedModes = normalizeSupportedModes(profile.supported_modes)
-          if (!supportedModes.includes(nextResponseMode)) {
-            payload.default_response_mode = supportedModes[0] ?? 'analysis'
-          }
-        } catch {
-          // If profile lookup fails, keep user's current mode and let backend validation decide.
-        }
-      }
       const updated = (await updateSettings(payload)) as SettingsData
       setSettings(updated)
       showToast('success', 'Settings saved')

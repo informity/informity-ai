@@ -87,7 +87,6 @@ class ChatRequest(BaseModel):
     # Request to send a message in a chat.
     message:  str
     chat_id:  str | None = None   # None = start new chat
-    response_mode: Literal['analysis', 'research'] | None = None
     run_id: str | None = None      # Optional diagnostics run correlation ID
 
 
@@ -164,17 +163,14 @@ class ModelProfileInfo(BaseModel):
     # All values are determined by the model profile — not user-editable.
     name:                    str       # "Qwen 30B", "Qwen3 14B", etc.
     family:                  str       # "chatml", "llama", etc.
-    supported_modes:         list[str] # Modes supported by this profile (balanced/analysis/research)
     supports_reasoning:      bool      # Can use <think> blocks
     reasoning_mode:          str       # "Focused queries only", "Off", etc.
     max_tokens_simple:       int       # Max tokens for simple queries
     max_tokens_focused:      int       # Max tokens for focused queries
     max_tokens_coverage:     int       # Max tokens for coverage queries
-    max_tokens_analysis:     int       # Max tokens for analysis mode
-    max_tokens_research:     int       # Max tokens for research mode
+    max_tokens_analysis:     int       # Max tokens
     coverage_top_k:          int       # Chunks retrieved for coverage queries
-    top_k_analysis:          int       # Retrieval top-k for analysis mode
-    top_k_research:          int       # Retrieval top-k for research mode
+    top_k_analysis:          int       # Retrieval top-k
     min_tokens_coverage:     int       # Min tokens target for coverage (pipeline-enforced)
     prompt_format:           str       # "Native (GGUF template)", "ChatML"
     coverage_prompt_format:  str       # Prompt format for coverage queries
@@ -184,10 +180,8 @@ class ModelProfileInfo(BaseModel):
     rag_top_k:               int       # Chunks to retrieve before filtering
     rag_max_score:           float     # Max L2 distance for relevant chunk (lower = stricter)
     rag_context_ratio:       float     # Share of prompt budget for context (rest for history)
-    rag_context_ratio_analysis: float  # Context ratio for analysis mode
-    rag_context_ratio_research: float  # Context ratio for research mode
-    timeout_seconds_analysis: int      # Timeout for analysis mode
-    timeout_seconds_research: int      # Timeout for research mode
+    rag_context_ratio_analysis: float  # Context ratio
+    timeout_seconds_analysis: int      # Timeout seconds
 
 
 class SettingsResponse(BaseModel):
@@ -236,7 +230,6 @@ class SettingsResponse(BaseModel):
     model_profile:          ModelProfileInfo | None = None  # Main model profile (read-only)
     ui_theme:               str               = 'mono'     # Color theme: gray, purple, blue, green, orange, mono
     enable_menu_bar_icon:   bool              = False      # Show menu bar icon while app is running (macOS desktop runtime)
-    default_response_mode: Literal['analysis', 'research'] = 'analysis'  # Default chat response mode
     cpu_priority_nice:      int = 10  # 0 = off, >0 lowers process priority at startup
 
 
@@ -285,7 +278,6 @@ class SettingsUpdateRequest(BaseModel):
     enable_raw_output_control: bool | None = None   # Show control to fetch raw model output per assistant message
     ui_theme:             str | None  = None  # Color theme: gray, purple, blue, green, orange, mono
     enable_menu_bar_icon: bool | None = None  # Show menu bar icon while app is running (macOS desktop runtime)
-    default_response_mode: Literal['analysis', 'research'] | None = None  # Default chat response mode
     cpu_priority_nice:    int | None = None
 
 

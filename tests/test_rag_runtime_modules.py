@@ -1,5 +1,3 @@
-import pytest
-
 from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.rag_runtime.retrieval_validation import (
@@ -10,12 +8,10 @@ from informity.llm.rag_runtime.retrieval_validation import (
     _evaluate_source_diversity_gate,
     _extract_prior_has_remaining_scope,
 )
-from informity.llm.rag_runtime.strict_composers import try_compose_strict_contract_answer
 from informity.llm.rag_runtime.structured_numeric import (
     _build_finance_conflict_placeholder_bullet,
     _derive_format_requirements,
     _evidence_overlap_tokens,
-    _extract_exact_top_level_bullet_limit,
     _parse_numeric_token,
     _render_finance_conflict_bullets,
     _render_structured_rows_bullets_answer,
@@ -96,26 +92,6 @@ def test_structured_numeric_derives_numbered_headings_with_parenthetical_commas(
     assert any('include heading: Executive Summary (max 140 words)' in requirement for requirement in requirements)
     assert any('include heading: Year-by-Year Evidence Map (2022, 2023, 2024)' in requirement for requirement in requirements)
     assert any('include heading: Action Checklist' in requirement for requirement in requirements)
-
-
-def test_structured_numeric_treats_output_must_contain_headings_as_ordered() -> None:
-    requirements = _derive_format_requirements(
-        'Output must contain: ## Scope, ## Method, ## Findings by Year, ## Cross-Year Deltas.'
-    )
-    assert any('requested order' in requirement for requirement in requirements)
-    assert any('include heading: ## Scope' in requirement for requirement in requirements)
-
-
-def test_structured_numeric_heading_extraction_ignores_trailing_instruction_prose() -> None:
-    requirements = _derive_format_requirements(
-        'Output must contain: ## Scope, ## Method, ## Findings by Year, ## Cross-Year Deltas, '
-        '## Confidence Notes, ## Next Verification Steps. Under "Findings by Year", create subsections.'
-    )
-    assert any('include heading: ## Next Verification Steps' in requirement for requirement in requirements)
-    assert not any(
-        'include heading: ## Next Verification Steps. Under "Findings by Year"' in requirement
-        for requirement in requirements
-    )
 
 
 def test_retrieval_validation_coverage_evidence_floor_override() -> None:
@@ -269,11 +245,6 @@ def test_retrieval_validation_uses_short_continuation_prompt_for_prior_context()
     assert 'Extract unresolved risks by year for 2022-2024' in query
 
 
-def test_structured_numeric_extracts_exact_top_level_bullet_limit() -> None:
-    assert _extract_exact_top_level_bullet_limit('Output exactly 5 bullets.') == 5
-    assert _extract_exact_top_level_bullet_limit('Include exactly three bullets with evidence.') == 3
-
-
 def test_structured_numeric_bullet_renderer_outputs_exact_count() -> None:
     answer = _render_structured_rows_bullets_answer(
         [
@@ -284,207 +255,3 @@ def test_structured_numeric_bullet_renderer_outputs_exact_count() -> None:
     )
     assert answer.count('\n- ') == 3
     assert 'Missing Evidence' in answer
-
-
-@pytest.mark.parametrize(
-    ('question', 'expected_family'),
-    [
-        (
-            'Create a long-form cross-document synthesis of indexed finance-related records with sections in this exact '
-            'order: ## Coverage Snapshot, ## Amounts and Trends, ## Inconsistencies, ## Missing Evidence, ## Follow-up Plan. '
-            'Under ## Amounts and Trends include one markdown table with columns: Year, Document Group, Key Amount, Evidence Note. '
-            'Under ## Missing Evidence include exactly 5 bullets and each bullet must name one missing item and one verification action.',
-            'research_cross_document_synthesis',
-        ),
-        (
-            'Using only indexed records from 2022-2024, produce one response with headings in exact order: '
-            '## Executive Summary, ## Evidence Map by Year, ## Financial Deltas, ## Contradictions and Gaps, '
-            '## Verification Actions.',
-            'research_long_synthesis',
-        ),
-        (
-            'Build a forensic reconciliation report across 2022-2024 with exact headings: '
-            '## Scope, ## Method, ## Findings by Year, ## Cross-Year Deltas, ## Confidence Notes, '
-            '## Next Verification Steps.',
-            'research_forensic_report',
-        ),
-        (
-            'Produce an audit-style narrative with headings in order: ## Scope, ## Evidence Coverage Matrix, '
-            '## Largest Increase, ## Largest Decrease, ## Ambiguities, ## Recommended Verification.',
-            'research_yearly_delta_matrix',
-        ),
-        (
-            'Generate a comprehensive verification brief with headings exactly: ## Scope and Constraints, '
-            '## Source Inventory, ## Structured Findings, ## Conflicts, ## Unknowns, ## Verification Checklist.',
-            'research_verification_brief',
-        ),
-        (
-            'Using only indexed finance/insurance/lending documents from 2022-2024, create a structured compliance brief '
-            'with these sections in order: 1) Executive Summary (max 140 words), 2) Year-by-Year Evidence Map '
-            '(2022, 2023, 2024), 3) Document Group Deep Dive (Group A finance docs, Group B insurance docs, '
-            'Group C lending docs, agency confirmations), 4) Risks and Gaps, 5) Action Checklist. '
-            'In section 3, use nested bullets with exactly 3 levels.',
-            'research_structured_compliance_brief',
-        ),
-    ],
-)
-def test_strict_composer_emits_contract_metrics_for_all_families(question: str, expected_family: str) -> None:
-    chunks = [
-        {
-            'filename': 'sample-evidence.pdf',
-            'file_path': '/docs/sample-evidence.pdf',
-            'chunk_text': 'sample evidence text with year and values',
-            'score': 0.91,
-        },
-        {
-            'filename': 'secondary-evidence.pdf',
-            'file_path': '/docs/secondary-evidence.pdf',
-            'chunk_text': 'secondary evidence text',
-            'score': 0.88,
-        },
-    ]
-    result = try_compose_strict_contract_answer(
-        question=question,
-        chunks=chunks,
-        response_mode='research',
-    )
-    assert result is not None
-    answer, sources, metrics = result
-    assert answer
-    assert sources
-    assert metrics.get('strict_composer_family') == expected_family
-    assert metrics.get('strict_claim_count', 0) > 0
-    assert metrics.get('strict_fallback_claim_count', 0) >= 0
-    assert metrics.get('strict_unsupported_claim_count') == 0
-    assert 0.0 <= float(metrics.get('strict_evidence_coverage_rate', 0.0)) <= 1.0
-    decisions_preview = metrics.get('strict_claim_emission_decisions_preview')
-    assert isinstance(decisions_preview, list)
-    assert decisions_preview
-    for decision in decisions_preview:
-        assert decision.get('emitted') is True
-        assert decision.get('dropped') is False
-        assert decision.get('decision') in {'grounded', 'fallback', 'unsupported'}
-    output_contract_check = metrics.get('output_contract_check')
-    assert isinstance(output_contract_check, dict)
-    assert output_contract_check.get('passed') is True
-
-
-def test_strict_composer_applies_for_compliance_brief_in_analysis_mode() -> None:
-    question = (
-        'Using only indexed finance/insurance/lending documents from 2022-2024, create a structured compliance brief '
-        'with these sections in order: 1) Executive Summary (max 140 words), 2) Year-by-Year Evidence Map '
-        '(2022, 2023, 2024), 3) Document Group Deep Dive (Group A finance docs, Group B insurance docs, '
-        'Group C lending docs, agency confirmations), 4) Risks and Gaps, 5) Action Checklist. '
-        'In section 3, use nested bullets with exactly 3 levels.'
-    )
-    chunks = [
-        {
-            'filename': 'sample-evidence.pdf',
-            'file_path': '/docs/sample-evidence.pdf',
-            'chunk_text': 'sample evidence text with year and values',
-            'score': 0.91,
-        },
-    ]
-    result = try_compose_strict_contract_answer(
-        question=question,
-        chunks=chunks,
-        response_mode='analysis',
-    )
-    assert result is not None
-    _, _, metrics = result
-    assert metrics.get('strict_composer_family') == 'research_structured_compliance_brief'
-    output_contract_check = metrics.get('output_contract_check')
-    assert isinstance(output_contract_check, dict)
-    assert output_contract_check.get('passed') is True
-
-
-def test_strict_composer_skips_non_contract_balanced_query() -> None:
-    result = try_compose_strict_contract_answer(
-        question='How many files are indexed?',
-        chunks=[],
-        response_mode='balanced',
-    )
-    assert result is None
-
-
-def test_strict_composer_skips_non_contract_analysis_query() -> None:
-    result = try_compose_strict_contract_answer(
-        question='How many files are indexed?',
-        chunks=[],
-        response_mode='analysis',
-    )
-    assert result is None
-
-
-def test_strict_composer_enforces_max_words_for_analysis_format_contract() -> None:
-    question = (
-        'Using only indexed finance/insurance/lending documents from 2022-2024, produce ONE response with headings '
-        'in this exact order: ## Executive Summary, ## Year-by-Year Evidence Map, ## Document Group Deep Dive, '
-        '## Risks and Gaps, ## Action Checklist. Constraints: total <= 520 words; no preamble; no closing commentary. '
-        'Under "Year-by-Year Evidence Map", include exactly three subsections: ### 2022, ### 2023, ### 2024.'
-    )
-    chunks = [
-        {
-            'filename': 'sample-evidence.pdf',
-            'file_path': '/docs/sample-evidence.pdf',
-            'chunk_text': 'sample evidence text with year and values',
-            'score': 0.91,
-        },
-        {
-            'filename': 'secondary-evidence.pdf',
-            'file_path': '/docs/secondary-evidence.pdf',
-            'chunk_text': 'secondary evidence text',
-            'score': 0.88,
-        },
-    ]
-    result = try_compose_strict_contract_answer(
-        question=question,
-        chunks=chunks,
-        response_mode='analysis',
-    )
-    assert result is not None
-    answer, _, metrics = result
-    output_contract_check = metrics.get('output_contract_check')
-    assert isinstance(output_contract_check, dict)
-    assert output_contract_check.get('passed') is True
-    assert len(answer.split()) <= 520
-
-
-def test_strict_composer_cross_document_synthesis_meets_length_and_missing_evidence_shape() -> None:
-    question = (
-        'Create a long-form cross-document synthesis of indexed finance-related records with sections in this exact order: '
-        '## Coverage Snapshot, ## Amounts and Trends, ## Inconsistencies, ## Missing Evidence, ## Follow-up Plan. '
-        'Under ## Amounts and Trends include one markdown table with columns: Year, Document Group, Key Amount, Evidence Note. '
-        'Under ## Missing Evidence include exactly 5 bullets and each bullet must name one missing item and one verification action.'
-    )
-    chunks = [
-        {
-            'filename': 'sample-evidence.pdf',
-            'file_path': '/docs/sample-evidence.pdf',
-            'chunk_text': 'sample evidence text with year and values',
-            'score': 0.91,
-        },
-        {
-            'filename': 'secondary-evidence.pdf',
-            'file_path': '/docs/secondary-evidence.pdf',
-            'chunk_text': 'secondary evidence text',
-            'score': 0.88,
-        },
-    ]
-    result = try_compose_strict_contract_answer(
-        question=question,
-        chunks=chunks,
-        response_mode='analysis',
-    )
-    assert result is not None
-    answer, _, metrics = result
-    assert len(answer.split()) >= 450
-    assert metrics.get('strict_composer_family') == 'research_cross_document_synthesis'
-    output_contract_check = metrics.get('output_contract_check')
-    assert isinstance(output_contract_check, dict)
-    assert output_contract_check.get('passed') is True
-    assert '## Missing Evidence' in answer
-
-    section = answer.split('## Missing Evidence', 1)[1].split('## Follow-up Plan', 1)[0]
-    bullet_lines = [line for line in section.splitlines() if line.startswith('- ')]
-    assert len(bullet_lines) == 5

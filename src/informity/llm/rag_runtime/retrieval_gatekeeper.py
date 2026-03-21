@@ -73,7 +73,6 @@ async def run_validation_recovery_when_failed(
     effective_response_shape: str,
     selected_policy_profile_id: str,
     selected_policy_fallback_target_route: str,
-    source_terms_for_retrieval: list[str],
     scope_reset_detected: bool,
     prior_source_anchors: set[str],
     prior_has_remaining_scope: bool,
@@ -118,7 +117,6 @@ async def run_validation_recovery_when_failed(
 
     has_strong_anchor = bool(
         classification.filename_filter
-        or (classification.year_filter is not None and source_terms_for_retrieval)
     )
     fallback_profile = get_intent_profile_policy_fn(selected_policy_fallback_target_route)
     fallback_events.append({
@@ -129,16 +127,12 @@ async def run_validation_recovery_when_failed(
     })
     fallback_chunks = await retrieve_fn(
         query=retrieval_question,
-        top_k=get_retrieval_top_k_fn(
-            fallback_profile.preferred_retrieval_mode,
-            response_mode=response_mode_used,
-        ),
+        top_k=get_retrieval_top_k_fn(fallback_profile.preferred_retrieval_mode),
         max_score=profile_rag_max_score,
         year_filter=classification.year_filter,
         category_filter=classification.category_filter,
         extension_filter=classification.file_type_filter,
         filename_filter=retrieval_filename_filter,
-        source_terms_filter=source_terms_for_retrieval,
         block_type_filter=None,
         section_filter=None,
         query_type=fallback_profile.preferred_retrieval_mode,

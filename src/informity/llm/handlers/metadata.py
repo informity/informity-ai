@@ -56,7 +56,6 @@ class MetadataHandler:
         history:        list[ChatMessage] | None,
         db:             aiosqlite.Connection,
         trace:          object | None,
-        response_mode:  str | None = None,
         diagnostics_context: dict[str, object] | None = None,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         """

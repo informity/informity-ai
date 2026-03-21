@@ -22,7 +22,7 @@ def test_pipeline_writes_manifest_without_clobbering_run_json(tmp_path, monkeypa
     monkeypatch.setattr(
         pipeline,
         'run_evaluate',
-        lambda _run_id, queries_file=None, query_timeout_seconds=None, response_mode='balanced', llm_model_filename=None, timeout_seconds=None: (True, ''),
+        lambda _run_id, queries_file=None, query_timeout_seconds=None, llm_model_filename=None, timeout_seconds=None: (True, ''),
     )
     monkeypatch.setattr(pipeline, 'run_analyze', lambda _run_id, timeout_seconds=None: (True, ''))
 
@@ -93,7 +93,7 @@ def test_pipeline_uses_custom_queries_file(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         pipeline,
         'run_evaluate',
-        lambda _run_id, queries_file=None, query_timeout_seconds=None, response_mode='balanced', llm_model_filename=None, timeout_seconds=None: (
+        lambda _run_id, queries_file=None, query_timeout_seconds=None, llm_model_filename=None, timeout_seconds=None: (
             bool(queries_file and queries_file.exists()),
             '',
         ),
@@ -152,7 +152,7 @@ def test_pipeline_marks_completed_with_failures_when_evaluate_finishes_with_qual
     monkeypatch.setattr(
         pipeline,
         'run_evaluate',
-        lambda _run_id, queries_file=None, query_timeout_seconds=None, response_mode='balanced', llm_model_filename=None, timeout_seconds=None: (False, 'nonzero_exit_1'),
+        lambda _run_id, queries_file=None, query_timeout_seconds=None, llm_model_filename=None, timeout_seconds=None: (False, 'nonzero_exit_1'),
     )
     monkeypatch.setattr(pipeline, 'run_analyze', lambda _run_id, timeout_seconds=None: (True, ''))
 
@@ -172,7 +172,7 @@ def test_pipeline_preflight_rejects_impossible_run_timeout(tmp_path, monkeypatch
     monkeypatch.setattr(
         pipeline,
         'run_evaluate',
-        lambda _run_id, queries_file=None, query_timeout_seconds=None, response_mode='balanced', llm_model_filename=None, timeout_seconds=None: (True, ''),
+        lambda _run_id, queries_file=None, query_timeout_seconds=None, llm_model_filename=None, timeout_seconds=None: (True, ''),
     )
     monkeypatch.setattr(pipeline, 'run_analyze', lambda _run_id, timeout_seconds=None: (True, ''))
 
@@ -215,7 +215,7 @@ def test_pipeline_reconciles_orphaned_running_runs_before_start(tmp_path, monkey
     monkeypatch.setattr(
         pipeline,
         'run_evaluate',
-        lambda _run_id, queries_file=None, query_timeout_seconds=None, response_mode='balanced', llm_model_filename=None, timeout_seconds=None: (True, ''),
+        lambda _run_id, queries_file=None, query_timeout_seconds=None, llm_model_filename=None, timeout_seconds=None: (True, ''),
     )
     monkeypatch.setattr(pipeline, 'run_analyze', lambda _run_id, timeout_seconds=None: (True, ''))
 
@@ -235,7 +235,7 @@ def test_pipeline_marks_failed_and_clears_lock_on_unhandled_step_exception(tmp_p
     monkeypatch.setattr(
         pipeline,
         'run_evaluate',
-        lambda _run_id, queries_file=None, query_timeout_seconds=None, response_mode='balanced', llm_model_filename=None, timeout_seconds=None: (True, ''),
+        lambda _run_id, queries_file=None, query_timeout_seconds=None, llm_model_filename=None, timeout_seconds=None: (True, ''),
     )
 
     def _raise_analyze(_run_id, timeout_seconds=None):
@@ -271,12 +271,10 @@ def test_pipeline_auto_adjusts_evaluate_step_timeout_floor(tmp_path, monkeypatch
         _run_id,
         queries_file=None,
         query_timeout_seconds=None,
-        response_mode='analysis',
         llm_model_filename=None,
         timeout_seconds=None,
     ):
         captured['timeout_seconds'] = timeout_seconds
-        captured['response_mode'] = response_mode
         return True, ''
 
     monkeypatch.setattr(pipeline, 'run_evaluate', _run_evaluate)
@@ -290,7 +288,6 @@ def test_pipeline_auto_adjusts_evaluate_step_timeout_floor(tmp_path, monkeypatch
     )
     assert success
     assert captured.get('timeout_seconds') == 420.0
-    assert captured.get('response_mode') == 'analysis'
 
 
 def test_generate_balanced_queries_deterministic() -> None:
@@ -360,8 +357,7 @@ def test_generate_progressive_queries_tiered_and_deterministic() -> None:
     assert any(query.get('difficulty_tier') == 'tier3_advanced' for query in queries_a)
 
 
-def test_validate_query_expectations_enforces_required_table_columns(monkeypatch) -> None:
-    monkeypatch.setattr(evaluate.settings, 'diagnostics_strict_contract_gates_enforced', True)
+def test_validate_query_expectations_enforces_required_table_columns() -> None:
     failures = evaluate._validate_query_expectations(
         query_item={
             'output_shape': {
@@ -378,57 +374,19 @@ def test_validate_query_expectations_enforces_required_table_columns(monkeypatch
         unsupported_claim_count=0,
         evidence_coverage_rate=1.0,
         not_found_count=0,
-        response_mode='balanced',
     )
     assert any(str(item).startswith('required_table_columns_mismatch:') for item in failures)
 
 
-def test_validate_query_expectations_fails_when_required_grounding_not_passed(monkeypatch) -> None:
-    monkeypatch.setattr(evaluate.settings, 'diagnostics_strict_contract_gates_enforced', True)
-    failures = evaluate._validate_query_expectations(
-        query_item={'require_output_contract_passed': True},
-        sections={
-            'llm': {
-                'output_contract_check': {
-                    'passed': True,
-                    'grounding_verifier': {
-                        'required': True,
-                        'passed': False,
-                    },
-                }
-            }
-        },
-        answer='ok',
-        sources_count=1,
-        unsupported_claim_count=0,
-        evidence_coverage_rate=0.0,
-        not_found_count=0,
-        response_mode='balanced',
-    )
-    assert 'grounding_verifier_not_passed' in failures
-
-
-def test_validate_query_expectations_does_not_fail_strict_gates_when_disabled(monkeypatch) -> None:
-    monkeypatch.setattr(evaluate.settings, 'diagnostics_strict_contract_gates_enforced', False)
+def test_validate_query_expectations_does_not_fail_strict_gates_when_disabled() -> None:
     failures = evaluate._validate_query_expectations(
         query_item={
-            'require_output_contract_passed': True,
             'max_unsupported_claim_count': 0,
             'output_shape': {
                 'required_table_columns': ['Line Item', 'Amount', 'Source Snippet'],
             },
         },
-        sections={
-            'llm': {
-                'output_contract_check': {
-                    'passed': True,
-                    'grounding_verifier': {
-                        'required': True,
-                        'passed': False,
-                    },
-                }
-            }
-        },
+        sections={'llm': {}},
         answer=(
             "| Field | Value | Source Snippet |\n"
             "| --- | ---: | --- |\n"
@@ -438,9 +396,9 @@ def test_validate_query_expectations_does_not_fail_strict_gates_when_disabled(mo
         unsupported_claim_count=2,
         evidence_coverage_rate=0.0,
         not_found_count=0,
-        response_mode='balanced',
     )
-    assert failures == []
+    assert any(str(item).startswith('required_table_columns_mismatch:') for item in failures)
+    assert any(str(item).startswith('unsupported_claim_count_above_threshold:') for item in failures)
 
 
 def test_evaluate_summary_includes_latency_resource_metrics_and_budget_alert_total() -> None:
@@ -502,7 +460,7 @@ def test_research_golden_query_bank_filters_requires_multi_year() -> None:
     assert all(q.get('skip_if') != 'requires_multi_year' for q in queries_single_year)
 
 
-def test_pipeline_run_evaluate_includes_response_mode(monkeypatch) -> None:
+def test_pipeline_run_evaluate_uses_analysis_only_mode(monkeypatch) -> None:
     captured: dict[str, object] = {}
 
     def _fake_run_command(
@@ -522,15 +480,13 @@ def test_pipeline_run_evaluate_includes_response_mode(monkeypatch) -> None:
         run_id='run-test',
         queries_file=None,
         query_timeout_seconds=123.0,
-        response_mode='research',
         timeout_seconds=456.0,
     )
 
     assert ok
     cmd = captured.get('cmd')
     assert isinstance(cmd, list)
-    assert '--response-mode' in cmd
-    assert 'research' in cmd
+    assert '--response-mode' not in cmd
 
 
 def test_validate_query_expectations_extended_output_shape() -> None:
@@ -693,47 +649,9 @@ def test_validate_query_expectations_detects_continuation_drift_refusal() -> Non
     assert any(item.startswith('continuation_drift_refusal:') for item in failures)
 
 
-def test_validate_query_expectations_requires_output_contract_passed() -> None:
+def test_validate_query_expectations_uses_absolute_min_words_floor() -> None:
     query_item = {
-        'require_output_contract_passed': True,
-    }
-    failures_missing = evaluate._validate_query_expectations(  # noqa: SLF001 - unit-test helper behavior
-        query_item=query_item,
-        sections={'llm': {}},
-        answer='## Scope\nok',
-        sources_count=1,
-        unsupported_claim_count=0,
-        evidence_coverage_rate=0.0,
-        not_found_count=0,
-    )
-    assert 'missing_output_contract_check' in failures_missing
-
-    failures_failed = evaluate._validate_query_expectations(  # noqa: SLF001 - unit-test helper behavior
-        query_item=query_item,
-        sections={'llm': {'output_contract_check': {'passed': False}}},
-        answer='## Scope\nok',
-        sources_count=1,
-        unsupported_claim_count=0,
-        evidence_coverage_rate=0.0,
-        not_found_count=0,
-    )
-    assert 'output_contract_not_passed' in failures_failed
-
-    failures_passed = evaluate._validate_query_expectations(  # noqa: SLF001 - unit-test helper behavior
-        query_item=query_item,
-        sections={'llm': {'output_contract_check': {'passed': True}}},
-        answer='## Scope\nok',
-        sources_count=1,
-        unsupported_claim_count=0,
-        evidence_coverage_rate=0.0,
-        not_found_count=0,
-    )
-    assert failures_passed == []
-
-
-def test_validate_query_expectations_research_ignores_absolute_min_words_floor() -> None:
-    query_item = {
-        'regression_case': 'research_word_floor',
+        'regression_case': 'analysis_word_floor',
         'output_shape': {
             'min_words': 900,
         },
@@ -748,7 +666,6 @@ def test_validate_query_expectations_research_ignores_absolute_min_words_floor()
         evidence_coverage_rate=0.0,
         not_found_count=0,
         model_filename='Qwen3-30B-A3B-Q5_K_M.gguf',
-        response_mode='research',
     )
     assert not any(str(item).startswith('word_count_below_threshold:') for item in failures)
 
@@ -788,24 +705,3 @@ def test_validate_query_expectations_forbidden_terms_invalid_regex_is_ignored() 
         not_found_count=0,
     )
     assert failures == []
-
-
-def test_apply_research_relative_gain_gate_flags_insufficient_gain() -> None:
-    results = [{
-        'success': True,
-        'regression_case': 'research_case_1',
-        'display_answer': 'word ' * 1499,
-        'expectation_failures': [],
-        'regression_passed': True,
-    }]
-    updated = evaluate._apply_research_relative_gain_gate(  # noqa: SLF001 - unit-test helper behavior
-        results,
-        baseline_word_counts={'research_case_1': 1300},
-        min_relative_gain=0.2,
-    )
-    failures = updated[0].get('expectation_failures', [])
-    assert any(
-        str(item).startswith('research_not_sufficiently_longer_than_analysis:')
-        for item in failures
-    )
-    assert updated[0].get('regression_passed') is False

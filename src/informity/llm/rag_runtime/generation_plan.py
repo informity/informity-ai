@@ -10,7 +10,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
-from informity.llm.rag_runtime import strict_output_contract as _strict_output_contract
 
 
 @dataclass
@@ -29,7 +28,7 @@ class GenerationPromptPlan:
     pre_closeout_quality_check_reason: str | None
     output_constraints: dict[str, int]
     format_requirements: list[str]
-    output_contract_plan: _strict_output_contract.OutputContractPlan
+    output_contract_plan: object | None
     messages: list[dict[str, str]]
     prompt_elapsed_ms: float
     diagnostics_depth_constraints_applied: bool
@@ -134,21 +133,16 @@ def build_generation_prompt_plan(
         str(item.get('step') or '').startswith('diagnostics_')
         for item in applied_degradations
     )
-    if route_candidate == 'audit_or_compliance_brief':
-        evidence_requirement = _strict_output_contract.EVIDENCE_GROUNDING_REQUIREMENT
-        if evidence_requirement not in format_requirements:
-            format_requirements.append(evidence_requirement)
-    output_contract_plan = _strict_output_contract._build_output_contract_plan(
-        question=question,
-        format_requirements=format_requirements,
-    )
-    format_requirements = format_requirements + _strict_output_contract._build_contract_prompt_requirements(output_contract_plan)
+    # Phase 1 reset: no output-contract derived requirements in runtime prompt.
+    output_contract_plan = None
+    format_requirements = []
+    output_constraints = {}
     messages = build_messages_fn(
         question,
         chunks,
         history,
-        output_constraints=output_constraints or None,
-        format_requirements=format_requirements or None,
+        output_constraints=None,
+        format_requirements=None,
         response_mode=response_mode,
     )
     messages = profile_prepare_messages_fn(messages, effective_query_type)

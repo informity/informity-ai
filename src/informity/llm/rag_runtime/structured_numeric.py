@@ -8,7 +8,6 @@ from informity.config import settings
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.query_patterns import build_conflict_amount_pattern
 from informity.llm.rag_runtime.retrieval_validation import _normalize_relevance_score
-from informity.llm.rag_runtime.strict_output_contract import _build_output_contract_plan
 
 _STRUCTURED_EXTRACTION_SUBTYPES = {'extract_structured_values', 'aggregate_by_period'}
 _NUMBER_PATTERN = re.compile(r'\(?\$?\d[\d,]*(?:\.\d{1,2})?\)?')
@@ -16,6 +15,10 @@ _FIELD_LABEL_NEAR_NUMBER_PATTERN = re.compile(r'([A-Za-z][A-Za-z0-9\s/_-]{1,36})
 _EXPLICIT_YEAR_PATTERN = re.compile(r'\b(?:19|20)\d{2}\b')
 _REQUESTED_COLUMNS_PATTERN = re.compile(
     r'\bcolumns?\s*:\s*([^\n]+?)(?:\.\s|$)',
+    re.IGNORECASE,
+)
+_PIPE_FORMAT_LABELS_PATTERN = re.compile(
+    r'\bformat\s*:\s*([^\n]+?)(?:\.\s|$)',
     re.IGNORECASE,
 )
 _CONFLICT_AMOUNT_PATTERN = build_conflict_amount_pattern()
@@ -36,18 +39,13 @@ def _should_run_structured_extraction(
 ) -> bool:
     if _is_finance_conflict_prompt(question):
         return True
-    plan = _build_output_contract_plan(
-        question=question,
-        format_requirements=[],
+    has_max_words = bool(re.search(r'(?:total\s*)?(?:<=|less than or equal to)\s*(\d+)\s*words?', question, re.IGNORECASE))
+    has_exact_top_level_bullets = _extract_exact_top_level_bullet_limit(question) is not None
+    has_global_strict_contract = has_max_words and has_exact_top_level_bullets and not _extract_required_headings(question)
+    requires_missing_evidence_callout = bool(
+        re.search(r'\bmissing\s+evidence\b', question, re.IGNORECASE)
     )
-    has_global_strict_contract = (
-        isinstance(plan.max_words, int)
-        and plan.max_words > 0
-        and isinstance(plan.exact_top_level_bullets, int)
-        and plan.exact_top_level_bullets > 0
-        and not plan.required_headings
-    )
-    if plan.requires_missing_evidence_callout or bool(
+    if requires_missing_evidence_callout or bool(
         re.search(r'\bmissing\s+evidence\b|\bgaps?\b', question, re.IGNORECASE)
     ):
         return False
@@ -60,7 +58,7 @@ def _should_run_structured_extraction(
     if classification.field_hint is not None:
         return True
     return (
-        response_shape == 'structured_extract'
+        response_shape in {'structured_extract', 'metadata_table'}
         and classification.subtype in _STRUCTURED_EXTRACTION_SUBTYPES
     )
 
@@ -171,12 +169,21 @@ def _extract_required_years(question: str) -> list[int]:
 
 
 def _extract_exact_top_level_bullet_limit(question: str) -> int | None:
-    plan = _build_output_contract_plan(
-        question=question,
-        format_requirements=[],
+    patterns = (
+        r'exactly\s+(\d+)\s+top[-\s]level\s+bullets?',
+        r'top[-\s]level\s+bullets?\s*:\s*(\d+)',
+        r'exactly\s+(\d+)\s+bullets?',
     )
-    if isinstance(plan.exact_top_level_bullets, int) and plan.exact_top_level_bullets > 0:
-        return plan.exact_top_level_bullets
+    for pattern in patterns:
+        match = re.search(pattern, question or '', re.IGNORECASE)
+        if not match:
+            continue
+        try:
+            parsed = int(match.group(1))
+        except (TypeError, ValueError):
+            continue
+        if parsed > 0:
+            return parsed
     return None
 
 
@@ -190,6 +197,17 @@ def _extract_requested_table_columns(question: str) -> list[str]:
     normalized = re.sub(r'\s+and\s+', ', ', raw_columns, flags=re.IGNORECASE)
     parts = [part.strip(' "\'`.') for part in normalized.split(',')]
     return [part for part in parts if part]
+
+
+def _extract_requested_pipe_labels(question: str) -> list[str]:
+    match = _PIPE_FORMAT_LABELS_PATTERN.search(question or '')
+    if not match:
+        return []
+    raw_parts = [part.strip() for part in match.group(1).split('|')]
+    labels = [part for part in raw_parts if part]
+    if len(labels) < 3:
+        return []
+    return labels[:3]
 
 
 def _is_finance_conflict_prompt(question: str) -> bool:
@@ -295,12 +313,9 @@ def _render_finance_conflict_bullets(
 def _extract_required_headings(question: str) -> list[str]:
     headings: list[str] = []
     seen: set[str] = set()
-    plan = _build_output_contract_plan(
-        question=question,
-        format_requirements=[],
-    )
-    for heading in plan.required_headings:
-        normalized = str(heading).strip()
+    markdown_headings = re.findall(r'##\s+([^\n#]+)', question or '')
+    for raw_heading in markdown_headings:
+        normalized = str(raw_heading).strip().rstrip(' .')
         if not normalized:
             continue
         key = normalized.casefold()
@@ -450,10 +465,20 @@ def _render_structured_rows_answer(
     return '\n'.join(lines).strip()
 
 
-def _render_structured_rows_bullets_answer(rows: list[dict[str, object]], bullet_limit: int) -> str:
+def _render_structured_rows_bullets_answer(
+    rows: list[dict[str, object]],
+    bullet_limit: int,
+    *,
+    header_labels: list[str] | None = None,
+) -> str:
     if bullet_limit <= 0:
         return _render_structured_rows_answer(rows)
     lines = ['### Deterministic Structured Extraction', '']
+    normalized_labels = [str(label).strip() for label in (header_labels or []) if str(label).strip()]
+    if len(normalized_labels) < 3:
+        normalized_labels = ['Field', 'Value', 'Source Snippet']
+    lines.append(' | '.join(normalized_labels[:3]))
+    lines.append('')
     selected_rows = rows[:bullet_limit]
     for row in selected_rows:
         snippet = str(row.get('evidence_span', '')).strip()
@@ -851,7 +876,11 @@ async def _try_structured_value_extraction(
     else:
         bullet_limit = _extract_exact_top_level_bullet_limit(question)
         if isinstance(bullet_limit, int):
-            answer = _render_structured_rows_bullets_answer(selected_rows, bullet_limit)
+            answer = _render_structured_rows_bullets_answer(
+                selected_rows,
+                bullet_limit,
+                header_labels=_extract_requested_pipe_labels(question),
+            )
         else:
             answer = _render_structured_rows_answer(
                 selected_rows,

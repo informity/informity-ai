@@ -34,7 +34,6 @@ async def answer_question(
     history: list[ChatMessage] | None = None,
     db: aiosqlite.Connection | None = None,
     trace: object | None = None,  # TraceWriter protocol - optional, for chat trace logging
-    response_mode: str | None = None,
     diagnostics_context: dict[str, object] | None = None,
     classification: QueryClassification | None = None,  # If provided, skip re-classification (continuation passes)
 ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
@@ -106,7 +105,6 @@ async def answer_question(
                     history=history,
                     db=db,
                     trace=trace,
-                    response_mode=response_mode,
                     diagnostics_context=diagnostics_context,
                 ):
                     yield item
