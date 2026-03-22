@@ -369,7 +369,7 @@ def _is_duplicate_continuation_pass(previous_answer: str | None, current_answer:
 
 
 def _build_continuing_status_message() -> str:
-    return 'Continuing analysis...'
+    return 'Continuing response...'
 
 
 def _enforce_continuation_chat_binding(*, question: str, chat_id: str | None) -> None:
@@ -557,7 +557,6 @@ async def chat(
             'question':         message_text,
             'question_length':  len(message_text),
             'history_messages': len(history),
-            'response_mode':    'analysis',
             'resource_snapshot': request_resource_snapshot,
         })
 
@@ -601,8 +600,6 @@ async def chat(
             completion_mode_override: str | None = None
             budget_metrics: dict[str, object] = {}
             budget_checkpoints: list[dict[str, object]] = []
-            response_mode_used = 'analysis'
-            mode_adjustments_applied: list[dict[str, object]] = []
             has_remaining_scope = False
             stopped_by_user = False
             finalized_sources = False
@@ -834,14 +831,6 @@ async def chat(
                                 metrics_payload.get('raw_chunks_count'),
                                 default=metrics_raw_chunks_count,
                             )
-                            mode_value = metrics_payload.get('response_mode_used')
-                            if isinstance(mode_value, str) and mode_value == 'analysis':
-                                response_mode_used = mode_value
-                            adjustments_value = metrics_payload.get('mode_adjustments_applied')
-                            if isinstance(adjustments_value, list):
-                                mode_adjustments_applied = [
-                                    value for value in adjustments_value if isinstance(value, dict)
-                                ]
                             remaining_scope_value = metrics_payload.get('has_remaining_scope')
                             if isinstance(remaining_scope_value, bool):
                                 pass_has_remaining_scope = remaining_scope_value
@@ -917,7 +906,6 @@ async def chat(
                         chat_id=chat_id,
                         request_id=artifact_request_id,
                         pass_index=pass_index,
-                        response_mode_used=response_mode_used,
                         stitch_mode=pass_stitch_mode,
                         raw_answer=pass_raw_answer,
                         cleaned_answer=pass_cleaned_answer,
@@ -1046,7 +1034,6 @@ async def chat(
                     content=full_answer,
                     sources=source_dicts,
                     generation_seconds=generation_seconds,
-                    response_mode_used=response_mode_used,
                     completion_mode=message_completion_mode,
                     has_remaining_scope=message_has_remaining_scope,
                     next_action=message_next_action,
@@ -1120,7 +1107,6 @@ async def chat(
                     content=partial_answer,
                     sources=partial_sources,
                     generation_seconds=generation_seconds,
-                    response_mode_used=response_mode_used,
                     completion_mode='stopped',
                     stopped_by_user=True,
                     has_remaining_scope=True,
@@ -1170,7 +1156,6 @@ async def chat(
                         content=partial_answer,
                         sources=[s.model_dump(mode='json') for s in sources] if sources else [],
                         generation_seconds=generation_seconds,
-                        response_mode_used=response_mode_used,
                         completion_mode='stopped' if stream_stopped_by_user else 'partial',
                         stopped_by_user=stream_stopped_by_user,
                         has_remaining_scope=stream_stopped_by_user,
@@ -1308,8 +1293,6 @@ async def chat(
                 'stopped_by_user': stopped_by_user,
                 'next_action': resolved_next_action,
                 'next_action_reason': resolved_next_action_reason,
-                'response_mode_used': response_mode_used,
-                'mode_adjustments_applied': mode_adjustments_applied,
                 'sources_count': len(sources),
                 'message_persisted': message_persisted,
                 'display_blocks': display_blocks,
@@ -1341,7 +1324,6 @@ async def chat(
                 next_action_reason=done_data.get('next_action_reason'),
                 timeout_occurred=timeout_occurred,
                 timeout_reason=timeout_reason,
-                response_mode_used=response_mode_used,
                 message_persisted=message_persisted,
                 sources_count=len(sources),
                 tokens_streamed=len(answer_parts),

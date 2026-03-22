@@ -109,9 +109,9 @@ class TestQwen330BA3BProfile:
         assert profile.get_prompt_format('coverage') == PromptFormat.NATIVE_GGUF
 
     def test_max_tokens(self, profile: ModelProfile) -> None:
-        assert profile.get_max_tokens('simple') == 1024
-        assert profile.get_max_tokens('focused') == 1536
-        assert profile.get_max_tokens('coverage') == 2048
+        assert profile.get_max_tokens('simple') == 3072
+        assert profile.get_max_tokens('focused') == 3072
+        assert profile.get_max_tokens('coverage') == 3072
 
     def test_retrieval_top_k_fields(self, profile: ModelProfile) -> None:
         assert profile.retrieval_top_k_candidates > 0
@@ -229,8 +229,7 @@ class TestDefaultProfile:
 class TestModelProfileMethods:
     def test_get_max_tokens_unknown_type_returns_focused(self) -> None:
         profile = QWEN3_30B_A3B_PROFILE
-        # Unknown query type falls through to focused
-        assert profile.get_max_tokens('unknown') == profile.max_tokens_focused
+        assert profile.get_max_tokens('unknown') == profile.max_tokens
 
     def test_get_prompt_format_unknown_type_returns_default(self) -> None:
         profile = QWEN3_30B_A3B_PROFILE
@@ -245,13 +244,11 @@ class TestModelProfileMethods:
         display = QWEN3_30B_A3B_PROFILE.to_display_dict()
         expected_keys = {
             'name', 'family', 'supports_reasoning', 'reasoning_mode',
-            'max_tokens_simple', 'max_tokens_focused', 'max_tokens_coverage', 'max_tokens_analysis',
-            'coverage_top_k', 'top_k_analysis', 'min_tokens_coverage',
+            'max_tokens', 'coverage_top_k', 'min_tokens_coverage',
             'prompt_format', 'coverage_prompt_format', 'context_length',
             'temperature', 'top_p', 'rag_top_k', 'retrieval_top_k_candidates', 'retrieval_top_k_final',
             'rag_top_k_simple', 'rag_top_k_focused', 'rag_top_k_coverage',
-            'rag_max_score', 'rag_context_ratio', 'rag_context_ratio_analysis',
-            'timeout_seconds_simple', 'timeout_seconds_focused', 'timeout_seconds_coverage', 'timeout_seconds_analysis',
+            'rag_max_score', 'rag_context_ratio', 'timeout_seconds',
         }
         assert expected_keys == set(display.keys())
 

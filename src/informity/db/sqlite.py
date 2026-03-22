@@ -166,7 +166,6 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     content            TEXT NOT NULL,
     sources            TEXT,
     generation_seconds REAL,
-    response_mode_used TEXT,
     completion_mode    TEXT,
     stopped_by_user    INTEGER DEFAULT 0,
     has_remaining_scope INTEGER DEFAULT 0,
@@ -219,7 +218,6 @@ CREATE TABLE IF NOT EXISTS continuation_pass_artifacts (
     chat_id             TEXT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
     request_id          TEXT NOT NULL,
     pass_index          INTEGER NOT NULL,
-    response_mode_used  TEXT,
     stitch_mode         TEXT NOT NULL,
     raw_answer          TEXT NOT NULL,
     cleaned_answer      TEXT NOT NULL,
@@ -638,7 +636,6 @@ def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
         content            = row['content'],
         sources            = parse_json_sources(row['sources']),
         generation_seconds = row['generation_seconds'],
-        response_mode_used = row['response_mode_used'],
         completion_mode    = row['completion_mode'],
         stopped_by_user    = bool(row['stopped_by_user']),
         has_remaining_scope = bool(row['has_remaining_scope']),
@@ -1340,10 +1337,10 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
     cursor = await db.execute(
         """
         INSERT INTO chat_messages (
-            chat_id, role, content, sources, generation_seconds, response_mode_used,
+            chat_id, role, content, sources, generation_seconds,
             completion_mode, stopped_by_user, has_remaining_scope, next_action, next_action_reason
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             message.chat_id,
@@ -1351,7 +1348,6 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
             message.content,
             json.dumps(message.sources),
             message.generation_seconds,
-            message.response_mode_used,
             message.completion_mode,
             1 if message.stopped_by_user else 0,
             1 if message.has_remaining_scope else 0,
@@ -1374,7 +1370,6 @@ def _build_continuation_artifact_payload_hash(artifact: ContinuationPassArtifact
         'chat_id': artifact.chat_id,
         'request_id': artifact.request_id,
         'pass_index': artifact.pass_index,
-        'response_mode_used': artifact.response_mode_used,
         'stitch_mode': artifact.stitch_mode,
         'raw_answer': artifact.raw_answer,
         'cleaned_answer': artifact.cleaned_answer,
@@ -1443,18 +1438,17 @@ async def insert_continuation_pass_artifact(
     insert_cursor = await db.execute(
         """
         INSERT INTO continuation_pass_artifacts (
-            chat_id, request_id, pass_index, response_mode_used, stitch_mode,
+            chat_id, request_id, pass_index, stitch_mode,
             raw_answer, cleaned_answer, has_remaining_scope, completion_mode,
             next_action_reason, sources, pass_details, status_transitions,
             payload_hash
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             artifact.chat_id,
             artifact.request_id,
             artifact.pass_index,
-            artifact.response_mode_used,
             artifact.stitch_mode,
             artifact.raw_answer,
             artifact.cleaned_answer,
@@ -1552,14 +1546,6 @@ async def get_chats(
                 ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY created_at DESC) as rn
             FROM chat_messages
             WHERE role = 'assistant' AND generation_seconds IS NOT NULL
-        ),
-        last_assistant_mode AS (
-            SELECT
-                chat_id,
-                response_mode_used as last_response_mode_used,
-                ROW_NUMBER() OVER (PARTITION BY chat_id ORDER BY created_at DESC) as rn
-            FROM chat_messages
-            WHERE role = 'assistant' AND response_mode_used IS NOT NULL
         )
         SELECT
             c.chat_id,
@@ -1570,14 +1556,12 @@ async def get_chats(
             lm.last_message_at,
             fum.first_user_message,
             ms.message_count,
-            lag.last_generation_seconds,
-            lam.last_response_mode_used
+            lag.last_generation_seconds
         FROM chats c
         LEFT JOIN message_stats ms ON c.chat_id = ms.chat_id
         LEFT JOIN last_messages lm ON c.chat_id = lm.chat_id AND lm.rn = 1
         LEFT JOIN first_user_messages fum ON c.chat_id = fum.chat_id AND fum.rn = 1
         LEFT JOIN last_assistant_gen lag ON c.chat_id = lag.chat_id AND lag.rn = 1
-        LEFT JOIN last_assistant_mode lam ON c.chat_id = lam.chat_id AND lam.rn = 1
         {where_clause}
         ORDER BY c.updated_at DESC
         LIMIT ? OFFSET ?
@@ -1596,7 +1580,6 @@ async def get_chats(
             'message_count': row['message_count'] or 0,
             'last_message_at': parse_timestamp(row['last_message_at']) if row['last_message_at'] else None,
             'last_generation_seconds': row['last_generation_seconds'],
-            'last_response_mode_used': row['last_response_mode_used'],
         }
         for row in rows
     ]

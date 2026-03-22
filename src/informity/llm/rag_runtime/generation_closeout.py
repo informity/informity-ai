@@ -11,8 +11,6 @@ from informity.api.schemas import ChatSourceReference
 def build_generation_metrics_payload(
     *,
     query_type: str,
-    response_mode_used: str,
-    mode_adjustments_applied: list[str],
     timeout_seconds: int,
     retrieval_elapsed_ms: float,
     prompt_elapsed_ms: float,
@@ -38,8 +36,6 @@ def build_generation_metrics_payload(
 ) -> dict[str, object]:
     return {
         'query_type': query_type,
-        'response_mode_used': response_mode_used,
-        'mode_adjustments_applied': mode_adjustments_applied,
         'timeout_seconds': timeout_seconds,
         'retrieval_duration_ms': round(retrieval_elapsed_ms, 1),
         'prompt_duration_ms': round(prompt_elapsed_ms, 1),
@@ -103,8 +99,6 @@ def log_generation_completion(
     token_count: int,
     preflight_ratio: float,
     post_retrieval_ratio: float,
-    response_mode_used: str,
-    mode_adjustments_applied: list[str],
     applied_degradations: list[dict[str, object]],
     stream_recovery_reason: str | None,
 ) -> None:
@@ -122,8 +116,6 @@ def log_generation_completion(
         tokens_generated=token_count,
         budget_preflight_ratio=round(preflight_ratio, 3),
         budget_post_retrieval_ratio=round(post_retrieval_ratio, 3),
-        response_mode_used=response_mode_used,
-        mode_adjustments_applied=mode_adjustments_applied,
         applied_degradations=applied_degradations,
         stream_recovery_reason=stream_recovery_reason,
     )

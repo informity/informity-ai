@@ -59,7 +59,6 @@ def build_generation_prompt_plan(
     effective_reasoning_enabled: bool,
     effective_max_tokens: int,
     timeout_seconds: int,
-    response_mode: str,
     route_candidate: str,
     dedupe_prompt_chunks_fn: Callable[[list[dict]], list[dict]],
     derive_format_requirements_fn: Callable[[str], list[str]],
@@ -124,7 +123,6 @@ def build_generation_prompt_plan(
         output_constraints=output_constraints,
         max_tokens=effective_max_tokens,
         reasoning_enabled=effective_reasoning_enabled,
-        response_mode=response_mode,
         derive_format_requirements_fn=derive_format_requirements_fn,
         applied_degradations=applied_degradations,
         min_output_budget_floor=min_output_budget_floor,
@@ -133,17 +131,31 @@ def build_generation_prompt_plan(
         str(item.get('step') or '').startswith('diagnostics_')
         for item in applied_degradations
     )
-    # Phase 1 reset: no output-contract derived requirements in runtime prompt.
-    output_contract_plan = None
-    format_requirements = []
-    output_constraints = {}
+    requires_missing_evidence_callout = any(
+        'missing evidence' in str(requirement or '').casefold()
+        for requirement in format_requirements
+    )
+    min_year_subsections = 0
+    if any('at least 2 distinct year subsections' in str(requirement or '').casefold() for requirement in format_requirements):
+        min_year_subsections = 2
+    context_years = sorted({
+        int(chunk.get('year'))
+        for chunk in chunks
+        if isinstance(chunk.get('year'), int)
+    })
+    output_contract_plan_data: dict[str, object] = {}
+    if requires_missing_evidence_callout:
+        output_contract_plan_data['requires_missing_evidence_callout'] = True
+    if min_year_subsections > 0:
+        output_contract_plan_data['min_year_subsections'] = min_year_subsections
+        output_contract_plan_data['expected_years'] = context_years
+    output_contract_plan = output_contract_plan_data or None
     messages = build_messages_fn(
         question,
         chunks,
         history,
-        output_constraints=None,
-        format_requirements=None,
-        response_mode=response_mode,
+        output_constraints=output_constraints,
+        format_requirements=format_requirements,
     )
     messages = profile_prepare_messages_fn(messages, effective_query_type)
     prompt_elapsed_ms = (time.perf_counter() - prompt_start) * 1000

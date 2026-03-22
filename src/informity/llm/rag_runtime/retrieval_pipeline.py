@@ -256,10 +256,8 @@ async def run_retrieval_pipeline(
     selected_policy_profile_id: str,
     selected_policy_fallback_target_route: str,
     profile_rag_max_score: float,
-    response_mode_used: str,
     applied_degradations: list,
     fallback_events: list,
-    mode_adjustments_applied: list,
     preflight_projected_seconds: float,
     preflight_ratio: float,
     db: aiosqlite.Connection,
@@ -372,8 +370,6 @@ async def run_retrieval_pipeline(
                 sources=[],
                 metrics_payload=_generation_terminal.build_generation_skipped_metrics_payload(
                     query_type=effective_query_type,
-                    response_mode_used=response_mode_used,
-                    mode_adjustments_applied=mode_adjustments_applied,
                     timeout_seconds=timeout_seconds,
                     retrieval_elapsed_ms=retrieval_elapsed_ms,
                     preflight_projected_seconds=preflight_projected_seconds,
@@ -468,7 +464,6 @@ async def run_retrieval_pipeline(
         prior_has_remaining_scope=prior_has_remaining_scope,
         retrieval_question=retrieval_question,
         retrieval_filename_filter=retrieval_filename_filter,
-        response_mode_used=response_mode_used,
         profile_rag_max_score=profile_rag_max_score,
         db=db,
         trace=trace,
@@ -538,8 +533,6 @@ async def run_retrieval_pipeline(
             sources=[],
             metrics_payload=_generation_terminal.build_generation_skipped_metrics_payload(
                 query_type=effective_query_type,
-                response_mode_used=response_mode_used,
-                mode_adjustments_applied=mode_adjustments_applied,
                 timeout_seconds=timeout_seconds,
                 retrieval_elapsed_ms=retrieval_elapsed_ms,
                 preflight_projected_seconds=preflight_projected_seconds,
@@ -580,8 +573,6 @@ async def run_retrieval_pipeline(
             sources=structured_sources,
             metrics_payload=_generation_terminal.build_generation_skipped_metrics_payload(
                 query_type=effective_query_type,
-                response_mode_used=response_mode_used,
-                mode_adjustments_applied=mode_adjustments_applied,
                 timeout_seconds=timeout_seconds,
                 retrieval_elapsed_ms=retrieval_elapsed_ms,
                 preflight_projected_seconds=preflight_projected_seconds,
@@ -618,8 +609,6 @@ async def run_retrieval_pipeline(
             sources=fallback_sources,
             metrics_payload=_generation_terminal.build_generation_skipped_metrics_payload(
                 query_type=effective_query_type,
-                response_mode_used=response_mode_used,
-                mode_adjustments_applied=mode_adjustments_applied,
                 timeout_seconds=timeout_seconds,
                 retrieval_elapsed_ms=retrieval_elapsed_ms,
                 preflight_projected_seconds=preflight_projected_seconds,
@@ -653,8 +642,6 @@ async def run_retrieval_pipeline(
                 sources=fallback_sources,
                 metrics_payload=_generation_terminal.build_generation_skipped_metrics_payload(
                     query_type=effective_query_type,
-                    response_mode_used=response_mode_used,
-                    mode_adjustments_applied=mode_adjustments_applied,
                     timeout_seconds=timeout_seconds,
                     retrieval_elapsed_ms=retrieval_elapsed_ms,
                     preflight_projected_seconds=preflight_projected_seconds,

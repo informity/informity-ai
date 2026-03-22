@@ -257,6 +257,32 @@ class TestRAGHandler:
         )
         assert answer is None
 
+    def test_resolve_sampling_params_reduces_temperature_for_strict_contracts(self) -> None:
+        from informity.llm.handlers.rag import _resolve_sampling_params
+
+        temperature, top_p = _resolve_sampling_params(
+            profile_temperature=0.7,
+            profile_top_p=0.95,
+            format_requirements=[
+                'use the required headings exactly and in the requested order',
+                'include heading: Findings by Year',
+                'for year-grouped sections, include one subsection per year using markdown headings like "### YYYY"',
+            ],
+        )
+        assert temperature <= 0.2
+        assert top_p <= 0.8
+
+    def test_resolve_sampling_params_preserves_profile_defaults_without_strict_contract(self) -> None:
+        from informity.llm.handlers.rag import _resolve_sampling_params
+
+        temperature, top_p = _resolve_sampling_params(
+            profile_temperature=0.7,
+            profile_top_p=0.95,
+            format_requirements=['use all headings explicitly requested by the user'],
+        )
+        assert temperature == 0.7
+        assert top_p == 0.95
+
     def test_prompt_chunk_dedup_preserves_distinct_same_prefix_content(self) -> None:
         shared_prefix = 'Tax summary template text. ' * 15
         chunks = [

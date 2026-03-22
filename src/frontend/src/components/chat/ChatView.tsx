@@ -384,7 +384,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                       isPartial={msg.isPartial}
                       hasRemainingScope={msg.hasRemainingScope}
                       completionMode={msg.completionMode}
-                      responseModeUsed={msg.responseModeUsed}
                       nextAction={msg.nextAction}
                       nextActionReason={msg.nextActionReason}
                       continueLabel={msg.continueLabel}

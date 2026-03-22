@@ -26,9 +26,7 @@ def build_messages(
     history: list[ChatMessage] | None = None,
     output_constraints: dict[str, int] | None = None,
     format_requirements: list[str] | None = None,
-    response_mode: str = 'analysis',
 ) -> list[dict[str, str]]:
-    _ = (output_constraints, format_requirements, response_mode)
     # Build messages for LLM. Context chunks formatted with [Source: N] labels
     # for LLM understanding (document boundaries, structure, provenance).
     # Labels are informational only — not for citation in answers.
@@ -55,8 +53,27 @@ def build_messages(
 
     context_text = "\n\n".join(context_parts)
 
+    contract_lines: list[str] = []
+    if isinstance(output_constraints, dict):
+        max_words = output_constraints.get('max_words')
+        if isinstance(max_words, int) and max_words > 0:
+            contract_lines.append(f'- Maximum words: {max_words}')
+        exact_bullets = output_constraints.get('exact_top_level_bullets')
+        if isinstance(exact_bullets, int) and exact_bullets > 0:
+            contract_lines.append(f'- Exactly {exact_bullets} top-level bullets when bullets are requested')
+
+    if isinstance(format_requirements, list):
+        for requirement in format_requirements:
+            text = str(requirement or '').strip()
+            if text:
+                contract_lines.append(f'- {text}')
+
+    contract_block = ''
+    if contract_lines:
+        contract_block = '\n\nOutput Contract:\n' + '\n'.join(contract_lines[:24])
+
     # Build system message
-    system_content = f"{_SYSTEM_PROMPT}\n\nContext:\n{context_text}"
+    system_content = f"{_SYSTEM_PROMPT}{contract_block}\n\nContext:\n{context_text}"
 
     # Build messages list
     messages = [{'role': 'system', 'content': system_content}]

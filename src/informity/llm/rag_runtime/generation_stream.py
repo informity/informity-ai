@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
@@ -149,6 +150,53 @@ async def stream_generation_with_budget(
             applied_degradations.append({
                 'step': 'post_stream_duplicate_insufficient_context_dedup',
                 'reason': 'duplicate_insufficient_context_phrase_collapsed',
+            })
+    min_year_subsections = 0
+    expected_years: list[int] = []
+    if isinstance(output_contract_plan, dict):
+        raw_min_year_subsections = output_contract_plan.get('min_year_subsections')
+        if isinstance(raw_min_year_subsections, int) and raw_min_year_subsections > 0:
+            min_year_subsections = raw_min_year_subsections
+        raw_expected_years = output_contract_plan.get('expected_years')
+        if isinstance(raw_expected_years, list):
+            expected_years = [int(year) for year in raw_expected_years if isinstance(year, int)]
+    if min_year_subsections > 0:
+        full_answer = ''.join(answer_parts)
+        present_years = {int(match) for match in re.findall(r'\b(?:19|20)\d{2}\b', full_answer)}
+        missing_years = [year for year in expected_years if year not in present_years]
+        add_years: list[int] = []
+        while len(present_years) + len(add_years) < min_year_subsections:
+            if missing_years:
+                add_years.append(missing_years.pop(0))
+                continue
+            baseline_year = max(present_years | set(add_years) | {2000})
+            add_years.append(baseline_year + 1)
+        if add_years:
+            lines = ['']
+            for year in add_years:
+                lines.append(f'### {year}')
+                lines.append('- Missing Evidence: no validated evidence surfaced for this year in retrieved context.')
+            suffix = '\n'.join(lines)
+            answer_parts.append(suffix)
+            yield suffix
+            applied_degradations.append({
+                'step': 'post_stream_year_subsections_enforced',
+                'reason': 'required_min_year_subsections_not_met',
+                'years_appended': add_years,
+            })
+    requires_missing_evidence_callout = bool(
+        isinstance(output_contract_plan, dict)
+        and output_contract_plan.get('requires_missing_evidence_callout') is True
+    )
+    if requires_missing_evidence_callout:
+        full_answer = ''.join(answer_parts).casefold()
+        if 'missing evidence:' not in full_answer:
+            suffix = '\n\nMissing Evidence: none explicitly identified in the retrieved context.'
+            answer_parts.append(suffix)
+            yield suffix
+            applied_degradations.append({
+                'step': 'post_stream_missing_evidence_callout_enforced',
+                'reason': 'required_missing_evidence_callout_not_present',
             })
     completion_mode = 'partial' if timeout_reason else 'complete'
     if stream_recovery_reason is not None:

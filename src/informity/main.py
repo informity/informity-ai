@@ -213,7 +213,7 @@ async def _run_llm_warmup() -> None:
         from informity.llm.model_adapter import get_profile
         profile = get_profile()
         from informity.llm.prompt_builder import build_messages as _build_gen_messages
-        messages = _build_gen_messages('warmup', context_chunks=[], response_mode='analysis')
+        messages = _build_gen_messages('warmup', context_chunks=[])
         stops = profile.get_stop_sequences(reasoning_enabled=False)
         await asyncio.wait_for(
             asyncio.to_thread(

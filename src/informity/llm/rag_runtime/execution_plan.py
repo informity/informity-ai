@@ -21,12 +21,10 @@ class RAGExecutionPlan:
     profile: ModelProfile
     selected_policy: IntentProfilePolicy
     effective_response_shape: str
-    response_mode_used: str
     retrieval_top_k: int
     timeout_seconds: int
     max_tokens: int
     reasoning_enabled: bool
-    mode_adjustments_applied: list[dict[str, object]]
     diagnostics_min_words: int | None
     policy: object
     effective_query_type: str
@@ -69,31 +67,21 @@ async def build_execution_plan(
         selected_policy = get_intent_profile_policy('clarification_or_disambiguation')
         query_type = selected_policy.preferred_retrieval_mode
 
-    response_mode_used = 'analysis'
-
     retrieval_top_k = get_retrieval_top_k(query_type)
-    timeout_seconds = profile.get_mode_timeout_seconds(query_type)
-    max_tokens = profile.get_mode_max_tokens(query_type)
+    timeout_seconds = profile.get_timeout_seconds(query_type)
+    max_tokens = profile.get_max_tokens(query_type)
     reasoning_enabled = profile.get_reasoning_enabled(query_type)
 
-    mode_adjustments_applied: list[dict[str, object]] = []
     diagnostics_min_words: int | None = None
     if isinstance(diagnostics_context, dict):
         min_words_value = diagnostics_context.get('output_shape_min_words')
         if isinstance(min_words_value, int) and min_words_value > 0:
             diagnostics_min_words = min_words_value
-    mode_adjustments_applied.append({
-        'step': 'analysis_profile_budget_applied',
-        'top_k': {'to': retrieval_top_k},
-        'timeout_seconds': {'to': timeout_seconds},
-        'max_tokens': {'to': max_tokens},
-    })
 
     policy = await resolve_fit_to_budget_policy_fn(
         db=db,
         query_type=query_type,
         timeout_seconds=timeout_seconds,
-        response_mode=response_mode_used,
     )
     effective_query_type = query_type
     effective_top_k = retrieval_top_k
@@ -108,12 +96,10 @@ async def build_execution_plan(
         profile=profile,
         selected_policy=selected_policy,
         effective_response_shape=effective_response_shape,
-        response_mode_used=response_mode_used,
         retrieval_top_k=retrieval_top_k,
         timeout_seconds=timeout_seconds,
         max_tokens=max_tokens,
         reasoning_enabled=reasoning_enabled,
-        mode_adjustments_applied=mode_adjustments_applied,
         diagnostics_min_words=diagnostics_min_words,
         policy=policy,
         effective_query_type=effective_query_type,

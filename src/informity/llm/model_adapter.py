@@ -107,13 +107,8 @@ class ModelProfile:
     coverage_prompt_format: PromptFormat = PromptFormat.NATIVE_GGUF
 
     # -- Token limits ----------------------------------------------------------
-    max_tokens:          int = 6000
-    max_tokens_simple:   int = 1024
-    max_tokens_focused:  int = 2048
-    max_tokens_coverage: int = 2048
-    max_tokens_analysis: int | None = None
+    max_tokens:          int = 3072
     coverage_top_k:      int = 25    # Chunks for coverage queries
-    top_k_analysis:      int | None = None
     min_tokens_coverage: int = 400   # Suppress EOS for first N tokens on coverage
 
     # -- Per-query-type top_k overrides ----------------------------------------
@@ -125,10 +120,7 @@ class ModelProfile:
     rag_top_k_coverage: int = 0   # 0 = use coverage_top_k
 
     # -- Timeout configuration (model-specific) --------------------------------
-    timeout_seconds_simple:   int = 120   # Wall-clock timeout for simple queries
-    timeout_seconds_focused:  int = 180   # Wall-clock timeout for focused queries
-    timeout_seconds_coverage: int = 240   # Wall-clock timeout for coverage queries (larger models need more time)
-    timeout_seconds_analysis: int | None = None
+    timeout_seconds: int = 450   # Wall-clock timeout for generation
 
     # -- Model-specific tuning (profile-controlled, read-only in UI) -----------
     context_length: int   = 16384   # Max context window (model architecture limit)
@@ -142,7 +134,6 @@ class ModelProfile:
     # -- RAG retrieval tuning (model-specific optimal values) ------------------
     rag_max_score:            float = 0.95  # Max L2 distance for relevant chunk (lower = stricter)
     rag_context_ratio:        float = 0.75  # Share of prompt budget for context (rest for history)
-    rag_context_ratio_analysis: float | None = None
 
     # -- Stop sequences --------------------------------------------------------
     stop_sequences:              tuple[str, ...] = ()
@@ -167,41 +158,14 @@ class ModelProfile:
         return stops
 
     def get_max_tokens(self, query_type: str) -> int:
-        """Return max_tokens for 'simple', 'focused', or 'coverage' query type."""
-        if query_type == 'simple':
-            return self.max_tokens_simple
-        if query_type == 'coverage':
-            return self.max_tokens_coverage
-        return self.max_tokens_focused
-
-    def get_timeout_seconds(self, query_type: str) -> int:
-        """Return timeout_seconds for 'simple', 'focused', or 'coverage' query type."""
-        if query_type == 'simple':
-            return self.timeout_seconds_simple
-        if query_type == 'coverage':
-            return self.timeout_seconds_coverage
-        return self.timeout_seconds_focused
-
-    def get_mode_max_tokens(self, query_type: str) -> int:
-        # Single-mode runtime: generation budget is mode-agnostic.
+        """Return single profile max_tokens (query-type agnostic)."""
         _ = query_type
         return self.max_tokens
 
-    def get_mode_timeout_seconds(self, query_type: str) -> int:
-        base = self.get_timeout_seconds(query_type)
-        if isinstance(self.timeout_seconds_analysis, int) and self.timeout_seconds_analysis > 0:
-            return self.timeout_seconds_analysis
-        return base
-
-    def get_mode_top_k(self, base_top_k: int) -> int:
-        if isinstance(self.top_k_analysis, int) and self.top_k_analysis > 0:
-            return self.top_k_analysis
-        return base_top_k
-
-    def get_mode_context_ratio(self) -> float:
-        if isinstance(self.rag_context_ratio_analysis, float) and self.rag_context_ratio_analysis > 0:
-            return self.rag_context_ratio_analysis
-        return self.rag_context_ratio
+    def get_timeout_seconds(self, query_type: str) -> int:
+        """Return single profile timeout_seconds (query-type agnostic)."""
+        _ = query_type
+        return self.timeout_seconds
 
     def get_reasoning_enabled(self, query_type: str) -> bool:
         """Whether reasoning (<think> blocks) should be enabled for this query type."""
@@ -233,12 +197,8 @@ class ModelProfile:
             'family':                  str(self.family),
             'supports_reasoning':      self.supports_think_blocks,
             'reasoning_mode':          _reasoning_labels.get(self.reasoning_mode, str(self.reasoning_mode)),
-            'max_tokens_simple':       self.max_tokens_simple,
-            'max_tokens_focused':      self.max_tokens_focused,
-            'max_tokens_coverage':     self.max_tokens_coverage,
-            'max_tokens_analysis':     self.max_tokens_analysis or self.max_tokens_coverage,
+            'max_tokens':              self.max_tokens,
             'coverage_top_k':          self.coverage_top_k,
-            'top_k_analysis':          self.top_k_analysis or self.rag_top_k,
             'min_tokens_coverage':     self.min_tokens_coverage,
             'prompt_format':           _format_labels.get(self.prompt_format, str(self.prompt_format)),
             'coverage_prompt_format':  _format_labels.get(self.coverage_prompt_format, str(self.coverage_prompt_format)),
@@ -253,11 +213,7 @@ class ModelProfile:
             'rag_top_k_coverage':      self.rag_top_k_coverage or self.coverage_top_k,
             'rag_max_score':           self.rag_max_score,
             'rag_context_ratio':       self.rag_context_ratio,
-            'rag_context_ratio_analysis': self.rag_context_ratio_analysis or self.rag_context_ratio,
-            'timeout_seconds_simple':   self.timeout_seconds_simple,
-            'timeout_seconds_focused':  self.timeout_seconds_focused,
-            'timeout_seconds_coverage': self.timeout_seconds_coverage,
-            'timeout_seconds_analysis': self.timeout_seconds_analysis or self.timeout_seconds_coverage,
+            'timeout_seconds':         self.timeout_seconds,
         }
 
     def prepare_messages(
@@ -301,18 +257,11 @@ QWEN3_14B_PROFILE = ModelProfile(
     prompt_format          = PromptFormat.NATIVE_GGUF,
     coverage_prompt_format = PromptFormat.NATIVE_GGUF,
 
-    max_tokens_simple   = 896,
-    max_tokens_focused  = 1280,
-    max_tokens_coverage = 1536,
-    max_tokens_analysis = 3072,
+    max_tokens         = 3072,
     coverage_top_k      = 15,
-    top_k_analysis      = 14,
     min_tokens_coverage = 200,
 
-    timeout_seconds_simple   = 140,
-    timeout_seconds_focused  = 240,
-    timeout_seconds_coverage = 320,
-    timeout_seconds_analysis = 450,
+    timeout_seconds = 450,
 
     context_length = 16384,
     generation_tokens_per_second = 9.0,
@@ -321,8 +270,7 @@ QWEN3_14B_PROFILE = ModelProfile(
     rag_top_k      = 10,
 
     rag_max_score            = 0.92,
-    rag_context_ratio        = 0.70,
-    rag_context_ratio_analysis = 0.68,
+    rag_context_ratio        = 0.68,
 
     rag_top_k_simple   = 6,   # Simple queries need fewer candidates
     rag_top_k_focused  = 12,  # Focused queries benefit from slightly wider pool
@@ -354,18 +302,11 @@ QWEN3_5_9B_PROFILE = ModelProfile(
     prompt_format          = PromptFormat.NATIVE_GGUF,
     coverage_prompt_format = PromptFormat.NATIVE_GGUF,
 
-    max_tokens_simple   = 896,
-    max_tokens_focused  = 1408,
-    max_tokens_coverage = 1792,
-    max_tokens_analysis = 3072,
+    max_tokens         = 3072,
     coverage_top_k      = 16,
-    top_k_analysis      = 14,
     min_tokens_coverage = 200,
 
-    timeout_seconds_simple   = 130,
-    timeout_seconds_focused  = 220,
-    timeout_seconds_coverage = 320,
-    timeout_seconds_analysis = 420,
+    timeout_seconds = 420,
 
     # Qwen3.5 supports long context; 24K is a practical local sweet spot for Q4_K_M.
     context_length = 24576,
@@ -375,8 +316,7 @@ QWEN3_5_9B_PROFILE = ModelProfile(
     rag_top_k      = 10,
 
     rag_max_score             = 0.91,
-    rag_context_ratio         = 0.68,
-    rag_context_ratio_analysis = 0.66,
+    rag_context_ratio         = 0.66,
 
     rag_top_k_simple   = 6,
     rag_top_k_focused  = 12,
@@ -424,20 +364,13 @@ QWEN3_30B_A3B_PROFILE = ModelProfile(
     prompt_format          = PromptFormat.NATIVE_GGUF,  # Qwen3's native template works correctly
     coverage_prompt_format = PromptFormat.NATIVE_GGUF,
 
-    max_tokens_simple   = 1024,    # Simple queries (greetings, clarifications) need short answers
-    max_tokens_focused  = 1536,    # Focused queries: single-question answers
-    max_tokens_coverage = 2048,    # Coverage queries: lists, comparisons, summaries
-    max_tokens_analysis = 3072,
+    max_tokens         = 3072,
     coverage_top_k      = 18,       # Reduced from 25: 30B is slower, need to prevent timeout on coverage queries
-    top_k_analysis      = 14,
                                     # 18 chunks is still comprehensive but more realistic for generation speed
                                     # Count queries now use SQL path (Fix #1), so coverage_top_k only affects list queries
     min_tokens_coverage = 200,      # Same as 14B: prevent premature stops
 
-    timeout_seconds_simple   = 180,   # 30B is slower than 14B, allow generous headroom
-    timeout_seconds_focused  = 280,   # Focused queries with 30B can be long on dense documents
-    timeout_seconds_coverage = 420,   # Coverage queries may require large-table synthesis
-    timeout_seconds_analysis = 450,
+    timeout_seconds = 450,
 
     context_length = 24576,  # 24K for RAG; 30B native 32K, but 24K is ample and faster
     generation_tokens_per_second = 6.0,
@@ -448,7 +381,6 @@ QWEN3_30B_A3B_PROFILE = ModelProfile(
     # RAG tuning: 30B benefits from stricter threshold (0.90) - better model can be more selective
     rag_max_score            = 0.90,  # Stricter than 14B: better model can be more selective
     rag_context_ratio        = 0.65,  # More context budget for complex queries (24K context)
-    rag_context_ratio_analysis = 0.65,
 
     rag_top_k_simple   = 6,
     rag_top_k_focused  = 12,
@@ -480,18 +412,11 @@ DEEPSEEK_R1_DISTILL_PROFILE = ModelProfile(
     prompt_format          = PromptFormat.NATIVE_GGUF,
     coverage_prompt_format = PromptFormat.NATIVE_GGUF,
 
-    max_tokens_simple   = 2048,
-    max_tokens_focused  = 4096,   # Quality analysis can produce long JSON
-    max_tokens_coverage = 4096,
-    max_tokens_analysis = 4096,
+    max_tokens         = 4096,   # Quality analysis can produce long JSON
     coverage_top_k      = 20,
-    top_k_analysis      = 20,
     min_tokens_coverage = 200,
 
-    timeout_seconds_simple   = 120,   # Diagnostics analysis: adequate for simple queries
-    timeout_seconds_focused  = 180,   # Diagnostics analysis: longer timeout for focused queries
-    timeout_seconds_coverage = 240,   # Diagnostics analysis: generous timeout for coverage queries
-    timeout_seconds_analysis = 240,
+    timeout_seconds = 240,
 
     context_length = 16384,
     generation_tokens_per_second = 12.0,
@@ -501,7 +426,6 @@ DEEPSEEK_R1_DISTILL_PROFILE = ModelProfile(
 
     rag_max_score            = 0.90,
     rag_context_ratio        = 0.75,
-    rag_context_ratio_analysis = 0.75,
 
     stop_sequences  = _CHATML_STRUCTURAL + _CITATION + _FALLBACK_PHRASE_STOPS,
 
@@ -523,18 +447,11 @@ DEFAULT_PROFILE = ModelProfile(
     prompt_format          = PromptFormat.NATIVE_GGUF,
     coverage_prompt_format = PromptFormat.NATIVE_GGUF,
 
-    max_tokens_simple   = 1024,
-    max_tokens_focused  = 2048,
-    max_tokens_coverage = 2048,
-    max_tokens_analysis = 3072,
+    max_tokens         = 3072,
     coverage_top_k      = 15,
-    top_k_analysis      = 14,
     min_tokens_coverage = 100,
 
-    timeout_seconds_simple   = 120,   # Conservative default for unknown models
-    timeout_seconds_focused  = 150,   # Conservative default for unknown models
-    timeout_seconds_coverage = 180,   # Conservative default for unknown models
-    timeout_seconds_analysis = 450,
+    timeout_seconds = 450,   # Conservative default for unknown models
 
     context_length = 8192,
     generation_tokens_per_second = 12.0,
@@ -543,8 +460,7 @@ DEFAULT_PROFILE = ModelProfile(
 
     # RAG tuning: Conservative defaults (matching current global settings)
     rag_max_score            = 0.95,
-    rag_context_ratio        = 0.75,
-    rag_context_ratio_analysis = 0.70,
+    rag_context_ratio        = 0.70,
 
     stop_sequences  = _CHATML_STRUCTURAL + _CITATION + _FALLBACK_PHRASE_STOPS,
 

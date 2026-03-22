@@ -26,7 +26,6 @@ _ROLLOUT_POWER_USERS_BUCKET_LIMIT = 35
 _DEFAULT_TUNING_MIN_SAMPLES = 20
 _DEFAULT_TUNING_LOOKBACK_DAYS = 14
 _MIN_DYNAMIC_COMPLETION_SAMPLES = 5
-_SUPPORTED_RESPONSE_MODES = {'analysis'}
 _DEFAULT_SOFT_TOP_K = 0.60
 _DEFAULT_SOFT_REASONING = 0.75
 _DEFAULT_SOFT_OUTPUT = 0.85
@@ -308,11 +307,8 @@ async def resolve_fit_to_budget_policy(
     db: aiosqlite.Connection,
     query_type: str,
     timeout_seconds: int,
-    response_mode: str | None = None,
 ) -> FitToBudgetPolicy:
-    normalized_mode = str(response_mode or 'analysis').strip().lower()
-    if normalized_mode not in _SUPPORTED_RESPONSE_MODES:
-        normalized_mode = 'analysis'
+    normalized_mode = 'single'
     stage, enabled = _resolve_rollout_enabled()
     cache_key = f'{query_type}:{normalized_mode}:{stage}:{enabled}:{timeout_seconds}'
     now = time.time()
@@ -357,41 +353,39 @@ async def resolve_fit_to_budget_policy(
         stream_soft_limit_ratio=stream_soft_limit,
         first_token_late_ratio=first_token_late,
     )
-    if normalized_mode == 'analysis':
-        # Deep Analysis relaxes budget reductions while preserving hard guardrails.
-        policy = FitToBudgetPolicy(
-            enabled=policy.enabled,
-            rollout_stage=policy.rollout_stage,
-            sample_count=policy.sample_count,
-            timeout_rate=policy.timeout_rate,
-            completion_p95_seconds=policy.completion_p95_seconds,
-            first_token_p95_ms=policy.first_token_p95_ms,
-            soft_top_k_threshold=min(_DEEP_ANALYSIS_SOFT_TOP_K_CAP, policy.soft_top_k_threshold + _DEEP_ANALYSIS_SOFT_TOP_K_DELTA),
-            soft_reasoning_threshold=min(
-                _DEEP_ANALYSIS_SOFT_REASONING_CAP,
-                policy.soft_reasoning_threshold + _DEEP_ANALYSIS_SOFT_REASONING_DELTA,
-            ),
-            soft_output_cap_threshold=min(
-                _DEEP_ANALYSIS_SOFT_OUTPUT_CAP,
-                policy.soft_output_cap_threshold + _DEEP_ANALYSIS_SOFT_OUTPUT_DELTA,
-            ),
-            soft_coverage_to_focused_threshold=min(
-                _DEEP_ANALYSIS_SOFT_COVERAGE_CAP,
-                policy.soft_coverage_to_focused_threshold + _DEEP_ANALYSIS_SOFT_COVERAGE_DELTA,
-            ),
-            hard_pre_generation_threshold=min(
-                _DEEP_ANALYSIS_HARD_PRE_GENERATION_CAP,
-                policy.hard_pre_generation_threshold + _DEEP_ANALYSIS_HARD_PRE_GENERATION_DELTA,
-            ),
-            stream_soft_limit_ratio=min(
-                _DEEP_ANALYSIS_STREAM_SOFT_LIMIT_CAP,
-                policy.stream_soft_limit_ratio + _DEEP_ANALYSIS_STREAM_SOFT_LIMIT_DELTA,
-            ),
-            first_token_late_ratio=min(
-                _DEEP_ANALYSIS_FIRST_TOKEN_LATE_CAP,
-                policy.first_token_late_ratio + _DEEP_ANALYSIS_FIRST_TOKEN_LATE_DELTA,
-            ),
-        )
+    policy = FitToBudgetPolicy(
+        enabled=policy.enabled,
+        rollout_stage=policy.rollout_stage,
+        sample_count=policy.sample_count,
+        timeout_rate=policy.timeout_rate,
+        completion_p95_seconds=policy.completion_p95_seconds,
+        first_token_p95_ms=policy.first_token_p95_ms,
+        soft_top_k_threshold=min(_DEEP_ANALYSIS_SOFT_TOP_K_CAP, policy.soft_top_k_threshold + _DEEP_ANALYSIS_SOFT_TOP_K_DELTA),
+        soft_reasoning_threshold=min(
+            _DEEP_ANALYSIS_SOFT_REASONING_CAP,
+            policy.soft_reasoning_threshold + _DEEP_ANALYSIS_SOFT_REASONING_DELTA,
+        ),
+        soft_output_cap_threshold=min(
+            _DEEP_ANALYSIS_SOFT_OUTPUT_CAP,
+            policy.soft_output_cap_threshold + _DEEP_ANALYSIS_SOFT_OUTPUT_DELTA,
+        ),
+        soft_coverage_to_focused_threshold=min(
+            _DEEP_ANALYSIS_SOFT_COVERAGE_CAP,
+            policy.soft_coverage_to_focused_threshold + _DEEP_ANALYSIS_SOFT_COVERAGE_DELTA,
+        ),
+        hard_pre_generation_threshold=min(
+            _DEEP_ANALYSIS_HARD_PRE_GENERATION_CAP,
+            policy.hard_pre_generation_threshold + _DEEP_ANALYSIS_HARD_PRE_GENERATION_DELTA,
+        ),
+        stream_soft_limit_ratio=min(
+            _DEEP_ANALYSIS_STREAM_SOFT_LIMIT_CAP,
+            policy.stream_soft_limit_ratio + _DEEP_ANALYSIS_STREAM_SOFT_LIMIT_DELTA,
+        ),
+        first_token_late_ratio=min(
+            _DEEP_ANALYSIS_FIRST_TOKEN_LATE_CAP,
+            policy.first_token_late_ratio + _DEEP_ANALYSIS_FIRST_TOKEN_LATE_DELTA,
+        ),
+    )
     _policy_cache[cache_key] = _PolicyCache(
         expires_at=now + _CACHE_TTL_SECONDS,
         policy=policy,
@@ -399,7 +393,7 @@ async def resolve_fit_to_budget_policy(
     log.debug(
         'fit_to_budget_policy_resolved',
         query_type=query_type,
-        response_mode=normalized_mode,
+        policy_variant=normalized_mode,
         rollout_stage=stage,
         enabled=enabled,
         sample_count=sample_count,

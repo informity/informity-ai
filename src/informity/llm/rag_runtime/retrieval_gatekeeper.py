@@ -78,7 +78,6 @@ async def run_validation_recovery_when_failed(
     prior_has_remaining_scope: bool,
     retrieval_question: str,
     retrieval_filename_filter: str | None,
-    response_mode_used: str,
     profile_rag_max_score: float | None,
     db: aiosqlite.Connection,
     trace: object | None,

@@ -181,3 +181,18 @@ class TestPromptBuilder:
         assert messages[0]['role'] == 'system'
         assert messages[1]['role'] == 'assistant'
         assert messages[2]['role'] == 'user'
+
+    def test_includes_output_contract_constraints_when_provided(self) -> None:
+        messages = build_messages(
+            'Question',
+            [],
+            output_constraints={'max_words': 180, 'exact_top_level_bullets': 5},
+            format_requirements=['use heading order exactly', 'include heading: ## Scope'],
+        )
+        system_content = messages[0]['content']
+
+        assert 'Output Contract:' in system_content
+        assert '- Maximum words: 180' in system_content
+        assert '- Exactly 5 top-level bullets when bullets are requested' in system_content
+        assert '- use heading order exactly' in system_content
+        assert '- include heading: ## Scope' in system_content

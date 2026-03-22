@@ -201,7 +201,7 @@ describe('ChatMessage markdown rendering', () => {
         role="assistant"
         content=""
         isStreaming={true}
-        responseModeUsed="analysis"
+        streamStatusText="Generating response..."
         streamSectionProgress={{
           completed: ['## Executive Summary'],
           remaining: ['## Risks and Gaps'],
@@ -218,7 +218,7 @@ describe('ChatMessage markdown rendering', () => {
         role="assistant"
         content=""
         isStreaming={true}
-        responseModeUsed="analysis"
+        streamStatusText="Generating response..."
         streamSectionProgress={{
           completed: ['## Executive Summary', '## Risks and Gaps'],
           remaining: ['## Action Checklist'],

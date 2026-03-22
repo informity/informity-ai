@@ -55,11 +55,78 @@ async def test_generation_stream_emits_checkpoint_with_query_type_and_summary() 
     assert summary.completion_mode == 'complete'
 
 
+@pytest.mark.asyncio
+async def test_generation_stream_enforces_missing_evidence_callout_when_required() -> None:
+    async def _fake_stream_llm(*_args: Any, **_kwargs: Any):
+        yield '## Executive Summary\nAll requested comparisons are listed.'
+
+    events: list[str | tuple[str, object]] = []
+    async for item in _generation_stream.stream_generation_with_budget(
+        messages=[{'role': 'user', 'content': 'test'}],
+        max_tokens=256,
+        temperature=0.1,
+        top_p=0.9,
+        timeout_seconds=120,
+        stop_sequences=[],
+        fit_to_budget_enabled=False,
+        stream_soft_limit_ratio=0.8,
+        soft_closeout_allowed=False,
+        checkpoint_query_type='coverage',
+        dedupe_insufficient_context_after_stream=False,
+        insufficient_context_response='insufficient',
+        applied_degradations=[],
+        output_contract_plan={'requires_missing_evidence_callout': True},
+        collapse_duplicate_message_fn=lambda value: (value, False),
+        stream_llm_fn=_fake_stream_llm,
+    ):
+        if isinstance(item, tuple) and item[0] == _generation_stream.STREAM_SUMMARY_EVENT:
+            continue
+        events.append(item)
+
+    merged = ''.join(part for part in events if isinstance(part, str))
+    assert 'Missing Evidence:' in merged
+
+
+@pytest.mark.asyncio
+async def test_generation_stream_enforces_min_year_subsections_when_required() -> None:
+    async def _fake_stream_llm(*_args: Any, **_kwargs: Any):
+        yield '## Findings by Year\n### 2021\n- Evidence: sample.'
+
+    events: list[str | tuple[str, object]] = []
+    async for item in _generation_stream.stream_generation_with_budget(
+        messages=[{'role': 'user', 'content': 'test'}],
+        max_tokens=256,
+        temperature=0.1,
+        top_p=0.9,
+        timeout_seconds=120,
+        stop_sequences=[],
+        fit_to_budget_enabled=False,
+        stream_soft_limit_ratio=0.8,
+        soft_closeout_allowed=False,
+        checkpoint_query_type='coverage',
+        dedupe_insufficient_context_after_stream=False,
+        insufficient_context_response='insufficient',
+        applied_degradations=[],
+        output_contract_plan={
+            'min_year_subsections': 2,
+            'expected_years': [2021, 2022],
+        },
+        collapse_duplicate_message_fn=lambda value: (value, False),
+        stream_llm_fn=_fake_stream_llm,
+    ):
+        if isinstance(item, tuple) and item[0] == _generation_stream.STREAM_SUMMARY_EVENT:
+            continue
+        events.append(item)
+
+    merged = ''.join(part for part in events if isinstance(part, str))
+    assert '2021' in merged
+    assert '2022' in merged
+    assert 'Missing Evidence:' in merged
+
+
 def test_generation_closeout_metrics_payload_contract_shape() -> None:
     payload = _generation_closeout.build_generation_metrics_payload(
         query_type='focused',
-        response_mode_used='analysis',
-        mode_adjustments_applied=[],
         timeout_seconds=120,
         retrieval_elapsed_ms=42.34,
         prompt_elapsed_ms=11.11,
@@ -92,8 +159,6 @@ def test_generation_closeout_metrics_payload_contract_shape() -> None:
 def test_generation_terminal_builds_generation_skipped_payload_and_limited_sources() -> None:
     payload = _generation_terminal.build_generation_skipped_metrics_payload(
         query_type='coverage',
-        response_mode_used='analysis',
-        mode_adjustments_applied=['soft_top_k'],
         timeout_seconds=90,
         retrieval_elapsed_ms=55.55,
         preflight_projected_seconds=20.0,

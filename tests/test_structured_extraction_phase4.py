@@ -173,6 +173,17 @@ def test_derive_format_requirements_extracts_headings_and_depth() -> None:
     assert any('missing evidence' in requirement for requirement in requirements)
 
 
+def test_derive_format_requirements_extracts_year_subsection_contract() -> None:
+    question = (
+        'Build a forensic reconciliation report across all indexed records with exact headings: '
+        '## Scope, ## Method, ## Findings by Year. '
+        'Under ## Findings by Year include one subsection per indexed year.'
+    )
+    requirements = _derive_format_requirements(question)
+    assert any('one subsection per year' in requirement for requirement in requirements)
+    assert any('at least 2 distinct year subsections' in requirement for requirement in requirements)
+
+
 def test_validate_structured_rows_filters_ssn_like_values() -> None:
     rows = [
         {

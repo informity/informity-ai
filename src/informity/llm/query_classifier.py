@@ -3,6 +3,7 @@
 # Deterministic slot extraction and intent routing.
 # ==============================================================================
 
+import re
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -37,6 +38,24 @@ _EVIDENCE_VALUE_EXTRACTION_PATTERN = build_evidence_value_extraction_pattern()
 _STRUCTURED_OUTPUT_SCHEMA_PATTERN = build_structured_output_schema_pattern()
 _ANALYSIS_ACTION_PATTERN = build_analysis_action_pattern()
 _INVENTORY_CAPABILITY_PATTERN = build_inventory_capability_pattern()
+_CONTENT_ANALYSIS_PATTERN = re.compile(
+    r'\b('
+    r'summarize|summary|compare|contrast|contradictions?|conflicts?|overview|'
+    r'main subject|describe|analy[sz]e|findings?|mentioned|tell me about|key fields?|'
+    r'what does'
+    r')\b',
+    re.IGNORECASE,
+)
+_PLURAL_CORPUS_SCOPE_PATTERN = re.compile(r'\b(documents|files|records)\b', re.IGNORECASE)
+_SINGLE_TARGET_PATTERN = re.compile(r'\b(any|one|single|this|that)\s+(document|file|record)\b', re.IGNORECASE)
+_YEAR_AGGREGATE_CUE_PATTERN = re.compile(
+    r'\b('
+    r'by year|year[-\s]*by[-\s]*year|year[-\s]*over[-\s]*year|cross[-\s]*year|'
+    r'findings by year|evidence map by year|coverage matrix|largest increase|largest decrease|'
+    r'deltas?|per indexed year|years covered'
+    r')\b',
+    re.IGNORECASE,
+)
 
 
 def _has_structured_schema_request(text: str) -> bool:
@@ -68,13 +87,31 @@ def _has_evidence_value_extraction_request(text: str) -> bool:
 
 
 def _has_corpus_document_scope_request(text: str) -> bool:
-    import re
-    return bool(re.search(r'\b(indexed\s+)?(files?|documents?)\b', text))
+    return bool(re.search(r'\b(indexed\s+)?(files?|documents?|records?)\b', text))
 
 
 def _looks_multi_document_listing_request(text: str) -> bool:
     import re
     return bool(re.search(r'\b(which|list|show)\b.*\b(files?|documents?)\b', text))
+
+
+def _has_content_analysis_request(text: str) -> bool:
+    return bool(_CONTENT_ANALYSIS_PATTERN.search(text))
+
+
+def _looks_plural_corpus_scope_request(text: str) -> bool:
+    return bool(_PLURAL_CORPUS_SCOPE_PATTERN.search(text))
+
+
+def _looks_single_target_request(text: str) -> bool:
+    return bool(_SINGLE_TARGET_PATTERN.search(text))
+
+
+def _has_multi_year_scope_signal(text: str) -> bool:
+    years = re.findall(r'\b(?:19|20)\d{2}\b', text)
+    if len(set(years)) >= 2:
+        return True
+    return bool(_YEAR_AGGREGATE_CUE_PATTERN.search(text))
 
 
 @dataclass
@@ -147,8 +184,6 @@ def classify_query(query: str) -> QueryClassification:
     """Classify query via pluggable intent router + deterministic slot extraction."""
     text = str(query or '').strip()
     lowered = text.casefold()
-    import re
-
     year_filter: int | None = None
     year_match = None
 
@@ -178,68 +213,208 @@ def classify_query(query: str) -> QueryClassification:
     deterministic_override = False
     response_shape: Literal['structured_extract', 'narrative_synthesis', 'metadata_table', 'hybrid'] = 'narrative_synthesis'
     subtype: Literal['extract_structured_values', 'aggregate_by_period', 'file_inventory'] | None = None
+    has_multi_year_scope = _has_multi_year_scope_signal(lowered)
+    group_by: Literal['year', 'category', 'file'] | None = 'year' if has_multi_year_scope else None
+    has_structured_schema = _has_structured_schema_request(lowered)
+    has_analysis_action = _has_analysis_action_request(lowered)
+    is_inventory_metadata = _is_inventory_metadata_request(lowered)
+    has_evidence_value_request = _has_evidence_value_extraction_request(lowered)
+    has_corpus_scope = _has_corpus_document_scope_request(lowered)
+    has_multi_doc_listing = _looks_multi_document_listing_request(lowered)
+    broad_scope = _looks_broad_scope(lowered)
+    plural_scope = _looks_plural_corpus_scope_request(lowered)
+    single_target_scope = _looks_single_target_request(lowered)
+    has_content_analysis = _has_content_analysis_request(lowered)
+
+    def apply_override(
+        *,
+        reason_code: str,
+        new_intent: Literal['metadata', 'focused', 'coverage', 'simple'] | None = None,
+        new_route: Literal[
+            'metadata_inventory',
+            'targeted_fact_lookup',
+            'structured_field_extraction',
+            'cross_document_synthesis',
+            'comparative_analysis',
+            'audit_or_compliance_brief',
+            'continuation_or_refinement',
+            'clarification_or_disambiguation',
+        ] | None = None,
+        new_shape: Literal['structured_extract', 'narrative_synthesis', 'metadata_table', 'hybrid'] | None = None,
+        new_subtype: Literal['extract_structured_values', 'aggregate_by_period', 'file_inventory'] | None = None,
+    ) -> None:
+        nonlocal intent, route_candidate, response_shape, subtype, deterministic_override
+        deterministic_override = True
+        if new_intent is not None:
+            intent = new_intent
+        if new_route is not None:
+            route_candidate = new_route
+        if new_shape is not None:
+            response_shape = new_shape
+        if new_subtype is not None:
+            subtype = new_subtype
+        reason_codes.append(reason_code)
 
     if intent == 'metadata':
-        has_structured_schema = _has_structured_schema_request(lowered)
-        has_analysis_action = _has_analysis_action_request(lowered)
-        is_inventory_metadata = _is_inventory_metadata_request(lowered)
-        if has_structured_schema and not is_inventory_metadata:
-            deterministic_override = True
-            if _looks_broad_scope(lowered):
-                intent = 'coverage'
-                route_candidate = 'comparative_analysis'
-                response_shape = 'metadata_table'
-            else:
-                intent = 'focused'
-                route_candidate = 'structured_field_extraction'
-                response_shape = 'structured_extract'
-            subtype = 'extract_structured_values'
-            reason_codes.append('deterministic_override_structured_schema_request')
-        elif has_analysis_action and not is_inventory_metadata:
-            deterministic_override = True
-            if _looks_broad_scope(lowered):
-                intent = 'coverage'
-                route_candidate = 'cross_document_synthesis'
-            else:
-                intent = 'focused'
-                route_candidate = 'targeted_fact_lookup'
-            response_shape = 'narrative_synthesis'
-            reason_codes.append('deterministic_override_analysis_request')
-        elif (
-            _has_evidence_value_extraction_request(lowered)
-            and (is_inventory_metadata or _has_corpus_document_scope_request(lowered))
-        ):
-            deterministic_override = True
-            if _looks_broad_scope(lowered) or _looks_multi_document_listing_request(lowered):
-                intent = 'coverage'
-                route_candidate = 'cross_document_synthesis'
-            else:
-                intent = 'focused'
-                route_candidate = 'targeted_fact_lookup'
-            response_shape = 'narrative_synthesis'
-            reason_codes.append('deterministic_override_inventory_with_evidence_request')
-        else:
-            route_candidate = 'metadata_inventory'
-            if has_structured_schema:
-                response_shape = 'metadata_table'
+        route_candidate = 'metadata_inventory'
+        if has_structured_schema:
+            response_shape = 'metadata_table'
+        metadata_rules = [
+            (
+                has_structured_schema and not is_inventory_metadata and broad_scope,
+                lambda: apply_override(
+                    reason_code='deterministic_override_structured_schema_request',
+                    new_intent='coverage',
+                    new_route='comparative_analysis',
+                    new_shape='metadata_table',
+                    new_subtype='extract_structured_values',
+                ),
+            ),
+            (
+                has_structured_schema and not is_inventory_metadata and not broad_scope,
+                lambda: apply_override(
+                    reason_code='deterministic_override_structured_schema_request',
+                    new_intent='focused',
+                    new_route='structured_field_extraction',
+                    new_shape='structured_extract',
+                    new_subtype='extract_structured_values',
+                ),
+            ),
+            (
+                has_analysis_action and not is_inventory_metadata and broad_scope,
+                lambda: apply_override(
+                    reason_code='deterministic_override_analysis_request',
+                    new_intent='coverage',
+                    new_route='cross_document_synthesis',
+                    new_shape='narrative_synthesis',
+                ),
+            ),
+            (
+                has_analysis_action and not is_inventory_metadata and not broad_scope,
+                lambda: apply_override(
+                    reason_code='deterministic_override_analysis_request',
+                    new_intent='focused',
+                    new_route='targeted_fact_lookup',
+                    new_shape='narrative_synthesis',
+                ),
+            ),
+            (
+                has_evidence_value_request and (is_inventory_metadata or has_corpus_scope)
+                and (broad_scope or has_multi_doc_listing),
+                lambda: apply_override(
+                    reason_code='deterministic_override_inventory_with_evidence_request',
+                    new_intent='coverage',
+                    new_route='cross_document_synthesis',
+                    new_shape='narrative_synthesis',
+                ),
+            ),
+            (
+                has_evidence_value_request and (is_inventory_metadata or has_corpus_scope)
+                and not (broad_scope or has_multi_doc_listing),
+                lambda: apply_override(
+                    reason_code='deterministic_override_inventory_with_evidence_request',
+                    new_intent='focused',
+                    new_route='targeted_fact_lookup',
+                    new_shape='narrative_synthesis',
+                ),
+            ),
+        ]
+        for condition, action in metadata_rules:
+            if condition:
+                action()
+                break
     elif intent == 'simple':
         route_candidate = 'clarification_or_disambiguation'
     elif intent == 'coverage':
         route_candidate = 'cross_document_synthesis'
-        if _has_structured_schema_request(lowered):
-            deterministic_override = True
-            route_candidate = 'comparative_analysis'
-            response_shape = 'metadata_table'
-            subtype = 'extract_structured_values'
-            reason_codes.append('deterministic_override_structured_schema_for_coverage')
+        coverage_rules = [
+            (
+                has_structured_schema,
+                lambda: apply_override(
+                    reason_code='deterministic_override_structured_schema_for_coverage',
+                    new_route='comparative_analysis',
+                    new_shape='metadata_table',
+                    new_subtype='extract_structured_values',
+                ),
+            ),
+            (
+                not broad_scope and not has_corpus_scope,
+                lambda: apply_override(
+                    reason_code='deterministic_override_narrow_scope_to_focused',
+                    new_intent='focused',
+                    new_route='targeted_fact_lookup',
+                ),
+            ),
+        ]
+        for condition, action in coverage_rules:
+            if condition:
+                action()
+                break
     else:
         route_candidate = 'targeted_fact_lookup'
-        if _has_structured_schema_request(lowered):
-            deterministic_override = True
-            route_candidate = 'structured_field_extraction'
-            response_shape = 'structured_extract'
-            subtype = 'extract_structured_values'
-            reason_codes.append('deterministic_override_structured_schema_for_focused')
+        focused_rules = [
+            (
+                plural_scope and not single_target_scope and has_content_analysis and filename_filter is None,
+                lambda: apply_override(
+                    reason_code='deterministic_override_plural_scope_analysis_request',
+                    new_intent='coverage',
+                    new_route='cross_document_synthesis',
+                ),
+            ),
+            (
+                has_structured_schema and (broad_scope or has_corpus_scope),
+                lambda: apply_override(
+                    reason_code='deterministic_override_structured_schema_for_coverage_scope',
+                    new_intent='coverage',
+                    new_route='comparative_analysis',
+                    new_shape='metadata_table',
+                    new_subtype='extract_structured_values',
+                ),
+            ),
+            (
+                has_structured_schema and not (broad_scope or has_corpus_scope),
+                lambda: apply_override(
+                    reason_code='deterministic_override_structured_schema_for_focused',
+                    new_route='structured_field_extraction',
+                    new_shape='structured_extract',
+                    new_subtype='extract_structured_values',
+                ),
+            ),
+        ]
+        for condition, action in focused_rules:
+            if condition:
+                action()
+                break
+
+    if (
+        intent == 'metadata'
+        and has_content_analysis
+        and not is_inventory_metadata
+    ):
+        if broad_scope or (has_corpus_scope and plural_scope):
+            apply_override(
+                reason_code='deterministic_override_metadata_content_request',
+                new_intent='coverage',
+                new_route='cross_document_synthesis',
+            )
+        else:
+            apply_override(
+                reason_code='deterministic_override_metadata_content_request',
+                new_intent='focused',
+                new_route='targeted_fact_lookup',
+            )
+
+    if (
+        intent == 'coverage'
+        and filename_filter is None
+        and (has_multi_year_scope or group_by == 'year')
+    ):
+        if subtype != 'aggregate_by_period':
+            subtype = 'aggregate_by_period'
+            reason_codes.append('deterministic_override_coverage_year_aggregate_subtype')
+        if response_shape != 'narrative_synthesis':
+            response_shape = 'narrative_synthesis'
+            reason_codes.append('deterministic_override_year_aggregate_narrative_shape')
 
     return QueryClassification(
         intent=intent,
@@ -249,6 +424,8 @@ def classify_query(query: str) -> QueryClassification:
         alternatives=prediction.alternatives,
         reason_codes=reason_codes,
         subtype=subtype,
+        has_multi_year_scope=has_multi_year_scope,
+        group_by=group_by,
         year_filter=year_filter,
         file_type_filter=file_type_filter,
         filename_filter=filename_filter,
