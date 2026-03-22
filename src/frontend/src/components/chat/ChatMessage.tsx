@@ -42,7 +42,6 @@ interface ChatMessageProps {
   hasRemainingScope?: boolean
   completionMode?: 'complete' | 'partial' | 'scoped_complete' | 'stopped'
   stoppedByUser?: boolean
-  responseModeUsed?: 'analysis'
   nextAction?: 'none' | 'continue' | 'regenerate'
   nextActionReason?: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | null
   continueLabel?: 'Continue' | 'Continue Again'
@@ -72,7 +71,6 @@ function ChatMessageComponent({
   hasRemainingScope = false,
   completionMode = 'complete',
   stoppedByUser = false,
-  responseModeUsed = 'analysis',
   nextAction = 'none',
   continueLabel = 'Continue',
   createdAt,
@@ -127,14 +125,7 @@ function ChatMessageComponent({
     && !!onContinue
     && (!isStopped || hasMeaningfulAssistantContent)
   const showRegenerate = !isUser && nextAction === 'regenerate' && !!onRegenerate
-  const isExtendedMode = responseModeUsed === 'analysis'
-  const modeMetaLabel = 'Analysis'
-  const modeMetaIcon = 'ri-flask-line'
-  const showSectionProgress = (
-    responseModeUsed === 'analysis'
-    && !!streamSectionProgress
-    && streamSectionProgress.total > 0
-  )
+  const showSectionProgress = !!streamSectionProgress && streamSectionProgress.total > 0
   const completedProgressText = showSectionProgress
     ? streamSectionProgress.completed.map((heading) => heading.replace(/^#{1,6}\s*/, '')).join(' · ')
     : ''
@@ -150,17 +141,6 @@ function ChatMessageComponent({
         <div className="chat-message__meta-item">
           <i className="ri-time-line chat-message__meta-icon" aria-hidden />
           <span>{formatDuration(generationSeconds)}</span>
-        </div>
-      ),
-    })
-  }
-  if (!isUser) {
-    assistantMetaItems.push({
-      key: 'mode',
-      node: (
-        <div className="chat-message__meta-item">
-          <i className={`${modeMetaIcon} chat-message__meta-icon`} aria-hidden />
-          <span>{modeMetaLabel}</span>
         </div>
       ),
     })
@@ -333,9 +313,9 @@ function ChatMessageComponent({
                     <span className="chat-message__typing-dot" />
                     <span className="chat-message__typing-dot" />
                     <span className="chat-message__typing-dot" />
-                    {(streamStatusText || isExtendedMode) && (
+                    {streamStatusText && (
                       <span className="chat-message__typing-status">
-                        <span>{streamStatusText || 'Running analysis...'}</span>
+                        <span>{streamStatusText}</span>
                         {showSectionProgress && (
                           <span className="chat-message__typing-progress">
                             {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections...'}
@@ -371,9 +351,9 @@ function ChatMessageComponent({
                         <span className="chat-message__typing-dot" />
                         <span className="chat-message__typing-dot" />
                         <span className="chat-message__typing-dot" />
-                        {(streamStatusText || isExtendedMode) && (
+                        {streamStatusText && (
                           <span className="chat-message__typing-status">
-                            <span>{streamStatusText || 'Running analysis...'}</span>
+                            <span>{streamStatusText}</span>
                             {showSectionProgress && (
                               <span className="chat-message__typing-progress">
                                 {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections...'}
@@ -502,7 +482,6 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.hasRemainingScope === next.hasRemainingScope &&
     prev.completionMode === next.completionMode &&
     prev.stoppedByUser === next.stoppedByUser &&
-    prev.responseModeUsed === next.responseModeUsed &&
     prev.nextAction === next.nextAction &&
     prev.nextActionReason === next.nextActionReason &&
     prev.continueLabel === next.continueLabel &&

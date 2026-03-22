@@ -165,12 +165,8 @@ class ModelProfileInfo(BaseModel):
     family:                  str       # "chatml", "llama", etc.
     supports_reasoning:      bool      # Can use <think> blocks
     reasoning_mode:          str       # "Focused queries only", "Off", etc.
-    max_tokens_simple:       int       # Max tokens for simple queries
-    max_tokens_focused:      int       # Max tokens for focused queries
-    max_tokens_coverage:     int       # Max tokens for coverage queries
-    max_tokens_analysis:     int       # Max tokens
+    max_tokens:              int       # Max tokens
     coverage_top_k:          int       # Chunks retrieved for coverage queries
-    top_k_analysis:          int       # Retrieval top-k
     min_tokens_coverage:     int       # Min tokens target for coverage (pipeline-enforced)
     prompt_format:           str       # "Native (GGUF template)", "ChatML"
     coverage_prompt_format:  str       # Prompt format for coverage queries
@@ -180,8 +176,7 @@ class ModelProfileInfo(BaseModel):
     rag_top_k:               int       # Chunks to retrieve before filtering
     rag_max_score:           float     # Max L2 distance for relevant chunk (lower = stricter)
     rag_context_ratio:       float     # Share of prompt budget for context (rest for history)
-    rag_context_ratio_analysis: float  # Context ratio
-    timeout_seconds_analysis: int      # Timeout seconds
+    timeout_seconds:         int       # Timeout seconds
 
 
 class SettingsResponse(BaseModel):

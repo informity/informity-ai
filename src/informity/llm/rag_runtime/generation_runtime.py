@@ -1,7 +1,9 @@
 # ==============================================================================
-# Informity AI — RAG Generation Runtime Helpers (Phase 1 Reset)
-# Runtime budget degradations and strict-format shaping removed.
+# Informity AI — RAG Generation Runtime Helpers
+# Runtime budget degradations and strict-format shaping.
 # ==============================================================================
+
+import re
 
 from informity.llm.model_adapter import get_profile_tokens_per_second
 
@@ -47,7 +49,6 @@ def _apply_strict_ordered_output_budget(
     max_tokens: int,
     reasoning_enabled: bool,
     strict_contract_complexity: bool = False,
-    response_mode: str = 'analysis',
 ) -> tuple[dict[str, int], int, bool, dict[str, object] | None]:
     # Compatibility shim: strict ordered budgeting removed from runtime.
     return dict(output_constraints), max_tokens, reasoning_enabled, None
@@ -87,13 +88,34 @@ def _apply_strict_format_prompt_controls(
     output_constraints: dict[str, int],
     max_tokens: int,
     reasoning_enabled: bool,
-    response_mode: str,
     derive_format_requirements_fn,
     applied_degradations: list[dict[str, object]],
     min_output_budget_floor: int | None = None,
 ) -> tuple[list[str], dict[str, int], int, bool, list[dict], list[dict[str, object]]]:
-    # Phase 1 reset: no runtime format constraints or contract-derived prompt shaping.
-    return [], {}, max_tokens, reasoning_enabled, chunks, applied_degradations
+    format_requirements = list(derive_format_requirements_fn(question) or [])
+    constraints = dict(output_constraints or {})
+
+    max_words_match = re.search(
+        r'(?:<=?|at\s+most|max(?:imum)?|less than or equal to)\s*(\d+)\s*words?\b',
+        question,
+        flags=re.IGNORECASE,
+    )
+    if max_words_match:
+        parsed_max_words = int(max_words_match.group(1))
+        if parsed_max_words > 0:
+            constraints['max_words'] = parsed_max_words
+
+    exact_bullets_match = re.search(
+        r'\bexactly\s+(\d+)\s+(?:numbered\s+)?(?:top-level\s+)?bullets?\b',
+        question,
+        flags=re.IGNORECASE,
+    )
+    if exact_bullets_match:
+        parsed_bullets = int(exact_bullets_match.group(1))
+        if parsed_bullets > 0:
+            constraints['exact_top_level_bullets'] = parsed_bullets
+
+    return format_requirements, constraints, max_tokens, reasoning_enabled, chunks, applied_degradations
 
 
 def _apply_strict_pre_retrieval_guard(
@@ -107,7 +129,6 @@ def _apply_strict_pre_retrieval_guard(
     applied_degradations: list[dict[str, object]],
     derive_format_requirements_fn,
     profile_name: str = '',
-    response_mode: str = 'analysis',
 ) -> tuple[int, int, bool, int, list[dict[str, object]], bool]:
     return timeout_seconds, top_k, reasoning_enabled, max_tokens, applied_degradations, False
 
@@ -132,7 +153,6 @@ def _apply_preflight_budget_degradations(
     output_constraints: dict[str, int],
     applied_degradations: list[dict[str, object]],
     route_candidate: str | None = None,
-    response_mode: str = 'analysis',
     strict_ordered_mode: bool = False,
 ) -> tuple[str, int, bool, int, int, dict[str, int], list[dict[str, object]], float, float]:
     projected_seconds, ratio = _estimate_budget_ratio(

@@ -125,7 +125,6 @@ class ChatMessage(BaseModel):
     content:          str
     sources:          list[dict] = Field(default_factory=list)  # Full source reference objects
     generation_seconds: float | None = None  # Time taken to generate answer (assistant messages only)
-    response_mode_used: str | None = None
     completion_mode: str | None = None
     stopped_by_user: bool = False
     has_remaining_scope: bool = False
@@ -141,7 +140,6 @@ class ContinuationPassArtifact(BaseModel):
     chat_id: str
     request_id: str
     pass_index: int
-    response_mode_used: str | None = None
     stitch_mode: str  # 'append' | 'overwrite'
     raw_answer: str = ''
     cleaned_answer: str = ''

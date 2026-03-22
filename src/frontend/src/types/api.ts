@@ -97,8 +97,6 @@ export interface StreamDonePayload {
   next_action_reason?: NextActionReason | null
   pass_details?: Array<Record<string, unknown>>
   status_transitions?: Array<Record<string, unknown>>
-  response_mode_used?: 'analysis'
-  mode_adjustments_applied?: Array<Record<string, unknown>>
 }
 
 export interface ChatMessageApi {
@@ -108,7 +106,6 @@ export interface ChatMessageApi {
   sources?: ChatSourceReference[]
   display_blocks?: DisplayBlock[]
   is_internal?: boolean
-  response_mode_used?: 'analysis'
   completion_mode?: CompletionMode
   stopped_by_user?: boolean
   has_remaining_scope?: boolean
@@ -138,7 +135,6 @@ export interface ChatMessageDisplay {
   completionMode?: CompletionMode
   stoppedByUser?: boolean
   timeoutReason?: string | null
-  responseModeUsed?: 'analysis'
   createdAt?: string
   generationSeconds?: number
   continuationResolutionReason?: string | null
@@ -190,5 +186,4 @@ export interface ChatListItem {
   message_count?: number
   first_user_message?: string
   last_generation_seconds?: number
-  last_response_mode_used?: 'analysis'
 }

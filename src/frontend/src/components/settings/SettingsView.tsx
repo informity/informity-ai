@@ -120,9 +120,7 @@ interface ModelProfile {
   name?: string
   family?: string
   reasoning_mode?: string
-  max_tokens_simple?: number
-  max_tokens_focused?: number
-  max_tokens_coverage?: number
+  max_tokens?: number
   context_length?: number
   temperature?: number
   rag_top_k?: number
@@ -251,13 +249,6 @@ function ProfileRow({ label, value }: { label: string; value: string | number | 
       <span className="settings-profile-row__value">{value ?? '--'}</span>
     </div>
   )
-}
-
-function formatMaxTokensTriplet(profile?: ModelProfile): string {
-  const simple = profile?.max_tokens_simple ?? '--'
-  const focused = profile?.max_tokens_focused ?? '--'
-  const coverage = profile?.max_tokens_coverage ?? '--'
-  return `${simple} / ${focused} / ${coverage}`
 }
 
 function getInitialActiveTab(): SettingsTab {
@@ -950,13 +941,12 @@ export function SettingsView({
               <ProfileRow label="Model" value={form.llm_model_filename || settings.llm_model_filename} />
               <ProfileRow label="Family" value={profile.family} />
               <ProfileRow label="Reasoning" value={profile.reasoning_mode} />
-              <ProfileRow label="Max tokens (S/F/C)" value={formatMaxTokensTriplet(profile)} />
-              <ProfileRow label="Context length" value={String(profile.context_length)} />
-              <ProfileRow label="Temperature" value={String(profile.temperature)} />
-              <ProfileRow label="Focused retrieval (top-k)" value={String(profile.rag_top_k)} />
-              <ProfileRow label="Coverage retrieval (top-k)" value={String(profile.coverage_top_k)} />
-              <ProfileRow label="Document matching threshold" value={String(profile.rag_max_score)} />
-              <ProfileRow label="Context ratio" value={String(profile.rag_context_ratio)} />
+              <ProfileRow label="Max tokens" value={profile.max_tokens ?? '--'} />
+              <ProfileRow label="Context length" value={profile.context_length ?? '--'} />
+              <ProfileRow label="Temperature" value={profile.temperature ?? '--'} />
+              <ProfileRow label="Retrieval (top-k)" value={profile.rag_top_k ?? '--'} />
+              <ProfileRow label="Document matching threshold" value={profile.rag_max_score ?? '--'} />
+              <ProfileRow label="Context ratio" value={profile.rag_context_ratio ?? '--'} />
             </div>
           </>
         )}

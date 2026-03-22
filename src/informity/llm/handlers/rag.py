@@ -70,14 +70,24 @@ def _collapse_duplicate_insufficient_context_message(
     return collapsed, True
 
 
-def _resolve_sampling_params_for_response_mode(
+def _resolve_sampling_params(
     *,
-    response_mode_used: str,
     profile_temperature: float,
     profile_top_p: float,
-) -> tuple[float, float, dict[str, object] | None]:
-    # Phase 1 reset: no mode-based sampling overrides.
-    return profile_temperature, profile_top_p, None
+    format_requirements: list[str] | None = None,
+) -> tuple[float, float]:
+    # Keep runtime simple and contract-compliant:
+    # when strict format contracts are present, lower sampling variance so
+    # heading/section structure is more reproducible across reruns.
+    requirements_joined = ' '.join(str(item or '').casefold() for item in (format_requirements or []))
+    strict_contract = (
+        'requested order' in requirements_joined
+        or 'include heading:' in requirements_joined
+        or 'one subsection per year' in requirements_joined
+    )
+    if strict_contract:
+        return min(profile_temperature, 0.2), min(profile_top_p, 0.8)
+    return profile_temperature, profile_top_p
 
 
 def _truncate_preview(text: str, max_length: int = _CHUNK_PREVIEW_MAX_LENGTH) -> str:
@@ -123,10 +133,8 @@ class RAGHandler:
             profile = plan.profile
             selected_policy = plan.selected_policy
             effective_response_shape = plan.effective_response_shape
-            response_mode_used = plan.response_mode_used
             timeout_seconds = plan.timeout_seconds
             max_tokens = plan.max_tokens
-            mode_adjustments_applied = plan.mode_adjustments_applied
             diagnostics_min_words = plan.diagnostics_min_words
             policy = plan.policy
             effective_query_type = plan.effective_query_type
@@ -188,7 +196,6 @@ class RAGHandler:
                 applied_degradations=applied_degradations,
                 derive_format_requirements_fn=_structured_numeric._derive_format_requirements,
                 profile_name=profile.name,
-                response_mode=response_mode_used,
             )
 
             preflight_projected_seconds, preflight_ratio = _generation_runtime._estimate_budget_ratio(
@@ -232,7 +239,6 @@ class RAGHandler:
                 output_constraints=output_constraints,
                 applied_degradations=applied_degradations,
                 route_candidate=selected_policy.profile_id,
-                response_mode=response_mode_used,
                 strict_ordered_mode=strict_ordered_mode,
             )
 
@@ -255,9 +261,7 @@ class RAGHandler:
                     'fit_to_budget_enabled': fit_to_budget_enabled,
                     'fit_to_budget_sample_count': policy.sample_count,
                     'fit_to_budget_timeout_rate': policy.timeout_rate,
-                    'response_mode_used': response_mode_used,
                     'strict_ordered_mode': strict_ordered_mode,
-                    'mode_adjustments_applied': mode_adjustments_applied,
                     'applied_degradations': applied_degradations,
                     'fallback_events': fallback_events,
                 })
@@ -280,10 +284,8 @@ class RAGHandler:
                 selected_policy_profile_id=selected_policy.profile_id,
                 selected_policy_fallback_target_route=selected_policy.fallback_target_route,
                 profile_rag_max_score=profile.rag_max_score,
-                response_mode_used=response_mode_used,
                 applied_degradations=applied_degradations,
                 fallback_events=fallback_events,
-                mode_adjustments_applied=mode_adjustments_applied,
                 preflight_projected_seconds=preflight_projected_seconds,
                 preflight_ratio=preflight_ratio,
                 db=db,
@@ -340,7 +342,6 @@ class RAGHandler:
                 effective_reasoning_enabled=effective_reasoning_enabled,
                 effective_max_tokens=effective_max_tokens,
                 timeout_seconds=timeout_seconds,
-                response_mode=response_mode_used,
                 route_candidate=classification.route_candidate,
                 dedupe_prompt_chunks_fn=_retrieval_pipeline._deduplicate_prompt_chunks,
                 derive_format_requirements_fn=_structured_numeric._derive_format_requirements,
@@ -384,8 +385,6 @@ class RAGHandler:
                 )
                 yield ('__metrics__', _generation_terminal.build_generation_skipped_metrics_payload(
                     query_type=effective_query_type,
-                    response_mode_used=response_mode_used,
-                    mode_adjustments_applied=mode_adjustments_applied,
                     timeout_seconds=timeout_seconds,
                     retrieval_elapsed_ms=retrieval_elapsed_ms,
                     preflight_projected_seconds=preflight_projected_seconds,
@@ -427,8 +426,6 @@ class RAGHandler:
                     'reasoning_enabled':  effective_reasoning_enabled,
                     'output_constraints': output_constraints,
                     'format_requirements': format_requirements,
-                    'response_mode_used': response_mode_used,
-                    'mode_adjustments_applied': mode_adjustments_applied,
                     'applied_degradations': applied_degradations,
                     'diagnostics_depth_constraints_applied': diagnostics_depth_constraints_applied,
                     'duration_ms':        round(prompt_elapsed_ms, 1),
@@ -438,13 +435,11 @@ class RAGHandler:
             max_tokens = effective_max_tokens
             stop_sequences = profile.get_stop_sequences(effective_reasoning_enabled)
             soft_closeout_allowed = _generation_runtime._should_apply_soft_stream_closeout(format_requirements)
-            generation_temperature, generation_top_p, sampling_adjustment = _resolve_sampling_params_for_response_mode(
-                response_mode_used=response_mode_used,
+            generation_temperature, generation_top_p = _resolve_sampling_params(
                 profile_temperature=profile.temperature,
                 profile_top_p=profile.top_p,
+                format_requirements=format_requirements,
             )
-            if sampling_adjustment is not None:
-                mode_adjustments_applied.append(sampling_adjustment)
 
             # 5. Stream response; collect tokens for trace
             stream_summary: _generation_stream.StreamExecutionSummary | None = None
@@ -511,8 +506,6 @@ class RAGHandler:
 
             metrics_payload = _generation_closeout.build_generation_metrics_payload(
                 query_type=effective_query_type,
-                response_mode_used=response_mode_used,
-                mode_adjustments_applied=mode_adjustments_applied,
                 timeout_seconds=timeout_seconds,
                 retrieval_elapsed_ms=retrieval_elapsed_ms,
                 prompt_elapsed_ms=prompt_elapsed_ms,
@@ -560,8 +553,6 @@ class RAGHandler:
                 token_count=token_count,
                 preflight_ratio=preflight_ratio,
                 post_retrieval_ratio=post_retrieval_ratio,
-                response_mode_used=response_mode_used,
-                mode_adjustments_applied=mode_adjustments_applied,
                 applied_degradations=applied_degradations,
                 stream_recovery_reason=stream_recovery_reason,
             )

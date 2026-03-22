@@ -45,7 +45,7 @@ const STREAM_STATUS_LABELS: Record<string, string> = {
 type DonePayload = StreamDonePayload
 
 function getContinuingStatusLabel(): string {
-  return 'Continuing analysis...'
+  return 'Continuing response...'
 }
 
 function getStreamStatusLabel(state: string): string | undefined {
@@ -242,7 +242,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
           completionMode,
           stoppedByUser,
           timeoutReason: null,
-          responseModeUsed: m.response_mode_used ?? 'analysis',
           nextAction,
           nextActionReason,
           continueLabel: 'Continue',
@@ -345,9 +344,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
       isContinuation: isInternalMessage,
       streamStatusText: isInternalMessage
         ? getContinuingStatusLabel()
-        : 'Running analysis...',
+        : 'Generating response...',
       isPartial: false,
-      responseModeUsed: 'analysis',
       streamSectionProgress: undefined,
       createdAt: now,
     }
@@ -402,7 +400,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
         const hasRemainingScope = data?.has_remaining_scope
           ?? (isPartial || completionMode === 'scoped_complete' || completionMode === 'stopped')
         const timeoutReason = data?.timeout_reason ?? null
-        const responseModeUsed = data?.response_mode_used ?? 'analysis'
         const continuationPasses = typeof data?.continuation_passes === 'number'
           ? data.continuation_passes
           : 0
@@ -445,7 +442,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
           completionMode,
           stoppedByUser,
           timeoutReason,
-          responseModeUsed,
           generationSeconds: elapsed,
           continuationResolutionReason,
           continuationProgressState: continuationProgressState ?? null,
@@ -473,7 +469,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 completionMode,
                 stoppedByUser,
                 timeoutReason,
-                responseModeUsed,
                 generationSeconds: elapsed ?? last.generationSeconds,
                 continuationResolutionReason,
                 continuationProgressState: continuationProgressState ?? last.continuationProgressState ?? null,

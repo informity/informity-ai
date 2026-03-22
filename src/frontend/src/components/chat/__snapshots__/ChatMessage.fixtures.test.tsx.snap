@@ -34,21 +34,6 @@ exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatt
     class="chat-message__actions"
   >
     <div
-      class="chat-message__meta-left"
-    >
-      <div
-        class="chat-message__meta-item"
-      >
-        <i
-          aria-hidden="true"
-          class="ri-flask-line chat-message__meta-icon"
-        />
-        <span>
-          Analysis
-        </span>
-      </div>
-    </div>
-    <div
       class="chat-message__actions-right"
     >
       <button
@@ -142,21 +127,6 @@ exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatt
     class="chat-message__actions"
   >
     <div
-      class="chat-message__meta-left"
-    >
-      <div
-        class="chat-message__meta-item"
-      >
-        <i
-          aria-hidden="true"
-          class="ri-flask-line chat-message__meta-icon"
-        />
-        <span>
-          Analysis
-        </span>
-      </div>
-    </div>
-    <div
       class="chat-message__actions-right"
     >
       <button
@@ -245,21 +215,6 @@ exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatt
   <div
     class="chat-message__actions"
   >
-    <div
-      class="chat-message__meta-left"
-    >
-      <div
-        class="chat-message__meta-item"
-      >
-        <i
-          aria-hidden="true"
-          class="ri-flask-line chat-message__meta-icon"
-        />
-        <span>
-          Analysis
-        </span>
-      </div>
-    </div>
     <div
       class="chat-message__actions-right"
     >
@@ -384,21 +339,6 @@ exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatt
     class="chat-message__actions"
   >
     <div
-      class="chat-message__meta-left"
-    >
-      <div
-        class="chat-message__meta-item"
-      >
-        <i
-          aria-hidden="true"
-          class="ri-flask-line chat-message__meta-icon"
-        />
-        <span>
-          Analysis
-        </span>
-      </div>
-    </div>
-    <div
       class="chat-message__actions-right"
     >
       <button
@@ -453,21 +393,6 @@ exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatt
   <div
     class="chat-message__actions"
   >
-    <div
-      class="chat-message__meta-left"
-    >
-      <div
-        class="chat-message__meta-item"
-      >
-        <i
-          aria-hidden="true"
-          class="ri-flask-line chat-message__meta-icon"
-        />
-        <span>
-          Analysis
-        </span>
-      </div>
-    </div>
     <div
       class="chat-message__actions-right"
     >
@@ -530,21 +455,6 @@ exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatt
   <div
     class="chat-message__actions"
   >
-    <div
-      class="chat-message__meta-left"
-    >
-      <div
-        class="chat-message__meta-item"
-      >
-        <i
-          aria-hidden="true"
-          class="ri-flask-line chat-message__meta-icon"
-        />
-        <span>
-          Analysis
-        </span>
-      </div>
-    </div>
     <div
       class="chat-message__actions-right"
     >

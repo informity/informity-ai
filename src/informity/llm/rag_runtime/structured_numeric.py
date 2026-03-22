@@ -358,6 +358,15 @@ def _derive_format_requirements(question: str) -> list[str]:
     bullet_depth_match = re.search(r'exactly\s+([23])\s+levels?', question, re.IGNORECASE)
     if bullet_depth_match:
         requirements.append(f'use nested bullet lists with exactly {bullet_depth_match.group(1)} levels where requested')
+    year_subsection_cues = [
+        r'one\s+subsection\s+per\s+(?:indexed|available|requested)?\s*year',
+        r'for\s+each\s+year',
+        r'findings\s+by\s+year',
+    ]
+    if any(re.search(pattern, question, re.IGNORECASE) for pattern in year_subsection_cues):
+        requirements.append('for year-grouped sections, include one subsection per year using markdown headings like "### YYYY"')
+        if re.search(r'across\s+all\s+indexed\s+records|year[-\s]*over[-\s]*year|cross[-\s]*year', question, re.IGNORECASE):
+            requirements.append('when multiple years are available in context, include at least 2 distinct year subsections')
     if re.search(r'missing evidence|missing records|gaps', question, re.IGNORECASE):
         requirements.append('explicitly call out missing evidence by requested group and/or year')
     return requirements

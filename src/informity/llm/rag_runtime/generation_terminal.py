@@ -11,8 +11,6 @@ from informity.api.schemas import ChatSourceReference
 def build_generation_skipped_metrics_payload(
     *,
     query_type: str,
-    response_mode_used: str,
-    mode_adjustments_applied: list[str],
     timeout_seconds: int,
     retrieval_elapsed_ms: float,
     preflight_projected_seconds: float,
@@ -30,8 +28,6 @@ def build_generation_skipped_metrics_payload(
 ) -> dict[str, object]:
     payload: dict[str, object] = {
         'query_type': query_type,
-        'response_mode_used': response_mode_used,
-        'mode_adjustments_applied': mode_adjustments_applied,
         'timeout_seconds': timeout_seconds,
         'retrieval_duration_ms': round(retrieval_elapsed_ms, 1),
         'prompt_duration_ms': 0.0,
