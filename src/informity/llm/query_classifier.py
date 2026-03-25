@@ -5,7 +5,7 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 import structlog
 
@@ -22,6 +22,9 @@ from informity.llm.query_patterns import (
     build_inventory_capability_pattern,
     build_structured_output_schema_pattern,
 )
+
+if TYPE_CHECKING:
+    from promptcue import PromptCueQueryObject
 
 log = structlog.get_logger(__name__)
 
@@ -56,6 +59,14 @@ _YEAR_AGGREGATE_CUE_PATTERN = re.compile(
     r')\b',
     re.IGNORECASE,
 )
+_BROAD_SCOPE_EXTRA_PATTERN = re.compile(
+    r'\b(across|all|cross[\s-]*document|year[\s-]*by[\s-]*year)\b',
+    re.IGNORECASE,
+)
+_MULTI_DOC_LISTING_PATTERN = re.compile(
+    r'\b(which|list|show)\b.*\b(files?|documents?)\b',
+    re.IGNORECASE,
+)
 
 
 def _has_structured_schema_request(text: str) -> bool:
@@ -78,8 +89,7 @@ def _is_inventory_metadata_request(text: str) -> bool:
 def _looks_broad_scope(text: str) -> bool:
     if _COVERAGE_PATTERN.search(text):
         return True
-    import re
-    return bool(re.search(r'\b(across|all|cross[\s-]*document|year[\s-]*by[\s-]*year)\b', text))
+    return bool(_BROAD_SCOPE_EXTRA_PATTERN.search(text))
 
 
 def _has_evidence_value_extraction_request(text: str) -> bool:
@@ -91,8 +101,7 @@ def _has_corpus_document_scope_request(text: str) -> bool:
 
 
 def _looks_multi_document_listing_request(text: str) -> bool:
-    import re
-    return bool(re.search(r'\b(which|list|show)\b.*\b(files?|documents?)\b', text))
+    return bool(_MULTI_DOC_LISTING_PATTERN.search(text))
 
 
 def _has_content_analysis_request(text: str) -> bool:
@@ -165,6 +174,9 @@ class QueryClassification:
     is_file_list_query: bool = False
     is_continuation: bool = False
     is_scope_reset: bool = False
+    # action_hints: forwarded from PromptCueQueryObject when the promptcue adapter is active.
+    # Empty dict when a non-promptcue router is used (e.g. test fakes).
+    action_hints: dict[str, bool] = field(default_factory=dict)
     # Provenance flags — describe how route_candidate was selected.
     # deterministic_override: True when a hard aggregate rule fired (e.g. policy_aggregate_route_enforced).
     # llm_confidence: raw confidence reported by the LLM (0.0 when LLM did not emit a confidence field).
@@ -185,13 +197,12 @@ def classify_query(query: str) -> QueryClassification:
     text = str(query or '').strip()
     lowered = text.casefold()
     year_filter: int | None = None
-    year_match = None
 
     year_candidates = re.findall(r'\b(?:19|20)\d{2}\b', lowered)
     if len(year_candidates) == 1:
-        year_match = int(year_candidates[0])
-        if 1900 <= year_match <= 2099:
-            year_filter = year_match
+        _yr = int(year_candidates[0])
+        if 1900 <= _yr <= 2099:
+            year_filter = _yr
 
     file_type_filter: str | None = None
     ext_match = re.search(r'\.(pdf|txt|md|csv|json|docx?|xlsx?)\b', lowered)
@@ -207,24 +218,70 @@ def classify_query(query: str) -> QueryClassification:
 
     is_continuation = bool(_CONTINUATION_PATTERN.search(lowered))
 
-    prediction = get_intent_router().classify_intent(text)
-    intent = prediction.intent
+    # --- Intent routing ---------------------------------------------------
+    # When the active router is PromptCueIntentAdapter, call classify() to get
+    # both the IntentPrediction and the full PromptCueQueryObject in one pass.
+    # When any other router is active (e.g. test fakes), fall back to
+    # classify_intent() and derive the additional signals from regex.
+    from informity.llm.promptcue_adapter import PromptCueIntentAdapter
+
+    router = get_intent_router()
+    pcue: PromptCueQueryObject | None = None
+
+    if isinstance(router, PromptCueIntentAdapter):
+        try:
+            prediction, pcue = router.classify(text)
+        except Exception:  # noqa: BLE001
+            log.warning('promptcue_adapter_classify_failed', query=text[:120])
+            prediction = router.classify_intent(text)
+    else:
+        prediction = router.classify_intent(text)
+
+    intent      = prediction.intent
     reason_codes = list(prediction.reason_codes)
+
+    # --- Signals: prefer PromptCue when available, fall back to regex -----
+    # Corpus-specific signals (always from regex — PromptCue has no knowledge
+    # of indexed files, evidence values, or inventory structure).
+    is_inventory_metadata     = _is_inventory_metadata_request(lowered)
+    has_evidence_value_request = _has_evidence_value_extraction_request(lowered)
+    has_corpus_scope          = _has_corpus_document_scope_request(lowered)
+    has_multi_doc_listing     = _looks_multi_document_listing_request(lowered)
+
+    if pcue is not None:
+        # PromptCue path — richer signals from 12-type classification + scope.
+        is_continuation      = pcue.is_continuation
+        broad_scope          = str(pcue.scope) == 'broad'
+        plural_scope         = broad_scope  # BROAD scope implies multi-document context
+        single_target_scope  = str(pcue.scope) == 'focused'
+        has_structured_schema = bool(pcue.routing_hints.get('needs_structure'))
+        has_analysis_action  = bool(pcue.action_hints.get('should_compare'))
+        has_multi_year_scope = bool(pcue.routing_hints.get('has_temporal_scope'))
+        has_content_analysis = pcue.primary_query_type in {
+            'analysis', 'comparison', 'summarization', 'coverage',
+        }
+    else:
+        # Regex fallback path — used when a non-PromptCue router is active.
+        broad_scope          = _looks_broad_scope(lowered)
+        plural_scope         = _looks_plural_corpus_scope_request(lowered)
+        single_target_scope  = _looks_single_target_request(lowered)
+        has_structured_schema = _has_structured_schema_request(lowered)
+        has_analysis_action  = _has_analysis_action_request(lowered)
+        has_multi_year_scope = _has_multi_year_scope_signal(lowered)
+        has_content_analysis = _has_content_analysis_request(lowered)
+
+    # --- Corpus metadata promotion ----------------------------------------
+    # Inventory queries (count, enumeration, file listing, capability) are
+    # always 'metadata' intent regardless of the router prediction.  PromptCue
+    # has no knowledge of the indexed corpus, so it cannot classify these.
+    if is_inventory_metadata and intent != 'metadata':
+        intent = 'metadata'
+        reason_codes.append('deterministic_inventory_metadata_promoted')
+
     deterministic_override = False
     response_shape: Literal['structured_extract', 'narrative_synthesis', 'metadata_table', 'hybrid'] = 'narrative_synthesis'
     subtype: Literal['extract_structured_values', 'aggregate_by_period', 'file_inventory'] | None = None
-    has_multi_year_scope = _has_multi_year_scope_signal(lowered)
     group_by: Literal['year', 'category', 'file'] | None = 'year' if has_multi_year_scope else None
-    has_structured_schema = _has_structured_schema_request(lowered)
-    has_analysis_action = _has_analysis_action_request(lowered)
-    is_inventory_metadata = _is_inventory_metadata_request(lowered)
-    has_evidence_value_request = _has_evidence_value_extraction_request(lowered)
-    has_corpus_scope = _has_corpus_document_scope_request(lowered)
-    has_multi_doc_listing = _looks_multi_document_listing_request(lowered)
-    broad_scope = _looks_broad_scope(lowered)
-    plural_scope = _looks_plural_corpus_scope_request(lowered)
-    single_target_scope = _looks_single_target_request(lowered)
-    has_content_analysis = _has_content_analysis_request(lowered)
 
     def apply_override(
         *,
@@ -432,6 +489,7 @@ def classify_query(query: str) -> QueryClassification:
         is_metadata_query=(intent == 'metadata'),
         is_file_list_query=(intent == 'metadata' and bool(_FILE_LIST_PATTERN.search(lowered))),
         is_continuation=is_continuation,
+        action_hints=(pcue.action_hints if pcue is not None else {}),
         deterministic_override=deterministic_override,
         llm_confidence=0.0,
     )
