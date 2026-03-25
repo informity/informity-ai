@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -144,11 +145,26 @@ def build_generation_prompt_plan(
         if isinstance(chunk.get('year'), int)
     })
     output_contract_plan_data: dict[str, object] = {}
+    required_terms: list[str] = []
+    for requirement in format_requirements:
+        match = re.match(r'^\s*include\s+term\s*:\s*(.+?)\s*$', str(requirement or ''), flags=re.IGNORECASE)
+        if match is None:
+            continue
+        term = str(match.group(1) or '').strip().casefold()
+        if not term or term in required_terms:
+            continue
+        required_terms.append(term)
     if requires_missing_evidence_callout:
         output_contract_plan_data['requires_missing_evidence_callout'] = True
     if min_year_subsections > 0:
         output_contract_plan_data['min_year_subsections'] = min_year_subsections
         output_contract_plan_data['expected_years'] = context_years
+    if required_terms:
+        output_contract_plan_data['required_terms'] = required_terms
+        output_contract_plan_data['enforce_required_terms'] = (
+            effective_query_type == 'coverage'
+            and not isinstance(output_constraints.get('max_words'), int)
+        )
     output_contract_plan = output_contract_plan_data or None
     messages = build_messages_fn(
         question,

@@ -198,6 +198,32 @@ async def stream_generation_with_budget(
                 'step': 'post_stream_missing_evidence_callout_enforced',
                 'reason': 'required_missing_evidence_callout_not_present',
             })
+    required_terms: list[str] = []
+    enforce_required_terms = False
+    if isinstance(output_contract_plan, dict):
+        raw_required_terms = output_contract_plan.get('required_terms')
+        if isinstance(raw_required_terms, list):
+            required_terms = [
+                str(term or '').strip().casefold()
+                for term in raw_required_terms
+                if str(term or '').strip()
+            ]
+        enforce_required_terms = bool(output_contract_plan.get('enforce_required_terms') is True)
+    if enforce_required_terms and required_terms:
+        full_answer = ''.join(answer_parts).casefold()
+        missing_terms = [
+            term for term in required_terms
+            if term not in full_answer
+        ]
+        if missing_terms:
+            suffix = '\n\nRequired Terms: ' + ', '.join(missing_terms) + '.'
+            answer_parts.append(suffix)
+            yield suffix
+            applied_degradations.append({
+                'step': 'post_stream_required_terms_enforced',
+                'reason': 'required_terms_not_present',
+                'missing_terms': missing_terms,
+            })
     completion_mode = 'partial' if timeout_reason else 'complete'
     if stream_recovery_reason is not None:
         completion_mode = 'scoped_complete'
