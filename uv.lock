@@ -554,7 +554,7 @@ wheels = [
 
 [[package]]
 name = "informity"
-version = "0.7.0"
+version = "0.7.1"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
@@ -569,6 +569,7 @@ dependencies = [
     { name = "nltk" },
     { name = "pathspec" },
     { name = "pillow" },
+    { name = "promptcue" },
     { name = "psutil" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -611,6 +612,7 @@ requires-dist = [
     { name = "nltk", specifier = ">=3.9.2" },
     { name = "pathspec", specifier = "==1.0.4" },
     { name = "pillow", specifier = ">=12.1.1" },
+    { name = "promptcue", specifier = ">=0.2.0" },
     { name = "psutil", specifier = ">=6.1.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-settings", specifier = ">=2.13.0" },
@@ -1360,6 +1362,20 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/97/92/e90639b1d2abe982749eba7e734571a343ea062f7d486498b1c2b852f019/polyfactory-3.2.0.tar.gz", hash = "sha256:879242f55208f023eee1de48522de5cb1f9fd2d09b2314e999a9592829d596d1", size = 346878, upload-time = "2025-12-21T11:18:51.017Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/d9/21/93363d7b802aa904f8d4169bc33e0e316d06d26ee68d40fe0355057da98c/polyfactory-3.2.0-py3-none-any.whl", hash = "sha256:5945799cce4c56cd44ccad96fb0352996914553cc3efaa5a286930599f569571", size = 62181, upload-time = "2025-12-21T11:18:49.311Z" },
+]
+
+[[package]]
+name = "promptcue"
+version = "0.2.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2f/09/ce8ac5f9943f21806ebb27da9284db4b6f9f1f229317831af0315016f1a0/promptcue-0.2.0.tar.gz", hash = "sha256:31fc42af8c76b467726f2d87c13d6933c869f978c02cb6f6ebfa5209ef509f7b", size = 50222, upload-time = "2026-03-25T01:01:02.313Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/05/98/15ccc2c88b1f05be1265d1159593c53b8b153e5f9e9f6faa2eeff20d3876/promptcue-0.2.0-py3-none-any.whl", hash = "sha256:9e53a66cf2a04b903ee2fe832a73159ff44eda543406929d82185f2fc49b562f", size = 43389, upload-time = "2026-03-25T01:01:00.788Z" },
 ]
 
 [[package]]
