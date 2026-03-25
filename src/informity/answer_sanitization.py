@@ -8,6 +8,7 @@ import re
 DISPLAY_FALLBACK_MESSAGE = (
     'I could not generate a final answer from the model output. Please try rephrasing your question.'
 )
+_TABLE_SEPARATOR_PATTERN = re.compile(r'^\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*$')
 
 
 def strip_think_blocks(text: str) -> str:
@@ -55,12 +56,36 @@ def _normalize_inline_whitespace_preserve_indentation(text: str) -> str:
     return '\n'.join(normalized_lines)
 
 
+def _trim_truncated_trailing_markdown_table_row(text: str) -> str:
+    lines = text.splitlines()
+    if not lines:
+        return text
+    while lines:
+        trailing_idx = len(lines) - 1
+        while trailing_idx >= 0 and not lines[trailing_idx].strip():
+            trailing_idx -= 1
+        if trailing_idx < 0:
+            return '\n'.join(lines)
+        trailing_line = lines[trailing_idx].rstrip()
+        if not trailing_line.lstrip().startswith('|') or trailing_line.endswith('|'):
+            return '\n'.join(lines)
+        has_table_separator = any(
+            _TABLE_SEPARATOR_PATTERN.match(line.rstrip()) is not None
+            for line in lines[:trailing_idx]
+        )
+        if not has_table_separator:
+            return '\n'.join(lines)
+        del lines[trailing_idx]
+    return ''
+
+
 def sanitize_display_answer(text: str) -> str:
     cleaned = strip_think_blocks(text)
     cleaned = strip_source_artifacts(cleaned)
     # Normalize line-break HTML artifacts commonly emitted inside markdown table cells.
     cleaned = re.sub(r'(?i)<br\s*/?>', '; ', cleaned)
     cleaned = _normalize_inline_whitespace_preserve_indentation(cleaned)
+    cleaned = _trim_truncated_trailing_markdown_table_row(cleaned)
     cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
     return cleaned.strip()
 

@@ -94,6 +94,27 @@ def test_structured_numeric_derives_numbered_headings_with_parenthetical_commas(
     assert any('include heading: Action Checklist' in requirement for requirement in requirements)
 
 
+def test_structured_numeric_derives_include_clause_required_terms() -> None:
+    requirements = _derive_format_requirements(
+        'Compare records from different years and include conflict statement, involved documents, '
+        'conflicting values, and likely reason grounded in evidence.'
+    )
+    assert 'include term: conflict' in requirements
+    assert 'include term: documents' in requirements
+    assert 'include term: values' in requirements
+    assert 'include term: reason' in requirements
+    assert 'include term: evidence' in requirements
+
+
+def test_structured_numeric_derives_cover_clause_required_terms() -> None:
+    requirements = _derive_format_requirements(
+        'Summarize cross-year changes. Cover biggest increase, biggest decrease, and ambiguous deltas, with evidence.'
+    )
+    assert 'include term: increase' in requirements
+    assert 'include term: decrease' in requirements
+    assert 'include term: evidence' in requirements
+
+
 def test_retrieval_validation_coverage_evidence_floor_override() -> None:
     passed, events = _apply_coverage_evidence_floor_override(
         retrieval_relevance_passed=False,

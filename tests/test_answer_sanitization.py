@@ -31,3 +31,13 @@ def test_sanitize_display_answer_normalizes_br_and_lowercase_source_markers() ->
 def test_sanitize_display_answer_strips_double_angle_think_blocks() -> None:
     raw = "<<think>>internal reasoning</think>>Visible output"
     assert sanitize_display_answer(raw) == "Visible output"
+
+
+def test_sanitize_display_answer_trims_truncated_trailing_markdown_table_row() -> None:
+    raw = (
+        "| Field | Value |\n"
+        "|---|---|\n"
+        "| A | 10 |\n"
+        "| B | 20"
+    )
+    assert sanitize_display_answer(raw) == "| Field | Value |\n|---|---|\n| A | 10 |"

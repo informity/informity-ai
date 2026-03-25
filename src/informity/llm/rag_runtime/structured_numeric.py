@@ -369,7 +369,44 @@ def _derive_format_requirements(question: str) -> list[str]:
             requirements.append('when multiple years are available in context, include at least 2 distinct year subsections')
     if re.search(r'missing evidence|missing records|gaps', question, re.IGNORECASE):
         requirements.append('explicitly call out missing evidence by requested group and/or year')
+    required_terms = _extract_required_terms_from_user_contract(question)
+    requirements.extend([f'include term: {term}' for term in required_terms[:10]])
     return requirements
+
+
+def _extract_required_terms_from_user_contract(question: str) -> list[str]:
+    clauses: list[str] = []
+    for cue in ('include', 'cover'):
+        pattern = re.compile(rf'\b{cue}\b\s+(.+?)(?:[.;]|$)', re.IGNORECASE | re.DOTALL)
+        for match in pattern.finditer(question):
+            clause = str(match.group(1) or '').strip()
+            if clause:
+                clauses.append(clause)
+    if not clauses:
+        return []
+    stopwords = {
+        'a', 'an', 'and', 'or', 'the', 'this', 'that', 'these', 'those',
+        'with', 'from', 'for', 'of', 'to', 'in', 'on', 'by', 'as', 'at',
+        'all', 'across', 'available', 'indexed', 'records', 'record',
+        'different', 'where', 'only', 'using', 'grounded', 'likely', 'biggest',
+        'clear', 'key', 'one', 'two', 'three', 'four', 'five', 'six', 'seven',
+        'eight', 'nine', 'ten', 'do', 'not', 'until', 'are', 'is', 'be',
+        'include', 'cover', 'request', 'requested', 'output',
+    }
+    terms: list[str] = []
+    seen: set[str] = set()
+    for clause in clauses:
+        for token in re.findall(r'[a-z][a-z-]{2,}', clause.casefold()):
+            normalized = token.strip('-')
+            if not normalized or normalized in stopwords:
+                continue
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            terms.append(normalized)
+            if len(terms) >= 12:
+                return terms
+    return terms
 
 
 def _validate_structured_rows(rows: list[dict[str, object]]) -> list[dict[str, object]]:
