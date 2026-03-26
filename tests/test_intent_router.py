@@ -6,7 +6,6 @@ from informity.llm.intent_router import IntentPrediction, get_intent_router
 from informity.llm.promptcue_adapter import (
     _BROAD_FLIPS,
     _DEFAULT_INTENT,
-    _FOCUSED_FLIPS,
     PromptCueIntentAdapter,
     _map_intent,
 )
@@ -32,14 +31,14 @@ class TestMapIntent:
         assert _map_intent('analysis', 'broad')   == 'coverage'
         assert _map_intent('analysis', 'unknown') == 'coverage'
 
-    def test_analysis_flips_to_focused_on_focused_scope(self) -> None:
-        assert _map_intent('analysis', 'focused') == 'focused'
+    def test_analysis_stays_coverage_on_focused_scope(self) -> None:
+        assert _map_intent('analysis', 'focused') == 'coverage'
 
-    def test_comparison_flips_on_focused_scope(self) -> None:
-        assert _map_intent('comparison', 'focused') == 'focused'
+    def test_comparison_stays_coverage_on_focused_scope(self) -> None:
+        assert _map_intent('comparison', 'focused') == 'coverage'
 
-    def test_summarization_flips_on_focused_scope(self) -> None:
-        assert _map_intent('summarization', 'focused') == 'focused'
+    def test_summarization_stays_coverage_on_focused_scope(self) -> None:
+        assert _map_intent('summarization', 'focused') == 'coverage'
 
     def test_generation_coverage_by_default(self) -> None:
         assert _map_intent('generation', 'broad') == 'coverage'
@@ -64,10 +63,11 @@ class TestMapIntent:
         for query_type in _BROAD_FLIPS:
             assert _DEFAULT_INTENT[query_type] == 'focused', query_type
 
-    def test_focused_flip_set_contains_coverage_defaults(self) -> None:
-        # Every type in _FOCUSED_FLIPS must have 'coverage' as its base default.
-        for query_type in _FOCUSED_FLIPS:
+    def test_coverage_defaults_remain_coverage_without_focused_flip_set(self) -> None:
+        coverage_defaults = {'analysis', 'comparison', 'summarization', 'coverage', 'generation'}
+        for query_type in coverage_defaults:
             assert _DEFAULT_INTENT[query_type] == 'coverage', query_type
+            assert _map_intent(query_type, 'focused') == 'coverage'
 
 
 # ==============================================================================

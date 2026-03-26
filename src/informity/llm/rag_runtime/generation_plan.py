@@ -62,7 +62,8 @@ def build_generation_prompt_plan(
     timeout_seconds: int,
     route_candidate: str,
     dedupe_prompt_chunks_fn: Callable[[list[dict]], list[dict]],
-    derive_format_requirements_fn: Callable[[str], list[str]],
+    derive_format_requirements_fn: Callable[[str, dict[str, bool] | None], list[str]],
+    action_hints: dict[str, bool] | None = None,
     skip_precloseout_quality_check: bool = False,
 ) -> GenerationPromptPlan:
     prompt_start = time.perf_counter()
@@ -125,6 +126,7 @@ def build_generation_prompt_plan(
         max_tokens=effective_max_tokens,
         reasoning_enabled=effective_reasoning_enabled,
         derive_format_requirements_fn=derive_format_requirements_fn,
+        action_hints=action_hints,
         applied_degradations=applied_degradations,
         min_output_budget_floor=min_output_budget_floor,
     )

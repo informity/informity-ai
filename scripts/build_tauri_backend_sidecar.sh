@@ -42,6 +42,10 @@ verify_sidecar_contents() {
     "pandas/_libs/algos\\.cpython-"
     "sqlite_vec/__init__\\.py"
     "sqlite_vec/vec0\\.(so|dylib|dll)"
+    "promptcue-[0-9].*\\.dist-info/METADATA"
+    "promptcue/__init__\\.py"
+    "thinkstrip-[0-9].*\\.dist-info/METADATA"
+    "thinkstrip/__init__\\.py"
   )
 
   for pattern in "${required_patterns[@]}"; do
