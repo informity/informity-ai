@@ -66,6 +66,7 @@ def test_general_capabilities_query_stays_simple() -> None:
     result = classify_query('Can you help me understand what information is available?')
     assert result.intent == 'simple'
     assert result.route_candidate == 'clarification_or_disambiguation'
+    assert 'deterministic_general_capability_to_simple' in result.reason_codes
 
 
 def test_filename_slot_extraction() -> None:
@@ -226,3 +227,26 @@ def test_coverage_multi_year_prompt_sets_aggregate_subtype() -> None:
     assert result.group_by == 'year'
     assert result.has_multi_year_scope is True
     assert 'deterministic_override_coverage_year_aggregate_subtype' in result.reason_codes
+
+
+def test_focused_multi_year_analysis_overrides_to_coverage() -> None:
+    class _FocusedOnlyRouter:
+        def classify_intent(self, _query: str) -> IntentPrediction:
+            return IntentPrediction('focused', 0.9, [('focused', 0.9)], ['forced_focused'])
+
+    original = get_intent_router()
+    set_intent_router_for_testing(_FocusedOnlyRouter())
+    try:
+        result = classify_query('Summarize cross-year findings and deltas for indexed records.')
+    finally:
+        set_intent_router_for_testing(original)
+
+    assert result.intent == 'coverage'
+    assert result.route_candidate == 'cross_document_synthesis'
+    assert result.deterministic_override is True
+    assert 'deterministic_override_multi_year_analysis_request' in result.reason_codes
+
+
+def test_source_terms_extract_anchor_phrase() -> None:
+    result = classify_query('What does the 2020 property tax receipt contain? Summarize the key fields.')
+    assert any('2020 property tax receipt' in term.casefold() for term in result.source_terms)

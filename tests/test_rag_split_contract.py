@@ -194,6 +194,42 @@ async def test_generation_stream_skips_required_term_enforcement_when_disabled()
     assert 'Required Terms: evidence.' not in merged
 
 
+@pytest.mark.asyncio
+async def test_generation_stream_enforces_required_headings_when_enabled() -> None:
+    async def _fake_stream_llm(*_args: Any, **_kwargs: Any):
+        yield '## Scope\nA short scoped response.'
+
+    events: list[str | tuple[str, object]] = []
+    async for item in _generation_stream.stream_generation_with_budget(
+        messages=[{'role': 'user', 'content': 'test'}],
+        max_tokens=256,
+        temperature=0.1,
+        top_p=0.9,
+        timeout_seconds=120,
+        stop_sequences=[],
+        fit_to_budget_enabled=False,
+        stream_soft_limit_ratio=0.8,
+        soft_closeout_allowed=False,
+        checkpoint_query_type='coverage',
+        dedupe_insufficient_context_after_stream=False,
+        insufficient_context_response='insufficient',
+        applied_degradations=[],
+        output_contract_plan={
+            'required_headings': ['Scope', 'Method', 'Findings'],
+            'enforce_required_headings': True,
+        },
+        collapse_duplicate_message_fn=lambda value: (value, False),
+        stream_llm_fn=_fake_stream_llm,
+    ):
+        if isinstance(item, tuple) and item[0] == _generation_stream.STREAM_SUMMARY_EVENT:
+            continue
+        events.append(item)
+
+    merged = ''.join(part for part in events if isinstance(part, str))
+    assert '## Method' in merged
+    assert '## Findings' in merged
+
+
 def test_generation_closeout_metrics_payload_contract_shape() -> None:
     payload = _generation_closeout.build_generation_metrics_payload(
         query_type='focused',

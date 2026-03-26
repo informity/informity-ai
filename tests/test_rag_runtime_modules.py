@@ -1,5 +1,7 @@
 from informity.config import settings
 from informity.db.models import ChatMessage
+from informity.llm.rag_runtime import generation_runtime as _generation_runtime
+from informity.llm.rag_runtime.retrieval_pipeline import _build_focused_anchor_recovery_query
 from informity.llm.rag_runtime.retrieval_validation import (
     _apply_coverage_evidence_floor_override,
     _build_continuation_retrieval_query,
@@ -264,6 +266,25 @@ def test_retrieval_validation_uses_short_continuation_prompt_for_prior_context()
         history=history,
     )
     assert 'Extract unresolved risks by year for 2022-2024' in query
+
+
+def test_retrieval_pipeline_builds_focused_anchor_recovery_query() -> None:
+    query = _build_focused_anchor_recovery_query(
+        question='What does the 2020 property tax receipt contain?',
+        source_terms=['2020 property tax receipt'],
+    )
+    assert isinstance(query, str)
+    assert 'year-specific' in query
+    assert '2020 property tax receipt' in query
+
+
+def test_generation_runtime_has_remaining_scope_false_for_terminal_timeout() -> None:
+    assert _generation_runtime._has_remaining_scope(
+        timeout_reason='queue_wait_timeout',
+        stream_recovery_reason=None,
+        generation_skipped=False,
+        applied_degradations=[],
+    ) is False
 
 
 def test_structured_numeric_bullet_renderer_outputs_exact_count() -> None:

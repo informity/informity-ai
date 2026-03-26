@@ -566,6 +566,85 @@ class TestRAGHandler:
         assert results[-1] == []
 
     @pytest.mark.asyncio
+    async def test_continuation_with_anchor_overlap_bypasses_relevance_gate(self) -> None:
+        handler = RAGHandler()
+        classification = QueryClassification(
+            intent='focused',
+            route_candidate='continuation_or_refinement',
+            confidence=0.86,
+        )
+        mock_db = MagicMock()
+        mock_policy = MagicMock()
+        mock_policy.enabled = False
+        mock_policy.rollout_stage = 'test'
+        mock_policy.sample_count = 0
+        mock_policy.timeout_rate = 0.0
+        mock_policy.first_token_p95_ms = None
+        mock_policy.completion_p95_seconds = None
+        mock_policy.stream_soft_limit_ratio = 0.8
+        mock_policy.soft_top_k_threshold = 0.9
+        mock_policy.soft_reasoning_threshold = 0.9
+        mock_policy.soft_output_cap_threshold = 0.9
+        mock_policy.soft_coverage_to_focused_threshold = 0.9
+        mock_policy.hard_pre_generation_threshold = 0.98
+
+        history = [
+            ChatMessage(
+                chat_id='test-chat',
+                role='assistant',
+                content='Previous answer',
+                has_remaining_scope=True,
+                sources=[{'path': '/docs/alpha.pdf', 'filename': 'alpha.pdf'}],
+            ),
+            ChatMessage(
+                chat_id='test-chat',
+                role='user',
+                content='Summarize the evidence by year.',
+            ),
+        ]
+
+        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+             patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy, \
+             patch('informity.llm.handlers.rag.stream_llm') as mock_stream:
+            mock_retrieve.return_value = [
+                {
+                    'file_id': 1,
+                    'filename': 'alpha.pdf',
+                    'file_path': '/docs/alpha.pdf',
+                    'chunk_text': 'Prior anchored evidence.',
+                    'score': -5.0,
+                },
+            ]
+            mock_resolve_policy.return_value = mock_policy
+
+            async def _fake_stream_llm(*_args, **_kwargs):
+                yield 'Cross-year synthesis with confidence and verification guidance.'
+
+            mock_stream.side_effect = _fake_stream_llm
+
+            results: list[object] = []
+            async for item in handler.handle('continue with cross-year comparison', classification, history, mock_db, None):
+                results.append(item)
+
+        assert any(
+            isinstance(item, str) and 'cross-year synthesis' in item.casefold()
+            for item in results
+        )
+        assert not any(
+            isinstance(item, str) and 'do not contain enough information' in item.casefold()
+            for item in results
+        )
+        metrics_events = [item for item in results if isinstance(item, tuple) and item[0] == '__metrics__']
+        assert metrics_events
+        metrics = metrics_events[0][1]
+        assert metrics.get('generation_skipped') is False
+        assert any(
+            event.get('fallback_reason') == 'continuation_anchor_gate_bypass'
+            for event in metrics.get('fallback_events', [])
+            if isinstance(event, dict)
+        )
+
+    @pytest.mark.asyncio
     async def test_budget_pressure_with_weak_relevance_skips_generation(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(

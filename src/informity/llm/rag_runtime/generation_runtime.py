@@ -29,6 +29,9 @@ def _has_remaining_scope(
     generation_skipped: bool,
     applied_degradations: list[dict[str, object]],
 ) -> bool:
+    terminal_timeout_reasons = {'queue_wait_timeout', 'first_token_watchdog_timeout'}
+    if str(timeout_reason or '').strip().lower() in terminal_timeout_reasons:
+        return False
     return bool(timeout_reason is not None or stream_recovery_reason is not None or generation_skipped)
 
 

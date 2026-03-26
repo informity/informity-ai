@@ -20,6 +20,7 @@ from informity.llm.query_patterns import (
     build_evidence_value_extraction_pattern,
     build_file_list_pattern,
     build_inventory_capability_pattern,
+    build_meta_query_pattern,
     build_structured_output_schema_pattern,
 )
 
@@ -41,6 +42,7 @@ _EVIDENCE_VALUE_EXTRACTION_PATTERN = build_evidence_value_extraction_pattern()
 _STRUCTURED_OUTPUT_SCHEMA_PATTERN = build_structured_output_schema_pattern()
 _ANALYSIS_ACTION_PATTERN = build_analysis_action_pattern()
 _INVENTORY_CAPABILITY_PATTERN = build_inventory_capability_pattern()
+_META_QUERY_PATTERN = build_meta_query_pattern()
 _CONTENT_ANALYSIS_PATTERN = re.compile(
     r'\b('
     r'summarize|summary|compare|contrast|contradictions?|conflicts?|overview|'
@@ -67,6 +69,15 @@ _MULTI_DOC_LISTING_PATTERN = re.compile(
     r'\b(which|list|show)\b.*\b(files?|documents?)\b',
     re.IGNORECASE,
 )
+_GENERIC_CAPABILITY_PATTERN = re.compile(
+    r'\b(can\s+you\s+help|help\s+me\s+understand|what\s+information\s+is\s+available)\b',
+    re.IGNORECASE,
+)
+_ANCHOR_DOCUMENT_TERM_PATTERN = re.compile(
+    r'\b(?:19|20)\d{2}\s+[a-z0-9][a-z0-9\s-]{1,64}\b(?:receipt|statement|report|return|form|record|invoice|summary)\b',
+    re.IGNORECASE,
+)
+_QUOTED_PHRASE_PATTERN = re.compile(r'["\']([^"\']{3,80})["\']')
 
 
 def _has_structured_schema_request(text: str) -> bool:
@@ -121,6 +132,43 @@ def _has_multi_year_scope_signal(text: str) -> bool:
     if len(set(years)) >= 2:
         return True
     return bool(_YEAR_AGGREGATE_CUE_PATTERN.search(text))
+
+
+def _is_general_capability_query(text: str) -> bool:
+    return bool(_META_QUERY_PATTERN.search(text) or _GENERIC_CAPABILITY_PATTERN.search(text))
+
+
+def _extract_source_terms(*, text: str, filename_filter: str | None) -> list[str]:
+    terms: list[str] = []
+    seen: set[str] = set()
+
+    def _add(value: str) -> None:
+        normalized = re.sub(r'\s+', ' ', str(value or '').strip())
+        if len(normalized) < 3:
+            return
+        key = normalized.casefold()
+        if key in seen:
+            return
+        seen.add(key)
+        terms.append(normalized)
+
+    if filename_filter:
+        _add(filename_filter)
+        stem = re.sub(r'\.[a-z0-9]{2,6}$', '', filename_filter, flags=re.IGNORECASE)
+        if stem and stem != filename_filter:
+            _add(stem)
+
+    for match in _QUOTED_PHRASE_PATTERN.findall(text):
+        _add(match)
+        if len(terms) >= 6:
+            return terms
+
+    for match in _ANCHOR_DOCUMENT_TERM_PATTERN.findall(text):
+        _add(match)
+        if len(terms) >= 6:
+            return terms
+
+    return terms
 
 
 @dataclass
@@ -247,6 +295,8 @@ def classify_query(query: str) -> QueryClassification:
     has_evidence_value_request = _has_evidence_value_extraction_request(lowered)
     has_corpus_scope          = _has_corpus_document_scope_request(lowered)
     has_multi_doc_listing     = _looks_multi_document_listing_request(lowered)
+    is_general_capability     = _is_general_capability_query(lowered)
+    source_terms              = _extract_source_terms(text=text, filename_filter=filename_filter)
 
     if pcue is not None:
         # PromptCue path — richer signals from 12-type classification + scope.
@@ -277,6 +327,16 @@ def classify_query(query: str) -> QueryClassification:
     if is_inventory_metadata and intent != 'metadata':
         intent = 'metadata'
         reason_codes.append('deterministic_inventory_metadata_promoted')
+    elif (
+        is_general_capability
+        and not is_inventory_metadata
+        and not has_structured_schema
+        and not has_analysis_action
+        and not has_evidence_value_request
+        and not has_corpus_scope
+    ):
+        intent = 'simple'
+        reason_codes.append('deterministic_general_capability_to_simple')
 
     deterministic_override = False
     response_shape: Literal['structured_extract', 'narrative_synthesis', 'metadata_table', 'hybrid'] = 'narrative_synthesis'
@@ -395,7 +455,10 @@ def classify_query(query: str) -> QueryClassification:
                 ),
             ),
             (
-                not broad_scope and not has_corpus_scope,
+                not broad_scope
+                and not has_corpus_scope
+                and not has_multi_year_scope
+                and (filename_filter is not None or bool(source_terms)),
                 lambda: apply_override(
                     reason_code='deterministic_override_narrow_scope_to_focused',
                     new_intent='focused',
@@ -410,6 +473,14 @@ def classify_query(query: str) -> QueryClassification:
     else:
         route_candidate = 'targeted_fact_lookup'
         focused_rules = [
+            (
+                has_multi_year_scope and has_content_analysis and filename_filter is None,
+                lambda: apply_override(
+                    reason_code='deterministic_override_multi_year_analysis_request',
+                    new_intent='coverage',
+                    new_route='cross_document_synthesis',
+                ),
+            ),
             (
                 plural_scope and not single_target_scope and has_content_analysis and filename_filter is None,
                 lambda: apply_override(
@@ -483,6 +554,7 @@ def classify_query(query: str) -> QueryClassification:
         subtype=subtype,
         has_multi_year_scope=has_multi_year_scope,
         group_by=group_by,
+        source_terms=source_terms,
         year_filter=year_filter,
         file_type_filter=file_type_filter,
         filename_filter=filename_filter,

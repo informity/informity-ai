@@ -190,6 +190,28 @@ def _build_inventory_plus_content_fallback_answer(
     return '\n'.join(lines).strip()
 
 
+def _build_focused_anchor_recovery_query(*, question: str, source_terms: list[str]) -> str | None:
+    terms = [re.sub(r'\s+', ' ', str(term or '').strip()) for term in source_terms if str(term or '').strip()]
+    if not terms:
+        return None
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for term in terms:
+        key = term.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(term)
+        if len(deduped) >= 4:
+            break
+    if not deduped:
+        return None
+    prefix = 'Find document evidence for: '
+    if re.search(r'\b(?:19|20)\d{2}\b', question):
+        prefix = 'Find matching year-specific document evidence for: '
+    return prefix + '; '.join(deduped)
+
+
 def _build_filename_summary_fallback_answer(
     *,
     question: str,
@@ -365,22 +387,56 @@ async def run_retrieval_pipeline(
                     'fallback_reason': 'schema_contract_empty_retrieval_recovery',
                 })
             else:
-                return RetrievalFailure(
-                response_message=_INSUFFICIENT_CONTEXT_RESPONSE,
-                sources=[],
-                metrics_payload=_generation_terminal.build_generation_skipped_metrics_payload(
-                    query_type=effective_query_type,
-                    timeout_seconds=timeout_seconds,
-                    retrieval_elapsed_ms=retrieval_elapsed_ms,
-                    preflight_projected_seconds=preflight_projected_seconds,
-                    preflight_ratio=preflight_ratio,
-                    applied_degradations=applied_degradations,
-                    fallback_events=fallback_events,
-                    has_remaining_scope=False,
-                    validation_gates={'retrieval_relevance_gate': False, 'source_diversity_gate': False},
-                ),
-                    has_remaining_scope=False,
+                focused_anchor_recovery_chunks: list[dict] = []
+                focused_anchor_recovery_query = _build_focused_anchor_recovery_query(
+                    question=question,
+                    source_terms=classification.source_terms,
                 )
+                if (
+                    focused_anchor_recovery_query
+                    and effective_query_type == 'focused'
+                    and not classification.filename_filter
+                ):
+                    focused_anchor_recovery_chunks = await retrieve_chunks(
+                        query=focused_anchor_recovery_query,
+                        top_k=get_retrieval_top_k('focused'),
+                        max_score=profile_rag_max_score,
+                        year_filter=classification.year_filter,
+                        category_filter=classification.category_filter,
+                        extension_filter=classification.file_type_filter,
+                        filename_filter=None,
+                        block_type_filter=None,
+                        section_filter=None,
+                        query_type='focused',
+                        db=db,
+                        trace=trace,
+                    )
+                if focused_anchor_recovery_chunks:
+                    chunks = focused_anchor_recovery_chunks
+                    effective_query_type = 'focused'
+                    effective_top_k = min(effective_top_k, len(chunks))
+                    fallback_events.append({
+                        'fallback_from': selected_policy_profile_id,
+                        'fallback_to': selected_policy_profile_id,
+                        'fallback_reason': 'focused_anchor_empty_retrieval_recovery',
+                    })
+                else:
+                    return RetrievalFailure(
+                        response_message=_INSUFFICIENT_CONTEXT_RESPONSE,
+                        sources=[],
+                        metrics_payload=_generation_terminal.build_generation_skipped_metrics_payload(
+                            query_type=effective_query_type,
+                            timeout_seconds=timeout_seconds,
+                            retrieval_elapsed_ms=retrieval_elapsed_ms,
+                            preflight_projected_seconds=preflight_projected_seconds,
+                            preflight_ratio=preflight_ratio,
+                            applied_degradations=applied_degradations,
+                            fallback_events=fallback_events,
+                            has_remaining_scope=False,
+                            validation_gates={'retrieval_relevance_gate': False, 'source_diversity_gate': False},
+                        ),
+                        has_remaining_scope=False,
+                    )
 
     # -------------------------------------------------------------------------
     # 3. Validation gates
@@ -515,7 +571,24 @@ async def run_retrieval_pipeline(
         and continuation_anchor_passed
         and bool(chunks)
     )
-    if validation_failed and not allow_structured_gate_bypass:
+    allow_continuation_anchor_bypass = (
+        validation_failed
+        and (
+            classification.route_candidate == 'continuation_or_refinement'
+            or selected_policy_profile_id == 'continuation_or_refinement'
+        )
+        and continuation_anchor_passed
+    )
+    continuation_validation_fallback_seen = any(
+        isinstance(event, dict)
+        and event.get('fallback_reason') == 'validation_gate_failed'
+        and event.get('fallback_from') == 'continuation_or_refinement'
+        and bool((event.get('validation_gates') or {}).get('continuation_anchor_gate'))
+        for event in fallback_events
+    )
+    if validation_failed and continuation_validation_fallback_seen:
+        allow_continuation_anchor_bypass = True
+    if validation_failed and not (allow_structured_gate_bypass or allow_continuation_anchor_bypass):
         use_clarification = (
             not classification.is_continuation
             and (
@@ -549,6 +622,12 @@ async def run_retrieval_pipeline(
             'fallback_from': selected_policy_profile_id,
             'fallback_to': selected_policy_profile_id,
             'fallback_reason': 'schema_driven_gate_bypass',
+        })
+    if allow_continuation_anchor_bypass:
+        fallback_events.append({
+            'fallback_from': selected_policy_profile_id,
+            'fallback_to': selected_policy_profile_id,
+            'fallback_reason': 'continuation_anchor_gate_bypass',
         })
 
     # -------------------------------------------------------------------------
@@ -695,6 +774,7 @@ __all__ = [
     'RetrievalFailure',
     'run_retrieval_pipeline',
     '_build_clarification_fallback_message',
+    '_build_focused_anchor_recovery_query',
     '_build_filename_summary_fallback_answer',
     '_build_inventory_plus_content_fallback_answer',
     '_deduplicate_prompt_chunks',

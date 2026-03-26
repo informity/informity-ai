@@ -44,7 +44,7 @@ from informity.db.sqlite import (
 )
 from informity.diagnostics.observer import EvalMetrics, detect_issues
 from informity.diagnostics.resource_snapshot import build_resource_delta, capture_resource_snapshot
-from informity.llm.query_classifier import classify_query
+from informity.llm.query_classifier import QueryClassification, classify_query
 from informity.llm.rag import answer_question
 from informity.utils.json_utils import serialize_api_response
 
@@ -202,15 +202,21 @@ def _resolve_completion_state(
     *,
     completion_mode_override: str | None,
     timeout_occurred: bool,
+    timeout_reason: str | None,
     has_remaining_scope: bool,
 ) -> tuple[str, bool]:
+    terminal_timeout_reasons = {'queue_wait_timeout', 'first_token_watchdog_timeout'}
+    normalized_timeout_reason = str(timeout_reason or '').strip().lower()
+    timeout_contributes_remaining_scope = (
+        timeout_occurred and normalized_timeout_reason not in terminal_timeout_reasons
+    )
     default_mode = 'partial' if timeout_occurred else 'complete'
     completion_mode = completion_mode_override or default_mode
     if completion_mode not in _VALID_COMPLETION_MODES:
         completion_mode = default_mode
     resolved_remaining_scope = (
         has_remaining_scope
-        or timeout_occurred
+        or timeout_contributes_remaining_scope
         or completion_mode == 'stopped'
     )
     if resolved_remaining_scope and completion_mode == 'complete':
@@ -230,6 +236,8 @@ def _resolve_next_action(
     if stopped_by_user:
         return 'regenerate', 'stopped'
     normalized_reason = str(continuation_resolution_reason or '').strip().lower()
+    if normalized_reason in {'queue_wait_timeout', 'first_token_watchdog_timeout'}:
+        return 'none', None
     if normalized_reason in {'duplicate_continuation_detected'}:
         return 'regenerate', 'stalled'
     if not has_remaining_scope:
@@ -293,6 +301,10 @@ _CONTINUATION_PATTERN = re.compile(
     r'^\s*(continue|go on|carry on|resume|proceed|keep going|go ahead)\b',
     re.IGNORECASE,
 )
+_CONTINUATION_STRUCTURED_OUTPUT_PATTERN = re.compile(
+    r'\b(markdown\s+table|columns?\s*:|rows?\s+as|output\s+only\s+a\s+markdown\s+table)\b',
+    re.IGNORECASE,
+)
 
 
 def _is_continuation_request(question: str) -> bool:
@@ -351,6 +363,28 @@ def _build_auto_continue_pass_prompt(
         original_question.strip(),
     ]
     return '\n'.join(lines).strip()
+
+
+def _continuation_requires_structured_output(question: str) -> bool:
+    return bool(_CONTINUATION_STRUCTURED_OUTPUT_PATTERN.search(str(question or '')))
+
+
+def _normalize_continuation_classification(
+    *,
+    classification: QueryClassification,
+    continuation_anchor_question: str,
+) -> QueryClassification:
+    classification.is_continuation = True
+    classification.route_candidate = 'continuation_or_refinement'
+    if 'deterministic_continuation_route_enforced' not in classification.reason_codes:
+        classification.reason_codes.append('deterministic_continuation_route_enforced')
+    if not _continuation_requires_structured_output(continuation_anchor_question):
+        classification.response_shape = 'narrative_synthesis'
+        if classification.subtype == 'extract_structured_values':
+            classification.subtype = None
+            if 'deterministic_continuation_structured_subtype_cleared' not in classification.reason_codes:
+                classification.reason_codes.append('deterministic_continuation_structured_subtype_cleared')
+    return classification
 
 
 def _is_duplicate_continuation_pass(previous_answer: str | None, current_answer: str) -> bool:
@@ -700,7 +734,12 @@ async def chat(
 
                 # Override continuation_request with the authoritative classifier result.
                 if locked_classification is not None:
-                    continuation_request = locked_classification.is_continuation
+                    continuation_request = bool(continuation_request or locked_classification.is_continuation)
+                    if continuation_request:
+                        locked_classification = _normalize_continuation_classification(
+                            classification=locked_classification,
+                            continuation_anchor_question=continuation_anchor_question,
+                        )
 
                 auto_continue_enabled, max_auto_continue_rounds, auto_continue_prompt = _resolve_auto_continue_policy()
                 base_history = list(history)
@@ -790,6 +829,8 @@ async def chat(
                             timeout_payload = item[1] if isinstance(item[1], dict) else {}
                             timeout_seconds = float(timeout_payload.get('timeout_seconds') or 0.0)
                             timeout_reason = str(timeout_payload.get('reason') or 'unknown_timeout')
+                            if continuation_resolution_reason is None:
+                                continuation_resolution_reason = timeout_reason
                             _update_sse_phase('timeout')
                             yield {
                                 'event': 'timeout',
@@ -1014,6 +1055,7 @@ async def chat(
                 message_completion_mode, message_has_remaining_scope = _resolve_completion_state(
                     completion_mode_override=completion_mode_override,
                     timeout_occurred=timeout_occurred,
+                    timeout_reason=timeout_reason,
                     has_remaining_scope=has_remaining_scope,
                 )
                 message_next_action, message_next_action_reason = _resolve_next_action(
@@ -1214,6 +1256,7 @@ async def chat(
             completion_mode, done_has_remaining_scope = _resolve_completion_state(
                 completion_mode_override=completion_mode_override,
                 timeout_occurred=timeout_occurred,
+                timeout_reason=timeout_reason,
                 has_remaining_scope=has_remaining_scope,
             )
             next_action, next_action_reason = _resolve_next_action(
