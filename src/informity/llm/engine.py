@@ -17,7 +17,6 @@ from __future__ import annotations
 import asyncio
 import json
 import os
-import re
 import shutil
 import threading
 import time
@@ -26,6 +25,7 @@ from contextlib import suppress
 from pathlib import Path
 
 import structlog
+from thinkstrip import ThinkStrip, strip_think_prefill
 
 from informity.config import settings
 from informity.exceptions import LLMError
@@ -132,7 +132,7 @@ def _messages_to_prompt(chat_template: str, messages: list[dict[str, str]]) -> s
                 # Strip trailing <think> prefill that some GGUF builds add.
                 # The model will generate <think> itself; having it in the prompt
                 # breaks our streaming <think> block detection.
-                prompt = re.sub(r'\s*<think>\s*$', '', prompt)
+                prompt = strip_think_prefill(prompt)
                 log.debug(
                     'gguf_template_used',
                     prompt_len  = len(prompt),
@@ -763,11 +763,7 @@ class LLMEngine:
             min(_FIRST_TOKEN_WATCHDOG_MAX_SECONDS, wall_clock * _FIRST_TOKEN_WATCHDOG_RATIO),
         )
 
-        # Think-block filter state — strips <think>...</think> from the token stream.
-        # Qwen3 models emit a think block before the answer when reasoning is enabled.
-        # These blocks should not be included in the displayed answer or word counts.
-        _in_think_block = False
-        _think_partial   = ''  # accumulates partial tag text to detect split-token boundaries
+        stripper = ThinkStrip()
 
         try:
             while True:
@@ -808,52 +804,20 @@ class LLMEngine:
                     continue
 
                 if item is _STREAM_END:
-                    # Flush the partial-tag safety buffer.  The inner loop keeps
-                    # up to 6 chars buffered to detect a split '<think>' tag; on
-                    # normal stream end those chars must be emitted or they are
-                    # silently lost (e.g. the final word of a short answer).
-                    if not _in_think_block and _think_partial:
+                    emit_text = stripper.flush()
+                    if emit_text:
                         if first_token_ms is None:
                             first_token_ms = (time.perf_counter() - start) * 1000
                         token_count += 1
-                        total_text  += _think_partial
-                        yield _think_partial
-                        _think_partial = ''
+                        total_text += emit_text
+                        yield emit_text
                     break
                 if isinstance(item, tuple) and len(item) == 2 and item[0] == '__finish_reason__':
                     finish_reason = item[1]
                     continue
 
                 raw_token = str(item)
-
-                # Think-block filtering: accumulate into a rolling buffer and strip
-                # <think>...</think> regions before emitting to the consumer.
-                _think_partial += raw_token
-                emit_text = ''
-                while _think_partial:
-                    if not _in_think_block:
-                        start_pos = _think_partial.find('<think>')
-                        if start_pos == -1:
-                            # No think block opening. Keep last 6 chars buffered in case
-                            # '<think>' is split across tokens; emit the rest.
-                            safe_len = max(0, len(_think_partial) - 6)
-                            emit_text += _think_partial[:safe_len]
-                            _think_partial = _think_partial[safe_len:]
-                            break
-                        # Emit text before the think block, then enter think mode.
-                        emit_text += _think_partial[:start_pos]
-                        _in_think_block = True
-                        _think_partial = _think_partial[start_pos + len('<think>'):]
-                    else:
-                        end_pos = _think_partial.find('</think>')
-                        if end_pos == -1:
-                            # Still inside think block — discard buffered content,
-                            # keep last 7 chars in case '</think>' is split.
-                            _think_partial = _think_partial[max(0, len(_think_partial) - 7):]
-                            break
-                        # Discard up to and including </think>, exit think mode.
-                        _in_think_block = False
-                        _think_partial = _think_partial[end_pos + len('</think>'):]
+                emit_text = stripper.feed(raw_token)
 
                 if not emit_text:
                     continue
