@@ -5,6 +5,8 @@
 
 import re
 
+from thinkstrip import strip_think
+
 DISPLAY_FALLBACK_MESSAGE = (
     'I could not generate a final answer from the model output. Please try rephrasing your question.'
 )
@@ -16,20 +18,7 @@ def strip_think_blocks(text: str) -> str:
     Strip <think> reasoning blocks from text for display.
     Handles complete and orphaned tags.
     """
-    # Intentionally handle the model variant `<<think>>...</think>>` in addition to
-    # canonical `<think>...</think>` blocks.
-    cleaned = re.sub(r'<<think>>.*?</think>>', '', text, flags=re.DOTALL | re.IGNORECASE)
-    cleaned = re.sub(r'<think>.*?</think>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
-
-    think_idx = cleaned.lower().find('<think>')
-    if think_idx != -1 and cleaned.lower().find('</think>', think_idx) == -1:
-        cleaned = cleaned[:think_idx]
-
-    think_idx_double = cleaned.lower().find('<<think>>')
-    if think_idx_double != -1 and cleaned.lower().find('</think>>', think_idx_double) == -1:
-        cleaned = cleaned[:think_idx_double]
-
-    return cleaned.strip()
+    return strip_think(text).strip()
 
 
 def strip_source_artifacts(text: str) -> str:
