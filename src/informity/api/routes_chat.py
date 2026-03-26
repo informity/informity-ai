@@ -650,6 +650,8 @@ async def chat(
             resource_end_snapshot: dict[str, object] | None = None
             resource_metrics: dict[str, object] = {}
             previous_pass_raw_answer: str | None = None
+            pre_classification_elapsed_ms: float | None = None
+            sanitization_elapsed_ms: float | None = None
 
             try:
                 def _build_status_event(
@@ -719,9 +721,11 @@ async def chat(
                 # On failure, falls through to None so planning runs unconditionally (safe fallback).
                 locked_classification = None
                 try:
+                    classify_start = time.perf_counter()
                     locked_classification = await asyncio.to_thread(
                         classify_query, continuation_anchor_question,
                     )
+                    pre_classification_elapsed_ms = (time.perf_counter() - classify_start) * 1000.0
                     log.info(
                         'query_pre_classified',
                         chat_id=chat_id,
@@ -1014,7 +1018,9 @@ async def chat(
                     full_answer = 'I could not find enough information to answer your question.'
                     log.warning('chat_empty_after_cleaning', chat_id=chat_id)
                 generation_seconds = time.time() - start_time
+                sanitize_started = time.perf_counter()
                 cleaned_answer, reasoning_only_output = build_display_answer(full_answer)
+                sanitization_elapsed_ms = (time.perf_counter() - sanitize_started) * 1000.0
                 structural_incomplete_reason = _mark_structural_output_gap(cleaned_answer or full_answer)
                 if structural_incomplete_reason and completion_mode_override != 'stopped':
                     log.info(
@@ -1047,6 +1053,10 @@ async def chat(
                     metrics_query_type = query_type.strip().lower() if query_type else 'unknown'
                 if continuation_passes > 0 and continuation_progress_state is None:
                     continuation_progress_state = 'progressed' if not has_remaining_scope else 'budget_exhausted'
+                if pre_classification_elapsed_ms is not None:
+                    budget_metrics['classification_duration_ms'] = round(pre_classification_elapsed_ms, 1)
+                if sanitization_elapsed_ms is not None:
+                    budget_metrics['sanitization_duration_ms'] = round(sanitization_elapsed_ms, 1)
 
                 _update_sse_phase('cleaned')
                 yield {'event': 'cleaned', 'data': cleaned_answer}
@@ -1103,6 +1113,28 @@ async def chat(
                         'after': resource_end_snapshot,
                         'delta': build_resource_delta(before=request_resource_snapshot, after=resource_end_snapshot),
                     }
+                    timing_trace_payload: dict[str, object] = {
+                        'elapsed_seconds': round(generation_seconds, 3),
+                    }
+                    for key in (
+                        'classification_duration_ms',
+                        'retrieval_duration_ms',
+                        'embed_ms',
+                        'vector_search_ms',
+                        'rerank_ms',
+                        'prompt_duration_ms',
+                        'prompt_build_ms',
+                        'first_token_latency_ms',
+                        'ttft_ms',
+                        'stream_duration_ms',
+                        'sanitization_duration_ms',
+                    ):
+                        value = budget_metrics.get(key)
+                        if isinstance(value, bool):
+                            continue
+                        if isinstance(value, (int, float)):
+                            timing_trace_payload[key] = round(float(value), 3)
+                    trace_writer.record('timing', timing_trace_payload)
                     trace_writer.record('response', {
                         'answer_length': len(full_answer),
                         'display_answer_length': len(cleaned_answer),

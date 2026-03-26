@@ -260,6 +260,11 @@ def test_generation_closeout_metrics_payload_contract_shape() -> None:
     assert payload['query_type'] == 'focused'
     assert payload['first_token_latency_ms'] == 123.5
     assert payload['soft_budget_checkpoints_hit'] == [60, 80]
+    assert payload['embed_ms'] is None
+    assert payload['vector_search_ms'] is None
+    assert payload['rerank_ms'] is None
+    assert payload['prompt_build_ms'] is None
+    assert payload['ttft_ms'] is None
 
 
 def test_generation_terminal_builds_generation_skipped_payload_and_limited_sources() -> None:
