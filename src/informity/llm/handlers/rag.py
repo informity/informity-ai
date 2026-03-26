@@ -345,6 +345,7 @@ class RAGHandler:
                 route_candidate=classification.route_candidate,
                 dedupe_prompt_chunks_fn=_retrieval_pipeline._deduplicate_prompt_chunks,
                 derive_format_requirements_fn=_structured_numeric._derive_format_requirements,
+                action_hints=classification.action_hints,
                 # Skip the pre-closeout quality check when the gatekeeper demoted a coverage query
                 # to focused mode via fallback. The check — "don't generate for a focused query with
                 # uncertain relevance under budget pressure" — does not apply: the original query was

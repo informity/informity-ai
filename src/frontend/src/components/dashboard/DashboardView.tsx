@@ -304,7 +304,7 @@ export function DashboardView() {
     })
   }, [])
 
-  const handleScanNow = async () => {
+  const runScan = useCallback(async (force: boolean, failureFallbackMessage: string, successMessage: string) => {
     if (offline) return
     setScanning(true)
     setScanError(null)
@@ -317,20 +317,24 @@ export function DashboardView() {
         dirs = fresh?.watched_directories
         if (fresh) setSettings(fresh)
       }
-      await scanFiles(dirs ?? undefined, false)
+      await scanFiles(dirs ?? undefined, force)
       const isRunning = await loadScanStatus()
       if (isRunning) {
         await loadIndexStatus()
       }
-      showToast('success', 'Scan started')
+      showToast('success', successMessage)
     } catch (err) {
-      const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Scan failed'
+      const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : failureFallbackMessage
       setScanError(msg)
       showToast('error', msg)
     } finally {
       setScanning(false)
     }
-  }
+  }, [offline, settings?.watched_directories, loadScanStatus, loadIndexStatus])
+
+  const handleScanNow = useCallback(async () => {
+    await runScan(false, 'Scan failed', 'Scan started')
+  }, [runScan])
 
   const isScanRunning = scanStatus?.status === 'running'
   const watchedDirCount = settings?.watched_directories?.length ?? 0
@@ -368,30 +372,7 @@ export function DashboardView() {
       icon:       'ri-refresh-line',
     })
     if (!ok) return
-    setScanning(true)
-    setScanError(null)
-    setDismissedNoticeKeys(new Set())
-    setSuppressRecentErrors(false)
-    try {
-      let dirs = settings?.watched_directories
-      if (!dirs?.length) {
-        const fresh = (await getSettings()) as SettingsData
-        dirs = fresh?.watched_directories
-        if (fresh) setSettings(fresh)
-      }
-      await scanFiles(dirs ?? undefined, true)
-      const isRunning = await loadScanStatus()
-      if (isRunning) {
-        await loadIndexStatus()
-      }
-      showToast('success', 'Rescan started')
-    } catch (err) {
-      const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Rescan failed'
-      setScanError(msg)
-      showToast('error', msg)
-    } finally {
-      setScanning(false)
-    }
+    await runScan(true, 'Rescan failed', 'Rescan started')
   }
 
   const handleCancelScan = async () => {

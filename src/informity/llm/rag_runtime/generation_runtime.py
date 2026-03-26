@@ -92,10 +92,11 @@ def _apply_strict_format_prompt_controls(
     max_tokens: int,
     reasoning_enabled: bool,
     derive_format_requirements_fn,
+    action_hints: dict[str, bool] | None,
     applied_degradations: list[dict[str, object]],
     min_output_budget_floor: int | None = None,
 ) -> tuple[list[str], dict[str, int], int, bool, list[dict], list[dict[str, object]]]:
-    format_requirements = list(derive_format_requirements_fn(question) or [])
+    format_requirements = list(derive_format_requirements_fn(question, action_hints) or [])
     constraints = dict(output_constraints or {})
 
     max_words_match = re.search(

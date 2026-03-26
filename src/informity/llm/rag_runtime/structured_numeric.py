@@ -338,8 +338,23 @@ def _extract_required_headings(question: str) -> list[str]:
     return headings
 
 
-def _derive_format_requirements(question: str) -> list[str]:
+def _derive_format_requirements(
+    question: str,
+    action_hints: dict[str, bool] | None = None,
+) -> list[str]:
     requirements: list[str] = []
+    seen_requirements: set[str] = set()
+
+    def _append_requirement(value: str) -> None:
+        normalized = str(value or '').strip()
+        if not normalized:
+            return
+        key = normalized.casefold()
+        if key in seen_requirements:
+            return
+        seen_requirements.add(key)
+        requirements.append(normalized)
+
     headings = _extract_required_headings(question)
     if headings:
         ordered_heading_cues = [
@@ -351,26 +366,32 @@ def _derive_format_requirements(question: str) -> list[str]:
         ]
         has_ordered_cue = any(re.search(pattern, question, re.IGNORECASE) for pattern in ordered_heading_cues)
         if has_ordered_cue:
-            requirements.append('use the required headings exactly and in the requested order')
+            _append_requirement('use the required headings exactly and in the requested order')
         else:
-            requirements.append('use all headings explicitly requested by the user')
-        requirements.extend([f'include heading: {heading}' for heading in headings[:12]])
+            _append_requirement('use all headings explicitly requested by the user')
+        for heading in headings[:12]:
+            _append_requirement(f'include heading: {heading}')
     bullet_depth_match = re.search(r'exactly\s+([23])\s+levels?', question, re.IGNORECASE)
     if bullet_depth_match:
-        requirements.append(f'use nested bullet lists with exactly {bullet_depth_match.group(1)} levels where requested')
+        _append_requirement(f'use nested bullet lists with exactly {bullet_depth_match.group(1)} levels where requested')
     year_subsection_cues = [
         r'one\s+subsection\s+per\s+(?:indexed|available|requested)?\s*year',
         r'for\s+each\s+year',
         r'findings\s+by\s+year',
     ]
     if any(re.search(pattern, question, re.IGNORECASE) for pattern in year_subsection_cues):
-        requirements.append('for year-grouped sections, include one subsection per year using markdown headings like "### YYYY"')
+        _append_requirement('for year-grouped sections, include one subsection per year using markdown headings like "### YYYY"')
         if re.search(r'across\s+all\s+indexed\s+records|year[-\s]*over[-\s]*year|cross[-\s]*year', question, re.IGNORECASE):
-            requirements.append('when multiple years are available in context, include at least 2 distinct year subsections')
+            _append_requirement('when multiple years are available in context, include at least 2 distinct year subsections')
     if re.search(r'missing evidence|missing records|gaps', question, re.IGNORECASE):
-        requirements.append('explicitly call out missing evidence by requested group and/or year')
+        _append_requirement('explicitly call out missing evidence by requested group and/or year')
+    if bool(action_hints and action_hints.get('should_enumerate')):
+        _append_requirement('present findings as a numbered or bulleted list when no stricter format contract overrides it')
+    if bool(action_hints and action_hints.get('should_compare')):
+        _append_requirement('use a side-by-side or structured comparison format grounded in retrieved evidence')
     required_terms = _extract_required_terms_from_user_contract(question)
-    requirements.extend([f'include term: {term}' for term in required_terms[:10]])
+    for term in required_terms[:10]:
+        _append_requirement(f'include term: {term}')
     return requirements
 
 

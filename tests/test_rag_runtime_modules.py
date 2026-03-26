@@ -118,6 +118,34 @@ def test_structured_numeric_derives_cover_clause_required_terms() -> None:
     assert 'include term: evidence' in requirements
 
 
+def test_structured_numeric_uses_action_hints_for_enumeration() -> None:
+    requirements = _derive_format_requirements(
+        'Summarize key findings.',
+        action_hints={'should_enumerate': True},
+    )
+    assert any('numbered or bulleted list' in requirement for requirement in requirements)
+
+
+def test_structured_numeric_uses_action_hints_for_comparison() -> None:
+    requirements = _derive_format_requirements(
+        'Summarize key findings.',
+        action_hints={'should_compare': True},
+    )
+    assert any('side-by-side or structured comparison format' in requirement for requirement in requirements)
+
+
+def test_structured_numeric_action_hints_do_not_duplicate_existing_requirements() -> None:
+    requirements = _derive_format_requirements(
+        'Provide findings by year and compare key changes across all indexed records.',
+        action_hints={'should_compare': True},
+    )
+    comparison_requirements = [
+        requirement for requirement in requirements
+        if 'side-by-side or structured comparison format' in requirement
+    ]
+    assert len(comparison_requirements) == 1
+
+
 def test_retrieval_validation_coverage_evidence_floor_override() -> None:
     passed, events = _apply_coverage_evidence_floor_override(
         retrieval_relevance_passed=False,
