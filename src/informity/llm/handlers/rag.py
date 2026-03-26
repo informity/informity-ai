@@ -528,6 +528,11 @@ class RAGHandler:
                 fallback_events=fallback_events,
                 has_remaining_scope=has_remaining_scope,
                 stream_recovery_reason=stream_recovery_reason,
+                embed_ms=stream_summary.embed_ms,
+                vector_search_ms=stream_summary.vector_search_ms,
+                rerank_ms=stream_summary.rerank_ms,
+                prompt_build_ms=stream_summary.prompt_build_ms,
+                ttft_ms=stream_summary.ttft_ms,
             )
             yield ('__metrics__', metrics_payload)
             _generation_closeout.record_generation_trace(

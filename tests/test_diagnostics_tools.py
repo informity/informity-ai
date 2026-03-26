@@ -3,7 +3,14 @@ from __future__ import annotations
 import json
 from random import Random
 
-from tools.diagnostics import analyze, evaluate, generate_queries, pipeline, run_control
+from tools.diagnostics import (
+    analyze,
+    evaluate,
+    generate_queries,
+    pipeline,
+    run_control,
+    run_test_queries_suite,
+)
 
 from informity.chat_trace import _ChatTraceWriter
 
@@ -487,6 +494,38 @@ def test_pipeline_run_evaluate_uses_analysis_only_mode(monkeypatch) -> None:
     cmd = captured.get('cmd')
     assert isinstance(cmd, list)
     assert '--response-mode' not in cmd
+
+
+def test_run_test_queries_extracts_stage_latencies_ms_from_done_budget_metrics() -> None:
+    done = {
+        'budget_metrics': {
+            'retrieval_duration_ms': 512.4,
+            'embed_ms': 81.0,
+            'vector_search_ms': 63.5,
+            'rerank_ms': 121.2,
+            'prompt_duration_ms': 3.8,
+            'first_token_latency_ms': 2488.9,
+            'stream_duration_ms': 8844.1,
+            'sanitization_duration_ms': 1.2,
+        },
+    }
+    extracted = run_test_queries_suite._extract_stage_latencies_ms(done)
+    assert extracted['retrieval_duration_ms'] == 512.4
+    assert extracted['embed_ms'] == 81.0
+    assert extracted['sanitization_duration_ms'] == 1.2
+
+
+def test_run_test_queries_builds_stage_latency_summary_ms() -> None:
+    summary = run_test_queries_suite._build_stage_latency_summary_ms(
+        [
+            {'stage_latencies_ms': {'retrieval_duration_ms': 100.0, 'stream_duration_ms': 200.0}},
+            {'stage_latencies_ms': {'retrieval_duration_ms': 400.0, 'stream_duration_ms': 900.0}},
+            {'stage_latencies_ms': {}},
+        ],
+    )
+    assert summary['retrieval_duration_ms']['p50'] == 100.0
+    assert summary['retrieval_duration_ms']['max'] == 400.0
+    assert summary['stream_duration_ms']['p95'] == 200.0
 
 
 def test_validate_query_expectations_extended_output_shape() -> None:

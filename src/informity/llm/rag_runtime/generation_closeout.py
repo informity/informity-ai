@@ -63,6 +63,11 @@ def build_generation_metrics_payload(
     fallback_events: list[dict[str, object]],
     has_remaining_scope: bool,
     stream_recovery_reason: str | None,
+    embed_ms: float | None = None,
+    vector_search_ms: float | None = None,
+    rerank_ms: float | None = None,
+    prompt_build_ms: float | None = None,
+    ttft_ms: float | None = None,
 ) -> dict[str, object]:
     return {
         'query_type': query_type,
@@ -88,6 +93,11 @@ def build_generation_metrics_payload(
         'fallback_events': fallback_events,
         'has_remaining_scope': has_remaining_scope,
         'stream_recovery_reason': stream_recovery_reason,
+        'embed_ms': embed_ms,
+        'vector_search_ms': vector_search_ms,
+        'rerank_ms': rerank_ms,
+        'prompt_build_ms': prompt_build_ms,
+        'ttft_ms': ttft_ms,
         'generation_skipped': False,
     }
 
