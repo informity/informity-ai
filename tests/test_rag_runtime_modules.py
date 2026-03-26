@@ -1,5 +1,6 @@
 from informity.config import settings
 from informity.db.models import ChatMessage
+from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
 from informity.llm.rag_runtime.retrieval_pipeline import _build_focused_anchor_recovery_query
 from informity.llm.rag_runtime.retrieval_validation import (
@@ -297,3 +298,74 @@ def test_structured_numeric_bullet_renderer_outputs_exact_count() -> None:
     )
     assert answer.count('\n- ') == 3
     assert 'Missing Evidence' in answer
+
+
+def test_generation_closeout_source_references_filter_to_used_chunks() -> None:
+    chunks = [
+        {
+            'filename': 'tax_2024.pdf',
+            'file_path': '/docs/tax_2024.pdf',
+            'chunk_text': 'Property tax receipt shows total paid 2024 county bill.',
+            'score': 0.81,
+        },
+        {
+            'filename': 'bank.pdf',
+            'file_path': '/docs/bank.pdf',
+            'chunk_text': 'Checking account transfer history and unrelated debit card rows.',
+            'score': 0.74,
+        },
+    ]
+    sources = _generation_closeout.build_source_references(
+        chunks=chunks,
+        answer_text='The property tax receipt confirms total paid for 2024.',
+        truncate_preview_fn=lambda text: text,
+        normalize_relevance_score_fn=lambda score: float(score),
+    )
+    assert len(sources) == 1
+    assert sources[0].filename == 'tax_2024.pdf'
+
+
+def test_generation_closeout_source_references_fallback_to_top_when_no_overlap() -> None:
+    chunks = [
+        {
+            'filename': f'doc_{idx}.pdf',
+            'file_path': f'/docs/doc_{idx}.pdf',
+            'chunk_text': f'Chunk text {idx} with archive metadata and unrelated content.',
+            'score': 0.9 - idx * 0.01,
+        }
+        for idx in range(7)
+    ]
+    sources = _generation_closeout.build_source_references(
+        chunks=chunks,
+        answer_text='This final answer discusses topics absent from retrieved chunks.',
+        truncate_preview_fn=lambda text: text,
+        normalize_relevance_score_fn=lambda score: float(score),
+    )
+    assert len(sources) == 5
+    assert sources[0].filename == 'doc_0.pdf'
+    assert sources[-1].filename == 'doc_4.pdf'
+
+
+def test_generation_closeout_source_references_keep_all_when_answer_empty() -> None:
+    chunks = [
+        {
+            'filename': 'a.pdf',
+            'file_path': '/docs/a.pdf',
+            'chunk_text': 'Alpha chunk',
+            'score': 0.5,
+        },
+        {
+            'filename': 'b.pdf',
+            'file_path': '/docs/b.pdf',
+            'chunk_text': 'Beta chunk',
+            'score': 0.4,
+        },
+    ]
+    sources = _generation_closeout.build_source_references(
+        chunks=chunks,
+        answer_text='',
+        truncate_preview_fn=lambda text: text,
+        normalize_relevance_score_fn=lambda score: float(score),
+    )
+    assert len(sources) == 2
+    assert {source.filename for source in sources} == {'a.pdf', 'b.pdf'}

@@ -561,6 +561,7 @@ class RAGHandler:
             # Normalize CrossEncoder raw logits to 0-1 for display (sigmoid)
             sources = _generation_closeout.build_source_references(
                 chunks=chunks,
+                answer_text=stream_summary.final_answer,
                 truncate_preview_fn=_truncate_preview,
                 normalize_relevance_score_fn=_retrieval_validation._normalize_relevance_score,
             )

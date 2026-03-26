@@ -30,6 +30,7 @@ class StreamExecutionSummary:
     soft_budget_checkpoints_hit: list[int]
     completion_mode: str
     has_remaining_scope: bool
+    final_answer: str = ''
     # Per-stage latency breakdown (set by rag.py after streaming completes).
     # All values are wall-clock milliseconds measured with perf_counter.
     embed_ms: float | None = None           # Query embedding time
@@ -314,4 +315,5 @@ async def stream_generation_with_budget(
         soft_budget_checkpoints_hit=sorted(int(ratio * 100) for ratio in checkpoints_emitted),
         completion_mode=completion_mode,
         has_remaining_scope=has_remaining_scope,
+        final_answer=''.join(answer_parts),
     ))
