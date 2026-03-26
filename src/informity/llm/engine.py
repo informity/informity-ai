@@ -43,6 +43,9 @@ DEFAULT_HF_FILENAME = 'Meta-Llama-3.1-8B-Instruct-Q5_K_M.gguf'
 
 # Sentinel put on the queue when the stream worker is done
 _STREAM_END: object = object()
+_FIRST_TOKEN_WATCHDOG_MIN_SECONDS = 45.0
+_FIRST_TOKEN_WATCHDOG_MAX_SECONDS = 180.0
+_FIRST_TOKEN_WATCHDOG_RATIO = 0.30
 
 
 # ==============================================================================
@@ -755,6 +758,10 @@ class LLMEngine:
         finish_reason: str | None = None
         timeout_occurred = False
         timeout_reason: str | None = None
+        first_token_deadline_seconds = max(
+            _FIRST_TOKEN_WATCHDOG_MIN_SECONDS,
+            min(_FIRST_TOKEN_WATCHDOG_MAX_SECONDS, wall_clock * _FIRST_TOKEN_WATCHDOG_RATIO),
+        )
 
         # Think-block filter state — strips <think>...</think> from the token stream.
         # Qwen3 models emit a think block before the answer when reasoning is enabled.
@@ -777,22 +784,28 @@ class LLMEngine:
                     timeout_occurred = True
                     timeout_reason = 'wall_clock_limit'
                     break
-
-                remaining_timeout = wall_clock - elapsed
-                try:
-                    item = await asyncio.wait_for(queue.get(), timeout=remaining_timeout)
-                except TimeoutError:
+                if first_token_ms is None and elapsed >= first_token_deadline_seconds:
                     log.warning(
-                        'llm_stream_queue_timeout',
-                        elapsed_seconds  = round(time.perf_counter() - start, 1),
-                        timeout_seconds  = wall_clock,
-                        tokens_generated = token_count,
-                        msg              = 'Queue timeout; stopping generation',
+                        'llm_stream_first_token_watchdog_timeout',
+                        elapsed_seconds=round(elapsed, 1),
+                        first_token_deadline_seconds=round(first_token_deadline_seconds, 1),
+                        timeout_seconds=wall_clock,
+                        tokens_generated=token_count,
+                        msg='No first token observed before watchdog deadline; stopping generation',
                     )
                     cancel_event.set()
                     timeout_occurred = True
-                    timeout_reason = 'queue_wait_timeout'
+                    timeout_reason = 'first_token_watchdog_timeout'
                     break
+
+                remaining_timeout = wall_clock - elapsed
+                # Poll in short intervals so first-token watchdog can trip even
+                # when the worker thread yields no queue events.
+                queue_poll_timeout = min(remaining_timeout, 2.0)
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=queue_poll_timeout)
+                except TimeoutError:
+                    continue
 
                 if item is _STREAM_END:
                     # Flush the partial-tag safety buffer.  The inner loop keeps

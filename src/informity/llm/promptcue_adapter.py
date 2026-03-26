@@ -49,21 +49,14 @@ _BROAD_FLIPS: frozenset[str] = frozenset({
     'lookup', 'procedure', 'troubleshooting', 'recommendation', 'validation', 'update',
 })
 
-# FOCUSED scope flips these coverage-default types to 'focused'.
-_FOCUSED_FLIPS: frozenset[str] = frozenset({
-    'analysis', 'comparison', 'summarization', 'coverage', 'generation',
-})
-
-
 def _map_intent(query_type: str, scope: str) -> IntentLabel:
     """Map a PromptCue (query_type, scope) pair to an informity-ai IntentLabel."""
     base = _DEFAULT_INTENT.get(query_type, 'focused')
+    normalized_scope = str(scope or '').strip().casefold()
     if base == 'simple':
         return 'simple'
-    if scope == 'broad' and query_type in _BROAD_FLIPS:
+    if normalized_scope == 'broad' and query_type in _BROAD_FLIPS:
         return 'coverage'
-    if scope == 'focused' and query_type in _FOCUSED_FLIPS:
-        return 'focused'
     return base
 
 

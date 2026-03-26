@@ -146,7 +146,17 @@ def build_generation_prompt_plan(
     })
     output_contract_plan_data: dict[str, object] = {}
     required_terms: list[str] = []
+    required_headings: list[str] = []
+    enforce_heading_order = False
     for requirement in format_requirements:
+        heading_match = re.match(r'^\s*include\s+heading\s*:\s*(.+?)\s*$', str(requirement or ''), flags=re.IGNORECASE)
+        if heading_match is not None:
+            heading = str(heading_match.group(1) or '').strip()
+            if heading and heading.casefold() not in {item.casefold() for item in required_headings}:
+                required_headings.append(heading)
+            continue
+        if 'requested order' in str(requirement or '').casefold():
+            enforce_heading_order = True
         match = re.match(r'^\s*include\s+term\s*:\s*(.+?)\s*$', str(requirement or ''), flags=re.IGNORECASE)
         if match is None:
             continue
@@ -159,12 +169,13 @@ def build_generation_prompt_plan(
     if min_year_subsections > 0:
         output_contract_plan_data['min_year_subsections'] = min_year_subsections
         output_contract_plan_data['expected_years'] = context_years
+    if required_headings:
+        output_contract_plan_data['required_headings'] = required_headings
+        output_contract_plan_data['enforce_required_headings'] = True
+        output_contract_plan_data['enforce_heading_order'] = enforce_heading_order
     if required_terms:
         output_contract_plan_data['required_terms'] = required_terms
-        output_contract_plan_data['enforce_required_terms'] = (
-            effective_query_type == 'coverage'
-            and not isinstance(output_constraints.get('max_words'), int)
-        )
+        output_contract_plan_data['enforce_required_terms'] = True
     output_contract_plan = output_contract_plan_data or None
     messages = build_messages_fn(
         question,
