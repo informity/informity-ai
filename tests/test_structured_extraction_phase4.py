@@ -119,6 +119,27 @@ def test_should_not_run_for_summary_prompt_with_global_contract() -> None:
     ) is False
 
 
+def test_should_not_run_for_strict_ordered_heading_contract_even_with_table_cue() -> None:
+    classification = QueryClassification(
+        intent='coverage',
+        subtype='extract_structured_values',
+        group_by='year',
+        field_hint=None,
+    )
+    question = (
+        'Return a compliance-ready brief with headings exactly in this order: '
+        '## Requested Output Contract, ## Evidence Coverage, ## Conflicts and Contradictions, '
+        '## Missing Evidence, ## Verification Plan. '
+        'Under ## Evidence Coverage include exactly one markdown table with columns: '
+        'Group, Years Covered, Key Evidence, Confidence.'
+    )
+    assert _should_run_structured_extraction(
+        question=question,
+        classification=classification,
+        response_shape='metadata_table',
+    ) is False
+
+
 def test_should_not_run_when_missing_evidence_callout_is_required() -> None:
     classification = QueryClassification(
         intent='focused',

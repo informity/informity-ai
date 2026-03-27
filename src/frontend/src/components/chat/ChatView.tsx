@@ -462,7 +462,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                 title="Scroll to bottom"
                 aria-label="Scroll to bottom"
               >
-                <i className="ri-arrow-down-line" aria-hidden style={{ fontSize: '1rem' }} />
+                <i className="ri-arrow-down-line" aria-hidden style={{ fontSize: '1.125rem' }} />
               </button>
             )}
           </div>

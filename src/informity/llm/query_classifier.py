@@ -300,13 +300,29 @@ def classify_query(query: str) -> QueryClassification:
 
     if pcue is not None:
         # PromptCue path — richer signals from 12-type classification + scope.
+        semantic_hints = getattr(pcue, 'semantic_hints', None)
         is_continuation      = pcue.is_continuation
-        broad_scope          = str(pcue.scope) == 'broad'
-        plural_scope         = broad_scope  # BROAD scope implies multi-document context
-        single_target_scope  = str(pcue.scope) == 'focused'
-        has_structured_schema = bool(pcue.routing_hints.get('needs_structure'))
-        has_analysis_action  = bool(pcue.action_hints.get('should_compare'))
-        has_multi_year_scope = bool(pcue.routing_hints.get('has_temporal_scope'))
+        # Blend PromptCue scope with deterministic lexical scope cues so
+        # broad/focused routing remains stable when PromptCue scope confidence
+        # is imperfect for corpus-specific phrasing.
+        broad_scope          = (str(pcue.scope) == 'broad') or _looks_broad_scope(lowered)
+        plural_scope         = broad_scope or _looks_plural_corpus_scope_request(lowered)
+        single_target_scope  = (str(pcue.scope) == 'focused') or _looks_single_target_request(lowered)
+        has_structured_schema = (
+            bool(pcue.routing_hints.get('needs_structure'))
+            or bool(getattr(semantic_hints, 'requests_structure', False))
+            or _has_structured_schema_request(lowered)
+        )
+        has_analysis_action  = (
+            bool(pcue.action_hints.get('should_compare'))
+            or bool(getattr(semantic_hints, 'requests_comparison', False))
+            or _has_analysis_action_request(lowered)
+        )
+        has_multi_year_scope = (
+            bool(pcue.routing_hints.get('has_temporal_scope'))
+            or bool(getattr(semantic_hints, 'requires_multi_period_analysis', False))
+            or _has_multi_year_scope_signal(lowered)
+        )
         has_content_analysis = pcue.primary_query_type in {
             'analysis', 'comparison', 'summarization', 'coverage',
         }

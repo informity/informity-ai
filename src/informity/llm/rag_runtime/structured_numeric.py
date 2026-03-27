@@ -29,6 +29,15 @@ _FINANCE_EVIDENCE_STOPWORDS = {
     'not', 'found', 'values', 'value', 'reported', 'report', 'based', 'entries',
     'amount', 'amounts', 'document', 'documents', 'file', 'files',
 }
+_ORDERED_HEADING_CUES = (
+    r'\bin order\b',
+    r'\bin this order\b',
+    r'\bin sequence\b',
+    r'output\s+must\s+contain\s*:\s*##',
+    r'sections?\s+must\s+contain\s*:\s*##',
+    r'headings?\s+exactly',
+    r'headings?\s+in\s+exact\s+order',
+)
 
 
 def _should_run_structured_extraction(
@@ -39,9 +48,16 @@ def _should_run_structured_extraction(
 ) -> bool:
     if _is_finance_conflict_prompt(question):
         return True
+    required_headings = _extract_required_headings(question)
+    has_required_headings = bool(required_headings)
+    has_ordered_heading_cue = any(
+        re.search(pattern, question, re.IGNORECASE)
+        for pattern in _ORDERED_HEADING_CUES
+    )
+    has_strict_heading_contract = has_required_headings and has_ordered_heading_cue
     has_max_words = bool(re.search(r'(?:total\s*)?(?:<=|less than or equal to)\s*(\d+)\s*words?', question, re.IGNORECASE))
     has_exact_top_level_bullets = _extract_exact_top_level_bullet_limit(question) is not None
-    has_global_strict_contract = has_max_words and has_exact_top_level_bullets and not _extract_required_headings(question)
+    has_global_strict_contract = has_max_words and has_exact_top_level_bullets and not has_required_headings
     requires_missing_evidence_callout = bool(
         re.search(r'\bmissing\s+evidence\b', question, re.IGNORECASE)
     )
@@ -53,6 +69,8 @@ def _should_run_structured_extraction(
         re.search(r'\b(?:extract|table|line item|box-level|box)\b', question, re.IGNORECASE)
     )
 
+    if has_strict_heading_contract:
+        return False
     if has_global_strict_contract and not has_explicit_extraction_cue:
         return False
     if classification.field_hint is not None:
@@ -357,14 +375,7 @@ def _derive_format_requirements(
 
     headings = _extract_required_headings(question)
     if headings:
-        ordered_heading_cues = [
-            r'\bin order\b',
-            r'\bin this order\b',
-            r'\bin sequence\b',
-            r'output\s+must\s+contain\s*:\s*##',
-            r'sections?\s+must\s+contain\s*:\s*##',
-        ]
-        has_ordered_cue = any(re.search(pattern, question, re.IGNORECASE) for pattern in ordered_heading_cues)
+        has_ordered_cue = any(re.search(pattern, question, re.IGNORECASE) for pattern in _ORDERED_HEADING_CUES)
         if has_ordered_cue:
             _append_requirement('use the required headings exactly and in the requested order')
         else:
@@ -544,6 +555,7 @@ def _render_structured_rows_bullets_answer(
     normalized_labels = [str(label).strip() for label in (header_labels or []) if str(label).strip()]
     if len(normalized_labels) < 3:
         normalized_labels = ['Field', 'Value', 'Source Snippet']
+    source_label = normalized_labels[2]
     lines.append(' | '.join(normalized_labels[:3]))
     lines.append('')
     selected_rows = rows[:bullet_limit]
@@ -551,9 +563,13 @@ def _render_structured_rows_bullets_answer(
         snippet = str(row.get('evidence_span', '')).strip()
         if len(snippet) > 140:
             snippet = snippet[:137] + '...'
-        lines.append(f"- {row.get('field_label', 'value')} | {row.get('raw_value', '')} | {snippet}")
+        lines.append(
+            f"- {row.get('field_label', 'value')} | {row.get('raw_value', '')} | {source_label}: {snippet}"
+        )
     while len([line for line in lines if line.startswith('- ')]) < bullet_limit:
-        lines.append('- Missing Evidence | N/A | Missing Evidence: insufficient validated rows for requested bullet count.')
+        lines.append(
+            f'- Missing Evidence | N/A | {source_label}: Missing Evidence: insufficient validated rows for requested bullet count.'
+        )
     return '\n'.join(lines).strip()
 
 

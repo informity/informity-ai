@@ -54,6 +54,7 @@ def _apply_strict_ordered_output_budget(
     strict_contract_complexity: bool = False,
 ) -> tuple[dict[str, int], int, bool, dict[str, object] | None]:
     # Compatibility shim: strict ordered budgeting removed from runtime.
+    _ = strict_contract_complexity
     return dict(output_constraints), max_tokens, reasoning_enabled, None
 
 
@@ -159,6 +160,7 @@ def _apply_preflight_budget_degradations(
     route_candidate: str | None = None,
     strict_ordered_mode: bool = False,
 ) -> tuple[str, int, bool, int, int, dict[str, int], list[dict[str, object]], float, float]:
+    _ = policy_soft_reasoning_threshold
     projected_seconds, ratio = _estimate_budget_ratio(
         profile_name=profile_name,
         query_type=query_type,

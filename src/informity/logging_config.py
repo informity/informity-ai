@@ -190,7 +190,7 @@ class _TemporaryLoggerSuppression:
         self.logger.setLevel(self.temporary_level)
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, _exc_type, _exc_val, _exc_tb) -> None:
         if self.logger is not None and self.original_level is not None:
             # Restore original level. If it was NOTSET, restore to NOTSET so logger
             # inherits from parent logger's level (consistent with original behavior).
