@@ -103,3 +103,8 @@ known-first-party = ["informity"]
 testpaths = ["tests"]
 asyncio_mode = "auto"
 pythonpath = ["src"]
+addopts = "-m \"not integration and not diagnostics\""
+markers = [
+    "integration: tests that require external models/resources or slower end-to-end paths",
+    "diagnostics: tests for diagnostics tooling and optional diagnostics package paths",
+]
