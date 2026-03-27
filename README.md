@@ -1,9 +1,8 @@
 # Informity AI
 
 [![Python](https://img.shields.io/badge/python-3.13+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
 [![Platform](https://img.shields.io/badge/platform-macOS-black?logo=apple)](#)
-[![Offline First](https://img.shields.io/badge/offline-first-brightgreen)](#offline-mode)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![Local LLM](https://img.shields.io/badge/LLM-local-blue)](#tech-stack)
 
 Privacy-first local document intelligence for macOS.
