@@ -1,6 +1,36 @@
 # Informity AI
 
-A privacy-first macOS desktop app that scans your local files, indexes them with vector embeddings, and lets you chat with your documents using a local LLM. All data stays on your machine.
+[![Python](https://img.shields.io/badge/python-3.13+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](./LICENSE)
+[![Platform](https://img.shields.io/badge/platform-macOS-black?logo=apple)](#)
+[![Offline First](https://img.shields.io/badge/offline-first-brightgreen)](#offline-mode)
+[![Local LLM](https://img.shields.io/badge/LLM-local-blue)](#tech-stack)
+
+Privacy-first local document intelligence for macOS.
+Informity scans and indexes local files, then answers questions with a local RAG pipeline backed by local embeddings and local LLM inference. Your documents and vectors stay on your machine.
+
+## Contents
+
+- [Highlights](#highlights)
+- [Quick Start](#quick-start)
+- [Installation (optional one-time setup)](#installation-optional-one-time-setup)
+- [Data Location](#data-location)
+- [PDF Processing](#pdf-processing)
+- [Offline Mode](#offline-mode)
+- [Tech Stack](#tech-stack)
+- [Project Structure](#project-structure)
+- [Diagnostics Evaluation](#diagnostics-evaluation)
+- [Tooling Layout](#tooling-layout)
+- [Development](#development)
+- [License](#license)
+
+## Highlights
+
+- Local-first RAG over local files
+- Offline-first runtime (full privacy mode)
+- SQLite + sqlite-vec for metadata + embeddings
+- Local LLM inference via `xllamacpp` (Metal/GPU on macOS)
+- Built-in diagnostics pipeline for regression and quality evaluation
 
 ## Quick Start
 
@@ -19,7 +49,7 @@ make run             # Start backend on http://127.0.0.1:8420
 make dev
 ```
 
-**Note:** The app serves the React frontend from `src/frontend/dist/`. Run `make frontend-build` before `make run` or `make dev`. The vanilla backup is archived at `.archive/frontend-bak/`.
+**Note:** The app serves the React frontend from `src/frontend/dist/`. Run `make frontend-build` before `make run` or `make dev`.
 
 ## Installation (optional one-time setup)
 
@@ -47,7 +77,7 @@ Just run the app. On first search/index/chat it may download the embedding model
 
 You do **not** need to remove auto-download from the app: the install script is for users who want a single, explicit setup step and then strictly cached-only behaviour.
 
-## Data location
+## Data Location
 
 All application data (database, vectors, LLM and embedding models, logs, config) is stored under a single app data directory:
 
@@ -83,7 +113,7 @@ Informity uses **only** the app data cache directory (`cache/` under app data). 
 PDFs are processed using **docling**, which provides superior structure preservation including tables, formulas, reading order detection, and built-in OCR support. Scanned and image-only PDFs are handled automatically without requiring external OCR tools.
 
 
-## Offline mode
+## Offline Mode
 
 The app is **offline-first by default**. With **Full Privacy Mode** on (Settings → Full Privacy Mode), no network is used at runtime; all models are loaded from local storage.
 
