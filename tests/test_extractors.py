@@ -121,6 +121,17 @@ class TestTextExtractor:
 
 
 class TestDoclingExtractor:
+    pytestmark = pytest.mark.integration
+
+    @staticmethod
+    def _skip_if_models_unavailable(doc) -> None:
+        error_text = str(getattr(doc, 'error', '') or '')
+        if (
+            'Full Privacy' in error_text
+            or 'required models are not cached' in error_text
+        ):
+            pytest.skip('Docling models are not cached in this environment')
+
     def setup_method(self) -> None:
         self.extractor = DoclingExtractor()
 
@@ -136,6 +147,7 @@ class TestDoclingExtractor:
 
     def test_extract_pdf(self, sample_pdf: Path) -> None:
         doc = self.extractor.extract(sample_pdf)
+        self._skip_if_models_unavailable(doc)
         # Docling extracts text from PDFs
         assert len(doc.text) > 0
         assert doc.page_count == 2
@@ -145,16 +157,14 @@ class TestDoclingExtractor:
 
     def test_extract_docx(self, sample_docx: Path) -> None:
         doc = self.extractor.extract(sample_docx)
-        if doc.error and 'Full Privacy' in doc.error:
-            pytest.skip('Docling models required - run make install')
+        self._skip_if_models_unavailable(doc)
         assert "Document Title" in doc.text or "First paragraph" in doc.text
         assert doc.word_count > 0
         assert doc.error is None
 
     def test_extract_pptx(self, sample_pptx: Path) -> None:
         doc = self.extractor.extract(sample_pptx)
-        if doc.error and 'Full Privacy' in doc.error:
-            pytest.skip('Docling models required - run make install')
+        self._skip_if_models_unavailable(doc)
         assert len(doc.text) > 0
         assert doc.page_count == 2
         assert doc.word_count > 0
@@ -162,24 +172,21 @@ class TestDoclingExtractor:
 
     def test_extract_xlsx(self, sample_xlsx: Path) -> None:
         doc = self.extractor.extract(sample_xlsx)
-        if doc.error and 'Full Privacy' in doc.error:
-            pytest.skip('Docling models required - run make install')
+        self._skip_if_models_unavailable(doc)
         assert len(doc.text) > 0
         assert doc.word_count > 0
         assert doc.error is None
 
     def test_extract_csv(self, sample_csv: Path) -> None:
         doc = self.extractor.extract(sample_csv)
-        if doc.error and 'Full Privacy' in doc.error:
-            pytest.skip('Docling models required - run make install')
+        self._skip_if_models_unavailable(doc)
         assert "name" in doc.text.lower() or "alice" in doc.text.lower()
         assert doc.word_count > 0
         assert doc.error is None
 
     def test_extract_html(self, sample_html: Path) -> None:
         doc = self.extractor.extract(sample_html)
-        if doc.error and 'Full Privacy' in doc.error:
-            pytest.skip('Docling models required - run make install')
+        self._skip_if_models_unavailable(doc)
         assert len(doc.text) > 0
         assert doc.word_count > 0
         assert doc.error is None
@@ -198,9 +205,11 @@ class TestDoclingExtractor:
 
     def test_extraction_timing(self, sample_pdf: Path) -> None:
         doc = self.extractor.extract(sample_pdf)
+        self._skip_if_models_unavailable(doc)
         assert doc.extraction_time_ms >= 0
 
     def test_extraction_metadata(self, sample_pdf: Path) -> None:
         doc = self.extractor.extract(sample_pdf)
+        self._skip_if_models_unavailable(doc)
         # Docling provides metadata
         assert isinstance(doc.metadata, dict)

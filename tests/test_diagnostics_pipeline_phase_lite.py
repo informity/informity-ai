@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 pytest.importorskip('tools.diagnostics', reason='diagnostics tools package is not available in this checkout')
+pytestmark = pytest.mark.diagnostics
 
 from tools.diagnostics import pipeline
 
