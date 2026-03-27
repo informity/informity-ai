@@ -175,15 +175,15 @@ src/informity/
     ├── routes_settings.py    # GET/PUT /api/settings, POST /api/settings/reset, env-vars, file-types
     ├── routes_system.py      # GET /api/diagnostics, GET /api/diagnostics/summary, POST /api/shutdown
     └── env_vars_metadata.py  # INFORMITY_* env var groups for Configuration page
-src/diagnostics/             # Diagnostics add-on package (sibling to informity)
-├── issue_types.py           # IssueType enum (6 types)
-├── observer.py              # EvalMetrics dataclass, detect_issues(), populate_signals()
-└── tools/                   # Evaluation pipeline tools (tools/diagnostics/)
-    ├── evaluate.py          # Runs queries, collects metrics, writes traces
-    ├── analyze.py           # Aggregates metrics, generates reports
-    ├── generate_queries.py  # Builds query sets from index
-    ├── pipeline.py          # End-to-end orchestrator
-    └── golden_set.py        # Pre-flight validation queries
+src/diagnostics/              # Diagnostics add-on package (sibling to informity)
+├── issue_types.py            # IssueType enum (6 types)
+├── observer.py               # EvalMetrics dataclass, detect_issues(), populate_signals()
+└── tools/                    # Evaluation pipeline tools (tools/diagnostics/)
+    ├── evaluate.py           # Runs queries, collects metrics, writes traces
+    ├── analyze.py            # Aggregates metrics, generates reports
+    ├── generate_queries.py   # Builds query sets from index
+    ├── pipeline.py           # End-to-end orchestrator
+    └── golden_set.py         # Pre-flight validation queries
 ```
 
 ## Diagnostics Evaluation
