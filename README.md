@@ -136,54 +136,54 @@ After models are in place, the app runs fully offline with no internet required.
 ## Project Structure
 
 ```
-src/frontend/          # React + Vite UI (build output: dist/)
+src/frontend/                 # React + Vite UI (build output: dist/)
 src/informity/
-├── main.py                 # FastAPI app entry point, lifespan, health
-├── config.py               # Settings via pydantic-settings (config.json + env)
+├── main.py                   # FastAPI app entry point, lifespan, health
+├── config.py                 # Settings via pydantic-settings (config.json + env)
 ├── db/
-│   ├── models.py           # Pydantic models (IndexedFile, Chunk, ScanRecord, ChatMessage, etc.)
-│   ├── sqlite.py           # SQLite connection, schema, queries (aiosqlite)
-│   └── vectors.py          # SQLite vector storage via sqlite-vec (ChunkEmbedding, VectorStore)
+│   ├── models.py             # Pydantic models (IndexedFile, Chunk, ScanRecord, ChatMessage, etc.)
+│   ├── sqlite.py             # SQLite connection, schema, queries (aiosqlite)
+│   └── vectors.py            # SQLite vector storage via sqlite-vec (ChunkEmbedding, VectorStore)
 ├── scanner/
-│   ├── crawler.py          # Filesystem traversal, SHA-256 hashes, compare_with_db
-│   ├── watcher.py          # watchdog file change monitoring
-│   └── extractors/         # Unified docling extractor (PDF, DOCX, PPTX, XLSX, HTML, CSV) + text extractor
+│   ├── crawler.py            # Filesystem traversal, SHA-256 hashes, compare_with_db
+│   ├── watcher.py            # watchdog file change monitoring
+│   └── extractors/           # Unified docling extractor (PDF, DOCX, PPTX, XLSX, HTML, CSV) + text extractor
 ├── indexer/
-│   ├── chunker.py         # Parent-child chunking (child ~150 tokens, parent ~600 tokens)
-│   ├── embedder.py        # Embedding generation (nomic-embed-text-v1.5)
-│   ├── classifier.py      # Auto-tagging, categorization, year extraction
-│   ├── post_process.py    # Hyphenation repair (index-time only)
-│   ├── reranker.py        # Cross-encoder re-ranking (mandatory for all queries)
-│   └── pipeline.py        # index_file, reindex_file, remove_file — orchestration
+│   ├── chunker.py            # Parent-child chunking (child ~150 tokens, parent ~600 tokens)
+│   ├── embedder.py           # Embedding generation (nomic-embed-text-v1.5)
+│   ├── classifier.py         # Auto-tagging, categorization, year extraction
+│   ├── post_process.py       # Hyphenation repair (index-time only)
+│   ├── reranker.py           # Cross-encoder re-ranking (mandatory for all queries)
+│   └── pipeline.py           # index_file, reindex_file, remove_file — orchestration
 ├── llm/
-│   ├── engine.py          # LLM inference (xllamacpp, Metal)
-│   ├── model_adapter.py   # Per-model profiles (Qwen3 14B, 9B, 30B A3B, DeepSeek R1)
-│   ├── rag.py             # QueryRouter — dispatches to handlers based on intent
-│   ├── query_classifier.py # Structured slot extraction + decision tree
-│   ├── retrieval.py       # Unified retrieval pipeline (vector search → rerank)
-│   ├── prompt_builder.py  # Prompt construction
-│   ├── streaming.py       # Minimal streaming
-│   ├── metadata_filters.py # Unified metadata filter extraction
-│   └── handlers/          # Query handlers (metadata, rag, simple)
+│   ├── engine.py             # LLM inference (xllamacpp, Metal)
+│   ├── model_adapter.py      # Per-model profiles (Qwen3 14B, 9B, 30B A3B, DeepSeek R1)
+│   ├── rag.py                # QueryRouter — dispatches to handlers based on intent
+│   ├── query_classifier.py   # Structured slot extraction + decision tree
+│   ├── retrieval.py          # Unified retrieval pipeline (vector search → rerank)
+│   ├── prompt_builder.py     # Prompt construction
+│   ├── streaming.py          # Minimal streaming
+│   ├── metadata_filters.py   # Unified metadata filter extraction
+│   └── handlers/             # Query handlers (metadata, rag, simple)
 └── api/
-    ├── schemas.py         # Request/response Pydantic models
-    ├── operation_state.py # Long-running operation flags (scan, reset)
-    ├── routes_scan.py     # POST /api/scan, GET /api/scan/status, GET /api/files
-    ├── routes_index.py    # POST /api/index/rebuild, GET /api/index/status, POST /api/index/reset
-    ├── routes_search.py   # POST /api/search
-    ├── routes_chat.py     # POST /api/chat (SSE), GET/PUT/DELETE conversations
-    ├── routes_settings.py # GET/PUT /api/settings, POST /api/settings/reset, env-vars, file-types
-    ├── routes_system.py   # GET /api/diagnostics, GET /api/diagnostics/summary, POST /api/shutdown
+    ├── schemas.py            # Request/response Pydantic models
+    ├── operation_state.py    # Long-running operation flags (scan, reset)
+    ├── routes_scan.py        # POST /api/scan, GET /api/scan/status, GET /api/files
+    ├── routes_index.py       # POST /api/index/rebuild, GET /api/index/status, POST /api/index/reset
+    ├── routes_search.py      # POST /api/search
+    ├── routes_chat.py        # POST /api/chat (SSE), GET/PUT/DELETE conversations
+    ├── routes_settings.py    # GET/PUT /api/settings, POST /api/settings/reset, env-vars, file-types
+    ├── routes_system.py      # GET /api/diagnostics, GET /api/diagnostics/summary, POST /api/shutdown
     └── env_vars_metadata.py  # INFORMITY_* env var groups for Configuration page
-src/diagnostics/          # Diagnostics add-on package (sibling to informity)
-├── issue_types.py        # IssueType enum (6 types)
-├── observer.py           # EvalMetrics dataclass, detect_issues(), populate_signals()
-└── tools/                # Evaluation pipeline tools (tools/diagnostics/)
-    ├── evaluate.py        # Runs queries, collects metrics, writes traces
-    ├── analyze.py         # Aggregates metrics, generates reports
-    ├── generate_queries.py # Builds query sets from index
-    ├── pipeline.py        # End-to-end orchestrator
-    └── golden_set.py      # Pre-flight validation queries
+src/diagnostics/             # Diagnostics add-on package (sibling to informity)
+├── issue_types.py           # IssueType enum (6 types)
+├── observer.py              # EvalMetrics dataclass, detect_issues(), populate_signals()
+└── tools/                   # Evaluation pipeline tools (tools/diagnostics/)
+    ├── evaluate.py          # Runs queries, collects metrics, writes traces
+    ├── analyze.py           # Aggregates metrics, generates reports
+    ├── generate_queries.py  # Builds query sets from index
+    ├── pipeline.py          # End-to-end orchestrator
+    └── golden_set.py        # Pre-flight validation queries
 ```
 
 ## Diagnostics Evaluation
