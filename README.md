@@ -44,7 +44,7 @@ make app
 
 # Or run in two steps:
 make frontend-build   # Build React UI → src/frontend/dist/
-make run             # Start backend on http://127.0.0.1:8420
+make run              # Start backend on http://127.0.0.1:8420
 
 # Development with auto-reload (code changes restart the server)
 make dev

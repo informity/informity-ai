@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
 
@@ -8,7 +9,7 @@ import pytest
 pytest.importorskip('tools.diagnostics', reason='diagnostics tools package is not available in this checkout')
 pytestmark = pytest.mark.diagnostics
 
-from tools.diagnostics import run_control
+run_control = importlib.import_module('tools.diagnostics.run_control')
 
 
 def test_claim_active_run_creates_lock(tmp_path: Path) -> None:
