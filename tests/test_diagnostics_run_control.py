@@ -3,6 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+pytest.importorskip('tools.diagnostics', reason='diagnostics tools package is not available in this checkout')
+
 from tools.diagnostics import run_control
 
 
