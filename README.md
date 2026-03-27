@@ -281,4 +281,4 @@ make app             # Build frontend + run backend (single command for testing)
 
 ## License
 
-Informity AI is licensed under the [MIT License](LICENSE). Third-party dependencies are under their own licenses; see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for details and copyleft (GPL/AGPL) components.
+Informity AI is licensed under the [MIT License](LICENSE).
