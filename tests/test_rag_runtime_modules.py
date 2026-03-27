@@ -328,6 +328,14 @@ def test_structured_numeric_bullet_renderer_outputs_exact_count() -> None:
     assert 'Missing Evidence' in answer
 
 
+def test_structured_numeric_bullet_renderer_includes_source_snippet_label() -> None:
+    answer = _render_structured_rows_bullets_answer(
+        [{'field_label': 'tax withheld', 'raw_value': '$100', 'evidence_span': 'line excerpt'}],
+        1,
+    )
+    assert 'Source Snippet:' in answer
+
+
 def test_generation_closeout_source_references_filter_to_used_chunks() -> None:
     chunks = [
         {

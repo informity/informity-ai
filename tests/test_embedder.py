@@ -27,6 +27,7 @@ def _make_mock_model(dimension: int = VECTOR_DIMENSION) -> MagicMock:
     def _encode(texts, batch_size=32, show_progress_bar=False,
                 convert_to_numpy=True, normalize_embeddings=True):
         # Generate a unique-ish vector per text string
+        _ = (batch_size, show_progress_bar, convert_to_numpy)
         results = []
         for text in texts:
             rng = np.random.default_rng(seed=hash(text) % (2**31))

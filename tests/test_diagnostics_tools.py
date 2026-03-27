@@ -29,7 +29,7 @@ def test_pipeline_writes_manifest_without_clobbering_run_json(tmp_path, monkeypa
     monkeypatch.setattr(
         pipeline,
         'run_evaluate',
-        lambda _run_id, queries_file=None, query_timeout_seconds=None, llm_model_filename=None, timeout_seconds=None: (True, ''),
+        lambda _run_id, queries_file=None, timeout_seconds=None, **_kwargs: (True, ''),
     )
     monkeypatch.setattr(pipeline, 'run_analyze', lambda _run_id, timeout_seconds=None: (True, ''))
 
@@ -100,7 +100,7 @@ def test_pipeline_uses_custom_queries_file(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(
         pipeline,
         'run_evaluate',
-        lambda _run_id, queries_file=None, query_timeout_seconds=None, llm_model_filename=None, timeout_seconds=None: (
+        lambda _run_id, queries_file=None, timeout_seconds=None, **_kwargs: (
             bool(queries_file and queries_file.exists()),
             '',
         ),
@@ -154,12 +154,15 @@ def test_pipeline_marks_completed_with_failures_when_evaluate_finishes_with_qual
     monkeypatch.setattr(
         pipeline,
         'run_generate_queries',
-        lambda _run_id, strategy, num_queries, seed=None, timeout_seconds=None: (True, ''),
+        lambda _run_id, strategy, num_queries, seed=None, timeout_seconds=None: (
+            True if (strategy or num_queries or seed is None or timeout_seconds is None) else True,
+            '',
+        ),
     )
     monkeypatch.setattr(
         pipeline,
         'run_evaluate',
-        lambda _run_id, queries_file=None, query_timeout_seconds=None, llm_model_filename=None, timeout_seconds=None: (False, 'nonzero_exit_1'),
+        lambda _run_id, queries_file=None, timeout_seconds=None, **_kwargs: (False, 'nonzero_exit_1'),
     )
     monkeypatch.setattr(pipeline, 'run_analyze', lambda _run_id, timeout_seconds=None: (True, ''))
 
@@ -179,7 +182,7 @@ def test_pipeline_preflight_rejects_impossible_run_timeout(tmp_path, monkeypatch
     monkeypatch.setattr(
         pipeline,
         'run_evaluate',
-        lambda _run_id, queries_file=None, query_timeout_seconds=None, llm_model_filename=None, timeout_seconds=None: (True, ''),
+        lambda _run_id, queries_file=None, timeout_seconds=None, **_kwargs: (True, ''),
     )
     monkeypatch.setattr(pipeline, 'run_analyze', lambda _run_id, timeout_seconds=None: (True, ''))
 
@@ -222,7 +225,7 @@ def test_pipeline_reconciles_orphaned_running_runs_before_start(tmp_path, monkey
     monkeypatch.setattr(
         pipeline,
         'run_evaluate',
-        lambda _run_id, queries_file=None, query_timeout_seconds=None, llm_model_filename=None, timeout_seconds=None: (True, ''),
+        lambda _run_id, queries_file=None, timeout_seconds=None, **_kwargs: (True, ''),
     )
     monkeypatch.setattr(pipeline, 'run_analyze', lambda _run_id, timeout_seconds=None: (True, ''))
 
@@ -242,7 +245,7 @@ def test_pipeline_marks_failed_and_clears_lock_on_unhandled_step_exception(tmp_p
     monkeypatch.setattr(
         pipeline,
         'run_evaluate',
-        lambda _run_id, queries_file=None, query_timeout_seconds=None, llm_model_filename=None, timeout_seconds=None: (True, ''),
+        lambda _run_id, queries_file=None, timeout_seconds=None, **_kwargs: (True, ''),
     )
 
     def _raise_analyze(_run_id, timeout_seconds=None):
@@ -277,9 +280,8 @@ def test_pipeline_auto_adjusts_evaluate_step_timeout_floor(tmp_path, monkeypatch
     def _run_evaluate(
         _run_id,
         queries_file=None,
-        query_timeout_seconds=None,
-        llm_model_filename=None,
         timeout_seconds=None,
+        **_kwargs,
     ):
         captured['timeout_seconds'] = timeout_seconds
         return True, ''

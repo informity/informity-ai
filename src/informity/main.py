@@ -147,7 +147,7 @@ def _kill_child_processes() -> None:
             pass
 
 
-def _signal_cleanup(signum: int, frame: types.FrameType | None) -> None:
+def _signal_cleanup(signum: int, _frame: types.FrameType | None) -> None:
     # On SIGTERM/SIGINT (e.g. Ctrl+C when running under uvicorn --reload), unload
     # models so joblib/loky release semaphores. Use _exit() so we don't raise
     # SystemExit into asyncio/uvicorn (which would produce a traceback).

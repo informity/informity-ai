@@ -146,7 +146,7 @@
 
 .chat-view__scroll-to-bottom {
   position: absolute;
-  bottom: 8.5rem;
+  bottom: 9.5rem;
   left: 50%;
   transform: translateX(-50%);
   z-index: 2;
@@ -159,7 +159,7 @@
   border: 1px solid var(--chat-view-border, rgba(255, 255, 255, 0.08));
   border-radius: 50%;
   background: var(--color-bg-elevated);
-  color: inherit;
+  color: var(--color-text-dimmed);
   cursor: pointer;
   box-shadow:
     0 2px 8px rgba(0, 0, 0, 0.18),
@@ -222,10 +222,10 @@
 .chat-view__input-area::before {
   content: '';
   position: absolute;
-  top: -7rem;
+  top: -9rem;
   left: 0;
   right: 0;
-  height: 7rem;
+  height: 9rem;
   background: linear-gradient(
     to bottom,
     transparent 0%,
