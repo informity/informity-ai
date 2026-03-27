@@ -1,3 +1,4 @@
+import importlib
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -6,7 +7,7 @@ import pytest
 pytest.importorskip('tools.diagnostics', reason='diagnostics tools package is not available in this checkout')
 pytestmark = pytest.mark.diagnostics
 
-from tools.diagnostics import pipeline
+pipeline = importlib.import_module('tools.diagnostics.pipeline')
 
 
 def test_select_pack_queries_filters_by_capability() -> None:

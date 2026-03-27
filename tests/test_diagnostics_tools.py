@@ -1,23 +1,22 @@
 from __future__ import annotations
 
+import importlib
 import json
 from random import Random
 
 import pytest
 
+from informity.chat_trace import _ChatTraceWriter
+
 pytest.importorskip('tools.diagnostics', reason='diagnostics tools package is not available in this checkout')
 pytestmark = pytest.mark.diagnostics
 
-from tools.diagnostics import (
-    analyze,
-    evaluate,
-    generate_queries,
-    pipeline,
-    run_control,
-    run_test_queries_suite,
-)
-
-from informity.chat_trace import _ChatTraceWriter
+analyze = importlib.import_module('tools.diagnostics.analyze')
+evaluate = importlib.import_module('tools.diagnostics.evaluate')
+generate_queries = importlib.import_module('tools.diagnostics.generate_queries')
+pipeline = importlib.import_module('tools.diagnostics.pipeline')
+run_control = importlib.import_module('tools.diagnostics.run_control')
+run_test_queries_suite = importlib.import_module('tools.diagnostics.run_test_queries_suite')
 
 
 def test_pipeline_writes_manifest_without_clobbering_run_json(tmp_path, monkeypatch) -> None:
