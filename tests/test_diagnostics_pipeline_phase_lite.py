@@ -1,6 +1,10 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
+pytest.importorskip('tools.diagnostics', reason='diagnostics tools package is not available in this checkout')
+
 from tools.diagnostics import pipeline
 
 

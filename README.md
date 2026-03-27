@@ -1,6 +1,6 @@
 # Informity AI
 
-[![Version](https://img.shields.io/github/v/tag/informity/informity-ai?label=version&sort=semver)](https://github.com/informity/informity-ai/tags)
+[![Version](https://img.shields.io/badge/version-0.8.0-blue.svg)](#)
 [![Python](https://img.shields.io/badge/python-3.13+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-macOS-black?logo=apple)](#)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
