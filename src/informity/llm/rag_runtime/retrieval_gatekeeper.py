@@ -14,12 +14,13 @@ import aiosqlite
 
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.rag_runtime import retrieval_validation as _retrieval_validation
+from informity.llm.types import FallbackReason, GroupBy, IntentProfileId, OutputShape, RetrievalMode
 
 
 @dataclass
 class ValidationRecoveryResult:
     chunks: list[dict]
-    effective_query_type: str
+    effective_query_type: RetrievalMode
     effective_top_k: int
     retrieval_relevance_passed: bool
     source_diversity_passed: bool
@@ -29,7 +30,7 @@ class ValidationRecoveryResult:
     anchor_overlap_count: int
     validation_gates: dict[str, bool]
     fallback_events: list[dict[str, object]]
-    original_query_type: str
+    original_query_type: RetrievalMode
     # Weighted retrieval quality score: mean(top_3_reranker_scores) × file_diversity_factor.
     # High score → confident answer tone; low score → hedged answer tone.
     # Zero indicates no retrievable evidence.
@@ -59,7 +60,7 @@ def _compute_quality_score(
 async def run_validation_recovery_when_failed(
     *,
     chunks: list[dict],
-    effective_query_type: str,
+    effective_query_type: RetrievalMode,
     effective_top_k: int,
     retrieval_relevance_passed: bool,
     source_diversity_passed: bool,
@@ -70,9 +71,9 @@ async def run_validation_recovery_when_failed(
     validation_gates: dict[str, bool],
     fallback_events: list[dict[str, object]],
     classification: QueryClassification,
-    effective_response_shape: str,
-    selected_policy_profile_id: str,
-    selected_policy_fallback_target_route: str,
+    effective_response_shape: OutputShape,
+    selected_policy_profile_id: IntentProfileId,
+    selected_policy_fallback_target_route: IntentProfileId,
     scope_reset_detected: bool,
     prior_source_anchors: set[str],
     prior_has_remaining_scope: bool,
@@ -121,7 +122,7 @@ async def run_validation_recovery_when_failed(
     fallback_events.append({
         'fallback_from': selected_policy_profile_id,
         'fallback_to': fallback_profile.profile_id,
-        'fallback_reason': 'validation_gate_failed',
+        'fallback_reason': FallbackReason.VALIDATION_GATE_FAILED,
         'validation_gates': validation_gates,
     })
     fallback_chunks = await retrieve_fn(
@@ -141,6 +142,23 @@ async def run_validation_recovery_when_failed(
     if fallback_chunks:
         chunks = fallback_chunks
         effective_query_type = fallback_profile.preferred_retrieval_mode
+        preserve_coverage_query_type = (
+            original_query_type == RetrievalMode.COVERAGE
+            and effective_query_type == RetrievalMode.FOCUSED
+            and classification.filename_filter is None
+            and (
+                classification.deterministic_override
+                or classification.has_multi_year_scope
+                or classification.group_by in {GroupBy.YEAR, GroupBy.FILE}
+            )
+        )
+        if preserve_coverage_query_type:
+            effective_query_type = RetrievalMode.COVERAGE
+            fallback_events.append({
+                'fallback_from': fallback_profile.preferred_retrieval_mode,
+                'fallback_to': RetrievalMode.COVERAGE,
+                'fallback_reason': FallbackReason.PRESERVE_COVERAGE_QUERY_TYPE_AFTER_FALLBACK,
+            })
         effective_top_k = min(effective_top_k, len(chunks))
         retrieval_relevance_passed, retrieval_relevance_score = _retrieval_validation._evaluate_retrieval_relevance_gate(
             chunks=chunks,
@@ -178,7 +196,11 @@ async def run_validation_recovery_when_failed(
         # above uses the focused original_query_type and doesn't fire. Re-evaluate using the
         # fallback profile's coverage eligibility so that year-filtered or broad-scope queries
         # can pass through when sufficient evidence is present.
-        if not retrieval_relevance_passed and original_query_type != effective_query_type and effective_query_type == 'coverage':
+        if (
+            not retrieval_relevance_passed
+            and original_query_type != effective_query_type
+            and effective_query_type == RetrievalMode.COVERAGE
+        ):
             retrieval_relevance_passed, fallback_events = _retrieval_validation._apply_coverage_evidence_floor_override(
                 retrieval_relevance_passed=retrieval_relevance_passed,
                 query_type=effective_query_type,

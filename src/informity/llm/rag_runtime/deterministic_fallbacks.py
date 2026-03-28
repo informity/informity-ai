@@ -12,6 +12,7 @@ import aiosqlite
 from informity.api.schemas import ChatSourceReference
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.rag_runtime import structured_numeric as _structured_numeric
+from informity.llm.types import OutputShape
 
 
 @dataclass
@@ -26,7 +27,7 @@ async def try_structured_fallback(
     *,
     question: str,
     classification: QueryClassification,
-    response_shape: str,
+    response_shape: OutputShape,
     chunks: list[dict],
     db: aiosqlite.Connection,
     trace: object | None,

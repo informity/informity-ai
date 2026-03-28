@@ -8,8 +8,9 @@ from informity.config import settings
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.query_patterns import build_conflict_amount_pattern
 from informity.llm.rag_runtime.retrieval_validation import _normalize_relevance_score
+from informity.llm.types import GroupBy, OutputShape, QuerySubtype
 
-_STRUCTURED_EXTRACTION_SUBTYPES = {'extract_structured_values', 'aggregate_by_period'}
+_STRUCTURED_EXTRACTION_SUBTYPES = {QuerySubtype.EXTRACT_STRUCTURED_VALUES, QuerySubtype.AGGREGATE_BY_PERIOD}
 _NUMBER_PATTERN = re.compile(r'\(?\$?\d[\d,]*(?:\.\d{1,2})?\)?')
 _FIELD_LABEL_NEAR_NUMBER_PATTERN = re.compile(r'([A-Za-z][A-Za-z0-9\s/_-]{1,36})$')
 _EXPLICIT_YEAR_PATTERN = re.compile(r'\b(?:19|20)\d{2}\b')
@@ -44,7 +45,7 @@ def _should_run_structured_extraction(
     *,
     question: str,
     classification: QueryClassification,
-    response_shape: str,
+    response_shape: OutputShape,
 ) -> bool:
     if _is_finance_conflict_prompt(question):
         return True
@@ -76,7 +77,7 @@ def _should_run_structured_extraction(
     if classification.field_hint is not None:
         return True
     return (
-        response_shape in {'structured_extract', 'metadata_table'}
+        response_shape in {OutputShape.STRUCTURED_EXTRACT, OutputShape.METADATA_TABLE}
         and classification.subtype in _STRUCTURED_EXTRACTION_SUBTYPES
     )
 
@@ -356,6 +357,40 @@ def _extract_required_headings(question: str) -> list[str]:
     return headings
 
 
+def _extract_required_markdown_table_columns(question: str) -> list[str]:
+    text = str(question or '')
+    patterns = (
+        r'markdown\s+table\s+with\s+columns?\s*:\s*([^\n.]+)',
+        r'columns?\s*:\s*([^\n.]+)',
+    )
+    raw_columns = ''
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match is not None:
+            raw_columns = str(match.group(1) or '').strip()
+            if raw_columns:
+                break
+    if not raw_columns:
+        return []
+
+    split_candidates = re.split(r',|\||\band\b', raw_columns, flags=re.IGNORECASE)
+    columns: list[str] = []
+    seen: set[str] = set()
+    for candidate in split_candidates:
+        normalized = str(candidate or '').strip().strip('`').strip('"').strip("'")
+        normalized = re.sub(r'\s+', ' ', normalized).rstrip(' .;:')
+        if not normalized:
+            continue
+        key = normalized.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        columns.append(normalized)
+        if len(columns) >= 8:
+            break
+    return columns
+
+
 def _derive_format_requirements(
     question: str,
     action_hints: dict[str, bool] | None = None,
@@ -403,6 +438,9 @@ def _derive_format_requirements(
     required_terms = _extract_required_terms_from_user_contract(question)
     for term in required_terms[:10]:
         _append_requirement(f'include term: {term}')
+    table_columns = _extract_required_markdown_table_columns(question)
+    if table_columns:
+        _append_requirement(f'include markdown table columns: {" | ".join(table_columns)}')
     return requirements
 
 
@@ -506,13 +544,13 @@ async def _fetch_file_metadata(
 
 def _group_label_for_file(
     *,
-    group_by: str | None,
+    group_by: GroupBy | None,
     metadata: dict[str, object],
 ) -> str:
-    if group_by == 'year':
+    if group_by == GroupBy.YEAR:
         year = metadata.get('year')
         return str(year) if year is not None else 'Unknown Year'
-    if group_by == 'category':
+    if group_by == GroupBy.CATEGORY:
         category = metadata.get('category')
         return str(category) if category else 'Unknown Category'
     filename = str(metadata.get('filename') or '').strip()
@@ -647,7 +685,7 @@ async def _try_structured_value_extraction(
     *,
     question: str,
     classification: QueryClassification,
-    response_shape: str,
+    response_shape: OutputShape,
     chunks: list[dict],
     db: aiosqlite.Connection,
     trace: object | None,
@@ -891,8 +929,8 @@ async def _try_structured_value_extraction(
         if isinstance(year, int)
     })
     is_year_aggregate = (
-        classification.subtype == 'aggregate_by_period'
-        and (classification.group_by == 'year' or bool(required_years))
+        classification.subtype == QuerySubtype.AGGREGATE_BY_PERIOD
+        and (classification.group_by == GroupBy.YEAR or bool(required_years))
     )
     if is_year_aggregate:
         best_by_file: dict[int, dict[str, object]] = {}
@@ -919,7 +957,7 @@ async def _try_structured_value_extraction(
         selected_rows.sort(key=lambda item: float(item.get('confidence', 0.0)), reverse=True)
         selected_rows = selected_rows[:36]
         grouped_years = {
-            str(_group_label_for_file(group_by='year', metadata=metadata_by_file_id.get(int(row['file_id']), {})))
+            str(_group_label_for_file(group_by=GroupBy.YEAR, metadata=metadata_by_file_id.get(int(row['file_id']), {})))
             for row in selected_rows
         }
         if (
@@ -928,9 +966,9 @@ async def _try_structured_value_extraction(
         ):
             return None
     else:
-        if classification.group_by == 'year' and classification.year_filter is None:
+        if classification.group_by == GroupBy.YEAR and classification.year_filter is None:
             grouped_years = {
-                str(_group_label_for_file(group_by='year', metadata=metadata_by_file_id.get(int(row['file_id']), {})))
+                str(_group_label_for_file(group_by=GroupBy.YEAR, metadata=metadata_by_file_id.get(int(row['file_id']), {})))
                 for row in validated_rows
             }
             if len([year for year in grouped_years if year != 'Unknown Year']) < 2:

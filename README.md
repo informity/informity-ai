@@ -5,7 +5,6 @@
 [![Platform](https://img.shields.io/badge/platform-macOS-black?logo=apple)](#)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 [![CI](https://github.com/informity/informity-ai/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/informity/informity-ai/actions/workflows/ci.yml)
-[![Local LLM](https://img.shields.io/badge/LLM-local-blue)](#tech-stack)
 
 Privacy-first local document intelligence for macOS.
 Informity scans and indexes local files, then answers questions with a local RAG pipeline backed by local embeddings and local LLM inference. Your documents and vectors stay on your machine.

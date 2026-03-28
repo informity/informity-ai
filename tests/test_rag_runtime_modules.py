@@ -1,7 +1,15 @@
+import asyncio
+from types import SimpleNamespace
+
+import aiosqlite
+
 from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.rag_runtime import generation_closeout as _generation_closeout
+from informity.llm.rag_runtime import execution_plan as _execution_plan
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
+from informity.llm.rag_runtime import generation_stream as _generation_stream
+from informity.llm.rag_runtime import retrieval_gatekeeper as _retrieval_gatekeeper
 from informity.llm.rag_runtime.retrieval_pipeline import _build_focused_anchor_recovery_query
 from informity.llm.rag_runtime.retrieval_validation import (
     _apply_coverage_evidence_floor_override,
@@ -19,6 +27,7 @@ from informity.llm.rag_runtime.structured_numeric import (
     _render_finance_conflict_bullets,
     _render_structured_rows_bullets_answer,
 )
+from informity.llm.query_classifier import QueryClassification
 
 
 def test_retrieval_validation_source_diversity_coverage_gate() -> None:
@@ -116,6 +125,30 @@ def test_structured_numeric_derives_cover_clause_required_terms() -> None:
     assert 'include term: increase' in requirements
     assert 'include term: decrease' in requirements
     assert 'include term: evidence' in requirements
+
+
+def test_structured_numeric_derives_required_markdown_table_columns() -> None:
+    requirements = _derive_format_requirements(
+        'Under ## Evidence Coverage, include exactly one markdown table with columns: '
+        'Group, Years Covered, Key Evidence, Confidence.'
+    )
+    assert any(
+        requirement == 'include markdown table columns: Group | Years Covered | Key Evidence | Confidence'
+        for requirement in requirements
+    )
+
+
+def test_generation_stream_detects_required_markdown_table_columns() -> None:
+    answer = (
+        '## Evidence Coverage\n'
+        '| Group | Years Covered | Key Evidence | Confidence |\n'
+        '| --- | --- | --- | --- |\n'
+        '| Tax | 2022-2024 | Schedule A line 8a | High |\n'
+    )
+    assert _generation_stream._has_required_markdown_table(
+        answer,
+        ['Group', 'Years Covered', 'Key Evidence', 'Confidence'],
+    ) is True
 
 
 def test_structured_numeric_uses_action_hints_for_enumeration() -> None:
@@ -305,6 +338,95 @@ def test_retrieval_pipeline_builds_focused_anchor_recovery_query() -> None:
     assert isinstance(query, str)
     assert 'year-specific' in query
     assert '2020 property tax receipt' in query
+
+
+def test_execution_plan_preserves_deterministic_override_under_low_confidence() -> None:
+    classification = QueryClassification(
+        intent='coverage',
+        route_candidate='cross_document_synthesis',
+        confidence=0.20,
+        deterministic_override=True,
+    )
+
+    async def _run() -> None:
+        async with aiosqlite.connect(':memory:') as db:
+            plan = await _execution_plan.build_execution_plan(
+                question='List cross-document findings.',
+                classification=classification,
+                diagnostics_context=None,
+                db=db,
+                resolve_fit_to_budget_policy_fn=lambda **_: asyncio.sleep(
+                    0,
+                    result=SimpleNamespace(enabled=False),
+                ),
+            )
+        assert plan.selected_policy.profile_id == 'cross_document_synthesis'
+        assert not any(
+            event.get('fallback_reason') == 'low_confidence_route_guard'
+            for event in plan.fallback_events
+        )
+
+    asyncio.run(_run())
+
+
+def test_retrieval_gatekeeper_preserves_coverage_query_type_after_fallback() -> None:
+    classification = QueryClassification(
+        intent='coverage',
+        route_candidate='cross_document_synthesis',
+        confidence=0.9,
+        deterministic_override=True,
+    )
+
+    async def _retrieve_fn(**_: object) -> list[dict]:
+        return [
+            {'file_id': 1, 'parent_id': 'a', 'reranker_score': 0.22},
+            {'file_id': 2, 'parent_id': 'b', 'reranker_score': 0.21},
+        ]
+
+    async def _run() -> None:
+        async with aiosqlite.connect(':memory:') as db:
+            result = await _retrieval_gatekeeper.run_validation_recovery_when_failed(
+                chunks=[{'file_id': 1, 'parent_id': 'a', 'reranker_score': 0.01}],
+                effective_query_type='coverage',
+                effective_top_k=8,
+                retrieval_relevance_passed=False,
+                source_diversity_passed=False,
+                continuation_anchor_passed=True,
+                retrieval_relevance_score=0.01,
+                distinct_sources_count=1,
+                anchor_overlap_count=0,
+                validation_gates={
+                    'retrieval_relevance_gate': False,
+                    'source_diversity_gate': False,
+                    'continuation_anchor_gate': True,
+                },
+                fallback_events=[],
+                classification=classification,
+                effective_response_shape='narrative_synthesis',
+                selected_policy_profile_id='cross_document_synthesis',
+                selected_policy_fallback_target_route='clarification_or_disambiguation',
+                scope_reset_detected=False,
+                prior_source_anchors=set(),
+                prior_has_remaining_scope=False,
+                retrieval_question='What are the most important dates mentioned across all indexed documents?',
+                retrieval_filename_filter=None,
+                profile_rag_max_score=None,
+                db=db,
+                trace=None,
+                retrieve_fn=_retrieve_fn,
+                get_retrieval_top_k_fn=lambda *_args, **_kwargs: 8,
+                get_intent_profile_policy_fn=lambda route: SimpleNamespace(
+                    profile_id=str(route),
+                    preferred_retrieval_mode='focused',
+                ),
+            )
+        assert result.effective_query_type == 'coverage'
+        assert any(
+            event.get('fallback_reason') == 'preserve_coverage_query_type_after_fallback'
+            for event in result.fallback_events
+        )
+
+    asyncio.run(_run())
 
 
 def test_generation_runtime_has_remaining_scope_false_for_terminal_timeout() -> None:

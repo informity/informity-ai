@@ -13,6 +13,7 @@ import structlog
 from informity.config import settings
 from informity.db.sqlite import get_corpus_stats
 from informity.llm.model_adapter import get_profile
+from informity.llm.types import QueryType
 
 log = structlog.get_logger(__name__)
 _ADAPTIVE_TUNING_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError)
@@ -37,7 +38,7 @@ _profile_name_at_compute: str | None = None
 def calculate_adaptive_top_k(
     total_files:         int,
     total_parent_chunks: int,
-    query_type:          str,
+    query_type:          QueryType,
     profile_base:        int,
 ) -> int:
     """
@@ -47,7 +48,7 @@ def calculate_adaptive_top_k(
     when corpus is empty or stats unavailable.
     """
     s = settings
-    if query_type == 'coverage':
+    if query_type == QueryType.COVERAGE:
         if total_files <= 0:
             return profile_base
         adaptive = min(
@@ -132,10 +133,10 @@ async def update_tuning_cache(
 
         profile = get_profile()
         focused  = calculate_adaptive_top_k(
-            total_files, total_parent_chunks, 'focused', profile.rag_top_k
+            total_files, total_parent_chunks, QueryType.FOCUSED, profile.rag_top_k
         )
         coverage = calculate_adaptive_top_k(
-            total_files, total_parent_chunks, 'coverage', profile.coverage_top_k
+            total_files, total_parent_chunks, QueryType.COVERAGE, profile.coverage_top_k
         )
 
         _cached_focused_top_k   = focused
@@ -174,15 +175,15 @@ def invalidate_tuning_cache() -> None:
     log.debug('adaptive_tuning_cache_invalidated')
 
 
-def get_effective_top_k(query_type: str) -> int | None:
+def get_effective_top_k(query_type: QueryType) -> int | None:
     """
     Return cached adaptive top-k if valid and enabled; else None (caller uses profile).
     Sync, for use by get_retrieval_top_k.
     """
     if not settings.adaptive_rag_tuning or not _cache_valid:
         return None
-    if query_type == 'coverage' and _cached_coverage_top_k is not None:
+    if query_type == QueryType.COVERAGE and _cached_coverage_top_k is not None:
         return _cached_coverage_top_k
-    if query_type == 'focused' and _cached_focused_top_k is not None:
+    if query_type == QueryType.FOCUSED and _cached_focused_top_k is not None:
         return _cached_focused_top_k
     return None

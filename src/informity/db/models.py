@@ -8,6 +8,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
+from informity.llm.types import ChatRole, CompletionMode, NextAction
 
 # ==============================================================================
 # Enums
@@ -121,14 +122,14 @@ class ChatMessage(BaseModel):
     # A single message in a chat.
     id:                int | None = None
     chat_id:           str         # UUID
-    role:              str         # 'user' or 'assistant'
+    role:              ChatRole
     content:          str
     sources:          list[dict] = Field(default_factory=list)  # Full source reference objects
     generation_seconds: float | None = None  # Time taken to generate answer (assistant messages only)
-    completion_mode: str | None = None
+    completion_mode: CompletionMode | str | None = None
     stopped_by_user: bool = False
     has_remaining_scope: bool = False
-    next_action: str | None = None
+    next_action: NextAction | str | None = None
     next_action_reason: str | None = None
     created_at:       datetime | None = None
 
@@ -144,7 +145,7 @@ class ContinuationPassArtifact(BaseModel):
     raw_answer: str = ''
     cleaned_answer: str = ''
     has_remaining_scope: bool = False
-    completion_mode: str | None = None
+    completion_mode: CompletionMode | str | None = None
     next_action_reason: str | None = None
     sources: list[dict] = Field(default_factory=list)
     pass_details: dict = Field(default_factory=dict)

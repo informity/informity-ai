@@ -5,23 +5,34 @@
 
 import re
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import structlog
 
 from informity.config import settings
 from informity.llm.intent_router import get_intent_router
 from informity.llm.query_patterns import (
+    build_aggregate_listing_scope_pattern,
     build_analysis_action_pattern,
     build_continuation_pattern,
     build_count_pattern,
     build_coverage_pattern,
     build_enumeration_pattern,
+    build_extreme_value_lookup_pattern,
     build_evidence_value_extraction_pattern,
     build_file_list_pattern,
     build_inventory_capability_pattern,
     build_meta_query_pattern,
     build_structured_output_schema_pattern,
+)
+from informity.llm.types import (
+    BlockType,
+    ConfidenceBand,
+    GroupBy,
+    IntentLabel,
+    IntentProfileId,
+    OutputShape,
+    QuerySubtype,
 )
 
 if TYPE_CHECKING:
@@ -73,6 +84,8 @@ _GENERIC_CAPABILITY_PATTERN = re.compile(
     r'\b(can\s+you\s+help|help\s+me\s+understand|what\s+information\s+is\s+available)\b',
     re.IGNORECASE,
 )
+_EXTREME_VALUE_LOOKUP_PATTERN = build_extreme_value_lookup_pattern()
+_AGGREGATE_LISTING_SCOPE_PATTERN = build_aggregate_listing_scope_pattern()
 _ANCHOR_DOCUMENT_TERM_PATTERN = re.compile(
     r'\b(?:19|20)\d{2}\s+[a-z0-9][a-z0-9\s-]{1,64}\b(?:receipt|statement|report|return|form|record|invoice|summary)\b',
     re.IGNORECASE,
@@ -138,6 +151,14 @@ def _is_general_capability_query(text: str) -> bool:
     return bool(_META_QUERY_PATTERN.search(text) or _GENERIC_CAPABILITY_PATTERN.search(text))
 
 
+def _has_extreme_value_lookup_request(text: str) -> bool:
+    return bool(_EXTREME_VALUE_LOOKUP_PATTERN.search(text))
+
+
+def _has_aggregate_listing_scope_request(text: str) -> bool:
+    return bool(_AGGREGATE_LISTING_SCOPE_PATTERN.search(text))
+
+
 def _extract_source_terms(*, text: str, filename_filter: str | None) -> list[str]:
     terms: list[str] = []
     seen: set[str] = set()
@@ -191,32 +212,23 @@ class QueryClassification:
         is_metadata_query: Whether this is a metadata query (count/enumeration)
         is_file_list_query: Whether this is a file listing query
     """
-    intent: Literal['metadata', 'focused', 'coverage', 'simple']
-    response_shape: Literal['structured_extract', 'narrative_synthesis', 'metadata_table', 'hybrid'] = 'narrative_synthesis'
-    route_candidate: Literal[
-        'metadata_inventory',
-        'targeted_fact_lookup',
-        'structured_field_extraction',
-        'cross_document_synthesis',
-        'comparative_analysis',
-        'audit_or_compliance_brief',
-        'continuation_or_refinement',
-        'clarification_or_disambiguation',
-    ] = 'targeted_fact_lookup'
+    intent: IntentLabel
+    response_shape: OutputShape = OutputShape.NARRATIVE_SYNTHESIS
+    route_candidate: IntentProfileId = IntentProfileId.TARGETED_FACT_LOOKUP
     confidence: float = 0.5
-    alternatives: list[tuple[str, float]] = field(default_factory=list)
+    alternatives: list[tuple[IntentLabel, float]] = field(default_factory=list)
     reason_codes: list[str] = field(default_factory=list)
     missing_slots: list[str] = field(default_factory=list)
-    subtype: Literal['extract_structured_values', 'aggregate_by_period', 'file_inventory'] | None = None
+    subtype: QuerySubtype | None = None
     has_multi_year_scope: bool = False
-    group_by: Literal['year', 'category', 'file'] | None = None
+    group_by: GroupBy | None = None
     field_hint: str | None = None
     source_terms: list[str] = field(default_factory=list)
     year_filter: int | None = None
     category_filter: str | None = None
     file_type_filter: str | None = None
     filename_filter: str | None = None
-    block_type_filter: Literal['table', 'form', 'narrative'] | None = None
+    block_type_filter: BlockType | None = None
     section_filter: str | None = None
     is_metadata_query: bool = False
     is_file_list_query: bool = False
@@ -232,12 +244,12 @@ class QueryClassification:
     llm_confidence: float = 0.0
 
     @property
-    def confidence_band(self) -> Literal['high', 'medium', 'low']:
+    def confidence_band(self) -> ConfidenceBand:
         if self.confidence >= settings.classification_confidence_high_threshold:
-            return 'high'
+            return ConfidenceBand.HIGH
         if self.confidence >= settings.classification_confidence_medium_threshold:
-            return 'medium'
-        return 'low'
+            return ConfidenceBand.MEDIUM
+        return ConfidenceBand.LOW
 
 
 def classify_query(query: str) -> QueryClassification:
@@ -335,13 +347,15 @@ def classify_query(query: str) -> QueryClassification:
         has_analysis_action  = _has_analysis_action_request(lowered)
         has_multi_year_scope = _has_multi_year_scope_signal(lowered)
         has_content_analysis = _has_content_analysis_request(lowered)
+    has_extreme_value_lookup = _has_extreme_value_lookup_request(lowered)
+    has_aggregate_listing_scope = _has_aggregate_listing_scope_request(lowered)
 
     # --- Corpus metadata promotion ----------------------------------------
     # Inventory queries (count, enumeration, file listing, capability) are
     # always 'metadata' intent regardless of the router prediction.  PromptCue
     # has no knowledge of the indexed corpus, so it cannot classify these.
-    if is_inventory_metadata and intent != 'metadata':
-        intent = 'metadata'
+    if is_inventory_metadata and intent != IntentLabel.METADATA:
+        intent = IntentLabel.METADATA
         reason_codes.append('deterministic_inventory_metadata_promoted')
     elif (
         is_general_capability
@@ -351,30 +365,21 @@ def classify_query(query: str) -> QueryClassification:
         and not has_evidence_value_request
         and not has_corpus_scope
     ):
-        intent = 'simple'
+        intent = IntentLabel.SIMPLE
         reason_codes.append('deterministic_general_capability_to_simple')
 
     deterministic_override = False
-    response_shape: Literal['structured_extract', 'narrative_synthesis', 'metadata_table', 'hybrid'] = 'narrative_synthesis'
-    subtype: Literal['extract_structured_values', 'aggregate_by_period', 'file_inventory'] | None = None
-    group_by: Literal['year', 'category', 'file'] | None = 'year' if has_multi_year_scope else None
+    response_shape: OutputShape = OutputShape.NARRATIVE_SYNTHESIS
+    subtype: QuerySubtype | None = None
+    group_by: GroupBy | None = GroupBy.YEAR if has_multi_year_scope else None
 
     def apply_override(
         *,
         reason_code: str,
-        new_intent: Literal['metadata', 'focused', 'coverage', 'simple'] | None = None,
-        new_route: Literal[
-            'metadata_inventory',
-            'targeted_fact_lookup',
-            'structured_field_extraction',
-            'cross_document_synthesis',
-            'comparative_analysis',
-            'audit_or_compliance_brief',
-            'continuation_or_refinement',
-            'clarification_or_disambiguation',
-        ] | None = None,
-        new_shape: Literal['structured_extract', 'narrative_synthesis', 'metadata_table', 'hybrid'] | None = None,
-        new_subtype: Literal['extract_structured_values', 'aggregate_by_period', 'file_inventory'] | None = None,
+        new_intent: IntentLabel | None = None,
+        new_route: IntentProfileId | None = None,
+        new_shape: OutputShape | None = None,
+        new_subtype: QuerySubtype | None = None,
     ) -> None:
         nonlocal intent, route_candidate, response_shape, subtype, deterministic_override
         deterministic_override = True
@@ -388,47 +393,47 @@ def classify_query(query: str) -> QueryClassification:
             subtype = new_subtype
         reason_codes.append(reason_code)
 
-    if intent == 'metadata':
-        route_candidate = 'metadata_inventory'
+    if intent == IntentLabel.METADATA:
+        route_candidate = IntentProfileId.METADATA_INVENTORY
         if has_structured_schema:
-            response_shape = 'metadata_table'
+            response_shape = OutputShape.METADATA_TABLE
         metadata_rules = [
             (
                 has_structured_schema and not is_inventory_metadata and broad_scope,
                 lambda: apply_override(
                     reason_code='deterministic_override_structured_schema_request',
-                    new_intent='coverage',
-                    new_route='comparative_analysis',
-                    new_shape='metadata_table',
-                    new_subtype='extract_structured_values',
+                    new_intent=IntentLabel.COVERAGE,
+                    new_route=IntentProfileId.COMPARATIVE_ANALYSIS,
+                    new_shape=OutputShape.METADATA_TABLE,
+                    new_subtype=QuerySubtype.EXTRACT_STRUCTURED_VALUES,
                 ),
             ),
             (
                 has_structured_schema and not is_inventory_metadata and not broad_scope,
                 lambda: apply_override(
                     reason_code='deterministic_override_structured_schema_request',
-                    new_intent='focused',
-                    new_route='structured_field_extraction',
-                    new_shape='structured_extract',
-                    new_subtype='extract_structured_values',
+                    new_intent=IntentLabel.FOCUSED,
+                    new_route=IntentProfileId.STRUCTURED_FIELD_EXTRACTION,
+                    new_shape=OutputShape.STRUCTURED_EXTRACT,
+                    new_subtype=QuerySubtype.EXTRACT_STRUCTURED_VALUES,
                 ),
             ),
             (
                 has_analysis_action and not is_inventory_metadata and broad_scope,
                 lambda: apply_override(
                     reason_code='deterministic_override_analysis_request',
-                    new_intent='coverage',
-                    new_route='cross_document_synthesis',
-                    new_shape='narrative_synthesis',
+                    new_intent=IntentLabel.COVERAGE,
+                    new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
+                    new_shape=OutputShape.NARRATIVE_SYNTHESIS,
                 ),
             ),
             (
                 has_analysis_action and not is_inventory_metadata and not broad_scope,
                 lambda: apply_override(
                     reason_code='deterministic_override_analysis_request',
-                    new_intent='focused',
-                    new_route='targeted_fact_lookup',
-                    new_shape='narrative_synthesis',
+                    new_intent=IntentLabel.FOCUSED,
+                    new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
+                    new_shape=OutputShape.NARRATIVE_SYNTHESIS,
                 ),
             ),
             (
@@ -436,9 +441,9 @@ def classify_query(query: str) -> QueryClassification:
                 and (broad_scope or has_multi_doc_listing),
                 lambda: apply_override(
                     reason_code='deterministic_override_inventory_with_evidence_request',
-                    new_intent='coverage',
-                    new_route='cross_document_synthesis',
-                    new_shape='narrative_synthesis',
+                    new_intent=IntentLabel.COVERAGE,
+                    new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
+                    new_shape=OutputShape.NARRATIVE_SYNTHESIS,
                 ),
             ),
             (
@@ -446,9 +451,9 @@ def classify_query(query: str) -> QueryClassification:
                 and not (broad_scope or has_multi_doc_listing),
                 lambda: apply_override(
                     reason_code='deterministic_override_inventory_with_evidence_request',
-                    new_intent='focused',
-                    new_route='targeted_fact_lookup',
-                    new_shape='narrative_synthesis',
+                    new_intent=IntentLabel.FOCUSED,
+                    new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
+                    new_shape=OutputShape.NARRATIVE_SYNTHESIS,
                 ),
             ),
         ]
@@ -456,18 +461,27 @@ def classify_query(query: str) -> QueryClassification:
             if condition:
                 action()
                 break
-    elif intent == 'simple':
-        route_candidate = 'clarification_or_disambiguation'
-    elif intent == 'coverage':
-        route_candidate = 'cross_document_synthesis'
+    elif intent == IntentLabel.SIMPLE:
+        route_candidate = IntentProfileId.CLARIFICATION_OR_DISAMBIGUATION
+    elif intent == IntentLabel.COVERAGE:
+        route_candidate = IntentProfileId.CROSS_DOCUMENT_SYNTHESIS
         coverage_rules = [
+            (
+                has_extreme_value_lookup and not has_structured_schema and not has_multi_year_scope,
+                lambda: apply_override(
+                    reason_code='deterministic_override_extreme_value_lookup_to_focused',
+                    new_intent=IntentLabel.FOCUSED,
+                    new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
+                    new_shape=OutputShape.NARRATIVE_SYNTHESIS,
+                ),
+            ),
             (
                 has_structured_schema,
                 lambda: apply_override(
                     reason_code='deterministic_override_structured_schema_for_coverage',
-                    new_route='comparative_analysis',
-                    new_shape='metadata_table',
-                    new_subtype='extract_structured_values',
+                    new_route=IntentProfileId.COMPARATIVE_ANALYSIS,
+                    new_shape=OutputShape.METADATA_TABLE,
+                    new_subtype=QuerySubtype.EXTRACT_STRUCTURED_VALUES,
                 ),
             ),
             (
@@ -477,8 +491,8 @@ def classify_query(query: str) -> QueryClassification:
                 and (filename_filter is not None or bool(source_terms)),
                 lambda: apply_override(
                     reason_code='deterministic_override_narrow_scope_to_focused',
-                    new_intent='focused',
-                    new_route='targeted_fact_lookup',
+                    new_intent=IntentLabel.FOCUSED,
+                    new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
                 ),
             ),
         ]
@@ -487,41 +501,64 @@ def classify_query(query: str) -> QueryClassification:
                 action()
                 break
     else:
-        route_candidate = 'targeted_fact_lookup'
+        route_candidate = IntentProfileId.TARGETED_FACT_LOOKUP
         focused_rules = [
+            (
+                has_corpus_scope
+                and (broad_scope or has_multi_doc_listing)
+                and not single_target_scope
+                and filename_filter is None
+                and not has_extreme_value_lookup,
+                lambda: apply_override(
+                    reason_code='deterministic_override_corpus_scope_to_coverage',
+                    new_intent=IntentLabel.COVERAGE,
+                    new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
+                ),
+            ),
+            (
+                has_aggregate_listing_scope
+                and not single_target_scope
+                and filename_filter is None
+                and not has_extreme_value_lookup,
+                lambda: apply_override(
+                    reason_code='deterministic_override_aggregate_listing_to_coverage',
+                    new_intent=IntentLabel.COVERAGE,
+                    new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
+                ),
+            ),
             (
                 has_multi_year_scope and has_content_analysis and filename_filter is None,
                 lambda: apply_override(
                     reason_code='deterministic_override_multi_year_analysis_request',
-                    new_intent='coverage',
-                    new_route='cross_document_synthesis',
+                    new_intent=IntentLabel.COVERAGE,
+                    new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
                 ),
             ),
             (
                 plural_scope and not single_target_scope and has_content_analysis and filename_filter is None,
                 lambda: apply_override(
                     reason_code='deterministic_override_plural_scope_analysis_request',
-                    new_intent='coverage',
-                    new_route='cross_document_synthesis',
+                    new_intent=IntentLabel.COVERAGE,
+                    new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
                 ),
             ),
             (
                 has_structured_schema and (broad_scope or has_corpus_scope),
                 lambda: apply_override(
                     reason_code='deterministic_override_structured_schema_for_coverage_scope',
-                    new_intent='coverage',
-                    new_route='comparative_analysis',
-                    new_shape='metadata_table',
-                    new_subtype='extract_structured_values',
+                    new_intent=IntentLabel.COVERAGE,
+                    new_route=IntentProfileId.COMPARATIVE_ANALYSIS,
+                    new_shape=OutputShape.METADATA_TABLE,
+                    new_subtype=QuerySubtype.EXTRACT_STRUCTURED_VALUES,
                 ),
             ),
             (
                 has_structured_schema and not (broad_scope or has_corpus_scope),
                 lambda: apply_override(
                     reason_code='deterministic_override_structured_schema_for_focused',
-                    new_route='structured_field_extraction',
-                    new_shape='structured_extract',
-                    new_subtype='extract_structured_values',
+                    new_route=IntentProfileId.STRUCTURED_FIELD_EXTRACTION,
+                    new_shape=OutputShape.STRUCTURED_EXTRACT,
+                    new_subtype=QuerySubtype.EXTRACT_STRUCTURED_VALUES,
                 ),
             ),
         ]
@@ -531,33 +568,33 @@ def classify_query(query: str) -> QueryClassification:
                 break
 
     if (
-        intent == 'metadata'
+        intent == IntentLabel.METADATA
         and has_content_analysis
         and not is_inventory_metadata
     ):
         if broad_scope or (has_corpus_scope and plural_scope):
             apply_override(
                 reason_code='deterministic_override_metadata_content_request',
-                new_intent='coverage',
-                new_route='cross_document_synthesis',
+                new_intent=IntentLabel.COVERAGE,
+                new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
             )
         else:
             apply_override(
                 reason_code='deterministic_override_metadata_content_request',
-                new_intent='focused',
-                new_route='targeted_fact_lookup',
+                new_intent=IntentLabel.FOCUSED,
+                new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
             )
 
     if (
-        intent == 'coverage'
+        intent == IntentLabel.COVERAGE
         and filename_filter is None
-        and (has_multi_year_scope or group_by == 'year')
+        and (has_multi_year_scope or group_by == GroupBy.YEAR)
     ):
-        if subtype != 'aggregate_by_period':
-            subtype = 'aggregate_by_period'
+        if subtype != QuerySubtype.AGGREGATE_BY_PERIOD:
+            subtype = QuerySubtype.AGGREGATE_BY_PERIOD
             reason_codes.append('deterministic_override_coverage_year_aggregate_subtype')
-        if response_shape != 'narrative_synthesis':
-            response_shape = 'narrative_synthesis'
+        if response_shape != OutputShape.NARRATIVE_SYNTHESIS:
+            response_shape = OutputShape.NARRATIVE_SYNTHESIS
             reason_codes.append('deterministic_override_year_aggregate_narrative_shape')
 
     return QueryClassification(
@@ -574,8 +611,8 @@ def classify_query(query: str) -> QueryClassification:
         year_filter=year_filter,
         file_type_filter=file_type_filter,
         filename_filter=filename_filter,
-        is_metadata_query=(intent == 'metadata'),
-        is_file_list_query=(intent == 'metadata' and bool(_FILE_LIST_PATTERN.search(lowered))),
+        is_metadata_query=(intent == IntentLabel.METADATA),
+        is_file_list_query=(intent == IntentLabel.METADATA and bool(_FILE_LIST_PATTERN.search(lowered))),
         is_continuation=is_continuation,
         action_hints=(pcue.action_hints if pcue is not None else {}),
         deterministic_override=deterministic_override,

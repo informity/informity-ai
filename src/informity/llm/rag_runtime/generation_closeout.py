@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 
 from informity.api.schemas import ChatSourceReference
+from informity.llm.types import CompletionMode, QueryType, TimeoutReason
 
 try:
     from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS as _SKLEARN_ENGLISH_STOP_WORDS
@@ -40,15 +41,15 @@ def _source_overlap_score(*, answer_tokens: set[str], chunk_text: str) -> int:
 
 def build_generation_metrics_payload(
     *,
-    query_type: str,
+    query_type: QueryType,
     timeout_seconds: int,
     retrieval_elapsed_ms: float,
     prompt_elapsed_ms: float,
     first_token_ms: float | None,
     llm_elapsed_ms: float,
-    timeout_reason: str | None,
+    timeout_reason: TimeoutReason | str | None,
     checkpoints_hit: list[int],
-    completion_mode: str,
+    completion_mode: CompletionMode,
     preflight_projected_seconds: float,
     preflight_ratio: float,
     post_retrieval_projected_seconds: float,
@@ -127,7 +128,7 @@ def record_generation_trace(
 def log_generation_completion(
     *,
     log: object,
-    query_type: str,
+    query_type: QueryType,
     question_length: int,
     context_chunks: int,
     history_messages: int,

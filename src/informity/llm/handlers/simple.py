@@ -16,6 +16,7 @@ from informity.db.models import ChatMessage
 from informity.llm.model_adapter import get_profile
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.streaming import stream_llm
+from informity.llm.types import QueryType, StreamSignalTag
 
 log = structlog.get_logger(__name__)
 _HANDLER_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, asyncio.TimeoutError)
@@ -42,7 +43,7 @@ class SimpleHandler:
 
     def matches(self, classification: QueryClassification) -> bool:
         """Match simple/conversational queries."""
-        return classification.intent == 'simple'
+        return classification.intent == QueryType.SIMPLE
 
     async def handle(
         self,
@@ -61,7 +62,7 @@ class SimpleHandler:
         """
         try:
             profile = get_profile()
-            query_type = 'simple'
+            query_type = QueryType.SIMPLE
 
             if trace is not None:
                 trace.record('intent', {
@@ -131,8 +132,8 @@ class SimpleHandler:
                     'sources': [],
                 })
 
-            yield ('__metrics__', {
-                'query_type': 'simple',
+            yield (StreamSignalTag.METRICS, {
+                'query_type': QueryType.SIMPLE,
                 'raw_chunks_count': 0,
             })
             yield sources

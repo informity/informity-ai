@@ -11,6 +11,7 @@ import aiosqlite
 import structlog
 
 from informity.config import DirNames, settings
+from informity.llm.types import QueryType
 
 log = structlog.get_logger(__name__)
 
@@ -166,7 +167,7 @@ def _extract_intent_step(trace_data: dict) -> dict | None:
     return None
 
 
-def _collect_first_token_samples_sync(query_type: str, lookback_days: int) -> list[float]:
+def _collect_first_token_samples_sync(query_type: QueryType, lookback_days: int) -> list[float]:
     cutoff = time.time() - (max(1, lookback_days) * _SECONDS_PER_DAY)
     base_dirs: list[Path] = [
         settings.app_data_dir / DirNames.CHAT_LOGS,
@@ -203,7 +204,7 @@ def _collect_first_token_samples_sync(query_type: str, lookback_days: int) -> li
 
 async def _load_runtime_stats(
     db: aiosqlite.Connection,
-    query_type: str,
+    query_type: QueryType,
     lookback_days: int,
 ) -> tuple[int, float, float | None, float | None]:
     cursor = await db.execute(
@@ -230,7 +231,7 @@ async def _load_runtime_stats(
 
 
 def _derive_thresholds(
-    query_type: str,
+    query_type: QueryType,
     timeout_seconds: int,
     sample_count: int,
     timeout_rate: float,
@@ -246,7 +247,7 @@ def _derive_thresholds(
     first_token_late = _DEFAULT_FIRST_TOKEN_LATE
 
     min_samples = _resolve_tuning_min_samples()
-    if query_type == 'coverage' and sample_count < min_samples:
+    if query_type == QueryType.COVERAGE and sample_count < min_samples:
         soft_top_k = _COVERAGE_LOW_SAMPLE_SOFT_TOP_K
         soft_reasoning = _COVERAGE_LOW_SAMPLE_SOFT_REASONING
         soft_output = _COVERAGE_LOW_SAMPLE_SOFT_OUTPUT
@@ -305,7 +306,7 @@ def _derive_thresholds(
 
 async def resolve_fit_to_budget_policy(
     db: aiosqlite.Connection,
-    query_type: str,
+    query_type: QueryType,
     timeout_seconds: int,
 ) -> FitToBudgetPolicy:
     normalized_mode = 'single'

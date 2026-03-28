@@ -14,10 +14,11 @@ import structlog
 
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
 from informity.llm.streaming import stream_llm
+from informity.llm.types import CompletionMode, QueryType, StreamSignalTag, TimeoutReason
 
 log = structlog.get_logger(__name__)
 
-STREAM_SUMMARY_EVENT = '__stream_summary__'
+STREAM_SUMMARY_EVENT = StreamSignalTag.STREAM_SUMMARY
 
 
 @dataclass
@@ -25,10 +26,10 @@ class StreamExecutionSummary:
     token_count: int
     first_token_ms: float | None
     total_elapsed_ms: float
-    timeout_reason: str | None
+    timeout_reason: TimeoutReason | str | None
     stream_recovery_reason: str | None
     soft_budget_checkpoints_hit: list[int]
-    completion_mode: str
+    completion_mode: CompletionMode
     has_remaining_scope: bool
     final_answer: str = ''
     # Per-stage latency breakdown (set by rag.py after streaming completes).
@@ -64,6 +65,44 @@ def _find_section_anchor_position(answer: str, section: str) -> int | None:
     return None
 
 
+def _normalize_table_cell(value: str) -> str:
+    cleaned = str(value or '').strip().strip('`').strip('"').strip("'")
+    return re.sub(r'\s+', ' ', cleaned).casefold()
+
+
+def _extract_markdown_table_header_cells(answer: str) -> list[list[str]]:
+    lines = (answer or '').splitlines()
+    headers: list[list[str]] = []
+    for idx in range(0, len(lines) - 1):
+        header_line = lines[idx].strip()
+        separator_line = lines[idx + 1].strip()
+        if '|' not in header_line:
+            continue
+        if '|' not in separator_line:
+            continue
+        if '-' not in separator_line and ':' not in separator_line:
+            continue
+        raw_cells = [cell for cell in header_line.split('|')]
+        cells = [_normalize_table_cell(cell) for cell in raw_cells if _normalize_table_cell(cell)]
+        if cells:
+            headers.append(cells)
+    return headers
+
+
+def _has_required_markdown_table(answer: str, required_columns: list[str]) -> bool:
+    normalized_required = {
+        _normalize_table_cell(column)
+        for column in required_columns
+        if _normalize_table_cell(column)
+    }
+    if not normalized_required:
+        return True
+    for header_cells in _extract_markdown_table_header_cells(answer):
+        if normalized_required.issubset(set(header_cells)):
+            return True
+    return False
+
+
 async def stream_generation_with_budget(
     *,
     messages: list[dict[str, str]],
@@ -75,7 +114,7 @@ async def stream_generation_with_budget(
     fit_to_budget_enabled: bool,
     stream_soft_limit_ratio: float,
     soft_closeout_allowed: bool,
-    checkpoint_query_type: str | None,
+    checkpoint_query_type: QueryType | None,
     dedupe_insufficient_context_after_stream: bool,
     insufficient_context_response: str,
     applied_degradations: list[dict[str, object]],
@@ -85,7 +124,7 @@ async def stream_generation_with_budget(
 ) -> AsyncGenerator[str | tuple[str, object]]:
     checkpoint_targets = [0.6, 0.8]
     checkpoints_emitted: set[float] = set()
-    timeout_reason: str | None = None
+    timeout_reason: TimeoutReason | str | None = None
     stream_recovery_reason: str | None = None
     stream_soft_limit_ms = timeout_seconds * stream_soft_limit_ratio * 1000
     should_close_after_boundary = False
@@ -102,10 +141,14 @@ async def stream_generation_with_budget(
         timeout_seconds=timeout_seconds,
         stop_sequences=stop_sequences,
     ):
-        if isinstance(item, tuple) and len(item) == 2 and item[0] == '__timeout__':
+        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.TIMEOUT:
             timeout_payload = item[1] if isinstance(item[1], dict) else {}
-            timeout_reason = str(timeout_payload.get('reason') or 'unknown_timeout')
-            yield ('__timeout__', timeout_payload)
+            raw_timeout_reason = str(timeout_payload.get('reason') or TimeoutReason.UNKNOWN_TIMEOUT.value).strip().lower()
+            try:
+                timeout_reason = TimeoutReason(raw_timeout_reason)
+            except ValueError:
+                timeout_reason = raw_timeout_reason
+            yield (StreamSignalTag.TIMEOUT, timeout_payload)
             continue
 
         if not isinstance(item, str):
@@ -135,7 +178,7 @@ async def stream_generation_with_budget(
                 }
                 if checkpoint_query_type:
                     checkpoint_payload['query_type'] = checkpoint_query_type
-                yield ('__budget_checkpoint__', checkpoint_payload)
+                yield (StreamSignalTag.BUDGET_CHECKPOINT, checkpoint_payload)
 
         if first_token_ms is None:
             first_token_ms = stream_elapsed_ms
@@ -218,6 +261,8 @@ async def stream_generation_with_budget(
     required_headings: list[str] = []
     enforce_required_headings = False
     enforce_heading_order = False
+    required_table_columns: list[str] = []
+    enforce_required_table = False
     if isinstance(output_contract_plan, dict):
         raw_required_terms = output_contract_plan.get('required_terms')
         if isinstance(raw_required_terms, list):
@@ -236,6 +281,14 @@ async def stream_generation_with_budget(
         enforce_required_terms = bool(output_contract_plan.get('enforce_required_terms') is True)
         enforce_required_headings = bool(output_contract_plan.get('enforce_required_headings') is True)
         enforce_heading_order = bool(output_contract_plan.get('enforce_heading_order') is True)
+        raw_required_table_columns = output_contract_plan.get('required_table_columns')
+        if isinstance(raw_required_table_columns, list):
+            required_table_columns = [
+                re.sub(r'\s+', ' ', str(column or '').strip())
+                for column in raw_required_table_columns
+                if str(column or '').strip()
+            ]
+        enforce_required_table = bool(output_contract_plan.get('enforce_required_table') is True)
     if enforce_required_terms and required_terms:
         full_answer = ''.join(answer_parts).casefold()
         missing_terms = [
@@ -296,9 +349,23 @@ async def stream_generation_with_budget(
                     'reason': 'section_order_violation_detected',
                     'required_headings': required_headings,
                 })
-    completion_mode = 'partial' if timeout_reason else 'complete'
+    if enforce_required_table and required_table_columns:
+        full_answer = ''.join(answer_parts)
+        if not _has_required_markdown_table(full_answer, required_table_columns):
+            lines = ['', '', '| ' + ' | '.join(required_table_columns) + ' |']
+            lines.append('|' + '|'.join([' --- ' for _ in required_table_columns]) + '|')
+            lines.append('| ' + ' | '.join(['Missing Evidence' for _ in required_table_columns]) + ' |')
+            suffix = '\n'.join(lines)
+            answer_parts.append(suffix)
+            yield suffix
+            applied_degradations.append({
+                'step': 'post_stream_required_markdown_table_enforced',
+                'reason': 'required_markdown_table_not_present',
+                'required_table_columns': required_table_columns,
+            })
+    completion_mode = CompletionMode.PARTIAL if timeout_reason else CompletionMode.COMPLETE
     if stream_recovery_reason is not None:
-        completion_mode = 'scoped_complete'
+        completion_mode = CompletionMode.SCOPED_COMPLETE
     has_remaining_scope = _generation_runtime._has_remaining_scope(
         timeout_reason=timeout_reason,
         stream_recovery_reason=stream_recovery_reason,

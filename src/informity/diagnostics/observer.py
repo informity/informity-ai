@@ -7,15 +7,16 @@ import re
 from dataclasses import dataclass
 
 from informity.diagnostics.issue_types import IssueType
+from informity.llm.types import QueryType
 
-_RAG_QUERY_TYPES = ('focused', 'coverage')
+_RAG_QUERY_TYPES = (QueryType.FOCUSED, QueryType.COVERAGE)
 _FILENAME_ANCHORED_QUERY_PATTERN = re.compile(
     r'\b(?:what|which|summari[sz]e|describe)\b.*\b[\w\-\s()]+\.[a-z0-9]{2,5}\b',
     re.IGNORECASE,
 )
 _INSUFFICIENT_RETRIEVAL_MIN_CHUNKS = 3
 _COMPLEX_QUERY_MIN_WORDS = 10
-_SIMPLE_QUERY_TYPE = 'simple'
+_SIMPLE_QUERY_TYPE = QueryType.SIMPLE
 _VERY_SHORT_ANSWER_MAX_CHARS = 20
 _OBSERVER_HEURISTIC_PROFILE = 'diagnostics_observer_v1'
 
@@ -31,7 +32,7 @@ class EvalMetrics:
     chat_id: str
     question: str
     model_filename: str
-    query_type: str  # 'focused', 'coverage', 'metadata', or 'simple' (from QueryRouter)
+    query_type: QueryType  # 'focused', 'coverage', 'metadata', or 'simple' (from QueryRouter)
     raw_chunks_count: int  # Candidates from vector search (0 for metadata/simple queries)
     sources_count: int  # Parent chunks used (0 for metadata queries)
     generation_seconds: float
@@ -73,8 +74,8 @@ def detect_issues(answer: str, metrics: EvalMetrics) -> list[IssueType]:
     if (
         metrics.query_type in _RAG_QUERY_TYPES
         and 0 < metrics.raw_chunks_count < _INSUFFICIENT_RETRIEVAL_MIN_CHUNKS
-        and (len(metrics.question.split()) > _COMPLEX_QUERY_MIN_WORDS or metrics.query_type == 'coverage')
-        and not (metrics.query_type == 'focused' and filename_anchored_question and metrics.sources_count > 0)
+        and (len(metrics.question.split()) > _COMPLEX_QUERY_MIN_WORDS or metrics.query_type == QueryType.COVERAGE)
+        and not (metrics.query_type == QueryType.FOCUSED and filename_anchored_question and metrics.sources_count > 0)
     ):
         # Only flag if query seems complex (long question or coverage type)
         issues.append(IssueType.insufficient_retrieval)

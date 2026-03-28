@@ -16,6 +16,7 @@ from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.rag import RAGHandler
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification, classify_query
+from informity.llm.types import StreamSignalTag
 
 log = structlog.get_logger(__name__)
 _ROUTER_RUNTIME_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError)
@@ -81,7 +82,7 @@ async def answer_question(
                 category_filter=classification.category_filter,
                 duration_ms=round(classify_elapsed_ms, 1),
             )
-            yield ('__classification__', classification)
+            yield (StreamSignalTag.CLASSIFICATION, classification)
         else:
             log.info(
                 'query_classified_locked',

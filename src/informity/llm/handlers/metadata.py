@@ -24,6 +24,7 @@ from informity.llm.query_patterns import (
     build_enumeration_pattern,
     build_file_list_pattern,
 )
+from informity.llm.types import QueryType, StreamSignalTag
 
 log = structlog.get_logger(__name__)
 
@@ -47,7 +48,7 @@ class MetadataHandler:
 
     def matches(self, classification: QueryClassification) -> bool:
         """Match metadata queries."""
-        return classification.intent == 'metadata'
+        return classification.intent == QueryType.METADATA
 
     async def handle(
         self,
@@ -79,7 +80,7 @@ class MetadataHandler:
             # Record intent section with query_type (for diagnostics/metrics extraction)
             trace.record('intent', {
                 'intent': classification.intent,
-                'query_type': 'metadata',  # Metadata queries always use 'metadata' query_type
+                'query_type': QueryType.METADATA,  # Metadata queries always use metadata query_type
                 'is_metadata_query': classification.is_metadata_query,
                 'is_file_list_query': classification.is_file_list_query,
                 'year_filter': effective_classification.year_filter,
@@ -91,7 +92,7 @@ class MetadataHandler:
             aggregation = await self._get_aggregation(db, question_lower, effective_classification)
             response = self._format_aggregation_response(aggregation, question_lower)
             yield response
-            yield ('__metrics__', {'query_type': 'metadata', 'raw_chunks_count': 0})
+            yield (StreamSignalTag.METRICS, {'query_type': QueryType.METADATA, 'raw_chunks_count': 0})
             yield []
             return
 
@@ -101,7 +102,7 @@ class MetadataHandler:
             enumeration = await self._get_enumeration(db, question_lower, effective_classification)
             response = self._format_enumeration_response(enumeration, question_lower)
             yield response
-            yield ('__metrics__', {'query_type': 'metadata', 'raw_chunks_count': 0})
+            yield (StreamSignalTag.METRICS, {'query_type': QueryType.METADATA, 'raw_chunks_count': 0})
             yield []
             return
 
@@ -110,7 +111,7 @@ class MetadataHandler:
             count = await self._get_count(db, effective_classification)
             response = self._format_count_response(count, effective_classification)
             yield response
-            yield ('__metrics__', {'query_type': 'metadata', 'raw_chunks_count': 0})
+            yield (StreamSignalTag.METRICS, {'query_type': QueryType.METADATA, 'raw_chunks_count': 0})
             yield []
             return
 
@@ -119,13 +120,13 @@ class MetadataHandler:
             files, total = await self._get_files_with_filters(db, effective_classification)
             response = self._format_file_list_response(files, total, effective_classification)
             yield response
-            yield ('__metrics__', {'query_type': 'metadata', 'raw_chunks_count': 0})
+            yield (StreamSignalTag.METRICS, {'query_type': QueryType.METADATA, 'raw_chunks_count': 0})
             yield []
             return
 
         # 5. Fallback: generic metadata response
         yield "I can help you with file counts, enumerations (years, categories, file types), aggregations (date ranges, per year), and file listings. Could you rephrase your question?"
-        yield ('__metrics__', {'query_type': 'metadata', 'raw_chunks_count': 0})
+        yield (StreamSignalTag.METRICS, {'query_type': QueryType.METADATA, 'raw_chunks_count': 0})
         yield []
 
     def _extract_explicit_single_year_filter(self, question_lower: str) -> int | None:

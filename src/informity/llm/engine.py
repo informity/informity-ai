@@ -30,6 +30,7 @@ from thinkstrip import ThinkStrip, strip_think_prefill
 from informity.config import settings
 from informity.exceptions import LLMError
 from informity.llm.model_adapter import get_profile, get_profile_for_filename
+from informity.llm.types import StreamSignalTag, TimeoutReason
 from informity.utils.directory_utils import ensure_file_directory
 
 log = structlog.get_logger(__name__)
@@ -374,7 +375,7 @@ def _run_stream_worker(
 
         loop.call_soon_threadsafe(
             queue.put_nowait,
-            ('__finish_reason__', finish_reason),
+            (StreamSignalTag.FINISH_REASON, finish_reason),
         )
 
     except BaseException as exc:
@@ -812,7 +813,7 @@ class LLMEngine:
                         total_text += emit_text
                         yield emit_text
                     break
-                if isinstance(item, tuple) and len(item) == 2 and item[0] == '__finish_reason__':
+                if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.FINISH_REASON:
                     finish_reason = item[1]
                     continue
 
@@ -832,8 +833,8 @@ class LLMEngine:
                 timeout_notice = f'\n\n[Response truncated: generation time limit ({int(wall_clock)}s) reached]'
                 total_text += timeout_notice
                 yield timeout_notice
-                yield ('__timeout__', {
-                    'reason':          timeout_reason or 'unknown_timeout',
+                yield (StreamSignalTag.TIMEOUT, {
+                    'reason':          timeout_reason or TimeoutReason.UNKNOWN_TIMEOUT.value,
                     'elapsed_seconds': round(time.perf_counter() - start, 1),
                     'timeout_seconds': wall_clock,
                 })

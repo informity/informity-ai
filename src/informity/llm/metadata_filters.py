@@ -6,7 +6,6 @@
 import re
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
 
 from dateparser.search import search_dates
 
@@ -17,6 +16,7 @@ from informity.file_patterns import (
     extract_year_from_text,
     get_all_supported_extensions,
 )
+from informity.llm.types import FilterOperator
 
 _YEAR_RANGE_PATTERN = re.compile(
     r'\b((?:19|20)\d{2})\s*(?:-|–|—|to|through|thru)\s*((?:19|20)\d{2})\b',
@@ -64,7 +64,7 @@ class MetadataFilter:
         value: Filter value (int, str, or list for 'in' operator)
     """
     field: str
-    operator: Literal['eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in', 'like', 'contains_any']
+    operator: FilterOperator
     value: int | str | list[int] | list[str]
 
 _ALLOWED_FILTER_FIELDS = {'year', 'category', 'extension', 'filename'}
@@ -81,39 +81,39 @@ def _build_filter_sql(
     op = filter_item.operator
     value = filter_item.value
 
-    if op == 'eq':
+    if op == FilterOperator.EQ:
         params.append(value)
         return f'{col} = ?'
-    if op == 'ne':
+    if op == FilterOperator.NE:
         params.append(value)
         return f'{col} != ?'
-    if op == 'gt':
+    if op == FilterOperator.GT:
         params.append(value)
         return f'{col} > ?'
-    if op == 'gte':
+    if op == FilterOperator.GTE:
         params.append(value)
         return f'{col} >= ?'
-    if op == 'lt':
+    if op == FilterOperator.LT:
         params.append(value)
         return f'{col} < ?'
-    if op == 'lte':
+    if op == FilterOperator.LTE:
         params.append(value)
         return f'{col} <= ?'
 
-    if op == 'in':
+    if op == FilterOperator.IN:
         if isinstance(value, list) and value:
             placeholders = ', '.join('?' * len(value))
             params.extend(value)
             return f'{col} IN ({placeholders})'
         return None
 
-    if op == 'like':
+    if op == FilterOperator.LIKE:
         if isinstance(value, str) and value:
             params.append(value)
             return f'{col} LIKE ?'
         return None
 
-    if op == 'contains_any':
+    if op == FilterOperator.CONTAINS_ANY:
         if not isinstance(value, list):
             return None
         terms = [str(item).strip() for item in value if str(item).strip()]
@@ -187,9 +187,9 @@ def extract_metadata_filters(query: str) -> list[MetadataFilter]:
     if len(years) == 1:
         year = extract_year_from_text(query)
         if year is not None:
-            filters.append(MetadataFilter(field='year', operator='eq', value=year))
+            filters.append(MetadataFilter(field='year', operator=FilterOperator.EQ, value=year))
     elif len(years) > 1:
-        filters.append(MetadataFilter(field='year', operator='in', value=years))
+        filters.append(MetadataFilter(field='year', operator=FilterOperator.IN, value=years))
 
     # Category extraction removed - causes conflicts with extension filters
     # Category filtering only used for metadata queries, extracted by LLM classifier
@@ -223,7 +223,7 @@ def extract_metadata_filters(query: str) -> list[MetadataFilter]:
             contains_terms = [t.strip(' "\'') for t in split_terms if t.strip(' "\'')]
 
         if contains_terms:
-            filters.append(MetadataFilter(field='filename', operator='contains_any', value=contains_terms))
+            filters.append(MetadataFilter(field='filename', operator=FilterOperator.CONTAINS_ANY, value=contains_terms))
 
     # Conversational form constraints:
     # - "from FormA forms"
@@ -261,13 +261,13 @@ def extract_metadata_filters(query: str) -> list[MetadataFilter]:
                     if alt not in form_terms:
                         form_terms.append(alt)
         if form_terms and not any(
-            f.field == 'filename' and f.operator == 'contains_any'
+            f.field == 'filename' and f.operator == FilterOperator.CONTAINS_ANY
             for f in filters
         ):
-            filters.append(MetadataFilter(field='filename', operator='contains_any', value=form_terms))
+            filters.append(MetadataFilter(field='filename', operator=FilterOperator.CONTAINS_ANY, value=form_terms))
 
     if has_filename_query and not any(
-        f.field == 'filename' and f.operator in {'like', 'contains_any'}
+        f.field == 'filename' and f.operator in {FilterOperator.LIKE, FilterOperator.CONTAINS_ANY}
         for f in filters
     ):
         # Extract exact filename from query (handles filenames with spaces, hyphens, dots)
@@ -292,7 +292,7 @@ def extract_metadata_filters(query: str) -> list[MetadataFilter]:
             if digit_match:
                 # Extract from first digit to end (handles "what does 2025 file.pdf")
                 filename = detection_region[digit_match.start():]
-                filters.append(MetadataFilter(field='filename', operator='eq', value=filename))
+                filters.append(MetadataFilter(field='filename', operator=FilterOperator.EQ, value=filename))
             else:
                 # No digit - extract filename from end of detection region
                 # Detection patterns match phrases like "what does Report.pdf" or "file named Presentation.pptx"
@@ -309,7 +309,7 @@ def extract_metadata_filters(query: str) -> list[MetadataFilter]:
                     first_word = potential_filename.split()[0].lower() if potential_filename.split() else ''
                     if first_word not in _FILTER_QUESTION_WORDS:
                         filename = potential_filename
-                        filters.append(MetadataFilter(field='filename', operator='eq', value=filename))
+                        filters.append(MetadataFilter(field='filename', operator=FilterOperator.EQ, value=filename))
                     else:
                         # Question word at start - find where filename actually begins
                         # Split by spaces and find first token that starts filename (uppercase/digit, not question word)
@@ -323,7 +323,7 @@ def extract_metadata_filters(query: str) -> list[MetadataFilter]:
                         if filename_start_idx is not None:
                             # Extract from filename start token to end
                             filename = ' '.join(tokens[filename_start_idx:])
-                            filters.append(MetadataFilter(field='filename', operator='eq', value=filename))
+                            filters.append(MetadataFilter(field='filename', operator=FilterOperator.EQ, value=filename))
 
             # If no filename extracted, year filter will still be applied for retrieval
     else:
@@ -335,7 +335,7 @@ def extract_metadata_filters(query: str) -> list[MetadataFilter]:
             # Extension query: find matching extension
             for ext in supported_extensions:
                 if ext in query_lower:
-                    filters.append(MetadataFilter(field='extension', operator='eq', value=ext))
+                    filters.append(MetadataFilter(field='extension', operator=FilterOperator.EQ, value=ext))
                     break  # Only one extension filter supported for now
 
     return filters

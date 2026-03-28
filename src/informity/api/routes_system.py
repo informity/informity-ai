@@ -28,6 +28,7 @@ from informity.db.sqlite import (
 from informity.db.vectors import vector_store
 from informity.diagnostics.issue_types import IssueType
 from informity.llm.engine import llm_engine
+from informity.llm.types import DiagnosticsQueryType
 from informity.version import APP_VERSION
 
 # ==============================================================================
@@ -224,7 +225,7 @@ async def get_diagnostics_summary(
 
         query_type = str(row.get('query_type') or '').strip().lower()
         if query_type not in CANONICAL_DIAGNOSTICS_QUERY_TYPES:
-            query_type = 'unknown'
+            query_type = DiagnosticsQueryType.UNKNOWN.value
             log.warning('diagnostics_summary_unknown_query_type')
         by_query_type[query_type] = by_query_type.get(query_type, 0) + 1
 
