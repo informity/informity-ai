@@ -7,7 +7,15 @@ from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.retrieval import retrieve_chunks
-from informity.llm.types import ChatRole, FallbackReason, GroupBy, IntentProfileId, OutputShape, QuerySubtype, RetrievalMode
+from informity.llm.types import (
+    ChatRole,
+    FallbackReason,
+    GroupBy,
+    IntentProfileId,
+    OutputShape,
+    QuerySubtype,
+    RetrievalMode,
+)
 
 
 def _normalize_relevance_score(raw_score: float) -> float:

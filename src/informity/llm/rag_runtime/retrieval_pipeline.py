@@ -24,7 +24,14 @@ from informity.llm.rag_runtime import retrieval_plan as _retrieval_plan
 from informity.llm.rag_runtime import retrieval_validation as _retrieval_validation
 from informity.llm.rag_runtime import structured_numeric as _structured_numeric
 from informity.llm.retrieval import retrieve_chunks
-from informity.llm.types import ConfidenceBand, FallbackReason, IntentProfileId, OutputShape, QuerySubtype, QueryType, RetrievalMode
+from informity.llm.types import (
+    ConfidenceBand,
+    FallbackReason,
+    IntentProfileId,
+    OutputShape,
+    QueryType,
+    RetrievalMode,
+)
 
 log = structlog.get_logger(__name__)
 
