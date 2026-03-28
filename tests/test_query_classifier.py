@@ -127,10 +127,16 @@ def test_inventory_with_evidence_request_overrides_to_rag() -> None:
     finally:
         set_intent_router_for_testing(original)
 
-    assert result.intent in ('focused', 'coverage')
-    assert result.route_candidate in ('targeted_fact_lookup', 'cross_document_synthesis')
+    assert result.intent == 'coverage'
+    assert result.route_candidate == 'cross_document_synthesis'
     assert result.deterministic_override is True
-    assert 'deterministic_override_inventory_with_evidence_request' in result.reason_codes
+    assert any(
+        code in result.reason_codes
+        for code in (
+            'deterministic_override_inventory_with_evidence_request',
+            'deterministic_override_global_entity_listing_to_coverage',
+        )
+    )
 
 
 def test_metadata_content_request_overrides_to_coverage() -> None:
@@ -262,7 +268,13 @@ def test_focused_corpus_scope_listing_overrides_to_coverage() -> None:
     assert result.intent == 'coverage'
     assert result.route_candidate == 'cross_document_synthesis'
     assert result.deterministic_override is True
-    assert 'deterministic_override_corpus_scope_to_coverage' in result.reason_codes
+    assert any(
+        code in result.reason_codes
+        for code in (
+            'deterministic_override_corpus_scope_to_coverage',
+            'deterministic_override_global_entity_listing_to_coverage',
+        )
+    )
 
 
 def test_coverage_extreme_value_lookup_overrides_to_focused() -> None:

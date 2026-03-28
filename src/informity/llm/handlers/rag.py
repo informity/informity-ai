@@ -102,6 +102,39 @@ def _truncate_preview(text: str, max_length: int = _CHUNK_PREVIEW_MAX_LENGTH) ->
     return text[:max_length]
 
 
+def _build_continuation_generation_skipped_closeout(question: str) -> str:
+    required_headings = _structured_numeric._extract_required_headings(question)
+    if required_headings:
+        lines: list[str] = []
+        for heading in required_headings[:8]:
+            heading_text = str(heading or '').strip()
+            if not heading_text:
+                continue
+            heading_lower = heading_text.casefold()
+            lines.append(f'## {heading_text}')
+            if 'confidence' in heading_lower:
+                lines.append('- Confidence: low confidence until additional evidence is retrieved and verified.')
+                continue
+            if 'verification' in heading_lower:
+                lines.append('- Verification: pending verification against additional corroborating source material.')
+                continue
+            if 'cross-year' in heading_lower or 'year' in heading_lower:
+                lines.append('- Cross-year reconciliation is incomplete because retrieval did not surface sufficient validated evidence.')
+                continue
+            lines.append('- Missing Evidence: no validated evidence surfaced for this continuation section in retrieved context.')
+        if lines:
+            return '\n'.join(lines)
+
+    return '\n'.join([
+        '## Cross-Year Reconciliation',
+        '- Cross-year reconciliation is incomplete because retrieval did not surface sufficient validated evidence.',
+        '## Confidence Notes',
+        '- Confidence: low confidence until additional evidence is retrieved and verified.',
+        '## Verification Steps',
+        '- Verification: pending verification against additional corroborating source material.',
+    ])
+
+
 
 
 class RAGHandler:
@@ -309,7 +342,13 @@ class RAGHandler:
             if isinstance(retrieval_outcome, _retrieval_pipeline.RetrievalFailure):
                 has_remaining_scope = retrieval_outcome.has_remaining_scope
                 yield (StreamSignalTag.METRICS, retrieval_outcome.metrics_payload)
-                yield retrieval_outcome.response_message
+                if (
+                    classification.is_continuation
+                    and str(retrieval_outcome.response_message or '').strip() == _INSUFFICIENT_CONTEXT_RESPONSE
+                ):
+                    yield _build_continuation_generation_skipped_closeout(question)
+                else:
+                    yield retrieval_outcome.response_message
                 yield retrieval_outcome.sources
                 return
             # Unpack retrieval success state for generation stage
@@ -386,12 +425,19 @@ class RAGHandler:
                     'fallback_to': selected_policy.fallback_target_route,
                     'fallback_reason': FallbackReason.PRE_CLOSEOUT_QUALITY_CHECK_FAILED,
                 })
-                has_remaining_scope = _generation_runtime._has_remaining_scope(
-                    timeout_reason=None,
-                    stream_recovery_reason='pre_closeout_quality_check_failed',
-                    generation_skipped=True,
-                    applied_degradations=applied_degradations,
-                )
+                if classification.is_continuation:
+                    # Continuation turns are already scoped to remaining work; if we skip generation,
+                    # treat this pass as terminal so completion and next-action remain contract-aligned.
+                    has_remaining_scope = False
+                    suggested_completion_mode = CompletionMode.COMPLETE
+                else:
+                    has_remaining_scope = _generation_runtime._has_remaining_scope(
+                        timeout_reason=None,
+                        stream_recovery_reason='pre_closeout_quality_check_failed',
+                        generation_skipped=True,
+                        applied_degradations=applied_degradations,
+                    )
+                    suggested_completion_mode = CompletionMode.SCOPED_COMPLETE
                 yield (StreamSignalTag.METRICS, _generation_terminal.build_generation_skipped_metrics_payload(
                     query_type=effective_query_type,
                     timeout_seconds=timeout_seconds,
@@ -401,7 +447,7 @@ class RAGHandler:
                     applied_degradations=applied_degradations,
                     fallback_events=fallback_events,
                     has_remaining_scope=has_remaining_scope,
-                    suggested_completion_mode=CompletionMode.SCOPED_COMPLETE,
+                    suggested_completion_mode=suggested_completion_mode,
                     post_retrieval_projected_seconds=post_retrieval_projected_seconds,
                     post_retrieval_ratio=post_retrieval_ratio,
                     validation_gates=validation_gates,
@@ -419,6 +465,10 @@ class RAGHandler:
                     )
                 ):
                     yield _build_clarification_fallback_message(classification)
+                    yield []
+                    return
+                if classification.is_continuation:
+                    yield _build_continuation_generation_skipped_closeout(question)
                     yield []
                     return
                 yield _INSUFFICIENT_CONTEXT_RESPONSE

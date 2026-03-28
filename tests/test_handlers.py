@@ -693,6 +693,62 @@ class TestRAGHandler:
         assert results[-1] == []
 
     @pytest.mark.asyncio
+    async def test_continuation_budget_pressure_closeout_includes_contract_terms(self) -> None:
+        handler = RAGHandler()
+        classification = QueryClassification(
+            intent='focused',
+            route_candidate='continuation_or_refinement',
+            is_continuation=True,
+            confidence=0.84,
+        )
+        mock_db = MagicMock()
+        mock_policy = MagicMock()
+        mock_policy.enabled = True
+        mock_policy.rollout_stage = 'test'
+        mock_policy.sample_count = 100
+        mock_policy.timeout_rate = 0.05
+        mock_policy.first_token_p95_ms = 1200
+        mock_policy.completion_p95_seconds = 12.0
+        mock_policy.stream_soft_limit_ratio = 0.8
+        mock_policy.soft_top_k_threshold = 0.2
+        mock_policy.soft_reasoning_threshold = 0.9
+        mock_policy.soft_output_cap_threshold = 0.15
+        mock_policy.soft_coverage_to_focused_threshold = 0.95
+        mock_policy.hard_pre_generation_threshold = 0.99
+
+        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+             patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy, \
+             patch('informity.llm.handlers.rag.stream_llm', new_callable=AsyncMock) as mock_stream:
+            mock_retrieve.return_value = [
+                {
+                    'file_id': 1,
+                    'filename': 'alpha.pdf',
+                    'file_path': '/docs/alpha.pdf',
+                    'chunk_text': 'Context exists but confidence is not strong enough under budget pressure.',
+                    'score': 0.28,
+                },
+            ]
+            mock_resolve_policy.return_value = mock_policy
+
+            results: list[object] = []
+            async for item in handler.handle(
+                'Continue with ## Cross-Year Deltas, ## Confidence Notes, ## Verification Steps only.',
+                classification,
+                None,
+                mock_db,
+                None,
+            ):
+                results.append(item)
+
+        rendered = '\n'.join(item for item in results if isinstance(item, str))
+        assert 'cross-year' in rendered.casefold()
+        assert 'confidence' in rendered.casefold()
+        assert 'verification' in rendered.casefold()
+        assert "couldn't find relevant information" not in rendered.casefold()
+        mock_stream.assert_not_called()
+        assert results[-1] == []
+
+    @pytest.mark.asyncio
     async def test_narrative_response_shape_does_not_trigger_structured_insufficient_path(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(
