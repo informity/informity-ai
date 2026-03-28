@@ -8,6 +8,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, Field
+
 from informity.llm.types import ChatRole, CompletionMode, NextAction
 
 # ==============================================================================

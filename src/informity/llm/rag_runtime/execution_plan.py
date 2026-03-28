@@ -14,7 +14,13 @@ from informity.llm.fit_to_budget_tuning import resolve_fit_to_budget_policy
 from informity.llm.intent_profiles import IntentProfilePolicy, get_intent_profile_policy
 from informity.llm.model_adapter import ModelProfile, get_profile, get_retrieval_top_k
 from informity.llm.query_classifier import QueryClassification
-from informity.llm.types import ConfidenceBand, FallbackReason, IntentProfileId, OutputShape, RetrievalMode
+from informity.llm.types import (
+    ConfidenceBand,
+    FallbackReason,
+    IntentProfileId,
+    OutputShape,
+    RetrievalMode,
+)
 
 
 @dataclass

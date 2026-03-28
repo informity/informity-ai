@@ -51,7 +51,6 @@ from informity.llm.types import (
     CompletionMode,
     ContinuationResolutionReason,
     DiagnosticsQueryType,
-    FallbackReason,
     IntentProfileId,
     NextAction,
     OutputShape,

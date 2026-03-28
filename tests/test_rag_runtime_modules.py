@@ -5,8 +5,9 @@ import aiosqlite
 
 from informity.config import settings
 from informity.db.models import ChatMessage
-from informity.llm.rag_runtime import generation_closeout as _generation_closeout
+from informity.llm.query_classifier import QueryClassification
 from informity.llm.rag_runtime import execution_plan as _execution_plan
+from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
 from informity.llm.rag_runtime import generation_stream as _generation_stream
 from informity.llm.rag_runtime import retrieval_gatekeeper as _retrieval_gatekeeper
@@ -27,7 +28,6 @@ from informity.llm.rag_runtime.structured_numeric import (
     _render_finance_conflict_bullets,
     _render_structured_rows_bullets_answer,
 )
-from informity.llm.query_classifier import QueryClassification
 
 
 def test_retrieval_validation_source_diversity_coverage_gate() -> None:

@@ -28,7 +28,14 @@ from informity.llm.rag_runtime import retrieval_validation as _retrieval_validat
 from informity.llm.rag_runtime import structured_numeric as _structured_numeric
 from informity.llm.rag_runtime.retrieval_pipeline import _build_clarification_fallback_message
 from informity.llm.streaming import stream_llm
-from informity.llm.types import CompletionMode, ConfidenceBand, FallbackReason, IntentProfileId, QueryType, StreamSignalTag
+from informity.llm.types import (
+    CompletionMode,
+    ConfidenceBand,
+    FallbackReason,
+    IntentProfileId,
+    QueryType,
+    StreamSignalTag,
+)
 
 log = structlog.get_logger(__name__)
 _HANDLER_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, asyncio.TimeoutError)
