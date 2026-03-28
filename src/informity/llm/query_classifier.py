@@ -80,6 +80,14 @@ _MULTI_DOC_LISTING_PATTERN = re.compile(
     r'\b(which|list|show)\b.*\b(files?|documents?)\b',
     re.IGNORECASE,
 )
+_GLOBAL_ENTITY_LISTING_PATTERN = re.compile(
+    r'\b('
+    r'names?\s+of\s+people|people\s+names?|people\s+mentioned|'
+    r'important\s+dates?|key\s+dates?|'
+    r'numeric\s+amounts?|key\s+amounts?|financial\s+figures?|financial\s+amounts?'
+    r')\b',
+    re.IGNORECASE,
+)
 _GENERIC_CAPABILITY_PATTERN = re.compile(
     r'\b(can\s+you\s+help|help\s+me\s+understand|what\s+information\s+is\s+available)\b',
     re.IGNORECASE,
@@ -126,6 +134,10 @@ def _has_corpus_document_scope_request(text: str) -> bool:
 
 def _looks_multi_document_listing_request(text: str) -> bool:
     return bool(_MULTI_DOC_LISTING_PATTERN.search(text))
+
+
+def _has_global_entity_listing_request(text: str) -> bool:
+    return bool(_GLOBAL_ENTITY_LISTING_PATTERN.search(text))
 
 
 def _has_content_analysis_request(text: str) -> bool:
@@ -349,6 +361,7 @@ def classify_query(query: str) -> QueryClassification:
         has_content_analysis = _has_content_analysis_request(lowered)
     has_extreme_value_lookup = _has_extreme_value_lookup_request(lowered)
     has_aggregate_listing_scope = _has_aggregate_listing_scope_request(lowered)
+    has_global_entity_listing = _has_global_entity_listing_request(lowered)
 
     # --- Corpus metadata promotion ----------------------------------------
     # Inventory queries (count, enumeration, file listing, capability) are
@@ -456,6 +469,15 @@ def classify_query(query: str) -> QueryClassification:
                     new_shape=OutputShape.NARRATIVE_SYNTHESIS,
                 ),
             ),
+            (
+                has_corpus_scope and has_global_entity_listing and filename_filter is None and not has_extreme_value_lookup,
+                lambda: apply_override(
+                    reason_code='deterministic_override_global_entity_listing_to_coverage',
+                    new_intent=IntentLabel.COVERAGE,
+                    new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
+                    new_shape=OutputShape.NARRATIVE_SYNTHESIS,
+                ),
+            ),
         ]
         for condition, action in metadata_rules:
             if condition:
@@ -522,6 +544,18 @@ def classify_query(query: str) -> QueryClassification:
                 and not has_extreme_value_lookup,
                 lambda: apply_override(
                     reason_code='deterministic_override_aggregate_listing_to_coverage',
+                    new_intent=IntentLabel.COVERAGE,
+                    new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
+                ),
+            ),
+            (
+                has_corpus_scope
+                and has_global_entity_listing
+                and not single_target_scope
+                and filename_filter is None
+                and not has_extreme_value_lookup,
+                lambda: apply_override(
+                    reason_code='deterministic_override_global_entity_listing_to_coverage',
                     new_intent=IntentLabel.COVERAGE,
                     new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
                 ),
