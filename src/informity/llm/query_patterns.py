@@ -105,6 +105,24 @@ EVIDENCE_VALUE_EXTRACTION_KEYWORDS: str = (
     r'\b(evidence|snippet|key\s+amounts?|key\s+values?|numeric|figures?|'
     r'financial|amounts?|values?|found|mentions?|contains?)\b'
 )
+AGGREGATE_LISTING_SCOPE_KEYWORDS: str = (
+    r'\b('
+    r'(which|what)\s+(indexed\s+)?(files?|documents?|records?)\b.*\b(contain|contains|mention|mentions|include|includes|list)\b'
+    r'|'
+    r'across\s+all\s+(indexed\s+)?(files?|documents?|records?)\b'
+    r'|'
+    r'(names?|dates?|amounts?|figures?|values?)\s+mentioned\s+across\b'
+    r')'
+)
+EXTREME_VALUE_LOOKUP_KEYWORDS: str = (
+    r'\b('
+    r'(largest|highest|maximum|max|biggest|lowest|minimum|min)\s+'
+    r'(amount|value|number|figure|total)s?'
+    r'|'
+    r'(amount|value|number|figure|total)\s+is\s+the\s+'
+    r'(largest|highest|maximum|max|biggest|lowest|minimum|min)'
+    r')\b'
+)
 
 
 # ==============================================================================
@@ -388,3 +406,17 @@ def build_evidence_value_extraction_pattern() -> Pattern[str]:
     Build regex pattern for evidence/value extraction cues.
     """
     return re.compile(EVIDENCE_VALUE_EXTRACTION_KEYWORDS, re.IGNORECASE)
+
+
+def build_extreme_value_lookup_pattern() -> Pattern[str]:
+    """
+    Build regex pattern for superlative single-value lookup requests.
+    """
+    return re.compile(EXTREME_VALUE_LOOKUP_KEYWORDS, re.IGNORECASE)
+
+
+def build_aggregate_listing_scope_pattern() -> Pattern[str]:
+    """
+    Build regex pattern for broad corpus listing/synthesis requests.
+    """
+    return re.compile(AGGREGATE_LISTING_SCOPE_KEYWORDS, re.IGNORECASE)

@@ -247,6 +247,66 @@ def test_focused_multi_year_analysis_overrides_to_coverage() -> None:
     assert 'deterministic_override_multi_year_analysis_request' in result.reason_codes
 
 
+def test_focused_corpus_scope_listing_overrides_to_coverage() -> None:
+    class _FocusedOnlyRouter:
+        def classify_intent(self, _query: str) -> IntentPrediction:
+            return IntentPrediction('focused', 0.9, [('focused', 0.9)], ['forced_focused'])
+
+    original = get_intent_router()
+    set_intent_router_for_testing(_FocusedOnlyRouter())
+    try:
+        result = classify_query('Which indexed documents mention people names? List the documents.')
+    finally:
+        set_intent_router_for_testing(original)
+
+    assert result.intent == 'coverage'
+    assert result.route_candidate == 'cross_document_synthesis'
+    assert result.deterministic_override is True
+    assert 'deterministic_override_corpus_scope_to_coverage' in result.reason_codes
+
+
+def test_coverage_extreme_value_lookup_overrides_to_focused() -> None:
+    class _CoverageOnlyRouter:
+        def classify_intent(self, _query: str) -> IntentPrediction:
+            return IntentPrediction('coverage', 0.9, [('coverage', 0.9)], ['forced_coverage'])
+
+    original = get_intent_router()
+    set_intent_router_for_testing(_CoverageOnlyRouter())
+    try:
+        result = classify_query('How much is the largest amount mentioned in any document?')
+    finally:
+        set_intent_router_for_testing(original)
+
+    assert result.intent == 'focused'
+    assert result.route_candidate == 'targeted_fact_lookup'
+    assert result.deterministic_override is True
+    assert 'deterministic_override_extreme_value_lookup_to_focused' in result.reason_codes
+
+
+def test_focused_aggregate_listing_scope_overrides_to_coverage() -> None:
+    class _FocusedOnlyRouter:
+        def classify_intent(self, _query: str) -> IntentPrediction:
+            return IntentPrediction('focused', 0.9, [('focused', 0.9)], ['forced_focused'])
+
+    original = get_intent_router()
+    set_intent_router_for_testing(_FocusedOnlyRouter())
+    try:
+        result = classify_query('What are the most important dates mentioned across all indexed documents?')
+    finally:
+        set_intent_router_for_testing(original)
+
+    assert result.intent == 'coverage'
+    assert result.route_candidate == 'cross_document_synthesis'
+    assert result.deterministic_override is True
+    assert any(
+        code in result.reason_codes
+        for code in (
+            'deterministic_override_aggregate_listing_to_coverage',
+            'deterministic_override_corpus_scope_to_coverage',
+        )
+    )
+
+
 def test_source_terms_extract_anchor_phrase() -> None:
     result = classify_query('What does the 2020 property tax receipt contain? Summarize the key fields.')
     assert any('2020 property tax receipt' in term.casefold() for term in result.source_terms)

@@ -11,12 +11,13 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
+from informity.llm.types import IntentProfileId, RetrievalMode
 
 
 @dataclass
 class GenerationPromptPlan:
     chunks: list[dict]
-    effective_query_type: str
+    effective_query_type: RetrievalMode
     effective_top_k: int
     effective_reasoning_enabled: bool
     effective_max_tokens: int
@@ -41,7 +42,7 @@ def build_generation_prompt_plan(
     chunks: list[dict],
     history: list | None,
     profile_name: str,
-    profile_prepare_messages_fn: Callable[[list[dict[str, str]], str], list[dict[str, str]]],
+    profile_prepare_messages_fn: Callable[[list[dict[str, str]], RetrievalMode], list[dict[str, str]]],
     build_messages_fn: Callable[..., list[dict[str, str]]],
     fit_to_budget_enabled: bool,
     policy_soft_top_k_threshold: float,
@@ -55,12 +56,12 @@ def build_generation_prompt_plan(
     applied_degradations: list[dict[str, object]],
     min_output_budget_floor: int | None,
     output_constraints: dict[str, int],
-    effective_query_type: str,
+    effective_query_type: RetrievalMode,
     effective_top_k: int,
     effective_reasoning_enabled: bool,
     effective_max_tokens: int,
     timeout_seconds: int,
-    route_candidate: str,
+    route_candidate: IntentProfileId,
     dedupe_prompt_chunks_fn: Callable[[list[dict]], list[dict]],
     derive_format_requirements_fn: Callable[[str, dict[str, bool] | None], list[str]],
     action_hints: dict[str, bool] | None = None,
@@ -104,7 +105,7 @@ def build_generation_prompt_plan(
     if (
         not skip_precloseout_quality_check
         and fit_to_budget_enabled
-        and effective_query_type == 'focused'
+        and effective_query_type == RetrievalMode.FOCUSED
         and post_retrieval_ratio >= policy_soft_output_cap_threshold
         and retrieval_relevance_score < float(retrieval_precloseout_min_relevance_score)
     ):
@@ -149,8 +150,24 @@ def build_generation_prompt_plan(
     output_contract_plan_data: dict[str, object] = {}
     required_terms: list[str] = []
     required_headings: list[str] = []
+    required_table_columns: list[str] = []
     enforce_heading_order = False
     for requirement in format_requirements:
+        table_match = re.match(
+            r'^\s*include\s+markdown\s+table\s+columns\s*:\s*(.+?)\s*$',
+            str(requirement or ''),
+            flags=re.IGNORECASE,
+        )
+        if table_match is not None:
+            raw_columns = str(table_match.group(1) or '').strip()
+            parsed_columns = [
+                re.sub(r'\s+', ' ', str(item or '').strip())
+                for item in raw_columns.split('|')
+                if str(item or '').strip()
+            ]
+            if parsed_columns and not required_table_columns:
+                required_table_columns = parsed_columns[:8]
+            continue
         heading_match = re.match(r'^\s*include\s+heading\s*:\s*(.+?)\s*$', str(requirement or ''), flags=re.IGNORECASE)
         if heading_match is not None:
             heading = str(heading_match.group(1) or '').strip()
@@ -178,6 +195,9 @@ def build_generation_prompt_plan(
     if required_terms:
         output_contract_plan_data['required_terms'] = required_terms
         output_contract_plan_data['enforce_required_terms'] = True
+    if required_table_columns:
+        output_contract_plan_data['required_table_columns'] = required_table_columns
+        output_contract_plan_data['enforce_required_table'] = True
     output_contract_plan = output_contract_plan_data or None
     messages = build_messages_fn(
         question,

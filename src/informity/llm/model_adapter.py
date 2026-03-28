@@ -17,6 +17,7 @@ from enum import StrEnum
 from pathlib import Path
 
 from informity.config import settings
+from informity.llm.types import ChatRole, QueryType
 
 # ==============================================================================
 # Enums
@@ -157,27 +158,27 @@ class ModelProfile:
             stops.extend(self.stop_sequences_no_reasoning)
         return stops
 
-    def get_max_tokens(self, query_type: str) -> int:
+    def get_max_tokens(self, query_type: QueryType) -> int:
         """Return single profile max_tokens (query-type agnostic)."""
         _ = query_type
         return self.max_tokens
 
-    def get_timeout_seconds(self, query_type: str) -> int:
+    def get_timeout_seconds(self, query_type: QueryType) -> int:
         """Return single profile timeout_seconds (query-type agnostic)."""
         _ = query_type
         return self.timeout_seconds
 
-    def get_reasoning_enabled(self, query_type: str) -> bool:
+    def get_reasoning_enabled(self, query_type: QueryType) -> bool:
         """Whether reasoning (<think> blocks) should be enabled for this query type."""
         if self.reasoning_mode == ReasoningMode.ALWAYS:
-            return query_type != 'simple'
+            return query_type != QueryType.SIMPLE
         if self.reasoning_mode == ReasoningMode.FOCUSED_ONLY:
-            return query_type == 'focused'
+            return query_type == QueryType.FOCUSED
         return False
 
-    def get_prompt_format(self, query_type: str) -> PromptFormat:
+    def get_prompt_format(self, query_type: QueryType) -> PromptFormat:
         """Return the prompt format for the given query type."""
-        if query_type == 'coverage':
+        if query_type == QueryType.COVERAGE:
             return self.coverage_prompt_format
         return self.prompt_format
 
@@ -219,7 +220,7 @@ class ModelProfile:
     def prepare_messages(
         self,
         messages:   list[dict[str, str]],
-        query_type: str,
+        query_type: QueryType,
     ) -> list[dict[str, str]]:
         """
         Apply model-specific message transformations (e.g. Qwen3 /no_think).
@@ -231,7 +232,7 @@ class ModelProfile:
         # Apply /no_think token for models that support it (e.g. Qwen3)
         if not reasoning_enabled and self.no_think_token:
             for m in reversed(messages):
-                if m['role'] == 'user':
+                if m['role'] == ChatRole.USER:
                     m['content'] += f'\n{self.no_think_token}'
                     break
 
@@ -511,7 +512,7 @@ def get_profile() -> ModelProfile:
     return get_profile_for_filename(settings.llm_model_filename)
 
 
-def get_retrieval_top_k(query_type: str) -> int:
+def get_retrieval_top_k(query_type: QueryType) -> int:
     """Return model-profile-owned final retrieval top-k (query-type agnostic)."""
     _ = query_type
     profile = get_profile()

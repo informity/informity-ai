@@ -5,7 +5,7 @@
 
 [project]
 name = "informity"
-version = "0.8.0"
+version = "0.8.1"
 description = "A macOS desktop app that scans local files, indexes them with vector embeddings, and provides RAG-based chat using a local LLM."
 readme = "README.md"
 requires-python = ">=3.13"
@@ -30,7 +30,7 @@ dependencies = [
     "nltk>=3.9.2",
     "pathspec==1.0.4",
     "pillow>=12.1.1",
-    "promptcue==0.3.0",
+    "promptcue==0.3.2",
     "psutil>=6.1.0",
     "pydantic-settings>=2.13.0",
     "pydantic>=2.12.5",

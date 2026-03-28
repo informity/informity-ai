@@ -30,6 +30,7 @@ from informity.db.utils import (
     parse_timestamp,
 )
 from informity.diagnostics.issue_types import IssueType
+from informity.llm.types import ChatRole, DiagnosticsQueryType
 
 # ==============================================================================
 # Logger
@@ -57,7 +58,7 @@ SCHEMA_VERSION = 1
 DIAGNOSTICS_TYPE_USER = 'user'
 DIAGNOSTICS_TYPE_EVALUATION = 'evaluation'
 CANONICAL_DIAGNOSTICS_TYPES = (DIAGNOSTICS_TYPE_USER, DIAGNOSTICS_TYPE_EVALUATION)
-CANONICAL_DIAGNOSTICS_QUERY_TYPES = ('simple', 'metadata', 'focused', 'coverage', 'unknown')
+CANONICAL_DIAGNOSTICS_QUERY_TYPES = tuple(item.value for item in DiagnosticsQueryType)
 CANONICAL_DIAGNOSTICS_ISSUE_TYPES = tuple(sorted(issue.value for issue in IssueType))
 
 _SCHEMA_SQL = """
@@ -1331,7 +1332,7 @@ async def ensure_chat_exists(db: aiosqlite.Connection, chat_id: str, first_user_
 
 async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) -> ChatMessage:
     # Insert a new chat message and update chat's updated_at timestamp.
-    first_user_message = message.content if message.role == 'user' else None
+    first_user_message = message.content if message.role == ChatRole.USER else None
     await ensure_chat_exists(db, message.chat_id, first_user_message=first_user_message)
 
     cursor = await db.execute(
@@ -1663,7 +1664,7 @@ async def insert_diagnostics_metrics(
         query_type = raw_query_type
     else:
         log.warning('diagnostics_query_type_unknown', raw_query_type=raw_query_type)
-        query_type = 'unknown'
+        query_type = DiagnosticsQueryType.UNKNOWN.value
 
     normalized_detected_issues: list[str] = []
     seen_issues: set[str] = set()
@@ -1772,7 +1773,7 @@ async def get_diagnostics_metrics_since(
 
         query_type = str(row['query_type'] or '').strip().lower()
         if query_type not in CANONICAL_DIAGNOSTICS_QUERY_TYPES:
-            query_type = 'unknown'
+            query_type = DiagnosticsQueryType.UNKNOWN.value
 
         normalized_detected_issues = []
         for issue in detected_issues:

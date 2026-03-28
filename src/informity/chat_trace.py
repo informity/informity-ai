@@ -25,6 +25,7 @@ import structlog
 from structlog.contextvars import get_contextvars
 
 from informity.config import DirNames, get_chat_trace_logging, settings
+from informity.llm.types import DiagnosticsQueryType
 from informity.utils.directory_utils import ensure_directory, ensure_file_directory
 from informity.utils.json_utils import serialize_trace
 
@@ -270,7 +271,7 @@ class _ChatTraceWriter:
 
         intent_value = self._coerce_string(intent.get('intent'))
         subtype_value = self._coerce_string(intent.get('subtype'))
-        query_type = self._coerce_string(intent.get('query_type')) or 'unknown'
+        query_type = self._coerce_string(intent.get('query_type')) or DiagnosticsQueryType.UNKNOWN.value
 
         raw_chunks_count = self._coerce_non_negative_int(retrieval.get('raw_chunks_count')) or 0
         matching_files = self._coerce_non_negative_int(retrieval.get('matching_files'))

@@ -30,18 +30,18 @@ _FALLBACK_CONFIDENCE = 0.35
 # 'metadata' is not in the map — it is detected deterministically by
 # query_classifier.py and never returned by the adapter.
 _DEFAULT_INTENT: dict[str, IntentLabel] = {
-    'chitchat':        'simple',
-    'lookup':          'focused',
-    'procedure':       'focused',
-    'troubleshooting': 'focused',
-    'recommendation':  'focused',
-    'validation':      'focused',
-    'update':          'focused',
-    'analysis':        'coverage',
-    'comparison':      'coverage',
-    'summarization':   'coverage',
-    'coverage':        'coverage',
-    'generation':      'coverage',
+    'chitchat':        IntentLabel.SIMPLE,
+    'lookup':          IntentLabel.FOCUSED,
+    'procedure':       IntentLabel.FOCUSED,
+    'troubleshooting': IntentLabel.FOCUSED,
+    'recommendation':  IntentLabel.FOCUSED,
+    'validation':      IntentLabel.FOCUSED,
+    'update':          IntentLabel.FOCUSED,
+    'analysis':        IntentLabel.COVERAGE,
+    'comparison':      IntentLabel.COVERAGE,
+    'summarization':   IntentLabel.COVERAGE,
+    'coverage':        IntentLabel.COVERAGE,
+    'generation':      IntentLabel.COVERAGE,
 }
 
 # BROAD scope flips these focused-default types to 'coverage'.
@@ -51,12 +51,12 @@ _BROAD_FLIPS: frozenset[str] = frozenset({
 
 def _map_intent(query_type: str, scope: str) -> IntentLabel:
     """Map a PromptCue (query_type, scope) pair to an informity-ai IntentLabel."""
-    base = _DEFAULT_INTENT.get(query_type, 'focused')
+    base = _DEFAULT_INTENT.get(query_type, IntentLabel.FOCUSED)
     normalized_scope = str(scope or '').strip().casefold()
-    if base == 'simple':
-        return 'simple'
+    if base == IntentLabel.SIMPLE:
+        return IntentLabel.SIMPLE
     if normalized_scope == 'broad' and query_type in _BROAD_FLIPS:
-        return 'coverage'
+        return IntentLabel.COVERAGE
     return base
 
 
@@ -67,7 +67,7 @@ def _pcue_to_intent_prediction(pcue: PromptCueQueryObject) -> IntentPrediction:
 
     # Build up to 3 alternatives from candidates, deduplicating by intent label.
     seen: set[IntentLabel]        = {top_intent}
-    alts: list[tuple[str, float]] = [(top_intent, round(pcue.confidence, 4))]
+    alts: list[tuple[IntentLabel, float]] = [(top_intent, round(pcue.confidence, 4))]
     for candidate in pcue.candidate_query_types[:5]:
         alt_intent = _map_intent(candidate.label, scope)
         if alt_intent not in seen:
@@ -139,9 +139,9 @@ class PromptCueIntentAdapter:
         text = str(query or '').strip()
         if not text:
             return IntentPrediction(
-                intent       = 'simple',
+                intent       = IntentLabel.SIMPLE,
                 confidence   = 1.0,
-                alternatives = [('simple', 1.0)],
+                alternatives = [(IntentLabel.SIMPLE, 1.0)],
                 reason_codes = ['empty_query_default'],
             )
         try:
@@ -150,8 +150,8 @@ class PromptCueIntentAdapter:
         except Exception as exc:  # noqa: BLE001 — fallback required to preserve routing availability
             log.warning('promptcue_adapter_failed', error=str(exc))
             return IntentPrediction(
-                intent       = 'focused',
+                intent       = IntentLabel.FOCUSED,
                 confidence   = _FALLBACK_CONFIDENCE,
-                alternatives = [('focused', _FALLBACK_CONFIDENCE)],
+                alternatives = [(IntentLabel.FOCUSED, _FALLBACK_CONFIDENCE)],
                 reason_codes = ['promptcue_adapter_failed'],
             )

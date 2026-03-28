@@ -28,6 +28,7 @@ from informity.llm.rag_runtime import retrieval_validation as _retrieval_validat
 from informity.llm.rag_runtime import structured_numeric as _structured_numeric
 from informity.llm.rag_runtime.retrieval_pipeline import _build_clarification_fallback_message
 from informity.llm.streaming import stream_llm
+from informity.llm.types import CompletionMode, ConfidenceBand, FallbackReason, IntentProfileId, QueryType, StreamSignalTag
 
 log = structlog.get_logger(__name__)
 _HANDLER_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, asyncio.TimeoutError)
@@ -105,7 +106,7 @@ class RAGHandler:
 
     def matches(self, classification: QueryClassification) -> bool:
         """Match focused and coverage queries."""
-        return classification.intent in ('focused', 'coverage')
+        return classification.intent in {QueryType.FOCUSED, QueryType.COVERAGE}
 
     async def handle(
         self,
@@ -234,8 +235,8 @@ class RAGHandler:
                 reasoning_enabled=effective_reasoning_enabled,
                 max_tokens=effective_max_tokens,
                 subtype=classification.subtype,
-                focused_max_tokens=profile.get_max_tokens('focused'),
-                focused_timeout_seconds=profile.get_timeout_seconds('focused'),
+                focused_max_tokens=profile.get_max_tokens(QueryType.FOCUSED),
+                focused_timeout_seconds=profile.get_timeout_seconds(QueryType.FOCUSED),
                 output_constraints=output_constraints,
                 applied_degradations=applied_degradations,
                 route_candidate=selected_policy.profile_id,
@@ -251,7 +252,7 @@ class RAGHandler:
                     'confidence_band':   classification.confidence_band,
                     'response_shape':    effective_response_shape,
                     'query_type':        effective_query_type,
-                    'coverage_mode':     effective_query_type == 'coverage',
+                    'coverage_mode':     effective_query_type == QueryType.COVERAGE,
                     'reasoning_enabled':  effective_reasoning_enabled,
                     'top_k':              effective_top_k,
                     'rag_max_score':     getattr(profile, 'rag_max_score', None),
@@ -300,7 +301,7 @@ class RAGHandler:
             # Terminal retrieval outcome: skip generation
             if isinstance(retrieval_outcome, _retrieval_pipeline.RetrievalFailure):
                 has_remaining_scope = retrieval_outcome.has_remaining_scope
-                yield ('__metrics__', retrieval_outcome.metrics_payload)
+                yield (StreamSignalTag.METRICS, retrieval_outcome.metrics_payload)
                 yield retrieval_outcome.response_message
                 yield retrieval_outcome.sources
                 return
@@ -332,8 +333,8 @@ class RAGHandler:
                 retrieval_precloseout_min_relevance_score=float(settings.retrieval_precloseout_min_relevance_score),
                 retrieval_relevance_score=float(retrieval_relevance_score),
                 subtype=classification.subtype,
-                focused_max_tokens=profile.get_max_tokens('focused'),
-                focused_timeout_seconds=profile.get_timeout_seconds('focused'),
+                focused_max_tokens=profile.get_max_tokens(QueryType.FOCUSED),
+                focused_timeout_seconds=profile.get_timeout_seconds(QueryType.FOCUSED),
                 applied_degradations=applied_degradations,
                 min_output_budget_floor=diagnostics_min_words,
                 output_constraints=output_constraints,
@@ -376,7 +377,7 @@ class RAGHandler:
                 fallback_events.append({
                     'fallback_from': selected_policy.profile_id,
                     'fallback_to': selected_policy.fallback_target_route,
-                    'fallback_reason': pre_closeout_quality_check_reason,
+                    'fallback_reason': FallbackReason.PRE_CLOSEOUT_QUALITY_CHECK_FAILED,
                 })
                 has_remaining_scope = _generation_runtime._has_remaining_scope(
                     timeout_reason=None,
@@ -384,7 +385,7 @@ class RAGHandler:
                     generation_skipped=True,
                     applied_degradations=applied_degradations,
                 )
-                yield ('__metrics__', _generation_terminal.build_generation_skipped_metrics_payload(
+                yield (StreamSignalTag.METRICS, _generation_terminal.build_generation_skipped_metrics_payload(
                     query_type=effective_query_type,
                     timeout_seconds=timeout_seconds,
                     retrieval_elapsed_ms=retrieval_elapsed_ms,
@@ -393,7 +394,7 @@ class RAGHandler:
                     applied_degradations=applied_degradations,
                     fallback_events=fallback_events,
                     has_remaining_scope=has_remaining_scope,
-                    suggested_completion_mode='scoped_complete',
+                    suggested_completion_mode=CompletionMode.SCOPED_COMPLETE,
                     post_retrieval_projected_seconds=post_retrieval_projected_seconds,
                     post_retrieval_ratio=post_retrieval_ratio,
                     validation_gates=validation_gates,
@@ -406,8 +407,8 @@ class RAGHandler:
                 if (
                     not classification.is_continuation
                     and (
-                        classification.route_candidate == 'clarification_or_disambiguation'
-                        or classification.confidence_band == 'low'
+                        classification.route_candidate == IntentProfileId.CLARIFICATION_OR_DISAMBIGUATION
+                        or classification.confidence_band == ConfidenceBand.LOW
                     )
                 ):
                     yield _build_clarification_fallback_message(classification)
@@ -479,7 +480,7 @@ class RAGHandler:
                     timeout_reason='missing_stream_summary',
                     stream_recovery_reason='missing_stream_summary',
                     soft_budget_checkpoints_hit=[],
-                    completion_mode='scoped_complete',
+                    completion_mode=CompletionMode.SCOPED_COMPLETE,
                     has_remaining_scope=True,
                 )
                 applied_degradations.append({
@@ -535,7 +536,7 @@ class RAGHandler:
                 prompt_build_ms=stream_summary.prompt_build_ms,
                 ttft_ms=stream_summary.ttft_ms,
             )
-            yield ('__metrics__', metrics_payload)
+            yield (StreamSignalTag.METRICS, metrics_payload)
             _generation_closeout.record_generation_trace(
                 trace=trace,
                 token_count=token_count,

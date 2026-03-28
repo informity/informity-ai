@@ -6,12 +6,13 @@
 import re
 
 from informity.llm.model_adapter import get_profile_tokens_per_second
+from informity.llm.types import IntentProfileId, RetrievalMode, TimeoutReason
 
 
 def _apply_source_scoped_coverage_guard(
     *,
-    query_type: str,
-    route_candidate: str,
+    query_type: RetrievalMode,
+    route_candidate: IntentProfileId,
     source_terms: list[str],
     timeout_seconds: int,
     top_k: int,
@@ -24,13 +25,14 @@ def _apply_source_scoped_coverage_guard(
 
 def _has_remaining_scope(
     *,
-    timeout_reason: str | None,
+    timeout_reason: TimeoutReason | str | None,
     stream_recovery_reason: str | None,
     generation_skipped: bool,
     applied_degradations: list[dict[str, object]],
 ) -> bool:
-    terminal_timeout_reasons = {'queue_wait_timeout', 'first_token_watchdog_timeout'}
-    if str(timeout_reason or '').strip().lower() in terminal_timeout_reasons:
+    terminal_timeout_reasons = {TimeoutReason.QUEUE_WAIT_TIMEOUT, TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT}
+    normalized_timeout_reason = str(timeout_reason or '').strip().lower()
+    if normalized_timeout_reason in {reason.value for reason in terminal_timeout_reasons}:
         return False
     return bool(timeout_reason is not None or stream_recovery_reason is not None or generation_skipped)
 
@@ -47,7 +49,7 @@ def _augment_strict_ordered_format_requirements(format_requirements: list[str]) 
 def _apply_strict_ordered_output_budget(
     *,
     format_requirements: list[str],
-    query_type: str,
+    query_type: RetrievalMode,
     output_constraints: dict[str, int],
     max_tokens: int,
     reasoning_enabled: bool,
@@ -65,7 +67,7 @@ def _estimate_tokens_per_second(profile_name: str) -> float:
 def _estimate_budget_ratio(
     *,
     profile_name: str,
-    query_type: str,
+    query_type: RetrievalMode,
     timeout_seconds: int,
     question_length: int,
     context_chunks: int,
@@ -74,9 +76,9 @@ def _estimate_budget_ratio(
     reasoning_enabled: bool,
     max_tokens: int,
 ) -> tuple[float, float]:
-    default_chars_per_chunk = 1200 if query_type == 'focused' else 950
+    default_chars_per_chunk = 1200 if query_type == RetrievalMode.FOCUSED else 950
     effective_context_chars = context_chars if context_chars > 0 else context_chunks * default_chars_per_chunk
-    retrieval_seconds = 0.35 + (top_k * 0.06) + (0.5 if query_type == 'coverage' else 0.35)
+    retrieval_seconds = 0.35 + (top_k * 0.06) + (0.5 if query_type == RetrievalMode.COVERAGE else 0.35)
     prompt_seconds = 0.25 + (effective_context_chars / 9000.0) + (min(question_length, 1500) / 2800.0)
     generation_seconds = float(max_tokens) / _estimate_tokens_per_second(profile_name)
     projected_total_seconds = retrieval_seconds + prompt_seconds + generation_seconds
@@ -88,7 +90,7 @@ def _apply_strict_format_prompt_controls(
     *,
     question: str,
     chunks: list[dict],
-    query_type: str,
+    query_type: RetrievalMode,
     output_constraints: dict[str, int],
     max_tokens: int,
     reasoning_enabled: bool,
@@ -126,7 +128,7 @@ def _apply_strict_format_prompt_controls(
 def _apply_strict_pre_retrieval_guard(
     *,
     question: str,
-    query_type: str,
+    query_type: RetrievalMode,
     timeout_seconds: int,
     top_k: int,
     reasoning_enabled: bool,
@@ -147,7 +149,7 @@ def _apply_preflight_budget_degradations(
     policy_soft_coverage_to_focused_threshold: float,
     profile_name: str,
     question_length: int,
-    query_type: str,
+    query_type: RetrievalMode,
     timeout_seconds: int,
     top_k: int,
     reasoning_enabled: bool,
@@ -157,9 +159,9 @@ def _apply_preflight_budget_degradations(
     focused_timeout_seconds: int,
     output_constraints: dict[str, int],
     applied_degradations: list[dict[str, object]],
-    route_candidate: str | None = None,
+    route_candidate: IntentProfileId | None = None,
     strict_ordered_mode: bool = False,
-) -> tuple[str, int, bool, int, int, dict[str, int], list[dict[str, object]], float, float]:
+) -> tuple[RetrievalMode, int, bool, int, int, dict[str, int], list[dict[str, object]], float, float]:
     _ = policy_soft_reasoning_threshold
     projected_seconds, ratio = _estimate_budget_ratio(
         profile_name=profile_name,
@@ -192,7 +194,7 @@ def _apply_post_retrieval_budget_degradations(
     policy_soft_coverage_to_focused_threshold: float,
     profile_name: str,
     question_length: int,
-    query_type: str,
+    query_type: RetrievalMode,
     timeout_seconds: int,
     top_k: int,
     reasoning_enabled: bool,
@@ -202,9 +204,9 @@ def _apply_post_retrieval_budget_degradations(
     focused_max_tokens: int,
     focused_timeout_seconds: int,
     applied_degradations: list[dict[str, object]],
-    route_candidate: str | None = None,
+    route_candidate: IntentProfileId | None = None,
     min_output_budget_floor: int | None = None,
-) -> tuple[list[dict], str, int, bool, int, int, int, list[dict[str, object]], float, float]:
+) -> tuple[list[dict], RetrievalMode, int, bool, int, int, int, list[dict[str, object]], float, float]:
     context_chars = sum(len(str(chunk.get('chunk_text', ''))) for chunk in chunks)
     projected_seconds, ratio = _estimate_budget_ratio(
         profile_name=profile_name,

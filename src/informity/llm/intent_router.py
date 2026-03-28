@@ -8,16 +8,16 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import Lock
-from typing import Literal, Protocol
+from typing import Protocol
 
-IntentLabel = Literal['metadata', 'simple', 'focused', 'coverage']
+from informity.llm.types import IntentLabel
 
 
 @dataclass(frozen=True)
 class IntentPrediction:
     intent:       IntentLabel
     confidence:   float
-    alternatives: list[tuple[str, float]]
+    alternatives: list[tuple[IntentLabel, float]]
     reason_codes: list[str]
 
 

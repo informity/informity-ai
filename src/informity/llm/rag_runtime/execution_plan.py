@@ -14,20 +14,21 @@ from informity.llm.fit_to_budget_tuning import resolve_fit_to_budget_policy
 from informity.llm.intent_profiles import IntentProfilePolicy, get_intent_profile_policy
 from informity.llm.model_adapter import ModelProfile, get_profile, get_retrieval_top_k
 from informity.llm.query_classifier import QueryClassification
+from informity.llm.types import ConfidenceBand, FallbackReason, IntentProfileId, OutputShape, RetrievalMode
 
 
 @dataclass
 class RAGExecutionPlan:
     profile: ModelProfile
     selected_policy: IntentProfilePolicy
-    effective_response_shape: str
+    effective_response_shape: OutputShape
     retrieval_top_k: int
     timeout_seconds: int
     max_tokens: int
     reasoning_enabled: bool
     diagnostics_min_words: int | None
     policy: object
-    effective_query_type: str
+    effective_query_type: RetrievalMode
     effective_top_k: int
     effective_reasoning_enabled: bool
     effective_max_tokens: int
@@ -54,17 +55,21 @@ async def build_execution_plan(
     if effective_response_shape not in selected_policy.allowed_output_shapes:
         fallback_events.append({
             'fallback_from': classification.response_shape,
-            'fallback_to': 'narrative_synthesis',
-            'fallback_reason': 'response_shape_not_allowed_for_profile',
+            'fallback_to': OutputShape.NARRATIVE_SYNTHESIS,
+            'fallback_reason': FallbackReason.RESPONSE_SHAPE_NOT_ALLOWED_FOR_PROFILE,
         })
-        effective_response_shape = 'narrative_synthesis'
-    if classification.confidence_band == 'low':
+        effective_response_shape = OutputShape.NARRATIVE_SYNTHESIS
+    apply_low_confidence_guard = (
+        classification.confidence_band == ConfidenceBand.LOW
+        and not classification.deterministic_override
+    )
+    if apply_low_confidence_guard:
         fallback_events.append({
             'fallback_from': classification.route_candidate,
-            'fallback_to': 'clarification_or_disambiguation',
-            'fallback_reason': 'low_confidence_route_guard',
+            'fallback_to': IntentProfileId.CLARIFICATION_OR_DISAMBIGUATION,
+            'fallback_reason': FallbackReason.LOW_CONFIDENCE_ROUTE_GUARD,
         })
-        selected_policy = get_intent_profile_policy('clarification_or_disambiguation')
+        selected_policy = get_intent_profile_policy(IntentProfileId.CLARIFICATION_OR_DISAMBIGUATION)
         query_type = selected_policy.preferred_retrieval_mode
 
     retrieval_top_k = get_retrieval_top_k(query_type)

@@ -6,11 +6,12 @@
 from __future__ import annotations
 
 from informity.api.schemas import ChatSourceReference
+from informity.llm.types import CompletionMode, RetrievalMode
 
 
 def build_generation_skipped_metrics_payload(
     *,
-    query_type: str,
+    query_type: RetrievalMode,
     timeout_seconds: int,
     retrieval_elapsed_ms: float,
     preflight_projected_seconds: float,
@@ -18,7 +19,7 @@ def build_generation_skipped_metrics_payload(
     applied_degradations: list[dict[str, object]],
     fallback_events: list[dict[str, object]],
     has_remaining_scope: bool,
-    suggested_completion_mode: str = 'complete',
+    suggested_completion_mode: CompletionMode = CompletionMode.COMPLETE,
     post_retrieval_projected_seconds: float | None = None,
     post_retrieval_ratio: float | None = None,
     validation_gates: dict[str, bool] | None = None,

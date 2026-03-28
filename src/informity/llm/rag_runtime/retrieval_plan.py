@@ -14,6 +14,7 @@ import aiosqlite
 from informity.db.models import ChatMessage
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.rag_runtime import retrieval_validation as _retrieval_validation
+from informity.llm.types import FallbackReason, IntentProfileId, RetrievalMode
 
 
 @dataclass
@@ -29,7 +30,7 @@ class RetrievalContext:
 class InitialRetrievalResult:
     chunks: list[dict]
     constraint_relaxation_applied: str
-    effective_query_type: str
+    effective_query_type: RetrievalMode
     effective_top_k: int
     fallback_events: list[dict[str, object]]
     retrieval_elapsed_ms: float
@@ -72,8 +73,8 @@ async def run_initial_retrieval_plan(
     *,
     retrieval_question: str,
     classification: QueryClassification,
-    selected_policy_profile_id: str,
-    effective_query_type: str,
+    selected_policy_profile_id: IntentProfileId,
+    effective_query_type: RetrievalMode,
     effective_top_k: int,
     profile_rag_max_score: float | None,
     continuation_source_terms: list[str],
@@ -110,7 +111,7 @@ async def run_initial_retrieval_plan(
         is_file_list_query=classification.is_file_list_query,
     )
     anchor_bias_enabled = (
-        classification.route_candidate == 'continuation_or_refinement'
+        classification.route_candidate == IntentProfileId.CONTINUATION_OR_REFINEMENT
         and prior_has_remaining_scope
         and not scope_reset_detected
         and bool(continuation_source_terms)
@@ -155,7 +156,7 @@ async def run_initial_retrieval_plan(
             fallback_events.append({
                 'fallback_from': selected_policy_profile_id,
                 'fallback_to': selected_policy_profile_id,
-                'fallback_reason': 'continuation_anchor_bias_applied',
+                'fallback_reason': FallbackReason.CONTINUATION_ANCHOR_BIAS_APPLIED,
             })
 
     if not chunks:
@@ -175,7 +176,7 @@ async def run_initial_retrieval_plan(
         fallback_events.append({
             'fallback_from': selected_policy_profile_id,
             'fallback_to': selected_policy_profile_id,
-            'fallback_reason': 'retry_without_max_score',
+            'fallback_reason': FallbackReason.RETRY_WITHOUT_MAX_SCORE,
         })
         chunks, constraint_relaxation_applied = await retrieve_with_constraints_fn(
             question=retrieval_question,

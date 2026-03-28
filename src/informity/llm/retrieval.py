@@ -19,6 +19,7 @@ from informity.llm.metadata_filters import (
     build_where_clause_and_params,
 )
 from informity.llm.model_adapter import get_profile
+from informity.llm.types import BlockType, FilterOperator, QueryType
 
 log = structlog.get_logger(__name__)
 
@@ -41,7 +42,7 @@ async def retrieve_chunks(
     filename_filter: str | None = None,
     block_type_filter: str | None = None,
     section_filter: str | None = None,
-    query_type: str = 'focused',
+    query_type: QueryType = QueryType.FOCUSED,
     db: aiosqlite.Connection | None = None,
     trace: object | None = None,
     timing_output: dict | None = None,
@@ -61,23 +62,23 @@ async def retrieve_chunks(
     # 2. Build WHERE clause from filters using unified filter system
     filters: list[MetadataFilter] = []
     if year_filter:
-        filters.append(MetadataFilter(field='year', operator='eq', value=year_filter))
+        filters.append(MetadataFilter(field='year', operator=FilterOperator.EQ, value=year_filter))
     if category_filter:
         # Sanitize category filter (only alphanumeric, underscore, hyphen)
         safe_category = ''.join(c for c in category_filter if c.isalnum() or c in '_-')
         if safe_category:
-            filters.append(MetadataFilter(field='category', operator='eq', value=safe_category))
+            filters.append(MetadataFilter(field='category', operator=FilterOperator.EQ, value=safe_category))
     if extension_filter:
         # Sanitize extension filter (ensure it starts with dot)
         safe_extension = extension_filter if extension_filter.startswith('.') else f'.{extension_filter}'
-        filters.append(MetadataFilter(field='extension', operator='eq', value=safe_extension))
+        filters.append(MetadataFilter(field='extension', operator=FilterOperator.EQ, value=safe_extension))
     if filename_filter:
         normalized_filename_filter = filename_filter.strip()
         if normalized_filename_filter:
             filters.append(
                 MetadataFilter(
                     field='filename',
-                    operator='like',
+                    operator=FilterOperator.LIKE,
                     value=f'%{normalized_filename_filter}%',
                 )
             )
@@ -92,7 +93,11 @@ async def retrieve_chunks(
         }
         for metadata_filter in active_filters
     ]
-    safe_block_type_filter = block_type_filter if block_type_filter in {'table', 'form', 'narrative'} else None
+    safe_block_type_filter = (
+        block_type_filter
+        if block_type_filter in {BlockType.TABLE, BlockType.FORM, BlockType.NARRATIVE}
+        else None
+    )
     safe_section_filter = section_filter.strip().casefold() if isinstance(section_filter, str) and section_filter.strip() else None
 
     fts5_augmented_count: int = 0  # Net-new candidates added by FTS5 augmentation (focused only)

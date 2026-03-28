@@ -1,4 +1,5 @@
 import math
+from typing import Literal
 
 import aiosqlite
 
@@ -6,6 +7,7 @@ from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.retrieval import retrieve_chunks
+from informity.llm.types import ChatRole, FallbackReason, GroupBy, IntentProfileId, OutputShape, QuerySubtype, RetrievalMode
 
 
 def _normalize_relevance_score(raw_score: float) -> float:
@@ -26,19 +28,19 @@ def _normalize_relevance_score(raw_score: float) -> float:
 def _evaluate_retrieval_relevance_gate(
     *,
     chunks: list[dict],
-    query_type: str,
-    route_candidate: str,
+    query_type: RetrievalMode,
+    route_candidate: IntentProfileId,
     has_strong_anchor: bool = False,
 ) -> tuple[bool, float]:
     if not chunks:
         return False, 0.0
     top_scores = [_normalize_relevance_score(chunk.get('score', 0.0)) for chunk in chunks[:3]]
     mean_score = sum(top_scores) / max(1, len(top_scores))
-    if query_type == 'coverage':
+    if query_type == RetrievalMode.COVERAGE:
         return mean_score >= float(settings.retrieval_relevance_threshold_coverage), mean_score
-    if route_candidate == 'structured_field_extraction':
+    if route_candidate == IntentProfileId.STRUCTURED_FIELD_EXTRACTION:
         return mean_score >= float(settings.retrieval_relevance_threshold_structured), mean_score
-    if query_type == 'focused' and has_strong_anchor:
+    if query_type == RetrievalMode.FOCUSED and has_strong_anchor:
         # Strong metadata anchors (especially filename constraints) should not fail hard
         # when reranker scores are near-zero but retrieval returned concrete chunks.
         return True, mean_score
@@ -48,9 +50,9 @@ def _evaluate_retrieval_relevance_gate(
 def _evaluate_source_diversity_gate(
     *,
     chunks: list[dict],
-    query_type: str,
+    query_type: RetrievalMode,
 ) -> tuple[bool, int]:
-    if query_type != 'coverage':
+    if query_type != RetrievalMode.COVERAGE:
         return True, len({int(chunk.get('file_id', 0)) for chunk in chunks if chunk.get('file_id') is not None})
     distinct_sources = {
         int(chunk.get('file_id', 0))
@@ -65,7 +67,7 @@ def _extract_prior_source_anchors(history: list[ChatMessage] | None) -> set[str]
         return set()
     anchors: set[str] = set()
     for message in reversed(history):
-        if message.role != 'assistant' or not message.sources:
+        if message.role != ChatRole.ASSISTANT or not message.sources:
             continue
         for source in message.sources:
             if not isinstance(source, dict):
@@ -85,7 +87,7 @@ def _extract_prior_has_remaining_scope(history: list[ChatMessage] | None) -> boo
     if not history:
         return False
     for message in reversed(history):
-        if message.role != 'assistant':
+        if message.role != ChatRole.ASSISTANT:
             continue
         return bool(message.has_remaining_scope)
     return False
@@ -95,7 +97,7 @@ def _extract_last_user_question(history: list[ChatMessage] | None) -> str | None
     if not history:
         return None
     for message in reversed(history):
-        if message.role != 'user':
+        if message.role != ChatRole.USER:
             continue
         content = (message.content or '').strip()
         if content:
@@ -106,14 +108,14 @@ def _extract_last_user_question(history: list[ChatMessage] | None) -> str | None
 def _build_continuation_retrieval_query(
     *,
     question: str,
-    route_candidate: str,
+    route_candidate: IntentProfileId,
     prior_has_remaining_scope: bool,
     scope_reset_detected: bool,
     is_continuation: bool = False,
     history: list[ChatMessage] | None,
 ) -> str:
     normalized_question = question.strip()
-    if route_candidate != 'continuation_or_refinement':
+    if route_candidate != IntentProfileId.CONTINUATION_OR_REFINEMENT:
         return normalized_question
     if scope_reset_detected or not prior_has_remaining_scope:
         return normalized_question
@@ -132,12 +134,12 @@ def _build_continuation_retrieval_query(
 
 def _derive_continuation_source_terms(
     *,
-    route_candidate: str,
+    route_candidate: IntentProfileId,
     prior_has_remaining_scope: bool,
     scope_reset_detected: bool,
     prior_source_anchors: set[str],
 ) -> list[str]:
-    if route_candidate != 'continuation_or_refinement':
+    if route_candidate != IntentProfileId.CONTINUATION_OR_REFINEMENT:
         return []
     if not prior_has_remaining_scope or scope_reset_detected or not prior_source_anchors:
         return []
@@ -180,34 +182,38 @@ def _extract_current_source_keys(chunks: list[dict]) -> set[str]:
 def _apply_coverage_evidence_floor_override(
     *,
     retrieval_relevance_passed: bool,
-    query_type: str,
-    subtype: str | None,
-    group_by: str | None,
-    response_shape: str,
+    query_type: RetrievalMode,
+    subtype: QuerySubtype | None,
+    group_by: GroupBy | None,
+    response_shape: OutputShape,
     distinct_sources_count: int,
     chunk_count: int,
     fallback_events: list[dict[str, object]],
-    route_profile_id: str,
+    route_profile_id: IntentProfileId,
     retrieval_relevance_score: float,
 ) -> tuple[bool, list[dict[str, object]]]:
     hard_floor_enabled = bool(settings.retrieval_coverage_evidence_floor_hard_floor_enabled)
     hard_floor_min_score = float(settings.retrieval_coverage_evidence_floor_min_score)
-    schema_driven_shape = response_shape in {'metadata_table', 'structured_extract'}
+    schema_driven_shape = response_shape in {OutputShape.METADATA_TABLE, OutputShape.STRUCTURED_EXTRACT}
     score_clears_hard_floor = (not hard_floor_enabled) or retrieval_relevance_score >= hard_floor_min_score
     if schema_driven_shape:
         score_clears_hard_floor = True
 
     coverage_evidence_floor_eligible = (
-        subtype == 'aggregate_by_period'
-        or group_by in {'year', 'category', 'file'}
+        subtype == QuerySubtype.AGGREGATE_BY_PERIOD
+        or group_by in {GroupBy.YEAR, GroupBy.CATEGORY, GroupBy.FILE}
         or (
-            response_shape in {'narrative_synthesis', 'metadata_table', 'hybrid'}
-            and route_profile_id in {'comparative_analysis', 'cross_document_synthesis', 'audit_or_compliance_brief'}
+            response_shape in {OutputShape.NARRATIVE_SYNTHESIS, OutputShape.METADATA_TABLE, OutputShape.HYBRID}
+            and route_profile_id in {
+                IntentProfileId.COMPARATIVE_ANALYSIS,
+                IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
+                IntentProfileId.AUDIT_OR_COMPLIANCE_BRIEF,
+            }
         )
     )
     if (
         not retrieval_relevance_passed
-        and query_type == 'coverage'
+        and query_type == RetrievalMode.COVERAGE
         and coverage_evidence_floor_eligible
         and score_clears_hard_floor
         and distinct_sources_count >= 3
@@ -217,7 +223,7 @@ def _apply_coverage_evidence_floor_override(
         fallback_events.append({
             'fallback_from': route_profile_id,
             'fallback_to': route_profile_id,
-            'fallback_reason': 'coverage_evidence_floor_override',
+            'fallback_reason': FallbackReason.COVERAGE_EVIDENCE_FLOOR_OVERRIDE,
             'retrieval_relevance_score': round(retrieval_relevance_score, 3),
             'distinct_sources_count': distinct_sources_count,
             'group_by': group_by,
@@ -226,9 +232,9 @@ def _apply_coverage_evidence_floor_override(
         })
 
     focused_structured_evidence_floor_eligible = (
-        query_type == 'focused'
-        and route_profile_id == 'structured_field_extraction'
-        and response_shape == 'structured_extract'
+        query_type == RetrievalMode.FOCUSED
+        and route_profile_id == IntentProfileId.STRUCTURED_FIELD_EXTRACTION
+        and response_shape == OutputShape.STRUCTURED_EXTRACT
     )
     if (
         not retrieval_relevance_passed
@@ -240,7 +246,7 @@ def _apply_coverage_evidence_floor_override(
         fallback_events.append({
             'fallback_from': route_profile_id,
             'fallback_to': route_profile_id,
-            'fallback_reason': 'focused_structured_evidence_floor_override',
+            'fallback_reason': FallbackReason.FOCUSED_STRUCTURED_EVIDENCE_FLOOR_OVERRIDE,
             'retrieval_relevance_score': round(retrieval_relevance_score, 3),
             'distinct_sources_count': distinct_sources_count,
             'chunk_count': chunk_count,
@@ -252,7 +258,7 @@ def _apply_coverage_evidence_floor_override(
 
 def _evaluate_continuation_anchor_gate(
     *,
-    route_candidate: str,
+    route_candidate: IntentProfileId,
     scope_reset_detected: bool,
     prior_source_anchors: set[str],
     current_source_keys: set[str],
@@ -260,7 +266,7 @@ def _evaluate_continuation_anchor_gate(
 ) -> tuple[bool, int]:
     anchor_overlap_count = len(prior_source_anchors.intersection(current_source_keys))
     continuation_anchor_passed = True
-    if route_candidate == 'continuation_or_refinement':
+    if route_candidate == IntentProfileId.CONTINUATION_OR_REFINEMENT:
         if scope_reset_detected:
             continuation_anchor_passed = True
         elif not prior_source_anchors:
@@ -276,13 +282,13 @@ async def _retrieve_with_staged_structural_constraints(
     effective_top_k: int,
     profile_max_score: float | None,
     classification: QueryClassification,
-    effective_query_type: str,
-    route_profile_id: str,
+    effective_query_type: RetrievalMode,
+    route_profile_id: IntentProfileId,
     db: aiosqlite.Connection,
     trace: object | None,
     retrieve_fn=retrieve_chunks,
     timing_output: dict | None = None,
-) -> tuple[list[dict], str]:
+) -> tuple[list[dict], Literal['none', 'section', 'both', 'block']]:
     """
     Retrieve with baseline-first strategy for structural constraints.
 
