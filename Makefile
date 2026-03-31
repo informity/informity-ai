@@ -53,9 +53,6 @@ install-dev: ## Install runtime + dev dependencies and download models into app 
 uninstall: ## Remove all user data, downloaded models, and .venv (fresh distribution state)
 	./scripts/uninstall.sh
 
-full-reset-install: ## Full reset (data, venv, node_modules, .cache; preserves app_data/models + diagnostics models), install, and test
-	./scripts/full_reset_and_install.sh
-
 cache-bootstrap: ## Seed app-data cache from ~/.cache (one-time migration helper for dev)
 	@mkdir -p "$(APP_CACHE_DIR)"
 	@if [ ! -d "$(APP_HF_HUB_DIR)" ] && [ -d "$(HOME)/.cache/$(DIR_HUGGINGFACE)/$(DIR_HUB)" ]; then \

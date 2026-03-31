@@ -168,6 +168,7 @@ export function SetupRequiredPage({
     return recommendedTier ?? fallback
   }, [recommendedTier, sortedTierOptions])
   const [selectedTier, setSelectedTier] = useState<SetupTierOption['tier']>(initialTier)
+  const [expandedTier, setExpandedTier] = useState<SetupTierOption['tier'] | null>(null)
   const selectedOption = sortedTierOptions.find((option) => option.tier === selectedTier) ?? sortedTierOptions[0]
   const recommendedOption = sortedTierOptions.find((option) => option.tier === recommendedTier)
   const recommendationText = formatRecommendation(machineRamGb, recommendedReason, recommendedOption)
@@ -201,7 +202,7 @@ export function SetupRequiredPage({
           <div className="setup-required__tier-grid">
             {sortedTierOptions.map((option) => {
               const checked = option.tier === selectedTier
-              const recommended = option.tier === recommendedTier
+              const detailsOpen = expandedTier === option.tier
               return (
                 <label
                   key={option.tier}
@@ -222,42 +223,54 @@ export function SetupRequiredPage({
                     <div>
                       <p className="setup-tier__title">
                         {getDisplayTierTitle(option)}
-                        <span className="setup-tier__info ui-tooltip-trigger" aria-label="Model filename">
-                          <i className="ri-information-line" aria-hidden="true" />
-                          <span className="setup-tier__tooltip ui-tooltip ui-tooltip--compact ui-tooltip--nowrap">
-                            {option.model_filename}
-                          </span>
-                        </span>
-                        {recommended ? <span className="setup-tier__recommended">Recommended for your system</span> : null}
                       </p>
                       <p className="setup-tier__desc">{getTierDescription(option)}</p>
                     </div>
                   </div>
-                  <div className="setup-tier__meta">
-                    <span className="setup-tier__meta-item">
-                      <i className="ri-award-line setup-tier__meta-icon" aria-hidden />
-                      <span className="setup-tier__meta-label">Quality:</span>
-                      <span className="setup-tier__meta-value">{option.quality}</span>
-                    </span>
-                    <span className="setup-tier__meta-sep" aria-hidden>|</span>
-                    <span className="setup-tier__meta-item">
-                      <i className="ri-speed-up-line setup-tier__meta-icon" aria-hidden />
-                      <span className="setup-tier__meta-label">Speed:</span>
-                      <span className="setup-tier__meta-value">{option.speed}</span>
-                    </span>
-                    <span className="setup-tier__meta-sep" aria-hidden>|</span>
-                    <span className="setup-tier__meta-item">
-                      <i className="ri-cpu-line setup-tier__meta-icon" aria-hidden />
-                      <span className="setup-tier__meta-label">Memory:</span>
-                      <span className="setup-tier__meta-value">{formatMemoryProfile(option.ram_profile)}</span>
-                    </span>
-                    <span className="setup-tier__meta-sep" aria-hidden>|</span>
-                    <span className="setup-tier__meta-item">
-                      <i className="ri-download-2-line setup-tier__meta-icon" aria-hidden />
-                      <span className="setup-tier__meta-label">Size:</span>
-                      <span className="setup-tier__meta-value">{option.approx_size_gb.toFixed(1)} GB</span>
-                    </span>
+                  <div className="setup-tier__summary">
+                    <button
+                      type="button"
+                      className={`setup-tier__details-toggle-inline${detailsOpen ? ' setup-tier__details-toggle-inline--expanded' : ''}`}
+                      onClick={(event) => {
+                        event.preventDefault()
+                        event.stopPropagation()
+                        setExpandedTier((current) => (current === option.tier ? null : option.tier))
+                      }}
+                      aria-expanded={detailsOpen}
+                    >
+                      <i className="ri-arrow-right-s-line setup-tier__details-chevron" aria-hidden />
+                      <span>{detailsOpen ? 'Hide Details' : 'Show Details'}</span>
+                    </button>
                   </div>
+                  {detailsOpen ? (
+                    <div className="setup-tier__meta setup-tier__meta--details">
+                      <span className="setup-tier__meta-item">
+                        <i className="ri-robot-2-line setup-tier__meta-icon" aria-hidden />
+                        <span className="setup-tier__meta-label">Model:</span>
+                        <span className="setup-tier__meta-value">
+                          {option.display_name}
+                        </span>
+                      </span>
+                      <span className="setup-tier__meta-sep" aria-hidden>|</span>
+                      <span className="setup-tier__meta-item">
+                        <i className="ri-download-2-line setup-tier__meta-icon" aria-hidden />
+                        <span className="setup-tier__meta-label">Size:</span>
+                        <span className="setup-tier__meta-value">{option.approx_size_gb.toFixed(1)} GB</span>
+                      </span>
+                      <span className="setup-tier__meta-sep" aria-hidden>|</span>
+                      <span className="setup-tier__meta-item">
+                        <i className="ri-speed-up-line setup-tier__meta-icon" aria-hidden />
+                        <span className="setup-tier__meta-label">Speed:</span>
+                        <span className="setup-tier__meta-value">{option.speed}</span>
+                      </span>
+                      <span className="setup-tier__meta-sep" aria-hidden>|</span>
+                      <span className="setup-tier__meta-item">
+                        <i className="ri-cpu-line setup-tier__meta-icon" aria-hidden />
+                        <span className="setup-tier__meta-label">Memory:</span>
+                        <span className="setup-tier__meta-value">{formatMemoryProfile(option.ram_profile)}</span>
+                      </span>
+                    </div>
+                  ) : null}
                   {checked && showProgress ? (
                     <div className="setup-tier__progress">
                       <div className="setup-tier__progress-row">

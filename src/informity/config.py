@@ -590,7 +590,7 @@ class Settings(BaseSettings):
             hf_cache,
             hf_hub,
             docling_cache,
-            # User data (in app_data_dir, cleared by reset.sh)
+            # User data (in app_data_dir, cleared by uninstall.sh)
             self.app_data_dir,
             db_dir,
             # vectors_dir removed - vectors now stored in SQLite via sqlite-vec

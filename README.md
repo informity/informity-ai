@@ -62,6 +62,12 @@ Run once to install Python deps and download the embedding model, reranker (cros
 ./scripts/install.sh
 ```
 
+For first-run setup testing (install app/runtime dependencies only, no models preinstalled):
+
+```bash
+INFORMITY_INSTALL_PROFILE=dev INFORMITY_INSTALL_SKIP_MODELS=1 ./scripts/install.sh
+```
+
 - Uses `scripts/install.conf.json` for model IDs: `embedding_model`, `reranker_model` (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`), and optional LLM (default: **Qwen 14B** Q5_K_M via `repo_id` / `filename`).
 - Downloads all models to `~/.informity/` by default (override with `INFORMITY_APP_DATA_DIR`) and writes `config.json` with `full_privacy=true` (no network after install).
 - After this, the app will **never** auto-download; it only uses what’s already in app data. With those settings enabled, the app makes **no network requests after install** (no Hugging Face or internet contact).
@@ -70,7 +76,7 @@ Run once to install Python deps and download the embedding model, reranker (cros
 To remove all user data and downloaded content and return to a fresh distribution state (as after cloning), run from repo root: `./scripts/uninstall.sh` or `make uninstall`. This removes the app data directory (config, database, embedding cache, LLM models, vectors, logs), the virtualenv (`.venv`), and local caches. Run `./scripts/install.sh` again to reinstall.
 
 **Reset (in-app)**  
-Settings → Reset restores all settings to factory defaults (including default LLM: Qwen3 14B). Index → Reset deletes all indexed data and chat history and also resets settings to the same defaults. For a full disk reset (remove all app data but keep `.venv`), run `./scripts/reset.sh`.
+Settings → Reset restores all settings to factory defaults (including default LLM: Qwen3 14B). Index → Reset deletes all indexed data and chat history and also resets settings to the same defaults. For a full local cleanup and reset, run `./scripts/uninstall.sh` (or `make uninstall`). Then run `./scripts/install.sh` to reinstall.
 
 **Option B — First-run auto-download**  
 Just run the app. On first search/index/chat it may download the embedding model, reranker, and LLM if not already present. In Settings → Full Privacy Mode you can turn **“Enable”** on so future runs are fully offline.
