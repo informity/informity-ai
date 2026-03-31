@@ -549,7 +549,7 @@ class LLMEngine:
 
             from informity.config import DirNames, configure_hf_environment
 
-            configure_hf_environment()
+            configure_hf_environment(fail_on_missing_full_privacy_models=False)
             hf_cache = settings.cache_dir / DirNames.HUGGINGFACE / DirNames.HUB if settings.cache_dir else None
 
             ensure_file_directory(target_path)

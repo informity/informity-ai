@@ -6,14 +6,12 @@
 #   3. Hard-coded defaults below
 # Config.json wins over env vars so UI state survives restarts.
 #
-# Default app data is stored in a "data" directory relative to the process
-# working directory (e.g. project root). Override with INFORMITY_APP_DATA_DIR
-# to use e.g. ~/Library/Application Support/Informity AI for production.
+# Default app data is stored in ~/.informity.
+# Override with INFORMITY_APP_DATA_DIR to use a custom location.
 # ==============================================================================
 
 import json
 import os
-import sys
 from pathlib import Path
 from typing import Literal
 
@@ -37,6 +35,7 @@ log = structlog.get_logger(__name__)
 
 APP_SLUG        = 'informity'      # Used for db filename (e.g. informity.db), log filename (e.g. informity.log)
 APP_DISPLAY_NAME = 'Informity AI'  # User-facing product name (UI, prompts, API docs)
+APP_DATA_DIRNAME = '.informity'    # Default app data directory name under user home
 
 # ==============================================================================
 # Repo root detection
@@ -66,13 +65,8 @@ def _get_repo_root() -> Path:
 # Defaults
 # ==============================================================================
 
-# macOS: ~/Library/Application Support/Informity AI (same as the desktop .app bundle).
-# Other platforms: "data" relative to process cwd (resolved in validator / loader).
-_DEFAULT_APP_DATA_DIR = (
-    Path.home() / 'Library' / 'Application Support' / APP_DISPLAY_NAME
-    if sys.platform == 'darwin'
-    else Path('data')
-)
+# All platforms default to ~/.informity.
+_DEFAULT_APP_DATA_DIR = Path.home() / APP_DATA_DIRNAME
 
 # Default model for reset-to-factory and first load: Qwen 14B (Q5_K_M).
 _DEFAULT_LLM_MODEL_FILENAME = 'Qwen3-14B-Q5_K_M.gguf'
@@ -532,8 +526,7 @@ class Settings(BaseSettings):
         repo_root = _get_repo_root()
 
         # Cache directory: defaults to app_data_dir/cache (same root as models, DB, logs).
-        # On macOS this is ~/Library/Application Support/Informity AI/cache, shared between
-        # the desktop .app and dev/tool runs. Override via INFORMITY_CACHE_DIR env var.
+        # Override via INFORMITY_CACHE_DIR env var.
         if self.cache_dir is None:
             self.cache_dir = self.app_data_dir / DirNames.CACHE
         else:
@@ -584,6 +577,7 @@ class Settings(BaseSettings):
         hf_hub        = hf_cache / DirNames.HUB
         docling_cache = cache_root / DirNames.DOCLING
         db_dir        = self.app_data_dir / DirNames.DB
+        chats_dir     = self.app_data_dir / DirNames.CHAT_LOGS
         # NOTE: diagnostics_chats_dir, diagnostics_reports_dir, and diagnostics_evaluations_dir
         # are NOT created here. The normal pipeline does not use those directories.
         # The normal pipeline uses runs/{run_id}/traces/ for evaluation traces and
@@ -602,6 +596,7 @@ class Settings(BaseSettings):
             # vectors_dir removed - vectors now stored in SQLite via sqlite-vec
             self.logs_dir,
             self.diagnostics_dir,
+            chats_dir,
             # diagnostics_chats_dir, diagnostics_reports_dir, and diagnostics_evaluations_dir removed - no longer needed
         ]
         # Filter out None values and ensure directories exist
@@ -782,7 +777,7 @@ _apply_thread_limits_early()
 # Hugging Face environment setup — shared by main.py (LLM downloads), docling, llm/engine
 # ==============================================================================
 
-def configure_hf_environment() -> bool:
+def configure_hf_environment(*, fail_on_missing_full_privacy_models: bool = True) -> bool:
     # Set Hugging Face cache paths and offline flags based on the current settings.
     # Called during LLM model downloads (main.py, llm/engine.py), docling model loading,
     # and sentence-transformers (embedding/reranker) model loading.
@@ -812,7 +807,7 @@ def configure_hf_environment() -> bool:
             log.debug('offline_mode_enabled', reason='models_cached')
         else:
             # Models not cached - if Full Privacy is enabled, fail fast
-            if settings.full_privacy:
+            if settings.full_privacy and fail_on_missing_full_privacy_models:
                 from informity.exceptions import ConfigurationError
                 raise ConfigurationError(
                     'Full Privacy Mode is enabled but required models are not cached. '
@@ -825,13 +820,15 @@ def configure_hf_environment() -> bool:
                     + '\n'
                     'After install completes, models will be cached and Full Privacy will work without network access.'
                 )
-            # If only embedding_offline is True (not full_privacy), allow downloads
-            # This provides flexibility for development/testing
+            # Allow setup/bootstrap flows to proceed even when full_privacy is configured
+            # but required caches are not present yet.
             os.environ.pop('HF_HUB_OFFLINE', None)
             os.environ.pop('TRANSFORMERS_OFFLINE', None)
             log.info(
                 'offline_mode_deferred',
                 reason='models_not_cached',
+                full_privacy=settings.full_privacy,
+                fail_on_missing_full_privacy_models=fail_on_missing_full_privacy_models,
                 embedding_offline=settings.embedding_offline,
                 message='Models not cached; allowing download. Offline mode will be enabled after models are cached.',
             )

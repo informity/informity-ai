@@ -55,8 +55,8 @@ from informity.config import APP_DISPLAY_NAME, configure_hf_environment, setting
 from informity.version import APP_VERSION
 
 # Set Hugging Face cache paths and offline flags before importing models.
-# This is needed for sentence-transformers (embedding/reranker), LLM downloads (huggingface-hub), and docling models.
-configure_hf_environment()
+# Allow boot into first-run setup when local models are not cached yet.
+configure_hf_environment(fail_on_missing_full_privacy_models=False)
 
 from informity.db.sqlite import (
     clear_stale_running_scans,

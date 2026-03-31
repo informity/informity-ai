@@ -4,6 +4,7 @@
  */
 
 import type { PlanStepPayload, StreamChatCallbacks, StreamDonePayload } from './types/api'
+import type { SetupState } from './types/setupState'
 
 function getApiBase(): string {
   return window.__INFORMITY_API_BASE__ || import.meta.env.VITE_API_URL || 'http://localhost:8420'
@@ -509,4 +510,149 @@ export async function getConfigReference(): Promise<unknown> {
 
 export async function getHealth(): Promise<unknown> {
   return request('GET', '/api/health')
+}
+
+export interface SetupStatusResponse {
+  state: SetupState
+  required_models_ready: boolean
+  setup_state_file_present: boolean
+  detail: string | null
+  machine_ram_gb: number | null
+  recommended_tier: SetupTierOption['tier'] | null
+  recommended_reason: string | null
+  tier_options: SetupTierOption[]
+}
+
+export async function getSetupStatus(): Promise<SetupStatusResponse> {
+  return request<SetupStatusResponse>('GET', '/api/setup/status')
+}
+
+export interface SetupTierOption {
+  tier: 'small' | 'balanced' | 'quality'
+  title: string
+  model_filename: string
+  approx_size_gb: number
+  quality: string
+  speed: string
+  ram_profile: string
+  description: string
+}
+
+export interface SetupStartResponse {
+  accepted: boolean
+  state: SetupState
+}
+
+export async function startSetup(tier: SetupTierOption['tier'], modelFilename: string): Promise<SetupStartResponse> {
+  return request<SetupStartResponse>('POST', '/api/setup/start', {
+    body: { tier, model_filename: modelFilename },
+  })
+}
+
+export interface SetupActionResponse {
+  accepted: boolean
+  state: SetupState
+  detail: string | null
+}
+
+export interface SetupEventResponse {
+  state: SetupState
+  stage: string
+  overall_pct: number
+  artifact: string | null
+  artifact_pct: number
+  bytes_done: number
+  bytes_total: number
+  speed_bps: number
+  eta_sec: number | null
+  paused: boolean
+  error: string | null
+}
+
+export async function pauseSetup(): Promise<SetupActionResponse> {
+  return request<SetupActionResponse>('POST', '/api/setup/pause')
+}
+
+export async function resumeSetup(): Promise<SetupActionResponse> {
+  return request<SetupActionResponse>('POST', '/api/setup/resume')
+}
+
+export async function retrySetup(): Promise<SetupActionResponse> {
+  return request<SetupActionResponse>('POST', '/api/setup/retry')
+}
+
+export async function cancelSetup(): Promise<SetupActionResponse> {
+  return request<SetupActionResponse>('POST', '/api/setup/cancel')
+}
+
+export async function getSetupEvents(): Promise<SetupEventResponse> {
+  return request<SetupEventResponse>('GET', '/api/setup/events')
+}
+
+export interface ModelsCatalogItem {
+  tier: SetupTierOption['tier']
+  title: string
+  model_filename: string
+  approx_size_gb: number
+  quality: string
+  speed: string
+  ram_profile: string
+  description: string
+  installed: boolean
+  is_default: boolean
+}
+
+export interface ModelsCatalogResponse {
+  default_model_filename: string
+  models: ModelsCatalogItem[]
+}
+
+export interface ModelActionResponse {
+  accepted: boolean
+  detail: string | null
+}
+
+export interface ModelOperationEventResponse {
+  state: 'idle' | 'in_progress' | 'paused' | 'failed' | 'completed' | 'cancelled'
+  stage: string
+  model_filename: string | null
+  overall_pct: number
+  bytes_done: number
+  bytes_total: number
+  speed_bps: number
+  eta_sec: number | null
+  paused: boolean
+  error: string | null
+}
+
+export async function getModelsCatalog(): Promise<ModelsCatalogResponse> {
+  return request<ModelsCatalogResponse>('GET', '/api/models')
+}
+
+export async function downloadModel(modelFilename: string): Promise<ModelActionResponse> {
+  return request<ModelActionResponse>('POST', '/api/models/download', {
+    body: { model_filename: modelFilename },
+  })
+}
+
+export async function pauseModelDownload(): Promise<ModelActionResponse> {
+  return request<ModelActionResponse>('POST', '/api/models/pause')
+}
+
+export async function resumeModelDownload(): Promise<ModelActionResponse> {
+  return request<ModelActionResponse>('POST', '/api/models/resume')
+}
+
+export async function cancelModelDownload(): Promise<ModelActionResponse> {
+  return request<ModelActionResponse>('POST', '/api/models/cancel')
+}
+
+export async function setDefaultModel(modelFilename: string): Promise<ModelActionResponse> {
+  return request<ModelActionResponse>('POST', '/api/models/set-default', {
+    body: { model_filename: modelFilename },
+  })
+}
+
+export async function getModelOperationEvents(): Promise<ModelOperationEventResponse> {
+  return request<ModelOperationEventResponse>('GET', '/api/models/events')
 }

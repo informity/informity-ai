@@ -322,6 +322,91 @@
   margin-top: var(--space-md);
 }
 
+.settings-model-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(17.5rem, 1fr));
+  gap: var(--space-md);
+  margin-bottom: var(--space-lg);
+}
+
+.settings-model-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-sm);
+}
+
+.settings-model-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-sm);
+}
+
+.settings-model-card__title-wrap {
+  min-width: 0;
+}
+
+.settings-model-card__title {
+  margin: 0;
+  font-size: var(--font-size-lg);
+  color: var(--color-text);
+}
+
+.settings-model-card__filename {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+  word-break: break-word;
+}
+
+.settings-model-card__status {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-pill);
+  padding: 0.15rem 0.5rem;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.settings-model-card__status--installed {
+  border-color: var(--color-success-border);
+  color: var(--color-success);
+  background: var(--color-success-bg);
+}
+
+.settings-model-card__status--not-installed {
+  border-color: var(--color-border);
+}
+
+.settings-model-card__desc {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.settings-model-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.75rem;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+}
+
+.settings-model-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.settings-btn--sm {
+  min-height: 2rem;
+  padding: 0.25rem 0.625rem;
+  width: auto;
+  min-width: 0;
+  font-size: var(--font-size-sm);
+}
+
 /* -----------------------------------------------------------------------------
    Checkboxes
    ----------------------------------------------------------------------------- */

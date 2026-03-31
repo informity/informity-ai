@@ -5,6 +5,52 @@ import { SettingsView } from './SettingsView'
 
 vi.mock('../../api', () => ({
   getModelProfile: vi.fn(async () => ({})),
+  getModelsCatalog: vi.fn(async () => ({
+    default_model_filename: 'main.gguf',
+    models: [
+      {
+        tier: 'small',
+        title: 'Small',
+        model_filename: 'main.gguf',
+        approx_size_gb: 5.5,
+        quality: 'Good',
+        speed: 'Fast',
+        ram_profile: 'Lower RAM',
+        description: 'Fastest setup with lower memory footprint.',
+        installed: true,
+        is_default: true,
+      },
+      {
+        tier: 'balanced',
+        title: 'Balanced',
+        model_filename: 'alt.gguf',
+        approx_size_gb: 9.8,
+        quality: 'High',
+        speed: 'Balanced',
+        ram_profile: 'Medium RAM',
+        description: 'Recommended quality and speed tradeoff.',
+        installed: true,
+        is_default: false,
+      },
+    ],
+  })),
+  getModelOperationEvents: vi.fn(async () => ({
+    state: 'idle',
+    stage: 'idle',
+    model_filename: null,
+    overall_pct: 0,
+    bytes_done: 0,
+    bytes_total: 0,
+    speed_bps: 0,
+    eta_sec: null,
+    paused: false,
+    error: null,
+  })),
+  downloadModel: vi.fn(async () => ({ accepted: true, detail: 'ok' })),
+  pauseModelDownload: vi.fn(async () => ({ accepted: true, detail: 'ok' })),
+  resumeModelDownload: vi.fn(async () => ({ accepted: true, detail: 'ok' })),
+  cancelModelDownload: vi.fn(async () => ({ accepted: true, detail: 'ok' })),
+  setDefaultModel: vi.fn(async () => ({ accepted: true, detail: 'ok' })),
 }))
 
 afterEach(() => {

@@ -10,14 +10,14 @@ set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
+source "$REPO_ROOT/scripts/common_paths.sh"
 
-APP_DISPLAY_NAME="Informity AI"
 DIR_MODELS="models"
 DIR_CACHE=".cache"
 DIR_HUGGINGFACE="huggingface"
 DIR_DOCLING="docling"
 
-APP_DATA_DIR="${INFORMITY_APP_DATA_DIR:-$HOME/Library/Application Support/$APP_DISPLAY_NAME}"
+APP_DATA_DIR="${INFORMITY_APP_DATA_DIR:-$INFORMITY_DEFAULT_APP_DATA_DIR}"
 if [[ "$APP_DATA_DIR" != /* ]]; then
     APP_DATA_DIR="$REPO_ROOT/$APP_DATA_DIR"
 fi

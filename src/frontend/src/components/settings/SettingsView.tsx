@@ -5,7 +5,18 @@
  */
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
-import { getModelProfile } from '../../api'
+import {
+  cancelModelDownload,
+  downloadModel,
+  getModelOperationEvents,
+  getModelProfile,
+  getModelsCatalog,
+  pauseModelDownload,
+  resumeModelDownload,
+  setDefaultModel,
+  type ModelOperationEventResponse,
+  type ModelsCatalogResponse,
+} from '../../api'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_OPTIONS, UI_THEME_STORAGE_KEY } from '../../utils/uiTheme'
 import { isDesktopRuntime, nativePickDirectoryDialog } from '../../tauriRuntime'
 import '../../styles/shared/buttons.css'
@@ -279,6 +290,10 @@ export function SettingsView({
   const [sortedModelFilenames, setSortedModelFilenames] = useState<string[]>([])
   const [dirInput, setDirInput] = useState('')
   const [ignoreInput, setIgnoreInput] = useState('')
+  const [modelsCatalog, setModelsCatalog] = useState<ModelsCatalogResponse | null>(null)
+  const [modelsCatalogError, setModelsCatalogError] = useState<string | null>(null)
+  const [modelOpEvent, setModelOpEvent] = useState<ModelOperationEventResponse | null>(null)
+  const [modelActionPending, setModelActionPending] = useState(false)
   const persistedModel = settings?.llm_model_filename ?? ''
   const effectiveProfile = previewProfile ?? settings?.model_profile
 
@@ -338,6 +353,42 @@ export function SettingsView({
     }).catch(() => {})
     return () => { cancelled = true }
   }, [settings?.available_models])
+
+  useEffect(() => {
+    let cancelled = false
+    getModelsCatalog()
+      .then((catalog) => {
+        if (cancelled) return
+        setModelsCatalog(catalog)
+        setModelsCatalogError(null)
+      })
+      .catch((error) => {
+        if (cancelled) return
+        const message = error instanceof Error ? error.message : String(error)
+        setModelsCatalogError(message)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [settings?.llm_model_filename, settings?.available_models])
+
+  useEffect(() => {
+    let mounted = true
+    const poll = async () => {
+      try {
+        const event = await getModelOperationEvents()
+        if (mounted) setModelOpEvent(event)
+      } catch {
+        // No-op: model operations telemetry is optional.
+      }
+    }
+    void poll()
+    const id = window.setInterval(() => { void poll() }, 2000)
+    return () => {
+      mounted = false
+      window.clearInterval(id)
+    }
+  }, [])
 
   if (!settings) return null
 
@@ -415,6 +466,29 @@ export function SettingsView({
   const handleDiscard = () => {
     setForm(buildFormState(settings))
     onDiscard?.()
+  }
+  const refreshModelsCatalog = () => {
+    void getModelsCatalog()
+      .then((catalog) => {
+        setModelsCatalog(catalog)
+        setModelsCatalogError(null)
+      })
+      .catch((error) => {
+        const message = error instanceof Error ? error.message : String(error)
+        setModelsCatalogError(message)
+      })
+  }
+  const refreshModelEvent = () => {
+    void getModelOperationEvents().then(setModelOpEvent).catch(() => {})
+  }
+  const runModelAction = (action: () => Promise<unknown>) => {
+    setModelActionPending(true)
+    void action()
+      .then(() => {
+        refreshModelsCatalog()
+        refreshModelEvent()
+      })
+      .finally(() => setModelActionPending(false))
   }
 
   const profile = effectiveProfile
@@ -908,7 +982,7 @@ export function SettingsView({
           <i className="ri-robot-2-line section-icon" aria-hidden="true" />
           Models
         </div>
-        <p className="settings-section-description">Model configuration and read-only model profile references.</p>
+        <p className="settings-section-description">Manage installed model tiers, default model selection, and model profile references.</p>
 
         {profile && (
           <>
@@ -929,7 +1003,13 @@ export function SettingsView({
                 value={form.llm_model_filename || settings.llm_model_filename || ''}
                 onChange={(e) => update('llm_model_filename', e.target.value)}
               >
-                {(sortedModelFilenames.length > 0 ? sortedModelFilenames : settings.available_models || []).map((modelName) => (
+                {(
+                  sortedModelFilenames.length > 0
+                    ? sortedModelFilenames
+                    : (modelsCatalog?.models.filter((model) => model.installed).map((model) => model.model_filename)
+                        || settings.available_models
+                        || [])
+                ).map((modelName) => (
                   <option key={modelName} value={modelName}>
                     {modelProfileNames.get(modelName) ?? modelName}
                   </option>
@@ -951,36 +1031,101 @@ export function SettingsView({
           </>
         )}
 
-
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-ai-generate-3d-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Other Models
+              <i className="ri-download-2-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              Model Library
             </div>
-            <p className="settings-subsection-description ui-subsection-description">Embedding and reranker models for document search.</p>
+            <p className="settings-subsection-description ui-subsection-description">
+              Download optional model tiers, pause/resume downloads, and set installed models as default.
+            </p>
+          </div>
+          {modelsCatalogError && (
+            <p className="settings-field-hint">{modelsCatalogError}</p>
+          )}
+          <div className="settings-model-grid">
+            {(modelsCatalog?.models || []).map((model) => {
+              const isActiveModelOp = modelOpEvent?.model_filename === model.model_filename
+                && ['in_progress', 'paused', 'failed'].includes(modelOpEvent?.state || '')
+              const canPause = isActiveModelOp && modelOpEvent?.state === 'in_progress'
+              const canResume = isActiveModelOp && modelOpEvent?.state === 'paused'
+              const canCancel = isActiveModelOp && ['in_progress', 'paused'].includes(modelOpEvent?.state || '')
+              const canDownload = !model.installed && !isActiveModelOp
+              return (
+                <article key={model.model_filename} className="settings-model-card ui-card">
+                  <div className="settings-model-card__header">
+                    <div className="settings-model-card__title-wrap">
+                      <h4 className="settings-model-card__title">{model.title}</h4>
+                      <p className="settings-model-card__filename">{model.model_filename}</p>
+                    </div>
+                    <span className={`settings-model-card__status settings-model-card__status--${model.installed ? 'installed' : 'not-installed'}`}>
+                      {model.installed ? 'Installed' : 'Not installed'}
+                    </span>
+                  </div>
+                  <p className="settings-model-card__desc">{model.description}</p>
+                  <div className="settings-model-card__meta">
+                    <span>{model.approx_size_gb.toFixed(1)} GB</span>
+                    <span>{model.ram_profile}</span>
+                    <span>{model.speed}</span>
+                    <span>{model.quality} quality</span>
+                  </div>
+                  <div className="settings-model-card__actions">
+                    <button
+                      type="button"
+                      className="settings-btn settings-btn--sm"
+                      disabled={!canDownload || modelActionPending}
+                      onClick={() => runModelAction(() => downloadModel(model.model_filename))}
+                    >
+                      Download
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-btn settings-btn--sm"
+                      disabled={!canPause || modelActionPending}
+                      onClick={() => runModelAction(() => pauseModelDownload())}
+                    >
+                      Pause
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-btn settings-btn--sm"
+                      disabled={!canResume || modelActionPending}
+                      onClick={() => runModelAction(() => resumeModelDownload())}
+                    >
+                      Resume
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-btn settings-btn--sm settings-btn--danger"
+                      disabled={!canCancel || modelActionPending}
+                      onClick={() => runModelAction(() => cancelModelDownload())}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-btn settings-btn--sm settings-btn--primary"
+                      disabled={!model.installed || model.is_default || modelActionPending}
+                      onClick={() => runModelAction(async () => {
+                        await setDefaultModel(model.model_filename)
+                        update('llm_model_filename', model.model_filename)
+                      })}
+                    >
+                      {model.is_default ? 'Default' : 'Set as default'}
+                    </button>
+                  </div>
+                </article>
+              )
+            })}
           </div>
           <div className="settings-control-group">
             <label className="settings-control-label" htmlFor="settings-embed-model">Embedding model (document and query vectors)</label>
-            <input
-              id="settings-embed-model"
-              type="text"
-              className="settings-input settings-input--readonly"
-              value={settings.embedding_model || ''}
-              readOnly
-              disabled
-            />
+            <input id="settings-embed-model" type="text" className="settings-input settings-input--readonly" value={settings.embedding_model || ''} readOnly disabled />
           </div>
           <div className="settings-control-group">
             <label className="settings-control-label" htmlFor="settings-reranker-model">Reranker model (re-rank search results)</label>
-            <input
-              id="settings-reranker-model"
-              type="text"
-              className="settings-input settings-input--readonly"
-              value={settings.rag_reranker_model || ''}
-              readOnly
-              disabled
-            />
+            <input id="settings-reranker-model" type="text" className="settings-input settings-input--readonly" value={settings.rag_reranker_model || ''} readOnly disabled />
           </div>
         </div>
         </section>
@@ -1043,7 +1188,7 @@ export function SettingsView({
                   <i className="ri-information-line" aria-hidden="true" />
                   <span className="settings-tooltip ui-tooltip">
                     Save a JSON trace per message to the app data directory chats folder
-                    (desktop app: ~/Library/Application Support/Informity AI/chats). Disabled by default.
+                    (default: ~/.informity/chats). Disabled by default.
                   </span>
                 </span>
               </span>

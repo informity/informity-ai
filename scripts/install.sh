@@ -11,8 +11,8 @@ set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
+source "$REPO_ROOT/scripts/common_paths.sh"
 
-APP_DISPLAY_NAME="Informity AI"
 DIR_CACHE="cache"
 DIR_MODELS="models"
 DIR_LLM="llm"
@@ -23,7 +23,7 @@ DIR_LLM="llm"
 INSTALL_PROFILE="${INFORMITY_INSTALL_PROFILE:-runtime}"
 
 # App data directory: same default as bundled desktop app.
-APP_DATA_DIR="${INFORMITY_APP_DATA_DIR:-$HOME/Library/Application Support/$APP_DISPLAY_NAME}"
+APP_DATA_DIR="${INFORMITY_APP_DATA_DIR:-$INFORMITY_DEFAULT_APP_DATA_DIR}"
 export INFORMITY_APP_DATA_DIR="$APP_DATA_DIR"
 # Keep cache and model paths aligned with bundled desktop runtime defaults.
 export INFORMITY_CACHE_DIR="${INFORMITY_CACHE_DIR:-$APP_DATA_DIR/$DIR_CACHE}"

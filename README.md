@@ -63,7 +63,7 @@ Run once to install Python deps and download the embedding model, reranker (cros
 ```
 
 - Uses `scripts/install.conf.json` for model IDs: `embedding_model`, `reranker_model` (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`), and optional LLM (default: **Qwen 14B** Q5_K_M via `repo_id` / `filename`).
-- Downloads all models to `~/Library/Application Support/Informity AI/` (macOS default, shared with the desktop .app; override with `INFORMITY_APP_DATA_DIR`) and writes `config.json` with `full_privacy=true` (no network after install).
+- Downloads all models to `~/.informity/` by default (override with `INFORMITY_APP_DATA_DIR`) and writes `config.json` with `full_privacy=true` (no network after install).
 - After this, the app will **never** auto-download; it only uses what’s already in app data. With those settings enabled, the app makes **no network requests after install** (no Hugging Face or internet contact).
 
 **Uninstall**  
@@ -81,13 +81,13 @@ You do **not** need to remove auto-download from the app: the install script is 
 
 All application data (database, vectors, LLM and embedding models, logs, config) is stored under a single app data directory:
 
-- **macOS default:** `~/Library/Application Support/Informity AI/` — same location used by the desktop `.app` bundle, shared between dev and production so models are never duplicated.
+- **Default:** `~/.informity/`
 - **Override:** Set `INFORMITY_APP_DATA_DIR` to use a custom path (e.g. an external drive or CI-isolated `./data`).
 
 Directory layout:
 
 ```
-~/Library/Application Support/Informity AI/
+~/.informity/
   config.json              # Saved settings
   db/                      # SQLite DB and WAL files
     informity.db
@@ -221,7 +221,7 @@ uv run python tools/diagnostics/evaluate.py --run-id {run_id} --queries-file dat
 uv run python tools/diagnostics/analyze.py --run-id {run_id}
 ```
 
-Results are saved to `{app_data_dir}/diagnostics/runs/{run_id}/` (macOS default: `~/Library/Application Support/Informity AI/diagnostics/runs/{run_id}/`):
+Results are saved to `{app_data_dir}/diagnostics/runs/{run_id}/` (default: `~/.informity/diagnostics/runs/{run_id}/`):
 - `queries/` - `queries.json` (generated regular queries)
 - `traces/` - Trace files per query×model
 - `results/` - `run.json`, `report.md`, `report.json`, `pipeline_manifest.json`

@@ -4,7 +4,7 @@
 # into app data, then writes config.json with embedding_offline
 # and llm_local_only set to true so the app always uses cached models after install.
 # Run from repo root: uv run python scripts/bootstrap_models.py
-# Requires: INFORMITY_APP_DATA_DIR (macOS default: ~/Library/Application Support/Informity AI)
+# Requires: INFORMITY_APP_DATA_DIR (default: ~/.informity)
 # and install.conf.json
 # ==============================================================================
 
@@ -15,49 +15,51 @@ import os
 import sys
 from pathlib import Path
 
+APP_DATA_DIRNAME = '.informity'
 
 # CRITICAL: Set HF cache paths BEFORE any imports that might initialize huggingface_hub
 # This ensures models are downloaded to app data cache, not ~/.cache/huggingface/hub/
+def _default_app_data_dir() -> Path:
+    return Path.home() / APP_DATA_DIRNAME
+
+
 def _setup_hf_cache_early() -> None:
     """Set HF_HOME and HF_HUB_CACHE env vars before any HF imports."""
     raw_cache_dir = os.environ.get('INFORMITY_CACHE_DIR', '')
     if raw_cache_dir:
         cache_dir = Path(raw_cache_dir).resolve() if not Path(raw_cache_dir).is_absolute() else Path(raw_cache_dir)
-    elif sys.platform == 'darwin':
-        # Match config.py default: ~/Library/Application Support/Informity AI/cache
-        cache_dir = Path.home() / 'Library' / 'Application Support' / 'Informity AI' / 'cache'
     else:
-        cache_dir = Path(__file__).resolve().parent.parent / 'cache'
+        # Match config.py default: ~/.informity/cache
+        cache_dir = _default_app_data_dir() / 'cache'
 
     hf_home = cache_dir / 'huggingface'
     hf_hub = hf_home / 'hub'
     os.environ['HF_HOME'] = str(hf_home)
     os.environ['HF_HUB_CACHE'] = str(hf_hub)
 
-# Set HF cache paths immediately
-_setup_hf_cache_early()
-
 # Import default reranker model from config
 # Note: We import from config module which may have dependencies, but this constant
 # is defined early and doesn't require any heavy imports
 try:
-    from informity.config import _DEFAULT_RERANKER_MODEL
+    from informity import config as _informity_config
+    APP_DATA_DIRNAME = _informity_config.APP_DATA_DIRNAME
+    _DEFAULT_RERANKER_MODEL = _informity_config._DEFAULT_RERANKER_MODEL
 except ImportError:
     # Fallback if import fails (shouldn't happen in normal usage)
     # sentence-transformers uses cross-encoder/ prefix
     _DEFAULT_RERANKER_MODEL = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
 
+# Set HF cache paths immediately
+_setup_hf_cache_early()
+
 
 def _app_data_dir() -> Path:
-    """Resolve app data dir — macOS default matches config.py and the desktop .app bundle."""
+    """Resolve app data dir. Default matches config.py (~/.informity)."""
     raw = os.environ.get('INFORMITY_APP_DATA_DIR', '')
     if raw:
         p = Path(raw)
         return p.resolve() if not p.is_absolute() else p
-    if sys.platform == 'darwin':
-        return Path.home() / 'Library' / 'Application Support' / 'Informity AI'
-    # Non-macOS fallback: use data/ under repo root
-    return Path(__file__).resolve().parent.parent / 'data'
+    return _default_app_data_dir()
 
 
 def _load_install_config(config_path: Path) -> dict:

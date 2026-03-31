@@ -10,7 +10,7 @@ import pytest
 from fastapi import HTTPException
 
 from informity.api import routes_index, routes_search, routes_system
-from informity.api.schemas import SearchRequest
+from informity.api.schemas import ModelActionRequest, SearchRequest, SetupStartRequest
 from informity.db.models import FileCategory, IndexedFile
 
 
@@ -212,6 +212,195 @@ async def test_shutdown_allows_localhost() -> None:
     result = await routes_system.shutdown(request=request)
     assert result.shutdown_initiated is True
 
+
+@pytest.mark.asyncio
+async def test_get_setup_status_returns_ready_when_required_models_cached(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(routes_system, '_is_setup_ready', lambda _payload=None: True)
+    monkeypatch.setattr(routes_system.settings, 'app_data_dir', tmp_path)
+
+    status = await routes_system.get_setup_status()
+    assert status.state == 'ready'
+    assert status.required_models_ready is True
+    assert status.recommended_tier in {'small', 'balanced', 'quality'}
+    assert status.tier_options
+
+
+@pytest.mark.asyncio
+async def test_get_setup_status_reflects_setup_state_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(routes_system, '_is_setup_ready', lambda _payload=None: False)
+    monkeypatch.setattr(routes_system.settings, 'app_data_dir', tmp_path)
+    (tmp_path / 'setup_state.json').write_text('{"state":"setup_in_progress"}', encoding='utf-8')
+
+    status = await routes_system.get_setup_status()
+    assert status.state == 'setup_in_progress'
+    assert status.required_models_ready is False
+    assert status.setup_state_file_present is True
+
+
+@pytest.mark.asyncio
+async def test_start_setup_persists_in_progress_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(routes_system.settings, 'app_data_dir', tmp_path)
+    payload = SetupStartRequest(tier='balanced', model_filename='Qwen3-14B-Q5_K_M.gguf')
+
+    response = await routes_system.start_setup(payload)
+    assert response.accepted is True
+    assert response.state == 'setup_in_progress'
+
+    setup_state = (tmp_path / 'setup_state.json').read_text(encoding='utf-8')
+    assert '"state": "setup_in_progress"' in setup_state
+    assert '"selected_tier": "balanced"' in setup_state
+
+
+@pytest.mark.asyncio
+async def test_start_setup_rejects_mismatched_model_filename() -> None:
+    with pytest.raises(HTTPException) as exc_info:
+        await routes_system.start_setup(
+            SetupStartRequest(tier='balanced', model_filename='Qwen3.5-9B-Q4_K_M.gguf'),
+        )
+    assert exc_info.value.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_setup_pause_and_events_reflect_runtime_state(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(routes_system.settings, 'app_data_dir', tmp_path)
+    monkeypatch.setattr(routes_system.settings, 'models_dir', tmp_path / 'models')
+    routes_system._update_setup_runtime(
+        state='setup_in_progress',
+        stage='downloading_model',
+        overall_pct=33,
+        artifact='Qwen3-14B-Q5_K_M.gguf',
+        paused=False,
+        error=None,
+    )
+
+    paused = await routes_system.pause_setup()
+    assert paused.accepted is True
+    assert paused.state == 'setup_in_progress'
+
+    event = await routes_system.get_setup_events()
+    assert event.state == 'setup_in_progress'
+    assert event.paused is True
+
+
+@pytest.mark.asyncio
+async def test_get_models_catalog_marks_installed_and_default(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    models_dir = tmp_path / 'models'
+    models_dir.mkdir(parents=True)
+    (models_dir / 'Qwen3.5-9B-Q4_K_M.gguf').write_bytes(b'x')
+    monkeypatch.setattr(routes_system.settings, 'models_dir', models_dir)
+    monkeypatch.setattr(routes_system.settings, 'llm_model_filename', 'Qwen3.5-9B-Q4_K_M.gguf')
+
+    catalog = await routes_system.get_models_catalog()
+    assert catalog.default_model_filename == 'Qwen3.5-9B-Q4_K_M.gguf'
+    installed = {item.model_filename: item.installed for item in catalog.models}
+    assert installed['Qwen3.5-9B-Q4_K_M.gguf'] is True
+    assert installed['Qwen3-14B-Q5_K_M.gguf'] is False
+
+
+@pytest.mark.asyncio
+async def test_download_model_starts_background_operation(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    models_dir = tmp_path / 'models'
+    models_dir.mkdir(parents=True)
+    monkeypatch.setattr(routes_system.settings, 'models_dir', models_dir)
+
+    class _DummyTask:
+        def done(self) -> bool:
+            return False
+
+        def cancel(self) -> None:
+            return
+
+    def _fake_create_task(coro):  # type: ignore[no-untyped-def]
+        coro.close()
+        return _DummyTask()
+
+    monkeypatch.setattr(routes_system.asyncio, 'create_task', _fake_create_task)
+    routes_system._model_task = None
+    routes_system._update_model_runtime(state='idle', model_filename=None, paused=False, error=None)
+
+    response = await routes_system.download_model(ModelActionRequest(model_filename='Qwen3-14B-Q5_K_M.gguf'))
+    assert response.accepted is True
+    assert response.detail == 'Download started'
+    assert routes_system._model_runtime['state'] == 'in_progress'
+    assert routes_system._model_runtime['model_filename'] == 'Qwen3-14B-Q5_K_M.gguf'
+
+
+@pytest.mark.asyncio
+async def test_set_default_model_requires_installed_file_and_updates_config(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    app_data_dir = tmp_path / 'app-data'
+    models_dir = tmp_path / 'models'
+    app_data_dir.mkdir(parents=True)
+    models_dir.mkdir(parents=True)
+    (models_dir / 'Qwen3-14B-Q5_K_M.gguf').write_bytes(b'x')
+    monkeypatch.setattr(routes_system.settings, 'app_data_dir', app_data_dir)
+    monkeypatch.setattr(routes_system.settings, 'models_dir', models_dir)
+
+    response = await routes_system.set_default_model(ModelActionRequest(model_filename='Qwen3-14B-Q5_K_M.gguf'))
+    assert response.accepted is True
+    assert routes_system.settings.llm_model_filename == 'Qwen3-14B-Q5_K_M.gguf'
+    config_text = (app_data_dir / 'config.json').read_text(encoding='utf-8')
+    assert '"llm_model_filename": "Qwen3-14B-Q5_K_M.gguf"' in config_text
+
+
+@pytest.mark.asyncio
+async def test_model_pause_resume_cancel_reflect_runtime_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _DummyTask:
+        def __init__(self) -> None:
+            self._cancelled = False
+
+        def done(self) -> bool:
+            return False
+
+        def cancel(self) -> None:
+            self._cancelled = True
+
+    dummy_task = _DummyTask()
+    routes_system._model_task = dummy_task
+    routes_system._update_model_runtime(
+        state='in_progress',
+        stage='downloading_model',
+        model_filename='Qwen3-14B-Q5_K_M.gguf',
+        paused=False,
+        pause_requested=False,
+        cancel_requested=False,
+    )
+
+    paused = await routes_system.pause_model_download()
+    assert paused.accepted is True
+
+    def _fake_create_task(coro):  # type: ignore[no-untyped-def]
+        coro.close()
+        return dummy_task
+
+    monkeypatch.setattr(routes_system.asyncio, 'create_task', _fake_create_task)
+    routes_system._model_task = None
+    resumed = await routes_system.resume_model_download()
+    assert resumed.accepted is True
+
+    cancelled = await routes_system.cancel_model_download()
+    assert cancelled.accepted is True
+    assert routes_system._model_runtime['state'] == 'cancelled'
 
 @pytest.mark.asyncio
 async def test_get_diagnostics_summary_aggregates_rows(monkeypatch: pytest.MonkeyPatch) -> None:

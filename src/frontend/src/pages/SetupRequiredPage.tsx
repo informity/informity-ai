@@ -1,0 +1,315 @@
+import './SetupRequiredPage.css'
+import './PlaceholderPage.css'
+import { SETUP_STATES, type SetupState } from '../types/setupState'
+import { type ReactNode, useMemo, useState } from 'react'
+import type { SetupEventResponse, SetupTierOption } from '../api'
+
+type SetupBlockingState = Exclude<SetupState, typeof SETUP_STATES.READY>
+
+interface SetupRequiredPageProps {
+  state: SetupBlockingState
+  tierOptions: SetupTierOption[]
+  machineRamGb: number | null
+  recommendedTier: SetupTierOption['tier'] | null
+  recommendedReason: string | null
+  event: SetupEventResponse | null
+  isStarting: boolean
+  isActing: boolean
+  onStartSetup: (tier: SetupTierOption['tier'], modelFilename: string) => void
+  onRetrySetup: () => void
+  onCancel: () => void
+}
+
+function getCopy(state: SetupBlockingState): { title: string; description: string } {
+  if (state === SETUP_STATES.IN_PROGRESS) {
+    return {
+      title: 'Downloading your model...',
+      description: "Your model is downloading. Keep this window open until it's done.",
+    }
+  }
+  if (state === SETUP_STATES.FAILED) {
+    return {
+      title: 'Download failed',
+      description: 'Something went wrong while downloading your model. Check your internet connection and try again.',
+    }
+  }
+  return {
+    title: 'Welcome to Informity AI',
+    description: 'You need to download at least one model to get started. Choose one below.',
+  }
+}
+
+function formatMemoryProfile(value: string): string {
+  return value.replace(/\s*RAM$/i, '').trim()
+}
+
+function getDisplayTierTitle(option: SetupTierOption): string {
+  return option.tier === 'small' ? 'Light' : option.title
+}
+
+function formatRecommendation(
+  machineRamGb: number | null,
+  reason: string | null,
+  option: SetupTierOption | undefined,
+): ReactNode | null {
+  if (!option) return null
+  const tierTitle = getDisplayTierTitle(option)
+  if (machineRamGb && machineRamGb > 0) {
+    return (
+      <>
+        Your system has <span className="setup-required__reason-emphasis">{machineRamGb} GB</span> of memory.
+        {' '}We recommend <span className="setup-required__reason-emphasis">{tierTitle}</span> for the best experience.
+      </>
+    )
+  }
+  if (reason && reason.trim().length > 0) {
+    return (
+      <>
+        {reason.trim()} We recommend <span className="setup-required__reason-emphasis">{tierTitle}</span> for the best experience.
+      </>
+    )
+  }
+  return <>We recommend <span className="setup-required__reason-emphasis">{tierTitle}</span> for the best experience.</>
+}
+
+function getTierDescription(option: SetupTierOption): string {
+  if (option.tier === 'quality') {
+    return 'Best answer accuracy, slightly slower responses. Ideal for complex tasks.'
+  }
+  if (option.tier === 'balanced') {
+    return 'Good quality with faster responses. A solid all-around choice.'
+  }
+  return 'Fastest setup, lowest memory footprint. Best for quick tasks and older hardware.'
+}
+
+function formatStageLabel(stage: string | null | undefined): string {
+  if (!stage || !stage.trim()) return 'Preparing setup...'
+  const normalized = stage
+    .trim()
+    .replace(/_/g, ' ')
+    .replace(/\s+/g, ' ')
+    .toLowerCase()
+  return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}...`
+}
+
+function getFriendlySetupError(error: string | null | undefined): string {
+  const fallback = 'Something went wrong while downloading your model. Check your internet connection and try again.'
+  if (!error || !error.trim()) return fallback
+  const normalized = error.toLowerCase()
+
+  if (
+    normalized.includes('full privacy mode is enabled')
+    || normalized.includes('models are not cached')
+  ) {
+    return 'Download could not start. Click Retry to try again.'
+  }
+  if (
+    normalized.includes('enospc')
+    || normalized.includes('no space left on device')
+    || normalized.includes('disk full')
+  ) {
+    return 'There is not enough disk space to download this model. Free up space and try again.'
+  }
+  if (
+    normalized.includes('timed out')
+    || normalized.includes('timeout')
+    || normalized.includes('connection')
+    || normalized.includes('network')
+    || normalized.includes('temporary failure in name resolution')
+    || normalized.includes('name or service not known')
+  ) {
+    return 'Download failed due to a network issue. Check your internet connection and try again.'
+  }
+  if (
+    normalized.includes('401')
+    || normalized.includes('403')
+    || normalized.includes('unauthorized')
+    || normalized.includes('forbidden')
+    || normalized.includes('gated')
+    || normalized.includes('repository not found')
+  ) {
+    return 'Model download is currently unavailable. Please try again.'
+  }
+  if (
+    normalized.includes('huggingface-hub is not installed')
+    || normalized.includes("no module named 'httpx'")
+  ) {
+    return 'A required download component is unavailable. Restart the app and try again.'
+  }
+
+  return fallback
+}
+
+export function SetupRequiredPage({
+  state,
+  tierOptions,
+  machineRamGb,
+  recommendedTier,
+  recommendedReason,
+  event,
+  isStarting,
+  isActing,
+  onStartSetup,
+  onRetrySetup,
+  onCancel,
+}: SetupRequiredPageProps) {
+  const copy = getCopy(state)
+  const sortedTierOptions = useMemo(() => {
+    const tierRank: Record<SetupTierOption['tier'], number> = {
+      quality: 0,
+      balanced: 1,
+      small: 2,
+    }
+    return [...tierOptions].sort((a, b) => tierRank[a.tier] - tierRank[b.tier])
+  }, [tierOptions])
+
+  const initialTier = useMemo<SetupTierOption['tier']>(() => {
+    const fallback = sortedTierOptions[0]?.tier ?? 'balanced'
+    return recommendedTier ?? fallback
+  }, [recommendedTier, sortedTierOptions])
+  const [selectedTier, setSelectedTier] = useState<SetupTierOption['tier']>(initialTier)
+  const selectedOption = sortedTierOptions.find((option) => option.tier === selectedTier) ?? sortedTierOptions[0]
+  const recommendedOption = sortedTierOptions.find((option) => option.tier === recommendedTier)
+  const recommendationText = formatRecommendation(machineRamGb, recommendedReason, recommendedOption)
+  const canStart = Boolean(selectedOption) && state !== SETUP_STATES.IN_PROGRESS && !isStarting
+  const showProgress = state === SETUP_STATES.IN_PROGRESS || (event?.overall_pct ?? 0) > 0
+  const progressPct = Math.max(0, Math.min(100, event?.overall_pct ?? 0))
+  const friendlyProgressError = getFriendlySetupError(event?.error)
+  const canRetrySetup = state === SETUP_STATES.FAILED && !isActing
+  const isRetryMode = state === SETUP_STATES.FAILED
+  const canPrimaryAction = isRetryMode ? canRetrySetup : canStart
+
+  return (
+    <div className="setup-required">
+      <main className="setup-required__panel">
+        <header className="page-header setup-required__welcome">
+          <div className="page-header__title-row">
+            <span className="setup-required__logo-shell setup-required__logo-shell--welcome" aria-hidden>
+              <img src="/logo.png" alt="" className="setup-required__logo" />
+            </span>
+            <h1 className="page-header__title">{copy.title}</h1>
+          </div>
+          <p className="page-header__subtitle setup-required__description">{copy.description}</p>
+        </header>
+
+        <section className="setup-required__tiers">
+          <h2 className="setup-required__tiers-title">
+            <i className="ri-robot-2-line" aria-hidden="true" />
+            Choose Your Model
+          </h2>
+          {recommendationText ? <p className="setup-required__reason">{recommendationText}</p> : null}
+          <div className="setup-required__tier-grid">
+            {sortedTierOptions.map((option) => {
+              const checked = option.tier === selectedTier
+              const recommended = option.tier === recommendedTier
+              return (
+                <label
+                  key={option.tier}
+                  className={`setup-tier ui-card${checked ? ' setup-tier--selected' : ''}`}
+                >
+                  <div className="setup-tier__top">
+                    <input
+                      type="radio"
+                      className="setup-tier__radio-input"
+                      name="setup-tier"
+                      checked={checked}
+                      onChange={() => setSelectedTier(option.tier)}
+                      disabled={state === SETUP_STATES.IN_PROGRESS || isStarting}
+                    />
+                    <span className="setup-tier__radio" aria-hidden>
+                      <span className="setup-tier__radio-dot" />
+                    </span>
+                    <div>
+                      <p className="setup-tier__title">
+                        {getDisplayTierTitle(option)}
+                        <span className="setup-tier__info ui-tooltip-trigger" aria-label="Model filename">
+                          <i className="ri-information-line" aria-hidden="true" />
+                          <span className="setup-tier__tooltip ui-tooltip ui-tooltip--compact ui-tooltip--nowrap">
+                            {option.model_filename}
+                          </span>
+                        </span>
+                        {recommended ? <span className="setup-tier__recommended">Recommended for your system</span> : null}
+                      </p>
+                      <p className="setup-tier__desc">{getTierDescription(option)}</p>
+                    </div>
+                  </div>
+                  <div className="setup-tier__meta">
+                    <span className="setup-tier__meta-item">
+                      <i className="ri-award-line setup-tier__meta-icon" aria-hidden />
+                      <span className="setup-tier__meta-label">Quality:</span>
+                      <span className="setup-tier__meta-value">{option.quality}</span>
+                    </span>
+                    <span className="setup-tier__meta-sep" aria-hidden>|</span>
+                    <span className="setup-tier__meta-item">
+                      <i className="ri-speed-up-line setup-tier__meta-icon" aria-hidden />
+                      <span className="setup-tier__meta-label">Speed:</span>
+                      <span className="setup-tier__meta-value">{option.speed}</span>
+                    </span>
+                    <span className="setup-tier__meta-sep" aria-hidden>|</span>
+                    <span className="setup-tier__meta-item">
+                      <i className="ri-cpu-line setup-tier__meta-icon" aria-hidden />
+                      <span className="setup-tier__meta-label">Memory:</span>
+                      <span className="setup-tier__meta-value">{formatMemoryProfile(option.ram_profile)}</span>
+                    </span>
+                    <span className="setup-tier__meta-sep" aria-hidden>|</span>
+                    <span className="setup-tier__meta-item">
+                      <i className="ri-download-2-line setup-tier__meta-icon" aria-hidden />
+                      <span className="setup-tier__meta-label">Size:</span>
+                      <span className="setup-tier__meta-value">{option.approx_size_gb.toFixed(1)} GB</span>
+                    </span>
+                  </div>
+                  {checked && showProgress ? (
+                    <div className="setup-tier__progress">
+                      <div className="setup-tier__progress-row">
+                        <p className="setup-tier__progress-label">
+                          {formatStageLabel(event?.stage)}
+                        </p>
+                        <p className="setup-tier__progress-value">{progressPct}%</p>
+                      </div>
+                      <div className="setup-tier__progress-track">
+                        <div className="setup-tier__progress-bar" style={{ width: `${progressPct}%` }} />
+                      </div>
+                      {event?.error || event?.paused ? (
+                        <p className="setup-tier__progress-meta">
+                          {event?.error ? friendlyProgressError : ''}
+                          {event?.error && event?.paused ? ' • ' : ''}
+                          {event?.paused ? 'Paused' : ''}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </label>
+              )
+            })}
+          </div>
+        </section>
+
+        <footer className="setup-required__actions ui-section-divider">
+          <button
+            type="button"
+            className="settings-btn settings-btn--secondary"
+            onClick={onCancel}
+            disabled={isActing || isStarting}
+          >
+            Quit Setup
+          </button>
+          <button
+            type="button"
+            className="settings-btn settings-btn--primary"
+            disabled={!canPrimaryAction}
+            onClick={() => {
+              if (isRetryMode) {
+                onRetrySetup()
+                return
+              }
+              if (!selectedOption) return
+              onStartSetup(selectedOption.tier, selectedOption.model_filename)
+            }}
+          >
+            {isStarting ? 'Starting...' : (isRetryMode ? 'Retry' : 'Continue')}
+          </button>
+        </footer>
+      </main>
+    </div>
+  )
+}

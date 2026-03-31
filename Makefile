@@ -19,9 +19,9 @@ DIR_HUGGINGFACE := huggingface
 DIR_HUB := hub
 DIR_DOCLING := docling
 
-# Use macOS Application Support as the default runtime data root so
+# Use ~/.informity as the default runtime data root so
 # `make run` / `make dev` match bundled-app behavior (same as config.py default).
-APP_DATA_DIR  := $(HOME)/Library/Application Support/$(APP_DISPLAY_NAME)
+APP_DATA_DIR  := $(HOME)/.informity
 APP_CACHE_DIR := $(APP_DATA_DIR)/cache
 APP_MODELS_ROOT_DIR := $(APP_DATA_DIR)/$(DIR_MODELS)
 APP_MODELS_DIR := $(APP_MODELS_ROOT_DIR)/$(DIR_LLM)
@@ -56,15 +56,15 @@ uninstall: ## Remove all user data, downloaded models, and .venv (fresh distribu
 full-reset-install: ## Full reset (data, venv, node_modules, .cache; preserves app_data/models + diagnostics models), install, and test
 	./scripts/full_reset_and_install.sh
 
-cache-bootstrap: ## Seed App Support cache from ~/.cache (one-time migration helper for dev)
+cache-bootstrap: ## Seed app-data cache from ~/.cache (one-time migration helper for dev)
 	@mkdir -p "$(APP_CACHE_DIR)"
 	@if [ ! -d "$(APP_HF_HUB_DIR)" ] && [ -d "$(HOME)/.cache/$(DIR_HUGGINGFACE)/$(DIR_HUB)" ]; then \
-		echo "Seeding huggingface cache into App Support..."; \
+		echo "Seeding huggingface cache into app data cache..."; \
 		mkdir -p "$(APP_CACHE_DIR)/$(DIR_HUGGINGFACE)"; \
 		rsync -a "$(HOME)/.cache/$(DIR_HUGGINGFACE)/$(DIR_HUB)/" "$(APP_HF_HUB_DIR)/"; \
 	fi
 	@if [ ! -d "$(APP_DOCLING_CACHE_DIR)" ] && [ -d "$(HOME)/.cache/$(DIR_DOCLING)" ]; then \
-		echo "Seeding docling cache into App Support..."; \
+		echo "Seeding docling cache into app data cache..."; \
 		rsync -a "$(HOME)/.cache/$(DIR_DOCLING)/" "$(APP_DOCLING_CACHE_DIR)/"; \
 	fi
 
