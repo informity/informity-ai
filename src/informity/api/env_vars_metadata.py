@@ -68,9 +68,9 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
     ),
     (
         'Paths and Storage',
-        'Where the application stores database, vectors, models, and logs. On macOS defaults to ~/Library/Application Support/Informity AI (shared with the desktop app). Override via INFORMITY_APP_DATA_DIR.',
+        'Where the application stores database, vectors, models, and logs. Default: ~/.informity. Override via INFORMITY_APP_DATA_DIR.',
         [
-            ('app_data_dir', 'Root directory for all app data (DB, vectors, models, logs, config). macOS default: ~/Library/Application Support/Informity AI.'),
+            ('app_data_dir', 'Root directory for all app data (DB, vectors, models, logs, config). Default: ~/.informity.'),
             ('cache_dir', f'Unified cache root for Hugging Face/docling artifacts. Default: app_data_dir/{DirNames.CACHE}.'),
             ('db_path', f'SQLite database file path (default: app_data_dir/{DirNames.DB}/{APP_SLUG}.db).'),
             ('logs_dir', 'Directory for log files.'),

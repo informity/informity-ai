@@ -29,7 +29,7 @@ const DIAGNOSTICS_DIRNAME: &str = "diagnostics";
 const MODELS_DIRNAME: &str = "models";
 const CACHE_DIRNAME: &str = "cache";
 const CONFIG_FILENAME: &str = "config.json";
-const APP_DISPLAY_NAME: &str = "Informity AI";
+const APP_DATA_DIRNAME: &str = ".informity";
 const MENU_BAR_TRAY_ID: &str = "informity_menu_bar";
 const MENU_BAR_OPEN_MENU_ID: &str = "menu_bar_open";
 const MENU_BAR_QUIT_MENU_ID: &str = "menu_bar_quit";
@@ -525,14 +525,11 @@ fn resolve_repo_root_from_manifest() -> Option<PathBuf> {
 }
 
 fn resolve_managed_app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    #[cfg(target_os = "macos")]
-    {
-        if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
-            return Ok(home
-                .join("Library")
-                .join("Application Support")
-                .join(APP_DISPLAY_NAME));
-        }
+    if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
+        return Ok(home.join(APP_DATA_DIRNAME));
+    }
+    if let Some(home) = env::var_os("USERPROFILE").map(PathBuf::from) {
+        return Ok(home.join(APP_DATA_DIRNAME));
     }
 
     app.path()
@@ -541,17 +538,6 @@ fn resolve_managed_app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn resolve_managed_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
-    #[cfg(target_os = "macos")]
-    {
-        if let Some(home) = env::var_os("HOME").map(PathBuf::from) {
-            return Ok(home
-                .join("Library")
-                .join("Application Support")
-                .join(APP_DISPLAY_NAME)
-                .join(CACHE_DIRNAME));
-        }
-    }
-
     let app_data_dir = resolve_managed_app_data_dir(app)?;
     Ok(app_data_dir.join(CACHE_DIRNAME))
 }

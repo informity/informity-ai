@@ -33,8 +33,8 @@ APP_DISPLAY_NAME = 'Informity AI'   # User-facing product name (UI, prompts, API
 # Applied when exclude_macos_system / exclude_developer_data are True (Settings).
 
 class Settings(BaseSettings):
-    # Paths (macOS default: ~/Library/Application Support/Informity AI; override via INFORMITY_APP_DATA_DIR)
-    app_data_dir: Path = ...            # macOS: ~/Library/Application Support/Informity AI; other: data/ relative to cwd
+    # Paths (default: ~/.informity; override via INFORMITY_APP_DATA_DIR)
+    app_data_dir: Path = ...            # default: ~/.informity
     cache_dir:    Path | None = Field(default=None)  # Unified cache root; default app_data_dir/cache. Override via INFORMITY_CACHE_DIR.
     db_path:       Path | None = Field(default=None)  # Computed: app_data_dir / 'db' / f'{APP_SLUG}.db'
     # Note: vectors_dir removed - vectors now stored in SQLite database (vec_chunks table) via sqlite-vec extension
@@ -813,7 +813,7 @@ main.py ← logging_config (configure_logging before loggers)
 
 | What | Path |
 |---|---|
-| App data root | macOS: `~/Library/Application Support/Informity AI` (default, shared with .app); override via `INFORMITY_APP_DATA_DIR` |
+| App data root | `~/.informity` (default); override via `INFORMITY_APP_DATA_DIR` |
 | SQLite database | `{app_data_dir}/db/informity.db` |
 | SQLite vectors | Stored in `vec_chunks` table within SQLite database (sqlite-vec extension) |
 | LLM models (RAG) | `{app_data_dir}/models/llm/` (shared between desktop .app and dev tools) |

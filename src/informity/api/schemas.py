@@ -9,6 +9,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from informity.api.setup_state import SetupState
 from informity.config import (
     APP_DISPLAY_NAME,
     DEFAULT_RERANKER_MODEL,
@@ -407,3 +408,96 @@ class HealthResponse(BaseModel):
     status:           str = 'ok'
     version:          str = APP_VERSION
     app_display_name: str   # Product name for UI (from config.APP_DISPLAY_NAME)
+
+
+class SetupTierOption(BaseModel):
+    tier: str
+    title: str
+    model_filename: str
+    approx_size_gb: float
+    quality: str
+    speed: str
+    ram_profile: str
+    description: str
+
+
+class SetupStatusResponse(BaseModel):
+    # Setup readiness state used by desktop startup gating.
+    state: SetupState
+    required_models_ready: bool
+    setup_state_file_present: bool = False
+    detail: str | None = None
+    machine_ram_gb: int | None = None
+    recommended_tier: str | None = None
+    recommended_reason: str | None = None
+    tier_options: list[SetupTierOption] = Field(default_factory=list)
+
+
+class SetupStartRequest(BaseModel):
+    tier: str
+    model_filename: str
+
+
+class SetupStartResponse(BaseModel):
+    accepted: bool = True
+    state: SetupState
+
+
+class SetupActionResponse(BaseModel):
+    accepted: bool = True
+    state: SetupState
+    detail: str | None = None
+
+
+class SetupEventResponse(BaseModel):
+    state: SetupState
+    stage: str
+    overall_pct: int = 0
+    artifact: str | None = None
+    artifact_pct: int = 0
+    bytes_done: int = 0
+    bytes_total: int = 0
+    speed_bps: float = 0.0
+    eta_sec: int | None = None
+    paused: bool = False
+    error: str | None = None
+
+
+class ModelsCatalogItem(BaseModel):
+    tier: str
+    title: str
+    model_filename: str
+    approx_size_gb: float
+    quality: str
+    speed: str
+    ram_profile: str
+    description: str
+    installed: bool
+    is_default: bool
+
+
+class ModelsCatalogResponse(BaseModel):
+    default_model_filename: str
+    models: list[ModelsCatalogItem] = Field(default_factory=list)
+
+
+class ModelActionRequest(BaseModel):
+    model_filename: str
+
+
+class ModelActionResponse(BaseModel):
+    accepted: bool = True
+    detail: str | None = None
+
+
+class ModelOperationEventResponse(BaseModel):
+    state: str
+    stage: str
+    model_filename: str | None = None
+    overall_pct: int = 0
+    bytes_done: int = 0
+    bytes_total: int = 0
+    speed_bps: float = 0.0
+    eta_sec: int | None = None
+    paused: bool = False
+    error: str | None = None

@@ -2,8 +2,7 @@
 # Informity AI — Settings API Routes
 # Endpoints for reading and updating application configuration.
 # Settings are persisted to config.json under the app data directory
-# (desktop packaged runtime: ~/Library/Application Support/Informity AI/config.json;
-# local dev default: data/config.json relative to process cwd).
+# (default: ~/.informity/config.json, override via INFORMITY_APP_DATA_DIR).
 # ==============================================================================
 
 import asyncio
