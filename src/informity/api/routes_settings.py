@@ -330,11 +330,6 @@ async def get_model_profile(
         raise HTTPException(status_code=400, detail='model_filename cannot be empty')
     if not value.endswith('.gguf'):
         raise HTTPException(status_code=400, detail='model_filename must be a .gguf file')
-
-    available_models = await asyncio.to_thread(_list_available_models)
-    if value not in available_models:
-        raise HTTPException(status_code=404, detail=f'model_filename not found in models directory: {value}')
-
     return _build_model_profile_info(value)
 
 
