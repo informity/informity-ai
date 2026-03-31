@@ -1,7 +1,7 @@
 import './SetupRequiredPage.css'
 import './PlaceholderPage.css'
 import { SETUP_STATES, type SetupState } from '../types/setupState'
-import { type ReactNode, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import type { SetupEventResponse, SetupTierOption } from '../api'
 
 type SetupBlockingState = Exclude<SetupState, typeof SETUP_STATES.READY>
@@ -169,6 +169,21 @@ export function SetupRequiredPage({
   }, [recommendedTier, sortedTierOptions])
   const [selectedTier, setSelectedTier] = useState<SetupTierOption['tier']>(initialTier)
   const [expandedTier, setExpandedTier] = useState<SetupTierOption['tier'] | null>(null)
+
+  useEffect(() => {
+    const activeArtifact = String(event?.artifact || '').trim()
+    if (!activeArtifact) return
+    const shouldSyncSelection = state === SETUP_STATES.IN_PROGRESS
+      || state === SETUP_STATES.FAILED
+      || (event?.overall_pct ?? 0) > 0
+      || Boolean(event?.error)
+    if (!shouldSyncSelection) return
+    const matched = sortedTierOptions.find((option) => option.model_filename === activeArtifact)
+    if (matched && matched.tier !== selectedTier) {
+      setSelectedTier(matched.tier)
+    }
+  }, [event?.artifact, event?.overall_pct, event?.error, selectedTier, sortedTierOptions, state])
+
   const selectedOption = sortedTierOptions.find((option) => option.tier === selectedTier) ?? sortedTierOptions[0]
   const recommendedOption = sortedTierOptions.find((option) => option.tier === recommendedTier)
   const recommendationText = formatRecommendation(machineRamGb, recommendedReason, recommendedOption)

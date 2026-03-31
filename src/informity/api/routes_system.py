@@ -64,8 +64,8 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
     SetupTierOption(
         tier='small',
         title='Small',
-        display_name=get_model_display_name('Qwen3-8B-Q4_K_M.gguf'),
-        model_filename='Qwen3-8B-Q4_K_M.gguf',
+        display_name=get_model_display_name('Qwen_Qwen3.5-9B-Q4_K_M.gguf'),
+        model_filename='Qwen_Qwen3.5-9B-Q4_K_M.gguf',
         approx_size_gb=5.5,
         quality='Good',
         speed='Fast',
@@ -96,7 +96,7 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
     ),
 )
 _SETUP_TIER_REPOS: dict[str, str] = {
-    'small': 'Qwen/Qwen3-8B-GGUF',
+    'small': 'bartowski/Qwen_Qwen3.5-9B-GGUF',
     'balanced': 'Qwen/Qwen3-14B-GGUF',
     'quality': 'Qwen/Qwen3-30B-A3B-GGUF',
 }
