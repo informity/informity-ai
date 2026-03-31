@@ -45,6 +45,7 @@ from informity.db.sqlite import (
 from informity.db.vectors import vector_store
 from informity.diagnostics.issue_types import IssueType
 from informity.llm.engine import llm_engine
+from informity.llm.model_adapter import get_model_display_name
 from informity.llm.types import DiagnosticsQueryType
 from informity.version import APP_VERSION
 
@@ -63,7 +64,8 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
     SetupTierOption(
         tier='small',
         title='Small',
-        model_filename='Qwen3.5-9B-Q4_K_M.gguf',
+        display_name=get_model_display_name('Qwen3-8B-Q4_K_M.gguf'),
+        model_filename='Qwen3-8B-Q4_K_M.gguf',
         approx_size_gb=5.5,
         quality='Good',
         speed='Fast',
@@ -73,6 +75,7 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
     SetupTierOption(
         tier='balanced',
         title='Balanced',
+        display_name=get_model_display_name('Qwen3-14B-Q5_K_M.gguf'),
         model_filename='Qwen3-14B-Q5_K_M.gguf',
         approx_size_gb=9.8,
         quality='High',
@@ -83,6 +86,7 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
     SetupTierOption(
         tier='quality',
         title='Quality',
+        display_name=get_model_display_name('Qwen3-30B-A3B-Q5_K_M.gguf'),
         model_filename='Qwen3-30B-A3B-Q5_K_M.gguf',
         approx_size_gb=20.0,
         quality='Highest',
@@ -92,7 +96,7 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
     ),
 )
 _SETUP_TIER_REPOS: dict[str, str] = {
-    'small': 'Qwen/Qwen3.5-9B-GGUF',
+    'small': 'Qwen/Qwen3-8B-GGUF',
     'balanced': 'Qwen/Qwen3-14B-GGUF',
     'quality': 'Qwen/Qwen3-30B-A3B-GGUF',
 }
@@ -730,6 +734,7 @@ async def get_models_catalog() -> ModelsCatalogResponse:
             ModelsCatalogItem(
                 tier=option.tier,
                 title=option.title,
+                display_name=option.display_name,
                 model_filename=option.model_filename,
                 approx_size_gb=option.approx_size_gb,
                 quality=option.quality,

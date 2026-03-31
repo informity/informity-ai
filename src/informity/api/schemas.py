@@ -413,6 +413,7 @@ class HealthResponse(BaseModel):
 class SetupTierOption(BaseModel):
     tier: str
     title: str
+    display_name: str
     model_filename: str
     approx_size_gb: float
     quality: str
@@ -466,6 +467,7 @@ class SetupEventResponse(BaseModel):
 class ModelsCatalogItem(BaseModel):
     tier: str
     title: str
+    display_name: str
     model_filename: str
     approx_size_gb: float
     quality: str

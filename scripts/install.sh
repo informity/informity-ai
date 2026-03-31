@@ -1,9 +1,16 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Informity AI — One-time install
-# Installs Python deps and downloads embedding, reranker, optional LLM into
-# app data, then configures the app to always use cached
-# models (no auto-download at runtime).
+# Informity AI — Install
+# Installs Python/frontend deps and downloads embedding, reranker, and optional
+# LLM into app data, then configures cached/offline runtime defaults.
+#
+# Optional flags:
+# - INFORMITY_INSTALL_PROFILE=runtime|dev (default: runtime)
+# - INFORMITY_INSTALL_CLEAN=1           (run uninstall first)
+# - INFORMITY_INSTALL_VERIFY=1          (init DB + run tests at end)
+# - INFORMITY_INSTALL_SKIP_MODELS=1     (install deps only; do not download models)
+#   Example: INFORMITY_INSTALL_PROFILE=dev INFORMITY_INSTALL_SKIP_MODELS=1 ./scripts/install.sh
+#
 # Run from repo root: ./scripts/install.sh   or   bash scripts/install.sh
 # ==============================================================================
 
@@ -17,10 +24,10 @@ DIR_CACHE="cache"
 DIR_MODELS="models"
 DIR_LLM="llm"
 
-# Install profile:
-# - runtime (default): application runtime deps only
-# - dev: runtime + optional dev tooling (pytest, ruff, pyinstaller, etc.)
 INSTALL_PROFILE="${INFORMITY_INSTALL_PROFILE:-runtime}"
+INSTALL_CLEAN="${INFORMITY_INSTALL_CLEAN:-0}"
+INSTALL_VERIFY="${INFORMITY_INSTALL_VERIFY:-0}"
+INSTALL_SKIP_MODELS="${INFORMITY_INSTALL_SKIP_MODELS:-0}"
 
 # App data directory: same default as bundled desktop app.
 APP_DATA_DIR="${INFORMITY_APP_DATA_DIR:-$INFORMITY_DEFAULT_APP_DATA_DIR}"
@@ -33,7 +40,16 @@ echo "Informity AI — Install"
 echo "  Repo root:    $REPO_ROOT"
 echo "  App data dir: $APP_DATA_DIR"
 echo "  Profile:      $INSTALL_PROFILE"
+echo "  Clean first:  $INSTALL_CLEAN"
+echo "  Verify:       $INSTALL_VERIFY"
+echo "  Skip models:  $INSTALL_SKIP_MODELS"
 echo ""
+
+if [[ "$INSTALL_CLEAN" == "1" ]]; then
+    echo "Running uninstall cleanup first (INFORMITY_INSTALL_CLEAN=1)..."
+    ./scripts/uninstall.sh
+    echo ""
+fi
 
 # ------------------------------------------------------------------------------
 # 1. Ensure uv is available
@@ -44,10 +60,10 @@ if ! command -v uv >/dev/null 2>&1; then
 fi
 
 # ------------------------------------------------------------------------------
-# 2. Create virtual environment with uv-managed Python (supports SQLite extensions)
+# 2. Create virtual environment with uv-managed Python
 # ------------------------------------------------------------------------------
-if [ ! -d ".venv" ]; then
-    echo "Creating virtual environment with Python 3.13 (uv-managed, supports SQLite extensions)..."
+if [[ ! -d ".venv" ]]; then
+    echo "Creating virtual environment with Python 3.13 (uv-managed)..."
     uv venv --python 3.13
 else
     echo "Virtual environment already exists (.venv/)"
@@ -72,23 +88,50 @@ case "$INSTALL_PROFILE" in
 esac
 
 # ------------------------------------------------------------------------------
-# 4. Install frontend dependencies (including TypeScript)
+# 4. Install frontend dependencies
 # ------------------------------------------------------------------------------
 echo ""
 echo "Installing frontend dependencies (npm install)..."
 (cd src/frontend && npm install)
 
 # ------------------------------------------------------------------------------
-# 5. Download models into app data and set offline config
+# 5. Download models into app data and set offline config (optional)
+#    Set INFORMITY_INSTALL_SKIP_MODELS=1 to simulate shipped-app first run
+#    where dependencies are installed but models are missing and setup UI
+#    drives model download.
 # ------------------------------------------------------------------------------
-# Temporarily disable privacy so bootstrap can download models. Bootstrap will
-# re-enable privacy at the end when all models are cached.
-echo ""
-echo "Downloading models (embedding, reranker, docling, optional LLM from scripts/install.conf.json)..."
-export INFORMITY_FULL_PRIVACY=false
-export INFORMITY_EMBEDDING_OFFLINE=false
-export INFORMITY_LLM_LOCAL_ONLY=false
-uv run python scripts/bootstrap_models.py
+if [[ "$INSTALL_SKIP_MODELS" == "1" ]]; then
+    echo ""
+    echo "Skipping model download (INFORMITY_INSTALL_SKIP_MODELS=1)."
+    echo "First run will show setup and prompt model download."
+else
+    echo ""
+    echo "Downloading models (embedding, reranker, docling, optional LLM from scripts/install.conf.json)..."
+    export INFORMITY_FULL_PRIVACY=false
+    export INFORMITY_EMBEDDING_OFFLINE=false
+    export INFORMITY_LLM_LOCAL_ONLY=false
+    uv run python scripts/bootstrap_models.py
+fi
+
+# ------------------------------------------------------------------------------
+# 6. Optional verification
+# ------------------------------------------------------------------------------
+if [[ "$INSTALL_VERIFY" == "1" ]]; then
+    echo ""
+    echo "Initializing database for verification..."
+    uv run python -c "
+import asyncio
+from informity.config import settings
+settings.ensure_directories()
+from informity.db.sqlite import init_db
+asyncio.run(init_db())
+print('Database initialized.')
+"
+
+    echo ""
+    echo "Running tests (uv run pytest tests/ -v)..."
+    uv run pytest tests/ -v
+fi
 
 echo ""
 echo "Done. Start the app with:"
@@ -96,4 +139,9 @@ echo "  export INFORMITY_APP_DATA_DIR=\"$APP_DATA_DIR\""
 echo "  uv run uvicorn informity.main:app --host 127.0.0.1 --port 8420"
 echo "Or from repo root: make run"
 echo ""
-echo "The app will use cached models only (embedding_offline=true, llm_local_only=true) and will not contact Hugging Face or the internet—no network requests after install."
+if [[ "$INSTALL_SKIP_MODELS" == "1" ]]; then
+    echo "Models were not preinstalled. App will run setup flow on first launch."
+else
+    echo "The app will use cached models only (embedding_offline=true, llm_local_only=true) and will not contact Hugging Face or the internet after install."
+fi
+echo ""

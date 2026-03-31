@@ -530,6 +530,7 @@ export async function getSetupStatus(): Promise<SetupStatusResponse> {
 export interface SetupTierOption {
   tier: 'small' | 'balanced' | 'quality'
   title: string
+  display_name: string
   model_filename: string
   approx_size_gb: number
   quality: string
@@ -592,6 +593,7 @@ export async function getSetupEvents(): Promise<SetupEventResponse> {
 export interface ModelsCatalogItem {
   tier: SetupTierOption['tier']
   title: string
+  display_name: string
   model_filename: string
   approx_size_gb: number
   quality: string
