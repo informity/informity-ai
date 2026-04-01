@@ -52,6 +52,8 @@ from informity.db.sqlite import (
 )
 from informity.db.vectors import vector_store
 from informity.diagnostics.issue_types import IssueType
+from informity.indexer.embedder import embedder
+from informity.indexer.reranker import reranker
 from informity.llm.engine import llm_engine
 from informity.llm.model_adapter import get_model_display_name
 from informity.llm.types import DiagnosticsQueryType
@@ -94,8 +96,8 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
     SetupTierOption(
         tier='quality',
         title='Quality',
-        display_name=get_model_display_name('Qwen3-30B-A3B-Q5_K_M.gguf'),
-        model_filename='Qwen3-30B-A3B-Q5_K_M.gguf',
+        display_name=get_model_display_name('Qwen3-30B-A3B-Q4_K_M.gguf'),
+        model_filename='Qwen3-30B-A3B-Q4_K_M.gguf',
         approx_size_gb=20.0,
         quality='Highest',
         speed='Slower',
@@ -389,10 +391,6 @@ def _cache_required_runtime_dependencies() -> None:
 
     Runs during setup before privacy mode is switched on.
     """
-    from informity.indexer.embedder import embedder
-    from informity.indexer.reranker import reranker
-    from informity.config import DirNames
-
     configure_hf_environment(fail_on_missing_full_privacy_models=False)
 
     # Embedding model cache
