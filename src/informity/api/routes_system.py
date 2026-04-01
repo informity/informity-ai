@@ -6,6 +6,7 @@
 import asyncio
 import json
 import math
+import os
 import platform
 import threading
 from contextlib import suppress
@@ -34,7 +35,12 @@ from informity.api.schemas import (
     SetupTierOption,
 )
 from informity.api.setup_state import SetupState
-from informity.config import APP_DISPLAY_NAME, settings
+from informity.config import (
+    APP_DISPLAY_NAME,
+    are_required_models_cached,
+    configure_hf_environment,
+    settings,
+)
 from informity.db.sqlite import (
     CANONICAL_DIAGNOSTICS_QUERY_TYPES,
     CANONICAL_DIAGNOSTICS_TYPES,
@@ -206,7 +212,10 @@ def _is_model_file_ready(model_filename: str) -> bool:
 
 
 def _is_setup_ready(setup_state_payload: dict[str, object] | None = None) -> bool:
-    return _is_model_file_ready(_required_model_filename(setup_state_payload))
+    # Setup is only complete when all required runtime assets are cached.
+    # This includes the selected GGUF, embedding model, reranker, and docling artifacts.
+    # `setup_state_payload` is currently unused but kept for call compatibility.
+    return are_required_models_cached()
 
 
 def _update_setup_runtime(**updates: object) -> None:
@@ -350,6 +359,81 @@ def _apply_setup_completion_config(model_filename: str) -> None:
     config_path.write_text(json.dumps(config_data, indent=2), encoding='utf-8')
 
 
+def _apply_setup_bootstrap_config(model_filename: str) -> None:
+    """
+    Persist first-run bootstrap mode while setup is still in progress.
+
+    Privacy flags stay off during setup so required dependency models can be
+    downloaded and cached before switching to full privacy mode.
+    """
+    config_path = _setup_config_path()
+    config_data: dict[str, object] = {}
+    if config_path.exists():
+        try:
+            parsed = json.loads(config_path.read_text(encoding='utf-8'))
+            if isinstance(parsed, dict):
+                config_data = parsed
+        except (OSError, ValueError, TypeError):
+            config_data = {}
+    config_data['llm_model_filename'] = model_filename
+    config_data['full_privacy'] = False
+    config_data['llm_local_only'] = False
+    config_data['embedding_offline'] = False
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(config_data, indent=2), encoding='utf-8')
+
+
+def _cache_required_runtime_dependencies() -> None:
+    """
+    Warm/cache non-LLM runtime dependencies needed for full privacy mode.
+
+    Runs during setup before privacy mode is switched on.
+    """
+    from informity.indexer.embedder import embedder
+    from informity.indexer.reranker import reranker
+    from informity.config import DirNames
+
+    configure_hf_environment(fail_on_missing_full_privacy_models=False)
+
+    # Embedding model cache
+    embedder.embed_query('setup_warmup')
+
+    # Reranker model cache
+    reranker.rerank(
+        'setup warmup',
+        [{'chunk_text': 'setup warmup placeholder'}],
+    )
+
+    # Docling runtime artifacts cache
+    docling_cache = settings.cache_dir / DirNames.DOCLING
+    docling_cache.mkdir(parents=True, exist_ok=True)
+    os.environ['DOCLING_ARTIFACTS_PATH'] = str(docling_cache)
+
+    try:
+        from docling.utils.model_downloader import download_models
+    except ImportError as exc:
+        raise RuntimeError('Docling model downloader is unavailable in packaged runtime') from exc
+
+    download_models(
+        output_dir=docling_cache,
+        force=False,
+        progress=False,
+        with_layout=True,
+        with_tableformer=True,
+        with_code_formula=True,
+        with_picture_classifier=False,
+        with_smolvlm=False,
+        with_granitedocling=False,
+        with_granitedocling_mlx=False,
+        with_smoldocling=False,
+        with_smoldocling_mlx=False,
+        with_granite_vision=False,
+        with_granite_chart_extraction=False,
+        with_rapidocr=True,
+        with_easyocr=False,
+    )
+
+
 def _apply_model_default_config(model_filename: str) -> None:
     config_path = _setup_config_path()
     config_data: dict[str, object] = {}
@@ -450,7 +534,13 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
             eta_sec=0,
         )
         _persist_setup_state_file()
-        _update_setup_runtime(stage='finalizing', overall_pct=95)
+        _update_setup_runtime(stage='caching_dependencies', overall_pct=92)
+        _persist_setup_state_file()
+        await asyncio.to_thread(_cache_required_runtime_dependencies)
+        if not are_required_models_cached():
+            raise RuntimeError('Required runtime dependency cache warmup did not complete')
+        _update_setup_runtime(stage='finalizing', overall_pct=97)
+        _persist_setup_state_file()
         _apply_setup_completion_config(model_filename)
         settings.llm_model_filename = model_filename
         settings.full_privacy = True
@@ -496,6 +586,14 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
             )
             _persist_setup_state_file()
             return
+        log.error(
+            'setup_workflow_failed',
+            error=str(exc),
+            exc_info=True,
+            stage=_setup_runtime.get('stage'),
+            model_filename=model_filename,
+            selected_tier=tier,
+        )
         _update_setup_runtime(
             state=SetupState.FAILED.value,
             stage='failed',
@@ -707,6 +805,11 @@ async def start_setup(payload: SetupStartRequest) -> SetupStartResponse:
     async with _setup_lock:
         if _setup_task is not None and not _setup_task.done():
             return SetupStartResponse(accepted=True, state=SetupState.IN_PROGRESS)
+        _apply_setup_bootstrap_config(selected_model)
+        settings.llm_model_filename = selected_model
+        settings.full_privacy = False
+        settings.llm_local_only = False
+        settings.embedding_offline = False
         _update_setup_runtime(
             state=SetupState.IN_PROGRESS.value,
             stage='queued',
@@ -741,6 +844,11 @@ async def retry_setup() -> SetupActionResponse:
     async with _setup_lock:
         if _setup_task is not None and not _setup_task.done():
             return SetupActionResponse(accepted=True, state=SetupState.IN_PROGRESS, detail='Setup already in progress')
+        _apply_setup_bootstrap_config(model_filename)
+        settings.llm_model_filename = model_filename
+        settings.full_privacy = False
+        settings.llm_local_only = False
+        settings.embedding_offline = False
         _update_setup_runtime(
             state=SetupState.IN_PROGRESS.value,
             paused=False,

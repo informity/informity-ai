@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -249,6 +250,21 @@ async def test_start_setup_persists_in_progress_state(
     tmp_path: Path,
 ) -> None:
     monkeypatch.setattr(routes_system.settings, 'app_data_dir', tmp_path)
+
+    class _DummyTask:
+        def done(self) -> bool:
+            return False
+
+        def cancel(self) -> None:
+            return
+
+    def _fake_create_task(coro):  # type: ignore[no-untyped-def]
+        coro.close()
+        return _DummyTask()
+
+    monkeypatch.setattr(routes_system.asyncio, 'create_task', _fake_create_task)
+    routes_system._setup_task = None
+
     payload = SetupStartRequest(tier='balanced', model_filename='Qwen3-14B-Q5_K_M.gguf')
 
     response = await routes_system.start_setup(payload)
@@ -258,6 +274,16 @@ async def test_start_setup_persists_in_progress_state(
     setup_state = (tmp_path / 'setup_state.json').read_text(encoding='utf-8')
     assert '"state": "setup_in_progress"' in setup_state
     assert '"selected_tier": "balanced"' in setup_state
+
+    config_data = json.loads((tmp_path / 'config.json').read_text(encoding='utf-8'))
+    assert config_data['llm_model_filename'] == 'Qwen3-14B-Q5_K_M.gguf'
+    assert config_data['full_privacy'] is False
+    assert config_data['embedding_offline'] is False
+    assert config_data['llm_local_only'] is False
+
+    assert routes_system.settings.full_privacy is False
+    assert routes_system.settings.embedding_offline is False
+    assert routes_system.settings.llm_local_only is False
 
 
 @pytest.mark.asyncio
