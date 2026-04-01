@@ -4,10 +4,12 @@
 # env vars. Used by GET /api/config/env-vars for the Configuration page.
 # ==============================================================================
 
+import json
+import os
 from pathlib import Path
 
 from informity.api.schemas import EnvVarGroup, EnvVarItem, EnvVarsResponse
-from informity.config import APP_SLUG, DirNames
+from informity.config import APP_SLUG, DirNames, Settings
 from informity.utils.path_utils import normalize_path
 
 # Prefix used by pydantic-settings for this app.
@@ -43,7 +45,7 @@ def _format_value(value: object, app_dir: Path | None = None) -> str:
             _path_relative_to_app(x, base) if isinstance(x, Path) else str(x)
             for x in value
         ]
-        s = ', '.join(parts)
+        s = json.dumps(parts)
         return s if len(s) <= 120 else s[:117] + '...'
     return str(value)
 
@@ -68,9 +70,9 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
     ),
     (
         'Paths and Storage',
-        'Where the application stores database, vectors, models, and logs. Default: ~/.informity. Override via INFORMITY_APP_DATA_DIR.',
+        'Where the application stores database, model files, cache, and logs. Default: ~/.informity. Override via INFORMITY_APP_DATA_DIR.',
         [
-            ('app_data_dir', 'Root directory for all app data (DB, vectors, models, logs, config). Default: ~/.informity.'),
+            ('app_data_dir', 'Root directory for all app data (DB, models, cache, logs, config). Default: ~/.informity.'),
             ('cache_dir', f'Unified cache root for Hugging Face/docling artifacts. Default: app_data_dir/{DirNames.CACHE}.'),
             ('db_path', f'SQLite database file path (default: app_data_dir/{DirNames.DB}/{APP_SLUG}.db).'),
             ('logs_dir', 'Directory for log files.'),
@@ -179,6 +181,30 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
     ),
 ]
 
+_RUNTIME_ENV_VARS: list[tuple[str, str]] = [
+    (
+        'INFORMITY_REPO_ROOT',
+        'Repository root override for diagnostics paths and local tooling resolution.',
+    ),
+    (
+        'INFORMITY_SUPPRESS_CONSOLE_LOGS',
+        'When set to 1, suppress startup/config console logs in CLI contexts.',
+    ),
+    (
+        'INFORMITY_TAURI_SESSION_TOKEN',
+        'Desktop runtime session token for local API authorization (managed by the desktop shell).',
+    ),
+]
+
+
+def _describe_unmapped_field(field: str) -> str:
+    # Fallback description for Settings fields not explicitly documented in _GROUPS.
+    label = field.replace('_', ' ').strip()
+    return (
+        f'Advanced setting: {label}. '
+        f'Configurable via {_env_name(field)}.'
+    )
+
 
 def get_env_vars_response(settings: object) -> EnvVarsResponse:
     # Build the env vars response with actual current values from settings.
@@ -186,9 +212,11 @@ def get_env_vars_response(settings: object) -> EnvVarsResponse:
     # Variables are sorted alphabetically by env name within each group.
     app_dir = Path.cwd()
     groups: list[EnvVarGroup] = []
+    documented_fields: set[str] = set()
     for title, description, variables in _GROUPS:
         items = []
         for field, desc in sorted(variables, key=lambda x: _env_name(x[0])):
+            documented_fields.add(field)
             try:
                 value = getattr(settings, field)
                 default_display = _format_value(value, app_dir)
@@ -196,4 +224,48 @@ def get_env_vars_response(settings: object) -> EnvVarsResponse:
                 default_display = '(unset)'
             items.append(EnvVarItem(name=_env_name(field), default=default_display, description=desc))
         groups.append(EnvVarGroup(title=title, description=description, variables=items))
+
+    # Ensure env-vars metadata stays in sync with Settings by auto-including any
+    # Settings fields not explicitly curated above.
+    model_fields = getattr(Settings, 'model_fields', {})
+    all_settings_fields = set(model_fields.keys())
+    missing_fields = sorted(all_settings_fields - documented_fields)
+    if missing_fields:
+        advanced_items: list[EnvVarItem] = []
+        for field in missing_fields:
+            try:
+                value = getattr(settings, field)
+                current_display = _format_value(value, app_dir)
+            except (AttributeError, TypeError):
+                current_display = '(unset)'
+            advanced_items.append(
+                EnvVarItem(
+                    name=_env_name(field),
+                    default=current_display,
+                    description=_describe_unmapped_field(field),
+                ),
+            )
+        groups.append(
+            EnvVarGroup(
+                title='Advanced and Internal',
+                description='Additional Settings fields that are env-configurable but not shown in primary categories.',
+                variables=advanced_items,
+            ),
+        )
+
+    runtime_items = [
+        EnvVarItem(
+            name=name,
+            default=str(os.environ.get(name, '')).strip(),
+            description=desc,
+        )
+        for name, desc in sorted(_RUNTIME_ENV_VARS, key=lambda x: x[0])
+    ]
+    groups.append(
+        EnvVarGroup(
+            title='Runtime Environment',
+            description='Runtime-only environment variables used by launch wrappers and desktop session plumbing.',
+            variables=runtime_items,
+        ),
+    )
     return EnvVarsResponse(groups=groups)
