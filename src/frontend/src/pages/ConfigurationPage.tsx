@@ -23,6 +23,8 @@ const CONFIG_SECTION_ICONS: Record<string, string> = {
   'LLM and RAG': 'ri-robot-2-line',
   'Logging': 'ri-file-list-3-line',
   'Diagnostics': 'ri-pulse-line',
+  'Advanced and Internal': 'ri-tools-line',
+  'Runtime Environment': 'ri-terminal-box-line',
   'Preset Exclusion Patterns': 'ri-filter-off-line',
   'File Processing Limits': 'ri-file-line',
   'File Watcher': 'ri-eye-line',
@@ -37,6 +39,8 @@ const SETTINGS_ALIGNED_GROUP_ORDER = [
   'Indexing',
   'Embeddings',
   'Diagnostics',
+  'Advanced and Internal',
+  'Runtime Environment',
   'Appearance',
   'Logging',
   'Paths and Storage',
@@ -176,7 +180,7 @@ export function ConfigurationPage() {
             <div className="config__main-section ui-section-divider">
               <h3 className="config__main-section-title">Environment Variables</h3>
               <p className="config__main-section-description">
-                All application settings can be configured via environment variables. These override values in <code>config.json</code> and defaults.
+                Application settings can be configured via environment variables. Note: persisted <code>config.json</code> values may take precedence for keys saved by the Settings UI.
               </p>
               <div className="config__groups">
                 {orderedEnvGroups.map((group) => (
@@ -195,7 +199,7 @@ export function ConfigurationPage() {
                         <div key={v.name} className="config__var ui-card">
                           <div className="config__var-name">{v.name}</div>
                           <div className="config__var-desc">{v.description}</div>
-                          <div className="config__var-default">{v.default || '(unset)'}</div>
+                          <div className="config__var-default">{`Current value: ${v.default || '(unset)'}`}</div>
                         </div>
                       ))}
                     </div>

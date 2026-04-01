@@ -6,7 +6,7 @@
 from importlib import metadata
 
 _PACKAGE_NAME = 'informity'
-_LOCAL_FALLBACK_VERSION = '0.7.0-local'
+_LOCAL_FALLBACK_VERSION = '0.8.2-local'
 
 
 def _resolve_app_version() -> str:
