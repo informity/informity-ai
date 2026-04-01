@@ -452,6 +452,10 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
         _persist_setup_state_file()
         _update_setup_runtime(stage='finalizing', overall_pct=95)
         _apply_setup_completion_config(model_filename)
+        settings.llm_model_filename = model_filename
+        settings.full_privacy = True
+        settings.llm_local_only = True
+        settings.embedding_offline = True
         _update_setup_runtime(
             state=SetupState.READY.value,
             stage='completed',

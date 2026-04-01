@@ -19,19 +19,13 @@ mkdir -p "$DIST_DIR" "$WORK_DIR" "$SPEC_DIR" "$OUT_DIR"
 
 verify_sidecar_contents() {
   local sidecar_bin="$1"
-  local python_bin="$ROOT_DIR/.venv/bin/python"
   local listing_file
 
   listing_file="$(mktemp)"
-
-  if [[ ! -x "$python_bin" ]]; then
-    python_bin="python3"
-  fi
-
-  "$python_bin" -m PyInstaller.utils.cliutils.archive_viewer -r -b "$sidecar_bin" >"$listing_file" 2>&1 || true
+  uv run --with pyinstaller python -m PyInstaller.utils.cliutils.archive_viewer -r -b "$sidecar_bin" >"$listing_file" 2>&1 || true
 
   local -a required_patterns=(
-    "docling\\.models\\.plugins"
+    "docling/models/plugins/__init__\\.py"
     "docling_ibm_models/__init__\\.py"
     "docx/__init__\\.py"
     "docx/document\\.py"

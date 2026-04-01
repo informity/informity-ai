@@ -286,7 +286,6 @@ async fn backend_start(
     } else {
         Duration::from_secs(45)
     };
-    emit_backend_startup_status(&app, "Loading models...");
     let startup_timeout_secs = startup_timeout.as_secs();
     let start = Instant::now();
     while start.elapsed() < startup_timeout {
