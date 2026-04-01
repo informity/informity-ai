@@ -166,6 +166,16 @@ function App({ startupError = null }: AppProps) {
                                 })
                                 .finally(() => setSetupActionPending(false))
                             }}
+                            onCancelDownload={() => {
+                              setSetupActionPending(true)
+                              void cancelSetup()
+                                .then(() => Promise.all([refreshSetupStatus(), getSetupEvents().then(setSetupEvent)]))
+                                .catch((error) => {
+                                  const message = error instanceof Error ? error.message : String(error)
+                                  setSetupError(message)
+                                })
+                                .finally(() => setSetupActionPending(false))
+                            }}
                             onCancel={() => {
                               setSetupActionPending(true)
                               void cancelSetup()

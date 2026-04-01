@@ -270,7 +270,7 @@ async def test_start_setup_rejects_mismatched_model_filename() -> None:
 
 
 @pytest.mark.asyncio
-async def test_setup_pause_and_events_reflect_runtime_state(
+async def test_setup_events_reflect_runtime_state(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -285,13 +285,9 @@ async def test_setup_pause_and_events_reflect_runtime_state(
         error=None,
     )
 
-    paused = await routes_system.pause_setup()
-    assert paused.accepted is True
-    assert paused.state == 'setup_in_progress'
-
     event = await routes_system.get_setup_events()
     assert event.state == 'setup_in_progress'
-    assert event.paused is True
+    assert event.paused is False
 
 
 @pytest.mark.asyncio
@@ -301,14 +297,14 @@ async def test_get_models_catalog_marks_installed_and_default(
 ) -> None:
     models_dir = tmp_path / 'models'
     models_dir.mkdir(parents=True)
-    (models_dir / 'Qwen3.5-9B-Q4_K_M.gguf').write_bytes(b'x')
+    (models_dir / 'Qwen_Qwen3.5-9B-Q4_K_M.gguf').write_bytes(b'x')
     monkeypatch.setattr(routes_system.settings, 'models_dir', models_dir)
-    monkeypatch.setattr(routes_system.settings, 'llm_model_filename', 'Qwen3.5-9B-Q4_K_M.gguf')
+    monkeypatch.setattr(routes_system.settings, 'llm_model_filename', 'Qwen_Qwen3.5-9B-Q4_K_M.gguf')
 
     catalog = await routes_system.get_models_catalog()
-    assert catalog.default_model_filename == 'Qwen3.5-9B-Q4_K_M.gguf'
+    assert catalog.default_model_filename == 'Qwen_Qwen3.5-9B-Q4_K_M.gguf'
     installed = {item.model_filename: item.installed for item in catalog.models}
-    assert installed['Qwen3.5-9B-Q4_K_M.gguf'] is True
+    assert installed['Qwen_Qwen3.5-9B-Q4_K_M.gguf'] is True
     assert installed['Qwen3-14B-Q5_K_M.gguf'] is False
 
 
@@ -364,7 +360,7 @@ async def test_set_default_model_requires_installed_file_and_updates_config(
 
 
 @pytest.mark.asyncio
-async def test_model_pause_resume_cancel_reflect_runtime_state(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_model_cancel_reflect_runtime_state(monkeypatch: pytest.MonkeyPatch) -> None:
     class _DummyTask:
         def __init__(self) -> None:
             self._cancelled = False
@@ -382,21 +378,8 @@ async def test_model_pause_resume_cancel_reflect_runtime_state(monkeypatch: pyte
         stage='downloading_model',
         model_filename='Qwen3-14B-Q5_K_M.gguf',
         paused=False,
-        pause_requested=False,
         cancel_requested=False,
     )
-
-    paused = await routes_system.pause_model_download()
-    assert paused.accepted is True
-
-    def _fake_create_task(coro):  # type: ignore[no-untyped-def]
-        coro.close()
-        return dummy_task
-
-    monkeypatch.setattr(routes_system.asyncio, 'create_task', _fake_create_task)
-    routes_system._model_task = None
-    resumed = await routes_system.resume_model_download()
-    assert resumed.accepted is True
 
     cancelled = await routes_system.cancel_model_download()
     assert cancelled.accepted is True

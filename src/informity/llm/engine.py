@@ -20,7 +20,7 @@ import os
 import shutil
 import threading
 import time
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 from contextlib import suppress
 from pathlib import Path
 
@@ -39,8 +39,6 @@ _PROMPT_RENDER_EXCEPTIONS = (ValueError, TypeError, AttributeError, RuntimeError
 # ==============================================================================
 # Constants
 # ==============================================================================
-
-DEFAULT_HF_FILENAME = 'Meta-Llama-3.1-8B-Instruct-Q5_K_M.gguf'
 
 # Sentinel put on the queue when the stream worker is done
 _STREAM_END: object = object()
@@ -534,52 +532,104 @@ class LLMEngine:
     def _download_model(
         self,
         target_path: Path,
-        repo_id:     str | None = None,
-        filename:    str | None = None,
+        repo_id: str | None = None,
+        filename: str | None = None,
+        progress_callback: Callable[[int, int | None, float], None] | None = None,
+        cancel_event: threading.Event | None = None,
     ) -> None:
         # Download the GGUF model from Hugging Face Hub to the local models dir.
-        repo  = repo_id or settings.llm_hf_repo
+        # Streams bytes to a temporary file so callers can receive real-time
+        # progress and can cooperatively cancel in-flight downloads.
+        repo = repo_id or settings.llm_hf_repo
         fname = filename or target_path.name
 
         log.info('downloading_llm_model', repo=repo, filename=fname, target=str(target_path))
         start = time.perf_counter()
 
         try:
-            from huggingface_hub import hf_hub_download
+            from huggingface_hub import hf_hub_url
+            from huggingface_hub.utils import build_hf_headers, get_session
 
-            from informity.config import DirNames, configure_hf_environment
+            from informity.config import configure_hf_environment
 
             configure_hf_environment(fail_on_missing_full_privacy_models=False)
-            hf_cache = settings.cache_dir / DirNames.HUGGINGFACE / DirNames.HUB if settings.cache_dir else None
-
             ensure_file_directory(target_path)
 
-            download_kwargs: dict = {
-                'repo_id':   repo,
-                'filename':  fname,
-                'local_dir': str(target_path.parent),
-            }
-            if hf_cache:
-                download_kwargs['cache_dir'] = str(hf_cache)
+            tmp_path = target_path.parent / f'{target_path.name}.incomplete'
+            bytes_done = int(tmp_path.stat().st_size) if tmp_path.exists() else 0
 
-            downloaded_path = hf_hub_download(**download_kwargs)
+            url = hf_hub_url(repo_id=repo, filename=fname)
+            headers = build_hf_headers()
+            if bytes_done > 0:
+                headers['Range'] = f'bytes={bytes_done}-'
 
-            downloaded = Path(downloaded_path)
-            if downloaded.name != target_path.name and downloaded.exists():
-                downloaded.rename(target_path)
-                log.debug('model_renamed', from_name=downloaded.name, to_name=target_path.name)
+            session = get_session()
+            response = session.get(url, headers=headers, stream=True, timeout=(10, 60))
+            response.raise_for_status()
+
+            # If resume was requested but the server ignored Range and returned the
+            # full file (200), restart from scratch to avoid duplicate bytes.
+            if bytes_done > 0 and response.status_code == 200:
+                with suppress(OSError):
+                    tmp_path.unlink(missing_ok=True)
+                bytes_done = 0
+
+            content_range = response.headers.get('Content-Range', '')
+            content_length = response.headers.get('Content-Length')
+            total_bytes: int | None = None
+            if content_range and '/' in content_range:
+                try:
+                    total_bytes = int(content_range.split('/')[-1])
+                except ValueError:
+                    total_bytes = None
+            elif content_length:
+                try:
+                    total_bytes = bytes_done + int(content_length)
+                except ValueError:
+                    total_bytes = None
+
+            last_report = time.perf_counter()
+            report_interval_s = 0.20
+            chunk_size = 1024 * 1024
+
+            with tmp_path.open('ab' if bytes_done > 0 else 'wb') as f:
+                for chunk in response.iter_content(chunk_size=chunk_size):
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise RuntimeError('download cancelled')
+                    if not chunk:
+                        continue
+                    f.write(chunk)
+                    bytes_done += len(chunk)
+
+                    now = time.perf_counter()
+                    if progress_callback and (now - last_report >= report_interval_s):
+                        elapsed = max(now - start, 0.001)
+                        speed_bps = float(bytes_done / elapsed)
+                        progress_callback(bytes_done, total_bytes, speed_bps)
+                        last_report = now
+
+            if progress_callback:
+                elapsed = max(time.perf_counter() - start, 0.001)
+                speed_bps = float(bytes_done / elapsed)
+                progress_callback(bytes_done, total_bytes or bytes_done, speed_bps)
+
+            tmp_path.replace(target_path)
 
         except ImportError as exc:
             raise LLMError(f'huggingface-hub is not installed: {exc}') from exc
         except OSError as exc:
             raise LLMError(f'Failed to download model from {repo}/{fname}: {exc}') from exc
+        except Exception as exc:
+            raise LLMError(f'Failed to download model from {repo}/{fname}: {exc}') from exc
 
         elapsed_s = time.perf_counter() - start
-        size_mb   = target_path.stat().st_size / (1024 * 1024) if target_path.exists() else 0
+        size_mb = target_path.stat().st_size / (1024 * 1024) if target_path.exists() else 0
         log.info(
             'llm_model_downloaded',
-            repo=repo, filename=fname,
-            size_mb=round(size_mb, 1), elapsed_s=round(elapsed_s, 1),
+            repo=repo,
+            filename=fname,
+            size_mb=round(size_mb, 1),
+            elapsed_s=round(elapsed_s, 1),
         )
         remove_models_dir_cache()
 

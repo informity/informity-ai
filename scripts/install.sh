@@ -11,6 +11,13 @@
 # - INFORMITY_INSTALL_SKIP_MODELS=1     (install deps only; do not download models)
 #   Example: INFORMITY_INSTALL_PROFILE=dev INFORMITY_INSTALL_SKIP_MODELS=1 ./scripts/install.sh
 #
+# CLI shortcuts (equivalent to env vars):
+# - --no-models
+# - --clean
+# - --verify
+# - --dev | --runtime
+# - -h | --help
+#
 # Run from repo root: ./scripts/install.sh   or   bash scripts/install.sh
 # ==============================================================================
 
@@ -28,6 +35,54 @@ INSTALL_PROFILE="${INFORMITY_INSTALL_PROFILE:-runtime}"
 INSTALL_CLEAN="${INFORMITY_INSTALL_CLEAN:-0}"
 INSTALL_VERIFY="${INFORMITY_INSTALL_VERIFY:-0}"
 INSTALL_SKIP_MODELS="${INFORMITY_INSTALL_SKIP_MODELS:-0}"
+
+print_help() {
+    cat <<'EOF'
+Informity AI install script
+
+Usage:
+  ./scripts/install.sh [options]
+
+Options:
+  --no-models   Install dependencies only; skip model downloads.
+  --clean       Run uninstall cleanup before install.
+  --verify      Initialize DB and run tests at the end.
+  --dev         Install dev profile (uv sync --all-extras).
+  --runtime     Install runtime profile (default).
+  -h, --help    Show this help.
+EOF
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --no-models)
+            INSTALL_SKIP_MODELS=1
+            ;;
+        --clean)
+            INSTALL_CLEAN=1
+            ;;
+        --verify)
+            INSTALL_VERIFY=1
+            ;;
+        --dev)
+            INSTALL_PROFILE="dev"
+            ;;
+        --runtime)
+            INSTALL_PROFILE="runtime"
+            ;;
+        -h|--help)
+            print_help
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo ""
+            print_help
+            exit 1
+            ;;
+    esac
+    shift
+done
 
 # App data directory: same default as bundled desktop app.
 APP_DATA_DIR="${INFORMITY_APP_DATA_DIR:-$INFORMITY_DEFAULT_APP_DATA_DIR}"
