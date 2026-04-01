@@ -47,10 +47,7 @@ vi.mock('../../api', () => ({
     error: null,
   })),
   downloadModel: vi.fn(async () => ({ accepted: true, detail: 'ok' })),
-  pauseModelDownload: vi.fn(async () => ({ accepted: true, detail: 'ok' })),
-  resumeModelDownload: vi.fn(async () => ({ accepted: true, detail: 'ok' })),
   cancelModelDownload: vi.fn(async () => ({ accepted: true, detail: 'ok' })),
-  setDefaultModel: vi.fn(async () => ({ accepted: true, detail: 'ok' })),
 }))
 
 afterEach(() => {

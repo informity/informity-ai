@@ -3,11 +3,15 @@
  * Full settings form with sections: Privacy, Appearance, Data Sources, Indexing,
  * Chat, Diagnostics, Models, System. Save, Discard, Reset Settings, Danger Zone.
  */
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { Link } from 'react-router-dom'
 import {
+  cancelModelDownload,
+  downloadModel,
+  getModelOperationEvents,
   getModelProfile,
   getModelsCatalog,
+  type ModelOperationEventResponse,
   type ModelsCatalogResponse,
 } from '../../api'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_OPTIONS, UI_THEME_STORAGE_KEY } from '../../utils/uiTheme'
@@ -118,6 +122,49 @@ function parseInteger(raw: string, fallback: number): number {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
+}
+
+function getFriendlyModelDownloadError(error: string | null | undefined): string {
+  const fallback = 'Something went wrong while downloading your model. Check your internet connection and try again.'
+  if (!error || !error.trim()) return fallback
+  const normalized = error.toLowerCase()
+
+  if (
+    normalized.includes('enospc')
+    || normalized.includes('no space left on device')
+    || normalized.includes('disk full')
+  ) {
+    return 'There is not enough disk space to download this model. Free up space and try again.'
+  }
+  if (
+    normalized.includes('timed out')
+    || normalized.includes('timeout')
+    || normalized.includes('connection')
+    || normalized.includes('network')
+    || normalized.includes('temporary failure in name resolution')
+    || normalized.includes('name or service not known')
+  ) {
+    return 'Download failed due to a network issue. Check your internet connection and try again.'
+  }
+  if (
+    normalized.includes('401')
+    || normalized.includes('403')
+    || normalized.includes('unauthorized')
+    || normalized.includes('forbidden')
+    || normalized.includes('gated')
+    || normalized.includes('repository not found')
+  ) {
+    return 'Model download is currently unavailable. Please try again.'
+  }
+  if (
+    normalized.includes('huggingface-hub is not installed')
+    || normalized.includes("no module named 'httpx'")
+    || normalized.includes('cannot import name')
+  ) {
+    return 'A required download component is unavailable. Restart the app and try again.'
+  }
+
+  return fallback
 }
 
 interface ModelProfile {
@@ -280,10 +327,13 @@ export function SettingsView({
   const [activeTab, setActiveTab] = useState<SettingsTab>(getInitialActiveTab)
   const [previewProfile, setPreviewProfile] = useState<ModelProfile | null>(null)
   const [modelProfileNames, setModelProfileNames] = useState<Map<string, string>>(new Map())
-  const [sortedModelFilenames, setSortedModelFilenames] = useState<string[]>([])
   const [dirInput, setDirInput] = useState('')
   const [ignoreInput, setIgnoreInput] = useState('')
   const [modelsCatalog, setModelsCatalog] = useState<ModelsCatalogResponse | null>(null)
+  const [modelDownloadPending, setModelDownloadPending] = useState(false)
+  const [modelDownloadError, setModelDownloadError] = useState<string | null>(null)
+  const [modelEvent, setModelEvent] = useState<ModelOperationEventResponse | null>(null)
+  const modelEventStateRef = useRef<ModelOperationEventResponse['state'] | null>(null)
   const persistedModel = settings?.llm_model_filename ?? ''
   const effectiveProfile = previewProfile ?? settings?.model_profile
 
@@ -339,7 +389,6 @@ export function SettingsView({
       const getBSize = (name: string) => { const m = name.match(/(\d+)B/i); return m ? parseInt(m[1], 10) : Infinity }
       results.sort((a, b) => getBSize(a.name) - getBSize(b.name))
       setModelProfileNames(new Map(results.map((r) => [r.filename, r.name])))
-      setSortedModelFilenames(results.map((r) => r.filename))
     }).catch(() => {})
     return () => { cancelled = true }
   }, [settings?.available_models])
@@ -358,6 +407,50 @@ export function SettingsView({
       cancelled = true
     }
   }, [settings?.llm_model_filename, settings?.available_models])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const poll = async () => {
+      try {
+        const event = await getModelOperationEvents()
+        if (cancelled) return
+
+        const prevState = modelEventStateRef.current
+        modelEventStateRef.current = event.state
+        setModelEvent(event)
+
+        if (prevState === 'in_progress' && (event.state === 'completed' || event.state === 'cancelled' || event.state === 'failed')) {
+          await refreshModelsCatalog()
+        }
+
+        if (event.state === 'failed') {
+          setModelDownloadError(getFriendlyModelDownloadError(event.error || ''))
+        } else if (event.state === 'completed' || event.state === 'cancelled' || event.state === 'idle') {
+          setModelDownloadError(null)
+        }
+      } catch {
+        // Keep last known event if polling fails.
+      }
+    }
+
+    void poll()
+    const id = window.setInterval(() => { void poll() }, 1500)
+    return () => {
+      cancelled = true
+      window.clearInterval(id)
+    }
+  }, [])
+
+  const refreshModelsCatalog = async (): Promise<void> => {
+    try {
+      const catalog = await getModelsCatalog()
+      setModelsCatalog(catalog)
+    } catch {
+      // Keep existing catalog state on fetch errors.
+    }
+  }
+
   if (!settings) return null
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) =>
@@ -434,6 +527,104 @@ export function SettingsView({
   const handleDiscard = () => {
     setForm(buildFormState(settings))
     onDiscard?.()
+  }
+
+  const selectedModelFilename = form.llm_model_filename || settings.llm_model_filename || ''
+  const catalogModels = modelsCatalog?.models || []
+  const knownModelFilenames = catalogModels.length > 0
+    ? catalogModels.map((model) => model.model_filename)
+    : Array.from(new Set([
+      ...(settings.available_models || []),
+      selectedModelFilename,
+    ].filter(Boolean)))
+  const installedModelSet = new Set(
+    catalogModels.length > 0
+      ? catalogModels.filter((model) => model.installed).map((model) => model.model_filename)
+      : (settings.available_models || []),
+  )
+  const selectedModelInstalled = selectedModelFilename ? installedModelSet.has(selectedModelFilename) : false
+  const modelEventMatchesSelected = modelEvent?.model_filename === selectedModelFilename
+  const modelDownloadInProgress = modelEventMatchesSelected && modelEvent?.state === 'in_progress'
+  const canSaveSettings = !saving && selectedModelInstalled && !modelDownloadInProgress && !modelDownloadPending
+
+  const formatBytes = (value: number): string => {
+    if (!Number.isFinite(value) || value <= 0) return '0 KB'
+    const units = ['B', 'KB', 'MB', 'GB', 'TB']
+    let unit = 0
+    let next = value
+    while (next >= 1024 && unit < units.length - 1) {
+      next /= 1024
+      unit += 1
+    }
+    const precision = next >= 100 || unit === 0 ? 0 : 1
+    return `${next.toFixed(precision)} ${units[unit]}`
+  }
+
+  const modelProgressSummary = (() => {
+    if (!modelEventMatchesSelected || !modelEvent) return null
+    if (modelEvent.state !== 'in_progress') return null
+    const pct = Math.max(0, Math.min(100, modelEvent.overall_pct || 0))
+    const done = Math.max(0, modelEvent.bytes_done || 0)
+    const total = Math.max(0, modelEvent.bytes_total || 0)
+    const transfer = total > 0 ? `${formatBytes(done)} / ${formatBytes(total)}` : `${formatBytes(done)}`
+    return `${pct}% • ${transfer}`
+  })()
+
+  const handleDownloadSelectedModel = async (): Promise<void> => {
+    if (!selectedModelFilename || selectedModelInstalled || modelDownloadPending) return
+    setModelDownloadPending(true)
+    setModelDownloadError(null)
+    setModelEvent((prev) => ({
+      state: 'in_progress',
+      stage: 'queued',
+      model_filename: selectedModelFilename,
+      overall_pct: prev?.overall_pct ?? 0,
+      bytes_done: prev?.bytes_done ?? 0,
+      bytes_total: prev?.bytes_total ?? 0,
+      speed_bps: prev?.speed_bps ?? 0,
+      eta_sec: prev?.eta_sec ?? null,
+      paused: false,
+      error: null,
+    }))
+    try {
+      await downloadModel(selectedModelFilename)
+      const event = await getModelOperationEvents()
+      setModelEvent(event)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setModelDownloadError(getFriendlyModelDownloadError(message))
+    } finally {
+      setModelDownloadPending(false)
+    }
+  }
+
+  const handleCancelModelDownload = async (): Promise<void> => {
+    if (!modelDownloadInProgress || modelDownloadPending) return
+    setModelDownloadPending(true)
+    setModelDownloadError(null)
+    setModelEvent((prev) => ({
+      state: 'cancelled',
+      stage: 'cancelled',
+      model_filename: prev?.model_filename ?? selectedModelFilename,
+      overall_pct: 0,
+      bytes_done: 0,
+      bytes_total: 0,
+      speed_bps: 0,
+      eta_sec: null,
+      paused: false,
+      error: null,
+    }))
+    try {
+      await cancelModelDownload()
+      await refreshModelsCatalog()
+      const event = await getModelOperationEvents()
+      setModelEvent(event)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setModelDownloadError(getFriendlyModelDownloadError(message))
+    } finally {
+      setModelDownloadPending(false)
+    }
   }
 
   const profile = effectiveProfile
@@ -942,24 +1133,53 @@ export function SettingsView({
             </div>
             <div className="settings-control-group">
               <label className="settings-control-label" htmlFor="settings-llm-model">Model</label>
-              <select
-                id="settings-llm-model"
-                className="settings-select"
-                value={form.llm_model_filename || settings.llm_model_filename || ''}
-                onChange={(e) => update('llm_model_filename', e.target.value)}
-              >
-                {(
-                  sortedModelFilenames.length > 0
-                    ? sortedModelFilenames
-                    : (modelsCatalog?.models.filter((model) => model.installed).map((model) => model.model_filename)
-                        || settings.available_models
-                        || [])
-                ).map((modelName) => (
-                  <option key={modelName} value={modelName}>
-                    {modelProfileNames.get(modelName) ?? modelName}
-                  </option>
-                ))}
-              </select>
+              <div className="settings-add-row settings-add-row--model">
+                <select
+                  id="settings-llm-model"
+                  className="settings-select"
+                  value={selectedModelFilename}
+                  onChange={(e) => {
+                    update('llm_model_filename', e.target.value)
+                    setModelDownloadError(null)
+                  }}
+                >
+                  {knownModelFilenames.map((modelName) => {
+                    const catalogEntry = catalogModels.find((model) => model.model_filename === modelName)
+                    const installed = installedModelSet.has(modelName)
+                    const baseLabel = catalogEntry?.display_name || modelProfileNames.get(modelName) || modelName
+                    const suffix = installed ? '' : ' (Not installed)'
+                    return (
+                      <option key={modelName} value={modelName}>
+                        {`${baseLabel}${suffix}`}
+                      </option>
+                    )
+                  })}
+                </select>
+                {!selectedModelInstalled && (
+                  <>
+                    <button
+                      type="button"
+                      className={`settings-btn settings-btn--add${modelDownloadInProgress ? ' settings-btn--add-cancel' : ''}`}
+                      onClick={() => {
+                        if (modelDownloadInProgress) {
+                          void handleCancelModelDownload()
+                          return
+                        }
+                        void handleDownloadSelectedModel()
+                      }}
+                      disabled={modelDownloadPending || !selectedModelFilename}
+                    >
+                      {modelDownloadPending ? 'Working...' : (modelDownloadInProgress ? 'Cancel' : '+ Add')}
+                    </button>
+                    {modelProgressSummary && (
+                      <span className="settings-model-progress-inline">{modelProgressSummary}</span>
+                    )}
+                  </>
+                )}
+              </div>
+              {modelDownloadError && (
+                <p className="settings-field-hint">{modelDownloadError}</p>
+              )}
             </div>
             <div className="settings-profile-grid">
               <ProfileRow label="Profile" value={profile.name} />
@@ -1274,7 +1494,7 @@ export function SettingsView({
             type="button"
             className="settings-btn settings-btn--primary"
             onClick={handleSave}
-            disabled={saving}
+            disabled={!canSaveSettings}
           >
             {saving ? 'Saving…' : 'Save Settings'}
           </button>

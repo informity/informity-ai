@@ -3,7 +3,6 @@ import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal'
 import { NetworkBanner } from './NetworkBanner'
-import { ModelOperationBanner } from './ModelOperationBanner'
 import { PageFooter } from './PageFooter'
 import { useBackendStatus } from '../context/useBackendStatus'
 import { listenDesktopMenuActions } from '../tauriRuntime'
@@ -132,7 +131,6 @@ export function Layout() {
         <KeyboardShortcutsModal />
         <main className="layout__main">
           <NetworkBanner />
-          <ModelOperationBanner />
           <div className="layout__main-inner">
             <Outlet />
             {pathname.startsWith('/settings') && <PageFooter />}

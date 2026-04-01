@@ -280,7 +280,7 @@ export async function streamChat(
                 onStatus,
                 onPlanStep,
               }, streamState)
-              if (currentEvent === 'done' && result) doneData = result
+              if ((currentEvent === 'done' || currentEvent === 'timeout') && result) doneData = result
             }
             currentData.length = 0
           }
@@ -301,7 +301,7 @@ export async function streamChat(
                 onStatus,
                 onPlanStep,
               }, streamState)
-              if (currentEvent === 'done' && result) doneData = result
+              if ((currentEvent === 'done' || currentEvent === 'timeout') && result) doneData = result
             }
             currentData.length = 0
           }
@@ -322,7 +322,7 @@ export async function streamChat(
           onStatus,
           onPlanStep,
         }, streamState)
-        if (currentEvent === 'done' && result) doneData = result
+        if ((currentEvent === 'done' || currentEvent === 'timeout') && result) doneData = result
       }
     }
 
@@ -570,14 +570,6 @@ export interface SetupEventResponse {
   error: string | null
 }
 
-export async function pauseSetup(): Promise<SetupActionResponse> {
-  return request<SetupActionResponse>('POST', '/api/setup/pause')
-}
-
-export async function resumeSetup(): Promise<SetupActionResponse> {
-  return request<SetupActionResponse>('POST', '/api/setup/resume')
-}
-
 export async function retrySetup(): Promise<SetupActionResponse> {
   return request<SetupActionResponse>('POST', '/api/setup/retry')
 }
@@ -615,7 +607,7 @@ export interface ModelActionResponse {
 }
 
 export interface ModelOperationEventResponse {
-  state: 'idle' | 'in_progress' | 'paused' | 'failed' | 'completed' | 'cancelled'
+  state: 'idle' | 'in_progress' | 'failed' | 'completed' | 'cancelled'
   stage: string
   model_filename: string | null
   overall_pct: number
@@ -637,22 +629,8 @@ export async function downloadModel(modelFilename: string): Promise<ModelActionR
   })
 }
 
-export async function pauseModelDownload(): Promise<ModelActionResponse> {
-  return request<ModelActionResponse>('POST', '/api/models/pause')
-}
-
-export async function resumeModelDownload(): Promise<ModelActionResponse> {
-  return request<ModelActionResponse>('POST', '/api/models/resume')
-}
-
 export async function cancelModelDownload(): Promise<ModelActionResponse> {
   return request<ModelActionResponse>('POST', '/api/models/cancel')
-}
-
-export async function setDefaultModel(modelFilename: string): Promise<ModelActionResponse> {
-  return request<ModelActionResponse>('POST', '/api/models/set-default', {
-    body: { model_filename: modelFilename },
-  })
 }
 
 export async function getModelOperationEvents(): Promise<ModelOperationEventResponse> {

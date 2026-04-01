@@ -17,6 +17,7 @@ interface SetupRequiredPageProps {
   isActing: boolean
   onStartSetup: (tier: SetupTierOption['tier'], modelFilename: string) => void
   onRetrySetup: () => void
+  onCancelDownload: () => void
   onCancel: () => void
 }
 
@@ -84,12 +85,29 @@ function getTierDescription(option: SetupTierOption): string {
 
 function formatStageLabel(stage: string | null | undefined): string {
   if (!stage || !stage.trim()) return 'Preparing setup...'
+  const key = stage.trim().toLowerCase()
+  if (key === 'downloading_model') return 'Downloading model...'
+  if (key === 'queued') return 'Preparing download...'
+  if (key === 'finalizing') return 'Finalizing setup...'
   const normalized = stage
     .trim()
     .replace(/_/g, ' ')
     .replace(/\s+/g, ' ')
     .toLowerCase()
   return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}...`
+}
+
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0 KB'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let unit = 0
+  let next = value
+  while (next >= 1024 && unit < units.length - 1) {
+    next /= 1024
+    unit += 1
+  }
+  const precision = next >= 100 || unit === 0 ? 0 : 1
+  return `${next.toFixed(precision)} ${units[unit]}`
 }
 
 function getFriendlySetupError(error: string | null | undefined): string {
@@ -151,6 +169,7 @@ export function SetupRequiredPage({
   isActing,
   onStartSetup,
   onRetrySetup,
+  onCancelDownload,
   onCancel,
 }: SetupRequiredPageProps) {
   const copy = getCopy(state)
@@ -191,9 +210,18 @@ export function SetupRequiredPage({
   const showProgress = state === SETUP_STATES.IN_PROGRESS || (event?.overall_pct ?? 0) > 0
   const progressPct = Math.max(0, Math.min(100, event?.overall_pct ?? 0))
   const friendlyProgressError = getFriendlySetupError(event?.error)
+  const bytesDone = Math.max(0, event?.bytes_done ?? 0)
+  const bytesTotal = Math.max(0, event?.bytes_total ?? 0)
+  const speedBps = Math.max(0, event?.speed_bps ?? 0)
+  const transferLine = bytesTotal > 0
+    ? `${formatBytes(bytesDone)} / ${formatBytes(bytesTotal)}`
+    : `${formatBytes(bytesDone)} downloaded`
+  const speedLine = speedBps > 0 ? `${formatBytes(speedBps)}/s` : null
   const canRetrySetup = state === SETUP_STATES.FAILED && !isActing
+  const isDownloadInProgress = state === SETUP_STATES.IN_PROGRESS
+  const canCancelDownload = isDownloadInProgress && !isActing && !isStarting
   const isRetryMode = state === SETUP_STATES.FAILED
-  const canPrimaryAction = isRetryMode ? canRetrySetup : canStart
+  const canPrimaryAction = isDownloadInProgress ? canCancelDownload : (isRetryMode ? canRetrySetup : canStart)
 
   return (
     <div className="setup-required">
@@ -297,11 +325,14 @@ export function SetupRequiredPage({
                       <div className="setup-tier__progress-track">
                         <div className="setup-tier__progress-bar" style={{ width: `${progressPct}%` }} />
                       </div>
-                      {event?.error || event?.paused ? (
+                      {event?.error || event?.paused || showProgress ? (
                         <p className="setup-tier__progress-meta">
                           {event?.error ? friendlyProgressError : ''}
-                          {event?.error && event?.paused ? ' • ' : ''}
+                          {event?.error && (event?.paused || showProgress) ? ' • ' : ''}
                           {event?.paused ? 'Paused' : ''}
+                          {(event?.error || event?.paused) && showProgress ? ' • ' : ''}
+                          {showProgress ? transferLine : ''}
+                          {showProgress && speedLine ? ` • ${speedLine}` : ''}
                         </p>
                       ) : null}
                     </div>
@@ -326,6 +357,10 @@ export function SetupRequiredPage({
             className="settings-btn settings-btn--primary"
             disabled={!canPrimaryAction}
             onClick={() => {
+              if (isDownloadInProgress) {
+                onCancelDownload()
+                return
+              }
               if (isRetryMode) {
                 onRetrySetup()
                 return
@@ -334,7 +369,7 @@ export function SetupRequiredPage({
               onStartSetup(selectedOption.tier, selectedOption.model_filename)
             }}
           >
-            {isStarting ? 'Starting...' : (isRetryMode ? 'Retry' : 'Continue')}
+            {isDownloadInProgress ? 'Cancel Download' : (isStarting ? 'Starting...' : (isRetryMode ? 'Retry' : 'Continue'))}
           </button>
         </footer>
       </main>

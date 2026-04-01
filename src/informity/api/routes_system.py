@@ -7,6 +7,8 @@ import asyncio
 import json
 import math
 import platform
+import threading
+from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -114,15 +116,14 @@ _setup_runtime: dict[str, object] = {
     'error': None,
     'selected_tier': None,
     'model_filename': None,
-    'pause_requested': False,
     'cancel_requested': False,
     'updated_at': None,
 }
 _setup_task: asyncio.Task[None] | None = None
 _setup_lock = asyncio.Lock()
+_setup_download_cancel_event: threading.Event | None = None
 _MODEL_STATE_IDLE = 'idle'
 _MODEL_STATE_IN_PROGRESS = 'in_progress'
-_MODEL_STATE_PAUSED = 'paused'
 _MODEL_STATE_FAILED = 'failed'
 _MODEL_STATE_COMPLETED = 'completed'
 _MODEL_STATE_CANCELLED = 'cancelled'
@@ -137,12 +138,12 @@ _model_runtime: dict[str, object] = {
     'eta_sec': None,
     'paused': False,
     'error': None,
-    'pause_requested': False,
     'cancel_requested': False,
     'updated_at': None,
 }
 _model_task: asyncio.Task[None] | None = None
 _model_lock = asyncio.Lock()
+_model_download_cancel_event: threading.Event | None = None
 
 # ==============================================================================
 # Router
@@ -284,22 +285,51 @@ def _cleanup_setup_artifacts(model_filename: str | None) -> None:
     model_name = str(model_filename).strip()
     if not model_name:
         return
+
     target_path = settings.models_dir / model_name
-    try:
+    with suppress(OSError):
         target_path.unlink(missing_ok=True)
-    except OSError:
-        pass
+
     patterns = (
         f'{model_name}.part*',
         f'{model_name}.tmp*',
         f'{model_name}.incomplete*',
+        f'*{model_name}*.incomplete*',
+        f'*{model_name}*.lock',
     )
-    for pattern in patterns:
-        for candidate in settings.models_dir.glob(pattern):
-            try:
-                candidate.unlink(missing_ok=True)
-            except OSError:
-                continue
+
+    search_roots = [
+        settings.models_dir,
+        settings.models_dir / '.cache' / 'huggingface' / 'download',
+    ]
+
+    for root in search_roots:
+        if not root.exists():
+            continue
+        for pattern in patterns:
+            for candidate in root.glob(pattern):
+                try:
+                    candidate.unlink(missing_ok=True)
+                except OSError:
+                    continue
+
+
+def _cleanup_model_artifacts(model_filename: str | None) -> None:
+    _cleanup_setup_artifacts(model_filename)
+
+
+def _is_cancelled_download_error(exc: Exception) -> bool:
+    message = str(exc).strip().lower()
+    return 'download cancelled' in message or 'cancelled' in message
+
+
+def _eta_seconds(*, bytes_done: int, bytes_total: int | None, speed_bps: float) -> int | None:
+    if bytes_total is None or bytes_total <= 0:
+        return None
+    if speed_bps <= 0:
+        return None
+    remaining = max(bytes_total - bytes_done, 0)
+    return int(math.ceil(remaining / speed_bps))
 
 
 def _apply_setup_completion_config(model_filename: str) -> None:
@@ -336,10 +366,9 @@ def _apply_model_default_config(model_filename: str) -> None:
 
 
 async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
-    global _setup_task
+    global _setup_task, _setup_download_cancel_event
     target_path = settings.models_dir / model_filename
     repo_id = _SETUP_TIER_REPOS.get(tier)
-    started = datetime.now(UTC)
     try:
         _update_setup_runtime(
             state=SetupState.IN_PROGRESS.value,
@@ -366,21 +395,37 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
                 overall_pct=0,
                 artifact=None,
                 paused=False,
-                pause_requested=False,
                 cancel_requested=False,
                 error=None,
             )
             _persist_setup_state_file()
             return
-        if bool(_setup_runtime.get('pause_requested')):
-            _update_setup_runtime(stage='paused', paused=True)
-            _persist_setup_state_file()
-            return
-
         _update_setup_runtime(stage='downloading_model', overall_pct=20, artifact_pct=0)
         _persist_setup_state_file()
-        before_size = target_path.stat().st_size if target_path.exists() else 0
-        await asyncio.to_thread(llm_engine._download_model, target_path, repo_id, model_filename)
+        cancel_event = threading.Event()
+        _setup_download_cancel_event = cancel_event
+
+        def _on_progress(bytes_done: int, bytes_total: int | None, speed_bps: float) -> None:
+            artifact_pct = int((bytes_done / bytes_total) * 100) if bytes_total and bytes_total > 0 else 0
+            overall_pct = min(84, 20 + int(artifact_pct * 0.64))
+            _update_setup_runtime(
+                stage='downloading_model',
+                overall_pct=overall_pct,
+                artifact_pct=artifact_pct,
+                bytes_done=int(bytes_done),
+                bytes_total=int(bytes_total or 0),
+                speed_bps=float(speed_bps),
+                eta_sec=_eta_seconds(bytes_done=int(bytes_done), bytes_total=bytes_total, speed_bps=float(speed_bps)),
+            )
+
+        await asyncio.to_thread(
+            llm_engine._download_model,
+            target_path,
+            repo_id,
+            model_filename,
+            _on_progress,
+            cancel_event,
+        )
         if bool(_setup_runtime.get('cancel_requested')):
             _cleanup_setup_artifacts(model_filename)
             _update_setup_runtime(
@@ -389,30 +434,22 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
                 overall_pct=0,
                 artifact=None,
                 paused=False,
-                pause_requested=False,
                 cancel_requested=False,
                 error=None,
             )
             _persist_setup_state_file()
             return
-        after_size = target_path.stat().st_size if target_path.exists() else before_size
-        elapsed = max((datetime.now(UTC) - started).total_seconds(), 0.001)
-        speed_bps = float((after_size - before_size) / elapsed) if after_size >= before_size else 0.0
+        after_size = target_path.stat().st_size if target_path.exists() else 0
         _update_setup_runtime(
             stage='downloaded',
             overall_pct=85,
             artifact_pct=100,
             bytes_done=int(after_size),
             bytes_total=int(after_size),
-            speed_bps=speed_bps,
+            speed_bps=float(_setup_runtime.get('speed_bps') or 0.0),
             eta_sec=0,
         )
         _persist_setup_state_file()
-        if bool(_setup_runtime.get('pause_requested')):
-            _update_setup_runtime(stage='paused', paused=True)
-            _persist_setup_state_file()
-            return
-
         _update_setup_runtime(stage='finalizing', overall_pct=95)
         _apply_setup_completion_config(model_filename)
         _update_setup_runtime(
@@ -420,7 +457,6 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
             stage='completed',
             overall_pct=100,
             paused=False,
-            pause_requested=False,
             error=None,
         )
         _clear_setup_state_file()
@@ -432,23 +468,40 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
             overall_pct=0,
             artifact=None,
             paused=False,
-            pause_requested=False,
             cancel_requested=False,
             error=None,
         )
         _persist_setup_state_file()
         raise
     except Exception as exc:  # noqa: BLE001
+        if _is_cancelled_download_error(exc):
+            _cleanup_setup_artifacts(model_filename)
+            _update_setup_runtime(
+                state=SetupState.REQUIRED.value,
+                stage='cancelled',
+                overall_pct=0,
+                artifact=None,
+                artifact_pct=0,
+                bytes_done=0,
+                bytes_total=0,
+                speed_bps=0.0,
+                eta_sec=None,
+                paused=False,
+                cancel_requested=False,
+                error=None,
+            )
+            _persist_setup_state_file()
+            return
         _update_setup_runtime(
             state=SetupState.FAILED.value,
             stage='failed',
             paused=False,
-            pause_requested=False,
             cancel_requested=False,
             error=str(exc),
         )
         _persist_setup_state_file()
     finally:
+        _setup_download_cancel_event = None
         async with _setup_lock:
             _setup_task = None
 
@@ -461,9 +514,8 @@ def _resolve_tier_for_model(model_filename: str) -> tuple[str, str]:
 
 
 async def _run_model_download_workflow(*, model_filename: str, repo_id: str) -> None:
-    global _model_task
+    global _model_task, _model_download_cancel_event
     target_path = settings.models_dir / model_filename
-    started = datetime.now(UTC)
     try:
         _update_model_runtime(
             state=_MODEL_STATE_IN_PROGRESS,
@@ -476,27 +528,48 @@ async def _run_model_download_workflow(*, model_filename: str, repo_id: str) -> 
             eta_sec=None,
             paused=False,
             error=None,
-            pause_requested=False,
             cancel_requested=False,
         )
         if bool(_model_runtime.get('cancel_requested')):
             _update_model_runtime(state=_MODEL_STATE_CANCELLED, stage='cancelled', paused=False)
             return
-        if bool(_model_runtime.get('pause_requested')):
-            _update_model_runtime(state=_MODEL_STATE_PAUSED, stage='paused', paused=True)
-            return
-
         _update_model_runtime(stage='downloading_model', overall_pct=20)
-        before_size = target_path.stat().st_size if target_path.exists() else 0
-        await asyncio.to_thread(llm_engine._download_model, target_path, repo_id, model_filename)
-        after_size = target_path.stat().st_size if target_path.exists() else before_size
-        elapsed = max((datetime.now(UTC) - started).total_seconds(), 0.001)
-        speed_bps = float((after_size - before_size) / elapsed) if after_size >= before_size else 0.0
+        cancel_event = threading.Event()
+        _model_download_cancel_event = cancel_event
+
+        def _on_progress(bytes_done: int, bytes_total: int | None, speed_bps: float) -> None:
+            pct = int((bytes_done / bytes_total) * 100) if bytes_total and bytes_total > 0 else 0
+            _update_model_runtime(
+                state=_MODEL_STATE_IN_PROGRESS,
+                stage='downloading_model',
+                overall_pct=pct,
+                bytes_done=int(bytes_done),
+                bytes_total=int(bytes_total or 0),
+                speed_bps=float(speed_bps),
+                eta_sec=_eta_seconds(bytes_done=int(bytes_done), bytes_total=bytes_total, speed_bps=float(speed_bps)),
+                paused=False,
+                error=None,
+            )
+
+        await asyncio.to_thread(
+            llm_engine._download_model,
+            target_path,
+            repo_id,
+            model_filename,
+            _on_progress,
+            cancel_event,
+        )
+        after_size = target_path.stat().st_size if target_path.exists() else 0
         if bool(_model_runtime.get('cancel_requested')):
+            _cleanup_model_artifacts(model_filename)
             _update_model_runtime(
                 state=_MODEL_STATE_CANCELLED,
                 stage='cancelled',
                 overall_pct=0,
+                bytes_done=0,
+                bytes_total=0,
+                speed_bps=0.0,
+                eta_sec=None,
                 paused=False,
                 error=None,
             )
@@ -508,12 +581,27 @@ async def _run_model_download_workflow(*, model_filename: str, repo_id: str) -> 
             overall_pct=100,
             bytes_done=int(after_size),
             bytes_total=int(after_size),
-            speed_bps=speed_bps,
+            speed_bps=float(_model_runtime.get('speed_bps') or 0.0),
             eta_sec=0,
             paused=False,
             error=None,
         )
     except Exception as exc:  # noqa: BLE001
+        if _is_cancelled_download_error(exc):
+            _cleanup_model_artifacts(model_filename)
+            _update_model_runtime(
+                state=_MODEL_STATE_CANCELLED,
+                stage='cancelled',
+                overall_pct=0,
+                bytes_done=0,
+                bytes_total=0,
+                speed_bps=0.0,
+                eta_sec=None,
+                paused=False,
+                error=None,
+                cancel_requested=False,
+            )
+            return
         _update_model_runtime(
             state=_MODEL_STATE_FAILED,
             stage='failed',
@@ -521,6 +609,7 @@ async def _run_model_download_workflow(*, model_filename: str, repo_id: str) -> 
             error=str(exc),
         )
     finally:
+        _model_download_cancel_event = None
         async with _model_lock:
             _model_task = None
 
@@ -585,9 +674,7 @@ async def get_setup_status() -> SetupStatusResponse:
     else:
         state = SetupState.REQUIRED
     detail = None
-    if bool(_setup_runtime.get('paused')):
-        detail = 'paused'
-    elif _setup_runtime.get('error'):
+    if _setup_runtime.get('error'):
         detail = str(_setup_runtime.get('error'))
     return SetupStatusResponse(
         state=state,
@@ -622,7 +709,6 @@ async def start_setup(payload: SetupStartRequest) -> SetupStartResponse:
             overall_pct=0,
             selected_tier=selected_tier,
             model_filename=selected_model,
-            pause_requested=False,
             cancel_requested=False,
             paused=False,
             error=None,
@@ -633,51 +719,13 @@ async def start_setup(payload: SetupStartRequest) -> SetupStartResponse:
     return SetupStartResponse(accepted=True, state=SetupState.IN_PROGRESS)
 
 
-@router.post('/setup/pause', response_model=SetupActionResponse)
-async def pause_setup() -> SetupActionResponse:
-    state = str(_setup_runtime.get('state') or SetupState.REQUIRED.value)
-    if state != SetupState.IN_PROGRESS.value:
-        return SetupActionResponse(accepted=False, state=SetupState(state), detail='Setup is not in progress')
-    _update_setup_runtime(pause_requested=True, paused=True, stage='paused')
-    _persist_setup_state_file()
-    return SetupActionResponse(accepted=True, state=SetupState.IN_PROGRESS, detail='Pause requested')
-
-
-@router.post('/setup/resume', response_model=SetupActionResponse)
-async def resume_setup() -> SetupActionResponse:
-    global _setup_task
-    selected_tier = str(_setup_runtime.get('selected_tier') or '').strip().lower()
-    model_filename = str(_setup_runtime.get('model_filename') or '').strip()
-    if not selected_tier or not model_filename:
-        state_payload, _ = _load_setup_state_file(_setup_state_path())
-        selected_tier = str((state_payload or {}).get('selected_tier') or '').strip().lower()
-        model_filename = str((state_payload or {}).get('model_filename') or '').strip()
-    if not selected_tier or not model_filename:
-        return SetupActionResponse(accepted=False, state=SetupState.REQUIRED, detail='No paused setup session found')
-
-    async with _setup_lock:
-        if _setup_task is None or _setup_task.done():
-            _update_setup_runtime(
-                state=SetupState.IN_PROGRESS.value,
-                paused=False,
-                pause_requested=False,
-                stage='resuming',
-                error=None,
-                selected_tier=selected_tier,
-                model_filename=model_filename,
-            )
-            _persist_setup_state_file()
-            _setup_task = asyncio.create_task(_run_setup_workflow(tier=selected_tier, model_filename=model_filename))
-    return SetupActionResponse(accepted=True, state=SetupState.IN_PROGRESS, detail='Resumed')
-
-
 @router.post('/setup/retry', response_model=SetupActionResponse)
 async def retry_setup() -> SetupActionResponse:
+    global _setup_task
     _update_setup_runtime(
         state=SetupState.REQUIRED.value,
         error=None,
         paused=False,
-        pause_requested=False,
         cancel_requested=False,
     )
     state_payload, _ = _load_setup_state_file(_setup_state_path())
@@ -685,7 +733,22 @@ async def retry_setup() -> SetupActionResponse:
     model_filename = str((state_payload or {}).get('model_filename') or _setup_runtime.get('model_filename') or '').strip()
     if not selected_tier or not model_filename:
         return SetupActionResponse(accepted=False, state=SetupState.REQUIRED, detail='No setup session to retry')
-    return await resume_setup()
+
+    async with _setup_lock:
+        if _setup_task is not None and not _setup_task.done():
+            return SetupActionResponse(accepted=True, state=SetupState.IN_PROGRESS, detail='Setup already in progress')
+        _update_setup_runtime(
+            state=SetupState.IN_PROGRESS.value,
+            paused=False,
+            stage='queued',
+            error=None,
+            selected_tier=selected_tier,
+            model_filename=model_filename,
+        )
+        _persist_setup_state_file()
+        _setup_task = asyncio.create_task(_run_setup_workflow(tier=selected_tier, model_filename=model_filename))
+
+    return SetupActionResponse(accepted=True, state=SetupState.IN_PROGRESS, detail='Retry started')
 
 
 @router.post('/setup/cancel', response_model=SetupActionResponse)
@@ -706,11 +769,12 @@ async def cancel_setup() -> SetupActionResponse:
         speed_bps=0.0,
         eta_sec=None,
         paused=False,
-        pause_requested=False,
         cancel_requested=True,
         error=None,
     )
     _persist_setup_state_file()
+    if _setup_download_cancel_event is not None:
+        _setup_download_cancel_event.set()
     _cleanup_setup_artifacts(model_filename)
     async with _setup_lock:
         if _setup_task is not None and not _setup_task.done():
@@ -773,43 +837,10 @@ async def download_model(payload: ModelActionRequest) -> ModelActionResponse:
             overall_pct=0,
             paused=False,
             error=None,
-            pause_requested=False,
             cancel_requested=False,
         )
         _model_task = asyncio.create_task(_run_model_download_workflow(model_filename=model_filename, repo_id=repo_id))
     return ModelActionResponse(accepted=True, detail='Download started')
-
-
-@router.post('/models/pause', response_model=ModelActionResponse)
-async def pause_model_download() -> ModelActionResponse:
-    state = str(_model_runtime.get('state') or 'idle')
-    if state != _MODEL_STATE_IN_PROGRESS:
-        return ModelActionResponse(accepted=False, detail='Model download is not in progress')
-    _update_model_runtime(state=_MODEL_STATE_PAUSED, stage='paused', paused=True, pause_requested=True)
-    return ModelActionResponse(accepted=True, detail='Pause requested')
-
-
-@router.post('/models/resume', response_model=ModelActionResponse)
-async def resume_model_download() -> ModelActionResponse:
-    global _model_task
-    model_filename = str(_model_runtime.get('model_filename') or '').strip()
-    if not model_filename:
-        return ModelActionResponse(accepted=False, detail='No paused model operation found')
-    _, repo_id = _resolve_tier_for_model(model_filename)
-
-    async with _model_lock:
-        if _model_task is not None and not _model_task.done():
-            return ModelActionResponse(accepted=True, detail='Model download already running')
-        _update_model_runtime(
-            state=_MODEL_STATE_IN_PROGRESS,
-            stage='resuming',
-            paused=False,
-            pause_requested=False,
-            cancel_requested=False,
-            error=None,
-        )
-        _model_task = asyncio.create_task(_run_model_download_workflow(model_filename=model_filename, repo_id=repo_id))
-    return ModelActionResponse(accepted=True, detail='Resumed')
 
 
 @router.post('/models/cancel', response_model=ModelActionResponse)
@@ -822,14 +853,21 @@ async def cancel_model_download() -> ModelActionResponse:
         state=_MODEL_STATE_CANCELLED,
         stage='cancelled',
         paused=False,
-        pause_requested=False,
         cancel_requested=True,
         overall_pct=0,
+        bytes_done=0,
+        bytes_total=0,
+        speed_bps=0.0,
+        eta_sec=None,
         error=None,
     )
+    if _model_download_cancel_event is not None:
+        _model_download_cancel_event.set()
+    _cleanup_model_artifacts(model_filename)
     async with _model_lock:
         if _model_task is not None and not _model_task.done():
             _model_task.cancel()
+    _update_model_runtime(cancel_requested=False)
     return ModelActionResponse(accepted=True, detail='Cancelled')
 
 

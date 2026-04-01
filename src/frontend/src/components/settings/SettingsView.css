@@ -587,6 +587,25 @@
   min-width: var(--action-btn-width);
 }
 
+.settings-model-progress-inline {
+  align-self: center;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.settings-btn--add-cancel {
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-color: var(--color-text-secondary);
+}
+
+.settings-btn--add-cancel:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+  border-color: var(--color-text-secondary);
+}
+
 .settings-count {
   display: block;
   font-size: var(--font-size-caption);

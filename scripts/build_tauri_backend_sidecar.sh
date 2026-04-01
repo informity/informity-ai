@@ -79,11 +79,15 @@ uv run --with pyinstaller pyinstaller \
   --collect-all docling_parse \
   --collect-all docling_ibm_models \
   --collect-all docx \
+  --collect-all promptcue \
+  --collect-all thinkstrip \
   --collect-binaries xllamacpp \
   --copy-metadata docling \
   --copy-metadata docling-core \
   --copy-metadata docling-parse \
   --copy-metadata docling-ibm-models \
+  --copy-metadata promptcue \
+  --copy-metadata thinkstrip \
   --hidden-import pandas \
   --collect-all sqlite_vec \
   --hidden-import tiktoken_ext \
