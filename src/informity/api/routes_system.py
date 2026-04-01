@@ -37,6 +37,7 @@ from informity.api.schemas import (
 from informity.api.setup_state import SetupState
 from informity.config import (
     APP_DISPLAY_NAME,
+    DirNames,
     are_required_models_cached,
     configure_hf_environment,
     settings,
