@@ -30,7 +30,7 @@ async function renderApp() {
   let startupError: string | null = null
   setBootStatus('Starting Informity AI...')
   const longStartTimerId = window.setTimeout(() => {
-    setBootStatus('Still starting, this may take a moment...')
+    setBootStatus('Still working, this may take a moment...')
   }, 20000)
 
   try {

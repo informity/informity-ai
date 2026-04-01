@@ -1,7 +1,7 @@
 import './SetupRequiredPage.css'
 import './PlaceholderPage.css'
 import { SETUP_STATES, type SetupState } from '../types/setupState'
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import type { SetupEventResponse, SetupTierOption } from '../api'
 
 type SetupBlockingState = Exclude<SetupState, typeof SETUP_STATES.READY>
@@ -188,6 +188,8 @@ export function SetupRequiredPage({
   }, [recommendedTier, sortedTierOptions])
   const [selectedTier, setSelectedTier] = useState<SetupTierOption['tier']>(initialTier)
   const [expandedTier, setExpandedTier] = useState<SetupTierOption['tier'] | null>(null)
+  const tiersSectionRef = useRef<HTMLElement | null>(null)
+  const [lockedTiersHeightPx, setLockedTiersHeightPx] = useState<number | null>(null)
 
   useEffect(() => {
     const activeArtifact = String(event?.artifact || '').trim()
@@ -222,6 +224,20 @@ export function SetupRequiredPage({
   const canCancelDownload = isDownloadInProgress && !isActing && !isStarting
   const isRetryMode = state === SETUP_STATES.FAILED
   const canPrimaryAction = isDownloadInProgress ? canCancelDownload : (isRetryMode ? canRetrySetup : canStart)
+  const showSingleTierCard = Boolean(selectedOption) && (isDownloadInProgress || isStarting) && !isActing
+  const visibleTierOptions = showSingleTierCard && selectedOption ? [selectedOption] : sortedTierOptions
+
+  useEffect(() => {
+    if (showSingleTierCard) return
+    const node = tiersSectionRef.current
+    if (!node) return
+    const nextHeight = Math.ceil(node.getBoundingClientRect().height)
+    if (!Number.isFinite(nextHeight) || nextHeight <= 0) return
+    setLockedTiersHeightPx((prev) => {
+      if (prev !== null && Math.abs(prev - nextHeight) <= 1) return prev
+      return nextHeight
+    })
+  }, [showSingleTierCard, sortedTierOptions, recommendationText, expandedTier])
 
   return (
     <div className="setup-required">
@@ -236,14 +252,18 @@ export function SetupRequiredPage({
           <p className="page-header__subtitle setup-required__description">{copy.description}</p>
         </header>
 
-        <section className="setup-required__tiers">
+        <section
+          ref={tiersSectionRef}
+          className={`setup-required__tiers${showSingleTierCard ? ' setup-required__tiers--single' : ''}`}
+          style={lockedTiersHeightPx ? { minHeight: `${lockedTiersHeightPx}px` } : undefined}
+        >
           <h2 className="setup-required__tiers-title">
             <i className="ri-robot-2-line" aria-hidden="true" />
             Choose Your Model
           </h2>
           {recommendationText ? <p className="setup-required__reason">{recommendationText}</p> : null}
-          <div className="setup-required__tier-grid">
-            {sortedTierOptions.map((option) => {
+          <div className={`setup-required__tier-grid${showSingleTierCard ? ' setup-required__tier-grid--single' : ''}`}>
+            {visibleTierOptions.map((option) => {
               const checked = option.tier === selectedTier
               const detailsOpen = expandedTier === option.tier
               return (
