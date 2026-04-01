@@ -12,7 +12,7 @@ def test_env_vars_metadata_covers_all_settings_fields() -> None:
 
     expected_setting_env_names = {
         f'INFORMITY_{field.upper()}'
-        for field in Settings.model_fields.keys()
+        for field in Settings.model_fields
     }
 
     missing = sorted(expected_setting_env_names - env_names)

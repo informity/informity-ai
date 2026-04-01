@@ -24,7 +24,7 @@ interface SetupRequiredPageProps {
 function getCopy(state: SetupBlockingState): { title: string; description: string } {
   if (state === SETUP_STATES.IN_PROGRESS) {
     return {
-      title: 'Downloading your model...',
+      title: 'Downloading model...',
       description: "Your model is downloading. Keep this window open until it's done.",
     }
   }
