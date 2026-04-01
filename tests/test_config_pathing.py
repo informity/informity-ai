@@ -10,6 +10,7 @@ def test_desktop_session_uses_app_data_model_paths(
     app_data = tmp_path / "app-data"
     cache_dir = tmp_path / "cache"
     monkeypatch.setenv("INFORMITY_TAURI_SESSION_TOKEN", "desktop-session-token")
+    monkeypatch.delenv("INFORMITY_MODELS_DIR", raising=False)
 
     settings = Settings(app_data_dir=app_data, cache_dir=cache_dir)
     app_data_resolved = app_data.resolve()
@@ -32,6 +33,7 @@ def test_non_desktop_session_uses_app_data_model_paths(
     app_data = tmp_path / "app-data"
     cache_dir = tmp_path / "cache"
     monkeypatch.delenv("INFORMITY_TAURI_SESSION_TOKEN", raising=False)
+    monkeypatch.delenv("INFORMITY_MODELS_DIR", raising=False)
 
     settings = Settings(app_data_dir=app_data, cache_dir=cache_dir)
     app_data_resolved = app_data.resolve()
