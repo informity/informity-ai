@@ -132,11 +132,10 @@ class TestMetadataHandler:
 
 class TestRAGHandler:
     @pytest.fixture(autouse=True)
-    def _force_legacy_compat_mode_for_existing_rag_tests(self) -> None:
-        # Existing RAG handler unit tests target the legacy orchestration path.
-        # Keep them deterministic while minimal mode is the runtime default.
+    def _force_minimal_mode_for_rag_tests(self) -> None:
+        # RAG handler tests validate the minimal one-path runtime directly.
         original = settings.rag_minimal_mode
-        settings.rag_minimal_mode = False
+        settings.rag_minimal_mode = True
         try:
             yield
         finally:
@@ -328,31 +327,14 @@ class TestRAGHandler:
         assert len(deduped) == 1
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason='Legacy orchestration path removed in Phase 5; replace with minimal-path tests', strict=False)
     async def test_empty_retrieval_terminal_refusal_sets_no_remaining_scope(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(intent='focused')
         mock_db = MagicMock()
-        mock_policy = MagicMock()
-        mock_policy.enabled = False
-        mock_policy.rollout_stage = 'test'
-        mock_policy.sample_count = 0
-        mock_policy.timeout_rate = 0.0
-        mock_policy.first_token_p95_ms = None
-        mock_policy.completion_p95_seconds = None
-        mock_policy.stream_soft_limit_ratio = 0.8
-        mock_policy.soft_top_k_threshold = 0.9
-        mock_policy.soft_reasoning_threshold = 0.9
-        mock_policy.soft_output_cap_threshold = 0.9
-        mock_policy.soft_coverage_to_focused_threshold = 0.9
-        mock_policy.hard_pre_generation_threshold = 0.98
 
-        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
-             patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy:
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
             mock_retrieve.return_value = []
-            mock_resolve_policy.return_value = mock_policy
-
-            results = []
+            results: list[object] = []
             async for item in handler.handle('Which files mention withholding?', classification, None, mock_db, None):
                 results.append(item)
 
@@ -360,198 +342,92 @@ class TestRAGHandler:
         assert metrics_events
         metrics = metrics_events[0][1]
         assert metrics.get('generation_skipped') is True
-        assert metrics.get('has_remaining_scope') is False
+        assert metrics.get('answerability_passed') is False
+        assert any(isinstance(item, str) and 'do not contain enough information' in item.casefold() for item in results)
+        assert results[-1] == []
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason='Legacy orchestration path removed in Phase 5; replace with minimal-path tests', strict=False)
     async def test_validation_gate_terminal_refusal_sets_no_remaining_scope(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(intent='focused')
         mock_db = MagicMock()
-        mock_policy = MagicMock()
-        mock_policy.enabled = False
-        mock_policy.rollout_stage = 'test'
-        mock_policy.sample_count = 0
-        mock_policy.timeout_rate = 0.0
-        mock_policy.first_token_p95_ms = None
-        mock_policy.completion_p95_seconds = None
-        mock_policy.stream_soft_limit_ratio = 0.8
-        mock_policy.soft_top_k_threshold = 0.9
-        mock_policy.soft_reasoning_threshold = 0.9
-        mock_policy.soft_output_cap_threshold = 0.9
-        mock_policy.soft_coverage_to_focused_threshold = 0.9
-        mock_policy.hard_pre_generation_threshold = 0.98
         test_chunks = [{
             'file_id': 1,
             'filename': 'alpha.pdf',
             'file_path': '/docs/alpha.pdf',
             'chunk_text': 'Some weak evidence text.',
-            'score': 0.01,
+            'score': -6.0,
         }]
-
-        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
-             patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy, \
-             patch('informity.llm.handlers.rag._retrieval_validation._evaluate_retrieval_relevance_gate') as mock_rel_gate, \
-             patch('informity.llm.handlers.rag._retrieval_validation._evaluate_source_diversity_gate') as mock_div_gate, \
-             patch('informity.llm.handlers.rag._retrieval_validation._evaluate_continuation_anchor_gate') as mock_anchor_gate, \
-             patch('informity.llm.handlers.rag._retrieval_validation._apply_coverage_evidence_floor_override') as mock_floor:
-            mock_retrieve.return_value = test_chunks
-            mock_resolve_policy.return_value = mock_policy
-            mock_rel_gate.return_value = (False, 0.0)
-            mock_div_gate.return_value = (True, 1)
-            mock_anchor_gate.return_value = (True, 1)
-            mock_floor.return_value = (False, [])
-
-            results = []
-            async for item in handler.handle('Summarize unresolved records.', classification, None, mock_db, None):
-                results.append(item)
+        original_threshold = settings.rag_minimal_answerability_threshold_focused
+        original_min_chunks = settings.rag_minimal_min_chunks_focused
+        settings.rag_minimal_answerability_threshold_focused = 0.95
+        settings.rag_minimal_min_chunks_focused = 1
+        try:
+            with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+                 patch('informity.llm.handlers.rag.stream_llm', new_callable=AsyncMock) as mock_stream:
+                mock_retrieve.return_value = test_chunks
+                results: list[object] = []
+                async for item in handler.handle('Summarize unresolved records.', classification, None, mock_db, None):
+                    results.append(item)
+                mock_stream.assert_not_called()
+        finally:
+            settings.rag_minimal_answerability_threshold_focused = original_threshold
+            settings.rag_minimal_min_chunks_focused = original_min_chunks
 
         metrics_events = [item for item in results if isinstance(item, tuple) and item[0] == '__metrics__']
         assert metrics_events
         metrics = metrics_events[0][1]
         assert metrics.get('generation_skipped') is True
-        assert metrics.get('has_remaining_scope') is False
+        assert metrics.get('answerability_passed') is False
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason='Legacy orchestration path removed in Phase 5; replace with minimal-path tests', strict=False)
     async def test_validation_gate_widened_retry_recovers_before_terminal_refusal(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(intent='focused')
         mock_db = MagicMock()
-        mock_policy = MagicMock()
-        mock_policy.enabled = False
-        mock_policy.rollout_stage = 'test'
-        mock_policy.sample_count = 0
-        mock_policy.timeout_rate = 0.0
-        mock_policy.first_token_p95_ms = None
-        mock_policy.completion_p95_seconds = None
-        mock_policy.stream_soft_limit_ratio = 0.8
-        mock_policy.soft_top_k_threshold = 0.9
-        mock_policy.soft_reasoning_threshold = 0.9
-        mock_policy.soft_output_cap_threshold = 0.9
-        mock_policy.soft_coverage_to_focused_threshold = 0.9
-        mock_policy.hard_pre_generation_threshold = 0.98
-
-        weak_chunks = [{
-            'file_id': 1,
-            'filename': 'alpha.pdf',
-            'file_path': '/docs/alpha.pdf',
-            'chunk_text': 'Weak evidence snippet.',
-            'score': 0.01,
-        }]
-        strong_chunks = [
-            {
-                'file_id': 1,
-                'filename': 'alpha.pdf',
-                'file_path': '/docs/alpha.pdf',
-                'chunk_text': 'Strong evidence snippet A.',
-                'score': 2.2,
-            },
-            {
-                'file_id': 2,
-                'filename': 'beta.pdf',
-                'file_path': '/docs/beta.pdf',
-                'chunk_text': 'Strong evidence snippet B.',
-                'score': 2.1,
-            },
-        ]
-
-        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
-             patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy, \
-             patch('informity.llm.handlers.rag._retrieval_validation._evaluate_retrieval_relevance_gate') as mock_rel_gate, \
-             patch('informity.llm.handlers.rag._retrieval_validation._evaluate_source_diversity_gate') as mock_div_gate, \
-             patch('informity.llm.handlers.rag._retrieval_validation._evaluate_continuation_anchor_gate') as mock_anchor_gate, \
-             patch('informity.llm.handlers.rag._retrieval_validation._apply_coverage_evidence_floor_override') as mock_floor:
-            mock_retrieve.side_effect = [weak_chunks, strong_chunks]
-            mock_resolve_policy.return_value = mock_policy
-            mock_rel_gate.side_effect = [(False, 0.0), (True, 0.82)]
-            mock_div_gate.side_effect = [(True, 1), (True, 2)]
-            mock_anchor_gate.side_effect = [(True, 1), (True, 2)]
-            mock_floor.side_effect = [
-                (False, []),
-                (True, []),
-            ]
-
-            async def _fake_stream_llm(*_args, **_kwargs):
-                yield 'Recovered answer token.'
-
-            results: list[object] = []
-            with patch('informity.llm.handlers.rag.stream_llm', _fake_stream_llm):
+        original_threshold = settings.rag_minimal_answerability_threshold_focused
+        settings.rag_minimal_answerability_threshold_focused = 0.9
+        try:
+            with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+                 patch('informity.llm.handlers.rag.stream_llm', new_callable=AsyncMock) as mock_stream:
+                mock_retrieve.side_effect = [
+                    [{'score': -5.0, 'chunk_text': 'weak'}],
+                    [{'score': 3.0, 'chunk_text': 'strong'}],
+                ]
+                results: list[object] = []
                 async for item in handler.handle('Summarize unresolved records.', classification, None, mock_db, None):
                     results.append(item)
+                mock_stream.assert_not_called()
+        finally:
+            settings.rag_minimal_answerability_threshold_focused = original_threshold
 
-        assert mock_retrieve.await_count == 2
-        assert any(isinstance(item, str) and 'Recovered answer token.' in item for item in results)
-        assert not any(
-            isinstance(item, str) and 'do not contain enough information' in item
-            for item in results
-        )
-        metrics_events = [item for item in results if isinstance(item, tuple) and item[0] == '__metrics__']
-        assert metrics_events
-        metrics = metrics_events[0][1]
-        assert metrics.get('generation_skipped') is False
+        assert mock_retrieve.await_count == 1
+        assert any(isinstance(item, str) and 'do not contain enough information' in item.casefold() for item in results)
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason='Legacy orchestration path removed in Phase 5; replace with minimal-path tests', strict=False)
     async def test_handle_calls_retrieve_chunks(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(intent='focused')
         mock_db = MagicMock()
-        mock_policy = MagicMock()
-        mock_policy.enabled = False
-        mock_policy.rollout_stage = 'test'
-        mock_policy.sample_count = 0
-        mock_policy.timeout_rate = 0.0
-        mock_policy.first_token_p95_ms = None
-        mock_policy.completion_p95_seconds = None
-        mock_policy.stream_soft_limit_ratio = 0.8
-        mock_policy.soft_top_k_threshold = 0.9
-        mock_policy.soft_reasoning_threshold = 0.9
-        mock_policy.soft_output_cap_threshold = 0.9
-        mock_policy.soft_coverage_to_focused_threshold = 0.9
-        mock_policy.hard_pre_generation_threshold = 0.98
 
-        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
-             patch('informity.llm.handlers.rag.build_messages') as mock_build, \
-             patch('informity.llm.handlers.rag.stream_llm', new_callable=AsyncMock) as mock_stream, \
-             patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy:
-
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
             mock_retrieve.return_value = []
-            mock_build.return_value = [{'role': 'user', 'content': 'test'}]
-            mock_stream.return_value = AsyncMock()
-            mock_stream.return_value.__aiter__.return_value = ['token']
-            mock_resolve_policy.return_value = mock_policy
-
-            results = []
+            results: list[object] = []
             async for item in handler.handle('test question', classification, None, mock_db, None):
                 results.append(item)
-
-            assert mock_retrieve.call_count >= 1
+            assert results[-1] == []
+            assert mock_retrieve.await_count == 1
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason='Legacy orchestration path removed in Phase 5; replace with minimal-path tests', strict=False)
     async def test_continuation_without_overlap_keeps_scope_without_clarification(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(
             intent='focused',
             route_candidate='continuation_or_refinement',
+            is_continuation=True,
             confidence=0.86,
         )
         mock_db = MagicMock()
-        mock_policy = MagicMock()
-        mock_policy.enabled = False
-        mock_policy.rollout_stage = 'test'
-        mock_policy.sample_count = 0
-        mock_policy.timeout_rate = 0.0
-        mock_policy.first_token_p95_ms = None
-        mock_policy.completion_p95_seconds = None
-        mock_policy.stream_soft_limit_ratio = 0.8
-        mock_policy.soft_top_k_threshold = 0.9
-        mock_policy.soft_reasoning_threshold = 0.9
-        mock_policy.soft_output_cap_threshold = 0.9
-        mock_policy.soft_coverage_to_focused_threshold = 0.9
-        mock_policy.hard_pre_generation_threshold = 0.98
-
         history = [
             ChatMessage(
                 chat_id='test-chat',
@@ -561,8 +437,7 @@ class TestRAGHandler:
             ),
         ]
 
-        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
-             patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy:
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
             mock_retrieve.return_value = [
                 {
                     'file_id': 1,
@@ -572,39 +447,29 @@ class TestRAGHandler:
                     'score': 2.1,
                 },
             ]
-            mock_resolve_policy.return_value = mock_policy
+
+            async def _fake_stream_llm(*_args, **_kwargs):
+                yield 'Continuation answer token.'
 
             results: list[object] = []
-            async for item in handler.handle('continue with the same structure', classification, history, mock_db, None):
-                results.append(item)
+            with patch('informity.llm.handlers.rag.stream_llm', _fake_stream_llm):
+                async for item in handler.handle('continue with the same structure', classification, history, mock_db, None):
+                    results.append(item)
 
-        assert any(isinstance(item, str) and "couldn't find relevant information" in item.casefold() for item in results)
-        assert results[-1] == []
+        assert mock_retrieve.await_count == 1
+        assert any(isinstance(item, str) and 'continuation answer token' in item.casefold() for item in results)
+        assert results[-1] != []
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason='Legacy orchestration path removed in Phase 5; replace with minimal-path tests', strict=False)
     async def test_continuation_with_anchor_overlap_bypasses_relevance_gate(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(
             intent='focused',
             route_candidate='continuation_or_refinement',
+            is_continuation=True,
             confidence=0.86,
         )
         mock_db = MagicMock()
-        mock_policy = MagicMock()
-        mock_policy.enabled = False
-        mock_policy.rollout_stage = 'test'
-        mock_policy.sample_count = 0
-        mock_policy.timeout_rate = 0.0
-        mock_policy.first_token_p95_ms = None
-        mock_policy.completion_p95_seconds = None
-        mock_policy.stream_soft_limit_ratio = 0.8
-        mock_policy.soft_top_k_threshold = 0.9
-        mock_policy.soft_reasoning_threshold = 0.9
-        mock_policy.soft_output_cap_threshold = 0.9
-        mock_policy.soft_coverage_to_focused_threshold = 0.9
-        mock_policy.hard_pre_generation_threshold = 0.98
-
         history = [
             ChatMessage(
                 chat_id='test-chat',
@@ -619,50 +484,34 @@ class TestRAGHandler:
                 content='Summarize the evidence by year.',
             ),
         ]
+        original_threshold = settings.rag_minimal_answerability_threshold_focused
+        settings.rag_minimal_answerability_threshold_focused = 0.9
+        try:
+            with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
+                mock_retrieve.return_value = [
+                    {
+                        'file_id': 1,
+                        'filename': 'alpha.pdf',
+                        'file_path': '/docs/alpha.pdf',
+                        'chunk_text': 'Prior anchored evidence.',
+                        'score': -5.0,
+                    },
+                ]
 
-        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
-             patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy, \
-             patch('informity.llm.handlers.rag.stream_llm') as mock_stream:
-            mock_retrieve.return_value = [
-                {
-                    'file_id': 1,
-                    'filename': 'alpha.pdf',
-                    'file_path': '/docs/alpha.pdf',
-                    'chunk_text': 'Prior anchored evidence.',
-                    'score': -5.0,
-                },
-            ]
-            mock_resolve_policy.return_value = mock_policy
+                results: list[object] = []
+                async for item in handler.handle('continue with cross-year comparison', classification, history, mock_db, None):
+                    results.append(item)
+        finally:
+            settings.rag_minimal_answerability_threshold_focused = original_threshold
 
-            async def _fake_stream_llm(*_args, **_kwargs):
-                yield 'Cross-year synthesis with confidence and verification guidance.'
-
-            mock_stream.side_effect = _fake_stream_llm
-
-            results: list[object] = []
-            async for item in handler.handle('continue with cross-year comparison', classification, history, mock_db, None):
-                results.append(item)
-
-        assert any(
-            isinstance(item, str) and 'cross-year synthesis' in item.casefold()
-            for item in results
-        )
-        assert not any(
-            isinstance(item, str) and 'do not contain enough information' in item.casefold()
-            for item in results
-        )
+        assert any(isinstance(item, str) and 'do not contain enough information' in item.casefold() for item in results)
         metrics_events = [item for item in results if isinstance(item, tuple) and item[0] == '__metrics__']
         assert metrics_events
         metrics = metrics_events[0][1]
-        assert metrics.get('generation_skipped') is False
-        assert any(
-            event.get('fallback_reason') == 'continuation_anchor_gate_bypass'
-            for event in metrics.get('fallback_events', [])
-            if isinstance(event, dict)
-        )
+        assert metrics.get('generation_skipped') is True
+        assert 'fallback_events' not in metrics or metrics.get('fallback_events') in (None, [])
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason='Legacy orchestration path removed in Phase 5; replace with minimal-path tests', strict=False)
     async def test_budget_pressure_with_weak_relevance_skips_generation(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(
@@ -671,47 +520,34 @@ class TestRAGHandler:
             confidence=0.84,
         )
         mock_db = MagicMock()
-        mock_policy = MagicMock()
-        mock_policy.enabled = True
-        mock_policy.rollout_stage = 'test'
-        mock_policy.sample_count = 100
-        mock_policy.timeout_rate = 0.05
-        mock_policy.first_token_p95_ms = 1200
-        mock_policy.completion_p95_seconds = 12.0
-        mock_policy.stream_soft_limit_ratio = 0.8
-        mock_policy.soft_top_k_threshold = 0.2
-        mock_policy.soft_reasoning_threshold = 0.9
-        mock_policy.soft_output_cap_threshold = 0.15  # actual post_retrieval_ratio ~0.178 after preflight degradations
-        mock_policy.soft_coverage_to_focused_threshold = 0.95
-        mock_policy.hard_pre_generation_threshold = 0.99
 
-        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
-             patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy, \
-             patch('informity.llm.handlers.rag.stream_llm', new_callable=AsyncMock) as mock_stream:
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
             mock_retrieve.return_value = [
                 {
                     'file_id': 1,
                     'filename': 'alpha.pdf',
                     'file_path': '/docs/alpha.pdf',
-                    'chunk_text': 'Context exists but confidence is not strong enough under budget pressure.',
-                    'score': 0.28,  # sigmoid ~= 0.57: passes retrieval gate, fails pre-closeout gate (0.62)
+                    'chunk_text': 'Context exists and should generate in minimal mode.',
+                    'score': 0.28,
                 },
             ]
-            mock_resolve_policy.return_value = mock_policy
+
+            async def _fake_stream_llm(*_args, **_kwargs):
+                yield 'Generated answer token.'
 
             results: list[object] = []
-            async for item in handler.handle('summarize this quickly', classification, None, mock_db, None):
-                results.append(item)
+            with patch('informity.llm.handlers.rag.stream_llm', _fake_stream_llm):
+                async for item in handler.handle('summarize this quickly', classification, None, mock_db, None):
+                    results.append(item)
 
-        assert any(
-            isinstance(item, str) and 'do not contain enough information' in item
-            for item in results
-        )
-        mock_stream.assert_not_called()
-        assert results[-1] == []
+        assert any(isinstance(item, str) and 'generated answer token' in item.casefold() for item in results)
+        metrics_events = [item for item in results if isinstance(item, tuple) and item[0] == '__metrics__']
+        assert metrics_events
+        metrics = metrics_events[0][1]
+        assert metrics.get('generation_skipped') is False
+        assert 'stream_recovery_reason' not in metrics
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason='Legacy orchestration path removed in Phase 5; replace with minimal-path tests', strict=False)
     async def test_continuation_budget_pressure_closeout_includes_contract_terms(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(
@@ -721,54 +557,40 @@ class TestRAGHandler:
             confidence=0.84,
         )
         mock_db = MagicMock()
-        mock_policy = MagicMock()
-        mock_policy.enabled = True
-        mock_policy.rollout_stage = 'test'
-        mock_policy.sample_count = 100
-        mock_policy.timeout_rate = 0.05
-        mock_policy.first_token_p95_ms = 1200
-        mock_policy.completion_p95_seconds = 12.0
-        mock_policy.stream_soft_limit_ratio = 0.8
-        mock_policy.soft_top_k_threshold = 0.2
-        mock_policy.soft_reasoning_threshold = 0.9
-        mock_policy.soft_output_cap_threshold = 0.15
-        mock_policy.soft_coverage_to_focused_threshold = 0.95
-        mock_policy.hard_pre_generation_threshold = 0.99
-
-        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
-             patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy, \
-             patch('informity.llm.handlers.rag.stream_llm', new_callable=AsyncMock) as mock_stream:
-            mock_retrieve.return_value = [
-                {
-                    'file_id': 1,
-                    'filename': 'alpha.pdf',
-                    'file_path': '/docs/alpha.pdf',
-                    'chunk_text': 'Context exists but confidence is not strong enough under budget pressure.',
-                    'score': 0.28,
-                },
-            ]
-            mock_resolve_policy.return_value = mock_policy
-
-            results: list[object] = []
-            async for item in handler.handle(
-                'Continue with ## Cross-Year Deltas, ## Confidence Notes, ## Verification Steps only.',
-                classification,
-                None,
-                mock_db,
-                None,
-            ):
-                results.append(item)
+        original_threshold = settings.rag_minimal_answerability_threshold_focused
+        settings.rag_minimal_answerability_threshold_focused = 0.9
+        try:
+            with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
+                 patch('informity.llm.handlers.rag.stream_llm', new_callable=AsyncMock) as mock_stream:
+                mock_retrieve.return_value = [
+                    {
+                        'file_id': 1,
+                        'filename': 'alpha.pdf',
+                        'file_path': '/docs/alpha.pdf',
+                        'chunk_text': 'Weak context under strict threshold.',
+                        'score': -4.0,
+                    },
+                ]
+                results: list[object] = []
+                async for item in handler.handle(
+                    'Continue with ## Cross-Year Deltas, ## Confidence Notes, ## Verification Steps only.',
+                    classification,
+                    None,
+                    mock_db,
+                    None,
+                ):
+                    results.append(item)
+                mock_stream.assert_not_called()
+        finally:
+            settings.rag_minimal_answerability_threshold_focused = original_threshold
 
         rendered = '\n'.join(item for item in results if isinstance(item, str))
-        assert 'cross-year' in rendered.casefold()
-        assert 'confidence' in rendered.casefold()
-        assert 'verification' in rendered.casefold()
-        assert "couldn't find relevant information" not in rendered.casefold()
-        mock_stream.assert_not_called()
+        assert 'do not contain enough information' in rendered.casefold()
+        assert 'cross-year deltas' not in rendered.casefold()
+        assert 'confidence notes' not in rendered.casefold()
         assert results[-1] == []
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason='Legacy orchestration path removed in Phase 5; replace with minimal-path tests', strict=False)
     async def test_narrative_response_shape_does_not_trigger_structured_insufficient_path(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(
@@ -779,23 +601,7 @@ class TestRAGHandler:
             confidence=0.86,
         )
         mock_db = MagicMock()
-        mock_policy = MagicMock()
-        mock_policy.enabled = False
-        mock_policy.rollout_stage = 'test'
-        mock_policy.sample_count = 0
-        mock_policy.timeout_rate = 0.0
-        mock_policy.first_token_p95_ms = None
-        mock_policy.completion_p95_seconds = None
-        mock_policy.stream_soft_limit_ratio = 0.8
-        mock_policy.soft_top_k_threshold = 0.9
-        mock_policy.soft_reasoning_threshold = 0.9
-        mock_policy.soft_output_cap_threshold = 0.9
-        mock_policy.soft_coverage_to_focused_threshold = 0.9
-        mock_policy.hard_pre_generation_threshold = 0.98
-
-        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
-             patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy, \
-             patch('informity.llm.handlers.rag.stream_llm', new_callable=AsyncMock):
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
             mock_retrieve.return_value = [
                 {
                     'file_id': 1,
@@ -812,7 +618,6 @@ class TestRAGHandler:
                     'score': -3.1,
                 },
             ]
-            mock_resolve_policy.return_value = mock_policy
 
             async def _fake_stream_llm(*_args, **_kwargs):
                 yield 'narrative output token'
@@ -823,13 +628,9 @@ class TestRAGHandler:
                     results.append(item)
 
         assert any(isinstance(item, str) and 'narrative output token' in item for item in results)
-        assert not any(
-            isinstance(item, str) and 'I could not extract enough validated structured values' in item
-            for item in results
-        )
+        assert not any(isinstance(item, str) and 'I could not extract enough validated structured values' in item for item in results)
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason='Legacy orchestration path removed in Phase 5; replace with minimal-path tests', strict=False)
     async def test_aggregate_coverage_query_does_not_degrade_to_focused(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(
@@ -841,51 +642,17 @@ class TestRAGHandler:
             confidence=0.86,
         )
         mock_db = MagicMock()
-        mock_policy = MagicMock()
-        mock_policy.enabled = True
-        mock_policy.rollout_stage = 'test'
-        mock_policy.sample_count = 100
-        mock_policy.timeout_rate = 0.05
-        mock_policy.first_token_p95_ms = 900
-        mock_policy.completion_p95_seconds = 15.0
-        mock_policy.stream_soft_limit_ratio = 0.9
-        mock_policy.soft_top_k_threshold = 0.2
-        mock_policy.soft_reasoning_threshold = 0.2
-        mock_policy.soft_output_cap_threshold = 0.2
-        mock_policy.soft_coverage_to_focused_threshold = 0.2
-        mock_policy.hard_pre_generation_threshold = 0.99
-
-        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
-             patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy:
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
             mock_retrieve.return_value = [
-                {
-                    'file_id': 1,
-                    'filename': 'y2022.pdf',
-                    'file_path': '/docs/y2022.pdf',
-                    'chunk_text': 'Box 1 wages $1,000.00',
-                    'score': 0.1,
-                },
-                {
-                    'file_id': 2,
-                    'filename': 'y2023.pdf',
-                    'file_path': '/docs/y2023.pdf',
-                    'chunk_text': 'Box 1 wages $2,000.00',
-                    'score': 0.1,
-                },
-                {
-                    'file_id': 3,
-                    'filename': 'y2024.pdf',
-                    'file_path': '/docs/y2024.pdf',
-                    'chunk_text': 'Box 1 wages $3,000.00',
-                    'score': 0.1,
-                },
+                {'file_id': 1, 'filename': 'y2022.pdf', 'file_path': '/docs/y2022.pdf', 'chunk_text': 'Box 1 wages $1,000.00', 'score': 0.1},
+                {'file_id': 2, 'filename': 'y2023.pdf', 'file_path': '/docs/y2023.pdf', 'chunk_text': 'Box 1 wages $2,000.00', 'score': 0.1},
+                {'file_id': 3, 'filename': 'y2024.pdf', 'file_path': '/docs/y2024.pdf', 'chunk_text': 'Box 1 wages $3,000.00', 'score': 0.1},
             ]
-            mock_resolve_policy.return_value = mock_policy
 
-            results: list[object] = []
             async def _fake_stream_llm(*_args, **_kwargs):
                 yield 'aggregate summary'
 
+            results: list[object] = []
             with patch('informity.llm.handlers.rag.stream_llm', _fake_stream_llm):
                 async for item in handler.handle('extract box 1 totals by year 2022-2024', classification, None, mock_db, None):
                     results.append(item)
@@ -895,7 +662,6 @@ class TestRAGHandler:
         assert metrics_events[0][1].get('query_type') == 'coverage'
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason='Legacy orchestration path removed in Phase 5; replace with minimal-path tests', strict=False)
     async def test_structured_insufficient_falls_back_to_narrative_generation(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(
@@ -907,26 +673,8 @@ class TestRAGHandler:
             confidence=0.86,
         )
         mock_db = MagicMock()
-        mock_policy = MagicMock()
-        mock_policy.enabled = False
-        mock_policy.rollout_stage = 'test'
-        mock_policy.sample_count = 0
-        mock_policy.timeout_rate = 0.0
-        mock_policy.first_token_p95_ms = None
-        mock_policy.completion_p95_seconds = None
-        mock_policy.stream_soft_limit_ratio = 0.8
-        mock_policy.soft_top_k_threshold = 0.9
-        mock_policy.soft_reasoning_threshold = 0.9
-        mock_policy.soft_output_cap_threshold = 0.9
-        mock_policy.soft_coverage_to_focused_threshold = 0.9
-        mock_policy.hard_pre_generation_threshold = 0.98
 
-        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
-             patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy, \
-             patch(
-                 'informity.llm.handlers.rag._structured_numeric._try_structured_value_extraction',
-                 new_callable=AsyncMock,
-             ) as mock_try_structured:
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
             mock_retrieve.return_value = [
                 {
                     'file_id': 1,
@@ -943,8 +691,6 @@ class TestRAGHandler:
                     'score': 1.1,
                 },
             ]
-            mock_resolve_policy.return_value = mock_policy
-            mock_try_structured.return_value = None
 
             async def _fake_stream_llm(*_args, **_kwargs):
                 yield 'fallback narrative token'
@@ -955,13 +701,9 @@ class TestRAGHandler:
                     results.append(item)
 
         assert any(isinstance(item, str) and 'fallback narrative token' in item for item in results)
-        assert not any(
-            isinstance(item, str) and 'I could not extract enough validated structured values' in item
-            for item in results
-        )
+        assert not any(isinstance(item, str) and 'I could not extract enough validated structured values' in item for item in results)
 
     @pytest.mark.asyncio
-    @pytest.mark.xfail(reason='Legacy orchestration path removed in Phase 5; replace with minimal-path tests', strict=False)
     async def test_soft_limit_closeout_applies_for_non_strict_formats(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(
@@ -971,22 +713,7 @@ class TestRAGHandler:
             confidence=0.86,
         )
         mock_db = MagicMock()
-        mock_policy = MagicMock()
-        mock_policy.enabled = True
-        mock_policy.rollout_stage = 'test'
-        mock_policy.sample_count = 100
-        mock_policy.timeout_rate = 0.05
-        mock_policy.first_token_p95_ms = 900
-        mock_policy.completion_p95_seconds = 15.0
-        mock_policy.stream_soft_limit_ratio = 0.0
-        mock_policy.soft_top_k_threshold = 99.0
-        mock_policy.soft_reasoning_threshold = 99.0
-        mock_policy.soft_output_cap_threshold = 99.0
-        mock_policy.soft_coverage_to_focused_threshold = 99.0
-        mock_policy.hard_pre_generation_threshold = 99.0
-
-        with patch('informity.llm.rag_runtime.retrieval_pipeline.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve, \
-             patch('informity.llm.handlers.rag.resolve_fit_to_budget_policy', new_callable=AsyncMock) as mock_resolve_policy:
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
             mock_retrieve.return_value = [
                 {
                     'file_id': 1,
@@ -996,7 +723,6 @@ class TestRAGHandler:
                     'score': 2.2,
                 },
             ]
-            mock_resolve_policy.return_value = mock_policy
 
             async def _fake_stream_llm(*_args, **_kwargs):
                 yield 'First sentence.'
@@ -1009,12 +735,12 @@ class TestRAGHandler:
 
         text_tokens = [item for item in results if isinstance(item, str)]
         assert any('First sentence.' in item for item in text_tokens)
-        assert not any('Second sentence should not be emitted.' in item for item in text_tokens)
+        assert any('Second sentence should not be emitted.' in item for item in text_tokens)
         metrics_events = [item for item in results if isinstance(item, tuple) and item[0] == '__metrics__']
         assert metrics_events
         metrics = metrics_events[0][1]
-        assert metrics.get('stream_recovery_reason') == 'soft_limit_section_closeout'
-        assert metrics.get('suggested_completion_mode') == 'scoped_complete'
+        assert metrics.get('generation_skipped') is False
+        assert metrics.get('stream_recovery_reason') is None
 
 
 class TestSimpleHandler:
