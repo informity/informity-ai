@@ -46,6 +46,7 @@ _HANDLER_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, asy
 _INSUFFICIENT_CONTEXT_RESPONSE = _retrieval_pipeline._INSUFFICIENT_CONTEXT_RESPONSE
 _CHUNK_PREVIEW_MAX_LENGTH = 200
 _FALLBACK_SOURCE_LIMIT = 8
+_LEGACY_COMPAT_MODE_REMOVAL_TARGET = '2026-06-30'
 _OUTPUT_CONTRACT_WORD_LIMIT_PATTERN = re.compile(
     r'\b(?:<=?|at\s+most|max(?:imum)?)\s*\d+\s+words?\b',
     re.IGNORECASE,
@@ -404,6 +405,11 @@ class RAGHandler:
                 ):
                     yield item
                 return
+            # Temporary compatibility path. Default runtime is minimal mode.
+            log.warning(
+                'rag_legacy_compat_mode_active',
+                removal_target=_LEGACY_COMPAT_MODE_REMOVAL_TARGET,
+            )
 
             # 1. Determine query type for proper retrieval and LLM settings
             plan = await _execution_plan.build_execution_plan(

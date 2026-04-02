@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.query_handler import QueryHandler
@@ -130,6 +131,16 @@ class TestMetadataHandler:
 
 
 class TestRAGHandler:
+    @pytest.fixture(autouse=True)
+    def _force_legacy_compat_mode_for_existing_rag_tests(self) -> None:
+        # Existing RAG handler unit tests target the legacy orchestration path.
+        # Keep them deterministic while minimal mode is the runtime default.
+        original = settings.rag_minimal_mode
+        settings.rag_minimal_mode = False
+        try:
+            yield
+        finally:
+            settings.rag_minimal_mode = original
 
     def test_matches_focused_queries(self) -> None:
         handler = RAGHandler()
