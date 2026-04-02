@@ -90,7 +90,7 @@ _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT = (
     'Continue with the remaining sections from your last answer. '
     'Keep the same structure and avoid repeating completed sections.'
 )
-LOG_LEVEL_ALLOWED_VALUES: tuple[str, ...] = ('debug', 'info', 'warning', 'warn', 'error')
+LOG_LEVEL_ALLOWED_VALUES: tuple[str, ...] = ('debug', 'info', 'warning', 'error')
 UI_THEME_ALLOWED_VALUES: tuple[str, ...] = ('gray', 'purple', 'blue', 'green', 'orange', 'mono')
 _DEFAULT_LOG_LEVEL = 'info'
 _DEFAULT_UI_THEME = 'mono'

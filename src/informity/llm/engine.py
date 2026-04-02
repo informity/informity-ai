@@ -346,7 +346,7 @@ def _run_stream_worker(
             delta = choice.get('delta') or {}
             token = delta.get('content') or ''
 
-            # Fallback: llama.cpp native completions format uses top-level 'content'
+            # Alternate llama.cpp completions payload uses top-level 'content'
             if not token:
                 token = data.get('content') or ''
 
@@ -358,7 +358,7 @@ def _run_stream_worker(
             if fr:
                 finish_reason = _normalize_finish_reason(fr)
             elif data.get('stop', False):
-                # Legacy llama.cpp server format
+                # Alternate llama.cpp stop payload format
                 if data.get('stopped_eos', False) or data.get('stopped_word', False):
                     finish_reason = 'stop'
                 elif data.get('stopped_limit', False):
