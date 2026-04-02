@@ -5,12 +5,10 @@
 # ==============================================================================
 
 import asyncio
-import difflib
 import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from dataclasses import dataclass
 
 import aiosqlite
 import structlog
@@ -20,6 +18,49 @@ from structlog.contextvars import get_contextvars
 
 from informity import answer_sanitization
 from informity.answer_sanitization import build_display_answer, sanitize_display_answer
+from informity.api.chat_closeout import build_display_blocks, build_done_payload
+from informity.api.chat_continuation import (
+    build_auto_continue_pass_prompt as _build_auto_continue_pass_prompt,
+)
+from informity.api.chat_continuation import (
+    build_continuing_status_message as _build_continuing_status_message,
+)
+from informity.api.chat_continuation import (
+    enforce_completion_action_consistency as _enforce_completion_action_consistency,
+)
+from informity.api.chat_continuation import (
+    enforce_continuation_chat_binding as _enforce_continuation_chat_binding,
+)
+from informity.api.chat_continuation import (
+    has_continue_worthy_gap as _has_continue_worthy_gap,
+)
+from informity.api.chat_continuation import (
+    is_continuation_request as _is_continuation_request,
+)
+from informity.api.chat_continuation import (
+    is_duplicate_continuation_pass as _is_duplicate_continuation_pass,
+)
+from informity.api.chat_continuation import (
+    mark_structural_output_gap as _mark_structural_output_gap,
+)
+from informity.api.chat_continuation import (
+    normalize_continuation_classification as _normalize_continuation_classification,
+)
+from informity.api.chat_continuation import (
+    resolve_auto_continue_policy as _resolve_auto_continue_policy,
+)
+from informity.api.chat_continuation import (
+    resolve_completion_state as _resolve_completion_state,
+)
+from informity.api.chat_continuation import (
+    resolve_continuation_anchor_question as _resolve_continuation_anchor_question,
+)
+from informity.api.chat_continuation import (
+    resolve_next_action as _resolve_next_action,
+)
+from informity.api.chat_orchestrator import ChatOrchestrator
+from informity.api.chat_sse import SSE_PHASE_ORDER, SseContractTracker, SseStatusEmitter
+from informity.api.chat_stream_registry import CHAT_STREAM_REGISTRY
 from informity.api.schemas import (
     ChatRequest,
     ChatSourceReference,
@@ -44,17 +85,14 @@ from informity.db.sqlite import (
 )
 from informity.diagnostics.observer import EvalMetrics, detect_issues
 from informity.diagnostics.resource_snapshot import build_resource_delta, capture_resource_snapshot
-from informity.llm.query_classifier import QueryClassification, classify_query
+from informity.llm.query_classifier import classify_query
 from informity.llm.rag import answer_question
 from informity.llm.types import (
     ChatRole,
     CompletionMode,
     ContinuationResolutionReason,
     DiagnosticsQueryType,
-    IntentProfileId,
     NextAction,
-    OutputShape,
-    QuerySubtype,
     StreamSignalTag,
     StructuralGapReason,
     TimeoutReason,
@@ -64,14 +102,6 @@ from informity.utils.json_utils import serialize_api_response
 # Trace logging constants
 MAX_ANSWER_PREVIEW_LENGTH = 1500  # Maximum length of answer preview in trace logs
 DISPLAY_FALLBACK_MESSAGE = answer_sanitization.DISPLAY_FALLBACK_MESSAGE
-SSE_PHASE_ORDER = {'chat': 1, 'plan_step': 1, 'token': 2, 'budget': 2, 'timeout': 2, 'sources': 3, 'cleaned': 4, 'error': 4, 'done': 5}
-SSE_STATUS_ORDER = {
-    'classifying': 1,
-    'retrieving':  2,
-    'generating':  3,
-    'continuing':  4,
-    'finalizing':  5,
-}
 MAX_CHAT_MESSAGE_CHARS = 20000
 _VALID_COMPLETION_MODES = {
     CompletionMode.COMPLETE,
@@ -81,9 +111,6 @@ _VALID_COMPLETION_MODES = {
 }
 _PERSISTENCE_EXCEPTIONS = (aiosqlite.Error, ValueError, RuntimeError, OSError)
 _STREAM_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, ConnectionError, aiosqlite.Error)
-_STRICT_NUMERIC_TOKEN_PATTERN = re.compile(r'\$?\d[\d,]*(?:\.\d{1,2})?')
-_TABLE_SEPARATOR_PATTERN = re.compile(r'^\s*\|?\s*:?-{3,}(?:\s*\|\s*:?-{3,})+\s*\|?\s*$')
-_EMPTY_ORDERED_LIST_ITEM_PATTERN = re.compile(r'^\s*\d+\.\s*$')
 _CHAT_MODE_ALLOWED = {'assistant', 'researcher'}
 
 
@@ -102,14 +129,6 @@ def _normalize_heading_key(heading: str) -> str:
 # ==============================================================================
 # Utility Functions
 # ==============================================================================
-
-
-def build_display_blocks(cleaned_answer: str) -> list[dict[str, str]]:
-    # Additive Phase 2 contract: structured display blocks (markdown-compatible text block first).
-    if not cleaned_answer:
-        return []
-    return [{'type': 'text', 'markdown': cleaned_answer}]
-
 
 def _safe_int(value: object, default: int = 0) -> int:
     if isinstance(value, bool):
@@ -133,381 +152,6 @@ def _normalize_diagnostics_query_type(value: object) -> str:
         return DiagnosticsQueryType(normalized).value
     except ValueError:
         return DiagnosticsQueryType.UNKNOWN.value
-
-
-def _normalize_numeric_token(raw_value: str) -> str:
-    return re.sub(r'[^0-9.\-]', '', raw_value or '')
-
-
-def _is_year_token(token: str) -> bool:
-    return token.isdigit() and len(token) == 4 and 1900 <= int(token) <= 2099
-
-
-def _is_actionable_numeric_token(raw_token: str, normalized_token: str) -> bool:
-    if not normalized_token:
-        return False
-    digits_only = re.sub(r'[^0-9]', '', normalized_token)
-    if len(digits_only) <= 1:
-        return False
-    if _is_year_token(normalized_token):
-        return False
-    has_currency_shape = (
-        '$' in raw_token
-        or ',' in raw_token
-        or '.' in raw_token
-        or raw_token.strip().startswith('(')
-        or raw_token.strip().endswith(')')
-    )
-    if has_currency_shape:
-        return True
-    return not (normalized_token.isdigit() and len(normalized_token) < 5)
-
-
-def _build_support_span(text: str, start_idx: int, end_idx: int, radius: int = 48) -> str:
-    source = str(text or '')
-    span_start = max(0, start_idx - radius)
-    span_end = min(len(source), end_idx + radius)
-    return re.sub(r'\s+', ' ', source[span_start:span_end]).strip()
-
-
-def _build_canonical_numeric_fact_index(
-    sources: list[dict[str, object]],
-) -> tuple[dict[str, dict[str, object]], list[dict[str, object]]]:
-    fact_by_token: dict[str, dict[str, object]] = {}
-    facts: list[dict[str, object]] = []
-    claim_id = 1
-    for source in sources:
-        filename = str(source.get('filename') or '').strip()
-        preview = str(source.get('chunk_preview') or '')
-        if not filename or not preview.strip():
-            continue
-        for match in _STRICT_NUMERIC_TOKEN_PATTERN.finditer(preview):
-            raw = match.group(0)
-            normalized = _normalize_numeric_token(raw)
-            if not _is_actionable_numeric_token(raw, normalized):
-                continue
-            if normalized in fact_by_token:
-                continue
-            fact = {
-                'claim_id': f'cf-{claim_id}',
-                'metric': 'numeric_claim',
-                'value': normalized,
-                'unit': 'unknown',
-                'period': None,
-                'entity': None,
-                'source_file': filename,
-                'source_page': None,
-                'confidence': 1.0,
-                'support_span': _build_support_span(preview, match.start(), match.end()),
-            }
-            claim_id += 1
-            fact_by_token[normalized] = fact
-            facts.append(fact)
-    return fact_by_token, facts
-
-
-def _summarize_strict_claim_evidence_gate(
-    *,
-    sources: list[dict[str, object]],
-    unsupported_claims: list[object],
-) -> dict[str, object]:
-    fact_index, canonical_facts = _build_canonical_numeric_fact_index(sources)
-    unsupported_tokens = {
-        token for token in (
-            _normalize_numeric_token(str(item))
-            for item in unsupported_claims
-            if isinstance(item, (str, int, float))
-        )
-        if token
-    }
-    unsupported_tokens_with_facts = sum(1 for token in unsupported_tokens if token in fact_index)
-    gate_summary = {
-        'canonical_fact_count': len(canonical_facts),
-        # The strict gate is diagnostics-only metadata and must not rewrite answer text.
-        'replaced_line_count': 0,
-        'bound_line_count': 0,
-        'unsupported_token_count': len(unsupported_tokens),
-        'unsupported_token_with_fact_count': unsupported_tokens_with_facts,
-    }
-    return gate_summary
-
-
-def _resolve_completion_state(
-    *,
-    completion_mode_override: CompletionMode | str | None,
-    timeout_occurred: bool,
-    timeout_reason: TimeoutReason | str | None,
-    has_remaining_scope: bool,
-) -> tuple[CompletionMode, bool]:
-    terminal_timeout_reasons = {TimeoutReason.QUEUE_WAIT_TIMEOUT, TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT}
-    normalized_timeout_reason = str(timeout_reason or '').strip().lower()
-    timeout_contributes_remaining_scope = (
-        timeout_occurred and normalized_timeout_reason not in {reason.value for reason in terminal_timeout_reasons}
-    )
-    default_mode = CompletionMode.PARTIAL if timeout_occurred else CompletionMode.COMPLETE
-    completion_mode = completion_mode_override or default_mode
-    try:
-        completion_mode = CompletionMode(str(completion_mode).strip().lower())
-    except ValueError:
-        completion_mode = default_mode
-    resolved_remaining_scope = (
-        has_remaining_scope
-        or timeout_contributes_remaining_scope
-        or completion_mode == CompletionMode.STOPPED
-    )
-    if resolved_remaining_scope and completion_mode == CompletionMode.COMPLETE:
-        completion_mode = CompletionMode.SCOPED_COMPLETE
-    if completion_mode == CompletionMode.COMPLETE:
-        resolved_remaining_scope = False
-    return completion_mode, resolved_remaining_scope
-
-
-def _resolve_next_action(
-    *,
-    stopped_by_user: bool,
-    timeout_occurred: bool,
-    has_remaining_scope: bool,
-    continuation_resolution_reason: (
-        ContinuationResolutionReason | StructuralGapReason | TimeoutReason | str | None
-    ),
-) -> tuple[NextAction, str | None]:
-    if stopped_by_user:
-        return NextAction.REGENERATE, 'stopped'
-    normalized_reason = str(continuation_resolution_reason or '').strip().lower()
-    if normalized_reason in {TimeoutReason.QUEUE_WAIT_TIMEOUT.value, TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT.value}:
-        return NextAction.NONE, None
-    if normalized_reason in {ContinuationResolutionReason.DUPLICATE_CONTINUATION_DETECTED.value}:
-        return NextAction.REGENERATE, 'stalled'
-    if not has_remaining_scope:
-        return NextAction.NONE, None
-    if normalized_reason in {ContinuationResolutionReason.CONTINUATION_PASS_BUDGET_EXHAUSTED.value}:
-        return NextAction.CONTINUE, 'budget_exhausted'
-    if timeout_occurred:
-        return NextAction.CONTINUE, 'timeout'
-    return NextAction.CONTINUE, 'unresolved_content'
-
-
-def _enforce_completion_action_consistency(
-    *,
-    completion_mode: CompletionMode,
-    has_remaining_scope: bool,
-    next_action: NextAction,
-    next_action_reason: str | None,
-) -> tuple[CompletionMode, bool]:
-    # Canonical terminal contract:
-    # - next_action=none => complete + no remaining scope
-    # - next_action=continue => remaining scope must be true
-    # - next_action=regenerate may be terminal (e.g. duplicate continuation stall)
-    normalized_completion_mode = completion_mode
-    normalized_has_remaining_scope = has_remaining_scope
-    if next_action == NextAction.NONE:
-        normalized_has_remaining_scope = False
-        if normalized_completion_mode in {CompletionMode.SCOPED_COMPLETE, CompletionMode.PARTIAL}:
-            normalized_completion_mode = CompletionMode.COMPLETE
-        return normalized_completion_mode, normalized_has_remaining_scope
-    if next_action == NextAction.REGENERATE:
-        # Duplicate-continuation stalls are terminal: no additional continuation
-        # scope should remain once we decide to regenerate.
-        if (next_action_reason or '').strip().lower() == 'stalled':
-            normalized_has_remaining_scope = False
-            if normalized_completion_mode in {CompletionMode.SCOPED_COMPLETE, CompletionMode.PARTIAL}:
-                normalized_completion_mode = CompletionMode.COMPLETE
-        return normalized_completion_mode, normalized_has_remaining_scope
-    if not normalized_has_remaining_scope:
-        log.warning(
-            'chat_action_scope_inconsistency_autofixed',
-            completion_mode=completion_mode,
-            next_action=next_action,
-            next_action_reason=next_action_reason,
-        )
-        normalized_has_remaining_scope = True
-    if next_action == NextAction.CONTINUE and normalized_completion_mode == CompletionMode.COMPLETE:
-        normalized_completion_mode = CompletionMode.SCOPED_COMPLETE
-    return normalized_completion_mode, normalized_has_remaining_scope
-
-
-_CONTINUATION_DUPLICATE_SIMILARITY_THRESHOLD = 0.9
-_CONTINUATION_DUPLICATE_MIN_LENGTH = 240
-
-
-_CONTINUATION_PHRASES = frozenset({
-    'continue', 'continue please', 'please continue', 'go on', 'carry on',
-    'resume', 'proceed', 'keep going', 'go ahead', 'next', 'next section',
-    'next part', 'more', 'more please', 'the rest', 'rest',
-})
-_CONTINUATION_PATTERN = re.compile(
-    r'^\s*(continue|go on|carry on|resume|proceed|keep going|go ahead)\b',
-    re.IGNORECASE,
-)
-_CONTINUATION_STRUCTURED_OUTPUT_PATTERN = re.compile(
-    r'\b(markdown\s+table|columns?\s*:|rows?\s+as|output\s+only\s+a\s+markdown\s+table)\b',
-    re.IGNORECASE,
-)
-
-
-def _is_continuation_request(question: str) -> bool:
-    """Lightweight pre-classification continuation check for session binding and history resolution."""
-    normalized = ' '.join((question or '').strip().split())
-    if not normalized:
-        return False
-    if normalized.casefold().rstrip('.!?') in _CONTINUATION_PHRASES:
-        return True
-    return bool(_CONTINUATION_PATTERN.search(normalized))
-
-
-def _resolve_continuation_anchor_question(*, question: str, history: list[ChatMessage]) -> str:
-    normalized_question = (question or '').strip()
-    if not _is_continuation_request(normalized_question):
-        return normalized_question
-    # If the continuation turn itself provides explicit heading contract cues,
-    # treat this turn as the anchor to avoid carrying stale heading requirements
-    # from the prior prompt.
-    if '##' in normalized_question:
-        return normalized_question
-    for message in reversed(history):
-        if message.role != ChatRole.USER:
-            continue
-        candidate = str(message.content or '').strip()
-        if not candidate:
-            continue
-        if _is_continuation_request(candidate):
-            continue
-        return candidate
-    return normalized_question
-
-
-def _count_continuation_chain_depth(history: list[ChatMessage]) -> int:
-    """Count consecutive assistant messages with has_remaining_scope=True at the tail of history."""
-    depth = 0
-    for message in reversed(history):
-        if message.role != ChatRole.ASSISTANT:
-            continue
-        if message.has_remaining_scope:
-            depth += 1
-        else:
-            break
-    return depth
-
-
-def _build_auto_continue_pass_prompt(
-    *,
-    auto_continue_prompt: str,
-    original_question: str,
-) -> str:
-    lines = [
-        auto_continue_prompt.strip(),
-        '',
-        'Original request:',
-        original_question.strip(),
-    ]
-    return '\n'.join(lines).strip()
-
-
-def _continuation_requires_structured_output(question: str) -> bool:
-    return bool(_CONTINUATION_STRUCTURED_OUTPUT_PATTERN.search(str(question or '')))
-
-
-def _normalize_continuation_classification(
-    *,
-    classification: QueryClassification,
-    continuation_anchor_question: str,
-) -> QueryClassification:
-    classification.is_continuation = True
-    classification.route_candidate = IntentProfileId.CONTINUATION_OR_REFINEMENT
-    if 'deterministic_continuation_route_enforced' not in classification.reason_codes:
-        classification.reason_codes.append('deterministic_continuation_route_enforced')
-    if not _continuation_requires_structured_output(continuation_anchor_question):
-        classification.response_shape = OutputShape.NARRATIVE_SYNTHESIS
-        if classification.subtype == QuerySubtype.EXTRACT_STRUCTURED_VALUES:
-            classification.subtype = None
-            if 'deterministic_continuation_structured_subtype_cleared' not in classification.reason_codes:
-                classification.reason_codes.append('deterministic_continuation_structured_subtype_cleared')
-    return classification
-
-
-def _is_duplicate_continuation_pass(previous_answer: str | None, current_answer: str) -> bool:
-    if not previous_answer:
-        return False
-    left = previous_answer.strip()
-    right = (current_answer or '').strip()
-    if not left or not right:
-        return False
-    if left == right:
-        return True
-    if min(len(left), len(right)) < _CONTINUATION_DUPLICATE_MIN_LENGTH:
-        return False
-    similarity = difflib.SequenceMatcher(a=left, b=right).ratio()
-    return similarity >= _CONTINUATION_DUPLICATE_SIMILARITY_THRESHOLD
-
-
-def _build_continuing_status_message() -> str:
-    return 'Continuing response...'
-
-
-def _enforce_continuation_chat_binding(*, question: str, chat_id: str | None) -> None:
-    if chat_id:
-        return
-    if not _is_continuation_request(question):
-        return
-    raise HTTPException(
-        status_code=409,
-        detail='Continuation requests require an existing chat. Use Continue from the same chat thread.',
-    )
-
-
-def _has_continue_worthy_gap(has_remaining_scope_signal: bool) -> bool:
-    return has_remaining_scope_signal
-
-
-def _detect_structural_incomplete_reason(answer: str) -> StructuralGapReason | None:
-    text = str(answer or '')
-    if not text.strip():
-        return None
-    if text.count('```') % 2 != 0:
-        return StructuralGapReason.UNCLOSED_CODE_FENCE
-    lines = [line.rstrip() for line in text.splitlines() if line.strip()]
-    if not lines:
-        return None
-    last_line = lines[-1].rstrip()
-    has_markdown_table = any(_TABLE_SEPARATOR_PATTERN.match(line) for line in lines)
-    if has_markdown_table and last_line.lstrip().startswith('|') and not last_line.rstrip().endswith('|'):
-        return StructuralGapReason.TRUNCATED_MARKDOWN_TABLE_ROW
-    if _EMPTY_ORDERED_LIST_ITEM_PATTERN.match(last_line):
-        return StructuralGapReason.TRUNCATED_MARKDOWN_LIST_ITEM
-    return None
-
-
-def _mark_structural_output_gap(answer: str) -> StructuralGapReason | None:
-    return _detect_structural_incomplete_reason(answer)
-
-
-def _resolve_auto_continue_policy() -> tuple[bool, int, str]:
-    enabled = bool(settings.chat_auto_continue_enabled)
-    default_rounds = max(0, int(settings.chat_auto_continue_default_max_rounds))
-    hard_cap = max(0, int(settings.chat_auto_continue_hard_cap))
-    max_rounds = min(default_rounds, hard_cap)
-    prompt = str(settings.chat_auto_continue_prompt or '').strip()
-    if not prompt:
-        prompt = (
-            'Continue with the remaining sections from your last answer. '
-            'Keep the same structure and avoid repeating completed sections.'
-        )
-    return enabled, max_rounds, prompt
-
-
-class SseContractTracker:
-    # Tracks expected SSE phase progression and reports out-of-order events.
-    def __init__(self) -> None:
-        self.current_phase = 0
-
-    def update(self, event_name: str) -> bool:
-        event_phase = SSE_PHASE_ORDER.get(event_name, 0)
-        if event_phase < self.current_phase:
-            return False
-        self.current_phase = event_phase
-        return True
-
-
 # ==============================================================================
 # Logger
 # ==============================================================================
@@ -525,47 +169,6 @@ CHAT_GUARD = EndpointGuard(
     max_requests_per_window=30,
     window_seconds=60,
 )
-
-
-@dataclass
-class ActiveChatStream:
-    chat_id: str
-    stop_event: asyncio.Event
-    stopped_by_user: bool = False
-
-
-_ACTIVE_CHAT_STREAMS: dict[str, ActiveChatStream] = {}
-_ACTIVE_CHAT_STREAMS_LOCK = asyncio.Lock()
-
-
-async def _register_active_stream(stream_id: str, chat_id: str, stop_event: asyncio.Event) -> None:
-    async with _ACTIVE_CHAT_STREAMS_LOCK:
-        _ACTIVE_CHAT_STREAMS[stream_id] = ActiveChatStream(
-            chat_id=chat_id,
-            stop_event=stop_event,
-        )
-
-
-async def _unregister_active_stream(stream_id: str) -> None:
-    async with _ACTIVE_CHAT_STREAMS_LOCK:
-        _ACTIVE_CHAT_STREAMS.pop(stream_id, None)
-
-
-async def _mark_stream_stopped_by_user(stream_id: str, chat_id: str | None) -> bool:
-    async with _ACTIVE_CHAT_STREAMS_LOCK:
-        stream = _ACTIVE_CHAT_STREAMS.get(stream_id)
-        if stream is None:
-            return False
-        if chat_id and stream.chat_id != chat_id:
-            return False
-        stream.stopped_by_user = True
-        stream.stop_event.set()
-        return True
-
-
-def _is_stream_stopped_by_user(stream_id: str) -> bool:
-    stream = _ACTIVE_CHAT_STREAMS.get(stream_id)
-    return bool(stream and stream.stopped_by_user)
 
 
 class UserStopRequestedError(Exception):
@@ -639,9 +242,11 @@ async def chat(
     async def _event_stream() -> AsyncGenerator[dict]:
         async with CHAT_GUARD.slot(check_rate=False):
             start_time = time.time()
+            orchestrator = ChatOrchestrator()
             sse_tracker = SseContractTracker()
+            status_emitter = SseStatusEmitter(chat_id=chat_id, start_time=start_time)
             stop_event = asyncio.Event()
-            await _register_active_stream(stream_id, chat_id, stop_event)
+            await CHAT_STREAM_REGISTRY.register(stream_id, chat_id, stop_event)
 
             def _update_sse_phase(event_name: str) -> None:
                 if not sse_tracker.update(event_name):
@@ -654,14 +259,12 @@ async def chat(
                     )
 
             _update_sse_phase('chat')
-            yield {
-                'event': 'chat',
-                'data': serialize_api_response({
-                    'chat_id': chat_id,
-                    'stream_id': stream_id,
-                    'request_id': request_id if request_id else None,
-                }),
-            }
+            chat_event = orchestrator.prepare_request(
+                chat_id=chat_id,
+                stream_id=stream_id,
+                request_id=request_id if request_id else None,
+            )
+            yield {'event': chat_event['event'], 'data': serialize_api_response(chat_event['data'])}
 
             answer_parts: list[str] = []
             sources: list[ChatSourceReference] = []
@@ -687,9 +290,7 @@ async def chat(
                 ContinuationResolutionReason | StructuralGapReason | TimeoutReason | str | None
             ) = None
             continuation_progress_state: str | None = None
-            current_status_phase = 0
-            current_status_state: str | None = None
-            status_transitions: list[dict[str, object]] = []
+            status_transitions: list[dict[str, object]] = status_emitter.status_transitions
             resource_end_snapshot: dict[str, object] | None = None
             resource_metrics: dict[str, object] = {}
             previous_pass_raw_answer: str | None = None
@@ -697,54 +298,8 @@ async def chat(
             sanitization_elapsed_ms: float | None = None
 
             try:
-                def _build_status_event(
-                    state: str,
-                    *,
-                    message: str,
-                    pass_index: int | None = None,
-                    pass_total: int | None = None,
-                    section_progress: dict[str, object] | None = None,
-                    allow_same_state: bool = False,
-                ) -> dict | None:
-                    nonlocal current_status_phase, current_status_state
-                    if state == current_status_state and not allow_same_state:
-                        return None
-                    state_phase = SSE_STATUS_ORDER.get(state)
-                    if state_phase is None:
-                        return None
-                    if state_phase < current_status_phase:
-                        log.warning(
-                            'chat_status_out_of_order',
-                            chat_id=chat_id,
-                            status_state=state,
-                            current_status_state=current_status_state,
-                            current_status_phase=current_status_phase,
-                            status_phase=state_phase,
-                        )
-                        return None
-                    current_status_phase = state_phase
-                    current_status_state = state
-                    payload: dict[str, object] = {
-                        'state': state,
-                        'message': message,
-                    }
-                    if pass_index is not None:
-                        payload['pass_index'] = pass_index
-                    if pass_total is not None:
-                        payload['pass_total'] = pass_total
-                    if section_progress is not None:
-                        payload['section_progress'] = section_progress
-                    status_transitions.append({
-                        'state': state,
-                        'elapsed_seconds': round(time.time() - start_time, 3),
-                        'pass_index': pass_index,
-                        'pass_total': pass_total,
-                        'section_progress_emitted': section_progress is not None,
-                    })
-                    return {'event': 'status', 'data': serialize_api_response(payload)}
-
                 if resolved_chat_mode != 'assistant':
-                    classifying_status = _build_status_event(
+                    classifying_status = status_emitter.build_event(
                         'classifying',
                         message='Analyzing your request...',
                     )
@@ -817,7 +372,7 @@ async def chat(
                                 has_remaining_scope=True,
                             ),
                         ]
-                        continuing_status = _build_status_event(
+                        continuing_status = status_emitter.build_event(
                             'continuing',
                             message=_build_continuing_status_message(),
                             pass_index=pass_index,
@@ -843,7 +398,7 @@ async def chat(
                             if locked_classification.is_metadata_query
                             else 'Searching for relevant information...'
                         )
-                        retrieving_status = _build_status_event('retrieving', message=_retrieval_message)
+                        retrieving_status = status_emitter.build_event('retrieving', message=_retrieval_message)
                         if retrieving_status is not None:
                             yield retrieving_status
 
@@ -856,7 +411,7 @@ async def chat(
                         classification=locked_classification,
                         chat_mode=resolved_chat_mode,
                     ):
-                        if stop_event.is_set() and _is_stream_stopped_by_user(stream_id):
+                        if stop_event.is_set() and CHAT_STREAM_REGISTRY.is_stopped_by_user(stream_id):
                             raise UserStopRequestedError
 
                         if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.CLASSIFICATION:
@@ -868,7 +423,7 @@ async def chat(
                                     if _classification.is_metadata_query
                                     else 'Searching for relevant information...'
                                 )
-                                retrieving_status = _build_status_event(
+                                retrieving_status = status_emitter.build_event(
                                     'retrieving',
                                     message=_retrieval_message,
                                 )
@@ -948,7 +503,7 @@ async def chat(
                         if isinstance(item, str):
                             if not generation_started:
                                 generation_started = True
-                                generating_status = _build_status_event(
+                                generating_status = status_emitter.build_event(
                                     'generating',
                                     message='Generating response...',
                                 )
@@ -1070,7 +625,7 @@ async def chat(
 
                 sources = list(source_map.values())
 
-                finalizing_status = _build_status_event(
+                finalizing_status = status_emitter.build_event(
                     'finalizing',
                     message='Finalizing answer...',
                 )
@@ -1228,7 +783,7 @@ async def chat(
                 completion_mode_override = CompletionMode.STOPPED
                 cleaned_answer = sanitize_display_answer(partial_answer) if partial_answer else ''
 
-                finalizing_status = _build_status_event(
+                finalizing_status = status_emitter.build_event(
                     'finalizing',
                     message='Finalizing answer...',
                 )
@@ -1285,7 +840,7 @@ async def chat(
             except asyncio.CancelledError:
                 generation_seconds = time.time() - start_time
                 partial_answer = ''.join(answer_parts).strip()
-                stream_stopped_by_user = _is_stream_stopped_by_user(stream_id)
+                stream_stopped_by_user = CHAT_STREAM_REGISTRY.is_stopped_by_user(stream_id)
                 if partial_answer or stream_stopped_by_user:
                     cancelled_next_action, cancelled_next_action_reason = _resolve_next_action(
                         stopped_by_user=stream_stopped_by_user,
@@ -1327,7 +882,7 @@ async def chat(
                         'resource_metrics': resource_metrics,
                     })
                     await flush_trace_writer(trace_writer)
-                await _unregister_active_stream(stream_id)
+                await CHAT_STREAM_REGISTRY.unregister(stream_id)
                 raise
 
             except _STREAM_RUNTIME_EXCEPTIONS as exc:
@@ -1426,29 +981,6 @@ async def chat(
                     error=str(metrics_exc),
                 )
 
-            display_blocks = build_display_blocks(cleaned_answer)
-            done_data: dict = {
-                'elapsed_seconds': generation_seconds,
-                'request_id': request_id if request_id else None,
-                'chat_mode': resolved_chat_mode,
-                'timeout_occurred': timeout_occurred,
-                'timeout_reason': timeout_reason,
-                'completion_mode': resolved_completion_mode,
-                'has_remaining_scope': resolved_has_remaining_scope,
-                'stopped_by_user': stopped_by_user,
-                'next_action': resolved_next_action,
-                'next_action_reason': resolved_next_action_reason,
-                'sources_count': len(sources),
-                'message_persisted': message_persisted,
-                'display_blocks': display_blocks,
-                'budget_metrics': budget_metrics,
-                'budget_checkpoints': budget_checkpoints,
-                'continuation_passes': continuation_passes,
-                'continuation_resolution_reason': continuation_resolution_reason,
-                'continuation_progress_state': continuation_progress_state,
-                'pass_details': pass_details,
-                'status_transitions': status_transitions,
-            }
             if resource_end_snapshot is None:
                 resource_end_snapshot = capture_resource_snapshot()
             if not resource_metrics:
@@ -1457,9 +989,30 @@ async def chat(
                     'after': resource_end_snapshot,
                     'delta': build_resource_delta(before=request_resource_snapshot, after=resource_end_snapshot),
                 }
-            done_data['resource_metrics'] = resource_metrics
-            if assistant_message_id is not None:
-                done_data['message_id'] = assistant_message_id
+            done_data = build_done_payload(
+                elapsed_seconds=generation_seconds,
+                request_id=request_id if request_id else None,
+                chat_mode=resolved_chat_mode,
+                timeout_occurred=timeout_occurred,
+                timeout_reason=timeout_reason,
+                completion_mode=resolved_completion_mode,
+                has_remaining_scope=resolved_has_remaining_scope,
+                stopped_by_user=stopped_by_user,
+                next_action=resolved_next_action,
+                next_action_reason=resolved_next_action_reason,
+                sources_count=len(sources),
+                message_persisted=message_persisted,
+                cleaned_answer=cleaned_answer,
+                budget_metrics=budget_metrics,
+                budget_checkpoints=budget_checkpoints,
+                continuation_passes=continuation_passes,
+                continuation_resolution_reason=continuation_resolution_reason,
+                continuation_progress_state=continuation_progress_state,
+                pass_details=pass_details,
+                status_transitions=status_transitions,
+                resource_metrics=resource_metrics,
+                message_id=assistant_message_id,
+            )
             log.info(
                 'chat_response_completed',
                 chat_id=chat_id,
@@ -1479,7 +1032,7 @@ async def chat(
                 process_cpu_percent=resource_end_snapshot.get('process_cpu_percent') if isinstance(resource_end_snapshot, dict) else None,
                 system_cpu_percent=resource_end_snapshot.get('system_cpu_percent') if isinstance(resource_end_snapshot, dict) else None,
             )
-            await _unregister_active_stream(stream_id)
+            await CHAT_STREAM_REGISTRY.unregister(stream_id)
             _update_sse_phase('done')
             yield {'event': 'done', 'data': serialize_api_response(done_data)}
 
@@ -1488,7 +1041,7 @@ async def chat(
 
 @router.post('/api/chat/stop')
 async def stop_chat(request: ChatStopRequest) -> dict:
-    stopped = await _mark_stream_stopped_by_user(
+    stopped = await CHAT_STREAM_REGISTRY.mark_stopped_by_user(
         stream_id=request.stream_id,
         chat_id=request.chat_id,
     )
