@@ -93,7 +93,7 @@ test: ## Run the test suite
 
 qa-quick: ## On-demand quick quality gate (backend reliability smoke tests + frontend type/test/build)
 	python3 tools/qa/docs_lint.py
-	uv run python -m pytest tests/test_routes_chat_contract.py tests/test_api_security.py tests/test_index_integrity.py -v
+	uv run python -m pytest tests/test_api_security.py tests/test_index_integrity.py tests/test_rag_split_contract.py tests/test_diagnostics_metrics_contract.py tests/test_json_serializer_contract.py -v
 	cd src/frontend && npm run typecheck && npm run test && npm run build
 
 qa-full: ## On-demand full quality gate (all backend tests + frontend type/test/build)

@@ -99,6 +99,9 @@ def _apply_strict_format_prompt_controls(
     applied_degradations: list[dict[str, object]],
     min_output_budget_floor: int | None = None,
 ) -> tuple[list[str], dict[str, int], int, bool, list[dict], list[dict[str, object]]]:
+    # Compatibility shim: keep legacy function signature stable while minimal
+    # pipeline only needs question-derived format requirements and constraints.
+    _ = (query_type, min_output_budget_floor)
     format_requirements = list(derive_format_requirements_fn(question, action_hints) or [])
     constraints = dict(output_constraints or {})
 
@@ -162,7 +165,21 @@ def _apply_preflight_budget_degradations(
     route_candidate: IntentProfileId | None = None,
     strict_ordered_mode: bool = False,
 ) -> tuple[RetrievalMode, int, bool, int, int, dict[str, int], list[dict[str, object]], float, float]:
-    _ = policy_soft_reasoning_threshold
+    # Compatibility shim: retain callable contract for legacy tests while
+    # minimal runtime bypasses profile/fallback degradation lattice.
+    _ = (
+        fit_to_budget_enabled,
+        policy_soft_top_k_threshold,
+        policy_soft_reasoning_threshold,
+        policy_soft_output_cap_threshold,
+        policy_soft_coverage_to_focused_threshold,
+        subtype,
+        focused_max_tokens,
+        focused_timeout_seconds,
+        output_constraints,
+        route_candidate,
+        strict_ordered_mode,
+    )
     projected_seconds, ratio = _estimate_budget_ratio(
         profile_name=profile_name,
         query_type=query_type,
@@ -207,6 +224,16 @@ def _apply_post_retrieval_budget_degradations(
     route_candidate: IntentProfileId | None = None,
     min_output_budget_floor: int | None = None,
 ) -> tuple[list[dict], RetrievalMode, int, bool, int, int, int, list[dict[str, object]], float, float]:
+    _ = (
+        fit_to_budget_enabled,
+        policy_soft_top_k_threshold,
+        policy_soft_coverage_to_focused_threshold,
+        subtype,
+        focused_max_tokens,
+        focused_timeout_seconds,
+        route_candidate,
+        min_output_budget_floor,
+    )
     context_chars = sum(len(str(chunk.get('chunk_text', ''))) for chunk in chunks)
     projected_seconds, ratio = _estimate_budget_ratio(
         profile_name=profile_name,

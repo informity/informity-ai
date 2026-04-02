@@ -17,12 +17,12 @@ from informity.db.models import ChatMessage
 from informity.llm.model_adapter import get_profile, get_retrieval_top_k
 from informity.llm.prompt_builder import build_messages
 from informity.llm.query_classifier import QueryClassification
-from informity.llm.retrieval import retrieve_chunks
 from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
 from informity.llm.rag_runtime import retrieval_pipeline as _retrieval_pipeline
 from informity.llm.rag_runtime import retrieval_validation as _retrieval_validation
 from informity.llm.rag_runtime import structured_numeric as _structured_numeric
+from informity.llm.retrieval import retrieve_chunks
 from informity.llm.streaming import stream_llm
 from informity.llm.types import (
     QueryType,
