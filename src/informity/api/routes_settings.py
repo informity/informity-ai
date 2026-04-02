@@ -214,6 +214,7 @@ _UPDATABLE_FIELDS: set[str] = {
     'llm_local_only',
     'llm_model_filename',
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (in ModelProfile, not updatable)
+    'rag_minimal_mode',
     'adaptive_rag_tuning',
     'rag_rerank',
     'rag_rerank_coverage',
@@ -294,6 +295,7 @@ async def get_settings() -> SettingsResponse:
         llm_local_only          = s.llm_local_only,
         llm_model_filename   = s.llm_model_filename,
         # rag_max_score and rag_context_ratio are now in model_profile (read-only, model-specific)
+        rag_minimal_mode     = s.rag_minimal_mode,
         adaptive_rag_tuning   = s.adaptive_rag_tuning,
         rag_rerank            = s.rag_rerank,
         rag_rerank_coverage   = s.rag_rerank_coverage,

@@ -207,6 +207,7 @@ class SettingsResponse(BaseModel):
     llm_local_only:          bool
     llm_model_filename:   str
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (in ModelProfile, read-only)
+    rag_minimal_mode:      bool        = False
     adaptive_rag_tuning:    bool        = True   # Adapt retrieval top-k based on corpus size
     rag_rerank:            bool        = True
     rag_rerank_coverage:   bool        = False
@@ -259,6 +260,7 @@ class SettingsUpdateRequest(BaseModel):
     llm_local_only:        bool | None = None
     llm_model_filename:  str | None        = None
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (in ModelProfile, not updatable)
+    rag_minimal_mode:      bool | None = None
     adaptive_rag_tuning:    bool | None = None   # Adapt retrieval top-k based on corpus size
     rag_rerank:            bool | None = None
     rag_rerank_coverage:   bool | None = None

@@ -5,6 +5,7 @@
 
 import asyncio
 import re
+import time
 from collections.abc import AsyncGenerator
 
 import aiosqlite
@@ -14,8 +15,10 @@ from informity.api.schemas import ChatSourceReference
 from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.fit_to_budget_tuning import resolve_fit_to_budget_policy
+from informity.llm.model_adapter import get_profile, get_retrieval_top_k
 from informity.llm.prompt_builder import build_messages
 from informity.llm.query_classifier import QueryClassification
+from informity.llm.retrieval import retrieve_chunks
 from informity.llm.rag_runtime import execution_plan as _execution_plan
 from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_plan as _generation_plan
@@ -135,6 +138,40 @@ def _build_continuation_generation_skipped_closeout(question: str) -> str:
     ])
 
 
+def _resolve_minimal_query_type(classification: QueryClassification) -> QueryType:
+    if classification.intent == QueryType.COVERAGE:
+        return QueryType.COVERAGE
+    return QueryType.FOCUSED
+
+
+def _resolve_minimal_answerability_settings(query_type: QueryType) -> tuple[float, int]:
+    if query_type == QueryType.COVERAGE:
+        return (
+            float(settings.rag_minimal_answerability_threshold_coverage),
+            int(settings.rag_minimal_min_chunks_coverage),
+        )
+    return (
+        float(settings.rag_minimal_answerability_threshold_focused),
+        int(settings.rag_minimal_min_chunks_focused),
+    )
+
+
+def _evaluate_minimal_answerability(
+    chunks: list[dict],
+    *,
+    query_type: QueryType,
+) -> tuple[bool, float, float, int]:
+    threshold, min_chunks = _resolve_minimal_answerability_settings(query_type)
+    normalized_scores = [
+        _retrieval_validation._normalize_relevance_score(chunk.get('score', 0.0))
+        for chunk in chunks[:3]
+    ]
+    mean_top3_score = sum(normalized_scores) / max(1, len(normalized_scores))
+    chunk_count = len(chunks)
+    passed = (chunk_count >= min_chunks) and (mean_top3_score >= threshold)
+    return passed, mean_top3_score, threshold, min_chunks
+
+
 
 
 class RAGHandler:
@@ -147,6 +184,175 @@ class RAGHandler:
     def matches(self, classification: QueryClassification) -> bool:
         """Match focused and coverage queries."""
         return classification.intent in {QueryType.FOCUSED, QueryType.COVERAGE}
+
+    async def _handle_minimal_mode(
+        self,
+        question: str,
+        classification: QueryClassification,
+        history: list[ChatMessage] | None,
+        db: aiosqlite.Connection,
+        trace: object | None,
+    ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
+        profile = get_profile()
+        effective_query_type = _resolve_minimal_query_type(classification)
+        effective_top_k = get_retrieval_top_k(effective_query_type)
+        max_tokens = profile.get_max_tokens(effective_query_type)
+        timeout_seconds = profile.get_timeout_seconds(effective_query_type)
+        reasoning_enabled = profile.get_reasoning_enabled(effective_query_type)
+        stop_sequences = profile.get_stop_sequences(reasoning_enabled)
+        format_requirements = _structured_numeric._derive_format_requirements(question)
+        generation_temperature, generation_top_p = _resolve_sampling_params(
+            profile_temperature=profile.temperature,
+            profile_top_p=profile.top_p,
+            format_requirements=format_requirements,
+        )
+
+        if trace is not None:
+            trace.record('intent', {
+                'model_profile': profile.name,
+                'intent': classification.intent,
+                'query_type': effective_query_type,
+                'coverage_mode': effective_query_type == QueryType.COVERAGE,
+                'minimal_mode': True,
+                'top_k': effective_top_k,
+                'rag_max_score': getattr(profile, 'rag_max_score', None),
+                'continuation_behavior': 'fresh_retrieval',
+            })
+
+        retrieval_timing: dict[str, float] = {}
+        retrieval_start = time.perf_counter()
+        chunks = await retrieve_chunks(
+            query=question,
+            top_k=effective_top_k,
+            max_score=getattr(profile, 'rag_max_score', None),
+            year_filter=classification.year_filter,
+            category_filter=classification.category_filter,
+            extension_filter=classification.file_type_filter,
+            filename_filter=classification.filename_filter,
+            block_type_filter=classification.block_type_filter,
+            section_filter=classification.section_filter,
+            query_type=effective_query_type,
+            db=db,
+            trace=trace,
+            timing_output=retrieval_timing,
+        )
+        retrieval_elapsed_ms = (time.perf_counter() - retrieval_start) * 1000
+
+        answerability_passed, answerability_score, answerability_threshold, min_chunks = _evaluate_minimal_answerability(
+            chunks,
+            query_type=effective_query_type,
+        )
+
+        if trace is not None:
+            trace.record('answerability_decision', {
+                'passed': answerability_passed,
+                'score': round(answerability_score, 4),
+                'threshold': answerability_threshold,
+                'chunk_count': len(chunks),
+                'min_chunks': min_chunks,
+                'mode': 'minimal',
+            })
+
+        if not answerability_passed:
+            yield (
+                StreamSignalTag.METRICS,
+                {
+                    'query_type': effective_query_type,
+                    'raw_chunks_count': len(chunks),
+                    'retrieval_duration_ms': round(retrieval_elapsed_ms, 1),
+                    'answerability_passed': False,
+                    'answerability_score': round(answerability_score, 4),
+                    'answerability_threshold': answerability_threshold,
+                    'answerability_min_chunks': min_chunks,
+                    'generation_skipped': True,
+                    'minimal_mode': True,
+                },
+            )
+            yield _INSUFFICIENT_CONTEXT_RESPONSE
+            yield []
+            return
+
+        messages = build_messages(
+            question=question,
+            context_chunks=chunks,
+            history=history,
+            output_constraints={},
+            format_requirements=format_requirements,
+        )
+        messages = profile.prepare_messages(messages, effective_query_type)
+
+        if trace is not None:
+            trace.record('prompt', {
+                'messages_count': len(messages),
+                'context_chunks': len(chunks),
+                'history_messages': len(history) if history else 0,
+                'reasoning_enabled': reasoning_enabled,
+                'output_constraints': {},
+                'format_requirements': format_requirements,
+                'minimal_mode': True,
+            })
+
+        llm_start = time.perf_counter()
+        first_token_ms: float | None = None
+        token_count = 0
+        answer_parts: list[str] = []
+        async for token in stream_llm(
+            messages,
+            max_tokens=max_tokens,
+            temperature=generation_temperature,
+            top_p=generation_top_p,
+            timeout_seconds=timeout_seconds,
+            stop_sequences=stop_sequences,
+        ):
+            if isinstance(token, tuple):
+                yield token
+                continue
+            token_count += 1
+            if first_token_ms is None:
+                first_token_ms = (time.perf_counter() - llm_start) * 1000
+            answer_parts.append(token)
+            yield token
+        llm_elapsed_ms = (time.perf_counter() - llm_start) * 1000
+        answer_text = ''.join(answer_parts)
+
+        if trace is not None:
+            trace.record('llm', {
+                'token_count': token_count,
+                'max_tokens': max_tokens,
+                'first_token_ms': round(first_token_ms, 1) if first_token_ms is not None else None,
+                'total_elapsed_ms': round(llm_elapsed_ms, 1),
+                'model_profile': profile.name,
+                'minimal_mode': True,
+            })
+
+        yield (
+            StreamSignalTag.METRICS,
+            {
+                'query_type': effective_query_type,
+                'raw_chunks_count': len(chunks),
+                'retrieval_duration_ms': round(retrieval_elapsed_ms, 1),
+                'first_token_latency_ms': round(first_token_ms, 1) if first_token_ms is not None else None,
+                'stream_duration_ms': round(llm_elapsed_ms, 1),
+                'embed_ms': retrieval_timing.get('embed_ms'),
+                'vector_search_ms': retrieval_timing.get('vector_search_ms'),
+                'rerank_ms': retrieval_timing.get('rerank_ms'),
+                'answerability_passed': True,
+                'answerability_score': round(answerability_score, 4),
+                'answerability_threshold': answerability_threshold,
+                'answerability_min_chunks': min_chunks,
+                'generation_skipped': False,
+                'minimal_mode': True,
+            },
+        )
+
+        sources = _generation_closeout.build_source_references(
+            chunks=chunks,
+            answer_text=answer_text,
+            truncate_preview_fn=_truncate_preview,
+            normalize_relevance_score_fn=_retrieval_validation._normalize_relevance_score,
+        )
+        _generation_closeout.record_sources_trace(trace=trace, sources=sources)
+        yield sources
 
     async def handle(
         self,
@@ -163,6 +369,17 @@ class RAGHandler:
         This is the existing RAG logic extracted into a handler.
         """
         try:
+            if settings.rag_minimal_mode:
+                async for item in self._handle_minimal_mode(
+                    question=question,
+                    classification=classification,
+                    history=history,
+                    db=db,
+                    trace=trace,
+                ):
+                    yield item
+                return
+
             # 1. Determine query type for proper retrieval and LLM settings
             plan = await _execution_plan.build_execution_plan(
                 question=question,

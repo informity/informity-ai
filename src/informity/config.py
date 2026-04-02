@@ -363,6 +363,9 @@ class Settings(BaseSettings):
     # Use model_adapter.get_retrieval_top_k(query_type). No config/env.
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (moved to ModelProfile).
     # Each model has optimal values tuned for its capabilities.
+    # Minimal RAG mode (single-path runtime): when enabled, bypasses route/profile
+    # fallback lattice and uses one retrieval call + answerability decision.
+    rag_minimal_mode: bool = False
     # When True, adapt retrieval top-k based on corpus size (file count, parent chunk count).
     # When False, always use model profile base values. See .internal/features/adaptive-tuning.md.
     adaptive_rag_tuning:  bool  = True
@@ -398,6 +401,11 @@ class Settings(BaseSettings):
     retrieval_relevance_threshold_focused:    float = 0.03
     retrieval_relevance_threshold_coverage:   float = 0.02
     retrieval_relevance_threshold_structured: float = 0.02
+    # Minimal RAG answerability thresholds. Applied only when rag_minimal_mode=true.
+    rag_minimal_answerability_threshold_focused: float = 0.05
+    rag_minimal_answerability_threshold_coverage: float = 0.05
+    rag_minimal_min_chunks_focused: int = 3
+    rag_minimal_min_chunks_coverage: int = 5
     # Coverage fallback hard floor (EH-11 rollback control):
     # - When enabled, evidence-floor override may only bypass relevance gate
     #   when score clears `retrieval_coverage_evidence_floor_min_score`.
@@ -709,6 +717,7 @@ def reset_to_factory_defaults() -> Settings:
         'diagnostics_profile':     'standard',
         'chat_trace_logging':      False,
         'enable_raw_output_control': False,
+        'rag_minimal_mode':        False,
         'adaptive_rag_tuning':     True,  # Enabled by default
         'ui_theme':                 _DEFAULT_UI_THEME,
     }
