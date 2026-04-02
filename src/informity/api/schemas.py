@@ -197,7 +197,7 @@ class SettingsResponse(BaseModel):
     embedding_model:         str
     embedding_batch_size:    int
     embedding_max_threads:   int   = 6
-    llm_cpu_threads:         int   = 4
+    llm_cpu_threads:         int   = 8
     enable_ocr_for_images:   bool  = True  # Enable OCR fallback for image-only PDFs by default
     scan_file_timeout_seconds: int = 300   # Per-file processing timeout (seconds); 0 = no timeout, max 600
     scan_hash_pool:          Literal['thread', 'process'] = 'thread'

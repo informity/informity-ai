@@ -337,8 +337,9 @@ class Settings(BaseSettings):
     embedding_max_threads: int = 6
     # CPU threads for xllamacpp (separate from embedding threads —
     # xllamacpp uses its own threading and is not controlled by OMP_NUM_THREADS).
-    # Set to 0 for automatic. Default: 4 to leave cores for embedder/reranker/OS.
-    llm_cpu_threads: int = 4
+    # Set to 0 for automatic. Default: 8 to reduce high-TTFT regressions
+    # observed in long diagnostics suites while keeping CPU headroom.
+    llm_cpu_threads: int = 8
     # When True, enable OCR (Optical Character Recognition) for image-only PDFs
     # when regular text extraction fails. OCR is slower but can extract text from
     # scanned documents, photographed pages, and PDFs with embedded images.
