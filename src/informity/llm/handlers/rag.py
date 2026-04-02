@@ -200,12 +200,8 @@ class RAGHandler:
         timeout_seconds = profile.get_timeout_seconds(effective_query_type)
         reasoning_enabled = profile.get_reasoning_enabled(effective_query_type)
         stop_sequences = profile.get_stop_sequences(reasoning_enabled)
-        format_requirements = _structured_numeric._derive_format_requirements(question)
-        generation_temperature, generation_top_p = _resolve_sampling_params(
-            profile_temperature=profile.temperature,
-            profile_top_p=profile.top_p,
-            format_requirements=format_requirements,
-        )
+        format_requirements: list[str] = []
+        output_constraints: dict[str, int] = {}
 
         if trace is not None:
             trace.record('intent', {
@@ -224,7 +220,10 @@ class RAGHandler:
         chunks = await retrieve_chunks(
             query=question,
             top_k=effective_top_k,
-            max_score=getattr(profile, 'rag_max_score', None),
+            # Minimal mode keeps one retrieval call and avoids legacy fallback
+            # retries. Do not apply strict L2 max_score pruning here; otherwise
+            # retrieval can collapse to empty and over-trigger refusals.
+            max_score=None,
             year_filter=classification.year_filter,
             category_filter=classification.category_filter,
             extension_filter=classification.file_type_filter,
@@ -272,11 +271,37 @@ class RAGHandler:
             yield []
             return
 
+        (
+            format_requirements,
+            output_constraints,
+            max_tokens,
+            reasoning_enabled,
+            chunks,
+            _,
+        ) = _generation_runtime._apply_strict_format_prompt_controls(
+            question=question,
+            chunks=chunks,
+            query_type=effective_query_type,
+            output_constraints={},
+            max_tokens=max_tokens,
+            reasoning_enabled=reasoning_enabled,
+            derive_format_requirements_fn=_structured_numeric._derive_format_requirements,
+            action_hints=classification.action_hints,
+            applied_degradations=[],
+            min_output_budget_floor=None,
+        )
+        stop_sequences = profile.get_stop_sequences(reasoning_enabled)
+        generation_temperature, generation_top_p = _resolve_sampling_params(
+            profile_temperature=profile.temperature,
+            profile_top_p=profile.top_p,
+            format_requirements=format_requirements,
+        )
+
         messages = build_messages(
             question=question,
             context_chunks=chunks,
             history=history,
-            output_constraints={},
+            output_constraints=output_constraints,
             format_requirements=format_requirements,
         )
         messages = profile.prepare_messages(messages, effective_query_type)
@@ -287,7 +312,7 @@ class RAGHandler:
                 'context_chunks': len(chunks),
                 'history_messages': len(history) if history else 0,
                 'reasoning_enabled': reasoning_enabled,
-                'output_constraints': {},
+                'output_constraints': output_constraints,
                 'format_requirements': format_requirements,
                 'minimal_mode': True,
             })

@@ -87,6 +87,26 @@ _SETTINGS_RANGE_RULES: dict[str, tuple[float, float, str]] = {
     'embedding_batch_size': (1, 256, 'embedding_batch_size must be between 1 and 256'),
     'chat_history_messages': (0, 10, 'chat_history_messages must be between 0 and 10'),
     'rag_rerank_candidates': (1, 200, 'rag_rerank_candidates must be between 1 and 200'),
+    'rag_minimal_answerability_threshold_focused': (
+        0.0,
+        1.0,
+        'rag_minimal_answerability_threshold_focused must be between 0.0 and 1.0',
+    ),
+    'rag_minimal_answerability_threshold_coverage': (
+        0.0,
+        1.0,
+        'rag_minimal_answerability_threshold_coverage must be between 0.0 and 1.0',
+    ),
+    'rag_minimal_min_chunks_focused': (
+        1,
+        100,
+        'rag_minimal_min_chunks_focused must be between 1 and 100',
+    ),
+    'rag_minimal_min_chunks_coverage': (
+        1,
+        100,
+        'rag_minimal_min_chunks_coverage must be between 1 and 100',
+    ),
     'embedding_max_threads': (
         0,
         32,
@@ -215,6 +235,10 @@ _UPDATABLE_FIELDS: set[str] = {
     'llm_model_filename',
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (in ModelProfile, not updatable)
     'rag_minimal_mode',
+    'rag_minimal_answerability_threshold_focused',
+    'rag_minimal_answerability_threshold_coverage',
+    'rag_minimal_min_chunks_focused',
+    'rag_minimal_min_chunks_coverage',
     'adaptive_rag_tuning',
     'rag_rerank',
     'rag_rerank_coverage',
@@ -296,6 +320,10 @@ async def get_settings() -> SettingsResponse:
         llm_model_filename   = s.llm_model_filename,
         # rag_max_score and rag_context_ratio are now in model_profile (read-only, model-specific)
         rag_minimal_mode     = s.rag_minimal_mode,
+        rag_minimal_answerability_threshold_focused = s.rag_minimal_answerability_threshold_focused,
+        rag_minimal_answerability_threshold_coverage = s.rag_minimal_answerability_threshold_coverage,
+        rag_minimal_min_chunks_focused = s.rag_minimal_min_chunks_focused,
+        rag_minimal_min_chunks_coverage = s.rag_minimal_min_chunks_coverage,
         adaptive_rag_tuning   = s.adaptive_rag_tuning,
         rag_rerank            = s.rag_rerank,
         rag_rerank_coverage   = s.rag_rerank_coverage,
