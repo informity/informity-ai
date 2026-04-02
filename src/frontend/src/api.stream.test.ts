@@ -81,4 +81,32 @@ describe('streamChat SSE contract', () => {
 
     vi.unstubAllGlobals()
   })
+
+  it('sends researcher mode by default and allows assistant override', async () => {
+    const payload = makeSsePayload([
+      { event: 'chat', data: JSON.stringify({ chat_id: 'chat-2' }) },
+      { event: 'done', data: JSON.stringify({ elapsed_seconds: 0.1 }) },
+    ])
+
+    const fetchMock = vi.fn(async () => {
+      const body = new TextEncoder().encode(payload)
+      return new Response(body, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await streamChat('hello', null, {})
+    await streamChat('hello', null, {}, { mode: 'assistant' })
+
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit | undefined]>
+    const firstBody = JSON.parse(String(calls[0]?.[1]?.body || '{}'))
+    const secondBody = JSON.parse(String(calls[1]?.[1]?.body || '{}'))
+    expect(firstBody.mode).toBe('researcher')
+    expect(secondBody.mode).toBe('assistant')
+
+    vi.unstubAllGlobals()
+  })
 })

@@ -89,6 +89,7 @@ class ChatRequest(BaseModel):
     message:  str
     chat_id:  str | None = None   # None = start new chat
     run_id: str | None = None      # Optional diagnostics run correlation ID
+    mode: str | None = None        # Optional chat mode: assistant | researcher (invalid -> researcher)
 
 
 class ChatStopRequest(BaseModel):

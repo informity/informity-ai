@@ -134,4 +134,30 @@ describe('ChatView new chat behavior', () => {
       expect(newChatButton).toHaveAttribute('title', 'Stop current response to start a new chat')
     })
   })
+
+  it('sends selected chat mode in stream payload', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockResolvedValue(undefined)
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({ messages: [] })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select chat mode' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Assistant' }))
+    fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'Hello assistant mode' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
+    expect(streamChatMock.mock.calls[0][3]).toEqual({ mode: 'assistant' })
+  })
 })

@@ -271,3 +271,46 @@ async def test_answer_question_sources_structure(mock_db, mock_chunks):
             assert 'path' in source
             assert 'chunk_preview' in source
             assert 'relevance_score' in source
+
+
+@pytest.mark.asyncio
+async def test_answer_question_assistant_mode_forces_simple_handler(mock_db):
+    async def mock_simple_gen():
+        yield 'Assistant reply'
+        yield []
+
+    with patch('informity.llm.rag.classify_query') as mock_classify, \
+         patch('informity.llm.handlers.simple.SimpleHandler.handle', new_callable=MagicMock) as mock_simple_handler, \
+         patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_rag_handler:
+        mock_simple_handler.return_value = mock_simple_gen()
+
+        results = []
+        async for item in answer_question('hello there', db=mock_db, chat_mode='assistant'):
+            results.append(item)
+
+        mock_classify.assert_not_called()
+        mock_simple_handler.assert_called_once()
+        mock_rag_handler.assert_not_called()
+        assert results[0] == 'Assistant reply'
+        assert results[-1] == []
+
+
+@pytest.mark.asyncio
+async def test_answer_question_invalid_chat_mode_falls_back_to_researcher(mock_db):
+    classification = QueryClassification(intent='focused')
+
+    async def mock_rag_gen():
+        yield 'answer'
+        yield []
+
+    with patch('informity.llm.rag.classify_query', return_value=classification) as mock_classify, \
+         patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_rag_handler:
+        mock_rag_handler.return_value = mock_rag_gen()
+
+        results = []
+        async for item in answer_question('test question', db=mock_db, chat_mode='invalid-mode'):
+            results.append(item)
+
+        mock_classify.assert_called_once_with('test question')
+        mock_rag_handler.assert_called_once()
+        assert results[-1] == []

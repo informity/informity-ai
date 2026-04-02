@@ -44,7 +44,7 @@ import { streamChat } from '../api'
 import { useChatContext } from './useChatContext'
 
 function ChatProbe() {
-  const { messages, isStreaming, error, sendMessage, setCurrentChatId } = useChatContext()
+  const { messages, isStreaming, error, sendMessage, continueLastScope, setCurrentChatId } = useChatContext()
   const assistant = [...messages].reverse().find((m) => m.role === 'assistant')
 
   return (
@@ -54,6 +54,9 @@ function ChatProbe() {
       </button>
       <button onClick={() => void sendMessage('test query')} type="button">
         Send
+      </button>
+      <button onClick={() => void continueLastScope(undefined, { mode: 'assistant' })} type="button">
+        ContinueAssistant
       </button>
       <div data-testid="streaming">{isStreaming ? 'yes' : 'no'}</div>
       <div data-testid="error">{error ?? ''}</div>
@@ -124,6 +127,23 @@ describe('ChatProvider streaming lifecycle', () => {
 
     await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
     expect(streamChatMock.mock.calls[0][1]).toBe('chat-existing')
+    expect(streamChatMock.mock.calls[0][3]).toEqual({ mode: 'researcher' })
+
+    await act(async () => {
+      finishStream?.()
+      await Promise.resolve()
+    })
+  })
+
+  it('propagates assistant mode through continueLastScope', async () => {
+    finishStream = null
+    const streamChatMock = vi.mocked(streamChat)
+    streamChatMock.mockClear()
+    render(<Harness />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'ContinueAssistant' }))
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
+    expect(streamChatMock.mock.calls[0][3]).toEqual({ mode: 'assistant' })
 
     await act(async () => {
       finishStream?.()

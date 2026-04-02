@@ -84,6 +84,14 @@ _STREAM_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, Conn
 _STRICT_NUMERIC_TOKEN_PATTERN = re.compile(r'\$?\d[\d,]*(?:\.\d{1,2})?')
 _TABLE_SEPARATOR_PATTERN = re.compile(r'^\s*\|?\s*:?-{3,}(?:\s*\|\s*:?-{3,})+\s*\|?\s*$')
 _EMPTY_ORDERED_LIST_ITEM_PATTERN = re.compile(r'^\s*\d+\.\s*$')
+_CHAT_MODE_ALLOWED = {'assistant', 'researcher'}
+
+
+def _resolve_chat_mode(raw_mode: object) -> str:
+    normalized = str(raw_mode or '').strip().lower()
+    if normalized in _CHAT_MODE_ALLOWED:
+        return normalized
+    return 'researcher'
 
 
 def _normalize_heading_key(heading: str) -> str:
@@ -585,6 +593,7 @@ async def chat(
         )
     await CHAT_GUARD.check_rate_limit()
     requested_run_id = str(request.run_id or '').strip() or None
+    resolved_chat_mode = _resolve_chat_mode(request.mode)
     _enforce_continuation_chat_binding(question=message_text, chat_id=request.chat_id)
 
     # Resolve chat ID — create a new one if not provided
@@ -608,6 +617,7 @@ async def chat(
         'chat_message_received',
         chat_id          = chat_id,
         run_id           = requested_run_id,
+        chat_mode        = resolved_chat_mode,
         message_length   = len(message_text),
         history_messages = len(history),
     )
@@ -621,6 +631,7 @@ async def chat(
             'question':         message_text,
             'question_length':  len(message_text),
             'history_messages': len(history),
+            'chat_mode':        resolved_chat_mode,
             'resource_snapshot': request_resource_snapshot,
         })
 
@@ -732,12 +743,13 @@ async def chat(
                     })
                     return {'event': 'status', 'data': serialize_api_response(payload)}
 
-                classifying_status = _build_status_event(
-                    'classifying',
-                    message='Analyzing your request...',
-                )
-                if classifying_status is not None:
-                    yield classifying_status
+                if resolved_chat_mode != 'assistant':
+                    classifying_status = _build_status_event(
+                        'classifying',
+                        message='Analyzing your request...',
+                    )
+                    if classifying_status is not None:
+                        yield classifying_status
 
                 generation_started = False
                 source_map: dict[tuple[str, str], ChatSourceReference] = {}
@@ -752,21 +764,23 @@ async def chat(
                 # running it on focused/simple/metadata queries wastes 9-28s with no benefit.
                 # On failure, falls through to None so planning runs unconditionally (safe fallback).
                 locked_classification = None
-                try:
-                    classify_start = time.perf_counter()
-                    locked_classification = await asyncio.to_thread(
-                        classify_query, continuation_anchor_question,
-                    )
-                    pre_classification_elapsed_ms = (time.perf_counter() - classify_start) * 1000.0
-                    log.info(
-                        'query_pre_classified',
-                        chat_id=chat_id,
-                        route_candidate=locked_classification.route_candidate,
-                        confidence=locked_classification.confidence,
-                    )
-                except (RuntimeError, ValueError, TypeError, OSError) as exc:
-                    log.warning('pre_classification_failed', chat_id=chat_id, error=str(exc))
-                    locked_classification = None
+                if resolved_chat_mode != 'assistant':
+                    try:
+                        classify_start = time.perf_counter()
+                        locked_classification = await asyncio.to_thread(
+                            classify_query, continuation_anchor_question,
+                        )
+                        pre_classification_elapsed_ms = (time.perf_counter() - classify_start) * 1000.0
+                        log.info(
+                            'query_pre_classified',
+                            chat_id=chat_id,
+                            route_candidate=locked_classification.route_candidate,
+                            confidence=locked_classification.confidence,
+                            chat_mode=resolved_chat_mode,
+                        )
+                    except (RuntimeError, ValueError, TypeError, OSError) as exc:
+                        log.warning('pre_classification_failed', chat_id=chat_id, error=str(exc), chat_mode=resolved_chat_mode)
+                        locked_classification = None
 
                 # Override continuation_request with the authoritative classifier result.
                 if locked_classification is not None:
@@ -823,7 +837,7 @@ async def chat(
                     # Normally this fires from the __classification__ intercept below, but when
                     # locked_classification is pre-set answer_question() skips classification
                     # and never yields ('__classification__', ...).
-                    if pass_index == 1 and locked_classification is not None:
+                    if pass_index == 1 and locked_classification is not None and resolved_chat_mode != 'assistant':
                         _retrieval_message = (
                             'Checking document index...'
                             if locked_classification.is_metadata_query
@@ -840,6 +854,7 @@ async def chat(
                         db=db,
                         trace=trace_writer,
                         classification=locked_classification,
+                        chat_mode=resolved_chat_mode,
                     ):
                         if stop_event.is_set() and _is_stream_stopped_by_user(stream_id):
                             raise UserStopRequestedError
@@ -847,17 +862,18 @@ async def chat(
                         if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.CLASSIFICATION:
                             locked_classification = item[1]
                             _classification = item[1]
-                            _retrieval_message = (
-                                'Checking document index...'
-                                if _classification.is_metadata_query
-                                else 'Searching for relevant information...'
-                            )
-                            retrieving_status = _build_status_event(
-                                'retrieving',
-                                message=_retrieval_message,
-                            )
-                            if retrieving_status is not None:
-                                yield retrieving_status
+                            if resolved_chat_mode != 'assistant':
+                                _retrieval_message = (
+                                    'Checking document index...'
+                                    if _classification.is_metadata_query
+                                    else 'Searching for relevant information...'
+                                )
+                                retrieving_status = _build_status_event(
+                                    'retrieving',
+                                    message=_retrieval_message,
+                                )
+                                if retrieving_status is not None:
+                                    yield retrieving_status
                             continue
 
                         if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.TIMEOUT:
@@ -869,6 +885,8 @@ async def chat(
                                 timeout_reason = TimeoutReason(raw_timeout_reason)
                             except ValueError:
                                 timeout_reason = raw_timeout_reason
+                            pass_has_remaining_scope = True
+                            has_remaining_scope = True
                             if continuation_resolution_reason is None:
                                 continuation_resolution_reason = timeout_reason
                             _update_sse_phase('timeout')
@@ -1412,6 +1430,7 @@ async def chat(
             done_data: dict = {
                 'elapsed_seconds': generation_seconds,
                 'request_id': request_id if request_id else None,
+                'chat_mode': resolved_chat_mode,
                 'timeout_occurred': timeout_occurred,
                 'timeout_reason': timeout_reason,
                 'completion_mode': resolved_completion_mode,
@@ -1444,6 +1463,7 @@ async def chat(
             log.info(
                 'chat_response_completed',
                 chat_id=chat_id,
+                chat_mode=resolved_chat_mode,
                 completion_mode=done_data.get('completion_mode'),
                 has_remaining_scope=done_data.get('has_remaining_scope'),
                 next_action=done_data.get('next_action'),

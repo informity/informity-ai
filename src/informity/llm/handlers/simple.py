@@ -21,17 +21,22 @@ from informity.llm.types import QueryType, StreamSignalTag
 log = structlog.get_logger(__name__)
 _HANDLER_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, asyncio.TimeoutError)
 
-# Minimal system prompt for simple queries (no document context)
-_SIMPLE_SYSTEM_PROMPT = """You are a helpful AI assistant. Answer questions conversationally and helpfully.
+# Assistant mode system prompt (no corpus/index access)
+_ASSISTANT_SYSTEM_PROMPT = """You are a helpful AI assistant. Answer conversationally, clearly, and directly.
 
-If asked about document search or file indexing capabilities, explain that you can:
-- Answer questions about indexed documents
-- Search for specific information across files
-- List and enumerate files by metadata (year, category, file type)
-- Compare and analyze content across multiple documents
-- Describe capabilities in general terms only; do not invent technical limits or internal implementation details
+You have no access to indexed documents, local files, or any private corpus unless the user explicitly provides content in this chat.
+If asked to search files or cite corpus evidence, explain briefly that this is direct assistant chat without document retrieval.
 
-Keep responses concise and friendly."""
+Keep responses concise."""
+
+# Researcher-simple prompt remains corpus-aware for non-RAG simple replies.
+_RESEARCHER_SIMPLE_SYSTEM_PROMPT = """You are a helpful AI assistant. Answer questions conversationally and helpfully.
+
+You have access to a private document corpus.
+Answer conversationally and directly. You do not need to cite documents for casual or conversational replies.
+If asked about document search capabilities, describe them accurately but briefly.
+
+Keep responses concise."""
 
 
 class SimpleHandler:
@@ -53,6 +58,7 @@ class SimpleHandler:
         db:             aiosqlite.Connection,
         trace:          object | None,
         diagnostics_context: dict[str, object] | None = None,
+        chat_mode: str | None = None,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         """
         Handle simple query by using LLM directly without retrieval.
@@ -63,6 +69,8 @@ class SimpleHandler:
         try:
             profile = get_profile()
             query_type = QueryType.SIMPLE
+            normalized_chat_mode = str(chat_mode or '').strip().lower()
+            system_prompt = _ASSISTANT_SYSTEM_PROMPT if normalized_chat_mode == 'assistant' else _RESEARCHER_SIMPLE_SYSTEM_PROMPT
 
             if trace is not None:
                 trace.record('intent', {
@@ -70,11 +78,12 @@ class SimpleHandler:
                     'intent':            classification.intent,
                     'query_type':        query_type,
                     'simple_mode':       True,
+                    'chat_mode':         normalized_chat_mode or 'researcher',
                     'db_attached':       db is not None,
                 })
 
             # Build minimal messages (system prompt + history + question)
-            messages = [{'role': 'system', 'content': _SIMPLE_SYSTEM_PROMPT}]
+            messages = [{'role': 'system', 'content': system_prompt}]
 
             # Add history (truncate if needed)
             if history:
