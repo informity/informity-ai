@@ -16,7 +16,7 @@ from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.rag import RAGHandler
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification, classify_query
-from informity.llm.types import StreamSignalTag
+from informity.llm.types import QueryType, StreamSignalTag
 
 log = structlog.get_logger(__name__)
 _ROUTER_RUNTIME_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError)
@@ -37,6 +37,7 @@ async def answer_question(
     trace: object | None = None,  # TraceWriter protocol - optional, for chat trace logging
     diagnostics_context: dict[str, object] | None = None,
     classification: QueryClassification | None = None,  # If provided, skip re-classification (continuation passes)
+    chat_mode: str | None = None,
 ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
     """
     Query router - dispatches queries to appropriate handlers.
@@ -47,6 +48,38 @@ async def answer_question(
         return
 
     try:
+        normalized_chat_mode = str(chat_mode or '').strip().lower()
+
+        if normalized_chat_mode == 'assistant':
+            forced_classification = classification or QueryClassification(intent=QueryType.SIMPLE)
+            if trace is not None:
+                trace.record('classification', {
+                    'query_length': len(question),
+                    'intent': QueryType.SIMPLE,
+                    'route_candidate': forced_classification.route_candidate,
+                    'confidence': forced_classification.confidence,
+                    'duration_ms': 0.0,
+                    'chat_mode': 'assistant',
+                    'forced': True,
+                })
+            log.info(
+                'query_classified_forced_assistant',
+                intent=QueryType.SIMPLE,
+                chat_mode='assistant',
+            )
+            handler = SimpleHandler()
+            async for item in handler.handle(
+                question=question,
+                classification=forced_classification,
+                history=history,
+                db=db,
+                trace=trace,
+                diagnostics_context=diagnostics_context,
+                chat_mode='assistant',
+            ):
+                yield item
+            return
+
         # 1. Classify query (extract filters and intent)
         if classification is None:
             classify_start = time.perf_counter()
@@ -72,6 +105,7 @@ async def answer_question(
                     'file_type_filter': classification.file_type_filter,
                     'filename_filter': classification.filename_filter,
                     'duration_ms': round(classify_elapsed_ms, 2),
+                    'chat_mode': normalized_chat_mode or 'researcher',
                 })
             log.info(
                 'query_classified',
@@ -80,6 +114,7 @@ async def answer_question(
                 confidence=classification.confidence,
                 year_filter=classification.year_filter,
                 category_filter=classification.category_filter,
+                chat_mode=normalized_chat_mode or 'researcher',
                 duration_ms=round(classify_elapsed_ms, 1),
             )
             yield (StreamSignalTag.CLASSIFICATION, classification)
@@ -89,6 +124,7 @@ async def answer_question(
                 intent=classification.intent,
                 route_candidate=classification.route_candidate,
                 confidence=classification.confidence,
+                chat_mode=normalized_chat_mode or 'researcher',
             )
 
         # 2. Route to appropriate handler

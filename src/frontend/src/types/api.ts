@@ -53,6 +53,7 @@ export type DisplayBlock =
   | DisplayUnknownBlock
 
 export type CompletionMode = 'complete' | 'partial' | 'scoped_complete' | 'stopped'
+export type ChatMode = 'assistant' | 'researcher'
 export type NextAction = 'none' | 'continue' | 'regenerate'
 export type NextActionReason = 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled'
 export type ContinuationProgressState = 'progressed' | 'stalled' | 'budget_exhausted'
@@ -77,6 +78,7 @@ export interface StreamStatusPayload {
 }
 
 export interface StreamDonePayload {
+  chat_mode?: ChatMode
   elapsed_seconds?: number
   request_id?: string
   timeout_occurred?: boolean

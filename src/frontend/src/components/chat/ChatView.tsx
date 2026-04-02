@@ -16,6 +16,17 @@ import './ChatView.css'
 const CHAT_INPUT_MIN_HEIGHT = 104
 const CHAT_INPUT_MAX_HEIGHT = 304
 const FORCE_NEW_CHAT_KEY = 'informity_force_new_chat'
+const CHAT_MODE_STORAGE_KEY = 'informity_chat_mode'
+type ChatMode = 'assistant' | 'researcher'
+const CHAT_MODE_LABELS: Record<ChatMode, string> = {
+  assistant: 'Assistant',
+  researcher: 'Researcher',
+}
+const CHAT_MODE_ICONS: Record<ChatMode, string> = {
+  assistant: 'ri-chat-smile-3-line',
+  researcher: 'ri-search-ai-line',
+}
+const ALL_CHAT_MODES: ChatMode[] = ['assistant', 'researcher']
 
 interface ChatViewProps {
   prefillMessage?: string
@@ -43,6 +54,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     clearError,
   } = useChatContext()
   const [inputValue, setInputValue] = useState(prefillMessage)
+  const [chatMode, setChatMode] = useState<ChatMode>('researcher')
+  const [modeMenuOpen, setModeMenuOpen] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [animateToDocked, setAnimateToDocked] = useState(false)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
@@ -55,6 +68,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   const autoFollowRafRef = useRef<number | null>(null)
   const showScrollRef = useRef(false)
   const isNearBottomRef = useRef(true)
+  const modeMenuRef = useRef<HTMLDivElement>(null)
 
   const isForceNewChatRequested = useCallback((): boolean => {
     try {
@@ -70,6 +84,31 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   useEffect(() => {
     if (prefillMessage) setInputValue(prefillMessage)
   }, [prefillMessage])
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(CHAT_MODE_STORAGE_KEY)
+      if (raw === 'assistant' || raw === 'researcher') {
+        setChatMode(raw)
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [])
+
+  useEffect(() => {
+    const handlePointerDown = (event: MouseEvent) => {
+      if (!modeMenuRef.current) return
+      if (modeMenuRef.current.contains(event.target as Node)) return
+      setModeMenuOpen(false)
+    }
+    document.addEventListener('mousedown', handlePointerDown)
+    return () => document.removeEventListener('mousedown', handlePointerDown)
+  }, [])
+
+  useEffect(() => {
+    if (offline || isStreaming) setModeMenuOpen(false)
+  }, [offline, isStreaming])
 
   useEffect(() => {
     if (isForceNewChatRequested()) return
@@ -212,8 +251,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
 
   const handleContinue = useCallback((anchorMessageId?: number) => {
     if (offline) return
-    void continueLastScope(anchorMessageId)
-  }, [offline, continueLastScope])
+    void continueLastScope(anchorMessageId, { mode: chatMode })
+  }, [offline, continueLastScope, chatMode])
 
   const handleRegenerate = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -223,8 +262,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
       .reverse()
       .find((msg) => msg.role === 'user' && !msg.isInternal && !!msg.content?.trim())
     if (!previousUser) return
-    void sendMessage(previousUser.content)
-  }, [offline, isStreaming, messages, sendMessage])
+    void sendMessage(previousUser.content, { mode: chatMode })
+  }, [offline, isStreaming, messages, sendMessage, chatMode])
 
   const handleNewChat = useCallback(() => {
     if (offline) return
@@ -246,8 +285,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     if (!text) return
 
     setInputValue('')
-    await sendMessage(text)
-  }, [offline, inputValue, sendMessage])
+    await sendMessage(text, { mode: chatMode })
+  }, [offline, inputValue, sendMessage, chatMode])
 
   const handleStop = useCallback(() => {
     if (offline) return
@@ -425,6 +464,48 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                     disabled={offline || isStreaming}
                   />
                   <div className="chat-view__controls-row">
+                    <div ref={modeMenuRef} className="chat-view__mode-selector">
+                      <button
+                        type="button"
+                        className="chat-view__mode-button"
+                        onClick={() => setModeMenuOpen((open) => !open)}
+                        disabled={offline || isStreaming}
+                        aria-haspopup="menu"
+                        aria-expanded={modeMenuOpen}
+                        aria-label="Select chat mode"
+                      >
+                        <i className={CHAT_MODE_ICONS[chatMode]} aria-hidden />
+                        <span>{CHAT_MODE_LABELS[chatMode]}</span>
+                        <i className="ri-arrow-down-s-line" aria-hidden />
+                      </button>
+                      {modeMenuOpen && (
+                        <div className="chat-view__mode-menu" role="menu">
+                          {ALL_CHAT_MODES.map((mode) => (
+                            <span key={mode} className="chat-view__mode-option-wrap">
+                              <button
+                                type="button"
+                                className={`chat-view__mode-option${chatMode === mode ? ' chat-view__mode-option--active' : ''}`}
+                                role="menuitemradio"
+                                aria-checked={chatMode === mode}
+                                disabled={offline || isStreaming}
+                                onClick={() => {
+                                  setChatMode(mode)
+                                  setModeMenuOpen(false)
+                                  try {
+                                    window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, mode)
+                                  } catch {
+                                    // ignore storage errors
+                                  }
+                                }}
+                              >
+                                <i className={CHAT_MODE_ICONS[mode]} aria-hidden />
+                                <span>{CHAT_MODE_LABELS[mode]}</span>
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     {isStreaming ? (
                       <button
                         type="button"

@@ -8,6 +8,7 @@ import { ApiError, getChat, getSettings, stopChatStream, streamChat, updateCurre
 import { showToast } from './useToast'
 import { logApiError } from '../utils/logApiError'
 import type {
+  ChatMode,
   ChatMessageApi,
   ChatMessageDisplay,
   DisplayBlock,
@@ -307,10 +308,11 @@ export function ChatProvider({ children }: ChatProviderProps) {
 
   const sendMessage = useCallback(async (
     text: string,
-    options?: { isInternal?: boolean },
+    options?: { isInternal?: boolean; mode?: ChatMode },
   ) => {
     const message = text.trim()
     const isInternalMessage = !!options?.isInternal
+    const chatMode: ChatMode = options?.mode ?? 'researcher'
     if (!message || sendInFlightRef.current) return
     if (isStreamingRef.current) {
       if (!isInternalMessage) {
@@ -778,18 +780,21 @@ export function ChatProvider({ children }: ChatProviderProps) {
           setActiveGenerationRequestId(null)
           streamWatchdogTimedOutRef.current = false
         },
-      })
+      }, { mode: chatMode })
     } finally {
       clearStreamWatchdog()
       sendInFlightRef.current = false
     }
   }, [applyStreamDraftToVisibleMessages, clearRevealTimer, clearStreamWatchdog, isViewingGeneratingChat])
 
-  const continueLastScope = useCallback(async (anchorMessageId?: number) => {
+  const continueLastScope = useCallback(async (
+    anchorMessageId?: number,
+    options?: { mode?: ChatMode },
+  ) => {
     if (typeof anchorMessageId === 'number') {
       lastAutoContinuedMessageIdRef.current = anchorMessageId
     }
-    await sendMessage(CONTINUE_SCOPED_PROMPT, { isInternal: true })
+    await sendMessage(CONTINUE_SCOPED_PROMPT, { isInternal: true, mode: options?.mode ?? 'researcher' })
   }, [sendMessage])
 
   const stopStreaming = useCallback(async (): Promise<boolean> => {

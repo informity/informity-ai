@@ -3,7 +3,7 @@
  * Single place for all fetch() calls. Components never call fetch directly.
  */
 
-import type { PlanStepPayload, StreamChatCallbacks, StreamDonePayload } from './types/api'
+import type { ChatMode, PlanStepPayload, StreamChatCallbacks, StreamDonePayload } from './types/api'
 import type { SetupState } from './types/setupState'
 
 function getApiBase(): string {
@@ -213,6 +213,7 @@ export async function streamChat(
   message: string,
   chatId: string | null,
   callbacks: StreamChatCallbacks,
+  options?: { mode?: ChatMode },
 ): Promise<void> {
   const { onToken, onChatId, onStreamId, onRequestId, onSources, onDone, onError, onCleaned, onStatus, onPlanStep, signal } = callbacks
   let doneData: StreamDonePayload | null = null
@@ -222,6 +223,7 @@ export async function streamChat(
   const body = JSON.stringify({
     message: message.trim(),
     chat_id: chatId || null,
+    mode: options?.mode ?? 'researcher',
   })
 
   try {

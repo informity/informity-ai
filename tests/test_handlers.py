@@ -790,3 +790,32 @@ class TestSimpleHandler:
 
             # Last item should be empty sources list
             assert results[-1] == []
+
+    @pytest.mark.asyncio
+    async def test_handle_uses_assistant_prompt_without_corpus_capabilities(self) -> None:
+        handler = SimpleHandler()
+        classification = QueryClassification(intent='simple')
+        mock_db = MagicMock()
+        captured_messages: list[dict[str, str]] = []
+
+        async def _fake_stream_llm(messages, *_args, **_kwargs):
+            captured_messages.extend(messages)
+            yield 'answer'
+
+        with patch('informity.llm.handlers.simple.stream_llm', _fake_stream_llm):
+            async for _item in handler.handle(
+                'what files can you search',
+                classification,
+                None,
+                mock_db,
+                None,
+                chat_mode='assistant',
+            ):
+                pass
+
+        assert captured_messages
+        system_message = captured_messages[0]['content']
+        lowered = system_message.lower()
+        assert 'without document retrieval' in lowered
+        assert 'if asked about document search' not in lowered
+        assert 'you can:' not in lowered

@@ -3,7 +3,7 @@
  * Shared context instance for ChatProvider and useChatContext.
  */
 import { createContext } from 'react'
-import type { ChatMessageDisplay } from '../types/api'
+import type { ChatMessageDisplay, ChatMode } from '../types/api'
 
 export interface ChatContextValue {
   currentChatId: string | null
@@ -20,10 +20,11 @@ export interface ChatContextValue {
   goToGeneratingChat: () => Promise<void>
   sendMessage: (
     text: string,
-    options?: { isInternal?: boolean },
+    options?: { isInternal?: boolean; mode?: ChatMode },
   ) => Promise<void>
   continueLastScope: (
     anchorMessageId?: number,
+    options?: { mode?: ChatMode },
   ) => Promise<void>
   stopStreaming: () => Promise<boolean>
   newChat: () => Promise<void>
