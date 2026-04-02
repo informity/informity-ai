@@ -441,6 +441,11 @@ def _derive_format_requirements(
     table_columns = _extract_required_markdown_table_columns(question)
     if table_columns:
         _append_requirement(f'include markdown table columns: {" | ".join(table_columns)}')
+    pipe_labels = _extract_requested_pipe_labels(question)
+    if pipe_labels:
+        _append_requirement(f'for delimiter schemas, include exact header/template line: {" | ".join(pipe_labels)}')
+        for label in pipe_labels[:8]:
+            _append_requirement(f'include term: {label}')
     return requirements
 
 

@@ -207,7 +207,11 @@ class SettingsResponse(BaseModel):
     llm_local_only:          bool
     llm_model_filename:   str
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (in ModelProfile, read-only)
-    rag_minimal_mode:      bool        = False
+    rag_minimal_mode:      bool        = True
+    rag_minimal_answerability_threshold_focused: float = 0.0
+    rag_minimal_answerability_threshold_coverage: float = 0.0
+    rag_minimal_min_chunks_focused: int = 1
+    rag_minimal_min_chunks_coverage: int = 1
     adaptive_rag_tuning:    bool        = True   # Adapt retrieval top-k based on corpus size
     rag_rerank:            bool        = True
     rag_rerank_coverage:   bool        = False
@@ -261,6 +265,10 @@ class SettingsUpdateRequest(BaseModel):
     llm_model_filename:  str | None        = None
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (in ModelProfile, not updatable)
     rag_minimal_mode:      bool | None = None
+    rag_minimal_answerability_threshold_focused: float | None = None
+    rag_minimal_answerability_threshold_coverage: float | None = None
+    rag_minimal_min_chunks_focused: int | None = None
+    rag_minimal_min_chunks_coverage: int | None = None
     adaptive_rag_tuning:    bool | None = None   # Adapt retrieval top-k based on corpus size
     rag_rerank:            bool | None = None
     rag_rerank_coverage:   bool | None = None
