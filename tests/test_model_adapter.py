@@ -270,5 +270,7 @@ class TestGetRetrievalTopK:
         from informity.llm.model_adapter import get_profile
 
         profile = get_profile()
-        assert get_retrieval_top_k('focused') == profile.retrieval_top_k_final
-        assert get_retrieval_top_k('coverage') == profile.retrieval_top_k_final
+        expected_focused = profile.rag_top_k_focused or profile.retrieval_top_k_final
+        expected_coverage = profile.rag_top_k_coverage or profile.coverage_top_k
+        assert get_retrieval_top_k('focused') == expected_focused
+        assert get_retrieval_top_k('coverage') == expected_coverage

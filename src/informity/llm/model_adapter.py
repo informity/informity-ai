@@ -513,9 +513,16 @@ def get_profile() -> ModelProfile:
 
 
 def get_retrieval_top_k(query_type: QueryType) -> int:
-    """Return model-profile-owned final retrieval top-k (query-type agnostic)."""
-    _ = query_type
+    """Return model-profile-owned final retrieval top-k for the given query type."""
     profile = get_profile()
+    # Prefer query-type-specific profile knobs when configured, then fall back to
+    # retrieval_top_k_final as the stable default.
+    if query_type == QueryType.COVERAGE:
+        if int(profile.rag_top_k_coverage) > 0:
+            return max(1, int(profile.rag_top_k_coverage))
+        return max(1, int(profile.coverage_top_k))
+    if query_type == QueryType.FOCUSED and int(profile.rag_top_k_focused) > 0:
+        return max(1, int(profile.rag_top_k_focused))
     return max(1, int(profile.retrieval_top_k_final))
 
 
