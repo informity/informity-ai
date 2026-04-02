@@ -172,7 +172,7 @@ class RAGHandler:
         chunks = await retrieve_chunks(
             query=question,
             top_k=effective_top_k,
-            # Minimal mode keeps one retrieval call and avoids legacy fallback
+            # Minimal mode keeps one retrieval call without secondary branches.
             # retries. Do not apply strict L2 max_score pruning here; otherwise
             # retrieval can collapse to empty and over-trigger refusals.
             max_score=None,
@@ -233,14 +233,12 @@ class RAGHandler:
         ) = _generation_runtime._apply_strict_format_prompt_controls(
             question=question,
             chunks=chunks,
-            query_type=effective_query_type,
             output_constraints={},
             max_tokens=max_tokens,
             reasoning_enabled=reasoning_enabled,
             derive_format_requirements_fn=_structured_numeric._derive_format_requirements,
             action_hints=classification.action_hints,
             applied_degradations=[],
-            min_output_budget_floor=None,
         )
         stop_sequences = profile.get_stop_sequences(reasoning_enabled)
         generation_temperature, generation_top_p = _resolve_sampling_params(

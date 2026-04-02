@@ -33,7 +33,6 @@ const LOG_LEVEL_OPTIONS = [
   { value: 'info', label: 'Info (Recommended)' },
   { value: 'warning', label: 'Warning' },
   { value: 'error', label: 'Error' },
-  { value: 'warn', label: 'Warn (Legacy)' },
 ]
 
 type SettingsTab =

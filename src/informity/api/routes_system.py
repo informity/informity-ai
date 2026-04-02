@@ -214,10 +214,9 @@ def _is_model_file_ready(model_filename: str) -> bool:
     return model_path.exists() and model_path.is_file()
 
 
-def _is_setup_ready(setup_state_payload: dict[str, object] | None = None) -> bool:
+def _is_setup_ready() -> bool:
     # Setup is only complete when all required runtime assets are cached.
     # This includes the selected GGUF, embedding model, reranker, and docling artifacts.
-    # `setup_state_payload` is currently unused but kept for call compatibility.
     return are_required_models_cached()
 
 
@@ -727,7 +726,7 @@ async def get_setup_status() -> SetupStatusResponse:
     """
     setup_state_path = _setup_state_path()
     setup_state_payload, read_error = _load_setup_state_file(setup_state_path)
-    required_models_ready = _is_setup_ready(setup_state_payload)
+    required_models_ready = _is_setup_ready()
     vm = psutil.virtual_memory()
     disk = psutil.disk_usage(settings.app_data_dir)
     machine_ram_gb = int(round(float(vm.total / (1024 ** 3))))
