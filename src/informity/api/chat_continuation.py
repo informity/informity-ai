@@ -118,6 +118,11 @@ def enforce_completion_action_consistency(
             if normalized_completion_mode in {CompletionMode.SCOPED_COMPLETE, CompletionMode.PARTIAL}:
                 normalized_completion_mode = CompletionMode.COMPLETE
         return normalized_completion_mode, normalized_has_remaining_scope
+    if next_action == NextAction.ASSISTANT_SWITCH:
+        normalized_has_remaining_scope = False
+        if normalized_completion_mode in {CompletionMode.SCOPED_COMPLETE, CompletionMode.PARTIAL}:
+            normalized_completion_mode = CompletionMode.COMPLETE
+        return normalized_completion_mode, normalized_has_remaining_scope
     if not normalized_has_remaining_scope:
         normalized_has_remaining_scope = True
     if next_action == NextAction.CONTINUE and normalized_completion_mode == CompletionMode.COMPLETE:

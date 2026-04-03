@@ -30,6 +30,7 @@ interface ChatMessageProps {
   isContinuation?: boolean
   sources?: ChatSourceReference[]
   displayBlocks?: DisplayBlock[]
+  chatMode?: 'assistant' | 'researcher'
   isStreaming?: boolean
   streamStatusText?: string
   streamSectionProgress?: {
@@ -42,16 +43,18 @@ interface ChatMessageProps {
   hasRemainingScope?: boolean
   completionMode?: 'complete' | 'partial' | 'scoped_complete' | 'stopped'
   stoppedByUser?: boolean
-  nextAction?: 'none' | 'continue' | 'regenerate'
-  nextActionReason?: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | null
+  nextAction?: 'none' | 'continue' | 'regenerate' | 'assistant_switch'
+  nextActionReason?: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_corpus' | null
   continueLabel?: 'Continue' | 'Continue Again'
   createdAt?: string
   generationSeconds?: number
   enableRawOutputControl?: boolean
   onContinue?: (anchorMessageId?: number) => void
   onRegenerate?: () => void
+  onAssistantSwitch?: () => void
   canContinue?: boolean
   canRegenerate?: boolean
+  canAssistantSwitch?: boolean
   actionsDisabled?: boolean
 }
 
@@ -63,6 +66,7 @@ function ChatMessageComponent({
   isContinuation = false,
   sources = [],
   displayBlocks = [],
+  chatMode,
   isStreaming = false,
   streamStatusText,
   streamSectionProgress,
@@ -78,8 +82,10 @@ function ChatMessageComponent({
   enableRawOutputControl = false,
   onContinue,
   onRegenerate,
+  onAssistantSwitch,
   canContinue = false,
   canRegenerate = false,
+  canAssistantSwitch = false,
   actionsDisabled = false,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
@@ -125,6 +131,7 @@ function ChatMessageComponent({
     && !!onContinue
     && (!isStopped || hasMeaningfulAssistantContent)
   const showRegenerate = !isUser && nextAction === 'regenerate' && !!onRegenerate
+  const showAssistantSwitch = !isUser && nextAction === 'assistant_switch' && !!onAssistantSwitch
   const showSectionProgress = !!streamSectionProgress && streamSectionProgress.total > 0
   const completedProgressText = showSectionProgress
     ? streamSectionProgress.completed.map((heading) => heading.replace(/^#{1,6}\s*/, '')).join(' · ')
@@ -141,6 +148,19 @@ function ChatMessageComponent({
         <div className="chat-message__meta-item">
           <i className="ri-time-line chat-message__meta-icon" aria-hidden />
           <span>{formatDuration(generationSeconds)}</span>
+        </div>
+      ),
+    })
+  }
+  if (!isUser && chatMode) {
+    const modeIcon = chatMode === 'assistant' ? 'ri-robot-2-line' : 'ri-search-ai-3-line'
+    const modeLabel = chatMode === 'assistant' ? 'Assistant' : 'Researcher'
+    assistantMetaItems.push({
+      key: 'mode',
+      node: (
+        <div className="chat-message__meta-item">
+          <i className={`${modeIcon} chat-message__meta-icon`} aria-hidden />
+          <span>{modeLabel}</span>
         </div>
       ),
     })
@@ -238,6 +258,23 @@ function ChatMessageComponent({
         >
           <i className="ri-refresh-line chat-message__meta-icon" aria-hidden />
           <span>Regenerate</span>
+        </button>
+      ),
+    })
+  }
+  if (showAssistantSwitch) {
+    assistantMetaItems.push({
+      key: 'assistant_switch',
+      node: (
+        <button
+          type="button"
+          className="chat-message__continue-inline"
+          onClick={() => onAssistantSwitch?.()}
+          disabled={actionsDisabled || !canAssistantSwitch}
+          aria-label="Ask Assistant"
+        >
+          <i className="ri-robot-2-line chat-message__meta-icon" aria-hidden />
+          <span>Ask Assistant</span>
         </button>
       ),
     })
@@ -472,6 +509,7 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.content === next.content &&
     prev.isInternal === next.isInternal &&
     prev.isContinuation === next.isContinuation &&
+    prev.chatMode === next.chatMode &&
     prev.sources === next.sources &&
     prev.displayBlocks === next.displayBlocks &&
     prev.isStreaming === next.isStreaming &&
@@ -490,8 +528,10 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.enableRawOutputControl === next.enableRawOutputControl &&
     prev.onContinue === next.onContinue &&
     prev.onRegenerate === next.onRegenerate &&
+    prev.onAssistantSwitch === next.onAssistantSwitch &&
     prev.canContinue === next.canContinue &&
     prev.canRegenerate === next.canRegenerate &&
+    prev.canAssistantSwitch === next.canAssistantSwitch &&
     prev.actionsDisabled === next.actionsDisabled
   )
 }

@@ -69,6 +69,7 @@ class NextAction(StrEnum):
     NONE = 'none'
     CONTINUE = 'continue'
     REGENERATE = 'regenerate'
+    ASSISTANT_SWITCH = 'assistant_switch'
 
 
 class TimeoutReason(StrEnum):

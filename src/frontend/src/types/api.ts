@@ -54,8 +54,8 @@ export type DisplayBlock =
 
 export type CompletionMode = 'complete' | 'partial' | 'scoped_complete' | 'stopped'
 export type ChatMode = 'assistant' | 'researcher'
-export type NextAction = 'none' | 'continue' | 'regenerate'
-export type NextActionReason = 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled'
+export type NextAction = 'none' | 'continue' | 'regenerate' | 'assistant_switch'
+export type NextActionReason = 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_corpus'
 export type ContinuationProgressState = 'progressed' | 'stalled' | 'budget_exhausted'
 export type StreamStatusState = 'classifying' | 'retrieving' | 'generating' | 'continuing' | 'finalizing'
 
@@ -115,6 +115,7 @@ export interface ChatMessageApi {
   next_action_reason?: NextActionReason | null
   created_at?: string
   generation_seconds?: number
+  chat_mode?: ChatMode
 }
 
 export interface ChatMessageDisplay {
@@ -139,6 +140,7 @@ export interface ChatMessageDisplay {
   timeoutReason?: string | null
   createdAt?: string
   generationSeconds?: number
+  chatMode?: ChatMode
   continuationResolutionReason?: string | null
   continuationProgressState?: ContinuationProgressState | null
   nextAction?: NextAction

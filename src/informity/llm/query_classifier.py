@@ -92,6 +92,10 @@ _GENERIC_CAPABILITY_PATTERN = re.compile(
     r'\b(can\s+you\s+help|help\s+me\s+understand|what\s+information\s+is\s+available)\b',
     re.IGNORECASE,
 )
+_FACT_LOOKUP_PATTERN = re.compile(
+    r'^\s*(when|what\s+year|which\s+year|who|where|what\s+is|what\s+was|when\s+was)\b',
+    re.IGNORECASE,
+)
 _EXTREME_VALUE_LOOKUP_PATTERN = build_extreme_value_lookup_pattern()
 _AGGREGATE_LISTING_SCOPE_PATTERN = build_aggregate_listing_scope_pattern()
 _ANCHOR_DOCUMENT_TERM_PATTERN = re.compile(
@@ -161,6 +165,10 @@ def _has_multi_year_scope_signal(text: str) -> bool:
 
 def _is_general_capability_query(text: str) -> bool:
     return bool(_META_QUERY_PATTERN.search(text) or _GENERIC_CAPABILITY_PATTERN.search(text))
+
+
+def _looks_fact_lookup_query(text: str) -> bool:
+    return bool(_FACT_LOOKUP_PATTERN.search(text))
 
 
 def _has_extreme_value_lookup_request(text: str) -> bool:
@@ -362,6 +370,19 @@ def classify_query(query: str) -> QueryClassification:
     has_extreme_value_lookup = _has_extreme_value_lookup_request(lowered)
     has_aggregate_listing_scope = _has_aggregate_listing_scope_request(lowered)
     has_global_entity_listing = _has_global_entity_listing_request(lowered)
+    looks_fact_lookup = _looks_fact_lookup_query(lowered)
+    if (
+        is_inventory_metadata
+        and looks_fact_lookup
+        and not has_corpus_scope
+        and not has_structured_schema
+        and not has_analysis_action
+        and not has_evidence_value_request
+        and not is_general_capability
+    ):
+        # Treat world-knowledge fact lookups (e.g. "What year was ... signed?")
+        # as focused retrieval prompts, not corpus inventory queries.
+        is_inventory_metadata = False
 
     # --- Corpus metadata promotion ----------------------------------------
     # Inventory queries (count, enumeration, file listing, capability) are
@@ -411,6 +432,23 @@ def classify_query(query: str) -> QueryClassification:
         if has_structured_schema:
             response_shape = OutputShape.METADATA_TABLE
         metadata_rules = [
+            (
+                (
+                    not is_inventory_metadata
+                    and not has_corpus_scope
+                    and not has_structured_schema
+                    and not has_analysis_action
+                    and not has_evidence_value_request
+                    and not is_general_capability
+                    and looks_fact_lookup
+                ),
+                lambda: apply_override(
+                    reason_code='deterministic_override_metadata_non_inventory_fact_lookup_to_focused',
+                    new_intent=IntentLabel.FOCUSED,
+                    new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
+                    new_shape=OutputShape.NARRATIVE_SYNTHESIS,
+                ),
+            ),
             (
                 has_structured_schema and not is_inventory_metadata and broad_scope,
                 lambda: apply_override(

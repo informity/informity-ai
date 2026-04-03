@@ -23,8 +23,8 @@ const CHAT_MODE_LABELS: Record<ChatMode, string> = {
   researcher: 'Researcher',
 }
 const CHAT_MODE_ICONS: Record<ChatMode, string> = {
-  assistant: 'ri-chat-smile-3-line',
-  researcher: 'ri-search-ai-line',
+  assistant: 'ri-robot-2-line',
+  researcher: 'ri-search-ai-3-line',
 }
 const ALL_CHAT_MODES: ChatMode[] = ['assistant', 'researcher']
 
@@ -265,6 +265,23 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     void sendMessage(previousUser.content, { mode: chatMode })
   }, [offline, isStreaming, messages, sendMessage, chatMode])
 
+  const handleAskInAssistant = useCallback((assistantMessageIndex: number) => {
+    if (offline) return
+    if (isStreaming) return
+    const previousUser = [...messages]
+      .slice(0, assistantMessageIndex)
+      .reverse()
+      .find((msg) => msg.role === 'user' && !msg.isInternal && !!msg.content?.trim())
+    if (!previousUser) return
+    setChatMode('assistant')
+    try {
+      window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'assistant')
+    } catch {
+      // ignore storage errors
+    }
+    void sendMessage(previousUser.content, { mode: 'assistant' })
+  }, [offline, isStreaming, messages, sendMessage])
+
   const handleNewChat = useCallback(() => {
     if (offline) return
     newChatRequestedRef.current = true
@@ -414,6 +431,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                       content={msg.content}
                       isInternal={msg.isInternal}
                       isContinuation={msg.isContinuation}
+                      chatMode={msg.chatMode}
                       sources={msg.sources}
                       displayBlocks={msg.displayBlocks}
                       isStreaming={msg.isStreaming}
@@ -431,8 +449,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                       enableRawOutputControl={enableRawOutputControl}
                       onContinue={handleContinue}
                       onRegenerate={() => handleRegenerate(i)}
+                      onAssistantSwitch={() => handleAskInAssistant(i)}
                       canContinue={!offline && !isStreaming}
                       canRegenerate={!offline && !isStreaming}
+                      canAssistantSwitch={!offline && !isStreaming}
                       actionsDisabled={offline}
                     />
                   ))}

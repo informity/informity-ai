@@ -11,6 +11,18 @@ DISPLAY_FALLBACK_MESSAGE = (
     'I could not generate a final answer from the model output. Please try rephrasing your question.'
 )
 _TABLE_SEPARATOR_PATTERN = re.compile(r'^\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*$')
+_ANSWER_LABEL_PATTERN = re.compile(
+    r'(?im)(^|\n{2,}[ \t]*)(?:\*\*)?[ \t]*answer[ \t]*(?:\*\*)?[ \t]*:[ \t]*'
+)
+_ANSWER_LABEL_BOLD_COLON_INSIDE_PATTERN = re.compile(
+    r'(?im)(^|\n{2,}[ \t]*)\*\*[ \t]*answer[ \t]*:[ \t]*\*\*[ \t]*'
+)
+_OUT_OF_CORPUS_SENTENCE_PATTERN = re.compile(
+    r'(?is)\bhowever,\s*this information is not (?:contained|present|available)\s+in\s+the\s+provided\s+documents\.?'
+)
+_OUT_OF_CORPUS_SIGNAL_PATTERN = re.compile(
+    r'(?is)\b(?:documents?|context)\b.{0,120}\b(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b(?:contain|include|cover|mention|provide)\b'
+)
 
 
 def strip_think_blocks(text: str) -> str:
@@ -71,6 +83,13 @@ def _trim_truncated_trailing_markdown_table_row(text: str) -> str:
 def sanitize_display_answer(text: str) -> str:
     cleaned = strip_think_blocks(text)
     cleaned = strip_source_artifacts(cleaned)
+    cleaned = _ANSWER_LABEL_BOLD_COLON_INSIDE_PATTERN.sub(lambda m: m.group(1), cleaned)
+    cleaned = _ANSWER_LABEL_PATTERN.sub(lambda m: m.group(1), cleaned)
+    if (
+        len(_OUT_OF_CORPUS_SIGNAL_PATTERN.findall(cleaned)) >= 1
+        and _OUT_OF_CORPUS_SENTENCE_PATTERN.search(cleaned) is not None
+    ):
+        cleaned = _OUT_OF_CORPUS_SENTENCE_PATTERN.sub('', cleaned)
     # Normalize line-break HTML artifacts commonly emitted inside markdown table cells.
     cleaned = re.sub(r'(?i)<br\s*/?>', '; ', cleaned)
     cleaned = _normalize_inline_whitespace_preserve_indentation(cleaned)

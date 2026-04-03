@@ -112,6 +112,11 @@ _VALID_COMPLETION_MODES = {
 _PERSISTENCE_EXCEPTIONS = (aiosqlite.Error, ValueError, RuntimeError, OSError)
 _STREAM_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, ConnectionError, aiosqlite.Error)
 _CHAT_MODE_ALLOWED = {'assistant', 'researcher'}
+_OUT_OF_CORPUS_RESPONSE_PATTERN = re.compile(
+    r'(?is)\b(?:provided|indexed|these)?\s*(?:documents?|records?|context)\b.{0,120}\b'
+    r'(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b'
+    r'(?:contain|include|cover|mention|provide|have)\b'
+)
 
 
 def _resolve_chat_mode(raw_mode: object) -> str:
@@ -152,6 +157,10 @@ def _normalize_diagnostics_query_type(value: object) -> str:
         return DiagnosticsQueryType(normalized).value
     except ValueError:
         return DiagnosticsQueryType.UNKNOWN.value
+
+
+def _answer_signals_out_of_corpus(text: str) -> bool:
+    return bool(_OUT_OF_CORPUS_RESPONSE_PATTERN.search(str(text or '')))
 # ==============================================================================
 # Logger
 # ==============================================================================
@@ -286,6 +295,7 @@ async def chat(
             metrics_raw_chunks_count = 0
             continuation_passes = 0
             pass_details: list[dict[str, object]] = []
+            researcher_out_of_corpus = False
             continuation_resolution_reason: (
                 ContinuationResolutionReason | StructuralGapReason | TimeoutReason | str | None
             ) = None
@@ -498,6 +508,14 @@ async def chat(
                                 if normalized_mode is not None:
                                     pass_completion_mode_override = normalized_mode
                                     completion_mode_override = normalized_mode
+                            if (
+                                resolved_chat_mode == 'researcher'
+                                and metrics_query_type in {DiagnosticsQueryType.FOCUSED.value, DiagnosticsQueryType.COVERAGE.value}
+                                and bool(metrics_payload.get('generation_skipped')) is True
+                                and bool(metrics_payload.get('answerability_passed')) is False
+                                and not bool(getattr(locked_classification, 'is_metadata_query', False))
+                            ):
+                                researcher_out_of_corpus = True
                             continue
 
                         if isinstance(item, str):
@@ -698,6 +716,22 @@ async def chat(
                     has_remaining_scope=message_has_remaining_scope,
                     continuation_resolution_reason=continuation_resolution_reason,
                 )
+                if (
+                    resolved_chat_mode == 'researcher'
+                    and researcher_out_of_corpus
+                    and message_next_action == NextAction.NONE
+                ):
+                    message_next_action = NextAction.ASSISTANT_SWITCH
+                    message_next_action_reason = 'out_of_corpus'
+                elif (
+                    resolved_chat_mode == 'researcher'
+                    and message_next_action == NextAction.NONE
+                    and _answer_signals_out_of_corpus(cleaned_answer)
+                ):
+                    # Fallback path: generation was allowed, but the model still
+                    # states the answer is out of corpus scope.
+                    message_next_action = NextAction.ASSISTANT_SWITCH
+                    message_next_action_reason = 'out_of_corpus'
                 message_completion_mode, message_has_remaining_scope = _enforce_completion_action_consistency(
                     completion_mode=message_completion_mode,
                     has_remaining_scope=message_has_remaining_scope,
