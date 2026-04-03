@@ -36,6 +36,7 @@ const ACTIVE_GENERATION_REJECT_MESSAGE = 'Please wait for the current answer to 
 const STREAM_INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000
 const STREAM_WATCHDOG_TIMEOUT_MESSAGE = 'Connection lost while waiting for response. Please try again.'
 const STREAM_WATCHDOG_INTERRUPTED_MESSAGE = 'Response was interrupted due to connection inactivity.'
+const MESSAGE_MODE_MAP_STORAGE_KEY = 'informity.messageModeById'
 const STREAM_STATUS_LABELS: Record<string, string> = {
   classifying: 'Analyzing your request...',
   retrieving: 'Searching for relevant information...',
@@ -69,8 +70,8 @@ function setForceNewChatFlag(enabled: boolean): void {
 }
 
 function buildRecoveryCallout(
-  nextAction: 'none' | 'continue' | 'regenerate',
-  nextActionReason?: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | null,
+  nextAction: 'none' | 'continue' | 'regenerate' | 'assistant_switch',
+  nextActionReason?: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_corpus' | null,
 ): DisplayBlock | null {
   if (nextAction === 'none') return null
   if (nextActionReason === 'stalled') {
@@ -109,6 +110,34 @@ function buildRecoveryCallout(
     }
   }
   return null
+}
+
+function readStoredMessageModes(): Record<string, ChatMode> {
+  try {
+    const raw = window.localStorage.getItem(MESSAGE_MODE_MAP_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const normalized: Record<string, ChatMode> = {}
+    for (const [key, value] of Object.entries(parsed || {})) {
+      if (value === 'assistant' || value === 'researcher') {
+        normalized[key] = value
+      }
+    }
+    return normalized
+  } catch {
+    return {}
+  }
+}
+
+function storeMessageMode(messageId: number, mode: ChatMode): void {
+  if (!Number.isInteger(messageId)) return
+  try {
+    const map = readStoredMessageModes()
+    map[String(messageId)] = mode
+    window.localStorage.setItem(MESSAGE_MODE_MAP_STORAGE_KEY, JSON.stringify(map))
+  } catch {
+    // ignore storage failures
+  }
 }
 
 export function ChatProvider({ children }: ChatProviderProps) {
@@ -210,6 +239,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       const data = (await getChat(selectedChatId)) as GetChatResponse
       if (chatLoadSessionRef.current !== sessionId) return
       const historyMessages = data.messages || []
+      const storedModes = readStoredMessageModes()
       const mapped: ChatMessageDisplay[] = historyMessages.map((m, index) => {
         const completionMode: 'complete' | 'partial' | 'scoped_complete' | 'stopped' =
           m.completion_mode === 'partial' || m.completion_mode === 'scoped_complete' || m.completion_mode === 'stopped'
@@ -226,6 +256,17 @@ export function ChatProvider({ children }: ChatProviderProps) {
         const nextDisplayBlocks = recoveryCallout
           ? [...(historyBlocks || []), recoveryCallout]
           : historyBlocks
+        const storedMode = typeof m.id === 'number' ? storedModes[String(m.id)] : undefined
+        const inferredAssistantMode: ChatMode | undefined = (
+          m.role === 'assistant'
+            ? (
+                storedMode
+                ?? (m.chat_mode === 'assistant' || m.chat_mode === 'researcher' ? m.chat_mode : undefined)
+                ?? (nextActionReason === 'out_of_corpus' ? 'researcher' : undefined)
+                ?? ((m.sources?.length || 0) > 0 ? 'researcher' : undefined)
+              )
+            : undefined
+        )
         return {
           id: m.id,
           role: m.role,
@@ -248,6 +289,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           continueLabel: 'Continue',
           createdAt: m.created_at,
           generationSeconds: m.generation_seconds,
+          chatMode: inferredAssistantMode,
         }
       })
       setCurrentChatIdState(selectedChatId)
@@ -342,6 +384,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       role: 'assistant',
       content: '',
       sources: [],
+      chatMode,
       isStreaming: true,
       isContinuation: isInternalMessage,
       streamStatusText: isInternalMessage
@@ -407,9 +450,12 @@ export function ChatProvider({ children }: ChatProviderProps) {
           : 0
         const continuationResolutionReason = data?.continuation_resolution_reason ?? null
         const continuationProgressState = data?.continuation_progress_state
-        const nextAction: 'none' | 'continue' | 'regenerate' = data?.next_action ?? 'none'
-        const nextActionReason: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | null =
+        const nextAction: 'none' | 'continue' | 'regenerate' | 'assistant_switch' = data?.next_action ?? 'none'
+        const nextActionReason: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_corpus' | null =
           data?.next_action_reason ?? null
+        const chatMode = data?.chat_mode === 'assistant' || data?.chat_mode === 'researcher'
+          ? data.chat_mode
+          : undefined
         const recoveryCallout = buildRecoveryCallout(nextAction, nextActionReason)
         const displayBlocks = Array.isArray(data?.display_blocks) ? data?.display_blocks : undefined
         const extraBlocks: DisplayBlock[] = [recoveryCallout].filter((v): v is DisplayBlock => v != null)
@@ -429,6 +475,9 @@ export function ChatProvider({ children }: ChatProviderProps) {
           && typeof messageId === 'number'
           && lastAutoContinuedMessageIdRef.current === messageId
         ) ? 'Continue Again' : 'Continue'
+        if (typeof messageId === 'number' && chatMode) {
+          storeMessageMode(messageId, chatMode)
+        }
 
         streamDraftRef.current = {
           ...(streamDraftRef.current || assistantDraft),
@@ -445,6 +494,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           stoppedByUser,
           timeoutReason,
           generationSeconds: elapsed,
+          chatMode,
           continuationResolutionReason,
           continuationProgressState: continuationProgressState ?? null,
           nextAction,
@@ -472,6 +522,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 stoppedByUser,
                 timeoutReason,
                 generationSeconds: elapsed ?? last.generationSeconds,
+                chatMode: chatMode ?? last.chatMode,
                 continuationResolutionReason,
                 continuationProgressState: continuationProgressState ?? last.continuationProgressState ?? null,
                 nextAction,

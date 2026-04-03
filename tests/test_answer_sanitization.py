@@ -41,3 +41,25 @@ def test_sanitize_display_answer_trims_truncated_trailing_markdown_table_row() -
         "| B | 20"
     )
     assert sanitize_display_answer(raw) == "| Field | Value |\n|---|---|\n| A | 10 |"
+
+
+def test_sanitize_display_answer_strips_leading_answer_label() -> None:
+    raw = "Answer: The declaration was signed in 1776."
+    assert sanitize_display_answer(raw) == "The declaration was signed in 1776."
+
+
+def test_sanitize_display_answer_strips_bold_inline_answer_label() -> None:
+    raw = "The documents do not contain this information.\n\n**Answer:** 1776."
+    assert sanitize_display_answer(raw) == "The documents do not contain this information.\n\n1776."
+
+
+def test_sanitize_display_answer_removes_redundant_out_of_corpus_however_sentence() -> None:
+    raw = (
+        "The provided documents do not contain this information.\n\n"
+        "Answer: The US Declaration of Independence was signed in 1776. "
+        "However, this information is not contained in the provided documents."
+    )
+    assert sanitize_display_answer(raw) == (
+        "The provided documents do not contain this information.\n\n"
+        "The US Declaration of Independence was signed in 1776."
+    )

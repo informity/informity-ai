@@ -62,6 +62,24 @@ def test_corpus_capability_query_routes_to_metadata() -> None:
     assert result.is_metadata_query is True
 
 
+def test_world_fact_lookup_does_not_stay_metadata_inventory() -> None:
+    class _MetadataOnlyRouter:
+        def classify_intent(self, _query: str) -> IntentPrediction:
+            return IntentPrediction('metadata', 0.9, [('metadata', 0.9)], ['forced_metadata'])
+
+    original = get_intent_router()
+    set_intent_router_for_testing(_MetadataOnlyRouter())
+    try:
+        result = classify_query('What year was the US declaration of independence signed?')
+    finally:
+        set_intent_router_for_testing(original)
+
+    assert result.intent == 'focused'
+    assert result.route_candidate == 'targeted_fact_lookup'
+    assert result.is_metadata_query is False
+    assert 'deterministic_override_metadata_non_inventory_fact_lookup_to_focused' in result.reason_codes
+
+
 def test_general_capabilities_query_stays_simple() -> None:
     result = classify_query('Can you help me understand what information is available?')
     assert result.intent == 'simple'
