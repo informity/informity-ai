@@ -80,6 +80,12 @@ CONFLICT_AMOUNT_KEYWORDS: str = (
 CONTINUATION_KEYWORDS: str = (
     r'\b(continue|go\s+on|keep\s+going|next\s+section|the\s+rest)\b'
 )
+REFERENTIAL_FOLLOWUP_KEYWORDS: str = (
+    r'\b('
+    r'there|that|those|these|it|they|them|same|above|earlier|previous|prior|'
+    r'as\s+discussed|as\s+mentioned|continue|follow[-\s]?up|again'
+    r')\b'
+)
 
 # Structured output schema directives (format-first requests).
 STRUCTURED_OUTPUT_SCHEMA_KEYWORDS: str = (
@@ -378,6 +384,13 @@ def build_continuation_pattern() -> Pattern[str]:
     Build regex pattern for continuation follow-up requests.
     """
     return re.compile(CONTINUATION_KEYWORDS, re.IGNORECASE)
+
+
+def build_referential_followup_pattern() -> Pattern[str]:
+    """
+    Build regex pattern for referential follow-up phrasing.
+    """
+    return re.compile(REFERENTIAL_FOLLOWUP_KEYWORDS, re.IGNORECASE)
 
 
 def build_structured_output_schema_pattern() -> Pattern[str]:

@@ -1,38 +1,43 @@
 /* -----------------------------------------------------------------------------
-   File detail — sliding panel (right side)
+   File detail — large modal
    Uses app design tokens for consistency with Settings, Dashboard, tables.
    ----------------------------------------------------------------------------- */
 
 .file-detail {
   position: fixed;
   inset: 0;
-  z-index: 100;
+  z-index: 1000;
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: center;
   pointer-events: none;
   overflow: hidden;
+  padding: var(--space-lg);
 }
 
 .file-detail__backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.3);
+  background: rgba(0, 0, 0, 0.5);
   pointer-events: auto;
   cursor: pointer;
 }
 
 .file-detail__panel {
   position: relative;
-  width: 100%;
-  max-width: 540px;
-  height: 100vh;
-  background: var(--color-bg-surface);
-  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.3);
+  width: min(88vw, 760px);
+  max-width: none;
+  height: min(76vh, 680px);
+  background: var(--color-bg-elevated);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-lg);
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
   pointer-events: auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   overscroll-behavior: contain;
+  user-select: none;
 }
 
 .file-detail__header {
@@ -235,6 +240,7 @@
   border: 1px solid var(--color-border);
   font-size: var(--font-size-base);
   line-height: 1.5;
+  user-select: text;
 }
 
 .file-detail__preview-text {
@@ -242,6 +248,7 @@
   white-space: pre-wrap;
   word-break: break-word;
   font-family: inherit;
+  user-select: text;
 }
 
 .file-detail__preview-empty {
@@ -332,8 +339,15 @@
    ----------------------------------------------------------------------------- */
 
 @media (max-width: 640px) {
+  .file-detail {
+    padding: 0;
+  }
+
   .file-detail__panel {
     max-width: 100%;
+    height: 100vh;
+    border-radius: 0;
+    border: none;
   }
 
   .file-detail__header {

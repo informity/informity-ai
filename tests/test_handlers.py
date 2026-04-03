@@ -12,7 +12,7 @@ from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.query_handler import QueryHandler
-from informity.llm.handlers.rag import RAGHandler
+from informity.llm.handlers.rag import RAGHandler, _build_history_aware_retrieval_query
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.rag_runtime.retrieval_pipeline import _deduplicate_prompt_chunks
@@ -131,6 +131,46 @@ class TestMetadataHandler:
 
 
 class TestRAGHandler:
+
+    def test_query_rewrite_passes_through_non_referential_questions(self) -> None:
+        rewritten, applied = _build_history_aware_retrieval_query(
+            'Summarize tax returns by year',
+            [
+                ChatMessage(chat_id='chat', role='user', content='Show me my 2024 taxes'),
+                ChatMessage(chat_id='chat', role='assistant', content='Here are the documents'),
+            ],
+        )
+        assert applied is False
+        assert rewritten == 'Summarize tax returns by year'
+
+    def test_query_rewrite_adds_context_for_referential_followups(self) -> None:
+        rewritten, applied = _build_history_aware_retrieval_query(
+            'What about that one?',
+            [
+                ChatMessage(chat_id='chat', role='user', content='Summarize my retirement plans in Escondido'),
+                ChatMessage(chat_id='chat', role='assistant', content='I found two retirement plan files in Escondido.'),
+            ],
+        )
+        assert applied is True
+        assert 'Follow-up context:' in rewritten
+        assert 'Previous user question:' in rewritten
+        assert 'Previous assistant answer:' in rewritten
+
+    def test_query_rewrite_can_be_disabled_via_settings(self) -> None:
+        original_enabled = settings.rag_query_rewrite_enabled
+        try:
+            settings.rag_query_rewrite_enabled = False
+            rewritten, applied = _build_history_aware_retrieval_query(
+                'What about that one?',
+                [
+                    ChatMessage(chat_id='chat', role='user', content='Summarize my retirement plans in Escondido'),
+                    ChatMessage(chat_id='chat', role='assistant', content='I found two relevant files.'),
+                ],
+            )
+            assert applied is False
+            assert rewritten == 'What about that one?'
+        finally:
+            settings.rag_query_rewrite_enabled = original_enabled
     @pytest.fixture(autouse=True)
     def _force_minimal_mode_for_rag_tests(self) -> None:
         # RAG handler tests validate the minimal one-path runtime directly.
@@ -417,6 +457,24 @@ class TestRAGHandler:
                 results.append(item)
             assert results[-1] == []
             assert mock_retrieve.await_count == 1
+
+    @pytest.mark.asyncio
+    async def test_handle_rewrites_referential_query_for_retrieval(self) -> None:
+        handler = RAGHandler()
+        classification = QueryClassification(intent='focused')
+        mock_db = MagicMock()
+        history = [
+            ChatMessage(chat_id='chat', role='user', content='Summarize my retirement plans in Escondido'),
+            ChatMessage(chat_id='chat', role='assistant', content='I found relevant retirement plan documents.'),
+        ]
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
+            mock_retrieve.return_value = []
+            results: list[object] = []
+            async for item in handler.handle('What about that one?', classification, history, mock_db, None):
+                results.append(item)
+            assert results[-1] == []
+            assert mock_retrieve.await_count == 1
+            assert 'Follow-up context:' in mock_retrieve.await_args.kwargs['query']
 
     @pytest.mark.asyncio
     async def test_continuation_without_overlap_keeps_scope_without_clarification(self) -> None:

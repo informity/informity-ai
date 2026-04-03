@@ -431,6 +431,8 @@ def _derive_format_requirements(
             _append_requirement('when multiple years are available in context, include at least 2 distinct year subsections')
     if re.search(r'missing evidence|missing records|gaps', question, re.IGNORECASE):
         _append_requirement('explicitly call out missing evidence by requested group and/or year')
+    # action_hints are additive signals only: they do not replace regex/user-contract cues,
+    # and they flow through the same deduplicated append path for deterministic behavior.
     if bool(action_hints and action_hints.get('should_enumerate')):
         _append_requirement('present findings as a numbered or bulleted list when no stricter format contract overrides it')
     if bool(action_hints and action_hints.get('should_compare')):
