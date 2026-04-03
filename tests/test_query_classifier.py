@@ -1,5 +1,6 @@
 import pytest
 
+import informity.llm.query_classifier as query_classifier_module
 from informity.llm.intent_router import (
     IntentPrediction,
     get_intent_router,
@@ -78,6 +79,17 @@ def test_world_fact_lookup_does_not_stay_metadata_inventory() -> None:
     assert result.route_candidate == 'targeted_fact_lookup'
     assert result.is_metadata_query is False
     assert 'deterministic_override_metadata_non_inventory_fact_lookup_to_focused' in result.reason_codes
+
+
+def test_routing_expansion_reason_code_is_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _FakeExpansion:
+        expanded_query = 'What is ROI return on investment'
+        canonical_terms = ['return on investment']
+
+    monkeypatch.setattr(query_classifier_module, 'expand_query_for_routing', lambda _query: _FakeExpansion())
+
+    result = classify_query('What is ROI')
+    assert 'term_dictionary_routing_expansion_applied' in result.reason_codes
 
 
 def test_general_capabilities_query_stays_simple() -> None:

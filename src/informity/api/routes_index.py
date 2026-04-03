@@ -16,7 +16,6 @@ from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
 import informity.api.operation_state as op_state
-from informity.api.operation_state import resolve_running_scan
 from informity.api.schemas import IndexStatusResponse, RebuildRequest
 from informity.api.security import EndpointGuard
 from informity.config import DirNames, reset_to_factory_defaults, settings
@@ -30,11 +29,16 @@ from informity.db.sqlite import (
     get_indexed_content_size_bytes,
     get_latest_completed_scan,
     insert_scan_record,
+    purge_term_dictionary,
     reset_all_data,
     update_scan_record,
 )
 from informity.db.vectors import vector_store
 from informity.indexer.pipeline import reindex_file
+from informity.indexer.term_dictionary_builder import (
+    get_term_dictionary_build_status,
+    rebuild_term_dictionary,
+)
 from informity.scanner.crawler import scanned_file_for_path
 from informity.scanner.extractors.base import register_extractors
 
@@ -84,7 +88,7 @@ async def rebuild_index(
                 )
 
             # Check if a scan/rebuild is already running and resolve it (cancel / mark stale / block)
-            await resolve_running_scan(db, force=req.force, operation='rebuild')
+            await op_state.resolve_running_scan(db, force=req.force, operation='rebuild')
 
             # Create a scan record for tracking
             scan_record = ScanRecord(started_at=datetime.now(UTC))
@@ -229,6 +233,28 @@ async def reset_index(
 
     background_tasks.add_task(_run_reset_task)
     return {'status': 'reset_started'}
+
+
+@router.get('/api/index/term-dictionary/status')
+async def term_dictionary_status(
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    return await get_term_dictionary_build_status(db)
+
+
+@router.post('/api/index/term-dictionary/rebuild')
+async def rebuild_term_dictionary_now(
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    return await rebuild_term_dictionary(db)
+
+
+@router.post('/api/index/term-dictionary/purge')
+async def purge_term_dictionary_now(
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    await purge_term_dictionary(db)
+    return {'status': 'purged'}
 
 
 # ==============================================================================
@@ -459,6 +485,13 @@ async def _run_rebuild_task(scan_id: int) -> None:
             await update_tuning_cache(db, force_recompute=True)
         except (ImportError, _INDEX_RUNTIME_EXCEPTIONS) as exc:
             log.warning('adaptive_tuning_rebuild_update_failed', error=str(exc))
+
+        # Post-rebuild term dictionary refresh (best-effort; does not fail rebuild).
+        try:
+            term_dictionary_result = await rebuild_term_dictionary(db, run_id=f'term-dict-rebuild-{scan_id}')
+            log.info('term_dictionary_rebuild_update', scan_id=scan_id, result=term_dictionary_result)
+        except _INDEX_RUNTIME_EXCEPTIONS as exc:
+            log.warning('term_dictionary_rebuild_update_failed', scan_id=scan_id, error=str(exc))
 
         log.info(
             'rebuild_completed',

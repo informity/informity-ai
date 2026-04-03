@@ -60,6 +60,7 @@ from informity.indexer.pipeline import (
     reindex_file,
     remove_file,
 )
+from informity.indexer.term_dictionary_builder import rebuild_term_dictionary
 from informity.scanner.crawler import (
     ScannedFile,
     compare_with_db,
@@ -319,6 +320,12 @@ async def reindex_single_file(
     if not result.success:
         raise HTTPException(status_code=500, detail=result.error or 'Re-index failed')
 
+    # Keep term dictionary in sync after per-file reindex (best-effort).
+    try:
+        await rebuild_term_dictionary(db, run_id=f'term-dict-reindex-file-{file_id}')
+    except _SCAN_RUNTIME_EXCEPTIONS as exc:
+        log.warning('term_dictionary_reindex_file_update_failed', file_id=file_id, error=str(exc))
+
     return {
         'file_id':        file_id,
         'success':        True,
@@ -348,6 +355,12 @@ async def remove_single_file(
     removed = await remove_file(db, file)
     if not removed:
         raise HTTPException(status_code=500, detail='Failed to remove file')
+
+    # Keep term dictionary in sync after per-file removal (best-effort).
+    try:
+        await rebuild_term_dictionary(db, run_id=f'term-dict-remove-file-{file_id}')
+    except _SCAN_RUNTIME_EXCEPTIONS as exc:
+        log.warning('term_dictionary_remove_file_update_failed', file_id=file_id, error=str(exc))
 
     return {
         'file_id':  file_id,
@@ -989,6 +1002,13 @@ async def _run_scan_task(
             await update_tuning_cache(db, force_recompute=True)
         except (ImportError, _SCAN_RUNTIME_EXCEPTIONS) as exc:
             log.warning('adaptive_tuning_scan_update_failed', error=str(exc))
+
+        # Post-scan term dictionary rebuild (best-effort; non-blocking for scan success).
+        try:
+            term_dictionary_result = await rebuild_term_dictionary(db, run_id=f'term-dict-scan-{scan_id}')
+            log.info('term_dictionary_scan_update', scan_id=scan_id, result=term_dictionary_result)
+        except _SCAN_RUNTIME_EXCEPTIONS as exc:
+            log.warning('term_dictionary_scan_update_failed', scan_id=scan_id, error=str(exc))
 
         # sqlite-vec path currently uses exact cosine distance search;
         # explicit log avoids implying ANN build behavior.

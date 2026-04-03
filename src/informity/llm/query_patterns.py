@@ -129,6 +129,40 @@ EXTREME_VALUE_LOOKUP_KEYWORDS: str = (
     r'(largest|highest|maximum|max|biggest|lowest|minimum|min)'
     r')\b'
 )
+CONTENT_ANALYSIS_KEYWORDS: str = (
+    r'\b('
+    r'summarize|summary|compare|contrast|contradictions?|conflicts?|overview|'
+    r'main subject|describe|analy[sz]e|findings?|mentioned|tell me about|key fields?|'
+    r'what does'
+    r')\b'
+)
+PLURAL_CORPUS_SCOPE_KEYWORDS: str = r'\b(documents|files|records)\b'
+SINGLE_TARGET_KEYWORDS: str = r'\b(any|one|single|this|that)\s+(document|file|record)\b'
+YEAR_AGGREGATE_CUE_KEYWORDS: str = (
+    r'\b('
+    r'by year|year[-\s]*by[-\s]*year|year[-\s]*over[-\s]*year|cross[-\s]*year|'
+    r'findings by year|evidence map by year|coverage matrix|largest increase|largest decrease|'
+    r'deltas?|per indexed year|years covered'
+    r')\b'
+)
+BROAD_SCOPE_EXTRA_KEYWORDS: str = r'\b(across|all|cross[\s-]*document|year[\s-]*by[\s-]*year)\b'
+MULTI_DOCUMENT_LISTING_KEYWORDS: str = r'\b(which|list|show)\b.*\b(files?|documents?)\b'
+GLOBAL_ENTITY_LISTING_KEYWORDS: str = (
+    r'\b('
+    r'names?\s+of\s+people|people\s+names?|people\s+mentioned|'
+    r'important\s+dates?|key\s+dates?|'
+    r'numeric\s+amounts?|key\s+amounts?|financial\s+figures?|financial\s+amounts?'
+    r')\b'
+)
+GENERIC_CAPABILITY_KEYWORDS: str = (
+    r'\b(can\s+you\s+help|help\s+me\s+understand|what\s+information\s+is\s+available)\b'
+)
+FACT_LOOKUP_KEYWORDS: str = r'^\s*(when|what\s+year|which\s+year|who|where|what\s+is|what\s+was|when\s+was)\b'
+ANCHOR_DOCUMENT_TERM_KEYWORDS: str = (
+    r'\b(?:19|20)\d{2}\s+[a-z0-9][a-z0-9\s-]{1,64}\b(?:receipt|statement|report|return|form|record|invoice|summary)\b'
+)
+QUOTED_PHRASE_KEYWORDS: str = r'["\']([^"\']{3,80})["\']'
+CORPUS_DOCUMENT_SCOPE_KEYWORDS: str = r'\b(indexed\s+)?(files?|documents?|records?)\b'
 
 
 # ==============================================================================
@@ -433,3 +467,63 @@ def build_aggregate_listing_scope_pattern() -> Pattern[str]:
     Build regex pattern for broad corpus listing/synthesis requests.
     """
     return re.compile(AGGREGATE_LISTING_SCOPE_KEYWORDS, re.IGNORECASE)
+
+
+def build_content_analysis_pattern() -> Pattern[str]:
+    """Build regex pattern for content-analysis style requests."""
+    return re.compile(CONTENT_ANALYSIS_KEYWORDS, re.IGNORECASE)
+
+
+def build_plural_corpus_scope_pattern() -> Pattern[str]:
+    """Build regex pattern for plural corpus scope cues."""
+    return re.compile(PLURAL_CORPUS_SCOPE_KEYWORDS, re.IGNORECASE)
+
+
+def build_single_target_pattern() -> Pattern[str]:
+    """Build regex pattern for single-document targeting cues."""
+    return re.compile(SINGLE_TARGET_KEYWORDS, re.IGNORECASE)
+
+
+def build_year_aggregate_cue_pattern() -> Pattern[str]:
+    """Build regex pattern for year-aggregate intent cues."""
+    return re.compile(YEAR_AGGREGATE_CUE_KEYWORDS, re.IGNORECASE)
+
+
+def build_broad_scope_extra_pattern() -> Pattern[str]:
+    """Build regex pattern for broad-scope lexical cues."""
+    return re.compile(BROAD_SCOPE_EXTRA_KEYWORDS, re.IGNORECASE)
+
+
+def build_multi_document_listing_pattern() -> Pattern[str]:
+    """Build regex pattern for multi-document listing requests."""
+    return re.compile(MULTI_DOCUMENT_LISTING_KEYWORDS, re.IGNORECASE)
+
+
+def build_global_entity_listing_pattern() -> Pattern[str]:
+    """Build regex pattern for global entity listing prompts."""
+    return re.compile(GLOBAL_ENTITY_LISTING_KEYWORDS, re.IGNORECASE)
+
+
+def build_generic_capability_pattern() -> Pattern[str]:
+    """Build regex pattern for generic capability questions."""
+    return re.compile(GENERIC_CAPABILITY_KEYWORDS, re.IGNORECASE)
+
+
+def build_fact_lookup_pattern() -> Pattern[str]:
+    """Build regex pattern for general-world fact lookup prompts."""
+    return re.compile(FACT_LOOKUP_KEYWORDS, re.IGNORECASE)
+
+
+def build_anchor_document_term_pattern() -> Pattern[str]:
+    """Build regex pattern for anchored document-term cues."""
+    return re.compile(ANCHOR_DOCUMENT_TERM_KEYWORDS, re.IGNORECASE)
+
+
+def build_quoted_phrase_pattern() -> Pattern[str]:
+    """Build regex pattern for quoted phrase extraction."""
+    return re.compile(QUOTED_PHRASE_KEYWORDS)
+
+
+def build_corpus_document_scope_pattern() -> Pattern[str]:
+    """Build regex pattern for corpus document-scope references."""
+    return re.compile(CORPUS_DOCUMENT_SCOPE_KEYWORDS, re.IGNORECASE)

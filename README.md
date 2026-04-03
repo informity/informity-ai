@@ -1,6 +1,6 @@
 # Informity AI
 
-[![Version](https://img.shields.io/badge/version-0.8.1-blue.svg)](#)
+[![Version](https://img.shields.io/badge/version-0.8.4-blue.svg)](#)
 [![Python](https://img.shields.io/badge/python-3.13+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-macOS-black?logo=apple)](#)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -155,41 +155,59 @@ src/informity/
 │   ├── watcher.py            # watchdog file change monitoring
 │   └── extractors/           # Unified docling extractor (PDF, DOCX, PPTX, XLSX, HTML, CSV) + text extractor
 ├── indexer/
-│   ├── chunker.py            # Parent-child chunking (child ~150 tokens, parent ~600 tokens)
+│   ├── chunker.py            # Parent-child chunking (child ~150 tokens, parent ~512 tokens)
 │   ├── embedder.py           # Embedding generation (nomic-embed-text-v1.5)
 │   ├── classifier.py         # Auto-tagging, categorization, year extraction
 │   ├── post_process.py       # Hyphenation repair (index-time only)
 │   ├── reranker.py           # Cross-encoder re-ranking (mandatory for all queries)
+│   ├── adaptive_tuning.py    # Corpus-aware top-k tuning cache
+│   ├── term_dictionary_builder.py  # Builds term/acronym dictionary from indexed corpus
 │   └── pipeline.py           # index_file, reindex_file, remove_file — orchestration
 ├── llm/
 │   ├── engine.py             # LLM inference (xllamacpp, Metal)
 │   ├── model_adapter.py      # Per-model profiles (Qwen3 14B, 9B, 30B A3B, DeepSeek R1)
 │   ├── rag.py                # QueryRouter — dispatches to handlers based on intent
-│   ├── query_classifier.py   # Structured slot extraction + decision tree
+│   ├── query_classifier.py   # Deterministic slot extraction + NLP/promptcue intent routing
 │   ├── retrieval.py          # Unified retrieval pipeline (vector search → rerank)
-│   ├── prompt_builder.py     # Prompt construction
-│   ├── streaming.py          # Minimal streaming
-│   ├── metadata_filters.py   # Unified metadata filter extraction
+│   ├── term_dictionary.py    # Runtime query expansion via corpus term dictionary
+│   ├── intent_router.py      # Promptcue-backed intent classification router
+│   ├── intent_normalization.py  # Normalizes promptcue intent policy fields
+│   ├── intent_profiles.py    # IntentProfile definitions and FitToBudgetPolicy defaults
+│   ├── fit_to_budget_tuning.py  # Adaptive context-window budget policies
+│   ├── promptcue_adapter.py  # Adapter for promptcue intent classification
+│   ├── nlp_heuristics.py     # Lightweight NLP utilities (tokenize, group-by extraction)
+│   ├── prompt_builder.py     # Prompt construction and budget management
+│   ├── streaming.py          # LLM stream wrapper
+│   ├── metadata_filters.py   # Unified metadata filter extraction (year, category, extension)
+│   ├── rag_runtime/          # RAG execution sub-pipeline (retrieval + generation phases)
 │   └── handlers/             # Query handlers (metadata, rag, simple)
 └── api/
     ├── schemas.py            # Request/response Pydantic models
     ├── operation_state.py    # Long-running operation flags (scan, reset)
+    ├── setup_state.py        # First-run setup state management
+    ├── chat_orchestrator.py  # Chat request orchestration entry point
+    ├── chat_continuation.py  # Continuation/duplicate detection helpers
+    ├── chat_sse.py           # SSE event formatting for chat streams
+    ├── chat_closeout.py      # Post-generation chat record finalization
+    ├── chat_stream_registry.py  # Active stream registry (cancel support)
     ├── routes_scan.py        # POST /api/scan, GET /api/scan/status, GET /api/files
     ├── routes_index.py       # POST /api/index/rebuild, GET /api/index/status, POST /api/index/reset
+    │                         # GET|POST /api/index/term-dictionary/status|rebuild|purge
     ├── routes_search.py      # POST /api/search
     ├── routes_chat.py        # POST /api/chat (SSE), GET/PUT/DELETE conversations
     ├── routes_settings.py    # GET/PUT /api/settings, POST /api/settings/reset, env-vars, file-types
     ├── routes_system.py      # GET /api/diagnostics, GET /api/diagnostics/summary, POST /api/shutdown
     └── env_vars_metadata.py  # INFORMITY_* env var groups for Configuration page
-src/diagnostics/              # Diagnostics add-on package (sibling to informity)
-├── issue_types.py            # IssueType enum (6 types)
+src/informity/diagnostics/    # Diagnostics package
+├── issue_types.py            # IssueType enum
 ├── observer.py               # EvalMetrics dataclass, detect_issues(), populate_signals()
-└── tools/                    # Evaluation pipeline tools (tools/diagnostics/)
-    ├── evaluate.py           # Runs queries, collects metrics, writes traces
-    ├── analyze.py            # Aggregates metrics, generates reports
-    ├── generate_queries.py   # Builds query sets from index
-    ├── pipeline.py           # End-to-end orchestrator
-    └── golden_set.py         # Pre-flight validation queries
+└── resource_snapshot.py      # System resource snapshot at trace time
+tools/diagnostics/            # Evaluation pipeline tools
+├── evaluate.py               # Runs queries, collects metrics, writes traces
+├── analyze.py                # Aggregates metrics, generates reports
+├── generate_queries.py       # Builds query sets from index
+├── pipeline.py               # End-to-end orchestrator
+└── golden_set.py             # Pre-flight validation queries
 ```
 
 ## Diagnostics Evaluation
@@ -232,7 +250,7 @@ Results are saved to `{app_data_dir}/diagnostics/runs/{run_id}/` (default: `~/.i
 - `traces/` - Trace files per query×model
 - `results/` - `run.json`, `report.md`, `report.json`, `pipeline_manifest.json`
 
-Metrics are read from trace files (app-compliant, no protocol pollution). The evaluation system uses OTel-named fields via `openinference-semantic-conventions` for future compatibility.
+Metrics are read from trace files (app-compliant, no protocol pollution). The evaluation system uses OTel-compatible field naming conventions.
 
 ## Tooling Layout
 

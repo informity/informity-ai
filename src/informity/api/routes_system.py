@@ -66,8 +66,6 @@ from informity.version import APP_VERSION
 
 log = structlog.get_logger(__name__)
 _SYSTEM_DIAGNOSTICS_EXCEPTIONS = (OSError, RuntimeError, ValueError, TypeError)
-_DIAGNOSTICS_SUMMARY_SCHEMA = 'informity.diagnostics.summary.v2'
-_DIAGNOSTICS_SUMMARY_AGGREGATION_MODE = 'direct_window_scan'
 _CANONICAL_DIAGNOSTICS_ISSUES = tuple(sorted(issue.value for issue in IssueType))
 _SETUP_STATE_FILE = 'setup_state.json'
 _SETUP_CONFIG_FILE = 'config.json'
@@ -95,6 +93,17 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
         description='Recommended quality and speed tradeoff.',
     ),
     SetupTierOption(
+        tier='pro',
+        title='Pro',
+        display_name=get_model_display_name('Qwen3.5-27B-Q5_K_M.gguf'),
+        model_filename='Qwen3.5-27B-Q5_K_M.gguf',
+        approx_size_gb=19.0,
+        quality='Very High',
+        speed='Slower',
+        ram_profile='Higher RAM',
+        description='Higher quality synthesis with larger context window.',
+    ),
+    SetupTierOption(
         tier='quality',
         title='Quality',
         display_name=get_model_display_name('Qwen3-30B-A3B-Q4_K_M.gguf'),
@@ -109,6 +118,7 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
 _SETUP_TIER_REPOS: dict[str, str] = {
     'small': 'bartowski/Qwen_Qwen3.5-9B-GGUF',
     'balanced': 'Qwen/Qwen3-14B-GGUF',
+    'pro': 'Qwen/Qwen3.5-27B-GGUF',
     'quality': 'Qwen/Qwen3-30B-A3B-GGUF',
 }
 _setup_runtime: dict[str, object] = {
@@ -1216,8 +1226,6 @@ async def get_diagnostics_summary(
     created_at_newest = max(created_at_values) if created_at_values else None
 
     return DiagnosticsMetricsSummaryResponse(
-        summary_schema=_DIAGNOSTICS_SUMMARY_SCHEMA,
-        aggregation_mode=_DIAGNOSTICS_SUMMARY_AGGREGATION_MODE,
         type_taxonomy=list(CANONICAL_DIAGNOSTICS_TYPES),
         query_type_taxonomy=list(CANONICAL_DIAGNOSTICS_QUERY_TYPES),
         issue_type_taxonomy=list(_CANONICAL_DIAGNOSTICS_ISSUES),

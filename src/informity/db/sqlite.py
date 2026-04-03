@@ -294,6 +294,75 @@ CREATE TRIGGER IF NOT EXISTS fts_chunks_au AFTER UPDATE ON vec_chunks BEGIN
     INSERT INTO fts_chunks(rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
     VALUES (new.chunk_id, new.chunk_text, new.chunk_id, new.file_id, new.file_path, new.year, new.filename, new.extension, new.category);
 END;
+
+CREATE TABLE IF NOT EXISTS term_dictionary_state (
+    singleton_id INTEGER PRIMARY KEY CHECK(singleton_id = 1),
+    current_version INTEGER NOT NULL DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS term_dictionary_build_runs (
+    run_id TEXT PRIMARY KEY,
+    target_version INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP,
+    last_processed_chunk_id INTEGER NOT NULL DEFAULT 0,
+    processed_chunks INTEGER NOT NULL DEFAULT 0,
+    terms_inserted INTEGER NOT NULL DEFAULT 0,
+    aliases_inserted INTEGER NOT NULL DEFAULT 0,
+    error_summary TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_term_dictionary_build_runs_started_at
+    ON term_dictionary_build_runs(started_at);
+
+CREATE TABLE IF NOT EXISTS term_entries (
+    term_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    canonical_term TEXT NOT NULL,
+    normalized_term TEXT NOT NULL,
+    type TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    status TEXT NOT NULL,
+    dict_version INTEGER NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_term_entries_version_norm
+    ON term_entries(dict_version, normalized_term);
+CREATE INDEX IF NOT EXISTS idx_term_entries_status_version
+    ON term_entries(status, dict_version);
+
+CREATE TABLE IF NOT EXISTS term_aliases (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    term_id INTEGER NOT NULL REFERENCES term_entries(term_id) ON DELETE CASCADE,
+    alias TEXT NOT NULL,
+    normalized_alias TEXT NOT NULL,
+    alias_type TEXT NOT NULL,
+    confidence REAL NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_term_aliases_term_alias
+    ON term_aliases(term_id, normalized_alias);
+CREATE INDEX IF NOT EXISTS idx_term_aliases_norm
+    ON term_aliases(normalized_alias);
+
+CREATE TABLE IF NOT EXISTS term_evidence (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    term_id INTEGER NOT NULL REFERENCES term_entries(term_id) ON DELETE CASCADE,
+    file_id INTEGER REFERENCES files(id) ON DELETE SET NULL,
+    chunk_id INTEGER REFERENCES chunks(id) ON DELETE SET NULL,
+    evidence_snippet TEXT,
+    extraction_method TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_term_evidence_term_id
+    ON term_evidence(term_id);
+CREATE INDEX IF NOT EXISTS idx_term_evidence_chunk_id
+    ON term_evidence(chunk_id);
 """
 
 _RESET_DROP_SQL = '''
@@ -302,6 +371,11 @@ DROP TRIGGER IF EXISTS fts_chunks_ad;
 DROP TRIGGER IF EXISTS fts_chunks_au;
 DROP TABLE IF EXISTS fts_chunks;
 DROP TABLE IF EXISTS vec_chunks;
+DROP TABLE IF EXISTS term_evidence;
+DROP TABLE IF EXISTS term_aliases;
+DROP TABLE IF EXISTS term_entries;
+DROP TABLE IF EXISTS term_dictionary_build_runs;
+DROP TABLE IF EXISTS term_dictionary_state;
 DROP TABLE IF EXISTS response_diagnostics_metrics;
 DROP TABLE IF EXISTS continuation_pass_artifacts;
 DROP TABLE IF EXISTS chat_messages;
@@ -407,6 +481,13 @@ async def init_db() -> None:
             'INSERT INTO schema_version (version) VALUES (?)',
             (SCHEMA_VERSION,),
         )
+        await conn.execute(
+            '''
+            INSERT INTO term_dictionary_state (singleton_id, current_version)
+            VALUES (1, 0)
+            ON CONFLICT(singleton_id) DO NOTHING
+            '''
+        )
         await conn.commit()
         await _compact_empty_db_if_bloated(conn)
         log.info('database_initialized', schema_version=SCHEMA_VERSION)
@@ -425,7 +506,8 @@ async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
               (SELECT COUNT(*) FROM chunks) AS chunks_count,
               (SELECT COUNT(*) FROM vec_chunks) AS vectors_count,
               (SELECT COUNT(*) FROM chat_messages) AS chats_count,
-              (SELECT COUNT(*) FROM continuation_pass_artifacts) AS continuation_count
+              (SELECT COUNT(*) FROM continuation_pass_artifacts) AS continuation_count,
+              (SELECT COUNT(*) FROM term_entries) AS term_entries_count
             '''
         )
         row = await cursor.fetchone()
@@ -438,6 +520,7 @@ async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
             and int(row['vectors_count']) == 0
             and int(row['chats_count']) == 0
             and int(row['continuation_count']) == 0
+            and int(row['term_entries_count']) == 0
         )
         if not is_empty:
             return
@@ -1889,6 +1972,292 @@ async def get_distinct_categories(db: aiosqlite.Connection) -> list[str]:
     return [str(r['category']) for r in rows]
 
 
+# ==============================================================================
+# Term Dictionary
+# ==============================================================================
+
+async def get_term_dictionary_current_version(db: aiosqlite.Connection) -> int:
+    cursor = await db.execute(
+        'SELECT current_version FROM term_dictionary_state WHERE singleton_id = 1'
+    )
+    row = await cursor.fetchone()
+    return int(row['current_version']) if row and row['current_version'] is not None else 0
+
+
+async def set_term_dictionary_current_version(db: aiosqlite.Connection, version: int) -> None:
+    await db.execute(
+        '''
+        INSERT INTO term_dictionary_state (singleton_id, current_version, updated_at)
+        VALUES (1, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(singleton_id) DO UPDATE SET
+            current_version = excluded.current_version,
+            updated_at = CURRENT_TIMESTAMP
+        ''',
+        (max(0, int(version)),),
+    )
+    await db.commit()
+
+
+async def start_term_dictionary_build_run(
+    db: aiosqlite.Connection,
+    *,
+    run_id: str,
+    target_version: int,
+) -> None:
+    await db.execute(
+        '''
+        INSERT INTO term_dictionary_build_runs (
+            run_id, target_version, status, started_at, last_processed_chunk_id,
+            processed_chunks, terms_inserted, aliases_inserted
+        ) VALUES (?, ?, 'running', CURRENT_TIMESTAMP, 0, 0, 0, 0)
+        ''',
+        (run_id, int(target_version)),
+    )
+    await db.commit()
+
+
+async def update_term_dictionary_build_run_progress(
+    db: aiosqlite.Connection,
+    *,
+    run_id: str,
+    last_processed_chunk_id: int,
+    processed_chunks: int,
+) -> None:
+    await db.execute(
+        '''
+        UPDATE term_dictionary_build_runs
+        SET last_processed_chunk_id = ?,
+            processed_chunks = ?
+        WHERE run_id = ?
+        ''',
+        (int(last_processed_chunk_id), int(processed_chunks), run_id),
+    )
+    await db.commit()
+
+
+async def finalize_term_dictionary_build_run(
+    db: aiosqlite.Connection,
+    *,
+    run_id: str,
+    status: str,
+    terms_inserted: int = 0,
+    aliases_inserted: int = 0,
+    error_summary: str | None = None,
+) -> None:
+    await db.execute(
+        '''
+        UPDATE term_dictionary_build_runs
+        SET status = ?,
+            completed_at = CURRENT_TIMESTAMP,
+            terms_inserted = ?,
+            aliases_inserted = ?,
+            error_summary = ?
+        WHERE run_id = ?
+        ''',
+        (status, int(terms_inserted), int(aliases_inserted), error_summary, run_id),
+    )
+    await db.commit()
+
+
+async def get_latest_term_dictionary_build_run(db: aiosqlite.Connection) -> dict | None:
+    cursor = await db.execute(
+        '''
+        SELECT run_id, target_version, status, started_at, completed_at,
+               last_processed_chunk_id, processed_chunks, terms_inserted, aliases_inserted, error_summary
+        FROM term_dictionary_build_runs
+        ORDER BY started_at DESC
+        LIMIT 1
+        '''
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    return {
+        'run_id': row['run_id'],
+        'target_version': row['target_version'],
+        'status': row['status'],
+        'started_at': row['started_at'],
+        'completed_at': row['completed_at'],
+        'last_processed_chunk_id': row['last_processed_chunk_id'],
+        'processed_chunks': row['processed_chunks'],
+        'terms_inserted': row['terms_inserted'],
+        'aliases_inserted': row['aliases_inserted'],
+        'error_summary': row['error_summary'],
+    }
+
+
+async def delete_term_dictionary_version(db: aiosqlite.Connection, *, dict_version: int) -> None:
+    await db.execute(
+        'DELETE FROM term_entries WHERE dict_version = ?',
+        (int(dict_version),),
+    )
+    await db.commit()
+
+
+async def insert_term_entry(
+    db: aiosqlite.Connection,
+    *,
+    canonical_term: str,
+    normalized_term: str,
+    term_type: str,
+    confidence: float,
+    status: str,
+    dict_version: int,
+) -> int:
+    cursor = await db.execute(
+        '''
+        INSERT INTO term_entries (
+            canonical_term, normalized_term, type, confidence, status, dict_version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        ''',
+        (
+            canonical_term,
+            normalized_term,
+            term_type,
+            float(confidence),
+            status,
+            int(dict_version),
+        ),
+    )
+    await db.commit()
+    return int(cursor.lastrowid)
+
+
+async def insert_term_alias(
+    db: aiosqlite.Connection,
+    *,
+    term_id: int,
+    alias: str,
+    normalized_alias: str,
+    alias_type: str,
+    confidence: float,
+) -> None:
+    await db.execute(
+        '''
+        INSERT INTO term_aliases (
+            term_id, alias, normalized_alias, alias_type, confidence, created_at
+        ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''',
+        (
+            int(term_id),
+            alias,
+            normalized_alias,
+            alias_type,
+            float(confidence),
+        ),
+    )
+    await db.commit()
+
+
+async def insert_term_evidence(
+    db: aiosqlite.Connection,
+    *,
+    term_id: int,
+    file_id: int | None,
+    chunk_id: int | None,
+    evidence_snippet: str,
+    extraction_method: str,
+) -> None:
+    await db.execute(
+        '''
+        INSERT INTO term_evidence (
+            term_id, file_id, chunk_id, evidence_snippet, extraction_method, created_at
+        ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ''',
+        (
+            int(term_id),
+            file_id,
+            chunk_id,
+            evidence_snippet,
+            extraction_method,
+        ),
+    )
+    await db.commit()
+
+
+async def get_active_term_alias_rows(db: aiosqlite.Connection) -> list[dict]:
+    cursor = await db.execute(
+        '''
+        SELECT
+            ta.alias,
+            ta.normalized_alias,
+            ta.alias_type,
+            ta.confidence AS alias_confidence,
+            te.canonical_term,
+            te.normalized_term,
+            te.type AS term_type,
+            te.confidence AS term_confidence
+        FROM term_aliases ta
+        JOIN term_entries te ON te.term_id = ta.term_id
+        JOIN term_dictionary_state tds ON tds.singleton_id = 1
+        WHERE te.dict_version = tds.current_version
+          AND te.status = 'active'
+        ORDER BY LENGTH(ta.normalized_alias) DESC, ta.normalized_alias ASC
+        '''
+    )
+    rows = await cursor.fetchall()
+    return [
+        {
+            'alias': row['alias'] or '',
+            'normalized_alias': row['normalized_alias'] or '',
+            'alias_type': row['alias_type'] or '',
+            'alias_confidence': float(row['alias_confidence'] or 0.0),
+            'canonical_term': row['canonical_term'] or '',
+            'normalized_term': row['normalized_term'] or '',
+            'term_type': row['term_type'] or '',
+            'term_confidence': float(row['term_confidence'] or 0.0),
+        }
+        for row in rows
+    ]
+
+
+async def get_term_dictionary_source_rows(
+    db: aiosqlite.Connection,
+    *,
+    after_chunk_id: int = 0,
+    limit: int = 500,
+) -> list[dict]:
+    cursor = await db.execute(
+        '''
+        SELECT
+            c.id AS chunk_id,
+            c.file_id AS file_id,
+            c.content AS content
+        FROM chunks c
+        WHERE c.id > ?
+        ORDER BY c.id ASC
+        LIMIT ?
+        ''',
+        (int(after_chunk_id), int(limit)),
+    )
+    rows = await cursor.fetchall()
+    return [
+        {
+            'chunk_id': int(row['chunk_id']),
+            'file_id': int(row['file_id']) if row['file_id'] is not None else None,
+            'content': row['content'] or '',
+        }
+        for row in rows
+    ]
+
+
+async def purge_term_dictionary(db: aiosqlite.Connection) -> None:
+    await db.execute('DELETE FROM term_evidence')
+    await db.execute('DELETE FROM term_aliases')
+    await db.execute('DELETE FROM term_entries')
+    await db.execute('DELETE FROM term_dictionary_build_runs')
+    await db.execute(
+        '''
+        INSERT INTO term_dictionary_state (singleton_id, current_version, updated_at)
+        VALUES (1, 0, CURRENT_TIMESTAMP)
+        ON CONFLICT(singleton_id) DO UPDATE SET
+            current_version = 0,
+            updated_at = CURRENT_TIMESTAMP
+        '''
+    )
+    await db.commit()
+
+
 async def get_index_integrity_issues(db: aiosqlite.Connection) -> dict[str, int]:
     # Detect index consistency issues across files/chunks/vec_chunks tables.
     checks: dict[str, str] = {
@@ -2090,6 +2459,10 @@ async def reset_all_data(db: aiosqlite.Connection) -> dict[str, object]:
             'scan_history',
             'files',
             'vec_chunks',
+            'term_entries',
+            'term_aliases',
+            'term_evidence',
+            'term_dictionary_build_runs',
         )
     }
     counts['storage_compacted'] = storage_compacted

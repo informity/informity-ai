@@ -4,7 +4,7 @@
 # ==============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help run dev cache-bootstrap test lint format baseline diagnostics-evaluate diagnostics-analyze diagnostics-pipeline diagnostics-stop reset-db reset-vectors reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-backend tauri-dev tauri-build app qa-quick qa-full qa-security qa-secrets qa-lint qa-typecheck qa-docs smoke-basic smoke-infra smoke-pdf maintenance-index-check maintenance-index-repair maintenance-download-nltk maintenance-reinstall-packages maintenance-chunk-structure maintenance-legacy-chunks maintenance-orphaned-chunks maintenance-migrate-hf-cache
+.PHONY: help run dev cache-bootstrap test lint format baseline diagnostics-evaluate diagnostics-analyze diagnostics-pipeline diagnostics-stop reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build app qa-quick qa-full qa-security qa-secrets qa-lint qa-typecheck qa-docs smoke-basic smoke-infra smoke-pdf maintenance-index-check maintenance-index-repair maintenance-download-nltk maintenance-reinstall-packages maintenance-chunk-structure maintenance-legacy-chunks maintenance-orphaned-chunks maintenance-migrate-hf-cache
 
 # ==============================================================================
 # Configuration
@@ -79,6 +79,9 @@ frontend-build: ## Build frontend for production (output: src/frontend/dist/)
 
 tauri-dev: ## Run desktop shell in development mode (requires Rust toolchain + Tauri CLI)
 	cd src/frontend && npm run tauri:dev
+
+tauri-icons: ## Generate Tauri icon assets from the master logo
+	uv run python scripts/generate_tauri_icons.py
 
 tauri-backend: ## Build Python backend sidecar artifact for Tauri packaging
 	./scripts/build_tauri_backend_sidecar.sh
@@ -183,12 +186,7 @@ reset-db: ## Delete the SQLite database (will be recreated on next run)
 	rm -f "$(APP_DATA_DIR)/informity.db-shm"
 	@echo "Database reset. It will be recreated on next app start."
 
-reset-vectors: ## Delete vectors from SQLite database (vec_chunks table)
-	@echo "Note: Vectors are stored in SQLite database (vec_chunks table), not a separate directory."
-	@echo "To reset vectors, use Index → Reset in the UI or delete the database file (reset-db)."
-	@echo "This target is kept for backward compatibility but does nothing."
-
-reset-all: reset-db reset-vectors ## Reset both database and vectors
+reset-all: reset-db ## Reset indexed data (vectors are stored in SQLite)
 	@echo "All data reset."
 
 clean-data: ## Remove unnecessary files from data/ (locks, .no_exist under HF cache). Keeps config, db, vectors, models, embedding and reranker.

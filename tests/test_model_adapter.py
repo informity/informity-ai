@@ -11,6 +11,7 @@ from informity.llm.model_adapter import (
     DEEPSEEK_R1_DISTILL_PROFILE,
     DEFAULT_PROFILE,
     QWEN3_5_9B_PROFILE,
+    QWEN3_5_27B_PROFILE,
     QWEN3_14B_PROFILE,
     QWEN3_30B_A3B_PROFILE,
     ModelFamily,
@@ -54,6 +55,11 @@ class TestGetProfileForFilename:
     def test_qwen3_8b_returns_default(self) -> None:
         profile = get_profile_for_filename('Qwen3-8B-Q5_K_M.gguf')
         assert profile is DEFAULT_PROFILE
+
+    def test_qwen3_5_27b_detected(self) -> None:
+        profile = get_profile_for_filename('Qwen3.5-27B-Q5_K_M.gguf')
+        assert profile is QWEN3_5_27B_PROFILE
+        assert profile.name == 'Qwen3.5 27B'
 
     def test_unknown_returns_default(self) -> None:
         profile = get_profile_for_filename('custom-model.gguf')
@@ -196,6 +202,35 @@ class TestQwen359BProfile:
         result = profile.prepare_messages(messages, 'focused')
         assert result[-1]['content'] == messages[-1]['content']
 
+
+# ==============================================================================
+# Qwen3.5 27B Profile
+# ==============================================================================
+
+
+class TestQwen3527BProfile:
+    @pytest.fixture
+    def profile(self) -> ModelProfile:
+        return QWEN3_5_27B_PROFILE
+
+    def test_identity(self, profile: ModelProfile) -> None:
+        assert profile.name == 'Qwen3.5 27B'
+        assert profile.family == ModelFamily.CHATML
+
+    def test_reasoning_focused_only(self, profile: ModelProfile) -> None:
+        assert profile.reasoning_mode == ReasoningMode.FOCUSED_ONLY
+        assert profile.get_reasoning_enabled('simple') is False
+        assert profile.get_reasoning_enabled('focused') is True
+        assert profile.get_reasoning_enabled('coverage') is False
+
+    def test_requested_tuning_values(self, profile: ModelProfile) -> None:
+        assert profile.max_tokens == 8192
+        assert profile.context_length == 65536
+        assert profile.temperature == 0.25
+        assert profile.rag_top_k == 15
+        assert profile.rag_max_score == 0.87
+        assert profile.rag_context_ratio == 0.75
+        assert profile.retrieval_top_k_final == 15
 
 # ==============================================================================
 # Default Profile

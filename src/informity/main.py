@@ -378,7 +378,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     # Kill any lingering child processes (tokenizers, embedder workers)
     _kill_child_processes()
-    _remove_managed_pid_file()
 
     log.info('application_shutdown_complete')
 

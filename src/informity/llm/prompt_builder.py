@@ -62,7 +62,7 @@ def resolve_history_limit(chat_mode: str | None) -> int:
         return max(0, int(settings.chat_history_messages_assistant))
     if mode == 'researcher':
         return max(0, int(settings.chat_history_messages_researcher))
-    # Keep unresolved/legacy modes backward compatible.
+    # Fallback for unresolved modes.
     return max(0, int(settings.chat_history_messages))
 
 

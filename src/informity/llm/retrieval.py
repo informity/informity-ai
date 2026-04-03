@@ -19,6 +19,7 @@ from informity.llm.metadata_filters import (
     build_where_clause_and_params,
 )
 from informity.llm.model_adapter import get_profile
+from informity.llm.term_dictionary import expand_query_for_retrieval
 from informity.llm.types import BlockType, FilterOperator, QueryType
 
 log = structlog.get_logger(__name__)
@@ -53,8 +54,22 @@ async def retrieve_chunks(
     If trace is provided (TraceWriter protocol), records 'retrieval' and 'rerank' steps.
     """
     # 1. Embed query (CPU-bound, run in thread pool to avoid blocking event loop)
+    term_expansion = await expand_query_for_retrieval(db=db, query=query)
+    query_for_embedding = term_expansion.embedding_query or query
+    query_for_fts = term_expansion.fts_query or query
+
+    if term_expansion.embedding_terms:
+        log.debug(
+            'term_dictionary_query_expanded',
+            dictionary_version=term_expansion.dictionary_version,
+            embedding_terms_count=len(term_expansion.embedding_terms),
+            fts_terms_count=len(term_expansion.fts_terms),
+            matches_count=len(term_expansion.matches),
+            fuzzy_cap_reached=term_expansion.fuzzy_cap_reached,
+        )
+
     embed_start = time.perf_counter()
-    query_vector = await asyncio.to_thread(embedder.embed_query, query)
+    query_vector = await asyncio.to_thread(embedder.embed_query, query_for_embedding)
     embed_elapsed_ms = (time.perf_counter() - embed_start) * 1000
 
     start = time.perf_counter()
@@ -129,7 +144,7 @@ async def retrieve_chunks(
         existing_ids = {r['chunk_id'] for r in results}
         fts5_candidates = await asyncio.to_thread(
             vector_store.fts5_augment_candidates,
-            query,
+            query_for_fts,
             settings.fts5_candidate_limit,
             existing_ids,
             where_clause,
@@ -166,6 +181,19 @@ async def retrieve_chunks(
                 'where_clause':        where_clause,
                 'embed_elapsed_ms':    round(embed_elapsed_ms, 1),
                 'search_elapsed_ms':   round(search_elapsed_ms, 1),
+                'term_dictionary_version': term_expansion.dictionary_version,
+                'term_dictionary_embedding_terms': term_expansion.embedding_terms,
+                'term_dictionary_fts_terms': term_expansion.fts_terms,
+                'term_dictionary_matches': [
+                    {
+                        'alias': match.alias,
+                        'canonical': match.canonical,
+                        'match_type': match.match_type,
+                        'tier': match.tier,
+                    }
+                    for match in term_expansion.matches
+                ],
+                'term_dictionary_fuzzy_cap_reached': term_expansion.fuzzy_cap_reached,
                 'year_filter':          year_filter,
                 'category_filter':     category_filter,
                 'extension_filter':    extension_filter,
@@ -349,6 +377,19 @@ async def retrieve_chunks(
             'where_clause':        where_clause,
             'embed_elapsed_ms':    round(embed_elapsed_ms, 1),
             'search_elapsed_ms':   round(search_elapsed_ms, 1),
+            'term_dictionary_version': term_expansion.dictionary_version,
+            'term_dictionary_embedding_terms': term_expansion.embedding_terms,
+            'term_dictionary_fts_terms': term_expansion.fts_terms,
+            'term_dictionary_matches': [
+                {
+                    'alias': match.alias,
+                    'canonical': match.canonical,
+                    'match_type': match.match_type,
+                    'tier': match.tier,
+                }
+                for match in term_expansion.matches
+            ],
+            'term_dictionary_fuzzy_cap_reached': term_expansion.fuzzy_cap_reached,
             'year_filter':         year_filter,
             'category_filter':     category_filter,
             'extension_filter':    extension_filter,

@@ -10,6 +10,7 @@ import { ServiceUnavailableState } from '../ServiceUnavailableState'
 import { useChatContext } from '../../context/useChatContext'
 import { useBackendStatus } from '../../context/useBackendStatus'
 import { getCurrentChat } from '../../api'
+import type { ChatMode } from '../../types/api'
 import { logApiError } from '../../utils/logApiError'
 import './ChatView.css'
 
@@ -17,7 +18,6 @@ const CHAT_INPUT_MIN_HEIGHT = 104
 const CHAT_INPUT_MAX_HEIGHT = 304
 const FORCE_NEW_CHAT_KEY = 'informity_force_new_chat'
 const CHAT_MODE_STORAGE_KEY = 'informity_chat_mode'
-type ChatMode = 'assistant' | 'researcher'
 const CHAT_MODE_LABELS: Record<ChatMode, string> = {
   assistant: 'Assistant',
   researcher: 'Researcher',
