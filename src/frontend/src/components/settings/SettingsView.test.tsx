@@ -176,7 +176,7 @@ describe('SettingsView tabs and action bar behavior', () => {
     localStorage.setItem('informity.settings.activeTab', 'models')
     const settingsWithExtraModel = {
       ...baseSettings,
-      available_models: ['main.gguf', 'alt.gguf', 'Qwen3.5-27B-Q5_K_M.gguf'],
+      available_models: ['main.gguf', 'alt.gguf', 'Qwen3.5-35B-A3B-Q4_K_M.gguf'],
     }
 
     render(
@@ -196,7 +196,7 @@ describe('SettingsView tabs and action bar behavior', () => {
     await waitFor(() => {
       const modelSelect = screen.getByLabelText('Model') as HTMLSelectElement
       const optionValues = Array.from(modelSelect.options).map((option) => option.value)
-      expect(optionValues).toContain('Qwen3.5-27B-Q5_K_M.gguf')
+      expect(optionValues).toContain('Qwen3.5-35B-A3B-Q4_K_M.gguf')
     })
   })
 })

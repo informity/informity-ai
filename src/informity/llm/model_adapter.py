@@ -337,12 +337,12 @@ QWEN3_5_9B_PROFILE = ModelProfile(
 )
 
 
-# -- Qwen3.5 27B --------------------------------------------------------------
-# High-context profile for Qwen3.5 27B Q5_K_M.
-QWEN3_5_27B_PROFILE = ModelProfile(
-    name              = 'Qwen3.5 27B',
+# -- Qwen3.5 35B A3B ----------------------------------------------------------
+# High-context profile for Qwen3.5 35B A3B Q4_K_M.
+QWEN3_5_35B_A3B_PROFILE = ModelProfile(
+    name              = 'Qwen3.5 35B A3B',
     family            = ModelFamily.CHATML,
-    filename_patterns = ('qwen3.5-27b', 'qwen-3.5-27b', 'qwen3-5-27b'),
+    filename_patterns = ('qwen3.5-35b-a3b', 'qwen-3.5-35b-a3b', 'qwen3-5-35b-a3b'),
 
     supports_think_blocks = True,
     reasoning_mode        = ReasoningMode.FOCUSED_ONLY,
@@ -518,7 +518,7 @@ DEFAULT_PROFILE = ModelProfile(
 # Order matters: more specific patterns first. R1 before Qwen3 30B for diagnostics.
 _PROFILE_REGISTRY: list[ModelProfile] = [
     DEEPSEEK_R1_DISTILL_PROFILE,   # DeepSeek-R1-Distill-Qwen-14B (diagnostics)
-    QWEN3_5_27B_PROFILE,           # Qwen3.5-27B-Q5_K_M
+    QWEN3_5_35B_A3B_PROFILE,       # Qwen3.5-35B-A3B-Q4_K_M
     QWEN3_5_9B_PROFILE,            # Qwen3.5-9B-Q4_K_M (analysis RAG)
     QWEN3_14B_PROFILE,             # Qwen3-14B-Q5_K_M (analysis RAG profile)
     QWEN3_30B_A3B_PROFILE,         # Qwen3-30B-A3B-Q4_K_M (primary RAG)
