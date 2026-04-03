@@ -434,6 +434,19 @@ class Settings(BaseSettings):
     # Artifacts older than this are pruned on insert and on startup.
     # Set to 0 to disable pruning.
     continuation_artifact_retention_days: int = 30
+    # Term dictionary runtime expansion controls (corpus-agnostic, deterministic).
+    term_dictionary_enabled: bool = True
+    term_dictionary_routing_enabled: bool = False
+    term_dictionary_high_confidence: float = 0.85
+    term_dictionary_medium_confidence: float = 0.65
+    term_dictionary_max_embed_expansions: int = 6
+    term_dictionary_max_fts_expansions: int = 10
+    term_dictionary_max_fuzzy_expansions: int = 2
+    term_dictionary_max_fuzzy_per_canonical: int = 1
+    term_dictionary_max_routing_expansions: int = 4
+    # Term dictionary post-index builder controls.
+    term_dictionary_build_enabled: bool = True
+    term_dictionary_build_batch_size: int = 500
     # Structured numeric extraction plausibility guards (runtime policy; avoid hardcoded thresholds).
     extraction_numeric_max_abs_value: float = 100000000.0
     extraction_numeric_max_unformatted_digits: int = 9

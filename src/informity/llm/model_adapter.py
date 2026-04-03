@@ -337,6 +337,47 @@ QWEN3_5_9B_PROFILE = ModelProfile(
 )
 
 
+# -- Qwen3.5 27B --------------------------------------------------------------
+# High-context profile for Qwen3.5 27B Q5_K_M.
+QWEN3_5_27B_PROFILE = ModelProfile(
+    name              = 'Qwen3.5 27B',
+    family            = ModelFamily.CHATML,
+    filename_patterns = ('qwen3.5-27b', 'qwen-3.5-27b', 'qwen3-5-27b'),
+
+    supports_think_blocks = True,
+    reasoning_mode        = ReasoningMode.FOCUSED_ONLY,
+    no_think_token        = '/no_think',
+
+    prompt_format          = PromptFormat.NATIVE_GGUF,
+    coverage_prompt_format = PromptFormat.NATIVE_GGUF,
+
+    max_tokens         = 8192,
+    coverage_top_k      = 15,
+    min_tokens_coverage = 200,
+
+    timeout_seconds = 450,
+
+    context_length = 65536,
+    generation_tokens_per_second = 7.0,
+    temperature    = 0.25,
+    top_p          = 0.9,
+    rag_top_k      = 15,
+
+    rag_max_score            = 0.87,
+    rag_context_ratio        = 0.75,
+
+    retrieval_top_k_final = 15,
+    rag_top_k_simple   = 6,
+    rag_top_k_focused  = 15,
+    rag_top_k_coverage = 15,
+
+    stop_sequences  = _CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
+
+    strip_meta_commentary = False,
+    strip_citations       = True,
+)
+
+
 # -- Qwen3 30B A3B Instruct ----------------------------------------------------
 # High-capacity model (30B parameters). Significantly more capable than 14B,
 # with better instruction-following, reasoning, and structured output.
@@ -477,6 +518,7 @@ DEFAULT_PROFILE = ModelProfile(
 # Order matters: more specific patterns first. R1 before Qwen3 30B for diagnostics.
 _PROFILE_REGISTRY: list[ModelProfile] = [
     DEEPSEEK_R1_DISTILL_PROFILE,   # DeepSeek-R1-Distill-Qwen-14B (diagnostics)
+    QWEN3_5_27B_PROFILE,           # Qwen3.5-27B-Q5_K_M
     QWEN3_5_9B_PROFILE,            # Qwen3.5-9B-Q4_K_M (analysis RAG)
     QWEN3_14B_PROFILE,             # Qwen3-14B-Q5_K_M (analysis RAG profile)
     QWEN3_30B_A3B_PROFILE,         # Qwen3-30B-A3B-Q4_K_M (primary RAG)

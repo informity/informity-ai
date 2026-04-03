@@ -4,7 +4,7 @@ import { formatDuration } from '../../utils/formatDuration'
 import { getMessageRaw } from '../../api'
 import { SourceCard } from './SourceCard'
 import { MessageBlocks } from './MessageBlocks'
-import type { ChatSourceReference, DisplayBlock } from '../../types/api'
+import type { ChatMode, ChatSourceReference, DisplayBlock } from '../../types/api'
 import 'highlight.js/styles/github-dark.min.css'
 import './ChatMessage.css'
 
@@ -30,7 +30,7 @@ interface ChatMessageProps {
   isContinuation?: boolean
   sources?: ChatSourceReference[]
   displayBlocks?: DisplayBlock[]
-  chatMode?: 'assistant' | 'researcher'
+  chatMode?: ChatMode
   isStreaming?: boolean
   streamStatusText?: string
   streamSectionProgress?: {

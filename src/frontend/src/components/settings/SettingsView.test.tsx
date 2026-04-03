@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { SettingsView } from './SettingsView'
 
@@ -170,5 +170,33 @@ describe('SettingsView tabs and action bar behavior', () => {
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({ llm_model_filename: 'alt.gguf' }),
     )
+  })
+
+  it('includes installed models not present in catalog entries', async () => {
+    localStorage.setItem('informity.settings.activeTab', 'models')
+    const settingsWithExtraModel = {
+      ...baseSettings,
+      available_models: ['main.gguf', 'alt.gguf', 'Qwen3.5-27B-Q5_K_M.gguf'],
+    }
+
+    render(
+      <MemoryRouter>
+        <SettingsView
+          settings={settingsWithExtraModel}
+          fileTypeOptions={[{ id: 'docs', label: 'Docs', extensions: ['.md', '.txt'] }]}
+          onSave={vi.fn()}
+          onDiscard={vi.fn()}
+          onResetSettings={vi.fn()}
+          onResetIndex={vi.fn()}
+          saving={false}
+        />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => {
+      const modelSelect = screen.getByLabelText('Model') as HTMLSelectElement
+      const optionValues = Array.from(modelSelect.options).map((option) => option.value)
+      expect(optionValues).toContain('Qwen3.5-27B-Q5_K_M.gguf')
+    })
   })
 })

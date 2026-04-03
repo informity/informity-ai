@@ -2,7 +2,7 @@
 
 This file is the **single source of truth** for types, interfaces, and module responsibilities. When generating code for any module, consult this file first.
 
-**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils); `scanner/` (crawler, watcher, extractors — docling unified extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning); `llm/` (engine, model_adapter, rag QueryRouter, query_classifier, query_classifier_llm, query_patterns, retrieval, prompt_builder, streaming, metadata_filters, handlers/ — metadata, rag, simple). Diagnostics: `src/informity/diagnostics/` (issue_types, observer) and `tools/diagnostics/` (pipeline, evaluate, analyze, generate_queries, golden_set). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
+**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils); `scanner/` (crawler, watcher, extractors — docling unified extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, model_adapter, rag QueryRouter, query_classifier, query_patterns, nlp_heuristics, types, retrieval, prompt_builder, streaming, metadata_filters, intent_router, intent_normalization, intent_profiles, fit_to_budget_tuning, promptcue_adapter, term_dictionary, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics: `src/informity/diagnostics/` (issue_types, observer) and `tools/diagnostics/` (pipeline, evaluate, analyze, generate_queries, golden_set). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
 
 ---
 
@@ -522,9 +522,9 @@ class HealthResponse(BaseModel):
 - **Imported by:** api.routes_chat
 
 ### `llm/query_classifier.py`
-- LLM-only query classification. Delegates to `query_classifier_llm.classify_query_llm()` (uses main LLM engine). Extracts year, category, file_type, filename filters; detects intent ('metadata', 'focused', 'coverage', 'simple').
-- Returns `QueryClassification` dataclass with intent, filters (`year_filter`, `category_filter`, `file_type_filter`, `filename_filter`), and flags (`is_metadata_query`, `is_file_list_query`).
-- **Imports:** structlog; lazy: query_classifier_llm
+- Deterministic slot extraction and intent routing (v2). Classifies query using NLP heuristics + promptcue intent router (no separate LLM call). Extracts year, category, file_type, filename filters; detects intent and assigns IntentProfileId. Applies term dictionary expansion via `term_dictionary.expand_query_for_routing()`.
+- Returns `QueryClassification` dataclass with intent, filters, intent profile, output shape, group-by, block type, and routing reason codes.
+- **Imports:** structlog, query_patterns, intent_router, term_dictionary, llm.types
 - **Imported by:** llm.rag, llm.handlers.*
 
 ### `llm/query_patterns.py`
@@ -598,7 +598,10 @@ class HealthResponse(BaseModel):
 - `POST /api/index/rebuild` — full re-index of all indexed files (background); body `RebuildRequest` with `force` to cancel running scan/rebuild
 - `GET /api/index/status` — index statistics (IndexStatusResponse: total_files, chunks, embeddings, sizes, reset_in_progress, last_reset_result)
 - `POST /api/index/reset` — delete all indexed data (vectors, SQLite tables, chat messages), clear watched_directories in config
-- **Imports:** indexer.pipeline (reindex_file), db.sqlite, db.vectors, scanner.crawler (ScannedFile, scan_directories), scanner.extractors.base (register_extractors), api.operation_state
+- `GET /api/index/term-dictionary/status` — term dictionary build status and statistics
+- `POST /api/index/term-dictionary/rebuild` — trigger a term dictionary rebuild from current corpus
+- `POST /api/index/term-dictionary/purge` — delete all term dictionary data
+- **Imports:** indexer.pipeline (reindex_file), indexer.term_dictionary_builder, db.sqlite, db.vectors, scanner.crawler, scanner.extractors.base, api.operation_state
 
 ### `api/routes_search.py`
 - `POST /api/search` — semantic search across documents
@@ -845,6 +848,9 @@ main.py ← logging_config (configure_logging before loggers)
 | `POST` | `/api/index/rebuild` | Force full re-index (body: RebuildRequest.force to cancel running) | Yes |
 | `GET` | `/api/index/status` | Index statistics (incl. reset_in_progress, last_reset_result) | No |
 | `POST` | `/api/index/reset` | Delete all indexed data, clear watched_directories | No |
+| `GET` | `/api/index/term-dictionary/status` | Term dictionary build status | No |
+| `POST` | `/api/index/term-dictionary/rebuild` | Trigger term dictionary rebuild | Yes |
+| `POST` | `/api/index/term-dictionary/purge` | Delete all term dictionary data | No |
 | `POST` | `/api/chat` | Send message, stream response (SSE) | No (streaming) |
 | `GET` | `/api/chat/chats` | List chats | No |
 | `GET` | `/api/chat/chats/{chat_id}` | Get chat messages | No |

@@ -530,12 +530,21 @@ export function SettingsView({
 
   const selectedModelFilename = form.llm_model_filename || settings.llm_model_filename || ''
   const catalogModels = modelsCatalog?.models || []
-  const knownModelFilenames = catalogModels.length > 0
-    ? catalogModels.map((model) => model.model_filename)
-    : Array.from(new Set([
-      ...(settings.available_models || []),
-      selectedModelFilename,
-    ].filter(Boolean)))
+  const knownModelFilenames = (() => {
+    const ordered: string[] = []
+    const seen = new Set<string>()
+    const add = (value: string | undefined | null) => {
+      const normalized = String(value || '').trim()
+      if (!normalized || seen.has(normalized)) return
+      seen.add(normalized)
+      ordered.push(normalized)
+    }
+
+    for (const model of catalogModels) add(model.model_filename)
+    for (const model of settings.available_models || []) add(model)
+    add(selectedModelFilename)
+    return ordered
+  })()
   const installedModelSet = new Set(
     catalogModels.length > 0
       ? catalogModels.filter((model) => model.installed).map((model) => model.model_filename)

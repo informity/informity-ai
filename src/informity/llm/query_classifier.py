@@ -14,17 +14,30 @@ from informity.llm.intent_router import get_intent_router
 from informity.llm.query_patterns import (
     build_aggregate_listing_scope_pattern,
     build_analysis_action_pattern,
+    build_anchor_document_term_pattern,
+    build_broad_scope_extra_pattern,
+    build_content_analysis_pattern,
     build_continuation_pattern,
+    build_corpus_document_scope_pattern,
     build_count_pattern,
     build_coverage_pattern,
     build_enumeration_pattern,
     build_evidence_value_extraction_pattern,
     build_extreme_value_lookup_pattern,
+    build_fact_lookup_pattern,
     build_file_list_pattern,
+    build_generic_capability_pattern,
+    build_global_entity_listing_pattern,
     build_inventory_capability_pattern,
     build_meta_query_pattern,
+    build_multi_document_listing_pattern,
+    build_plural_corpus_scope_pattern,
+    build_quoted_phrase_pattern,
+    build_single_target_pattern,
     build_structured_output_schema_pattern,
+    build_year_aggregate_cue_pattern,
 )
+from informity.llm.term_dictionary import expand_query_for_routing
 from informity.llm.types import (
     BlockType,
     ConfidenceBand,
@@ -54,55 +67,20 @@ _STRUCTURED_OUTPUT_SCHEMA_PATTERN = build_structured_output_schema_pattern()
 _ANALYSIS_ACTION_PATTERN = build_analysis_action_pattern()
 _INVENTORY_CAPABILITY_PATTERN = build_inventory_capability_pattern()
 _META_QUERY_PATTERN = build_meta_query_pattern()
-_CONTENT_ANALYSIS_PATTERN = re.compile(
-    r'\b('
-    r'summarize|summary|compare|contrast|contradictions?|conflicts?|overview|'
-    r'main subject|describe|analy[sz]e|findings?|mentioned|tell me about|key fields?|'
-    r'what does'
-    r')\b',
-    re.IGNORECASE,
-)
-_PLURAL_CORPUS_SCOPE_PATTERN = re.compile(r'\b(documents|files|records)\b', re.IGNORECASE)
-_SINGLE_TARGET_PATTERN = re.compile(r'\b(any|one|single|this|that)\s+(document|file|record)\b', re.IGNORECASE)
-_YEAR_AGGREGATE_CUE_PATTERN = re.compile(
-    r'\b('
-    r'by year|year[-\s]*by[-\s]*year|year[-\s]*over[-\s]*year|cross[-\s]*year|'
-    r'findings by year|evidence map by year|coverage matrix|largest increase|largest decrease|'
-    r'deltas?|per indexed year|years covered'
-    r')\b',
-    re.IGNORECASE,
-)
-_BROAD_SCOPE_EXTRA_PATTERN = re.compile(
-    r'\b(across|all|cross[\s-]*document|year[\s-]*by[\s-]*year)\b',
-    re.IGNORECASE,
-)
-_MULTI_DOC_LISTING_PATTERN = re.compile(
-    r'\b(which|list|show)\b.*\b(files?|documents?)\b',
-    re.IGNORECASE,
-)
-_GLOBAL_ENTITY_LISTING_PATTERN = re.compile(
-    r'\b('
-    r'names?\s+of\s+people|people\s+names?|people\s+mentioned|'
-    r'important\s+dates?|key\s+dates?|'
-    r'numeric\s+amounts?|key\s+amounts?|financial\s+figures?|financial\s+amounts?'
-    r')\b',
-    re.IGNORECASE,
-)
-_GENERIC_CAPABILITY_PATTERN = re.compile(
-    r'\b(can\s+you\s+help|help\s+me\s+understand|what\s+information\s+is\s+available)\b',
-    re.IGNORECASE,
-)
-_FACT_LOOKUP_PATTERN = re.compile(
-    r'^\s*(when|what\s+year|which\s+year|who|where|what\s+is|what\s+was|when\s+was)\b',
-    re.IGNORECASE,
-)
+_CONTENT_ANALYSIS_PATTERN = build_content_analysis_pattern()
+_PLURAL_CORPUS_SCOPE_PATTERN = build_plural_corpus_scope_pattern()
+_SINGLE_TARGET_PATTERN = build_single_target_pattern()
+_YEAR_AGGREGATE_CUE_PATTERN = build_year_aggregate_cue_pattern()
+_BROAD_SCOPE_EXTRA_PATTERN = build_broad_scope_extra_pattern()
+_MULTI_DOC_LISTING_PATTERN = build_multi_document_listing_pattern()
+_GLOBAL_ENTITY_LISTING_PATTERN = build_global_entity_listing_pattern()
+_GENERIC_CAPABILITY_PATTERN = build_generic_capability_pattern()
+_FACT_LOOKUP_PATTERN = build_fact_lookup_pattern()
 _EXTREME_VALUE_LOOKUP_PATTERN = build_extreme_value_lookup_pattern()
 _AGGREGATE_LISTING_SCOPE_PATTERN = build_aggregate_listing_scope_pattern()
-_ANCHOR_DOCUMENT_TERM_PATTERN = re.compile(
-    r'\b(?:19|20)\d{2}\s+[a-z0-9][a-z0-9\s-]{1,64}\b(?:receipt|statement|report|return|form|record|invoice|summary)\b',
-    re.IGNORECASE,
-)
-_QUOTED_PHRASE_PATTERN = re.compile(r'["\']([^"\']{3,80})["\']')
+_ANCHOR_DOCUMENT_TERM_PATTERN = build_anchor_document_term_pattern()
+_QUOTED_PHRASE_PATTERN = build_quoted_phrase_pattern()
+_CORPUS_DOCUMENT_SCOPE_PATTERN = build_corpus_document_scope_pattern()
 
 
 def _has_structured_schema_request(text: str) -> bool:
@@ -133,7 +111,7 @@ def _has_evidence_value_extraction_request(text: str) -> bool:
 
 
 def _has_corpus_document_scope_request(text: str) -> bool:
-    return bool(re.search(r'\b(indexed\s+)?(files?|documents?|records?)\b', text))
+    return bool(_CORPUS_DOCUMENT_SCOPE_PATTERN.search(text))
 
 
 def _looks_multi_document_listing_request(text: str) -> bool:
@@ -308,17 +286,22 @@ def classify_query(query: str) -> QueryClassification:
     router = get_intent_router()
     pcue: PromptCueQueryObject | None = None
 
+    routing_expansion = expand_query_for_routing(text)
+    router_query_text = routing_expansion.expanded_query or text
+
     if isinstance(router, PromptCueIntentAdapter):
         try:
-            prediction, pcue = router.classify(text)
+            prediction, pcue = router.classify(router_query_text)
         except Exception:  # noqa: BLE001
-            log.warning('promptcue_adapter_classify_failed', query=text[:120])
-            prediction = router.classify_intent(text)
+            log.warning('promptcue_adapter_classify_failed', query=router_query_text[:120])
+            prediction = router.classify_intent(router_query_text)
     else:
-        prediction = router.classify_intent(text)
+        prediction = router.classify_intent(router_query_text)
 
     intent      = prediction.intent
     reason_codes = list(prediction.reason_codes)
+    if routing_expansion.canonical_terms:
+        reason_codes.append('term_dictionary_routing_expansion_applied')
 
     # --- Signals: prefer PromptCue when available, fall back to regex -----
     # Corpus-specific signals (always from regex — PromptCue has no knowledge
