@@ -158,7 +158,7 @@ export function FileDetail({ fileId, onClose, onRemoved }: FileDetailProps) {
   const displayText = expanded || !showMore ? previewText : previewText.slice(0, PREVIEW_CHARS)
 
   return (
-    <div className="file-detail" role="dialog" aria-label="File Details">
+    <div className="file-detail" role="dialog" aria-modal="true" aria-label="File Details">
       <div className="file-detail__backdrop" onClick={onClose} aria-hidden />
       <div className="file-detail__panel" ref={panelRef}>
         <div className="file-detail__header">

@@ -11,9 +11,9 @@ import aiosqlite
 import structlog
 
 from informity.api.schemas import ChatSourceReference
-from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.model_adapter import get_profile
+from informity.llm.prompt_builder import build_messages, resolve_history_limit
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.streaming import stream_llm
 from informity.llm.types import QueryType, StreamSignalTag
@@ -82,17 +82,16 @@ class SimpleHandler:
                     'db_attached':       db is not None,
                 })
 
-            # Build minimal messages (system prompt + history + question)
-            messages = [{'role': 'system', 'content': system_prompt}]
-
-            # Add history (truncate if needed)
-            if history:
-                history_limit = settings.chat_history_messages
-                for msg in history[-history_limit:]:  # Last N messages (configurable)
-                    messages.append({'role': msg.role, 'content': msg.content})
-
-            # Add current question
-            messages.append({'role': 'user', 'content': question})
+            # Build messages via shared prompt-builder path so assistant/researcher
+            # simple chats also benefit from token-budget-aware history trimming.
+            messages = build_messages(
+                question=question,
+                context_chunks=[],
+                history=history,
+                model_profile=profile,
+                system_prompt=system_prompt,
+                chat_mode=normalized_chat_mode,
+            )
 
             # Prepare messages according to model profile (handles prompt format, etc.)
             messages = profile.prepare_messages(messages, query_type)
@@ -102,6 +101,8 @@ class SimpleHandler:
                     'messages_count':    len(messages),
                     'context_chunks':    0,  # No context for simple queries
                     'history_messages':   len(history) if history else 0,
+                    'effective_history_limit': resolve_history_limit(normalized_chat_mode),
+                    'chat_mode': normalized_chat_mode or 'researcher',
                     'reasoning_enabled':  False,  # Simple queries never use reasoning
                 })
 

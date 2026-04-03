@@ -140,6 +140,8 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'Local LLM model, context length, and retrieval-augmented generation tuning.',
         [
             ('chat_history_messages', 'Number of previous chat messages to include in prompt context. Lower values free up tokens for more document context.'),
+            ('chat_history_messages_assistant', 'Assistant-mode history window. Higher values improve conversational continuity in assistant mode.'),
+            ('chat_history_messages_researcher', 'Researcher-mode history window. Keep lower to preserve token budget for retrieved document context.'),
             ('llm_context_length', 'Context window size in tokens for the LLM.'),
             ('llm_cpu_threads', 'Max CPU threads for llama-cpp generation (0 = auto; set lower to keep system responsive during chat).'),
             ('llm_hf_repo', 'Hugging Face repository for automatic LLM model downloads (e.g., "Qwen/Qwen3-14B-GGUF").'),
@@ -148,6 +150,10 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('llm_temperature', 'Sampling temperature (0 = deterministic; higher = more varied).'),
             # NOTE: rag_context_ratio, rag_max_score, rag_top_k, rag_coverage_top_k are model-specific (ModelProfile, not configurable via env)
             ('adaptive_rag_tuning', 'When true, adapt retrieval top-k based on corpus size (file count, parent chunk count). Default true.'),
+            ('rag_query_rewrite_enabled', 'Enable researcher follow-up retrieval query rewriting for referential questions.'),
+            ('rag_query_rewrite_max_history_messages', 'Maximum recent history messages considered when building retrieval rewrite context.'),
+            ('rag_query_rewrite_max_chars_per_turn', 'Maximum characters taken from each history turn for retrieval rewrite context.'),
+            ('rag_query_rewrite_max_query_chars', 'Maximum characters allowed in the final rewritten retrieval query.'),
             ('rag_rerank', 'When true, re-rank vector candidates with a cross-encoder before taking top_k.'),
             ('rag_rerank_coverage', 'When true, also apply reranking to coverage queries (comprehensive lists/tables).'),
             ('rag_reranker_model', 'Hugging Face model ID for the cross-encoder reranker.'),

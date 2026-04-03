@@ -3,8 +3,15 @@
 # Tests message construction with context chunks and history
 # ==============================================================================
 
+from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.prompt_builder import build_messages
+
+
+class _StubProfile:
+    def __init__(self, *, context_length: int, rag_context_ratio: float) -> None:
+        self.context_length = context_length
+        self.rag_context_ratio = rag_context_ratio
 
 
 class TestPromptBuilder:
@@ -127,6 +134,96 @@ class TestPromptBuilder:
 
         # Should only include last 5 history messages
         assert len(messages) <= 7  # system + 5 history + current question
+
+    def test_uses_assistant_history_limit_by_mode(self) -> None:
+        original_default = settings.chat_history_messages
+        original_assistant = settings.chat_history_messages_assistant
+        original_researcher = settings.chat_history_messages_researcher
+        try:
+            settings.chat_history_messages = 1
+            settings.chat_history_messages_assistant = 4
+            settings.chat_history_messages_researcher = 2
+            history = [
+                ChatMessage(chat_id='test', role='user', content=f'Question {i}')
+                for i in range(10)
+            ]
+            messages = build_messages('Current question', [], history, chat_mode='assistant')
+            # system + 4 history + current question
+            assert len(messages) == 6
+            assert messages[1]['content'] == 'Question 6'
+            assert messages[-2]['content'] == 'Question 9'
+        finally:
+            settings.chat_history_messages = original_default
+            settings.chat_history_messages_assistant = original_assistant
+            settings.chat_history_messages_researcher = original_researcher
+
+    def test_uses_researcher_history_limit_by_mode(self) -> None:
+        original_default = settings.chat_history_messages
+        original_assistant = settings.chat_history_messages_assistant
+        original_researcher = settings.chat_history_messages_researcher
+        try:
+            settings.chat_history_messages = 1
+            settings.chat_history_messages_assistant = 4
+            settings.chat_history_messages_researcher = 2
+            history = [
+                ChatMessage(chat_id='test', role='user', content=f'Question {i}')
+                for i in range(10)
+            ]
+            messages = build_messages('Current question', [], history, chat_mode='researcher')
+            # system + 2 history + current question
+            assert len(messages) == 4
+            assert messages[1]['content'] == 'Question 8'
+            assert messages[-2]['content'] == 'Question 9'
+        finally:
+            settings.chat_history_messages = original_default
+            settings.chat_history_messages_assistant = original_assistant
+            settings.chat_history_messages_researcher = original_researcher
+
+    def test_uses_fallback_history_limit_when_mode_is_unresolved(self) -> None:
+        original_default = settings.chat_history_messages
+        original_assistant = settings.chat_history_messages_assistant
+        original_researcher = settings.chat_history_messages_researcher
+        try:
+            settings.chat_history_messages = 3
+            settings.chat_history_messages_assistant = 8
+            settings.chat_history_messages_researcher = 2
+            history = [
+                ChatMessage(chat_id='test', role='user', content=f'Question {i}')
+                for i in range(10)
+            ]
+            messages = build_messages('Current question', [], history, chat_mode='future-mode')
+            # system + fallback(3) history + current question
+            assert len(messages) == 5
+            assert messages[1]['content'] == 'Question 7'
+            assert messages[-2]['content'] == 'Question 9'
+        finally:
+            settings.chat_history_messages = original_default
+            settings.chat_history_messages_assistant = original_assistant
+            settings.chat_history_messages_researcher = original_researcher
+
+    def test_token_budget_trim_limits_history_when_profile_is_provided(self) -> None:
+        history = [
+            ChatMessage(chat_id='test', role='user', content=f'Long message {i} ' + ('x ' * 300))
+            for i in range(8)
+        ]
+        profile = _StubProfile(context_length=1200, rag_context_ratio=0.75)
+
+        messages = build_messages('Current question', [], history, model_profile=profile)
+
+        # Token budget is effectively exhausted (small context + generation reserve),
+        # so builder should keep only the latest history message as a floor.
+        assert len(messages) == 3
+        assert messages[1]['role'] == 'user'
+        assert 'Long message 7' in messages[1]['content']
+        assert messages[-1]['content'] == 'Current question'
+
+    def test_custom_system_prompt_override(self) -> None:
+        messages = build_messages(
+            'Question',
+            [],
+            system_prompt='You are a direct assistant.',
+        )
+        assert messages[0]['content'].startswith('You are a direct assistant.')
 
     def test_empty_chunks_still_builds_messages(self) -> None:
         messages = build_messages('Question', [])

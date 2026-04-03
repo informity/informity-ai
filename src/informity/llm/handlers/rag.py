@@ -15,8 +15,9 @@ from informity.api.schemas import ChatSourceReference
 from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.model_adapter import get_profile, get_retrieval_top_k
-from informity.llm.prompt_builder import build_messages
+from informity.llm.prompt_builder import build_messages, resolve_history_limit
 from informity.llm.query_classifier import QueryClassification
+from informity.llm.query_patterns import build_referential_followup_pattern
 from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
 from informity.llm.rag_runtime import retrieval_pipeline as _retrieval_pipeline
@@ -42,6 +43,7 @@ _OUTPUT_CONTRACT_BULLET_LIMIT_PATTERN = re.compile(
     r'\bexactly\s+\d+\s+bullets?\b',
     re.IGNORECASE,
 )
+_REFERENTIAL_FOLLOWUP_PATTERN = build_referential_followup_pattern()
 
 
 def _has_explicit_output_contract(question: str) -> bool:
@@ -91,6 +93,62 @@ def _resolve_sampling_params(
 
 def _truncate_preview(text: str, max_length: int = _CHUNK_PREVIEW_MAX_LENGTH) -> str:
     return text[:max_length]
+
+
+def _normalize_query_text(text: str) -> str:
+    return ' '.join(str(text or '').strip().split())
+
+
+def _has_referential_language(question: str) -> bool:
+    normalized = _normalize_query_text(question).lower()
+    if not normalized:
+        return False
+    return bool(_REFERENTIAL_FOLLOWUP_PATTERN.search(normalized))
+
+
+def _build_history_aware_retrieval_query(question: str, history: list[ChatMessage] | None) -> tuple[str, bool]:
+    normalized_question = _normalize_query_text(question)
+    if not normalized_question:
+        return '', False
+    if not bool(settings.rag_query_rewrite_enabled):
+        return normalized_question, False
+    if not _has_referential_language(normalized_question):
+        return normalized_question, False
+    if not history:
+        return normalized_question, False
+
+    previous_user = ''
+    previous_assistant = ''
+    history_limit = max(0, int(settings.rag_query_rewrite_max_history_messages))
+    if history_limit == 0:
+        return normalized_question, False
+    max_chars_per_turn = max(1, int(settings.rag_query_rewrite_max_chars_per_turn))
+    max_query_chars = max(64, int(settings.rag_query_rewrite_max_query_chars))
+
+    for message in reversed(history[-history_limit:]):
+        content = _normalize_query_text(message.content or '')
+        if not content:
+            continue
+        if not previous_user and message.role == 'user':
+            previous_user = content
+        elif not previous_assistant and message.role == 'assistant':
+            previous_assistant = content
+        if previous_user and previous_assistant:
+            break
+
+    if not previous_user and not previous_assistant:
+        return normalized_question, False
+
+    context_lines: list[str] = []
+    if previous_user:
+        context_lines.append(f'Previous user question: {previous_user[:max_chars_per_turn]}')
+    if previous_assistant:
+        context_lines.append(f'Previous assistant answer: {previous_assistant[:max_chars_per_turn]}')
+    rewritten_query = normalized_question
+    if context_lines:
+        rewritten_query = f"{normalized_question}\n\nFollow-up context:\n" + '\n'.join(f'- {line}' for line in context_lines)
+
+    return rewritten_query[:max_query_chars], True
 
 
 def _resolve_minimal_query_type(classification: QueryClassification) -> QueryType:
@@ -168,9 +226,16 @@ class RAGHandler:
             })
 
         retrieval_timing: dict[str, float] = {}
+        retrieval_query, query_rewritten = _build_history_aware_retrieval_query(question, history)
+        if trace is not None:
+            trace.record('retrieval.query_rewrite', {
+                'query_rewrite': query_rewritten,
+                'original_query': question,
+                'rewritten_query': retrieval_query if query_rewritten else None,
+            })
         retrieval_start = time.perf_counter()
         chunks = await retrieve_chunks(
-            query=question,
+            query=retrieval_query,
             top_k=effective_top_k,
             # Minimal mode keeps one retrieval call without secondary branches.
             # retries. Do not apply strict L2 max_score pruning here; otherwise
@@ -253,6 +318,8 @@ class RAGHandler:
             history=history,
             output_constraints=output_constraints,
             format_requirements=format_requirements,
+            model_profile=profile,
+            chat_mode='researcher',
         )
         messages = profile.prepare_messages(messages, effective_query_type)
 
@@ -261,6 +328,8 @@ class RAGHandler:
                 'messages_count': len(messages),
                 'context_chunks': len(chunks),
                 'history_messages': len(history) if history else 0,
+                'effective_history_limit': resolve_history_limit('researcher'),
+                'chat_mode': 'researcher',
                 'reasoning_enabled': reasoning_enabled,
                 'output_constraints': output_constraints,
                 'format_requirements': format_requirements,

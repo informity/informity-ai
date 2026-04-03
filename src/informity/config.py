@@ -418,6 +418,13 @@ class Settings(BaseSettings):
     retrieval_widening_retry_multiplier: float = 1.5
     retrieval_widening_retry_extra_k: int = 4
     retrieval_widening_retry_cap: int = 40
+    # Researcher follow-up retrieval query rewrite controls.
+    # When enabled, referential follow-up questions are expanded with recent
+    # chat context before vector retrieval so retrieval remains self-contained.
+    rag_query_rewrite_enabled: bool = True
+    rag_query_rewrite_max_history_messages: int = 3
+    rag_query_rewrite_max_chars_per_turn: int = 260
+    rag_query_rewrite_max_query_chars: int = 900
     # Maximum net-new chunk candidates FTS5 keyword search may add to the vector search pool
     # before reranking (focused queries only). FTS5 augmentation recovers exact-match pool
     # misses (e.g., document title queries not semantically close to any indexed vector).
@@ -438,6 +445,12 @@ class Settings(BaseSettings):
     # Lower values free up tokens for more document context, improving answer quality.
     # Higher values maintain better conversation continuity for follow-up questions.
     chat_history_messages:   int   = 5
+    # Mode-specific history window overrides.
+    # Assistant mode can keep a larger conversational window because it does not
+    # include corpus retrieval chunks in prompt context.
+    # Researcher mode should remain conservative to preserve retrieval context budget.
+    chat_history_messages_assistant: int = 12
+    chat_history_messages_researcher: int = 5
     # Chat auto-continuation policy for long/strict outputs.
     chat_auto_continue_enabled: bool = True
     chat_auto_continue_default_max_rounds: int = 2
