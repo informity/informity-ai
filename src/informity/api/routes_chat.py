@@ -21,17 +21,41 @@ from informity.answer_sanitization import build_display_answer, sanitize_display
 from informity.api.chat_closeout import build_display_blocks, build_done_payload
 from informity.api.chat_continuation import (
     build_auto_continue_pass_prompt as _build_auto_continue_pass_prompt,
+)
+from informity.api.chat_continuation import (
     build_continuing_status_message as _build_continuing_status_message,
+)
+from informity.api.chat_continuation import (
     enforce_completion_action_consistency as _enforce_completion_action_consistency,
+)
+from informity.api.chat_continuation import (
     enforce_continuation_chat_binding as _enforce_continuation_chat_binding,
+)
+from informity.api.chat_continuation import (
     has_continue_worthy_gap as _has_continue_worthy_gap,
+)
+from informity.api.chat_continuation import (
     is_continuation_request as _is_continuation_request,
+)
+from informity.api.chat_continuation import (
     is_duplicate_continuation_pass as _is_duplicate_continuation_pass,
+)
+from informity.api.chat_continuation import (
     mark_structural_output_gap as _mark_structural_output_gap,
+)
+from informity.api.chat_continuation import (
     normalize_continuation_classification as _normalize_continuation_classification,
+)
+from informity.api.chat_continuation import (
     resolve_auto_continue_policy as _resolve_auto_continue_policy,
+)
+from informity.api.chat_continuation import (
     resolve_completion_state as _resolve_completion_state,
+)
+from informity.api.chat_continuation import (
     resolve_continuation_anchor_question as _resolve_continuation_anchor_question,
+)
+from informity.api.chat_continuation import (
     resolve_next_action as _resolve_next_action,
 )
 from informity.api.chat_orchestrator import ChatOrchestrator
@@ -43,7 +67,7 @@ from informity.api.schemas import (
     ChatStopRequest,
 )
 from informity.api.security import EndpointGuard
-from informity.chat_trace import flush_trace_writer, get_trace_writer
+from informity.chat_trace import get_trace_writer
 from informity.config import settings
 from informity.db.models import ChatMessage, ContinuationPassArtifact
 from informity.db.sqlite import (
