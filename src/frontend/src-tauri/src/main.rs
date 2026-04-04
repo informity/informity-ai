@@ -461,9 +461,7 @@ fn build_launch_specs(
         .resource_dir()
         .map_err(|error| format!("failed to resolve resource directory: {error}"))?;
 
-    let sidecar = resource_dir
-        .join(BACKEND_RESOURCE_DIR)
-        .join(platform_backend_binary_name());
+    let sidecar = resolve_packaged_sidecar_program(&resource_dir)?;
     specs.push(LaunchSpec {
         program: sidecar,
         args: Vec::new(),
@@ -508,6 +506,31 @@ fn build_launch_specs(
     }
 
     Ok(specs)
+}
+
+fn resolve_packaged_sidecar_program(resource_dir: &Path) -> Result<PathBuf, String> {
+    let sidecar_root = resource_dir.join(BACKEND_RESOURCE_DIR);
+    let binary_name = platform_backend_binary_name();
+
+    // Preferred onedir layout:
+    // resources/backend/<binary-name>/<binary-name>
+    let onedir = sidecar_root.join(&binary_name).join(&binary_name);
+    if onedir.exists() {
+        return Ok(onedir);
+    }
+
+    // Backward-compatible onefile layout:
+    // resources/backend/<binary-name>
+    let onefile = sidecar_root.join(&binary_name);
+    if onefile.exists() {
+        return Ok(onefile);
+    }
+
+    Err(format!(
+        "backend sidecar not found (checked: {}, {})",
+        onedir.display(),
+        onefile.display()
+    ))
 }
 
 fn resolve_repo_root_from_manifest() -> Option<PathBuf> {
