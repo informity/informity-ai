@@ -163,7 +163,7 @@ class FileTypeOption(BaseModel):
 class ModelProfileInfo(BaseModel):
     # Read-only model profile information for the Settings UI.
     # All values are determined by the model profile — not user-editable.
-    name:                    str       # "Qwen 30B", "Qwen3 14B", etc.
+    name:                    str       # "Qwen3.5 35B A3B", "Qwen3 14B", etc.
     family:                  str       # "chatml", "llama", etc.
     supports_reasoning:      bool      # Can use <think> blocks
     reasoning_mode:          str       # "Focused queries only", "Off", etc.
@@ -225,6 +225,7 @@ class SettingsResponse(BaseModel):
     chat_history_messages: int       = 5  # Legacy/fallback history window when mode is unresolved
     chat_history_messages_assistant: int = 12  # Assistant mode history window
     chat_history_messages_researcher: int = 5  # Researcher mode history window
+    default_chat_mode: Literal['assistant', 'researcher'] = 'researcher'
     diagnostics_profile: str = 'standard'  # standard, troubleshooting, custom
     log_level:             str        = 'info'  # debug, info, warning, error
     chat_trace_logging:     bool       = False   # Per-chat trace file for debugging
@@ -288,6 +289,7 @@ class SettingsUpdateRequest(BaseModel):
     chat_history_messages: int | None  = None  # Legacy/fallback history window when mode is unresolved
     chat_history_messages_assistant: int | None = None  # Assistant mode history window
     chat_history_messages_researcher: int | None = None  # Researcher mode history window
+    default_chat_mode: Literal['assistant', 'researcher'] | None = None
     diagnostics_profile: str | None = None  # standard, troubleshooting, custom
     log_level:             str | None  = None  # debug, info, warning, error
     chat_trace_logging:    bool | None = None   # Per-chat trace file for debugging

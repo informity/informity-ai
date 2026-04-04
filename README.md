@@ -165,7 +165,7 @@ src/informity/
 │   └── pipeline.py           # index_file, reindex_file, remove_file — orchestration
 ├── llm/
 │   ├── engine.py             # LLM inference (xllamacpp, Metal)
-│   ├── model_adapter.py      # Per-model profiles (Qwen3 14B, 9B, 30B A3B, DeepSeek R1)
+│   ├── model_adapter.py      # Per-model profiles (Qwen3 14B, Qwen3.5 9B, Qwen3.5 35B A3B, DeepSeek R1)
 │   ├── rag.py                # QueryRouter — dispatches to handlers based on intent
 │   ├── query_classifier.py   # Deterministic slot extraction + NLP/promptcue intent routing
 │   ├── retrieval.py          # Unified retrieval pipeline (vector search → rerank)

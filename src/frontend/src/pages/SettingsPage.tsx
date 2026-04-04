@@ -41,6 +41,7 @@ const UPDATABLE_KEYS = [
   'full_privacy',
   'adaptive_rag_tuning',
   'chat_history_messages',
+  'default_chat_mode',
   'llm_model_filename',
   'diagnostics_profile',
   'chat_trace_logging',
@@ -70,6 +71,7 @@ interface FormState {
   full_privacy?: boolean
   adaptive_rag_tuning?: boolean
   chat_history_messages?: number
+  default_chat_mode?: 'assistant' | 'researcher'
   diagnostics_profile?: string
   chat_trace_logging?: boolean
   chat_trace_redaction_mode?: string
@@ -186,6 +188,13 @@ export function SettingsPage() {
         document.documentElement.setAttribute('data-accent', normalizedTheme)
         try {
           localStorage.setItem(UI_THEME_STORAGE_KEY, normalizedTheme)
+        } catch {
+          // ignore
+        }
+      }
+      if (updated.default_chat_mode === 'assistant' || updated.default_chat_mode === 'researcher') {
+        try {
+          localStorage.setItem('informity_chat_mode', updated.default_chat_mode)
         } catch {
           // ignore
         }

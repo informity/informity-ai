@@ -45,6 +45,9 @@ _STREAM_END: object = object()
 _FIRST_TOKEN_WATCHDOG_MIN_SECONDS = 45.0
 _FIRST_TOKEN_WATCHDOG_MAX_SECONDS = 180.0
 _FIRST_TOKEN_WATCHDOG_RATIO = 0.30
+_SLOW_PROFILE_TPS_THRESHOLD = 6.0
+_SLOW_PROFILE_WATCHDOG_RATIO = 0.50
+_SLOW_PROFILE_WATCHDOG_MAX_SECONDS = 600.0
 
 
 # ==============================================================================
@@ -78,6 +81,21 @@ def _normalize_finish_reason(reason: str | None) -> str | None:
         return 'cancelled'
     log.debug('llm_unknown_finish_reason', reason=reason)
     return reason_lower
+
+
+def _resolve_first_token_deadline_seconds(*, wall_clock: float, profile_tps: float) -> float:
+    """Compute first-token watchdog deadline with a slow-profile override."""
+    base_deadline = max(
+        _FIRST_TOKEN_WATCHDOG_MIN_SECONDS,
+        min(_FIRST_TOKEN_WATCHDOG_MAX_SECONDS, wall_clock * _FIRST_TOKEN_WATCHDOG_RATIO),
+    )
+    if profile_tps <= _SLOW_PROFILE_TPS_THRESHOLD:
+        slow_deadline = max(
+            _FIRST_TOKEN_WATCHDOG_MIN_SECONDS,
+            min(_SLOW_PROFILE_WATCHDOG_MAX_SECONDS, wall_clock * _SLOW_PROFILE_WATCHDOG_RATIO),
+        )
+        return max(base_deadline, slow_deadline)
+    return base_deadline
 
 
 # ==============================================================================
@@ -809,9 +827,9 @@ class LLMEngine:
         finish_reason: str | None = None
         timeout_occurred = False
         timeout_reason: str | None = None
-        first_token_deadline_seconds = max(
-            _FIRST_TOKEN_WATCHDOG_MIN_SECONDS,
-            min(_FIRST_TOKEN_WATCHDOG_MAX_SECONDS, wall_clock * _FIRST_TOKEN_WATCHDOG_RATIO),
+        first_token_deadline_seconds = _resolve_first_token_deadline_seconds(
+            wall_clock=wall_clock,
+            profile_tps=float(getattr(profile, 'generation_tokens_per_second', 12.0) or 12.0),
         )
 
         stripper = ThinkStrip()

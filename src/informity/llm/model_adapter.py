@@ -70,8 +70,8 @@ _QWEN_CHINESE_STOPS = (
 )
 
 # Fallback phrase stops: prevent repetition of insufficient info message
-# NOTE: These fire inside <think> blocks when model reasons about insufficient context,
-# causing premature generation cutoff. Removed from Qwen3 30B profile (app compliance).
+# NOTE: These can fire inside <think> blocks when model reasons about insufficient context,
+# causing premature generation cutoff on some profiles.
 _FALLBACK_PHRASE_STOPS = (
     'The available documents do not contain enough information',
     '\nThe available documents',
@@ -244,8 +244,7 @@ class ModelProfile:
 # ==============================================================================
 
 # -- Qwen3 14B Instruct --------------------------------------------------------
-# Balanced profile for slower hardware: keep Qwen3 behavior with reduced token
-# budgets/timeouts versus 30B to improve latency while preserving answer quality.
+# Balanced profile for slower hardware.
 QWEN3_14B_PROFILE = ModelProfile(
     name              = 'Qwen3 14B',
     family            = ModelFamily.CHATML,
@@ -338,103 +337,47 @@ QWEN3_5_9B_PROFILE = ModelProfile(
 
 
 # -- Qwen3.5 35B A3B ----------------------------------------------------------
-# High-context profile for Qwen3.5 35B A3B Q4_K_M.
+# Conservative large-model profile tuned for local reliability and lower timeout risk.
 QWEN3_5_35B_A3B_PROFILE = ModelProfile(
     name              = 'Qwen3.5 35B A3B',
     family            = ModelFamily.CHATML,
     filename_patterns = ('qwen3.5-35b-a3b', 'qwen-3.5-35b-a3b', 'qwen3-5-35b-a3b'),
 
+    # Qwen3.5 GGUF variants use template-level thinking control.
+    # Keep thinking disabled to avoid empty-stream failures when the model
+    # consumes generation budget inside hidden reasoning.
     supports_think_blocks = True,
-    reasoning_mode        = ReasoningMode.FOCUSED_ONLY,
-    no_think_token        = '/no_think',
+    reasoning_mode        = ReasoningMode.NEVER,
+    no_think_token        = None,
 
     prompt_format          = PromptFormat.NATIVE_GGUF,
     coverage_prompt_format = PromptFormat.NATIVE_GGUF,
 
-    max_tokens         = 8192,
-    coverage_top_k      = 15,
+    max_tokens         = 3072,
+    coverage_top_k      = 18,
     min_tokens_coverage = 200,
 
-    timeout_seconds = 450,
+    timeout_seconds = 900,
 
-    context_length = 65536,
-    generation_tokens_per_second = 7.0,
-    temperature    = 0.25,
+    context_length = 24576,
+    generation_tokens_per_second = 5.0,
+    temperature    = 0.2,
     top_p          = 0.9,
-    rag_top_k      = 15,
+    rag_top_k      = 10,
 
-    rag_max_score            = 0.87,
-    rag_context_ratio        = 0.75,
+    rag_max_score            = 0.90,
+    rag_context_ratio        = 0.65,
 
-    retrieval_top_k_final = 15,
+    retrieval_top_k_final = 12,
     rag_top_k_simple   = 6,
-    rag_top_k_focused  = 15,
-    rag_top_k_coverage = 15,
+    rag_top_k_focused  = 12,
+    rag_top_k_coverage = 0,   # Use coverage_top_k (18)
 
     stop_sequences  = _CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
 
     strip_meta_commentary = False,
     strip_citations       = True,
-)
-
-
-# -- Qwen3 30B A3B Instruct ----------------------------------------------------
-# High-capacity model (30B parameters). Significantly more capable than 14B,
-# with better instruction-following, reasoning, and structured output.
-#
-# For RAG: Reasoning enabled for focused queries (FOCUSED_ONLY). Complex synthesis
-# queries (e.g. "list accomplishments of X") need reasoning; ReasoningMode.NEVER
-# causes /no_think to be appended but Qwen3 30B A3B still generates empty <think>
-# blocks on such queries, leading to false refusals. FOCUSED_ONLY enables proper
-# reasoning for focused queries while keeping simple/coverage fast.
-#
-# Native GGUF template works correctly (standard ChatML <|im_start|>).
-# Q4_K_M quantization (~18GB, ~8-12 t/s on M3 Pro/Max). 32K native context;
-# we use 24K for RAG (more headroom for complex queries and long context).
-#
-# Tuned for 30B Q4_K_M: higher token limits, stricter RAG thresholds (better
-# model can be more selective), more context budget for answers.
-QWEN3_30B_A3B_PROFILE = ModelProfile(
-    name              = 'Qwen3 30B A3B',
-    family            = ModelFamily.CHATML,
-    filename_patterns = ('qwen3-30b-a3b', 'qwen3-30b', 'qwen-3-30b'),
-
-    supports_think_blocks         = True,
-    reasoning_mode                = ReasoningMode.FOCUSED_ONLY,  # Focused queries need reasoning; NEVER causes empty <think> → false refusal
-    no_think_token                = '/no_think',  # Automatically appended to user message when reasoning disabled
-
-    prompt_format          = PromptFormat.NATIVE_GGUF,  # Qwen3's native template works correctly
-    coverage_prompt_format = PromptFormat.NATIVE_GGUF,
-
-    max_tokens         = 3072,
-    coverage_top_k      = 18,       # Reduced from 25: 30B is slower, need to prevent timeout on coverage queries
-                                    # 18 chunks is still comprehensive but more realistic for generation speed
-                                    # Count queries now use SQL path (Fix #1), so coverage_top_k only affects list queries
-    min_tokens_coverage = 200,      # Same as 14B: prevent premature stops
-
-    timeout_seconds = 450,
-
-    context_length = 24576,  # 24K for RAG; 30B native 32K, but 24K is ample and faster
-    generation_tokens_per_second = 6.0,
-    temperature    = 0.2,     # Low for factual extraction; same as 14B
-    top_p          = 0.9,     # Slight nucleus sampling for variety
-    rag_top_k      = 10,      # Focused retrieval: 10 chunks; reranker quality drops after rank 9
-
-    # RAG tuning: 30B benefits from stricter threshold (0.90) - better model can be more selective
-    rag_max_score            = 0.90,  # Stricter than 14B: better model can be more selective
-    rag_context_ratio        = 0.65,  # More context budget for complex queries (24K context)
-
-    rag_top_k_simple   = 6,
-    rag_top_k_focused  = 12,
-    rag_top_k_coverage = 0,   # Use coverage_top_k (18)
-
-    # Do not include citation text stops for Qwen3: they can appear inside
-    # <think> reasoning and prematurely terminate generation before final answer.
-    stop_sequences  = _CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
-
-    strip_meta_commentary = False,  # 30B model follows Rule #5 — no need
-    strip_citations       = True,   # Keep citation stripping as safety net
-    dedupe_insufficient_context_after_stream = True,  # Fallback phrase stops are disabled for this profile
+    chat_template_kwargs  = {'enable_thinking': False},
 )
 
 
@@ -515,13 +458,12 @@ DEFAULT_PROFILE = ModelProfile(
 # Profile Registry — ordered list, first match wins
 # ==============================================================================
 
-# Order matters: more specific patterns first. R1 before Qwen3 30B for diagnostics.
+# Order matters: more specific patterns first.
 _PROFILE_REGISTRY: list[ModelProfile] = [
     DEEPSEEK_R1_DISTILL_PROFILE,   # DeepSeek-R1-Distill-Qwen-14B (diagnostics)
     QWEN3_5_35B_A3B_PROFILE,       # Qwen3.5-35B-A3B-Q4_K_M
     QWEN3_5_9B_PROFILE,            # Qwen3.5-9B-Q4_K_M (analysis RAG)
     QWEN3_14B_PROFILE,             # Qwen3-14B-Q5_K_M (analysis RAG profile)
-    QWEN3_30B_A3B_PROFILE,         # Qwen3-30B-A3B-Q4_K_M (primary RAG)
 ]
 
 

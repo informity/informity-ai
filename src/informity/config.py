@@ -68,8 +68,13 @@ def _get_repo_root() -> Path:
 # All platforms default to ~/.informity.
 _DEFAULT_APP_DATA_DIR = Path.home() / APP_DATA_DIRNAME
 
-# Default model for reset-to-factory and first load: Qwen 14B (Q5_K_M).
-_DEFAULT_LLM_MODEL_FILENAME = 'Qwen3-14B-Q5_K_M.gguf'
+# Default model for reset-to-factory and first load: Qwen3.5 35B A3B.
+_DEFAULT_LLM_MODEL_FILENAME = 'Qwen3.5-35B-A3B-Q4_K_M.gguf'
+_LEGACY_MAIN_MODEL_REMAP: dict[str, str] = {
+    'qwen3-30b-a3b-q4_k_m.gguf': 'Qwen3.5-35B-A3B-Q4_K_M.gguf',
+    'qwen3-30b-a3b-q5_k_m.gguf': 'Qwen3.5-35B-A3B-Q4_K_M.gguf',
+    'qwen3-30b-a3b.gguf': 'Qwen3.5-35B-A3B-Q4_K_M.gguf',
+}
 
 # Default diagnostics analysis model filename (DeepSeek R1 optimized for analysis tasks).
 _DEFAULT_DIAGNOSTICS_LLM_MODEL_FILENAME = 'DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf'
@@ -83,7 +88,7 @@ _DEFAULT_RERANKER_MODEL = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
 DEFAULT_RERANKER_MODEL = _DEFAULT_RERANKER_MODEL
 
 # Default Hugging Face repository for LLM model downloads
-_DEFAULT_LLM_HF_REPO = 'Qwen/Qwen3-14B-GGUF'
+_DEFAULT_LLM_HF_REPO = 'Qwen/Qwen3.5-35B-A3B-GGUF'
 
 # Default auto-continuation policy for long responses.
 _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT = (
@@ -269,6 +274,11 @@ def _load_config_file_values() -> dict:
                 pass
             else:
                 data['ui_theme'] = _DEFAULT_UI_THEME
+        raw_model_filename = str(data.get('llm_model_filename') or '').strip()
+        if raw_model_filename:
+            remapped = _LEGACY_MAIN_MODEL_REMAP.get(raw_model_filename.casefold())
+            if remapped:
+                data['llm_model_filename'] = remapped
         return data
     except (json.JSONDecodeError, OSError):
         return {}
@@ -355,7 +365,7 @@ class Settings(BaseSettings):
     # When True, load LLM only from models_dir; never download from the network.
     # Synced from full_privacy when that setting is updated via the UI.
     llm_local_only:       bool = True
-    llm_model_filename:   str  = _DEFAULT_LLM_MODEL_FILENAME  # Default: Qwen3 14B
+    llm_model_filename:   str  = _DEFAULT_LLM_MODEL_FILENAME  # Default: Qwen3.5 35B A3B
     llm_hf_repo:          str  = _DEFAULT_LLM_HF_REPO  # Hugging Face repo for automatic model downloads
     llm_context_length:   int  = 16384  # 16K is ample (10K chunks + 4K prompt/history + 2K gen); prevents over-assembly
     llm_max_tokens:     int   = 2048
@@ -464,6 +474,8 @@ class Settings(BaseSettings):
     # Researcher mode should remain conservative to preserve retrieval context budget.
     chat_history_messages_assistant: int = 12
     chat_history_messages_researcher: int = 5
+    # Default chat mode shown in the Chat UI.
+    default_chat_mode: Literal['assistant', 'researcher'] = 'researcher'
     # Chat auto-continuation policy for long/strict outputs.
     chat_auto_continue_enabled: bool = True
     chat_auto_continue_default_max_rounds: int = 2
@@ -724,8 +736,8 @@ settings = _build_settings()
 
 def reset_to_factory_defaults() -> Settings:
     # Reset settings to factory defaults by deleting config.json and rebuilding.
-    # Writes a minimal config with Qwen3 14B model so reset always returns to
-    # Qwen3 14B profile.
+    # Writes a minimal config with Qwen3.5 35B A3B model so reset always returns
+    # to the default large profile.
     # Returns the new Settings instance with factory defaults.
     config_path = _config_path_for_loader()
     if config_path.exists():
@@ -744,6 +756,7 @@ def reset_to_factory_defaults() -> Settings:
         'diagnostics_profile':     'standard',
         'chat_trace_logging':      False,
         'enable_raw_output_control': False,
+        'default_chat_mode':      'researcher',
         'rag_minimal_mode':        True,
         'adaptive_rag_tuning':     True,  # Enabled by default
         'ui_theme':                 _DEFAULT_UI_THEME,

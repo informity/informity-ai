@@ -23,6 +23,11 @@ _OUT_OF_CORPUS_SENTENCE_PATTERN = re.compile(
 _OUT_OF_CORPUS_SIGNAL_PATTERN = re.compile(
     r'(?is)\b(?:documents?|context)\b.{0,120}\b(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b(?:contain|include|cover|mention|provide)\b'
 )
+_MAX_WORDS_PATTERN = re.compile(
+    r'(?:<=?|at\s+most|max(?:imum)?|less than or equal to)\s*(\d+)\s*words?\b',
+    re.IGNORECASE,
+)
+_WORD_PATTERN = re.compile(r'\S+')
 
 
 def strip_think_blocks(text: str) -> str:
@@ -110,3 +115,48 @@ def build_display_answer(raw_answer: str, fallback_message: str = DISPLAY_FALLBA
     if reasoning_only_output:
         return fallback_message, True
     return cleaned_answer, False
+
+
+def extract_requested_max_words(text: str) -> int | None:
+    match = _MAX_WORDS_PATTERN.search(str(text or ''))
+    if match is None:
+        return None
+    try:
+        value = int(match.group(1))
+    except (TypeError, ValueError):
+        return None
+    return value if value > 0 else None
+
+
+def count_words(text: str) -> int:
+    return len(_WORD_PATTERN.findall(str(text or '')))
+
+
+def truncate_to_word_limit(text: str, max_words: int) -> tuple[str, bool]:
+    raw_text = str(text or '')
+    if not raw_text or max_words <= 0:
+        return raw_text, False
+
+    matches = list(_WORD_PATTERN.finditer(raw_text))
+    if len(matches) <= max_words:
+        return raw_text, False
+
+    cutoff = matches[max_words - 1].end()
+    truncated = raw_text[:cutoff].rstrip()
+    if not truncated:
+        return truncated, True
+
+    # Prefer a clean sentence boundary if it is very close to the hard cutoff.
+    min_boundary = max(0, len(truncated) - 120)
+    boundary = max(
+        truncated.rfind('. ', min_boundary),
+        truncated.rfind('! ', min_boundary),
+        truncated.rfind('? ', min_boundary),
+        truncated.rfind('.\n', min_boundary),
+        truncated.rfind('!\n', min_boundary),
+        truncated.rfind('?\n', min_boundary),
+    )
+    if boundary >= min_boundary:
+        truncated = truncated[: boundary + 1].rstrip()
+
+    return truncated, True

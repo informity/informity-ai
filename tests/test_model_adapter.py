@@ -1,7 +1,7 @@
 # ==============================================================================
 # Informity AI — Model Profile Tests
 # Tests profile detection, selection, stop sequences, reasoning mode, prompt
-# format, max tokens, and model-specific behavior for Qwen3 30B A3B, DeepSeek R1
+# format, max tokens, and model-specific behavior for Qwen3.5 35B A3B, DeepSeek R1
 # Distill 14B (diagnostics), and the default profile.
 # ==============================================================================
 
@@ -13,7 +13,6 @@ from informity.llm.model_adapter import (
     QWEN3_5_9B_PROFILE,
     QWEN3_5_35B_A3B_PROFILE,
     QWEN3_14B_PROFILE,
-    QWEN3_30B_A3B_PROFILE,
     ModelFamily,
     ModelProfile,
     PromptFormat,
@@ -28,14 +27,14 @@ from informity.llm.model_adapter import (
 
 
 class TestGetProfileForFilename:
-    def test_qwen3_30b_a3b_detected(self) -> None:
-        profile = get_profile_for_filename('Qwen3-30B-A3B-Q4_K_M.gguf')
-        assert profile is QWEN3_30B_A3B_PROFILE
-        assert profile.name == 'Qwen3 30B A3B'
+    def test_qwen3_5_35b_a3b_detected(self) -> None:
+        profile = get_profile_for_filename('Qwen3.5-35B-A3B-Q4_K_M.gguf')
+        assert profile is QWEN3_5_35B_A3B_PROFILE
+        assert profile.name == 'Qwen3.5 35B A3B'
 
-    def test_qwen3_30b_a3b_lowercase(self) -> None:
-        profile = get_profile_for_filename('qwen3-30b-a3b-q4_k_m.gguf')
-        assert profile is QWEN3_30B_A3B_PROFILE
+    def test_qwen3_5_35b_a3b_lowercase(self) -> None:
+        profile = get_profile_for_filename('qwen3.5-35b-a3b-q4_k_m.gguf')
+        assert profile is QWEN3_5_35B_A3B_PROFILE
 
     def test_deepseek_r1_distill_14b_detected(self) -> None:
         profile = get_profile_for_filename('DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf')
@@ -55,11 +54,6 @@ class TestGetProfileForFilename:
     def test_qwen3_8b_returns_default(self) -> None:
         profile = get_profile_for_filename('Qwen3-8B-Q5_K_M.gguf')
         assert profile is DEFAULT_PROFILE
-
-    def test_qwen3_5_35b_a3b_detected(self) -> None:
-        profile = get_profile_for_filename('Qwen3.5-35B-A3B-Q4_K_M.gguf')
-        assert profile is QWEN3_5_35B_A3B_PROFILE
-        assert profile.name == 'Qwen3.5 35B A3B'
 
     def test_unknown_returns_default(self) -> None:
         profile = get_profile_for_filename('custom-model.gguf')
@@ -86,28 +80,29 @@ class TestGetProfileForFilename:
 
 
 # ==============================================================================
-# Qwen3 30B A3B Profile (primary RAG)
+# Qwen3.5 35B A3B Profile (primary large model)
 # ==============================================================================
 
 
-class TestQwen330BA3BProfile:
+class TestQwen3535BA3BProfile:
     @pytest.fixture
     def profile(self) -> ModelProfile:
-        return QWEN3_30B_A3B_PROFILE
+        return QWEN3_5_35B_A3B_PROFILE
 
     def test_identity(self, profile: ModelProfile) -> None:
+        assert profile.name == 'Qwen3.5 35B A3B'
         assert profile.family == ModelFamily.CHATML
         assert profile.supports_think_blocks is True
 
-    def test_reasoning_focused_only(self, profile: ModelProfile) -> None:
-        # Qwen3 30B: reasoning enabled for focused queries (avoids empty think block → false refusal)
-        assert profile.reasoning_mode == ReasoningMode.FOCUSED_ONLY
+    def test_reasoning_disabled(self, profile: ModelProfile) -> None:
+        assert profile.reasoning_mode == ReasoningMode.NEVER
         assert profile.get_reasoning_enabled('simple') is False
-        assert profile.get_reasoning_enabled('focused') is True
+        assert profile.get_reasoning_enabled('focused') is False
         assert profile.get_reasoning_enabled('coverage') is False
 
-    def test_no_think_token(self, profile: ModelProfile) -> None:
-        assert profile.no_think_token == '/no_think'
+    def test_chat_template_kwargs(self, profile: ModelProfile) -> None:
+        assert profile.chat_template_kwargs == {'enable_thinking': False}
+        assert profile.no_think_token is None
 
     def test_prompt_format_always_native(self, profile: ModelProfile) -> None:
         assert profile.get_prompt_format('simple') == PromptFormat.NATIVE_GGUF
@@ -123,14 +118,16 @@ class TestQwen330BA3BProfile:
         assert profile.retrieval_top_k_candidates > 0
         assert profile.retrieval_top_k_final > 0
 
-    def test_context_length(self, profile: ModelProfile) -> None:
+    def test_requested_tuning_values(self, profile: ModelProfile) -> None:
+        assert profile.max_tokens == 3072
+        assert profile.coverage_top_k == 18
+        assert profile.timeout_seconds == 900
         assert profile.context_length == 24576
-
-    def test_rag_top_k(self, profile: ModelProfile) -> None:
-        assert profile.rag_top_k == 10
-
-    def test_temperature(self, profile: ModelProfile) -> None:
         assert profile.temperature == 0.2
+        assert profile.rag_top_k == 10
+        assert profile.rag_max_score == 0.90
+        assert profile.rag_context_ratio == 0.65
+        assert profile.retrieval_top_k_final == 12
 
     def test_stop_sequences_include_chatml(self, profile: ModelProfile) -> None:
         stops = profile.get_stop_sequences(reasoning_enabled=True)
@@ -139,38 +136,16 @@ class TestQwen330BA3BProfile:
         assert '<|endoftext|>' in stops
 
     def test_stop_sequences_no_reasoning_does_not_stop_on_think(self, profile: ModelProfile) -> None:
-        # /no_think token is used to suppress reasoning; <think> is NOT a stop sequence
-        # (stopping on <think> would produce empty responses if model starts with a think block)
         no_reasoning = profile.get_stop_sequences(reasoning_enabled=False)
         assert '<think>' not in no_reasoning
 
-    def test_prepare_messages_appends_no_think(self, profile: ModelProfile) -> None:
+    def test_prepare_messages_does_not_append_no_think(self, profile: ModelProfile) -> None:
         messages = [
             {'role': 'system', 'content': 'You are helpful.'},
             {'role': 'user', 'content': 'What is X?'},
         ]
-        # Simple query: reasoning_mode=NEVER, so /no_think appended
         result = profile.prepare_messages(messages, 'simple')
-        assert result[-1]['content'].endswith('/no_think')
-        # Original not mutated
-        assert not messages[-1]['content'].endswith('/no_think')
-
-    def test_prepare_messages_coverage_appends_no_think(self, profile: ModelProfile) -> None:
-        messages = [
-            {'role': 'system', 'content': 'System.'},
-            {'role': 'user', 'content': 'List all scenarios.'},
-        ]
-        result = profile.prepare_messages(messages, 'coverage')
-        assert result[-1]['content'].endswith('/no_think')
-
-    def test_prepare_messages_focused_no_no_think(self, profile: ModelProfile) -> None:
-        # reasoning_mode=FOCUSED_ONLY: focused gets reasoning, so no /no_think
-        messages = [
-            {'role': 'system', 'content': 'System.'},
-            {'role': 'user', 'content': 'Analyze this.'},
-        ]
-        result = profile.prepare_messages(messages, 'focused')
-        assert not result[-1]['content'].endswith('/no_think')
+        assert result[-1]['content'] == messages[-1]['content']
 
 
 # ==============================================================================
@@ -204,34 +179,6 @@ class TestQwen359BProfile:
 
 
 # ==============================================================================
-# Qwen3.5 35B A3B Profile
-# ==============================================================================
-
-
-class TestQwen3535BA3BProfile:
-    @pytest.fixture
-    def profile(self) -> ModelProfile:
-        return QWEN3_5_35B_A3B_PROFILE
-
-    def test_identity(self, profile: ModelProfile) -> None:
-        assert profile.name == 'Qwen3.5 35B A3B'
-        assert profile.family == ModelFamily.CHATML
-
-    def test_reasoning_focused_only(self, profile: ModelProfile) -> None:
-        assert profile.reasoning_mode == ReasoningMode.FOCUSED_ONLY
-        assert profile.get_reasoning_enabled('simple') is False
-        assert profile.get_reasoning_enabled('focused') is True
-        assert profile.get_reasoning_enabled('coverage') is False
-
-    def test_requested_tuning_values(self, profile: ModelProfile) -> None:
-        assert profile.max_tokens == 8192
-        assert profile.context_length == 65536
-        assert profile.temperature == 0.25
-        assert profile.rag_top_k == 15
-        assert profile.rag_max_score == 0.87
-        assert profile.rag_context_ratio == 0.75
-        assert profile.retrieval_top_k_final == 15
-
 # ==============================================================================
 # Default Profile
 # ==============================================================================
@@ -263,20 +210,20 @@ class TestDefaultProfile:
 
 class TestModelProfileMethods:
     def test_get_max_tokens_unknown_type_returns_focused(self) -> None:
-        profile = QWEN3_30B_A3B_PROFILE
+        profile = QWEN3_5_35B_A3B_PROFILE
         assert profile.get_max_tokens('unknown') == profile.max_tokens
 
     def test_get_prompt_format_unknown_type_returns_default(self) -> None:
-        profile = QWEN3_30B_A3B_PROFILE
+        profile = QWEN3_5_35B_A3B_PROFILE
         assert profile.get_prompt_format('unknown') == profile.prompt_format
 
     def test_prepare_messages_no_mutation(self) -> None:
         messages = [{'role': 'user', 'content': 'Test'}]
-        _ = QWEN3_30B_A3B_PROFILE.prepare_messages(messages, 'simple')
+        _ = QWEN3_5_35B_A3B_PROFILE.prepare_messages(messages, 'simple')
         assert messages[0]['content'] == 'Test'  # Original not mutated
 
     def test_to_display_dict_contains_all_keys(self) -> None:
-        display = QWEN3_30B_A3B_PROFILE.to_display_dict()
+        display = QWEN3_5_35B_A3B_PROFILE.to_display_dict()
         expected_keys = {
             'name', 'family', 'supports_reasoning', 'reasoning_mode',
             'max_tokens', 'coverage_top_k', 'min_tokens_coverage',
@@ -287,11 +234,11 @@ class TestModelProfileMethods:
         }
         assert expected_keys == set(display.keys())
 
-    def test_default_model_uses_qwen3_14b_profile(self) -> None:
-        # Default config points at Qwen3 14B
+    def test_default_model_uses_qwen3_5_35b_profile(self) -> None:
+        # Default config points at Qwen3.5 35B A3B
         from informity.config import _DEFAULT_LLM_MODEL_FILENAME
         profile = get_profile_for_filename(_DEFAULT_LLM_MODEL_FILENAME)
-        assert profile is QWEN3_14B_PROFILE
+        assert profile is QWEN3_5_35B_A3B_PROFILE
 
 
 # ==============================================================================

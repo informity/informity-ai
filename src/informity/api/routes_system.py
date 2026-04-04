@@ -93,22 +93,11 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
         description='Recommended quality and speed tradeoff.',
     ),
     SetupTierOption(
-        tier='pro',
-        title='Pro',
+        tier='quality',
+        title='Quality',
         display_name=get_model_display_name('Qwen3.5-35B-A3B-Q4_K_M.gguf'),
         model_filename='Qwen3.5-35B-A3B-Q4_K_M.gguf',
         approx_size_gb=19.0,
-        quality='Very High',
-        speed='Slower',
-        ram_profile='Higher RAM',
-        description='Higher quality synthesis with larger context window.',
-    ),
-    SetupTierOption(
-        tier='quality',
-        title='Quality',
-        display_name=get_model_display_name('Qwen3-30B-A3B-Q4_K_M.gguf'),
-        model_filename='Qwen3-30B-A3B-Q4_K_M.gguf',
-        approx_size_gb=20.0,
         quality='Highest',
         speed='Slower',
         ram_profile='Higher RAM',
@@ -118,8 +107,7 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
 _SETUP_TIER_REPOS: dict[str, str] = {
     'small': 'bartowski/Qwen_Qwen3.5-9B-GGUF',
     'balanced': 'Qwen/Qwen3-14B-GGUF',
-    'pro': 'Qwen/Qwen3.5-35B-A3B-GGUF',
-    'quality': 'Qwen/Qwen3-30B-A3B-GGUF',
+    'quality': 'Qwen/Qwen3.5-35B-A3B-GGUF',
 }
 _setup_runtime: dict[str, object] = {
     'state': SetupState.REQUIRED.value,

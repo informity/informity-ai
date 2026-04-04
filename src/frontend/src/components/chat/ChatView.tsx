@@ -9,7 +9,7 @@ import { PageHeader } from '../PageHeader'
 import { ServiceUnavailableState } from '../ServiceUnavailableState'
 import { useChatContext } from '../../context/useChatContext'
 import { useBackendStatus } from '../../context/useBackendStatus'
-import { getCurrentChat } from '../../api'
+import { getCurrentChat, getSettings } from '../../api'
 import type { ChatMode } from '../../types/api'
 import { logApiError } from '../../utils/logApiError'
 import './ChatView.css'
@@ -35,6 +35,9 @@ interface ChatViewProps {
 
 interface GetCurrentChatResponse {
   current_chat_id?: string
+}
+interface ChatSettingsResponse {
+  default_chat_mode?: ChatMode
 }
 
 export function ChatView({ prefillMessage = '', initialChatId = null }: ChatViewProps) {
@@ -86,13 +89,32 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   }, [prefillMessage])
 
   useEffect(() => {
+    let cancelled = false
     try {
       const raw = window.localStorage.getItem(CHAT_MODE_STORAGE_KEY)
       if (raw === 'assistant' || raw === 'researcher') {
         setChatMode(raw)
+        return
       }
     } catch {
       // ignore storage errors
+    }
+    getSettings()
+      .then((data) => {
+        if (cancelled) return
+        const mode = (data as ChatSettingsResponse | null | undefined)?.default_chat_mode
+        if (mode === 'assistant' || mode === 'researcher') {
+          setChatMode(mode)
+          try {
+            window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, mode)
+          } catch {
+            // ignore storage errors
+          }
+        }
+      })
+      .catch((err) => logApiError(err, 'ChatView.getSettings.default_chat_mode'))
+    return () => {
+      cancelled = true
     }
   }, [])
 
