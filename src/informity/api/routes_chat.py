@@ -126,11 +126,6 @@ def _resolve_chat_mode(raw_mode: object) -> str:
     return 'researcher'
 
 
-def _normalize_heading_key(heading: str) -> str:
-    normalized = re.sub(r'[^a-z0-9]+', ' ', str(heading or '').lower())
-    return re.sub(r'\s+', ' ', normalized).strip()
-
-
 # ==============================================================================
 # Utility Functions
 # ==============================================================================
@@ -450,8 +445,14 @@ async def chat(
                                 timeout_reason = TimeoutReason(raw_timeout_reason)
                             except ValueError:
                                 timeout_reason = raw_timeout_reason
-                            pass_has_remaining_scope = True
-                            has_remaining_scope = True
+                            terminal_timeout_reasons = {
+                                TimeoutReason.QUEUE_WAIT_TIMEOUT,
+                                TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT,
+                            }
+                            timeout_allows_continuation = timeout_reason not in terminal_timeout_reasons
+                            pass_has_remaining_scope = timeout_allows_continuation
+                            if timeout_allows_continuation:
+                                has_remaining_scope = True
                             if continuation_resolution_reason is None:
                                 continuation_resolution_reason = timeout_reason
                             _update_sse_phase('timeout')
@@ -659,6 +660,22 @@ async def chat(
                 if not full_answer:
                     full_answer = 'I could not find enough information to answer your question.'
                     log.warning('chat_empty_after_cleaning', chat_id=chat_id)
+                requested_max_words = answer_sanitization.extract_requested_max_words(message_text)
+                if isinstance(requested_max_words, int) and requested_max_words > 0:
+                    before_word_count = answer_sanitization.count_words(full_answer)
+                    full_answer, word_limit_applied = answer_sanitization.truncate_to_word_limit(
+                        full_answer,
+                        requested_max_words,
+                    )
+                    if word_limit_applied:
+                        after_word_count = answer_sanitization.count_words(full_answer)
+                        log.info(
+                            'chat_word_limit_enforced',
+                            chat_id=chat_id,
+                            max_words=requested_max_words,
+                            before_words=before_word_count,
+                            after_words=after_word_count,
+                        )
                 generation_seconds = time.time() - start_time
                 sanitize_started = time.perf_counter()
                 cleaned_answer, reasoning_only_output = build_display_answer(full_answer)

@@ -31,6 +31,12 @@ Rules:
 7. If values conflict across documents, report each value with its source document.
 8. Start with the answer directly. Do not start with meta-commentary.
 """
+_ASSISTANT_MODE_APPENDIX = """
+
+Assistant Mode Rules:
+1. For rewrite/paraphrase/plain-language requests, preserve critical domain terms from the user's text unless the user explicitly asks you to replace them.
+2. When the user specifies focus terms (for example: \"focused on X and Y\" or \"include A, B, C\"), ensure those terms appear in the final answer.
+"""
 
 _GENERATION_RESERVE_TOKENS = 2000
 _TOKENIZER_MISMATCH_BUFFER_RATIO = 0.12
@@ -184,6 +190,8 @@ def build_messages(
 
     # Build system message
     active_system_prompt = _SYSTEM_PROMPT if system_prompt is None else str(system_prompt)
+    if str(chat_mode or '').strip().lower() == 'assistant':
+        active_system_prompt += _ASSISTANT_MODE_APPENDIX
     system_content = f"{active_system_prompt}{contract_block}\n\nContext:\n{context_text}"
 
     # Build messages list

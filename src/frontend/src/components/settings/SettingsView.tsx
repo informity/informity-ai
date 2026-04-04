@@ -34,6 +34,10 @@ const LOG_LEVEL_OPTIONS = [
   { value: 'warning', label: 'Warning' },
   { value: 'error', label: 'Error' },
 ]
+const CHAT_MODE_OPTIONS = [
+  { value: 'researcher', label: 'Researcher (Recommended)' },
+  { value: 'assistant', label: 'Assistant' },
+]
 
 type SettingsTab =
   | 'general'
@@ -204,6 +208,7 @@ interface SettingsData {
   full_privacy?: boolean
   adaptive_rag_tuning?: boolean
   chat_history_messages?: number
+  default_chat_mode?: 'assistant' | 'researcher'
   log_level?: string
   diagnostics_profile?: string
   chat_trace_logging?: boolean
@@ -238,6 +243,7 @@ interface FormState {
   full_privacy: boolean
   adaptive_rag_tuning: boolean
   chat_history_messages: number
+  default_chat_mode: 'assistant' | 'researcher'
   log_level: string
   diagnostics_profile: string
   chat_trace_logging: boolean
@@ -279,6 +285,7 @@ function buildFormState(settings: SettingsData): FormState {
     full_privacy: settings.full_privacy ?? true,
     adaptive_rag_tuning: settings.adaptive_rag_tuning ?? true,
     chat_history_messages: settings.chat_history_messages ?? 5,
+    default_chat_mode: settings.default_chat_mode === 'assistant' ? 'assistant' : 'researcher',
     log_level: settings.log_level ?? 'info',
     diagnostics_profile: settings.diagnostics_profile ?? 'standard',
     chat_trace_logging: settings.chat_trace_logging ?? false,
@@ -719,6 +726,29 @@ export function SettingsView({
           Chat
         </div>
         <p className="settings-section-description">Conversation context and answer quality options.</p>
+
+        <div className="settings-subsection">
+          <div className="settings-subsection-head ui-subsection-head">
+            <div className="settings-subsection-title ui-subsection-title">
+              <i className="ri-chat-settings-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              Default Chat Mode
+            </div>
+            <p className="settings-subsection-description ui-subsection-description">
+              Sets the default mode for new chats. You can still switch modes in the chat composer.
+            </p>
+          </div>
+          <select
+            className="settings-select"
+            value={form.default_chat_mode}
+            onChange={(e) => update('default_chat_mode', e.target.value === 'assistant' ? 'assistant' : 'researcher')}
+          >
+            {CHAT_MODE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
 
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">

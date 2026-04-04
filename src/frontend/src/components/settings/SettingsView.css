@@ -806,7 +806,7 @@
 }
 
 .settings-subsection .settings-slider-row + .settings-slider {
-  margin-top: var(--settings-control-gap);
+  margin-top: calc(var(--settings-control-gap) + 0.25rem);
 }
 
 .settings-subsection .settings-slider + .settings-slider-row {

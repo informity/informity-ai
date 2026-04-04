@@ -1,7 +1,10 @@
 from informity.answer_sanitization import (
     DISPLAY_FALLBACK_MESSAGE,
     build_display_answer,
+    count_words,
+    extract_requested_max_words,
     sanitize_display_answer,
+    truncate_to_word_limit,
 )
 
 
@@ -63,3 +66,24 @@ def test_sanitize_display_answer_removes_redundant_out_of_corpus_however_sentenc
         "The provided documents do not contain this information.\n\n"
         "The US Declaration of Independence was signed in 1776."
     )
+
+
+def test_extract_requested_max_words_parses_common_contract_cues() -> None:
+    assert extract_requested_max_words("Summarize in <= 180 words.") == 180
+    assert extract_requested_max_words("Use at most 75 words.") == 75
+    assert extract_requested_max_words("No limit specified.") is None
+
+
+def test_truncate_to_word_limit_trims_overflow() -> None:
+    text = "one two three four five six seven"
+    truncated, applied = truncate_to_word_limit(text, 5)
+    assert applied is True
+    assert count_words(truncated) <= 5
+    assert truncated == "one two three four five"
+
+
+def test_truncate_to_word_limit_noop_within_limit() -> None:
+    text = "one two three"
+    truncated, applied = truncate_to_word_limit(text, 5)
+    assert applied is False
+    assert truncated == text

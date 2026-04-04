@@ -64,6 +64,16 @@ _DIAGNOSTICS_PROFILE_PRESETS: dict[str, dict[str, object]] = {
         'chat_trace_evaluation_retention_days': 14,
     },
 }
+_SUPPORTED_MAIN_MODEL_PROFILES: set[str] = {
+    'Qwen3.5 9B',
+    'Qwen3 14B',
+    'Qwen3.5 35B A3B',
+}
+_LEGACY_MAIN_MODEL_FILENAME_REMAP: dict[str, str] = {
+    'qwen3-30b-a3b-q4_k_m.gguf': 'Qwen3.5-35B-A3B-Q4_K_M.gguf',
+    'qwen3-30b-a3b-q5_k_m.gguf': 'Qwen3.5-35B-A3B-Q4_K_M.gguf',
+    'qwen3-30b-a3b.gguf': 'Qwen3.5-35B-A3B-Q4_K_M.gguf',
+}
 
 
 def _allowed_values_detail(field_name: str, values: tuple[str, ...]) -> str:
@@ -169,6 +179,11 @@ _SETTINGS_ALLOWED_VALUE_RULES: dict[str, tuple[tuple[str, ...], bool, str]] = {
         True,
         'chat_trace_redaction_mode must be one of: off, minimal, strict',
     ),
+    'default_chat_mode': (
+        ('assistant', 'researcher'),
+        True,
+        'default_chat_mode must be one of: assistant, researcher',
+    ),
     'ui_theme': (
         config.UI_THEME_ALLOWED_VALUES,
         False,
@@ -188,12 +203,25 @@ def _config_file_path() -> Path:
 
 def _list_available_models() -> list[str]:
     # Scan the models directory for downloaded GGUF files.
-    return discover_available_models()
+    discovered = discover_available_models()
+    return [
+        model_filename
+        for model_filename in discovered
+        if get_profile_for_filename(model_filename).name in _SUPPORTED_MAIN_MODEL_PROFILES
+    ]
 
 
 def _build_model_profile_info(model_filename: str) -> ModelProfileInfo:
     profile = get_profile_for_filename(model_filename)
     return ModelProfileInfo(**profile.to_display_dict())
+
+
+def _normalize_main_model_filename(model_filename: str) -> str:
+    normalized = str(model_filename or '').strip()
+    if not normalized:
+        return normalized
+    remapped = _LEGACY_MAIN_MODEL_FILENAME_REMAP.get(normalized.casefold())
+    return remapped or normalized
 
 
 def _read_config_file() -> dict:
@@ -268,6 +296,7 @@ _UPDATABLE_FIELDS: set[str] = {
     'chat_history_messages',
     'chat_history_messages_assistant',
     'chat_history_messages_researcher',
+    'default_chat_mode',
     'diagnostics_profile',
     'chat_trace_logging',
     'chat_trace_redaction_mode',
@@ -313,8 +342,11 @@ async def get_config_reference() -> ConfigReferenceResponse:
 async def get_settings() -> SettingsResponse:
     # Access config.settings to always get the current singleton value
     s = config.settings
+    effective_llm_model_filename = _normalize_main_model_filename(s.llm_model_filename)
+    if effective_llm_model_filename and effective_llm_model_filename != s.llm_model_filename:
+        s.llm_model_filename = effective_llm_model_filename
 
-    profile_info = _build_model_profile_info(s.llm_model_filename)
+    profile_info = _build_model_profile_info(effective_llm_model_filename)
 
     return SettingsResponse(
         watched_directories     = [str(p) for p in s.watched_directories],
@@ -340,7 +372,7 @@ async def get_settings() -> SettingsResponse:
         full_privacy            = s.full_privacy,
         embedding_offline       = s.embedding_offline,
         llm_local_only          = s.llm_local_only,
-        llm_model_filename   = s.llm_model_filename,
+        llm_model_filename   = effective_llm_model_filename,
         # rag_max_score and rag_context_ratio are now in model_profile (read-only, model-specific)
         rag_minimal_mode     = s.rag_minimal_mode,
         rag_minimal_answerability_threshold_focused = s.rag_minimal_answerability_threshold_focused,
@@ -359,6 +391,7 @@ async def get_settings() -> SettingsResponse:
         chat_history_messages = s.chat_history_messages,
         chat_history_messages_assistant = s.chat_history_messages_assistant,
         chat_history_messages_researcher = s.chat_history_messages_researcher,
+        default_chat_mode = s.default_chat_mode,
         diagnostics_profile   = s.diagnostics_profile,
         log_level             = s.log_level,
         chat_trace_logging    = s.chat_trace_logging,

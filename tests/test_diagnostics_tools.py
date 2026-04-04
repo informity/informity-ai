@@ -710,7 +710,7 @@ def test_validate_query_expectations_uses_absolute_min_words_floor() -> None:
         unsupported_claim_count=0,
         evidence_coverage_rate=0.0,
         not_found_count=0,
-        model_filename='Qwen3-30B-A3B-Q4_K_M.gguf',
+        model_filename='Qwen3.5-35B-A3B-Q4_K_M.gguf',
     )
     assert not any(str(item).startswith('word_count_below_threshold:') for item in failures)
 

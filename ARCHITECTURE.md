@@ -508,7 +508,7 @@ class HealthResponse(BaseModel):
 
 ### `llm/model_adapter.py`
 - Per-model configuration via frozen `ModelProfile` dataclass. Each supported model has its own profile with prompt format, reasoning behavior, token limits, stop sequences, and post-processing rules.
-- Profiles: `QWEN3_14B_PROFILE`, `QWEN3_5_9B_PROFILE`, `QWEN3_30B_A3B_PROFILE`, `DEEPSEEK_R1_DISTILL_PROFILE`, `DEFAULT_PROFILE`.
+- Profiles: `QWEN3_14B_PROFILE`, `QWEN3_5_9B_PROFILE`, `QWEN3_5_35B_A3B_PROFILE`, `DEEPSEEK_R1_DISTILL_PROFILE`, `DEFAULT_PROFILE`.
 - Enums: `ModelFamily` (CHATML, LLAMA, MISTRAL), `PromptFormat` (NATIVE_GGUF, CHATML), `ReasoningMode` (ALWAYS, FOCUSED_ONLY, NEVER).
 - Profile methods: `get_stop_sequences(reasoning_enabled)`, `get_max_tokens(query_type)`, `get_reasoning_enabled(query_type)`, `get_prompt_format(query_type)`, `prepare_messages(messages, query_type)`.
 - `get_profile()` / `get_profile_for_filename(filename)` for profile resolution.
