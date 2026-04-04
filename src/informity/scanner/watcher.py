@@ -58,7 +58,7 @@ def _get_cached_supported_extensions_set() -> frozenset[str]:
     return _cached_supported_extensions_set
 
 
-def _invalidate_watcher_cache() -> None:
+def invalidate_watcher_cache() -> None:
     """Invalidate cached patterns/extensions (call when settings change)."""
     global _cached_ignore_patterns, _cached_supported_extensions_set
     _cached_ignore_patterns = None

@@ -217,17 +217,6 @@ function ChatMessageComponent({
       ),
     })
   }
-  if (isStopped) {
-    assistantMetaItems.push({
-      key: 'stopped',
-      node: (
-        <div className="chat-message__meta-item">
-          <i className="ri-stop-circle-line chat-message__meta-icon" aria-hidden />
-          <span>Stopped</span>
-        </div>
-      ),
-    })
-  }
   if (showContinue) {
     assistantMetaItems.push({
       key: 'continue',
@@ -406,7 +395,7 @@ function ChatMessageComponent({
                       </p>
                     ) : isStopped && !isStreaming ? (
                       <p className="chat-message__text chat-message__text--muted">
-                        Generation stopped by you.
+                        Response stopped.
                       </p>
                     ) : !isStreaming ? (
                       <p className="chat-message__text chat-message__text--muted">

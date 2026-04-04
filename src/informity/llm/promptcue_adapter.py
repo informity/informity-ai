@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from threading import Lock
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import structlog
 
@@ -114,12 +114,14 @@ class PromptCueIntentAdapter:
         if self._analyzer is None:
             with self._lock:
                 if self._analyzer is None:
-                    from promptcue import PromptCueAnalyzer, PromptCueConfig
-                    self._analyzer = PromptCueAnalyzer(
-                        PromptCueConfig(embed_fn=embedder.embed_query)
-                    )
-        assert self._analyzer is not None
-        return self._analyzer
+                    try:
+                        from promptcue import PromptCueAnalyzer, PromptCueConfig
+                        self._analyzer = PromptCueAnalyzer(
+                            PromptCueConfig(embed_fn=embedder.embed_query)
+                        )
+                    except Exception as exc:  # noqa: BLE001 - convert lazy init failure to deterministic runtime error
+                        raise RuntimeError('PromptCue analyzer failed to initialize') from exc
+        return cast('PromptCueAnalyzer', self._analyzer)
 
     def classify(self, query: str) -> tuple[IntentPrediction, PromptCueQueryObject]:
         """Analyze query and return both intent prediction and full PromptCue output.

@@ -306,14 +306,15 @@ def extract_metadata_filters(query: str) -> list[MetadataFilter]:
                 if end_match:
                     potential_filename = end_match.group(1)
                     # Filter out question words at the start
-                    first_word = potential_filename.split()[0].lower() if potential_filename.split() else ''
+                    potential_tokens = potential_filename.split()
+                    first_word = potential_tokens[0].lower() if potential_tokens else ''
                     if first_word not in _FILTER_QUESTION_WORDS:
                         filename = potential_filename
                         filters.append(MetadataFilter(field='filename', operator=FilterOperator.EQ, value=filename))
                     else:
                         # Question word at start - find where filename actually begins
                         # Split by spaces and find first token that starts filename (uppercase/digit, not question word)
-                        tokens = potential_filename.split()
+                        tokens = potential_tokens
                         # Find first token that starts filename (uppercase/digit, not question word)
                         filename_start_idx = None
                         for i, token in enumerate(tokens):

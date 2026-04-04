@@ -59,48 +59,6 @@ const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; icon: string }> = [
 ]
 const SETTINGS_ACTIVE_TAB_STORAGE_KEY = 'informity.settings.activeTab'
 const SETTINGS_TAB_IDS = new Set<SettingsTab>(SETTINGS_TABS.map((tab) => tab.id))
-const DIAGNOSTICS_PROFILE_PRESETS: Record<string, {
-  logLevel: string
-  traceLogging: string
-  traceRedaction: string
-  retention: string
-}> = {
-  standard: {
-    logLevel: 'info',
-    traceLogging: 'off',
-    traceRedaction: 'minimal',
-    retention: '30 / 30 days',
-  },
-  troubleshooting: {
-    logLevel: 'debug',
-    traceLogging: 'on',
-    traceRedaction: 'minimal',
-    retention: '14 / 14 days',
-  },
-}
-
-const DIAGNOSTICS_PROFILE_VALUES: Record<string, {
-  log_level: string
-  chat_trace_logging: boolean
-  chat_trace_redaction_mode: string
-  chat_trace_user_retention_days: number
-  chat_trace_evaluation_retention_days: number
-}> = {
-  standard: {
-    log_level: 'info',
-    chat_trace_logging: false,
-    chat_trace_redaction_mode: 'minimal',
-    chat_trace_user_retention_days: 30,
-    chat_trace_evaluation_retention_days: 30,
-  },
-  troubleshooting: {
-    log_level: 'debug',
-    chat_trace_logging: true,
-    chat_trace_redaction_mode: 'minimal',
-    chat_trace_user_retention_days: 14,
-    chat_trace_evaluation_retention_days: 14,
-  },
-}
 
 const INDEXING_SPEED_LABELS = ['', 'Responsive', 'Gentle', 'Balanced', 'Fast', 'Fastest']
 const INDEXING_SPEED_TO_THREADS = [2, 4, 6, 8, 0]
@@ -191,6 +149,14 @@ interface FileTypeOption {
   extensions: string[]
 }
 
+interface DiagnosticsProfilePreset {
+  log_level: string
+  chat_trace_logging: boolean
+  chat_trace_redaction_mode: string
+  chat_trace_user_retention_days: number
+  chat_trace_evaluation_retention_days: number
+}
+
 interface SettingsData {
   watched_directories?: string[]
   ignore_patterns?: string[]
@@ -211,6 +177,7 @@ interface SettingsData {
   default_chat_mode?: 'assistant' | 'researcher'
   log_level?: string
   diagnostics_profile?: string
+  diagnostics_profile_presets?: Record<string, DiagnosticsProfilePreset>
   chat_trace_logging?: boolean
   chat_trace_redaction_mode?: string
   chat_trace_user_retention_days?: number
@@ -458,13 +425,14 @@ export function SettingsView({
   }
 
   if (!settings) return null
+  const diagnosticsPresetValues = settings.diagnostics_profile_presets ?? {}
 
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }))
 
   const applyDiagnosticsProfile = (profile: string) => {
     setForm((prev) => {
-      const preset = DIAGNOSTICS_PROFILE_VALUES[profile]
+      const preset = diagnosticsPresetValues[profile]
       if (!preset) {
         return { ...prev, diagnostics_profile: profile }
       }
@@ -649,14 +617,17 @@ export function SettingsView({
   }
 
   const profile = effectiveProfile
-  const diagnosticsPreset = DIAGNOSTICS_PROFILE_PRESETS[form.diagnostics_profile || '']
+  const diagnosticsPreset = diagnosticsPresetValues[form.diagnostics_profile || '']
   const diagnosticsProfileRows = diagnosticsPreset
     ? [
         { label: 'Profile', value: form.diagnostics_profile },
-        { label: 'Log level', value: diagnosticsPreset.logLevel },
-        { label: 'Per-chat trace logging', value: diagnosticsPreset.traceLogging },
-        { label: 'Trace redaction', value: diagnosticsPreset.traceRedaction },
-        { label: 'Trace retention (user / eval)', value: diagnosticsPreset.retention },
+        { label: 'Log level', value: diagnosticsPreset.log_level },
+        { label: 'Per-chat trace logging', value: diagnosticsPreset.chat_trace_logging ? 'on' : 'off' },
+        { label: 'Trace redaction', value: diagnosticsPreset.chat_trace_redaction_mode },
+        {
+          label: 'Trace retention (user / eval)',
+          value: `${diagnosticsPreset.chat_trace_user_retention_days} / ${diagnosticsPreset.chat_trace_evaluation_retention_days} days`,
+        },
       ]
     : [
         { label: 'Profile', value: 'custom' },

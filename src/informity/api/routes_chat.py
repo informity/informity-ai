@@ -21,41 +21,17 @@ from informity.answer_sanitization import build_display_answer, sanitize_display
 from informity.api.chat_closeout import build_display_blocks, build_done_payload
 from informity.api.chat_continuation import (
     build_auto_continue_pass_prompt as _build_auto_continue_pass_prompt,
-)
-from informity.api.chat_continuation import (
     build_continuing_status_message as _build_continuing_status_message,
-)
-from informity.api.chat_continuation import (
     enforce_completion_action_consistency as _enforce_completion_action_consistency,
-)
-from informity.api.chat_continuation import (
     enforce_continuation_chat_binding as _enforce_continuation_chat_binding,
-)
-from informity.api.chat_continuation import (
     has_continue_worthy_gap as _has_continue_worthy_gap,
-)
-from informity.api.chat_continuation import (
     is_continuation_request as _is_continuation_request,
-)
-from informity.api.chat_continuation import (
     is_duplicate_continuation_pass as _is_duplicate_continuation_pass,
-)
-from informity.api.chat_continuation import (
     mark_structural_output_gap as _mark_structural_output_gap,
-)
-from informity.api.chat_continuation import (
     normalize_continuation_classification as _normalize_continuation_classification,
-)
-from informity.api.chat_continuation import (
     resolve_auto_continue_policy as _resolve_auto_continue_policy,
-)
-from informity.api.chat_continuation import (
     resolve_completion_state as _resolve_completion_state,
-)
-from informity.api.chat_continuation import (
     resolve_continuation_anchor_question as _resolve_continuation_anchor_question,
-)
-from informity.api.chat_continuation import (
     resolve_next_action as _resolve_next_action,
 )
 from informity.api.chat_orchestrator import ChatOrchestrator
@@ -98,6 +74,7 @@ from informity.llm.types import (
     TimeoutReason,
 )
 from informity.utils.json_utils import serialize_api_response
+from informity.utils.number_utils import safe_float, safe_int
 
 # Trace logging constants
 MAX_ANSWER_PREVIEW_LENGTH = 1500  # Maximum length of answer preview in trace logs
@@ -112,6 +89,8 @@ _VALID_COMPLETION_MODES = {
 _PERSISTENCE_EXCEPTIONS = (aiosqlite.Error, ValueError, RuntimeError, OSError)
 _STREAM_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, ConnectionError, aiosqlite.Error)
 _CHAT_MODE_ALLOWED = {'assistant', 'researcher'}
+_STOP_FINALIZE_GRACE_SECONDS = 2.5
+_STOP_FINALIZATION_TASKS: dict[str, asyncio.Task[None]] = {}
 _OUT_OF_CORPUS_RESPONSE_PATTERN = re.compile(
     r'(?is)\b(?:provided|indexed|these)?\s*(?:documents?|records?|context)\b.{0,120}\b'
     r'(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b'
@@ -124,26 +103,6 @@ def _resolve_chat_mode(raw_mode: object) -> str:
     if normalized in _CHAT_MODE_ALLOWED:
         return normalized
     return 'researcher'
-
-
-# ==============================================================================
-# Utility Functions
-# ==============================================================================
-
-def _safe_int(value: object, default: int = 0) -> int:
-    if isinstance(value, bool):
-        return int(value)
-    if isinstance(value, (int, float)):
-        return int(value)
-    return default
-
-
-def _safe_float(value: object, default: float = 0.0) -> float:
-    if isinstance(value, bool):
-        return float(value)
-    if isinstance(value, (int, float)):
-        return float(value)
-    return default
 
 
 def _normalize_diagnostics_query_type(value: object) -> str:
@@ -179,6 +138,82 @@ class UserStopRequestedError(Exception):
     """Raised when the user explicitly requests to stop an in-flight stream."""
 
 
+async def _finalize_stopped_stream_if_active(
+    *,
+    stream_id: str,
+    chat_id: str | None,
+    request_id: str | None,
+) -> None:
+    try:
+        await asyncio.sleep(_STOP_FINALIZE_GRACE_SECONDS)
+        if not await CHAT_STREAM_REGISTRY.has_stream(stream_id):
+            return
+        message_persisted = False
+        if chat_id:
+            try:
+                persist_db = await get_connection()
+                try:
+                    history = await get_chat(persist_db, chat_id)
+                    latest_assistant = next((m for m in reversed(history) if m.role == ChatRole.ASSISTANT), None)
+                    has_terminal_assistant = bool(
+                        latest_assistant
+                        and (
+                            bool(latest_assistant.stopped_by_user)
+                            or latest_assistant.completion_mode in {CompletionMode.STOPPED, CompletionMode.PARTIAL}
+                        )
+                    )
+                    if not has_terminal_assistant:
+                        await insert_chat_message(
+                            persist_db,
+                            ChatMessage(
+                                chat_id=chat_id,
+                                role='assistant',
+                                content='',
+                                sources=[],
+                                completion_mode=CompletionMode.STOPPED,
+                                stopped_by_user=True,
+                                has_remaining_scope=True,
+                                next_action=NextAction.REGENERATE,
+                                next_action_reason='stopped',
+                                is_internal=False,
+                            ),
+                        )
+                        message_persisted = True
+                finally:
+                    await persist_db.close()
+            except _PERSISTENCE_EXCEPTIONS as persist_err:
+                log.warning(
+                    'chat_stop_forced_finalize_persist_failed',
+                    chat_id=chat_id,
+                    stream_id=stream_id,
+                    request_id=request_id,
+                    error=str(persist_err),
+                )
+        removed = await CHAT_STREAM_REGISTRY.unregister(stream_id)
+        if not removed:
+            return
+        log.info(
+            'chat_response_cancelled',
+            chat_id=chat_id,
+            stream_id=stream_id,
+            request_id=request_id,
+            cancellation_reason='user_stop_forced_finalize',
+            stopped_by_user=True,
+            tokens_streamed=0,
+            generation_seconds=None,
+            message_persisted=message_persisted,
+        )
+        log.info(
+            'chat_stream_unregistered',
+            chat_id=chat_id,
+            stream_id=stream_id,
+            request_id=request_id,
+            terminal_state='stopped_forced',
+        )
+    finally:
+        _STOP_FINALIZATION_TASKS.pop(stream_id, None)
+
+
 
 # ==============================================================================
 # POST /api/chat — send a message and stream the response via SSE
@@ -206,23 +241,32 @@ async def chat(
     # Resolve chat ID — create a new one if not provided
     chat_id = request.chat_id or str(uuid.uuid4())
     stream_id = str(uuid.uuid4())
-    request_id = str(get_contextvars().get('request_id') or '')
-    artifact_request_id = request_id or stream_id
+    client_request_id = str(request.request_id or '').strip()
+    request_id = (
+        client_request_id
+        or str(get_contextvars().get('request_id') or '').strip()
+        or str(uuid.uuid4())
+    )
+    artifact_request_id = request_id
 
     # Fetch chat history (excluding the current message we're about to add)
     history = await get_chat(db, chat_id)
+    user_message_is_internal = _is_continuation_request(message_text)
 
     # Persist the user message
     user_message = ChatMessage(
         chat_id = chat_id,
         role    = 'user',
         content = message_text,
+        is_internal = user_message_is_internal,
     )
     await insert_chat_message(db, user_message)
 
     log.info(
         'chat_message_received',
         chat_id          = chat_id,
+        client_request_id = client_request_id or None,
+        stream_request_id = request_id,
         run_id           = requested_run_id,
         chat_mode        = resolved_chat_mode,
         message_length   = len(message_text),
@@ -250,7 +294,39 @@ async def chat(
             sse_tracker = SseContractTracker()
             status_emitter = SseStatusEmitter(chat_id=chat_id, start_time=start_time)
             stop_event = asyncio.Event()
-            await CHAT_STREAM_REGISTRY.register(stream_id, chat_id, stop_event)
+            registry_registered = False
+            await CHAT_STREAM_REGISTRY.register(
+                stream_id=stream_id,
+                chat_id=chat_id,
+                request_id=request_id,
+                stop_event=stop_event,
+                task=asyncio.current_task(),
+            )
+            registry_registered = True
+            log.info(
+                'chat_stream_registered',
+                chat_id=chat_id,
+                stream_id=stream_id,
+                request_id=request_id,
+            )
+
+            def _raise_if_user_stopped() -> None:
+                if stop_event.is_set() and CHAT_STREAM_REGISTRY.is_stopped_by_user(stream_id):
+                    raise UserStopRequestedError
+
+            async def _flush_trace_writer_safe() -> None:
+                if trace_writer is None:
+                    return
+                try:
+                    await trace_writer.flush()
+                except (RuntimeError, ValueError, TypeError, OSError) as trace_exc:
+                    log.warning(
+                        'chat_trace_flush_failed',
+                        chat_id=chat_id,
+                        stream_id=stream_id,
+                        request_id=request_id,
+                        error=str(trace_exc),
+                    )
 
             def _update_sse_phase(event_name: str) -> None:
                 if not sse_tracker.update(event_name):
@@ -301,8 +377,10 @@ async def chat(
             previous_pass_raw_answer: str | None = None
             pre_classification_elapsed_ms: float | None = None
             sanitization_elapsed_ms: float | None = None
+            terminal_state = 'unknown'
 
             try:
+                _raise_if_user_stopped()
                 if resolved_chat_mode != 'assistant':
                     classifying_status = status_emitter.build_event(
                         'classifying',
@@ -356,6 +434,7 @@ async def chat(
                 max_total_passes = 1 + (max_auto_continue_rounds if auto_continue_enabled else 0)
                 pass_index = 1
                 while pass_index <= max_total_passes:
+                    _raise_if_user_stopped()
                     pass_question = message_text
                     if continuation_request or pass_index > 1:
                         pass_question = _build_auto_continue_pass_prompt(
@@ -416,8 +495,7 @@ async def chat(
                         classification=locked_classification,
                         chat_mode=resolved_chat_mode,
                     ):
-                        if stop_event.is_set() and CHAT_STREAM_REGISTRY.is_stopped_by_user(stream_id):
-                            raise UserStopRequestedError
+                        _raise_if_user_stopped()
 
                         if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.CLASSIFICATION:
                             locked_classification = item[1]
@@ -492,7 +570,7 @@ async def chat(
                             metrics_query_value = metrics_payload.get('query_type')
                             if isinstance(metrics_query_value, str) and metrics_query_value.strip():
                                 metrics_query_type = _normalize_diagnostics_query_type(metrics_query_value)
-                            metrics_raw_chunks_count = _safe_int(
+                            metrics_raw_chunks_count = safe_int(
                                 metrics_payload.get('raw_chunks_count'),
                                 default=metrics_raw_chunks_count,
                             )
@@ -643,6 +721,7 @@ async def chat(
                     continue
 
                 sources = list(source_map.values())
+                _raise_if_user_stopped()
 
                 finalizing_status = status_emitter.build_event(
                     'finalizing',
@@ -765,6 +844,8 @@ async def chat(
                     has_remaining_scope=message_has_remaining_scope,
                     next_action=message_next_action,
                     next_action_reason=message_next_action_reason,
+                    chat_mode=resolved_chat_mode,
+                    is_internal=False,
                 )
                 persist_db = await get_connection()
                 try:
@@ -823,9 +904,10 @@ async def chat(
                         'status_transitions': status_transitions,
                         'resource_metrics': resource_metrics,
                     })
-                    await flush_trace_writer(trace_writer)
+                    await _flush_trace_writer_safe()
 
             except UserStopRequestedError:
+                terminal_state = 'stopped'
                 stopped_by_user = True
                 generation_seconds = time.time() - start_time
                 partial_answer = ''.join(answer_parts).strip()
@@ -861,6 +943,8 @@ async def chat(
                     has_remaining_scope=True,
                     next_action=NextAction.REGENERATE,
                     next_action_reason='stopped',
+                    chat_mode=resolved_chat_mode,
+                    is_internal=False,
                 )
                 try:
                     persist_db = await get_connection()
@@ -886,12 +970,22 @@ async def chat(
                         'stopped_by_user': True,
                         'resource_metrics': resource_metrics,
                     })
-                    await flush_trace_writer(trace_writer)
+                    await _flush_trace_writer_safe()
+                log.info(
+                    'chat_response_cancelled',
+                    chat_id=chat_id,
+                    stream_id=stream_id,
+                    request_id=request_id,
+                    cancellation_reason='user_stop',
+                    tokens_streamed=len(answer_parts),
+                    generation_seconds=round(generation_seconds, 3),
+                )
 
             except asyncio.CancelledError:
+                terminal_state = 'cancelled'
                 generation_seconds = time.time() - start_time
                 partial_answer = ''.join(answer_parts).strip()
-                stream_stopped_by_user = CHAT_STREAM_REGISTRY.is_stopped_by_user(stream_id)
+                stream_stopped_by_user = CHAT_STREAM_REGISTRY.is_stopped_by_user(stream_id) or stop_event.is_set()
                 if partial_answer or stream_stopped_by_user:
                     cancelled_next_action, cancelled_next_action_reason = _resolve_next_action(
                         stopped_by_user=stream_stopped_by_user,
@@ -910,6 +1004,8 @@ async def chat(
                         has_remaining_scope=stream_stopped_by_user,
                         next_action=cancelled_next_action,
                         next_action_reason=cancelled_next_action_reason,
+                        chat_mode=resolved_chat_mode,
+                        is_internal=False,
                     )
                     try:
                         persist_db = await get_connection()
@@ -932,11 +1028,32 @@ async def chat(
                         'stopped_by_user': stream_stopped_by_user,
                         'resource_metrics': resource_metrics,
                     })
-                    await flush_trace_writer(trace_writer)
-                await CHAT_STREAM_REGISTRY.unregister(stream_id)
+                    await _flush_trace_writer_safe()
+                log.info(
+                    'chat_response_cancelled',
+                    chat_id=chat_id,
+                    stream_id=stream_id,
+                    request_id=request_id,
+                    cancellation_reason='task_cancelled',
+                    stopped_by_user=stream_stopped_by_user,
+                    tokens_streamed=len(answer_parts),
+                    generation_seconds=round(generation_seconds, 3),
+                )
+                if registry_registered:
+                    removed = await CHAT_STREAM_REGISTRY.unregister(stream_id)
+                    registry_registered = False
+                    if removed:
+                        log.info(
+                            'chat_stream_unregistered',
+                            chat_id=chat_id,
+                            stream_id=stream_id,
+                            request_id=request_id,
+                            terminal_state=terminal_state,
+                        )
                 raise
 
             except _STREAM_RUNTIME_EXCEPTIONS as exc:
+                terminal_state = 'error'
                 generation_seconds = time.time() - start_time
                 log.error(
                     'chat_stream_error',
@@ -956,7 +1073,7 @@ async def chat(
                         'error': str(exc),
                         'resource_metrics': resource_metrics,
                     })
-                    await flush_trace_writer(trace_writer)
+                    await _flush_trace_writer_safe()
                 _update_sse_phase('error')
                 yield {'event': 'error', 'data': serialize_api_response({'error': str(exc)})}
 
@@ -991,7 +1108,7 @@ async def chat(
             if metrics_raw_chunks_count <= 0 and trace_writer is not None and hasattr(trace_writer, 'get_sections'):
                 sections = trace_writer.get_sections()
                 retrieval = sections.get('retrieval', {}) if isinstance(sections, dict) else {}
-                metrics_raw_chunks_count = _safe_int(retrieval.get('raw_chunks_count'), default=0)
+                metrics_raw_chunks_count = safe_int(retrieval.get('raw_chunks_count'), default=0)
                 if metrics_query_type == DiagnosticsQueryType.UNKNOWN.value:
                     intent = sections.get('intent', {}) if isinstance(sections, dict) else {}
                     inferred_query_type = intent.get('query_type') if isinstance(intent, dict) else None
@@ -1007,7 +1124,7 @@ async def chat(
                 query_type=metrics_query_type,
                 raw_chunks_count=metrics_raw_chunks_count,
                 sources_count=len(sources),
-                generation_seconds=_safe_float(generation_seconds, default=0.0),
+                generation_seconds=safe_float(generation_seconds, default=0.0),
                 answer_length=len(final_answer),
                 timeout_occurred=bool(timeout_occurred),
                 has_empty_answer=not final_answer,
@@ -1083,22 +1200,57 @@ async def chat(
                 process_cpu_percent=resource_end_snapshot.get('process_cpu_percent') if isinstance(resource_end_snapshot, dict) else None,
                 system_cpu_percent=resource_end_snapshot.get('system_cpu_percent') if isinstance(resource_end_snapshot, dict) else None,
             )
-            await CHAT_STREAM_REGISTRY.unregister(stream_id)
+            terminal_state = 'done'
             _update_sse_phase('done')
             yield {'event': 'done', 'data': serialize_api_response(done_data)}
+            if registry_registered:
+                removed = await CHAT_STREAM_REGISTRY.unregister(stream_id)
+                registry_registered = False
+                if removed:
+                    log.info(
+                        'chat_stream_unregistered',
+                        chat_id=chat_id,
+                        stream_id=stream_id,
+                        request_id=request_id,
+                        terminal_state=terminal_state,
+                    )
 
     return EventSourceResponse(_event_stream())
 
 
 @router.post('/api/chat/stop')
 async def stop_chat(request: ChatStopRequest) -> dict:
-    stopped = await CHAT_STREAM_REGISTRY.mark_stopped_by_user(
+    stop_outcome = await CHAT_STREAM_REGISTRY.mark_stopped_by_user(
         stream_id=request.stream_id,
+        request_id=request.request_id,
         chat_id=request.chat_id,
     )
+    stop_status = stop_outcome.status
+    resolved_stream_id = stop_outcome.stream_id or request.stream_id
+    resolved_request_id = stop_outcome.request_id or request.request_id
+    resolved_chat_id = stop_outcome.chat_id or request.chat_id
+    log.info(
+        'chat_stop_acknowledged',
+        chat_id=resolved_chat_id,
+        stream_id=resolved_stream_id,
+        request_id=resolved_request_id,
+        stop_status=stop_status,
+    )
+    if stop_status == 'stopped_now' and resolved_stream_id:
+        existing = _STOP_FINALIZATION_TASKS.get(resolved_stream_id)
+        if existing is None or existing.done():
+            _STOP_FINALIZATION_TASKS[resolved_stream_id] = asyncio.create_task(
+                _finalize_stopped_stream_if_active(
+                    stream_id=resolved_stream_id,
+                    chat_id=resolved_chat_id,
+                    request_id=resolved_request_id,
+                ),
+            )
     return {
-        'stopped': stopped,
-        'stream_id': request.stream_id,
+        'status': stop_status,
+        'stopped': stop_status == 'stopped_now',
+        'stream_id': resolved_stream_id,
+        'request_id': resolved_request_id,
     }
 
 
@@ -1157,8 +1309,6 @@ async def get_chat_messages(
     if not messages:
         raise HTTPException(status_code=404, detail='Chat not found')
 
-    _, _, auto_continue_prompt = _resolve_auto_continue_policy()
-    normalized_auto_continue_prompt = auto_continue_prompt.strip()
     serialized_messages: list[dict[str, object]] = []
     for message in messages:
         payload = message.model_dump(mode='json')
@@ -1166,11 +1316,6 @@ async def get_chat_messages(
             cleaned_content, _ = build_display_answer(message.content)
             payload['content'] = cleaned_content
             payload['display_blocks'] = build_display_blocks(cleaned_content)
-        elif message.role == ChatRole.USER:
-            payload['is_internal'] = (
-                bool(normalized_auto_continue_prompt)
-                and str(message.content or '').strip() == normalized_auto_continue_prompt
-            )
         serialized_messages.append(payload)
 
     return {

@@ -12,6 +12,7 @@ import structlog
 
 from informity.api.schemas import ChatSourceReference
 from informity.db.models import ChatMessage
+from informity.llm.chat_mode import normalize_chat_mode
 from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.rag import RAGHandler
 from informity.llm.handlers.simple import SimpleHandler
@@ -48,7 +49,7 @@ async def answer_question(
         return
 
     try:
-        normalized_chat_mode = str(chat_mode or '').strip().lower()
+        normalized_chat_mode = normalize_chat_mode(chat_mode)
 
         if normalized_chat_mode == 'assistant':
             forced_classification = classification or QueryClassification(intent=QueryType.SIMPLE)

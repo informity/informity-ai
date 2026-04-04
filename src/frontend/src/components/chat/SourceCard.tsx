@@ -75,9 +75,8 @@ function SourceCardComponent({
   const evidenceTier = getEvidenceTier(evidenceRank)
   const canOpen = Boolean(path?.trim()) && !offline
 
-  const handleClick = useCallback(
-    async (e: React.MouseEvent) => {
-      e.stopPropagation()
+  const openSource = useCallback(
+    async () => {
       if (!canOpen || opening || !path) return
       setOpening(true)
       try {
@@ -91,6 +90,16 @@ function SourceCardComponent({
     },
     [path, canOpen, opening],
   )
+  const handleClick = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    void openSource()
+  }, [openSource])
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== 'Enter' && e.key !== ' ') return
+    e.preventDefault()
+    e.stopPropagation()
+    void openSource()
+  }, [openSource])
 
   return (
     <div
@@ -98,7 +107,7 @@ function SourceCardComponent({
       role={canOpen ? 'button' : undefined}
       tabIndex={canOpen ? 0 : undefined}
       onClick={canOpen ? handleClick : undefined}
-      onKeyDown={canOpen ? (e) => e.key === 'Enter' && handleClick(e as unknown as React.MouseEvent) : undefined}
+      onKeyDown={canOpen ? handleKeyDown : undefined}
       title={canOpen ? 'Open file' : undefined}
       aria-label={canOpen ? `Open ${filename?.trim() || 'file'}` : undefined}
     >

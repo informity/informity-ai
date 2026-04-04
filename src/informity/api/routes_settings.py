@@ -21,6 +21,7 @@ from informity.api.schemas import (
     ConfigReferenceResponse,
     CurrentChatResponse,
     CurrentChatUpdateRequest,
+    DiagnosticsProfilePreset,
     EnvVarsResponse,
     FileTypeOption,
     ModelProfileInfo,
@@ -29,7 +30,7 @@ from informity.api.schemas import (
 )
 from informity.file_types import get_file_type_options
 from informity.llm.model_adapter import discover_available_models, get_profile_for_filename
-from informity.scanner.watcher import _invalidate_watcher_cache
+from informity.scanner.watcher import invalidate_watcher_cache
 from informity.utils.directory_utils import ensure_file_directory
 from informity.utils.json_utils import serialize_config
 from informity.utils.path_utils import resolve_and_check_path
@@ -68,11 +69,6 @@ _SUPPORTED_MAIN_MODEL_PROFILES: set[str] = {
     'Qwen3.5 9B',
     'Qwen3 14B',
     'Qwen3.5 35B A3B',
-}
-_LEGACY_MAIN_MODEL_FILENAME_REMAP: dict[str, str] = {
-    'qwen3-30b-a3b-q4_k_m.gguf': 'Qwen3.5-35B-A3B-Q4_K_M.gguf',
-    'qwen3-30b-a3b-q5_k_m.gguf': 'Qwen3.5-35B-A3B-Q4_K_M.gguf',
-    'qwen3-30b-a3b.gguf': 'Qwen3.5-35B-A3B-Q4_K_M.gguf',
 }
 
 
@@ -218,10 +214,7 @@ def _build_model_profile_info(model_filename: str) -> ModelProfileInfo:
 
 def _normalize_main_model_filename(model_filename: str) -> str:
     normalized = str(model_filename or '').strip()
-    if not normalized:
-        return normalized
-    remapped = _LEGACY_MAIN_MODEL_FILENAME_REMAP.get(normalized.casefold())
-    return remapped or normalized
+    return normalized
 
 
 def _read_config_file() -> dict:
@@ -393,6 +386,10 @@ async def get_settings() -> SettingsResponse:
         chat_history_messages_researcher = s.chat_history_messages_researcher,
         default_chat_mode = s.default_chat_mode,
         diagnostics_profile   = s.diagnostics_profile,
+        diagnostics_profile_presets = {
+            name: DiagnosticsProfilePreset(**values)
+            for name, values in _DIAGNOSTICS_PROFILE_PRESETS.items()
+        },
         log_level             = s.log_level,
         chat_trace_logging    = s.chat_trace_logging,
         chat_trace_redaction_mode = s.chat_trace_redaction_mode,
@@ -600,7 +597,7 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
 
     # Invalidate watcher cache if watched_directories or supported_extensions changed
     if 'watched_directories' in updates or 'supported_extensions' in updates or 'exclude_macos_system' in updates or 'exclude_developer_data' in updates or 'ignore_patterns' in updates:
-        _invalidate_watcher_cache()
+        invalidate_watcher_cache()
 
     # Keep adaptive top-k cache aligned with model/settings changes.
     adaptive_changed = 'adaptive_rag_tuning' in updates

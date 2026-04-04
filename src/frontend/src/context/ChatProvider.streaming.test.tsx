@@ -21,9 +21,11 @@ vi.mock('../api', () => {
     ApiError: MockApiError,
     getChat: vi.fn(),
     getSettings: vi.fn(async () => ({ enable_raw_output_control: false })),
+    stopChatStream: vi.fn(async () => ({ stopped: true, status: 'stopped_now' })),
     updateCurrentChat: vi.fn(async () => ({})),
     streamChat: vi.fn(async (_message, _chatId, callbacks) => {
       callbacks.onChatId?.('chat-1')
+      callbacks.onRequestId?.('req-stream-1')
       callbacks.onToken?.('Hello')
       callbacks.onSources?.([])
       await Promise.resolve()
@@ -40,11 +42,11 @@ vi.mock('../api', () => {
 })
 
 import { ChatProvider } from './ChatProvider'
-import { streamChat } from '../api'
+import { stopChatStream, streamChat } from '../api'
 import { useChatContext } from './useChatContext'
 
 function ChatProbe() {
-  const { messages, isStreaming, error, sendMessage, continueLastScope, setCurrentChatId } = useChatContext()
+  const { messages, isStreaming, error, sendMessage, continueLastScope, setCurrentChatId, stopStreaming } = useChatContext()
   const assistant = [...messages].reverse().find((m) => m.role === 'assistant')
 
   return (
@@ -57,6 +59,9 @@ function ChatProbe() {
       </button>
       <button onClick={() => void continueLastScope(undefined, { mode: 'assistant' })} type="button">
         ContinueAssistant
+      </button>
+      <button onClick={() => void stopStreaming()} type="button">
+        Stop
       </button>
       <div data-testid="streaming">{isStreaming ? 'yes' : 'no'}</div>
       <div data-testid="error">{error ?? ''}</div>
@@ -127,7 +132,8 @@ describe('ChatProvider streaming lifecycle', () => {
 
     await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
     expect(streamChatMock.mock.calls[0][1]).toBe('chat-existing')
-    expect(streamChatMock.mock.calls[0][3]).toEqual({ mode: 'researcher' })
+    expect(streamChatMock.mock.calls[0][3]).toEqual(expect.objectContaining({ mode: 'researcher' }))
+    expect(typeof streamChatMock.mock.calls[0][3]?.requestId).toBe('string')
 
     await act(async () => {
       finishStream?.()
@@ -143,11 +149,30 @@ describe('ChatProvider streaming lifecycle', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'ContinueAssistant' }))
     await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
-    expect(streamChatMock.mock.calls[0][3]).toEqual({ mode: 'assistant' })
+    expect(streamChatMock.mock.calls[0][3]).toEqual(expect.objectContaining({ mode: 'assistant' }))
+    expect(typeof streamChatMock.mock.calls[0][3]?.requestId).toBe('string')
 
     await act(async () => {
       finishStream?.()
       await Promise.resolve()
+    })
+  })
+
+  it('stops using request id when stream id is not available yet', async () => {
+    finishStream = null
+    const stopChatStreamMock = vi.mocked(stopChatStream)
+    stopChatStreamMock.mockClear()
+    render(<Harness />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(screen.getByTestId('streaming')).toHaveTextContent('yes'))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+
+    await waitFor(() => expect(stopChatStreamMock).toHaveBeenCalledTimes(1))
+    expect(stopChatStreamMock.mock.calls[0]?.[0]).toBe('chat-1')
+    expect(stopChatStreamMock.mock.calls[0]?.[1]).toEqual({
+      streamId: null,
+      requestId: 'req-stream-1',
     })
   })
 

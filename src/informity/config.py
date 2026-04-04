@@ -70,11 +70,6 @@ _DEFAULT_APP_DATA_DIR = Path.home() / APP_DATA_DIRNAME
 
 # Default model for reset-to-factory and first load: Qwen3.5 35B A3B.
 _DEFAULT_LLM_MODEL_FILENAME = 'Qwen3.5-35B-A3B-Q4_K_M.gguf'
-_LEGACY_MAIN_MODEL_REMAP: dict[str, str] = {
-    'qwen3-30b-a3b-q4_k_m.gguf': 'Qwen3.5-35B-A3B-Q4_K_M.gguf',
-    'qwen3-30b-a3b-q5_k_m.gguf': 'Qwen3.5-35B-A3B-Q4_K_M.gguf',
-    'qwen3-30b-a3b.gguf': 'Qwen3.5-35B-A3B-Q4_K_M.gguf',
-}
 
 # Default diagnostics analysis model filename (DeepSeek R1 optimized for analysis tasks).
 _DEFAULT_DIAGNOSTICS_LLM_MODEL_FILENAME = 'DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf'
@@ -264,21 +259,13 @@ def _load_config_file_values() -> dict:
                 expand_user=True
             )
             data['watched_directories'] = [str(p) for p in normalized_paths]
-        # Guard against stale/invalid theme values in persisted config.json.
-        # This prevents startup failures when theme enums change.
+        # Guard against invalid theme values in persisted config.json.
         raw_theme = data.get('ui_theme')
         if raw_theme is not None:
-            if raw_theme == 'informity':
-                data['ui_theme'] = 'mono'
-            elif isinstance(raw_theme, str) and raw_theme in UI_THEME_ALLOWED_VALUES:
+            if isinstance(raw_theme, str) and raw_theme in UI_THEME_ALLOWED_VALUES:
                 pass
             else:
                 data['ui_theme'] = _DEFAULT_UI_THEME
-        raw_model_filename = str(data.get('llm_model_filename') or '').strip()
-        if raw_model_filename:
-            remapped = _LEGACY_MAIN_MODEL_REMAP.get(raw_model_filename.casefold())
-            if remapped:
-                data['llm_model_filename'] = remapped
         return data
     except (json.JSONDecodeError, OSError):
         return {}
@@ -293,7 +280,6 @@ class Settings(BaseSettings):
     app_data_dir:  Path       = _DEFAULT_APP_DATA_DIR
     cache_dir:     Path | None = Field(default=None)   # Unified cache root; default app_data_dir/DirNames.CACHE. Override via INFORMITY_CACHE_DIR.
     db_path:       Path | None = Field(default=None)   # Computed: app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
-    # vectors_dir removed - vectors now stored in SQLite via sqlite-vec
     models_dir:    Path | None = Field(default=None)   # Computed: desktop -> app_data_dir/DirNames.MODELS/DirNames.LLM; otherwise cache_dir/DirNames.LLM
     logs_dir:      Path | None = Field(default=None)   # Computed: app_data_dir / DirNames.LOGS
     diagnostics_dir: Path | None = Field(default=None)  # Computed: app_data_dir / DirNames.DIAGNOSTICS
@@ -601,7 +587,6 @@ class Settings(BaseSettings):
         else:
             self.db_path = normalize_path(self.db_path, expand_user=True)
 
-        # vectors_dir removed - vectors now stored in SQLite via sqlite-vec
         if self.logs_dir is None:
             self.logs_dir = self.app_data_dir / DirNames.LOGS
         if self.diagnostics_dir is None:
@@ -640,7 +625,6 @@ class Settings(BaseSettings):
             # User data (in app_data_dir, cleared by uninstall.sh)
             self.app_data_dir,
             db_dir,
-            # vectors_dir removed - vectors now stored in SQLite via sqlite-vec
             self.logs_dir,
             self.diagnostics_dir,
             chats_dir,

@@ -132,6 +132,8 @@ class ChatMessage(BaseModel):
     has_remaining_scope: bool = False
     next_action: NextAction | str | None = None
     next_action_reason: str | None = None
+    chat_mode: str | None = None
+    is_internal: bool = False
     created_at:       datetime | None = None
 
 

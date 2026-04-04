@@ -939,16 +939,16 @@ class LLMEngine:
 
         finally:
             # Always attempt worker cleanup, including cancellation paths.
-            # Previously this only happened on the normal completion path,
-            # which could leave the native generation thread running after
-            # timeout/cancellation and trigger process-level instability.
+            # Do not block the event loop on long native worker joins.
+            # On stop/cancel we signal the worker and move on quickly so the
+            # chat request can emit terminal events and unregister promptly.
             if worker.is_alive():
                 cancel_event.set()
-                worker.join(timeout=60.0)
+                await asyncio.to_thread(worker.join, 0.25)
                 if worker.is_alive():
-                    log.warning(
-                        'llm_stream_worker_timeout',
-                        msg='Worker thread did not exit within 60s',
+                    log.info(
+                        'llm_stream_worker_detached',
+                        msg='Worker still running after cancellation signal; leaving it detached',
                         cancelled=cancel_event.is_set(),
                         timeout_occurred=timeout_occurred,
                     )

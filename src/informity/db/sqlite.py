@@ -172,6 +172,8 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     has_remaining_scope INTEGER DEFAULT 0,
     next_action        TEXT,
     next_action_reason TEXT,
+    chat_mode          TEXT,
+    is_internal        INTEGER DEFAULT 0,
     created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -591,7 +593,7 @@ async def _schema_columns_outdated(conn: aiosqlite.Connection) -> bool:
     chat_cursor = await conn.execute("PRAGMA table_info('chat_messages')")
     chat_rows = await chat_cursor.fetchall()
     chat_columns = {row['name'] for row in chat_rows}
-    required_chat_columns = {'next_action', 'next_action_reason'}
+    required_chat_columns = {'next_action', 'next_action_reason', 'chat_mode', 'is_internal'}
     continuation_cursor = await conn.execute("PRAGMA table_info('continuation_pass_artifacts')")
     continuation_rows = await continuation_cursor.fetchall()
     continuation_columns = {row['name'] for row in continuation_rows}
@@ -725,6 +727,8 @@ def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
         has_remaining_scope = bool(row['has_remaining_scope']),
         next_action        = row['next_action'],
         next_action_reason = row['next_action_reason'],
+        chat_mode          = row['chat_mode'],
+        is_internal        = bool(row['is_internal']),
         created_at         = parse_timestamp(row['created_at']),
     )
 
@@ -1422,9 +1426,10 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
         """
         INSERT INTO chat_messages (
             chat_id, role, content, sources, generation_seconds,
-            completion_mode, stopped_by_user, has_remaining_scope, next_action, next_action_reason
+            completion_mode, stopped_by_user, has_remaining_scope, next_action, next_action_reason,
+            chat_mode, is_internal
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             message.chat_id,
@@ -1437,6 +1442,8 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
             1 if message.has_remaining_scope else 0,
             message.next_action,
             message.next_action_reason,
+            message.chat_mode,
+            1 if message.is_internal else 0,
         ),
     )
     # Update chat's updated_at timestamp when a message is added
