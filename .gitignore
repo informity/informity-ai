@@ -55,6 +55,7 @@ data/
 *.app
 
 # Frontend (Vite + React)
+/node_modules/
 src/frontend/node_modules/
 src/frontend/dist/
 src/frontend/src-tauri/backend/informity-backend*

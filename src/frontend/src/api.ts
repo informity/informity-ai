@@ -98,7 +98,7 @@ async function request<T = unknown>(
   if (contentType && contentType.includes('application/json')) {
     return response.json() as Promise<T>
   }
-  return response.text() as unknown as Promise<T>
+  return response.text() as Promise<T>
 }
 
 // -----------------------------------------------------------------------------
@@ -213,7 +213,7 @@ export async function streamChat(
   message: string,
   chatId: string | null,
   callbacks: StreamChatCallbacks,
-  options?: { mode?: ChatMode },
+  options?: { mode?: ChatMode; requestId?: string },
 ): Promise<void> {
   const { onToken, onChatId, onStreamId, onRequestId, onSources, onDone, onError, onCleaned, onStatus, onPlanStep, signal } = callbacks
   let doneData: StreamDonePayload | null = null
@@ -224,6 +224,7 @@ export async function streamChat(
     message: message.trim(),
     chat_id: chatId || null,
     mode: options?.mode ?? 'researcher',
+    request_id: options?.requestId ?? null,
   })
 
   try {
@@ -440,10 +441,17 @@ export async function getChat(chatId: string): Promise<unknown> {
   return request('GET', `/api/chat/chats/${chatId}`)
 }
 
-export async function stopChatStream(chatId: string, streamId: string): Promise<{ stopped: boolean; stream_id: string }> {
+export async function stopChatStream(
+  chatId: string | null,
+  identifiers: { streamId?: string | null; requestId?: string | null },
+): Promise<{ stopped: boolean; status?: 'stopped_now' | 'already_terminal' | 'not_found'; stream_id?: string | null; request_id?: string | null }> {
   return request('POST', '/api/chat/stop', {
-    body: { chat_id: chatId, stream_id: streamId },
-  }) as Promise<{ stopped: boolean; stream_id: string }>
+    body: {
+      chat_id: chatId ?? null,
+      stream_id: identifiers.streamId ?? null,
+      request_id: identifiers.requestId ?? null,
+    },
+  }) as Promise<{ stopped: boolean; status?: 'stopped_now' | 'already_terminal' | 'not_found'; stream_id?: string | null; request_id?: string | null }>
 }
 
 export async function getMessageRaw(messageId: number): Promise<{ content: string }> {

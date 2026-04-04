@@ -158,6 +158,7 @@ describe('ChatView new chat behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
     await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
-    expect(streamChatMock.mock.calls[0][3]).toEqual({ mode: 'assistant' })
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ mode: 'assistant' })
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ requestId: expect.any(String) })
   })
 })

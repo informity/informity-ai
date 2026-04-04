@@ -7,7 +7,7 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from informity.api.setup_state import SetupState
 from informity.config import (
@@ -88,14 +88,22 @@ class ChatRequest(BaseModel):
     # Request to send a message in a chat.
     message:  str
     chat_id:  str | None = None   # None = start new chat
+    request_id: str | None = None  # Optional client-generated request ID for deterministic stop
     run_id: str | None = None      # Optional diagnostics run correlation ID
     mode: str | None = None        # Optional chat mode: assistant | researcher (invalid -> researcher)
 
 
 class ChatStopRequest(BaseModel):
     # Request to stop an in-flight chat stream.
-    stream_id: str
+    stream_id: str | None = None
+    request_id: str | None = None
     chat_id: str | None = None
+
+    @model_validator(mode='after')
+    def _validate_keys(self) -> 'ChatStopRequest':
+        if not self.stream_id and not self.request_id:
+            raise ValueError('Either stream_id or request_id is required')
+        return self
 
 
 class ChatSourceReference(BaseModel):
@@ -181,6 +189,15 @@ class ModelProfileInfo(BaseModel):
     timeout_seconds:         int       # Timeout seconds
 
 
+class DiagnosticsProfilePreset(BaseModel):
+    # Backend-defined diagnostics preset values used by Settings UI.
+    log_level: str
+    chat_trace_logging: bool
+    chat_trace_redaction_mode: str
+    chat_trace_user_retention_days: int
+    chat_trace_evaluation_retention_days: int
+
+
 class SettingsResponse(BaseModel):
     # Current application settings exposed to the frontend.
     watched_directories:       list[str]
@@ -227,6 +244,7 @@ class SettingsResponse(BaseModel):
     chat_history_messages_researcher: int = 5  # Researcher mode history window
     default_chat_mode: Literal['assistant', 'researcher'] = 'researcher'
     diagnostics_profile: str = 'standard'  # standard, troubleshooting, custom
+    diagnostics_profile_presets: dict[str, DiagnosticsProfilePreset] = Field(default_factory=dict)
     log_level:             str        = 'info'  # debug, info, warning, error
     chat_trace_logging:     bool       = False   # Per-chat trace file for debugging
     chat_trace_redaction_mode: str = 'minimal'  # off, minimal, strict

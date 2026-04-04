@@ -17,6 +17,7 @@ from informity.llm.types import QueryType
 
 log = structlog.get_logger(__name__)
 _ADAPTIVE_TUNING_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError)
+_ADAPTIVE_TOP_K_FOCUSED_MIN_FLOOR = 10
 
 # ==============================================================================
 # In-Memory Cache (sync-accessible by get_retrieval_top_k)
@@ -67,7 +68,7 @@ def calculate_adaptive_top_k(
     max_k      = s.adaptive_top_k_focused_max
 
     if total_parent_chunks < threshold:
-        return max(10, min(profile_base, small_cap))
+        return max(_ADAPTIVE_TOP_K_FOCUSED_MIN_FLOOR, min(profile_base, small_cap))
 
     adaptive = base + int(math.log2(max(total_parent_chunks / 100, 1)) * scale)
     return max(profile_base, min(adaptive, max_k))

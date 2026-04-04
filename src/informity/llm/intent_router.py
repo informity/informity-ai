@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from threading import Lock
-from typing import Protocol
+from typing import Protocol, cast
 
 from informity.llm.types import IntentLabel
 
@@ -45,9 +45,11 @@ def get_intent_router() -> IntentRouter:
     with _intent_router_lock:
         if _intent_router is None:
             from informity.llm.promptcue_adapter import PromptCueIntentAdapter
-            _intent_router = PromptCueIntentAdapter()
-    assert _intent_router is not None
-    return _intent_router
+            try:
+                _intent_router = PromptCueIntentAdapter()
+            except Exception as exc:  # noqa: BLE001 - surface deterministic init failure
+                raise RuntimeError('Intent router failed to initialize') from exc
+    return cast(IntentRouter, _intent_router)
 
 
 def set_intent_router_for_testing(router: IntentRouter) -> None:

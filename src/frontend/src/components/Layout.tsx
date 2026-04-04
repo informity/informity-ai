@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal'
@@ -10,6 +10,7 @@ import '../pages/PlaceholderPage.css'
 import './Layout.css'
 
 const MENU_SCAN_NOW_PENDING_KEY = 'informity.menu.scan_now.pending'
+const MENU_NEW_CHAT_PENDING_KEY = 'informity.menu.new_chat.pending'
 
 export function Layout() {
   const navigate = useNavigate()
@@ -19,6 +20,28 @@ export function Layout() {
     const stored = localStorage.getItem('informity-sidebar-collapsed')
     return stored === 'true'
   })
+
+  const queuePendingNewChat = useCallback(() => {
+    try {
+      sessionStorage.setItem(MENU_NEW_CHAT_PENDING_KEY, '1')
+    } catch {
+      // ignore storage errors; fallback behavior remains direct dispatch when already on /chat
+    }
+  }, [])
+
+  const dispatchNewChat = useCallback(() => {
+    window.dispatchEvent(new CustomEvent('new-chat'))
+  }, [])
+
+  const requestNewChat = useCallback(() => {
+    if (offline) return
+    if (pathname !== '/chat') {
+      queuePendingNewChat()
+      navigate('/chat')
+      return
+    }
+    dispatchNewChat()
+  }, [offline, pathname, queuePendingNewChat, navigate, dispatchNewChat])
 
   useEffect(() => {
     localStorage.setItem('informity-sidebar-collapsed', String(collapsed))
@@ -34,9 +57,7 @@ export function Layout() {
       }
       if (mod && e.key === 'n') {
         e.preventDefault()
-        if (offline) return
-        if (pathname !== '/chat') navigate('/chat')
-        else window.dispatchEvent(new CustomEvent('new-chat'))
+        requestNewChat()
         return
       }
       if (mod && e.key === ',') {
@@ -58,7 +79,20 @@ export function Layout() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [navigate, pathname, offline])
+  }, [requestNewChat])
+
+  useEffect(() => {
+    if (pathname !== '/chat') return
+    let pending = false
+    try {
+      pending = sessionStorage.getItem(MENU_NEW_CHAT_PENDING_KEY) === '1'
+      if (pending) sessionStorage.removeItem(MENU_NEW_CHAT_PENDING_KEY)
+    } catch {
+      pending = false
+    }
+    if (!pending) return
+    dispatchNewChat()
+  }, [pathname])
 
   useEffect(() => {
     const isVisible = (element: HTMLElement) => {
@@ -87,13 +121,7 @@ export function Layout() {
           navigate('/settings')
           break
         case 'new-chat':
-          if (offline) break
-          if (pathname !== '/chat') {
-            navigate('/chat')
-            setTimeout(() => window.dispatchEvent(new CustomEvent('new-chat')), 120)
-          } else {
-            window.dispatchEvent(new CustomEvent('new-chat'))
-          }
+          requestNewChat()
           break
         case 'scan-now':
           try {
@@ -113,16 +141,20 @@ export function Layout() {
         default:
           break
       }
-    }).then((fn) => {
-      unlisten = fn
     })
+      .then((fn) => {
+        unlisten = fn
+      })
+      .catch(() => {
+        // ignore desktop listener setup failures
+      })
 
     return () => {
       if (unlisten) {
         unlisten()
       }
     }
-  }, [navigate, offline, pathname])
+  }, [navigate, requestNewChat])
 
   return (
     <div className="layout">

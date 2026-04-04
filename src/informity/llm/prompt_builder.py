@@ -13,6 +13,7 @@ import tiktoken
 
 from informity.config import settings
 from informity.db.models import ChatMessage
+from informity.llm.chat_mode import normalize_chat_mode
 
 if TYPE_CHECKING:
     from informity.llm.model_adapter import ModelProfile
@@ -63,7 +64,7 @@ def _estimate_message_tokens(*, role: str, content: str) -> int:
 
 
 def resolve_history_limit(chat_mode: str | None) -> int:
-    mode = str(chat_mode or '').strip().lower()
+    mode = normalize_chat_mode(chat_mode)
     if mode == 'assistant':
         return max(0, int(settings.chat_history_messages_assistant))
     if mode == 'researcher':
@@ -190,7 +191,7 @@ def build_messages(
 
     # Build system message
     active_system_prompt = _SYSTEM_PROMPT if system_prompt is None else str(system_prompt)
-    if str(chat_mode or '').strip().lower() == 'assistant':
+    if normalize_chat_mode(chat_mode) == 'assistant':
         active_system_prompt += _ASSISTANT_MODE_APPENDIX
     system_content = f"{active_system_prompt}{contract_block}\n\nContext:\n{context_text}"
 

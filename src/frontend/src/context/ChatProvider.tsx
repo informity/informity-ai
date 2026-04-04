@@ -36,6 +36,7 @@ const ACTIVE_GENERATION_REJECT_MESSAGE = 'Please wait for the current answer to 
 const STREAM_INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000
 const STREAM_WATCHDOG_TIMEOUT_MESSAGE = 'Connection lost while waiting for response. Please try again.'
 const STREAM_WATCHDOG_INTERRUPTED_MESSAGE = 'Response was interrupted due to connection inactivity.'
+const STOP_ACK_TIMEOUT_MS = 1500
 const MESSAGE_MODE_MAP_STORAGE_KEY = 'informity.messageModeById'
 const STREAM_STATUS_LABELS: Record<string, string> = {
   classifying: 'Analyzing your request...',
@@ -45,6 +46,14 @@ const STREAM_STATUS_LABELS: Record<string, string> = {
 }
 
 type DonePayload = StreamDonePayload
+
+function normalizeCompletionMode(
+  value: unknown,
+): 'complete' | 'partial' | 'scoped_complete' | 'stopped' {
+  return value === 'partial' || value === 'scoped_complete' || value === 'stopped'
+    ? value
+    : 'complete'
+}
 
 function getContinuingStatusLabel(): string {
   return 'Continuing response...'
@@ -140,6 +149,13 @@ function storeMessageMode(messageId: number, mode: ChatMode): void {
   }
 }
 
+function createChatRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+  return `req-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
 export function ChatProvider({ children }: ChatProviderProps) {
   const [currentChatId, setCurrentChatIdState] = useState<string | null>(null)
   const [activeGenerationChatId, setActiveGenerationChatId] = useState<string | null>(null)
@@ -167,8 +183,10 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const streamWatchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const streamWatchdogTimedOutRef = useRef(false)
   const streamPlanStepsRef = useRef<Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>>([])
+  const streamStopRequestedRef = useRef(false)
   const currentChatIdRef = useRef<string | null>(null)
   const isStreamingRef = useRef(false)
+  const messagesCountRef = useRef(0)
   const lastAutoContinuedMessageIdRef = useRef<number | null>(null)
 
   useEffect(() => {
@@ -178,6 +196,9 @@ export function ChatProvider({ children }: ChatProviderProps) {
   useEffect(() => {
     isStreamingRef.current = isStreaming
   }, [isStreaming])
+  useEffect(() => {
+    messagesCountRef.current = messages.length
+  }, [messages.length])
 
   const setCurrentChatId = useCallback((id: string | null) => {
     setCurrentChatIdState(id)
@@ -229,7 +250,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const clearError = useCallback(() => setError(null), [])
 
   const selectChat = useCallback(async (selectedChatId: string) => {
-    if (selectedChatId === currentChatId && messages.length > 0) return
+    if (selectedChatId === currentChatId && messagesCountRef.current > 0) return
 
     const sessionId = ++chatLoadSessionRef.current
     setError(null)
@@ -241,10 +262,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       const historyMessages = data.messages || []
       const storedModes = readStoredMessageModes()
       const mapped: ChatMessageDisplay[] = historyMessages.map((m, index) => {
-        const completionMode: 'complete' | 'partial' | 'scoped_complete' | 'stopped' =
-          m.completion_mode === 'partial' || m.completion_mode === 'scoped_complete' || m.completion_mode === 'stopped'
-            ? m.completion_mode
-            : 'complete'
+        const completionMode = normalizeCompletionMode(m.completion_mode)
         const previousMessage = index > 0 ? historyMessages[index - 1] : undefined
         const hasRemainingScope = m.has_remaining_scope
           ?? (completionMode === 'partial' || completionMode === 'scoped_complete' || completionMode === 'stopped')
@@ -319,7 +337,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         setLoadingChat(false)
       }
     }
-  }, [currentChatId, messages.length])
+  }, [currentChatId])
 
   const goToGeneratingChat = useCallback(async () => {
     const generatingChatId = streamChatIdRef.current ?? activeGenerationChatId
@@ -332,21 +350,47 @@ export function ChatProvider({ children }: ChatProviderProps) {
     clearStreamWatchdog()
     streamWatchdogTimedOutRef.current = false
     const streamId = streamIdRef.current
+    const requestId = streamRequestIdRef.current ?? activeGenerationRequestId
     const chatId = streamChatIdRef.current ?? currentChatIdRef.current
-    if (!streamId || !chatId) {
+    streamStopRequestedRef.current = true
+    if (!streamId && !requestId) {
       abortControllerRef.current?.abort()
       return true
     }
-    try {
-      const res = await stopChatStream(chatId, streamId)
-      abortControllerRef.current?.abort()
-      return !!res.stopped
-    } catch (err) {
+
+    const stopAckPromise = stopChatStream(chatId ?? null, {
+      streamId,
+      requestId,
+    }).catch((err) => {
       logApiError(err, 'ChatProvider.stopStreaming.stopChatStream')
-      abortControllerRef.current?.abort()
-      return false
+      return null
+    })
+
+    // Always interrupt local stream immediately so Stop feels responsive.
+    abortControllerRef.current?.abort()
+
+    try {
+      const res = await Promise.race<
+        Awaited<ReturnType<typeof stopChatStream>> | null
+      >([
+        stopAckPromise,
+        new Promise<null>((resolve) => {
+          setTimeout(() => resolve(null), STOP_ACK_TIMEOUT_MS)
+        }),
+      ])
+      // Backend stop acknowledgement can lag behind model initialization.
+      // Local stream is already aborted above; treat timeout as successful stop.
+      if (res == null) {
+        return true
+      }
+      if (res.status === 'already_terminal' || res.status === 'not_found') {
+        return true
+      }
+      return !!res.stopped
+    } catch {
+      return true
     }
-  }, [clearStreamWatchdog])
+  }, [activeGenerationRequestId, clearStreamWatchdog])
 
   const sendMessage = useCallback(async (
     text: string,
@@ -410,10 +454,12 @@ export function ChatProvider({ children }: ChatProviderProps) {
     streamWatchdogTimedOutRef.current = false
     streamIdRef.current = null
     streamChatIdRef.current = null
-    streamRequestIdRef.current = null
+    const requestId = createChatRequestId()
+    streamRequestIdRef.current = requestId
+    streamStopRequestedRef.current = false
     const requestChatId = currentChatIdRef.current
     setActiveGenerationChatId(requestChatId)
-    setActiveGenerationRequestId(null)
+    setActiveGenerationRequestId(requestId)
 
     try {
       const touchStreamWatchdog = () => {
@@ -435,11 +481,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         setIsStreaming(false)
         const elapsed = data?.elapsed_seconds
         const messageId = data?.message_id
-        const completionModeRaw = data?.completion_mode
-        const completionMode: 'complete' | 'partial' | 'scoped_complete' | 'stopped' =
-          completionModeRaw === 'partial' || completionModeRaw === 'scoped_complete' || completionModeRaw === 'stopped'
-            ? completionModeRaw
-            : 'complete'
+        const completionMode = normalizeCompletionMode(data?.completion_mode)
         const isPartial = completionMode === 'partial'
         const stoppedByUser = data?.stopped_by_user ?? (completionMode === 'stopped')
         const hasRemainingScope = data?.has_remaining_scope
@@ -537,6 +579,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         streamIdRef.current = null
         streamChatIdRef.current = null
         streamRequestIdRef.current = null
+        streamStopRequestedRef.current = false
         streamDraftRef.current = null
         setActiveGenerationChatId(null)
         setActiveGenerationRequestId(null)
@@ -725,6 +768,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           setIsStreaming(false)
           const content = streamContentRef.current
           const isAbort = err.name === 'AbortError'
+          const userRequestedStop = streamStopRequestedRef.current
           if (isAbort) {
             if (streamWatchdogTimedOutRef.current) {
               const timeoutMsg = STREAM_WATCHDOG_TIMEOUT_MESSAGE
@@ -756,6 +800,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
               streamRequestIdRef.current = null
               streamCleanedContentRef.current = null
               streamDraftRef.current = null
+              streamStopRequestedRef.current = false
               setActiveGenerationChatId(null)
               setActiveGenerationRequestId(null)
               streamWatchdogTimedOutRef.current = false
@@ -767,7 +812,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 const next = [...prev]
                 const last = next[next.length - 1]
                 if (last?.role === 'assistant') {
-                  const stoppedCallout = buildRecoveryCallout('regenerate', 'stopped')
+                  const stoppedCallout = userRequestedStop ? buildRecoveryCallout('regenerate', 'stopped') : null
                   next[next.length - 1] = {
                     ...last,
                     content,
@@ -778,11 +823,11 @@ export function ChatProvider({ children }: ChatProviderProps) {
                     streamStatusText: undefined,
                     streamSectionProgress: undefined,
                     streamPlanSteps: undefined,
-                    completionMode: 'stopped',
-                    stoppedByUser: true,
+                    completionMode: userRequestedStop ? 'stopped' : 'partial',
+                    stoppedByUser: userRequestedStop,
                     hasRemainingScope: true,
                     nextAction: 'regenerate',
-                    nextActionReason: 'stopped',
+                    nextActionReason: userRequestedStop ? 'stopped' : 'timeout',
                     continueLabel: 'Continue',
                   }
                 }
@@ -793,6 +838,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
             streamChatIdRef.current = null
             streamRequestIdRef.current = null
             streamCleanedContentRef.current = null
+            streamStopRequestedRef.current = false
             setActiveGenerationChatId(null)
             setActiveGenerationRequestId(null)
             streamWatchdogTimedOutRef.current = false
@@ -826,12 +872,13 @@ export function ChatProvider({ children }: ChatProviderProps) {
           streamChatIdRef.current = null
           streamRequestIdRef.current = null
           streamCleanedContentRef.current = null
+          streamStopRequestedRef.current = false
           streamDraftRef.current = null
           setActiveGenerationChatId(null)
           setActiveGenerationRequestId(null)
           streamWatchdogTimedOutRef.current = false
         },
-      }, { mode: chatMode })
+      }, { mode: chatMode, requestId })
     } finally {
       clearStreamWatchdog()
       sendInFlightRef.current = false

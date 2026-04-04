@@ -12,6 +12,7 @@ import structlog
 
 from informity.api.schemas import ChatSourceReference
 from informity.db.models import ChatMessage
+from informity.llm.chat_mode import normalize_chat_mode
 from informity.llm.model_adapter import get_profile
 from informity.llm.prompt_builder import build_messages, resolve_history_limit
 from informity.llm.query_classifier import QueryClassification
@@ -69,7 +70,7 @@ class SimpleHandler:
         try:
             profile = get_profile()
             query_type = QueryType.SIMPLE
-            normalized_chat_mode = str(chat_mode or '').strip().lower()
+            normalized_chat_mode = normalize_chat_mode(chat_mode)
             system_prompt = _ASSISTANT_SYSTEM_PROMPT if normalized_chat_mode == 'assistant' else _RESEARCHER_SIMPLE_SYSTEM_PROMPT
 
             if trace is not None:
