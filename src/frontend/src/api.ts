@@ -534,6 +534,7 @@ export interface SetupTierOption {
   title: string
   display_name: string
   model_filename: string
+  model_size_bytes: number
   approx_size_gb: number
   quality: string
   speed: string
@@ -589,6 +590,7 @@ export interface ModelsCatalogItem {
   title: string
   display_name: string
   model_filename: string
+  model_size_bytes: number
   approx_size_gb: number
   quality: string
   speed: string

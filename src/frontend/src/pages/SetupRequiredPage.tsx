@@ -319,7 +319,7 @@ export function SetupRequiredPage({
                       <span className="setup-tier__meta-item">
                         <i className="ri-download-2-line setup-tier__meta-icon" aria-hidden />
                         <span className="setup-tier__meta-label">Size:</span>
-                        <span className="setup-tier__meta-value">{option.approx_size_gb.toFixed(1)} GB</span>
+                        <span className="setup-tier__meta-value">{(option.model_size_bytes / 1_000_000_000).toFixed(2)} GB</span>
                       </span>
                       <span className="setup-tier__meta-sep" aria-hidden>|</span>
                       <span className="setup-tier__meta-item">
