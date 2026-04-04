@@ -36,6 +36,7 @@
     ],
     "resources": [
       "backend/*",
+      "backend/**/*",
       "icons/32x32.png",
       "icons/trayTemplate.png"
     ]

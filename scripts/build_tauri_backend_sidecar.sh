@@ -18,11 +18,20 @@ OUT_DIR="$ROOT_DIR/src/frontend/src-tauri/backend"
 mkdir -p "$DIST_DIR" "$WORK_DIR" "$SPEC_DIR" "$OUT_DIR"
 
 verify_sidecar_contents() {
-  local sidecar_bin="$1"
+  local sidecar_dir="$1"
   local listing_file
 
+  if [[ ! -d "$sidecar_dir" ]]; then
+    echo "ERROR: sidecar verification failed (missing directory: $sidecar_dir)" >&2
+    return 1
+  fi
+  if [[ ! -x "$sidecar_dir/$BACKEND_NAME" ]]; then
+    echo "ERROR: sidecar verification failed (missing executable: $sidecar_dir/$BACKEND_NAME)" >&2
+    return 1
+  fi
+
   listing_file="$(mktemp)"
-  uv run --with pyinstaller python -m PyInstaller.utils.cliutils.archive_viewer -r -b "$sidecar_bin" >"$listing_file" 2>&1 || true
+  find "$sidecar_dir" -type f | sed "s|$sidecar_dir/||" >"$listing_file"
 
   local -a required_patterns=(
     "docling/models/plugins/__init__\\.py"
@@ -57,7 +66,7 @@ echo "Building Tauri backend sidecar (${BACKEND_NAME})..."
 uv run --with pyinstaller pyinstaller \
   --noconfirm \
   --clean \
-  --onefile \
+  --onedir \
   --name "$BACKEND_NAME" \
   --exclude-module pytest \
   --exclude-module pytest_asyncio \
@@ -94,7 +103,8 @@ uv run --with pyinstaller pyinstaller \
 
 verify_sidecar_contents "$DIST_DIR/$BACKEND_NAME"
 
-cp "$DIST_DIR/$BACKEND_NAME" "$OUT_DIR/$BACKEND_NAME"
-chmod +x "$OUT_DIR/$BACKEND_NAME" || true
+rm -rf "$OUT_DIR/$BACKEND_NAME"
+cp -R "$DIST_DIR/$BACKEND_NAME" "$OUT_DIR/$BACKEND_NAME"
+chmod +x "$OUT_DIR/$BACKEND_NAME/$BACKEND_NAME" || true
 
-echo "Sidecar ready: $OUT_DIR/$BACKEND_NAME"
+echo "Sidecar ready: $OUT_DIR/$BACKEND_NAME/"
