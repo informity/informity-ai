@@ -440,6 +440,7 @@ class SetupTierOption(BaseModel):
     title: str
     display_name: str
     model_filename: str
+    model_size_bytes: int
     approx_size_gb: float
     quality: str
     speed: str
@@ -494,6 +495,7 @@ class ModelsCatalogItem(BaseModel):
     title: str
     display_name: str
     model_filename: str
+    model_size_bytes: int
     approx_size_gb: float
     quality: str
     speed: str

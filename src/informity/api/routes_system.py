@@ -69,13 +69,20 @@ _SYSTEM_DIAGNOSTICS_EXCEPTIONS = (OSError, RuntimeError, ValueError, TypeError)
 _CANONICAL_DIAGNOSTICS_ISSUES = tuple(sorted(issue.value for issue in IssueType))
 _SETUP_STATE_FILE = 'setup_state.json'
 _SETUP_CONFIG_FILE = 'config.json'
+_DECIMAL_GB = 1_000_000_000
+_MODEL_SIZE_BYTES = {
+    'Qwen_Qwen3.5-9B-Q4_K_M.gguf': 5_889_811_552,
+    'Qwen3-14B-Q5_K_M.gguf': 10_514_569_568,
+    'Qwen3.5-35B-A3B-Q4_K_M.gguf': 22_016_023_168,
+}
 _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
     SetupTierOption(
         tier='small',
         title='Small',
         display_name=get_model_display_name('Qwen_Qwen3.5-9B-Q4_K_M.gguf'),
         model_filename='Qwen_Qwen3.5-9B-Q4_K_M.gguf',
-        approx_size_gb=5.5,
+        model_size_bytes=_MODEL_SIZE_BYTES['Qwen_Qwen3.5-9B-Q4_K_M.gguf'],
+        approx_size_gb=round(_MODEL_SIZE_BYTES['Qwen_Qwen3.5-9B-Q4_K_M.gguf'] / _DECIMAL_GB, 2),
         quality='Good',
         speed='Fast',
         ram_profile='Lower RAM',
@@ -86,7 +93,8 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
         title='Balanced',
         display_name=get_model_display_name('Qwen3-14B-Q5_K_M.gguf'),
         model_filename='Qwen3-14B-Q5_K_M.gguf',
-        approx_size_gb=9.8,
+        model_size_bytes=_MODEL_SIZE_BYTES['Qwen3-14B-Q5_K_M.gguf'],
+        approx_size_gb=round(_MODEL_SIZE_BYTES['Qwen3-14B-Q5_K_M.gguf'] / _DECIMAL_GB, 2),
         quality='High',
         speed='Balanced',
         ram_profile='Medium RAM',
@@ -97,7 +105,8 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
         title='Quality',
         display_name=get_model_display_name('Qwen3.5-35B-A3B-Q4_K_M.gguf'),
         model_filename='Qwen3.5-35B-A3B-Q4_K_M.gguf',
-        approx_size_gb=19.0,
+        model_size_bytes=_MODEL_SIZE_BYTES['Qwen3.5-35B-A3B-Q4_K_M.gguf'],
+        approx_size_gb=round(_MODEL_SIZE_BYTES['Qwen3.5-35B-A3B-Q4_K_M.gguf'] / _DECIMAL_GB, 2),
         quality='Highest',
         speed='Slower',
         ram_profile='Higher RAM',
@@ -908,6 +917,7 @@ async def get_models_catalog() -> ModelsCatalogResponse:
                 title=option.title,
                 display_name=option.display_name,
                 model_filename=option.model_filename,
+                model_size_bytes=option.model_size_bytes,
                 approx_size_gb=option.approx_size_gb,
                 quality=option.quality,
                 speed=option.speed,

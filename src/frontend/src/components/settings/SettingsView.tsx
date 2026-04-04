@@ -537,6 +537,7 @@ export function SettingsView({
 
   const selectedModelFilename = form.llm_model_filename || settings.llm_model_filename || ''
   const catalogModels = modelsCatalog?.models || []
+  const selectedCatalogEntry = catalogModels.find((model) => model.model_filename === selectedModelFilename)
   const knownModelFilenames = (() => {
     const ordered: string[] = []
     const seen = new Set<string>()
@@ -573,6 +574,11 @@ export function SettingsView({
     }
     const precision = next >= 100 || unit === 0 ? 0 : 1
     return `${next.toFixed(precision)} ${units[unit]}`
+  }
+  const formatModelSizeGb = (bytes: number | null | undefined): string => {
+    if (!Number.isFinite(bytes) || (bytes ?? 0) <= 0) return '--'
+    const gb = Number(bytes) / 1_000_000_000
+    return `${gb.toFixed(2)} GB`
   }
 
   const modelProgressSummary = (() => {
@@ -1230,6 +1236,7 @@ export function SettingsView({
               <ProfileRow label="Retrieval (top-k)" value={profile.rag_top_k ?? '--'} />
               <ProfileRow label="Document matching threshold" value={profile.rag_max_score ?? '--'} />
               <ProfileRow label="Context ratio" value={profile.rag_context_ratio ?? '--'} />
+              <ProfileRow label="Model size" value={formatModelSizeGb(selectedCatalogEntry?.model_size_bytes)} />
             </div>
           </>
         )}
