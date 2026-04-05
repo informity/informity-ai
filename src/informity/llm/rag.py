@@ -3,6 +3,7 @@
 # Routes queries to appropriate handlers (metadata, RAG, simple)
 # ==============================================================================
 
+import asyncio
 from collections.abc import AsyncGenerator
 
 import aiosqlite
@@ -11,14 +12,11 @@ import structlog
 from informity.api.schemas import ChatSourceReference
 from informity.db.models import ChatMessage
 from informity.llm.chat_mode import is_assistant_mode, resolve_chat_mode
-from informity.llm.classification_policy import (
-    classify_query_with_timing,
-    resolve_assistant_forced_classification,
-)
+from informity.llm.classification_policy import resolve_assistant_forced_classification
 from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.rag import RAGHandler
 from informity.llm.handlers.simple import SimpleHandler
-from informity.llm.query_classifier import QueryClassification
+from informity.llm.query_classifier import QueryClassification, classify_query
 from informity.llm.types import QueryType, StreamSignalTag
 
 log = structlog.get_logger(__name__)
@@ -85,7 +83,9 @@ async def answer_question(
 
         # 1. Classify query (extract filters and intent)
         if classification is None:
-            classification, classify_elapsed_ms = await classify_query_with_timing(question)
+            classify_start = asyncio.get_running_loop().time()
+            classification = await asyncio.to_thread(classify_query, question)
+            classify_elapsed_ms = (asyncio.get_running_loop().time() - classify_start) * 1000.0
             if trace is not None:
                 trace.record('classification', {
                     'query_length': len(question),

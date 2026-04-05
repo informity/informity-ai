@@ -86,6 +86,7 @@ from informity.llm.classification_policy import classify_query_with_timing
 from informity.llm.contract_gate import (
     build_contract_spec,
     build_repair_guidance,
+    enforce_required_sections,
     validate_contract,
 )
 from informity.llm.rag import answer_question
@@ -834,6 +835,22 @@ async def chat(
                 sanitize_started = time.perf_counter()
                 cleaned_answer, reasoning_only_output = build_display_answer(full_answer)
                 sanitization_elapsed_ms = (time.perf_counter() - sanitize_started) * 1000.0
+                finalized_contract_answer = cleaned_answer if cleaned_answer else full_answer
+                finalized_contract_answer, missing_sections_filled = enforce_required_sections(
+                    answer=finalized_contract_answer,
+                    spec=contract_spec,
+                )
+                if missing_sections_filled:
+                    if cleaned_answer:
+                        cleaned_answer = finalized_contract_answer
+                    else:
+                        full_answer = finalized_contract_answer
+                        cleaned_answer = sanitize_display_answer(full_answer)
+                    log.info(
+                        'contract_sections_filled_at_closeout',
+                        chat_id=chat_id,
+                        missing_required_headings=missing_sections_filled,
+                    )
                 structural_incomplete_reason = _mark_structural_output_gap(cleaned_answer or full_answer)
                 if structural_incomplete_reason and completion_mode_override != CompletionMode.STOPPED:
                     log.info(
