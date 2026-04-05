@@ -5,6 +5,7 @@ import aiosqlite
 
 from informity.api.schemas import ChatSourceReference
 from informity.config import settings
+from informity.llm import contract_prompt_parser as _contract_prompt_parser
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.query_patterns import build_conflict_amount_pattern
 from informity.llm.rag_runtime.retrieval_validation import _normalize_relevance_score
@@ -13,7 +14,6 @@ from informity.llm.types import GroupBy, OutputShape, QuerySubtype
 _STRUCTURED_EXTRACTION_SUBTYPES = {QuerySubtype.EXTRACT_STRUCTURED_VALUES, QuerySubtype.AGGREGATE_BY_PERIOD}
 _NUMBER_PATTERN = re.compile(r'\(?\$?\d[\d,]*(?:\.\d{1,2})?\)?')
 _FIELD_LABEL_NEAR_NUMBER_PATTERN = re.compile(r'([A-Za-z][A-Za-z0-9\s/_-]{1,36})$')
-_EXPLICIT_YEAR_PATTERN = re.compile(r'\b(?:19|20)\d{2}\b')
 _REQUESTED_COLUMNS_PATTERN = re.compile(
     r'\bcolumns?\s*:\s*([^\n]+?)(?:\.\s|$)',
     re.IGNORECASE,
@@ -30,16 +30,6 @@ _FINANCE_EVIDENCE_STOPWORDS = {
     'not', 'found', 'values', 'value', 'reported', 'report', 'based', 'entries',
     'amount', 'amounts', 'document', 'documents', 'file', 'files',
 }
-_ORDERED_HEADING_CUES = (
-    r'\bin order\b',
-    r'\bin this order\b',
-    r'\bin sequence\b',
-    r'output\s+must\s+contain\s*:\s*##',
-    r'sections?\s+must\s+contain\s*:\s*##',
-    r'headings?\s+exactly',
-    r'headings?\s+in\s+exact\s+order',
-)
-
 
 def _should_run_structured_extraction(
     *,
@@ -51,10 +41,7 @@ def _should_run_structured_extraction(
         return True
     required_headings = _extract_required_headings(question)
     has_required_headings = bool(required_headings)
-    has_ordered_heading_cue = any(
-        re.search(pattern, question, re.IGNORECASE)
-        for pattern in _ORDERED_HEADING_CUES
-    )
+    has_ordered_heading_cue = _contract_prompt_parser.has_ordered_heading_cue(question)
     has_strict_heading_contract = has_required_headings and has_ordered_heading_cue
     has_max_words = bool(re.search(r'(?:total\s*)?(?:<=|less than or equal to)\s*(\d+)\s*words?', question, re.IGNORECASE))
     has_exact_top_level_bullets = _extract_exact_top_level_bullet_limit(question) is not None
@@ -183,8 +170,7 @@ def _build_evidence_span(chunk_text: str, start_idx: int, end_idx: int, radius: 
 
 
 def _extract_required_years(question: str) -> list[int]:
-    years = sorted({int(match.group(0)) for match in _EXPLICIT_YEAR_PATTERN.finditer(question)})
-    return years
+    return _contract_prompt_parser.extract_required_years(question)
 
 
 def _extract_exact_top_level_bullet_limit(question: str) -> int | None:
@@ -330,31 +316,7 @@ def _render_finance_conflict_bullets(
 
 
 def _extract_required_headings(question: str) -> list[str]:
-    headings: list[str] = []
-    seen: set[str] = set()
-    markdown_headings = re.findall(r'##\s+([^\n#]+)', question or '')
-    for raw_heading in markdown_headings:
-        normalized = str(raw_heading).strip().rstrip(' .')
-        if not normalized:
-            continue
-        key = normalized.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        headings.append(normalized)
-
-    numbered_heads = re.findall(
-        r'(?:^|:\s*|,\s*)(?:\d+\)\s*)(.+?)(?=(?:,\s*\d+\)\s)|(?:\.\s|$))',
-        question,
-        flags=re.IGNORECASE | re.DOTALL,
-    )
-    for raw_heading in numbered_heads:
-        heading = raw_heading.strip().rstrip(' .')
-        if heading.casefold() in seen:
-            continue
-        seen.add(heading.casefold())
-        headings.append(heading)
-    return headings
+    return _contract_prompt_parser.extract_required_headings(question)
 
 
 def _extract_required_markdown_table_columns(question: str) -> list[str]:
@@ -410,7 +372,7 @@ def _derive_format_requirements(
 
     headings = _extract_required_headings(question)
     if headings:
-        has_ordered_cue = any(re.search(pattern, question, re.IGNORECASE) for pattern in _ORDERED_HEADING_CUES)
+        has_ordered_cue = _contract_prompt_parser.has_ordered_heading_cue(question)
         if has_ordered_cue:
             _append_requirement('use the required headings exactly and in the requested order')
         else:

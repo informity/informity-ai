@@ -5,6 +5,7 @@
 
 import re
 
+from informity.llm.timeout_policy import is_terminal_timeout_reason
 from informity.llm.types import TimeoutReason
 
 
@@ -15,9 +16,7 @@ def _has_remaining_scope(
     generation_skipped: bool,
     applied_degradations: list[dict[str, object]],
 ) -> bool:
-    terminal_timeout_reasons = {TimeoutReason.QUEUE_WAIT_TIMEOUT, TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT}
-    normalized_timeout_reason = str(timeout_reason or '').strip().lower()
-    if normalized_timeout_reason in {reason.value for reason in terminal_timeout_reasons}:
+    if is_terminal_timeout_reason(timeout_reason):
         return False
     return bool(timeout_reason is not None or stream_recovery_reason is not None or generation_skipped)
 

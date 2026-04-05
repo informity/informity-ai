@@ -8,13 +8,12 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+from informity.llm import contract_prompt_parser as _contract_prompt_parser
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.types import QuerySubtype, QueryType
 
 _MARKDOWN_HEADING_PATTERN = re.compile(r'^\s{0,3}#{1,6}\s+(.+?)\s*$', re.MULTILINE)
-_REQUIRED_HEADING_PROMPT_PATTERN = re.compile(r'##\s+([^\n#]+)')
 _YEAR_TOKEN_PATTERN = re.compile(r'\b[12]\d{3}\b')
-_BY_YEAR_CUE_PATTERN = re.compile(r'\b(?:by|per)\s+year\b', re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -37,13 +36,13 @@ class ContractValidationResult:
 
 
 def build_contract_spec(*, question: str, classification: QueryClassification | None) -> ContractSpec:
-    required_headings = _extract_required_headings_from_prompt(question)
+    required_headings = _contract_prompt_parser.extract_required_headings(question)
     min_year_count = 0
     if (
         classification is not None
         and str(classification.intent).strip().lower() == QueryType.COVERAGE
         and str(classification.subtype or '').strip().lower() == QuerySubtype.AGGREGATE_BY_PERIOD
-        and _BY_YEAR_CUE_PATTERN.search(question)
+        and _contract_prompt_parser.has_year_subsection_cue(question)
     ):
         min_year_count = 2
     return ContractSpec(required_headings=required_headings, min_year_count=min_year_count)
@@ -76,21 +75,6 @@ def _normalize_heading_text(value: str) -> str:
     normalized = re.sub(r'^\s*#{1,6}\s*', '', str(value or '').strip())
     normalized = re.sub(r'\s+', ' ', normalized).strip().strip(' .:')
     return normalized.casefold()
-
-
-def _extract_required_headings_from_prompt(question: str) -> list[str]:
-    headings: list[str] = []
-    seen: set[str] = set()
-    for raw in _REQUIRED_HEADING_PROMPT_PATTERN.findall(str(question or '')):
-        heading = str(raw or '').strip().rstrip(' .,;:')
-        if not heading:
-            continue
-        key = _normalize_heading_text(heading)
-        if not key or key in seen:
-            continue
-        seen.add(key)
-        headings.append(heading)
-    return headings
 
 
 def _extract_headings_from_answer(answer: str) -> set[str]:

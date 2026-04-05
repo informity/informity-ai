@@ -13,6 +13,7 @@ import structlog
 
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
 from informity.llm.streaming import stream_llm
+from informity.llm.timeout_policy import normalize_timeout_reason
 from informity.llm.types import CompletionMode, QueryType, StreamSignalTag, TimeoutReason
 
 log = structlog.get_logger(__name__)
@@ -91,11 +92,7 @@ async def stream_generation_with_budget(
     ):
         if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.TIMEOUT:
             timeout_payload = item[1] if isinstance(item[1], dict) else {}
-            raw_timeout_reason = str(timeout_payload.get('reason') or TimeoutReason.UNKNOWN_TIMEOUT.value).strip().lower()
-            try:
-                timeout_reason = TimeoutReason(raw_timeout_reason)
-            except ValueError:
-                timeout_reason = raw_timeout_reason
+            timeout_reason = normalize_timeout_reason(timeout_payload.get('reason'))
             yield (StreamSignalTag.TIMEOUT, timeout_payload)
             continue
 
