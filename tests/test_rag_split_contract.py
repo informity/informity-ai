@@ -56,7 +56,7 @@ async def test_generation_stream_emits_checkpoint_with_query_type_and_summary() 
 
 
 @pytest.mark.asyncio
-async def test_generation_stream_enforces_missing_evidence_callout_when_required() -> None:
+async def test_generation_stream_does_not_enforce_contract_shape_in_stream_path() -> None:
     async def _fake_stream_llm(*_args: Any, **_kwargs: Any):
         yield '## Executive Summary\nAll requested comparisons are listed.'
 
@@ -75,148 +75,16 @@ async def test_generation_stream_enforces_missing_evidence_callout_when_required
         dedupe_insufficient_context_after_stream=False,
         insufficient_context_response='insufficient',
         applied_degradations=[],
-        output_contract_plan={'requires_missing_evidence_callout': True},
-        collapse_duplicate_message_fn=lambda value: (value, False),
-        stream_llm_fn=_fake_stream_llm,
-    ):
-        if isinstance(item, tuple) and item[0] == _generation_stream.STREAM_SUMMARY_EVENT:
-            continue
-        events.append(item)
-
-    merged = ''.join(part for part in events if isinstance(part, str))
-    assert 'Missing Evidence:' in merged
-
-
-@pytest.mark.asyncio
-async def test_generation_stream_enforces_min_year_subsections_when_required() -> None:
-    async def _fake_stream_llm(*_args: Any, **_kwargs: Any):
-        yield '## Findings by Year\n### 2021\n- Evidence: sample.'
-
-    events: list[str | tuple[str, object]] = []
-    async for item in _generation_stream.stream_generation_with_budget(
-        messages=[{'role': 'user', 'content': 'test'}],
-        max_tokens=256,
-        temperature=0.1,
-        top_p=0.9,
-        timeout_seconds=120,
-        stop_sequences=[],
-        fit_to_budget_enabled=False,
-        stream_soft_limit_ratio=0.8,
-        soft_closeout_allowed=False,
-        checkpoint_query_type='coverage',
-        dedupe_insufficient_context_after_stream=False,
-        insufficient_context_response='insufficient',
-        applied_degradations=[],
         output_contract_plan={
-            'min_year_subsections': 2,
-            'expected_years': [2021, 2022],
-        },
-        collapse_duplicate_message_fn=lambda value: (value, False),
-        stream_llm_fn=_fake_stream_llm,
-    ):
-        if isinstance(item, tuple) and item[0] == _generation_stream.STREAM_SUMMARY_EVENT:
-            continue
-        events.append(item)
-
-    merged = ''.join(part for part in events if isinstance(part, str))
-    assert '2021' in merged
-    assert '2022' in merged
-    assert 'Missing Evidence:' in merged
-
-
-@pytest.mark.asyncio
-async def test_generation_stream_enforces_required_terms_when_enabled() -> None:
-    async def _fake_stream_llm(*_args: Any, **_kwargs: Any):
-        yield 'Summary of findings by year and source documents.'
-
-    events: list[str | tuple[str, object]] = []
-    async for item in _generation_stream.stream_generation_with_budget(
-        messages=[{'role': 'user', 'content': 'test'}],
-        max_tokens=256,
-        temperature=0.1,
-        top_p=0.9,
-        timeout_seconds=120,
-        stop_sequences=[],
-        fit_to_budget_enabled=False,
-        stream_soft_limit_ratio=0.8,
-        soft_closeout_allowed=False,
-        checkpoint_query_type='coverage',
-        dedupe_insufficient_context_after_stream=False,
-        insufficient_context_response='insufficient',
-        applied_degradations=[],
-        output_contract_plan={
+            'requires_missing_evidence_callout': True,
+            'min_year_subsections': 3,
+            'expected_years': [2021, 2022, 2023],
             'required_terms': ['evidence'],
             'enforce_required_terms': True,
-        },
-        collapse_duplicate_message_fn=lambda value: (value, False),
-        stream_llm_fn=_fake_stream_llm,
-    ):
-        if isinstance(item, tuple) and item[0] == _generation_stream.STREAM_SUMMARY_EVENT:
-            continue
-        events.append(item)
-
-    merged = ''.join(part for part in events if isinstance(part, str))
-    assert 'Required Terms: evidence.' in merged
-
-
-@pytest.mark.asyncio
-async def test_generation_stream_skips_required_term_enforcement_when_disabled() -> None:
-    async def _fake_stream_llm(*_args: Any, **_kwargs: Any):
-        yield 'Summary of findings by year and source documents.'
-
-    events: list[str | tuple[str, object]] = []
-    async for item in _generation_stream.stream_generation_with_budget(
-        messages=[{'role': 'user', 'content': 'test'}],
-        max_tokens=256,
-        temperature=0.1,
-        top_p=0.9,
-        timeout_seconds=120,
-        stop_sequences=[],
-        fit_to_budget_enabled=False,
-        stream_soft_limit_ratio=0.8,
-        soft_closeout_allowed=False,
-        checkpoint_query_type='coverage',
-        dedupe_insufficient_context_after_stream=False,
-        insufficient_context_response='insufficient',
-        applied_degradations=[],
-        output_contract_plan={
-            'required_terms': ['evidence'],
-            'enforce_required_terms': False,
-        },
-        collapse_duplicate_message_fn=lambda value: (value, False),
-        stream_llm_fn=_fake_stream_llm,
-    ):
-        if isinstance(item, tuple) and item[0] == _generation_stream.STREAM_SUMMARY_EVENT:
-            continue
-        events.append(item)
-
-    merged = ''.join(part for part in events if isinstance(part, str))
-    assert 'Required Terms: evidence.' not in merged
-
-
-@pytest.mark.asyncio
-async def test_generation_stream_enforces_required_headings_when_enabled() -> None:
-    async def _fake_stream_llm(*_args: Any, **_kwargs: Any):
-        yield '## Scope\nA short scoped response.'
-
-    events: list[str | tuple[str, object]] = []
-    async for item in _generation_stream.stream_generation_with_budget(
-        messages=[{'role': 'user', 'content': 'test'}],
-        max_tokens=256,
-        temperature=0.1,
-        top_p=0.9,
-        timeout_seconds=120,
-        stop_sequences=[],
-        fit_to_budget_enabled=False,
-        stream_soft_limit_ratio=0.8,
-        soft_closeout_allowed=False,
-        checkpoint_query_type='coverage',
-        dedupe_insufficient_context_after_stream=False,
-        insufficient_context_response='insufficient',
-        applied_degradations=[],
-        output_contract_plan={
             'required_headings': ['Scope', 'Method', 'Findings'],
             'enforce_required_headings': True,
+            'required_table_columns': ['Group', 'Years Covered'],
+            'enforce_required_table': True,
         },
         collapse_duplicate_message_fn=lambda value: (value, False),
         stream_llm_fn=_fake_stream_llm,
@@ -226,8 +94,12 @@ async def test_generation_stream_enforces_required_headings_when_enabled() -> No
         events.append(item)
 
     merged = ''.join(part for part in events if isinstance(part, str))
-    assert '## Method' in merged
-    assert '## Findings' in merged
+    assert '2021' not in merged
+    assert '2022' not in merged
+    assert 'Required Terms:' not in merged
+    assert '## Scope' not in merged
+    assert '| Group | Years Covered |' not in merged
+    assert 'Missing Evidence:' not in merged
 
 
 def test_generation_closeout_metrics_payload_contract_shape() -> None:

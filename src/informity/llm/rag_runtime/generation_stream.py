@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import re
 import time
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass
@@ -13,7 +12,6 @@ from dataclasses import dataclass
 import structlog
 
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
-from informity.llm.rag_runtime import structured_numeric as _structured_numeric
 from informity.llm.streaming import stream_llm
 from informity.llm.types import CompletionMode, QueryType, StreamSignalTag, TimeoutReason
 
@@ -52,158 +50,6 @@ def _is_section_boundary(token: str) -> bool:
     )
 
 
-def _find_section_anchor_position(answer: str, section: str) -> int | None:
-    section_core = re.escape(section.strip())
-    section_core = section_core.replace(r'\ ', r'\s+')
-    line_patterns = (
-        rf'^\s*#{{1,6}}\s*(?:\d+[\).]\s*)?{section_core}(?:\s*\([^)\n]*\))?\s*$',
-        rf'^\s*(?:\d+[\).]\s*)?{section_core}(?:\s*\([^)\n]*\))?\s*$',
-    )
-    for pattern in line_patterns:
-        match = re.search(pattern, answer, flags=re.IGNORECASE | re.MULTILINE)
-        if match:
-            return match.start()
-    return None
-
-
-def _normalize_table_cell(value: str) -> str:
-    cleaned = str(value or '').strip().strip('`').strip('"').strip("'")
-    return re.sub(r'\s+', ' ', cleaned).casefold()
-
-
-def _extract_markdown_table_header_cells(answer: str) -> list[list[str]]:
-    lines = (answer or '').splitlines()
-    headers: list[list[str]] = []
-    for idx in range(0, len(lines) - 1):
-        header_line = lines[idx].strip()
-        separator_line = lines[idx + 1].strip()
-        if '|' not in header_line:
-            continue
-        if '|' not in separator_line:
-            continue
-        if '-' not in separator_line and ':' not in separator_line:
-            continue
-        raw_cells = [cell for cell in header_line.split('|')]
-        cells = [_normalize_table_cell(cell) for cell in raw_cells if _normalize_table_cell(cell)]
-        if cells:
-            headers.append(cells)
-    return headers
-
-
-def _has_required_markdown_table(answer: str, required_columns: list[str]) -> bool:
-    normalized_required = {
-        _normalize_table_cell(column)
-        for column in required_columns
-        if _normalize_table_cell(column)
-    }
-    if not normalized_required:
-        return True
-    for header_cells in _extract_markdown_table_header_cells(answer):
-        if normalized_required.issubset(set(header_cells)):
-            return True
-    return False
-
-
-def _latest_user_message_content(messages: list[dict[str, str]]) -> str:
-    for message in reversed(messages):
-        if str(message.get('role') or '').strip().lower() == 'user':
-            return str(message.get('content') or '')
-    return ''
-
-
-def _derive_output_contract_plan_from_prompt(question: str) -> dict[str, object]:
-    text = str(question or '')
-    if not text.strip():
-        return {}
-
-    required_terms = _structured_numeric._extract_required_terms_from_user_contract(text)  # noqa: SLF001
-    required_headings = _structured_numeric._extract_required_headings(text)  # noqa: SLF001
-    required_table_columns = _structured_numeric._extract_required_markdown_table_columns(text)  # noqa: SLF001
-    expected_years = _structured_numeric._extract_required_years(text)  # noqa: SLF001
-
-    ordered_heading_cues = (
-        r'\bin order\b',
-        r'\bin this order\b',
-        r'headings?\s+exactly',
-        r'headings?\s+in\s+exact\s+order',
-        r'exact headings in order',
-    )
-    enforce_heading_order = bool(
-        required_headings
-        and any(re.search(pattern, text, re.IGNORECASE) for pattern in ordered_heading_cues)
-    )
-    has_year_subsection_cue = bool(
-        re.search(
-            r'one\s+subsection\s+per\s+(?:indexed|available|requested)?\s*year|for\s+each\s+year|findings\s+by\s+year',
-            text,
-            re.IGNORECASE,
-        )
-    )
-
-    plan: dict[str, object] = {}
-    if required_terms:
-        plan['required_terms'] = required_terms
-        plan['enforce_required_terms'] = True
-    if required_headings:
-        plan['required_headings'] = required_headings
-        plan['enforce_required_headings'] = True
-        plan['enforce_heading_order'] = enforce_heading_order
-    if required_table_columns:
-        plan['required_table_columns'] = required_table_columns
-        plan['enforce_required_table'] = True
-    if re.search(r'\bmissing\s+evidence\b', text, re.IGNORECASE):
-        plan['requires_missing_evidence_callout'] = True
-    if has_year_subsection_cue:
-        plan['min_year_subsections'] = max(2, len(expected_years)) if expected_years else 2
-    if expected_years:
-        plan['expected_years'] = expected_years
-    return plan
-
-
-def _resolve_output_contract_plan(
-    *,
-    output_contract_plan: object | None,
-    messages: list[dict[str, str]],
-) -> dict[str, object]:
-    prompt_plan = _derive_output_contract_plan_from_prompt(_latest_user_message_content(messages))
-    if not isinstance(output_contract_plan, dict):
-        return prompt_plan
-    merged = dict(output_contract_plan)
-
-    def _is_unset(value: object) -> bool:
-        if value is None:
-            return True
-        if isinstance(value, str):
-            return not value.strip()
-        if isinstance(value, (list, tuple, set, dict)):
-            return len(value) == 0
-        return False
-
-    for key, value in prompt_plan.items():
-        # Preserve explicit caller controls, but fill gaps (including empty placeholders)
-        # from prompt-derived plan.
-        existing = merged.get(key)
-        if key not in merged or _is_unset(existing):
-            merged[key] = value
-            continue
-        # If enforcement is explicitly disabled while prompt cues exist, enable enforcement
-        # only when caller supplied no concrete requirement payload.
-        if (
-            isinstance(existing, bool)
-            and existing is False
-            and key.startswith('enforce_')
-        ):
-            payload_key_map = {
-                'enforce_required_terms': 'required_terms',
-                'enforce_required_headings': 'required_headings',
-                'enforce_required_table': 'required_table_columns',
-            }
-            payload_key = payload_key_map.get(key)
-            if payload_key and _is_unset(merged.get(payload_key)):
-                merged[key] = value
-    return merged
-
-
 async def stream_generation_with_budget(
     *,
     messages: list[dict[str, str]],
@@ -234,10 +80,7 @@ async def stream_generation_with_budget(
     token_count = 0
     first_token_ms: float | None = None
     answer_parts: list[str] = []
-    resolved_output_contract_plan = _resolve_output_contract_plan(
-        output_contract_plan=output_contract_plan,
-        messages=messages,
-    )
+    _ = output_contract_plan  # Contract enforcement occurs in closeout validator.
     async for item in stream_llm_fn(
         messages,
         max_tokens=max_tokens,
@@ -313,160 +156,6 @@ async def stream_generation_with_budget(
             applied_degradations.append({
                 'step': 'post_stream_duplicate_insufficient_context_dedup',
                 'reason': 'duplicate_insufficient_context_phrase_collapsed',
-            })
-    min_year_subsections = 0
-    expected_years: list[int] = []
-    if isinstance(resolved_output_contract_plan, dict):
-        raw_min_year_subsections = resolved_output_contract_plan.get('min_year_subsections')
-        if isinstance(raw_min_year_subsections, int) and raw_min_year_subsections > 0:
-            min_year_subsections = raw_min_year_subsections
-        raw_expected_years = resolved_output_contract_plan.get('expected_years')
-        if isinstance(raw_expected_years, list):
-            expected_years = [int(year) for year in raw_expected_years if isinstance(year, int)]
-    if min_year_subsections > 0:
-        full_answer = ''.join(answer_parts)
-        present_years = {int(match) for match in re.findall(r'\b(?:19|20)\d{2}\b', full_answer)}
-        missing_years = [year for year in expected_years if year not in present_years]
-        add_years: list[int] = []
-        while len(present_years) + len(add_years) < min_year_subsections:
-            if missing_years:
-                add_years.append(missing_years.pop(0))
-                continue
-            baseline_year = max(present_years | set(add_years) | {2000})
-            add_years.append(baseline_year + 1)
-        if add_years:
-            lines = ['']
-            for year in add_years:
-                lines.append(f'### {year}')
-                lines.append('- Missing Evidence: no validated evidence surfaced for this year in retrieved context.')
-            suffix = '\n'.join(lines)
-            answer_parts.append(suffix)
-            yield suffix
-            applied_degradations.append({
-                'step': 'post_stream_year_subsections_enforced',
-                'reason': 'required_min_year_subsections_not_met',
-                'years_appended': add_years,
-            })
-    requires_missing_evidence_callout = bool(
-        isinstance(resolved_output_contract_plan, dict)
-        and resolved_output_contract_plan.get('requires_missing_evidence_callout') is True
-    )
-    if requires_missing_evidence_callout:
-        full_answer = ''.join(answer_parts).casefold()
-        if 'missing evidence:' not in full_answer:
-            suffix = '\n\nMissing Evidence: none explicitly identified in the retrieved context.'
-            answer_parts.append(suffix)
-            yield suffix
-            applied_degradations.append({
-                'step': 'post_stream_missing_evidence_callout_enforced',
-                'reason': 'required_missing_evidence_callout_not_present',
-            })
-    required_terms: list[str] = []
-    enforce_required_terms = False
-    required_headings: list[str] = []
-    enforce_required_headings = False
-    enforce_heading_order = False
-    required_table_columns: list[str] = []
-    enforce_required_table = False
-    if isinstance(resolved_output_contract_plan, dict):
-        raw_required_terms = resolved_output_contract_plan.get('required_terms')
-        if isinstance(raw_required_terms, list):
-            required_terms = [
-                str(term or '').strip().casefold()
-                for term in raw_required_terms
-                if str(term or '').strip()
-            ]
-        raw_required_headings = resolved_output_contract_plan.get('required_headings')
-        if isinstance(raw_required_headings, list):
-            required_headings = [
-                str(heading or '').strip()
-                for heading in raw_required_headings
-                if str(heading or '').strip()
-            ]
-        enforce_required_terms = bool(resolved_output_contract_plan.get('enforce_required_terms') is True)
-        enforce_required_headings = bool(resolved_output_contract_plan.get('enforce_required_headings') is True)
-        enforce_heading_order = bool(resolved_output_contract_plan.get('enforce_heading_order') is True)
-        raw_required_table_columns = resolved_output_contract_plan.get('required_table_columns')
-        if isinstance(raw_required_table_columns, list):
-            required_table_columns = [
-                re.sub(r'\s+', ' ', str(column or '').strip())
-                for column in raw_required_table_columns
-                if str(column or '').strip()
-            ]
-        enforce_required_table = bool(resolved_output_contract_plan.get('enforce_required_table') is True)
-    if enforce_required_terms and required_terms:
-        full_answer = ''.join(answer_parts).casefold()
-        missing_terms = [
-            term for term in required_terms
-            if term not in full_answer
-        ]
-        if missing_terms:
-            suffix = '\n\nRequired Terms: ' + ', '.join(missing_terms) + '.'
-            answer_parts.append(suffix)
-            yield suffix
-            applied_degradations.append({
-                'step': 'post_stream_required_terms_enforced',
-                'reason': 'required_terms_not_present',
-                'missing_terms': missing_terms,
-            })
-    if enforce_required_headings and required_headings:
-        full_answer = ''.join(answer_parts)
-        answer_casefold = full_answer.casefold()
-        missing_headings = [
-            heading for heading in required_headings
-            if heading.casefold() not in answer_casefold
-        ]
-        if missing_headings:
-            lines = ['', '']
-            for heading in missing_headings:
-                lines.append(f'## {heading}')
-                lines.append('- Missing Evidence: no validated evidence surfaced for this section in retrieved context.')
-            suffix = '\n'.join(lines)
-            answer_parts.append(suffix)
-            yield suffix
-            applied_degradations.append({
-                'step': 'post_stream_required_headings_enforced',
-                'reason': 'required_headings_not_present',
-                'missing_headings': missing_headings,
-            })
-            full_answer = ''.join(answer_parts)
-        if enforce_heading_order:
-            last_position = -1
-            out_of_order = False
-            for heading in required_headings:
-                position = _find_section_anchor_position(full_answer, heading)
-                if position is None:
-                    continue
-                if position < last_position:
-                    out_of_order = True
-                    break
-                last_position = position
-            if out_of_order:
-                ordered_lines = ['', '', '## Ordered Sections (Contract Copy)']
-                for heading in required_headings:
-                    ordered_lines.append(f'## {heading}')
-                    ordered_lines.append('- Missing Evidence: section restated to preserve requested order.')
-                suffix = '\n'.join(ordered_lines)
-                answer_parts.append(suffix)
-                yield suffix
-                applied_degradations.append({
-                    'step': 'post_stream_heading_order_enforced',
-                    'reason': 'section_order_violation_detected',
-                    'required_headings': required_headings,
-                })
-    if enforce_required_table and required_table_columns:
-        full_answer = ''.join(answer_parts)
-        if not _has_required_markdown_table(full_answer, required_table_columns):
-            lines = ['', '', '| ' + ' | '.join(required_table_columns) + ' |']
-            lines.append('|' + '|'.join([' --- ' for _ in required_table_columns]) + '|')
-            lines.append('| ' + ' | '.join(['Missing Evidence' for _ in required_table_columns]) + ' |')
-            suffix = '\n'.join(lines)
-            answer_parts.append(suffix)
-            yield suffix
-            applied_degradations.append({
-                'step': 'post_stream_required_markdown_table_enforced',
-                'reason': 'required_markdown_table_not_present',
-                'required_table_columns': required_table_columns,
             })
     completion_mode = CompletionMode.PARTIAL if timeout_reason else CompletionMode.COMPLETE
     if stream_recovery_reason is not None:

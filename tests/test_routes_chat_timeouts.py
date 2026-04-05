@@ -1,4 +1,5 @@
 from informity.api import routes_chat
+from informity.llm.contract_gate import ContractSpec, validate_contract
 from informity.llm.query_classifier import QueryClassification
 
 
@@ -77,22 +78,24 @@ def test_resolve_chat_mode_accepts_assistant_and_researcher() -> None:
     assert routes_chat._resolve_chat_mode('Assistant') == 'assistant'
 
 
-def test_extract_required_headings_from_prompt_parses_multi_heading_contract() -> None:
-    headings = routes_chat._extract_required_headings_from_prompt(
-        'Output must contain: ## Scope, ## Method, ## Findings by Year, ## Next Verification Steps.'
-    )
-    assert headings == ['Scope', 'Method', 'Findings by Year', 'Next Verification Steps']
-
-
-def test_find_missing_required_headings_detects_unfinished_contract() -> None:
+def test_validate_contract_detects_missing_required_heading() -> None:
     answer = "## Scope\nDone\n## Method\nDone"
-    missing = routes_chat._find_missing_required_headings(
-        answer,
-        ['Scope', 'Method', 'Next Verification Steps'],
+    result = validate_contract(
+        answer=answer,
+        spec=ContractSpec(
+            required_headings=['Scope', 'Method', 'Next Verification Steps'],
+            min_year_count=0,
+        ),
     )
-    assert missing == ['Next Verification Steps']
+    assert result.missing_required_headings == ['Next Verification Steps']
+    assert result.has_gap is True
 
 
-def test_count_distinct_years_counts_unique_year_tokens() -> None:
+def test_validate_contract_counts_distinct_years() -> None:
     answer = "### 2022\nA\n### 2023\nB\n2023 repeated"
-    assert routes_chat._count_distinct_years(answer) == 2
+    result = validate_contract(
+        answer=answer,
+        spec=ContractSpec(required_headings=[], min_year_count=2),
+    )
+    assert result.observed_year_count == 2
+    assert result.has_gap is False
