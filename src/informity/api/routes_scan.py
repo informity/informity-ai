@@ -64,10 +64,10 @@ from informity.indexer.term_dictionary_builder import rebuild_term_dictionary
 from informity.scanner.crawler import (
     ScannedFile,
     compare_with_db,
-    scan_directories,
     scanned_file_for_path,
 )
 from informity.scanner.extractors.base import register_extractors
+from informity.sources.orchestrator import build_default_orchestrator
 from informity.utils.path_utils import normalize_path
 
 # ==============================================================================
@@ -81,6 +81,8 @@ SCAN_PROGRESS_DB_BUSY_TIMEOUT_MS = 250
 SCAN_PROGRESS_UPDATE_TIMEOUT_SECONDS = 1.0
 SCAN_TERMINAL_UPDATE_RETRIES = 3
 SCAN_TERMINAL_UPDATE_RETRY_DELAY_SECONDS = 0.2
+SCAN_SOURCE_PROVIDER = 'filesystem'
+SCAN_ORCHESTRATOR = build_default_orchestrator()
 
 
 class _ScanCancelledInFlightError(Exception):
@@ -759,13 +761,14 @@ async def _run_scan_task(
             directories = [str(d) for d in directories],
             extensions  = supported_extensions,
             extension_count = len(supported_extensions),
+            provider=SCAN_SOURCE_PROVIDER,
         )
         scanned_files = await asyncio.to_thread(
-            scan_directories,
-            directories          = directories,
-            ignore_patterns      = effective_ignores,
-            supported_extensions = supported_extensions,
-            follow_symlinks      = settings.follow_symlinks,
+            SCAN_ORCHESTRATOR.discover_filesystem_scanned_files,
+            directories=directories,
+            ignore_patterns=effective_ignores,
+            supported_extensions=supported_extensions,
+            follow_symlinks=settings.follow_symlinks,
         )
         files_scanned = len(scanned_files)
         if await _cancel_requested('post_crawl'):
@@ -819,6 +822,7 @@ async def _run_scan_task(
                 'scan_indexing_start',
                 scan_id   = scan_id,
                 force     = force,
+                provider  = SCAN_SOURCE_PROVIDER,
                 new       = len(changes.new),
                 changed   = len(changes.changed),
                 unchanged = len(changes.unchanged),
@@ -967,6 +971,7 @@ async def _run_scan_task(
         log.info(
             'scan_completed',
             scan_id  = scan_id,
+            provider = SCAN_SOURCE_PROVIDER,
             scanned  = files_scanned,
             indexed  = files_indexed,
             errors   = errors,

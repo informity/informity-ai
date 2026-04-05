@@ -40,6 +40,8 @@ class ScanStatus(StrEnum):
 class IndexedFile(BaseModel):
     # Represents a file in the SQLite `files` table.
     id:                     int | None       = None
+    source_provider:        str              = 'filesystem'
+    source_item_id:         str              = ''
     path:                   str                         # Absolute POSIX path
     filename:               str
     extension:              str

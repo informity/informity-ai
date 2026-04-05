@@ -53,7 +53,7 @@ _CHAT_PREVIEW_TRUNCATE_LENGTH = 100
 # Schema — DDL statements for all tables
 # ==============================================================================
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DIAGNOSTICS_TYPE_USER = 'user'
 DIAGNOSTICS_TYPE_EVALUATION = 'evaluation'
@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS schema_version (
 
 CREATE TABLE IF NOT EXISTS files (
     id                     INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_provider        TEXT NOT NULL DEFAULT 'filesystem',
+    source_item_id         TEXT NOT NULL,
     path                   TEXT UNIQUE NOT NULL,
     filename               TEXT NOT NULL,
     extension              TEXT,
@@ -93,6 +95,8 @@ CREATE TABLE IF NOT EXISTS files (
     created_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_files_source_provider_item_id
+    ON files(source_provider, source_item_id);
 CREATE INDEX IF NOT EXISTS idx_files_content_hash  ON files(content_hash);
 CREATE INDEX IF NOT EXISTS idx_files_category      ON files(category);
 CREATE INDEX IF NOT EXISTS idx_files_extension     ON files(extension);
@@ -569,6 +573,8 @@ async def _schema_columns_outdated(conn: aiosqlite.Connection) -> bool:
     files_rows = await files_cursor.fetchall()
     files_columns = {row['name'] for row in files_rows}
     required_files_columns = {
+        'source_provider',
+        'source_item_id',
         'extractor',
         'encoding',
         'language',
@@ -633,6 +639,8 @@ def row_to_indexed_file(row: aiosqlite.Row) -> IndexedFile:
     # Convert a SQLite row to an IndexedFile model.
     return IndexedFile(
         id                     = row['id'],
+        source_provider        = row['source_provider'] or 'filesystem',
+        source_item_id         = row['source_item_id'] or row['path'] or '',
         path                   = row['path'],
         filename               = row['filename'],
         extension              = row['extension'] or '',
@@ -742,14 +750,17 @@ async def insert_file(db: aiosqlite.Connection, file: IndexedFile) -> IndexedFil
     cursor = await db.execute(
         """
         INSERT INTO files (
+            source_provider, source_item_id,
             path, filename, extension, size_bytes, content_hash,
             extracted_text_preview, category, tags, year,
             extractor, encoding, language, mime_type, ocr_used,
             page_count, tables_count, form_items_count, key_value_items_count, pictures_count, document_hash,
             indexed_at, modified_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
+            file.source_provider,
+            file.source_item_id,
             file.path,
             file.filename,
             file.extension,
@@ -783,6 +794,26 @@ async def get_file_by_path(db: aiosqlite.Connection, path: str) -> IndexedFile |
     # Look up a file by its absolute path.
     cursor = await db.execute('SELECT * FROM files WHERE path = ?', (path,))
     row    = await cursor.fetchone()
+    if row is None:
+        return None
+    return row_to_indexed_file(row)
+
+
+async def get_file_by_source_identity(
+    db: aiosqlite.Connection,
+    *,
+    source_provider: str,
+    source_item_id: str,
+) -> IndexedFile | None:
+    # Look up a file by provider-safe source identity.
+    cursor = await db.execute(
+        '''
+        SELECT * FROM files
+        WHERE source_provider = ? AND source_item_id = ?
+        ''',
+        (source_provider, source_item_id),
+    )
+    row = await cursor.fetchone()
     if row is None:
         return None
     return row_to_indexed_file(row)
@@ -1009,6 +1040,7 @@ async def update_file(db: aiosqlite.Connection, file: IndexedFile) -> IndexedFil
     await db.execute(
         """
         UPDATE files SET
+            source_provider = ?, source_item_id = ?,
             path = ?, filename = ?, extension = ?, size_bytes = ?,
             content_hash = ?, extracted_text_preview = ?, category = ?,
             tags = ?, year = ?, extractor = ?, encoding = ?, language = ?, mime_type = ?,
@@ -1018,6 +1050,8 @@ async def update_file(db: aiosqlite.Connection, file: IndexedFile) -> IndexedFil
         WHERE id = ?
         """,
         (
+            file.source_provider,
+            file.source_item_id,
             file.path,
             file.filename,
             file.extension,
