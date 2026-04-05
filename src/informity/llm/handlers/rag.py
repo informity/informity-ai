@@ -14,12 +14,14 @@ import structlog
 from informity.api.schemas import ChatSourceReference
 from informity.config import settings
 from informity.db.models import ChatMessage
+from informity.llm.metrics_payload import build_metrics_payload
 from informity.llm.model_adapter import get_profile, get_retrieval_top_k
 from informity.llm.prompt_builder import build_messages, resolve_history_limit
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.query_patterns import build_referential_followup_pattern
 from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
+from informity.llm.rag_runtime import generation_stream as _generation_stream
 from informity.llm.rag_runtime import retrieval_pipeline as _retrieval_pipeline
 from informity.llm.rag_runtime import retrieval_validation as _retrieval_validation
 from informity.llm.rag_runtime import structured_numeric as _structured_numeric
@@ -358,29 +360,50 @@ class RAGHandler:
         first_token_ms: float | None = None
         token_count = 0
         answer_parts: list[str] = []
+        stream_summary: _generation_stream.StreamExecutionSummary | None = None
         if _should_prepend_deterministic_extraction_heading(
             question=question,
             classification=classification,
         ):
             answer_parts.append(_DETERMINISTIC_EXTRACTION_HEADING)
             yield _DETERMINISTIC_EXTRACTION_HEADING
-        async for token in stream_llm(
-            messages,
+        async for item in _generation_stream.stream_generation_with_budget(
+            messages=messages,
             max_tokens=max_tokens,
             temperature=generation_temperature,
             top_p=generation_top_p,
             timeout_seconds=timeout_seconds,
             stop_sequences=stop_sequences,
+            fit_to_budget_enabled=False,
+            stream_soft_limit_ratio=0.8,
+            soft_closeout_allowed=False,
+            checkpoint_query_type=None,
+            dedupe_insufficient_context_after_stream=bool(profile.dedupe_insufficient_context_after_stream),
+            insufficient_context_response=_INSUFFICIENT_CONTEXT_RESPONSE,
+            applied_degradations=[],
+            output_contract_plan=None,
+            collapse_duplicate_message_fn=_collapse_duplicate_insufficient_context_message,
+            stream_llm_fn=stream_llm,
         ):
-            if isinstance(token, tuple):
-                yield token
+            if isinstance(item, tuple):
+                if item[0] == _generation_stream.STREAM_SUMMARY_EVENT:
+                    stream_summary = item[1]
+                    continue
+                if item[0] == StreamSignalTag.BUDGET_CHECKPOINT:
+                    # Preserve current minimal RAG behavior: do not emit budget checkpoints.
+                    continue
+                yield item
                 continue
             token_count += 1
             if first_token_ms is None:
                 first_token_ms = (time.perf_counter() - llm_start) * 1000
-            answer_parts.append(token)
-            yield token
+            answer_parts.append(item)
+            yield item
         llm_elapsed_ms = (time.perf_counter() - llm_start) * 1000
+        if stream_summary is not None:
+            token_count = stream_summary.token_count
+            first_token_ms = stream_summary.first_token_ms
+            llm_elapsed_ms = stream_summary.total_elapsed_ms
         answer_text = ''.join(answer_parts)
 
         if trace is not None:
@@ -395,22 +418,22 @@ class RAGHandler:
 
         yield (
             StreamSignalTag.METRICS,
-            {
-                'query_type': effective_query_type,
-                'raw_chunks_count': len(chunks),
-                'retrieval_duration_ms': round(retrieval_elapsed_ms, 1),
-                'first_token_latency_ms': round(first_token_ms, 1) if first_token_ms is not None else None,
-                'stream_duration_ms': round(llm_elapsed_ms, 1),
-                'embed_ms': retrieval_timing.get('embed_ms'),
-                'vector_search_ms': retrieval_timing.get('vector_search_ms'),
-                'rerank_ms': retrieval_timing.get('rerank_ms'),
-                'answerability_passed': True,
-                'answerability_score': round(answerability_score, 4),
-                'answerability_threshold': answerability_threshold,
-                'answerability_min_chunks': min_chunks,
-                'generation_skipped': False,
-                'minimal_mode': True,
-            },
+            build_metrics_payload(
+                query_type=effective_query_type,
+                raw_chunks_count=len(chunks),
+                retrieval_duration_ms=round(retrieval_elapsed_ms, 1),
+                first_token_latency_ms=round(first_token_ms, 1) if first_token_ms is not None else None,
+                stream_duration_ms=round(llm_elapsed_ms, 1),
+                embed_ms=retrieval_timing.get('embed_ms'),
+                vector_search_ms=retrieval_timing.get('vector_search_ms'),
+                rerank_ms=retrieval_timing.get('rerank_ms'),
+                answerability_passed=True,
+                answerability_score=round(answerability_score, 4),
+                answerability_threshold=answerability_threshold,
+                answerability_min_chunks=min_chunks,
+                generation_skipped=False,
+                minimal_mode=True,
+            ),
         )
 
         sources = _generation_closeout.build_source_references(

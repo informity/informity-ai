@@ -3,8 +3,6 @@
 # Routes queries to appropriate handlers (metadata, RAG, simple)
 # ==============================================================================
 
-import asyncio
-import time
 from collections.abc import AsyncGenerator
 
 import aiosqlite
@@ -12,11 +10,15 @@ import structlog
 
 from informity.api.schemas import ChatSourceReference
 from informity.db.models import ChatMessage
-from informity.llm.chat_mode import normalize_chat_mode
+from informity.llm.chat_mode import is_assistant_mode, resolve_chat_mode
+from informity.llm.classification_policy import (
+    classify_query_with_timing,
+    resolve_assistant_forced_classification,
+)
 from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.rag import RAGHandler
 from informity.llm.handlers.simple import SimpleHandler
-from informity.llm.query_classifier import QueryClassification, classify_query
+from informity.llm.query_classifier import QueryClassification
 from informity.llm.types import QueryType, StreamSignalTag
 
 log = structlog.get_logger(__name__)
@@ -49,10 +51,10 @@ async def answer_question(
         return
 
     try:
-        normalized_chat_mode = normalize_chat_mode(chat_mode)
+        normalized_chat_mode = resolve_chat_mode(chat_mode)
 
-        if normalized_chat_mode == 'assistant':
-            forced_classification = classification or QueryClassification(intent=QueryType.SIMPLE)
+        if is_assistant_mode(normalized_chat_mode):
+            forced_classification = resolve_assistant_forced_classification(classification)
             if trace is not None:
                 trace.record('classification', {
                     'query_length': len(question),
@@ -83,9 +85,7 @@ async def answer_question(
 
         # 1. Classify query (extract filters and intent)
         if classification is None:
-            classify_start = time.perf_counter()
-            classification = await asyncio.to_thread(classify_query, question)
-            classify_elapsed_ms = (time.perf_counter() - classify_start) * 1000
+            classification, classify_elapsed_ms = await classify_query_with_timing(question)
             if trace is not None:
                 trace.record('classification', {
                     'query_length': len(question),

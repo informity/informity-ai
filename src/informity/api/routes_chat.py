@@ -19,14 +19,12 @@ from structlog.contextvars import get_contextvars
 from informity import answer_sanitization
 from informity.answer_sanitization import build_display_answer, sanitize_display_answer
 from informity.api.chat_closeout import build_display_blocks, build_done_payload
+from informity.api.chat_completion_policy import resolve_completion_and_action
 from informity.api.chat_continuation import (
     build_auto_continue_pass_prompt as _build_auto_continue_pass_prompt,
 )
 from informity.api.chat_continuation import (
     build_continuing_status_message as _build_continuing_status_message,
-)
-from informity.api.chat_continuation import (
-    enforce_completion_action_consistency as _enforce_completion_action_consistency,
 )
 from informity.api.chat_continuation import (
     enforce_continuation_chat_binding as _enforce_continuation_chat_binding,
@@ -50,15 +48,13 @@ from informity.api.chat_continuation import (
     resolve_auto_continue_policy as _resolve_auto_continue_policy,
 )
 from informity.api.chat_continuation import (
-    resolve_completion_state as _resolve_completion_state,
-)
-from informity.api.chat_continuation import (
     resolve_continuation_anchor_question as _resolve_continuation_anchor_question,
 )
 from informity.api.chat_continuation import (
     resolve_next_action as _resolve_next_action,
 )
 from informity.api.chat_orchestrator import ChatOrchestrator
+from informity.api.chat_sources import merge_sources, serialize_sources
 from informity.api.chat_sse import SSE_PHASE_ORDER, SseContractTracker, SseStatusEmitter
 from informity.api.chat_stream_registry import CHAT_STREAM_REGISTRY
 from informity.api.schemas import (
@@ -85,13 +81,15 @@ from informity.db.sqlite import (
 )
 from informity.diagnostics.observer import EvalMetrics, detect_issues, estimate_evidence_metrics
 from informity.diagnostics.resource_snapshot import build_resource_delta, capture_resource_snapshot
+from informity.llm.chat_mode import resolve_chat_mode
+from informity.llm.classification_policy import classify_query_with_timing
 from informity.llm.contract_gate import (
     build_contract_spec,
     build_repair_guidance,
     validate_contract,
 )
-from informity.llm.query_classifier import classify_query
 from informity.llm.rag import answer_question
+from informity.llm.timeout_policy import is_terminal_timeout_reason, normalize_timeout_reason
 from informity.llm.types import (
     ChatRole,
     CompletionMode,
@@ -117,7 +115,6 @@ _VALID_COMPLETION_MODES = {
 }
 _PERSISTENCE_EXCEPTIONS = (aiosqlite.Error, ValueError, RuntimeError, OSError)
 _STREAM_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, ConnectionError, aiosqlite.Error)
-_CHAT_MODE_ALLOWED = {'assistant', 'researcher'}
 _STOP_FINALIZE_GRACE_SECONDS = 2.5
 _STOP_FINALIZATION_TASKS: dict[str, asyncio.Task[None]] = {}
 _OUT_OF_CORPUS_RESPONSE_PATTERN = re.compile(
@@ -128,10 +125,7 @@ _OUT_OF_CORPUS_RESPONSE_PATTERN = re.compile(
 
 
 def _resolve_chat_mode(raw_mode: object) -> str:
-    normalized = str(raw_mode or '').strip().lower()
-    if normalized in _CHAT_MODE_ALLOWED:
-        return normalized
-    return 'researcher'
+    return resolve_chat_mode(str(raw_mode or ''))
 
 
 def _normalize_diagnostics_query_type(value: object) -> str:
@@ -241,6 +235,48 @@ async def _finalize_stopped_stream_if_active(
         )
     finally:
         _STOP_FINALIZATION_TASKS.pop(stream_id, None)
+
+
+async def _persist_terminal_assistant_message(
+    *,
+    chat_id: str,
+    content: str,
+    sources: list[dict[str, object]],
+    generation_seconds: float,
+    completion_mode: CompletionMode,
+    stopped_by_user: bool,
+    has_remaining_scope: bool,
+    next_action: NextAction,
+    next_action_reason: str | None,
+    chat_mode: str,
+) -> tuple[ChatMessage | None, bool]:
+    """
+    Persist terminal assistant messages (stopped/cancelled/partial) via one path.
+    """
+    assistant_message = ChatMessage(
+        chat_id=chat_id,
+        role='assistant',
+        content=content,
+        sources=sources,
+        generation_seconds=generation_seconds,
+        completion_mode=completion_mode,
+        stopped_by_user=stopped_by_user,
+        has_remaining_scope=has_remaining_scope,
+        next_action=next_action,
+        next_action_reason=next_action_reason,
+        chat_mode=chat_mode,
+        is_internal=False,
+    )
+    try:
+        persist_db = await get_connection()
+        try:
+            assistant_message = await insert_chat_message(persist_db, assistant_message)
+            return assistant_message, assistant_message.id is not None
+        finally:
+            await persist_db.close()
+    except _PERSISTENCE_EXCEPTIONS as persist_err:
+        log.warning('chat_terminal_persist_failed', chat_id=chat_id, error=str(persist_err))
+        return None, False
 
 
 
@@ -433,11 +469,9 @@ async def chat(
                 locked_classification = None
                 if resolved_chat_mode != 'assistant':
                     try:
-                        classify_start = time.perf_counter()
-                        locked_classification = await asyncio.to_thread(
-                            classify_query, continuation_anchor_question,
+                        locked_classification, pre_classification_elapsed_ms = await classify_query_with_timing(
+                            continuation_anchor_question,
                         )
-                        pre_classification_elapsed_ms = (time.perf_counter() - classify_start) * 1000.0
                         log.info(
                             'query_pre_classified',
                             chat_id=chat_id,
@@ -489,7 +523,7 @@ async def chat(
                                 chat_id=chat_id,
                                 role='assistant',
                                 content=assistant_history_content,
-                                sources=[s.model_dump(mode='json') for s in source_map.values()],
+                                sources=serialize_sources(list(source_map.values())),
                                 completion_mode=CompletionMode.SCOPED_COMPLETE,
                                 has_remaining_scope=True,
                             ),
@@ -556,16 +590,8 @@ async def chat(
                             timeout_occurred = True
                             timeout_payload = item[1] if isinstance(item[1], dict) else {}
                             timeout_seconds = float(timeout_payload.get('timeout_seconds') or 0.0)
-                            raw_timeout_reason = str(timeout_payload.get('reason') or TimeoutReason.UNKNOWN_TIMEOUT.value).strip().lower()
-                            try:
-                                timeout_reason = TimeoutReason(raw_timeout_reason)
-                            except ValueError:
-                                timeout_reason = raw_timeout_reason
-                            terminal_timeout_reasons = {
-                                TimeoutReason.QUEUE_WAIT_TIMEOUT,
-                                TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT,
-                            }
-                            timeout_allows_continuation = timeout_reason not in terminal_timeout_reasons
+                            timeout_reason = normalize_timeout_reason(timeout_payload.get('reason'))
+                            timeout_allows_continuation = not is_terminal_timeout_reason(timeout_reason)
                             pass_has_remaining_scope = timeout_allows_continuation
                             if timeout_allows_continuation:
                                 has_remaining_scope = True
@@ -651,9 +677,7 @@ async def chat(
                         elif isinstance(item, list):
                             pass_sources = item
 
-                    for source in pass_sources:
-                        source_key = (source.path, source.filename)
-                        source_map[source_key] = source
+                    merge_sources(source_map, pass_sources)
 
                     pass_raw_answer = ''.join(pass_answer_parts).strip()
                     pass_cleaned_answer = sanitize_display_answer(pass_raw_answer) if pass_raw_answer else ''
@@ -716,7 +740,7 @@ async def chat(
                         CompletionMode.STOPPED,
                     }
                     pass_next_action_reason = timeout_reason if timeout_occurred and timeout_reason else None
-                    pass_sources_payload = [source.model_dump(mode='json') for source in pass_sources]
+                    pass_sources_payload = serialize_sources(pass_sources)
                     pass_stitch_mode = 'append'
                     pass_artifact = ContinuationPassArtifact(
                         chat_id=chat_id,
@@ -781,7 +805,7 @@ async def chat(
                 if finalizing_status is not None:
                     yield finalizing_status
 
-                source_dicts = [s.model_dump(mode='json') for s in sources]
+                source_dicts = serialize_sources(sources)
                 _update_sse_phase('sources')
                 yield {'event': 'sources', 'data': serialize_api_response(source_dicts)}
                 finalized_sources = True
@@ -857,39 +881,21 @@ async def chat(
                 yield {'event': 'cleaned', 'data': cleaned_answer}
                 finalized_cleaned = True
 
-                message_completion_mode, message_has_remaining_scope = _resolve_completion_state(
+                (
+                    message_completion_mode,
+                    message_has_remaining_scope,
+                    message_next_action,
+                    message_next_action_reason,
+                ) = resolve_completion_and_action(
                     completion_mode_override=completion_mode_override,
                     timeout_occurred=timeout_occurred,
                     timeout_reason=timeout_reason,
                     has_remaining_scope=has_remaining_scope,
-                )
-                message_next_action, message_next_action_reason = _resolve_next_action(
                     stopped_by_user=False,
-                    timeout_occurred=timeout_occurred,
-                    has_remaining_scope=message_has_remaining_scope,
                     continuation_resolution_reason=continuation_resolution_reason,
-                )
-                if (
-                    resolved_chat_mode == 'researcher'
-                    and researcher_out_of_corpus
-                    and message_next_action == NextAction.NONE
-                ):
-                    message_next_action = NextAction.ASSISTANT_SWITCH
-                    message_next_action_reason = 'out_of_corpus'
-                elif (
-                    resolved_chat_mode == 'researcher'
-                    and message_next_action == NextAction.NONE
-                    and _answer_signals_out_of_corpus(cleaned_answer)
-                ):
-                    # Fallback path: generation was allowed, but the model still
-                    # states the answer is out of corpus scope.
-                    message_next_action = NextAction.ASSISTANT_SWITCH
-                    message_next_action_reason = 'out_of_corpus'
-                message_completion_mode, message_has_remaining_scope = _enforce_completion_action_consistency(
-                    completion_mode=message_completion_mode,
-                    has_remaining_scope=message_has_remaining_scope,
-                    next_action=message_next_action,
-                    next_action_reason=message_next_action_reason,
+                    chat_mode=resolved_chat_mode,
+                    researcher_out_of_corpus=researcher_out_of_corpus,
+                    answer_signals_out_of_corpus=_answer_signals_out_of_corpus(cleaned_answer),
                 )
                 assistant_message = ChatMessage(
                     chat_id=chat_id,
@@ -980,7 +986,7 @@ async def chat(
                 stopped_by_user = True
                 generation_seconds = time.time() - start_time
                 partial_answer = ''.join(answer_parts).strip()
-                partial_sources = [s.model_dump(mode='json') for s in sources] if sources else []
+                partial_sources = serialize_sources(sources) if sources else []
                 has_remaining_scope = True
                 completion_mode_override = CompletionMode.STOPPED
                 cleaned_answer = sanitize_display_answer(partial_answer) if partial_answer else ''
@@ -1001,9 +1007,8 @@ async def chat(
                     yield {'event': 'cleaned', 'data': cleaned_answer}
                     finalized_cleaned = True
 
-                assistant_message = ChatMessage(
+                persisted_message, persisted = await _persist_terminal_assistant_message(
                     chat_id=chat_id,
-                    role='assistant',
                     content=partial_answer,
                     sources=partial_sources,
                     generation_seconds=generation_seconds,
@@ -1013,19 +1018,11 @@ async def chat(
                     next_action=NextAction.REGENERATE,
                     next_action_reason='stopped',
                     chat_mode=resolved_chat_mode,
-                    is_internal=False,
                 )
-                try:
-                    persist_db = await get_connection()
-                    try:
-                        assistant_message = await insert_chat_message(persist_db, assistant_message)
-                        assistant_message_record = assistant_message
-                        assistant_message_id = assistant_message.id
-                        message_persisted = assistant_message_id is not None
-                    finally:
-                        await persist_db.close()
-                except _PERSISTENCE_EXCEPTIONS as persist_err:
-                    log.warning('chat_stop_persist_failed', chat_id=chat_id, error=str(persist_err))
+                if persisted_message is not None:
+                    assistant_message_record = persisted_message
+                    assistant_message_id = persisted_message.id
+                message_persisted = persisted
                 if trace_writer is not None:
                     resource_end_snapshot = capture_resource_snapshot()
                     resource_metrics = {
@@ -1062,28 +1059,21 @@ async def chat(
                         has_remaining_scope=stream_stopped_by_user,
                         continuation_resolution_reason=None,
                     )
-                    assistant_message = ChatMessage(
+                    cancelled_sources = serialize_sources(sources) if sources else []
+                    assistant_message_record, _ = await _persist_terminal_assistant_message(
                         chat_id=chat_id,
-                        role='assistant',
                         content=partial_answer,
-                        sources=[s.model_dump(mode='json') for s in sources] if sources else [],
+                        sources=cancelled_sources,
                         generation_seconds=generation_seconds,
-                        completion_mode=CompletionMode.STOPPED if stream_stopped_by_user else CompletionMode.PARTIAL,
+                        completion_mode=(
+                            CompletionMode.STOPPED if stream_stopped_by_user else CompletionMode.PARTIAL
+                        ),
                         stopped_by_user=stream_stopped_by_user,
                         has_remaining_scope=stream_stopped_by_user,
                         next_action=cancelled_next_action,
                         next_action_reason=cancelled_next_action_reason,
                         chat_mode=resolved_chat_mode,
-                        is_internal=False,
                     )
-                    try:
-                        persist_db = await get_connection()
-                        try:
-                            assistant_message_record = await insert_chat_message(persist_db, assistant_message)
-                        finally:
-                            await persist_db.close()
-                    except _PERSISTENCE_EXCEPTIONS as persist_err:
-                        log.warning('chat_partial_persist_failed', chat_id=chat_id, error=str(persist_err))
                 if trace_writer is not None:
                     resource_end_snapshot = capture_resource_snapshot()
                     resource_metrics = {
@@ -1146,23 +1136,18 @@ async def chat(
                 _update_sse_phase('error')
                 yield {'event': 'error', 'data': serialize_api_response({'error': str(exc)})}
 
-            completion_mode, done_has_remaining_scope = _resolve_completion_state(
-                completion_mode_override=completion_mode_override,
-                timeout_occurred=timeout_occurred,
-                timeout_reason=timeout_reason,
-                has_remaining_scope=has_remaining_scope,
-            )
-            next_action, next_action_reason = _resolve_next_action(
-                stopped_by_user=stopped_by_user,
-                timeout_occurred=timeout_occurred,
-                has_remaining_scope=done_has_remaining_scope,
-                continuation_resolution_reason=continuation_resolution_reason,
-            )
-            completion_mode, done_has_remaining_scope = _enforce_completion_action_consistency(
-                completion_mode=completion_mode,
-                has_remaining_scope=done_has_remaining_scope,
-                next_action=next_action,
-                next_action_reason=next_action_reason,
+            completion_mode, done_has_remaining_scope, next_action, next_action_reason = (
+                resolve_completion_and_action(
+                    completion_mode_override=completion_mode_override,
+                    timeout_occurred=timeout_occurred,
+                    timeout_reason=timeout_reason,
+                    has_remaining_scope=has_remaining_scope,
+                    stopped_by_user=stopped_by_user,
+                    continuation_resolution_reason=continuation_resolution_reason,
+                    chat_mode=resolved_chat_mode,
+                    researcher_out_of_corpus=researcher_out_of_corpus,
+                    answer_signals_out_of_corpus=_answer_signals_out_of_corpus(cleaned_answer),
+                )
             )
             resolved_completion_mode = completion_mode
             resolved_has_remaining_scope = done_has_remaining_scope

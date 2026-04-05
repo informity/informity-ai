@@ -1,10 +1,11 @@
 from informity.api import routes_chat
+from informity.api.chat_continuation import resolve_completion_state as _resolve_completion_state
 from informity.llm.contract_gate import ContractSpec, validate_contract
 from informity.llm.query_classifier import QueryClassification
 
 
 def test_resolve_completion_state_treats_queue_timeout_as_terminal() -> None:
-    completion_mode, has_remaining_scope = routes_chat._resolve_completion_state(
+    completion_mode, has_remaining_scope = _resolve_completion_state(
         completion_mode_override=None,
         timeout_occurred=True,
         timeout_reason='queue_wait_timeout',
