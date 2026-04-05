@@ -83,7 +83,7 @@ from informity.db.sqlite import (
     insert_diagnostics_metrics,
     set_chat_title,
 )
-from informity.diagnostics.observer import EvalMetrics, detect_issues
+from informity.diagnostics.observer import EvalMetrics, detect_issues, estimate_evidence_metrics
 from informity.diagnostics.resource_snapshot import build_resource_delta, capture_resource_snapshot
 from informity.llm.query_classifier import classify_query
 from informity.llm.rag import answer_question
@@ -120,6 +120,9 @@ _OUT_OF_CORPUS_RESPONSE_PATTERN = re.compile(
     r'(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b'
     r'(?:contain|include|cover|mention|provide|have)\b'
 )
+_MARKDOWN_HEADING_PATTERN = re.compile(r'^\s{0,3}#{1,6}\s+(.+?)\s*$', re.MULTILINE)
+_REQUIRED_HEADING_PROMPT_PATTERN = re.compile(r'##\s+([^\n#]+)')
+_YEAR_TOKEN_PATTERN = re.compile(r'\b[12]\d{3}\b')
 
 
 def _resolve_chat_mode(raw_mode: object) -> str:
@@ -139,6 +142,51 @@ def _normalize_diagnostics_query_type(value: object) -> str:
 
 def _answer_signals_out_of_corpus(text: str) -> bool:
     return bool(_OUT_OF_CORPUS_RESPONSE_PATTERN.search(str(text or '')))
+
+
+def _normalize_heading_text(value: str) -> str:
+    normalized = re.sub(r'^\s*#{1,6}\s*', '', str(value or '').strip())
+    normalized = re.sub(r'\s+', ' ', normalized).strip().strip(' .:')
+    return normalized.casefold()
+
+
+def _extract_required_headings_from_prompt(question: str) -> list[str]:
+    headings: list[str] = []
+    seen: set[str] = set()
+    for raw in _REQUIRED_HEADING_PROMPT_PATTERN.findall(str(question or '')):
+        heading = str(raw or '').strip().rstrip(' .,;:')
+        if not heading:
+            continue
+        key = _normalize_heading_text(heading)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        headings.append(heading)
+    return headings
+
+
+def _extract_headings_from_answer(answer: str) -> set[str]:
+    headings: set[str] = set()
+    for raw in _MARKDOWN_HEADING_PATTERN.findall(str(answer or '')):
+        normalized = _normalize_heading_text(raw)
+        if normalized:
+            headings.add(normalized)
+    return headings
+
+
+def _find_missing_required_headings(answer: str, required_headings: list[str]) -> list[str]:
+    if not required_headings:
+        return []
+    present = _extract_headings_from_answer(answer)
+    missing: list[str] = []
+    for heading in required_headings:
+        if _normalize_heading_text(heading) not in present:
+            missing.append(heading)
+    return missing
+
+
+def _count_distinct_years(answer: str) -> int:
+    return len(set(_YEAR_TOKEN_PATTERN.findall(str(answer or ''))))
 # ==============================================================================
 # Logger
 # ==============================================================================
@@ -456,7 +504,22 @@ async def chat(
                 auto_continue_enabled, max_auto_continue_rounds, auto_continue_prompt = _resolve_auto_continue_policy()
                 base_history = list(history)
                 max_total_passes = 1 + (max_auto_continue_rounds if auto_continue_enabled else 0)
+                force_contract_extra_pass = False
+                if resolved_chat_mode != 'assistant':
+                    contract_has_required_headings = bool(_extract_required_headings_from_prompt(continuation_anchor_question))
+                    contract_has_year_grouping = bool(re.search(r'\b(?:by|per)\s+year\b', continuation_anchor_question, re.IGNORECASE))
+                    classification_is_year_aggregate = bool(
+                        locked_classification is not None
+                        and str(locked_classification.intent).strip().lower() == DiagnosticsQueryType.COVERAGE.value
+                        and str(locked_classification.subtype or '').strip().lower() == 'aggregate_by_period'
+                    )
+                    force_contract_extra_pass = contract_has_required_headings or (
+                        contract_has_year_grouping and classification_is_year_aggregate
+                    )
+                if force_contract_extra_pass:
+                    max_total_passes = max(max_total_passes, 2)
                 pass_index = 1
+                continuation_contract_guidance: str | None = None
                 while pass_index <= max_total_passes:
                     _raise_if_user_stopped()
                     pass_question = message_text
@@ -465,6 +528,8 @@ async def chat(
                             auto_continue_prompt=auto_continue_prompt,
                             original_question=continuation_anchor_question,
                         )
+                        if continuation_contract_guidance:
+                            pass_question = f"{pass_question}\n\n{continuation_contract_guidance}".strip()
                     pass_history = history
                     if pass_index > 1:
                         assistant_history_content = ''.join(answer_parts).strip()
@@ -492,6 +557,8 @@ async def chat(
                     pass_sources: list[ChatSourceReference] = []
                     pass_has_remaining_scope = False
                     pass_completion_mode_override: CompletionMode | str | None = None
+                    pass_required_headings: list[str] = []
+                    pass_min_year_count = 0
                     pass_answer_parts: list[str] = []
                     answer_before_pass = ''.join(answer_parts)
                     answer_length_before_pass = len(answer_before_pass)
@@ -619,6 +686,17 @@ async def chat(
                                 and not bool(getattr(locked_classification, 'is_metadata_query', False))
                             ):
                                 researcher_out_of_corpus = True
+                            required_headings_value = metrics_payload.get('required_headings')
+                            if isinstance(required_headings_value, list):
+                                pass_required_headings = [
+                                    str(value or '').strip()
+                                    for value in required_headings_value
+                                    if str(value or '').strip()
+                                ]
+                            pass_min_year_count = max(
+                                0,
+                                safe_int(metrics_payload.get('min_year_count'), default=pass_min_year_count),
+                            )
                             continue
 
                         if isinstance(item, str):
@@ -656,9 +734,20 @@ async def chat(
                     added_answer_chars = len(''.join(answer_parts)) - answer_length_before_pass
                     if pass_completion_mode_override is not None:
                         completion_mode_override = pass_completion_mode_override
+                    contract_answer_text = pass_cleaned_answer if pass_cleaned_answer else pass_raw_answer
+                    missing_required_headings = _find_missing_required_headings(
+                        contract_answer_text,
+                        pass_required_headings,
+                    )
+                    pass_year_count = _count_distinct_years(contract_answer_text)
+                    year_count_gap = pass_min_year_count > 0 and pass_year_count < pass_min_year_count
+                    has_contract_gap = bool(missing_required_headings or year_count_gap)
+                    if has_contract_gap:
+                        pass_has_remaining_scope = True
+                        has_remaining_scope = True
 
                     pass_sources_exhausted = len(pass_sources) == 0
-                    pass_continue_worthy_gap = _has_continue_worthy_gap(pass_has_remaining_scope)
+                    pass_continue_worthy_gap = _has_continue_worthy_gap(pass_has_remaining_scope) or has_contract_gap
                     pass_detail = {
                         'pass_index': pass_index,
                         'is_continuation': pass_index > 1,
@@ -668,6 +757,9 @@ async def chat(
                         'sources_count': len(pass_sources),
                         'pass_requires_more_work': pass_continue_worthy_gap,
                         'raw_has_remaining_scope_signal': pass_has_remaining_scope,
+                        'missing_required_headings': missing_required_headings,
+                        'required_year_count': pass_min_year_count,
+                        'observed_year_count': pass_year_count,
                     }
                     pass_details.append(pass_detail)
                     pass_artifact_has_remaining_scope = pass_continue_worthy_gap
@@ -738,6 +830,17 @@ async def chat(
                     if not can_auto_continue:
                         break
 
+                    contract_guidance_lines: list[str] = []
+                    if missing_required_headings:
+                        headings_list = '; '.join(f'## {heading}' for heading in missing_required_headings)
+                        contract_guidance_lines.append(
+                            f'Complete the missing required sections exactly with these headings: {headings_list}.'
+                        )
+                    if year_count_gap:
+                        contract_guidance_lines.append(
+                            f'Include at least {pass_min_year_count} distinct years using only retrieved evidence.'
+                        )
+                    continuation_contract_guidance = ' '.join(contract_guidance_lines).strip() or None
                     previous_pass_raw_answer = pass_raw_answer
 
                     continuation_passes += 1
@@ -794,9 +897,15 @@ async def chat(
                     completion_mode_override = CompletionMode.SCOPED_COMPLETE
                     if continuation_resolution_reason is None:
                         continuation_resolution_reason = structural_incomplete_reason
-                budget_metrics['unsupported_claim_count'] = 0
-                budget_metrics['evidence_coverage_rate'] = 0.0
-                budget_metrics['not_found_count'] = 0
+                estimated_unsupported_claim_count, estimated_evidence_coverage_rate, estimated_not_found_count = (
+                    estimate_evidence_metrics(
+                        answer=cleaned_answer if cleaned_answer else full_answer,
+                        source_texts=[str(source.get('chunk_preview', '') or '') for source in source_dicts],
+                    )
+                )
+                budget_metrics['unsupported_claim_count'] = estimated_unsupported_claim_count
+                budget_metrics['evidence_coverage_rate'] = estimated_evidence_coverage_rate
+                budget_metrics['not_found_count'] = estimated_not_found_count
                 query_type = DiagnosticsQueryType.UNKNOWN.value
                 if trace_writer is not None and hasattr(trace_writer, 'get_sections'):
                     sections = trace_writer.get_sections()
@@ -923,6 +1032,18 @@ async def chat(
                         'raw_answer_preview': full_answer[:MAX_ANSWER_PREVIEW_LENGTH] if full_answer else '',
                         'sources_count': len(sources),
                         'sources': source_dicts,
+                        'unsupported_claim_count': safe_int(
+                            budget_metrics.get('unsupported_claim_count'),
+                            default=0,
+                        ),
+                        'evidence_coverage_rate': safe_float(
+                            budget_metrics.get('evidence_coverage_rate'),
+                            default=0.0,
+                        ),
+                        'not_found_count': safe_int(
+                            budget_metrics.get('not_found_count'),
+                            default=0,
+                        ),
                         'continuation_passes': continuation_passes,
                         'pass_details': pass_details,
                         'status_transitions': status_transitions,
@@ -1141,6 +1262,18 @@ async def chat(
 
             final_answer = ''.join(answer_parts).strip()
             refusal_text = cleaned_answer if cleaned_answer else final_answer
+            metrics_unsupported_claim_count = safe_int(
+                budget_metrics.get('unsupported_claim_count'),
+                default=0,
+            )
+            metrics_evidence_coverage_rate = safe_float(
+                budget_metrics.get('evidence_coverage_rate'),
+                default=0.0,
+            )
+            metrics_not_found_count = safe_int(
+                budget_metrics.get('not_found_count'),
+                default=0,
+            )
             metrics_model = EvalMetrics(
                 chat_id=chat_id,
                 question=message_text,
@@ -1153,9 +1286,9 @@ async def chat(
                 timeout_occurred=bool(timeout_occurred),
                 has_empty_answer=not final_answer,
                 has_refusal_pattern=False,
-                unsupported_claim_count=0,
-                evidence_coverage_rate=0.0,
-                not_found_count=0,
+                unsupported_claim_count=metrics_unsupported_claim_count,
+                evidence_coverage_rate=metrics_evidence_coverage_rate,
+                not_found_count=metrics_not_found_count,
             )
             detected_issues = detect_issues(refusal_text, metrics_model)
             issue_strings = [issue.value for issue in detected_issues]

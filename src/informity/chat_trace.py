@@ -290,6 +290,9 @@ class _ChatTraceWriter:
 
         answer_length = self._coerce_non_negative_int(response.get('answer_length')) or 0
         display_answer_length = self._coerce_non_negative_int(response.get('display_answer_length')) or 0
+        unsupported_claim_count = self._coerce_non_negative_int(response.get('unsupported_claim_count')) or 0
+        evidence_coverage_rate = self._coerce_non_negative_float(response.get('evidence_coverage_rate')) or 0.0
+        not_found_count = self._coerce_non_negative_int(response.get('not_found_count')) or 0
 
         response_error_text = self._coerce_string(response_error.get('error'))
         cancelled_stopped_by_user = bool(response_cancelled.get('stopped_by_user')) if response_cancelled else False
@@ -327,6 +330,9 @@ class _ChatTraceWriter:
                 'answer_length': answer_length,
                 'display_answer_length': display_answer_length,
                 'sources_count': response_sources_count,
+                'unsupported_claim_count': unsupported_claim_count,
+                'evidence_coverage_rate': evidence_coverage_rate,
+                'not_found_count': not_found_count,
             },
             'status': {
                 'has_response_error': response_error_text is not None,
@@ -340,6 +346,9 @@ class _ChatTraceWriter:
                 'sources_count': effective_sources_count,
                 'generation_seconds': (llm_total_elapsed_ms / 1000.0) if llm_total_elapsed_ms is not None else None,
                 'answer_length': answer_length,
+                'unsupported_claim_count': unsupported_claim_count,
+                'evidence_coverage_rate': evidence_coverage_rate,
+                'not_found_count': not_found_count,
                 'resource_snapshot_start': request_resource_snapshot,
                 'resource_metrics': effective_resource_metrics,
             },

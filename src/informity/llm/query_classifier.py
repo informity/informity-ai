@@ -582,6 +582,19 @@ def classify_query(query: str) -> QueryClassification:
                 ),
             ),
             (
+                has_corpus_scope
+                and has_multi_year_scope
+                and has_evidence_value_request
+                and filename_filter is None,
+                lambda: apply_override(
+                    reason_code='deterministic_override_multi_year_extraction_to_coverage',
+                    new_intent=IntentLabel.COVERAGE,
+                    new_route=IntentProfileId.COMPARATIVE_ANALYSIS,
+                    new_shape=OutputShape.METADATA_TABLE,
+                    new_subtype=QuerySubtype.AGGREGATE_BY_PERIOD,
+                ),
+            ),
+            (
                 has_multi_year_scope and has_content_analysis and filename_filter is None,
                 lambda: apply_override(
                     reason_code='deterministic_override_multi_year_analysis_request',
@@ -648,7 +661,7 @@ def classify_query(query: str) -> QueryClassification:
         if subtype != QuerySubtype.AGGREGATE_BY_PERIOD:
             subtype = QuerySubtype.AGGREGATE_BY_PERIOD
             reason_codes.append('deterministic_override_coverage_year_aggregate_subtype')
-        if response_shape != OutputShape.NARRATIVE_SYNTHESIS:
+        if response_shape != OutputShape.NARRATIVE_SYNTHESIS and not has_evidence_value_request:
             response_shape = OutputShape.NARRATIVE_SYNTHESIS
             reason_codes.append('deterministic_override_year_aggregate_narrative_shape')
 

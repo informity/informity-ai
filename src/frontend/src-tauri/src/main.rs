@@ -511,8 +511,17 @@ fn build_launch_specs(
 fn resolve_packaged_sidecar_program(resource_dir: &Path) -> Result<PathBuf, String> {
     let sidecar_root = resource_dir.join(BACKEND_RESOURCE_DIR);
     let binary_name = platform_backend_binary_name();
+    let bundle_dir = sidecar_root
+        .join("informity-backend-bundle")
+        .join(&binary_name);
 
-    // Preferred onedir layout:
+    // Preferred onedir layout with stable bundle directory:
+    // resources/backend/informity-backend-bundle/<binary-name>
+    if bundle_dir.exists() {
+        return Ok(bundle_dir);
+    }
+
+    // Backward-compatible onedir layout:
     // resources/backend/<binary-name>/<binary-name>
     let onedir = sidecar_root.join(&binary_name).join(&binary_name);
     if onedir.exists() {
@@ -527,7 +536,8 @@ fn resolve_packaged_sidecar_program(resource_dir: &Path) -> Result<PathBuf, Stri
     }
 
     Err(format!(
-        "backend sidecar not found (checked: {}, {})",
+        "backend sidecar not found (checked: {}, {}, {})",
+        bundle_dir.display(),
         onedir.display(),
         onefile.display()
     ))

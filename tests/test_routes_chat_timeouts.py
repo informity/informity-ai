@@ -75,3 +75,24 @@ def test_resolve_chat_mode_accepts_assistant_and_researcher() -> None:
     assert routes_chat._resolve_chat_mode('assistant') == 'assistant'
     assert routes_chat._resolve_chat_mode('researcher') == 'researcher'
     assert routes_chat._resolve_chat_mode('Assistant') == 'assistant'
+
+
+def test_extract_required_headings_from_prompt_parses_multi_heading_contract() -> None:
+    headings = routes_chat._extract_required_headings_from_prompt(
+        'Output must contain: ## Scope, ## Method, ## Findings by Year, ## Next Verification Steps.'
+    )
+    assert headings == ['Scope', 'Method', 'Findings by Year', 'Next Verification Steps']
+
+
+def test_find_missing_required_headings_detects_unfinished_contract() -> None:
+    answer = "## Scope\nDone\n## Method\nDone"
+    missing = routes_chat._find_missing_required_headings(
+        answer,
+        ['Scope', 'Method', 'Next Verification Steps'],
+    )
+    assert missing == ['Next Verification Steps']
+
+
+def test_count_distinct_years_counts_unique_year_tokens() -> None:
+    answer = "### 2022\nA\n### 2023\nB\n2023 repeated"
+    assert routes_chat._count_distinct_years(answer) == 2
