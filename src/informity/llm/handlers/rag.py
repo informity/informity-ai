@@ -124,20 +124,6 @@ def _should_prepend_deterministic_extraction_heading(
     return _BY_YEAR_CUE_PATTERN.search(question)
 
 
-def _resolve_min_year_requirement(
-    *,
-    question: str,
-    classification: QueryClassification,
-) -> int:
-    if classification.intent != QueryType.COVERAGE:
-        return 0
-    if classification.subtype != QuerySubtype.AGGREGATE_BY_PERIOD:
-        return 0
-    if not _BY_YEAR_CUE_PATTERN.search(question):
-        return 0
-    return 2
-
-
 def _build_history_aware_retrieval_query(question: str, history: list[ChatMessage] | None) -> tuple[str, bool]:
     normalized_question = _normalize_query_text(question)
     if not normalized_question:
@@ -424,12 +410,6 @@ class RAGHandler:
                 'answerability_min_chunks': min_chunks,
                 'generation_skipped': False,
                 'minimal_mode': True,
-                'format_requirements': format_requirements,
-                'required_headings': _structured_numeric._extract_required_headings(question),
-                'min_year_count': _resolve_min_year_requirement(
-                    question=question,
-                    classification=classification,
-                ),
             },
         )
 

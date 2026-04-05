@@ -9,7 +9,6 @@ from informity.llm.query_classifier import QueryClassification
 from informity.llm.rag_runtime import execution_plan as _execution_plan
 from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
-from informity.llm.rag_runtime import generation_stream as _generation_stream
 from informity.llm.rag_runtime import retrieval_gatekeeper as _retrieval_gatekeeper
 from informity.llm.rag_runtime.retrieval_pipeline import _build_focused_anchor_recovery_query
 from informity.llm.rag_runtime.retrieval_validation import (
@@ -136,19 +135,6 @@ def test_structured_numeric_derives_required_markdown_table_columns() -> None:
         requirement == 'include markdown table columns: Group | Years Covered | Key Evidence | Confidence'
         for requirement in requirements
     )
-
-
-def test_generation_stream_detects_required_markdown_table_columns() -> None:
-    answer = (
-        '## Evidence Coverage\n'
-        '| Group | Years Covered | Key Evidence | Confidence |\n'
-        '| --- | --- | --- | --- |\n'
-        '| Tax | 2022-2024 | Schedule A line 8a | High |\n'
-    )
-    assert _generation_stream._has_required_markdown_table(
-        answer,
-        ['Group', 'Years Covered', 'Key Evidence', 'Confidence'],
-    ) is True
 
 
 def test_structured_numeric_uses_action_hints_for_enumeration() -> None:
