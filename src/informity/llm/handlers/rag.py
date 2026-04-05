@@ -14,6 +14,7 @@ import structlog
 from informity.api.schemas import ChatSourceReference
 from informity.config import settings
 from informity.db.models import ChatMessage
+from informity.llm.contract_gate import build_contract_spec, enforce_required_sections
 from informity.llm.metrics_payload import build_metrics_payload
 from informity.llm.model_adapter import get_profile, get_retrieval_top_k
 from informity.llm.prompt_builder import build_messages, resolve_history_limit
@@ -405,6 +406,28 @@ class RAGHandler:
             first_token_ms = stream_summary.first_token_ms
             llm_elapsed_ms = stream_summary.total_elapsed_ms
         answer_text = ''.join(answer_parts)
+        contract_spec = build_contract_spec(question=question, classification=classification)
+        enforced_answer_text, missing_sections_filled = enforce_required_sections(
+            answer=answer_text,
+            spec=contract_spec,
+        )
+        if missing_sections_filled:
+            appended_suffix = (
+                enforced_answer_text[len(answer_text):]
+                if enforced_answer_text.startswith(answer_text)
+                else enforced_answer_text
+            )
+            if appended_suffix:
+                yield appended_suffix
+            answer_text = enforced_answer_text
+            if trace is not None:
+                trace.record('contract_closeout', {
+                    'missing_required_headings_filled': missing_sections_filled,
+                })
+            log.info(
+                'contract_sections_filled_in_stream_closeout',
+                missing_required_headings=missing_sections_filled,
+            )
 
         if trace is not None:
             trace.record('llm', {

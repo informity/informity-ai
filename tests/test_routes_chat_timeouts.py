@@ -1,6 +1,6 @@
 from informity.api import routes_chat
 from informity.api.chat_continuation import resolve_completion_state as _resolve_completion_state
-from informity.llm.contract_gate import ContractSpec, validate_contract
+from informity.llm.contract_gate import ContractSpec, enforce_required_sections, validate_contract
 from informity.llm.query_classifier import QueryClassification
 
 
@@ -100,3 +100,31 @@ def test_validate_contract_counts_distinct_years() -> None:
     )
     assert result.observed_year_count == 2
     assert result.has_gap is False
+
+
+def test_enforce_required_sections_appends_missing_headings_in_order() -> None:
+    answer = "## Scope\nDone\n## Method\nDone"
+    enforced, filled = enforce_required_sections(
+        answer=answer,
+        spec=ContractSpec(
+            required_headings=['Scope', 'Method', 'Cross-Year Deltas', 'Next Verification Steps'],
+            min_year_count=0,
+        ),
+    )
+    assert filled == ['Cross-Year Deltas', 'Next Verification Steps']
+    assert '## Cross-Year Deltas' in enforced
+    assert '## Next Verification Steps' in enforced
+    assert enforced.index('## Cross-Year Deltas') < enforced.index('## Next Verification Steps')
+
+
+def test_enforce_required_sections_noop_when_complete() -> None:
+    answer = "## Scope\nDone\n## Method\nDone\n## Next Verification Steps\nDone"
+    enforced, filled = enforce_required_sections(
+        answer=answer,
+        spec=ContractSpec(
+            required_headings=['Scope', 'Method', 'Next Verification Steps'],
+            min_year_count=0,
+        ),
+    )
+    assert filled == []
+    assert enforced == answer

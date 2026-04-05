@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 CREATE TABLE IF NOT EXISTS files (
     id                     INTEGER PRIMARY KEY AUTOINCREMENT,
     source_provider        TEXT NOT NULL DEFAULT 'filesystem',
-    source_item_id         TEXT NOT NULL,
+    source_item_id         TEXT NOT NULL DEFAULT '',
     path                   TEXT UNIQUE NOT NULL,
     filename               TEXT NOT NULL,
     extension              TEXT,
@@ -96,7 +96,8 @@ CREATE TABLE IF NOT EXISTS files (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_files_source_provider_item_id
-    ON files(source_provider, source_item_id);
+    ON files(source_provider, source_item_id)
+    WHERE source_item_id != '';
 CREATE INDEX IF NOT EXISTS idx_files_content_hash  ON files(content_hash);
 CREATE INDEX IF NOT EXISTS idx_files_category      ON files(category);
 CREATE INDEX IF NOT EXISTS idx_files_extension     ON files(extension);
@@ -467,7 +468,17 @@ async def init_db() -> None:
         else:
             log.debug('sqlite_vec_extension_not_loaded', msg='Extension loading not available or already loaded')
 
-        await conn.executescript(_SCHEMA_SQL)
+        try:
+            await conn.executescript(_SCHEMA_SQL)
+        except aiosqlite.OperationalError as exc:
+            # Reset-first hardening: if an existing DB has legacy files schema
+            # without provider-safe columns, CREATE INDEX on new columns can fail
+            # before version/column checks run. Force reset and re-apply schema.
+            if 'no such column: source_provider' not in str(exc):
+                raise
+            log.warning('database_schema_apply_failed_resetting', error=str(exc))
+            await conn.executescript(_RESET_DROP_SQL)
+            await conn.executescript(_SCHEMA_SQL)
         existing_version = await _get_schema_version(conn)
         schema_outdated = await _schema_columns_outdated(conn)
         if (existing_version is not None and existing_version != SCHEMA_VERSION) or schema_outdated:

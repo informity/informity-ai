@@ -71,6 +71,30 @@ def build_repair_guidance(result: ContractValidationResult) -> str | None:
     return guidance or None
 
 
+def enforce_required_sections(answer: str, spec: ContractSpec) -> tuple[str, list[str]]:
+    # Closeout-time fallback: append missing required headings in contract order.
+    # This is model-agnostic and only fills structural gaps when generation ends
+    # before all explicitly requested sections are present.
+    normalized_answer = str(answer or '').strip()
+    result = validate_contract(answer=normalized_answer, spec=spec)
+    if not result.missing_required_headings:
+        return normalized_answer, []
+
+    appended_blocks: list[str] = []
+    for heading in result.missing_required_headings:
+        appended_blocks.append(
+            '\n'.join(
+                [
+                    f'## {heading}',
+                    '- Insufficient evidence in retrieved context to complete this section.',
+                ]
+            )
+        )
+    appended = '\n\n'.join(appended_blocks).strip()
+    merged_answer = f'{normalized_answer}\n\n{appended}'.strip() if normalized_answer else appended
+    return merged_answer, list(result.missing_required_headings)
+
+
 def _normalize_heading_text(value: str) -> str:
     normalized = re.sub(r'^\s*#{1,6}\s*', '', str(value or '').strip())
     normalized = re.sub(r'\s+', ' ', normalized).strip().strip(' .:')
