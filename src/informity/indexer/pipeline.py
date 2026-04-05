@@ -20,6 +20,7 @@ from informity.db.sqlite import (
     delete_chunks_for_file,
     delete_file,
     get_file_by_path,
+    get_file_by_source_identity,
     insert_chunks_batch,
     insert_file,
     update_file,
@@ -482,6 +483,8 @@ async def index_file(
         # 3. Insert file
         # content_hash already computed above (from ScannedFile or computed from Path)
         indexed_file = IndexedFile(
+            source_provider='filesystem',
+            source_item_id=str(normalize_path(file_path, expand_user=False)),
             path=str(normalize_path(file_path, expand_user=False)),
             filename=filename,
             extension=extension,
@@ -508,12 +511,16 @@ async def index_file(
         try:
             file_record = await insert_file(db, indexed_file)
         except sqlite3.IntegrityError as exc:
-            # Idempotency hardening: another writer inserted the same path concurrently.
-            if 'UNIQUE constraint failed: files.path' not in str(exc):
+            # Idempotency hardening: another writer inserted the same source identity concurrently.
+            message = str(exc)
+            if (
+                'UNIQUE constraint failed: files.path' not in message
+                and 'UNIQUE constraint failed: files.source_provider, files.source_item_id' not in message
+            ):
                 raise
             normalized_path = str(normalize_path(file_path, expand_user=False))
             log.warning(
-                'index_file_duplicate_path_conflict',
+                'index_file_duplicate_identity_conflict',
                 path=normalized_path,
                 action='reindex_fallback',
             )
@@ -608,7 +615,14 @@ async def reindex_file(
 
     try:
         # -- Look up existing file ------------------------------------------------
-        existing = await get_file_by_path(db, str(normalize_path(path, expand_user=False)))
+        normalized_path = str(normalize_path(path, expand_user=False))
+        existing = await get_file_by_source_identity(
+            db,
+            source_provider='filesystem',
+            source_item_id=normalized_path,
+        )
+        if existing is None:
+            existing = await get_file_by_path(db, normalized_path)
 
         if existing is None or existing.id is None:
             # File not in DB — treat as new
@@ -686,6 +700,8 @@ async def reindex_file(
         # Use content_hash from ScannedFile (already computed by crawler)
         # No need to re-read file bytes - scanned.content_hash is already available
         existing.content_hash = scanned.content_hash
+        existing.source_provider = 'filesystem'
+        existing.source_item_id = str(normalize_path(path, expand_user=False))
         existing.size_bytes = scanned.size_bytes
         existing.extracted_text_preview = doc.preview_text or doc.text[:500]
         existing.category = category

@@ -49,6 +49,7 @@ from informity.scanner.extractors.base import register_extractors
 log = structlog.get_logger(__name__)
 _INDEX_RUNTIME_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError)
 _INDEX_CLEANUP_EXCEPTIONS = (OSError, PermissionError, RuntimeError)
+INDEX_SOURCE_PROVIDER = 'filesystem'
 
 # ==============================================================================
 # Router
@@ -405,7 +406,7 @@ async def _run_rebuild_task(scan_id: int) -> None:
         log.info('rebuild_clearing_vector_store')
         await asyncio.to_thread(vector_store.drop_all)
 
-        log.info('rebuild_starting', total_files=files_scanned)
+        log.info('rebuild_starting', total_files=files_scanned, provider=INDEX_SOURCE_PROVIDER)
 
         async with op_state.get_ingestion_lock():
             # Re-index each file
@@ -496,6 +497,7 @@ async def _run_rebuild_task(scan_id: int) -> None:
         log.info(
             'rebuild_completed',
             scan_id = scan_id,
+            provider = INDEX_SOURCE_PROVIDER,
             scanned = files_scanned,
             indexed = files_indexed,
             errors  = errors,
