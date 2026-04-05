@@ -9,6 +9,7 @@ BACKEND_NAME="informity-backend"
 if [[ "${OS:-}" == "Windows_NT" ]] || [[ "$(uname -s)" =~ MINGW|MSYS|CYGWIN ]]; then
   BACKEND_NAME="${BACKEND_NAME}.exe"
 fi
+BACKEND_BUNDLE_DIR="informity-backend-bundle"
 
 DIST_DIR="$ROOT_DIR/build/tauri-backend/dist"
 WORK_DIR="$ROOT_DIR/build/tauri-backend/work"
@@ -103,8 +104,8 @@ uv run --with pyinstaller pyinstaller \
 
 verify_sidecar_contents "$DIST_DIR/$BACKEND_NAME"
 
-rm -rf "$OUT_DIR/$BACKEND_NAME"
-cp -R "$DIST_DIR/$BACKEND_NAME" "$OUT_DIR/$BACKEND_NAME"
-chmod +x "$OUT_DIR/$BACKEND_NAME/$BACKEND_NAME" || true
+rm -rf "$OUT_DIR/$BACKEND_BUNDLE_DIR" "$OUT_DIR/$BACKEND_NAME"
+cp -R "$DIST_DIR/$BACKEND_NAME" "$OUT_DIR/$BACKEND_BUNDLE_DIR"
+chmod +x "$OUT_DIR/$BACKEND_BUNDLE_DIR/$BACKEND_NAME" || true
 
-echo "Sidecar ready: $OUT_DIR/$BACKEND_NAME/"
+echo "Sidecar ready: $OUT_DIR/$BACKEND_BUNDLE_DIR/"

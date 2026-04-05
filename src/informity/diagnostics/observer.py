@@ -19,6 +19,25 @@ _COMPLEX_QUERY_MIN_WORDS = 10
 _SIMPLE_QUERY_TYPE = QueryType.SIMPLE
 _VERY_SHORT_ANSWER_MAX_CHARS = 20
 _OBSERVER_HEURISTIC_PROFILE = 'diagnostics_observer_v1'
+_EVIDENCE_TOKEN_PATTERN = re.compile(r'[A-Za-z0-9]+')
+_CLAIM_SPLIT_PATTERN = re.compile(r'(?<=[.!?])\s+')
+_BULLET_PREFIX_PATTERN = re.compile(r'^\s*(?:[-*•]|\d+\.)\s+')
+_EVIDENCE_MIN_CLAIM_CHARS = 20
+_EVIDENCE_CLAIM_SIGNAL_PATTERN = re.compile(
+    r'(?:\d|\$|%|\b(?:total|balance|amount|conflict|difference|delta|increase|decrease)\b)',
+    re.IGNORECASE,
+)
+_LIKELY_REASON_PATTERN = re.compile(
+    r'(?:\blikely\s+reason\b|\bprobable\s+reason\b|\bpossible\s+reason\b|\breason\s*:)',
+    re.IGNORECASE,
+)
+_NOT_FOUND_PATTERN = re.compile(r'\bnot found\b', re.IGNORECASE)
+_EVIDENCE_STOPWORDS = {
+    'the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'onto', 'about',
+    'were', 'was', 'are', 'have', 'has', 'had', 'their', 'there', 'which', 'while',
+    'such', 'than', 'then', 'also', 'only', 'using', 'across', 'based', 'records',
+    'record', 'document', 'documents', 'file', 'files', 'indexed',
+}
 
 
 @dataclass
@@ -140,3 +159,96 @@ def populate_signals(answer: str, metrics: EvalMetrics) -> dict:
         signals['word_count'] = 0
 
     return signals
+
+
+def estimate_evidence_metrics(
+    *,
+    answer: str,
+    source_texts: list[str],
+) -> tuple[int, float, int]:
+    """
+    Estimate unsupported claim count and evidence coverage using lexical overlap.
+
+    Returns:
+        tuple[unsupported_claim_count, evidence_coverage_rate, not_found_count]
+    """
+
+    answer_text = str(answer or '').strip()
+    if not answer_text:
+        return 0, 0.0, 0
+
+    not_found_count = len(_NOT_FOUND_PATTERN.findall(answer_text))
+    claims = _extract_claim_units(answer_text)
+    if not claims:
+        return 0, (1.0 if source_texts else 0.0), not_found_count
+
+    source_token_sets = [_tokenize_evidence_text(text) for text in source_texts if str(text or '').strip()]
+    source_token_sets = [tokens for tokens in source_token_sets if tokens]
+    if not source_token_sets:
+        return len(claims), 0.0, not_found_count
+
+    evaluated_claims = 0
+    supported_claims = 0
+    for claim in claims:
+        claim_tokens = _tokenize_evidence_text(claim)
+        if len(claim_tokens) < 3:
+            continue
+        if not _EVIDENCE_CLAIM_SIGNAL_PATTERN.search(claim):
+            continue
+        has_numeric_signal = any(any(ch.isdigit() for ch in token) for token in claim_tokens)
+        # Explanatory "likely reason" text is useful but often inferential.
+        # Keep unsupported-claim counting focused on factual extractive claims.
+        if not has_numeric_signal and _LIKELY_REASON_PATTERN.search(claim):
+            continue
+        evaluated_claims += 1
+        threshold = 1 if has_numeric_signal else 2
+        max_overlap = 0
+        for source_tokens in source_token_sets:
+            overlap = len(claim_tokens.intersection(source_tokens))
+            if overlap > max_overlap:
+                max_overlap = overlap
+        if max_overlap >= threshold:
+            supported_claims += 1
+
+    if evaluated_claims <= 0:
+        return 0, 1.0, not_found_count
+
+    unsupported_claim_count = max(evaluated_claims - supported_claims, 0)
+    evidence_coverage_rate = float(supported_claims) / float(evaluated_claims)
+    return unsupported_claim_count, round(evidence_coverage_rate, 3), not_found_count
+
+
+def _extract_claim_units(answer: str) -> list[str]:
+    claims: list[str] = []
+    seen: set[str] = set()
+
+    def _add(candidate: str) -> None:
+        normalized = re.sub(r'\s+', ' ', str(candidate or '').strip())
+        if len(normalized) < _EVIDENCE_MIN_CLAIM_CHARS:
+            return
+        key = normalized.casefold()
+        if key in seen:
+            return
+        seen.add(key)
+        claims.append(normalized)
+
+    for line in answer.splitlines():
+        if _BULLET_PREFIX_PATTERN.match(line):
+            _add(_BULLET_PREFIX_PATTERN.sub('', line))
+
+    for segment in _CLAIM_SPLIT_PATTERN.split(re.sub(r'\s+', ' ', answer)):
+        _add(segment)
+
+    return claims
+
+
+def _tokenize_evidence_text(text: str) -> set[str]:
+    tokens: set[str] = set()
+    for token in _EVIDENCE_TOKEN_PATTERN.findall(str(text or '')):
+        lowered = token.casefold()
+        if len(lowered) < 3:
+            continue
+        if lowered in _EVIDENCE_STOPWORDS:
+            continue
+        tokens.add(lowered)
+    return tokens

@@ -283,6 +283,28 @@ def test_focused_multi_year_analysis_overrides_to_coverage() -> None:
     assert 'deterministic_override_multi_year_analysis_request' in result.reason_codes
 
 
+def test_focused_multi_year_numeric_extraction_overrides_to_coverage_table() -> None:
+    class _FocusedOnlyRouter:
+        def classify_intent(self, _query: str) -> IntentPrediction:
+            return IntentPrediction('focused', 0.9, [('focused', 0.9)], ['forced_focused'])
+
+    original = get_intent_router()
+    set_intent_router_for_testing(_FocusedOnlyRouter())
+    try:
+        result = classify_query(
+            'From indexed structured documents, extract key numeric field values by year and provide totals by year.'
+        )
+    finally:
+        set_intent_router_for_testing(original)
+
+    assert result.intent == 'coverage'
+    assert result.route_candidate == 'comparative_analysis'
+    assert result.response_shape == 'metadata_table'
+    assert result.subtype == 'aggregate_by_period'
+    assert result.deterministic_override is True
+    assert 'deterministic_override_multi_year_extraction_to_coverage' in result.reason_codes
+
+
 def test_focused_corpus_scope_listing_overrides_to_coverage() -> None:
     class _FocusedOnlyRouter:
         def classify_intent(self, _query: str) -> IntentPrediction:

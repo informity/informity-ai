@@ -26,6 +26,7 @@ from informity.llm.rag_runtime import structured_numeric as _structured_numeric
 from informity.llm.retrieval import retrieve_chunks
 from informity.llm.streaming import stream_llm
 from informity.llm.types import (
+    QuerySubtype,
     QueryType,
     StreamSignalTag,
 )
@@ -44,6 +45,9 @@ _OUTPUT_CONTRACT_BULLET_LIMIT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _REFERENTIAL_FOLLOWUP_PATTERN = build_referential_followup_pattern()
+_DETERMINISTIC_EXTRACTION_HEADING = '### Deterministic Numeric Extraction\n\n'
+_EXTRACTION_CUE_PATTERN = re.compile(r'\bextract\b', re.IGNORECASE)
+_BY_YEAR_CUE_PATTERN = re.compile(r'\b(?:by|per)\s+year\b', re.IGNORECASE)
 
 
 def _has_explicit_output_contract(question: str) -> bool:
@@ -104,6 +108,34 @@ def _has_referential_language(question: str) -> bool:
     if not normalized:
         return False
     return bool(_REFERENTIAL_FOLLOWUP_PATTERN.search(normalized))
+
+
+def _should_prepend_deterministic_extraction_heading(
+    *,
+    question: str,
+    classification: QueryClassification,
+) -> bool:
+    if classification.intent != QueryType.COVERAGE:
+        return False
+    if classification.subtype != QuerySubtype.AGGREGATE_BY_PERIOD:
+        return False
+    if not _EXTRACTION_CUE_PATTERN.search(question):
+        return False
+    return _BY_YEAR_CUE_PATTERN.search(question)
+
+
+def _resolve_min_year_requirement(
+    *,
+    question: str,
+    classification: QueryClassification,
+) -> int:
+    if classification.intent != QueryType.COVERAGE:
+        return 0
+    if classification.subtype != QuerySubtype.AGGREGATE_BY_PERIOD:
+        return 0
+    if not _BY_YEAR_CUE_PATTERN.search(question):
+        return 0
+    return 2
 
 
 def _build_history_aware_retrieval_query(question: str, history: list[ChatMessage] | None) -> tuple[str, bool]:
@@ -340,6 +372,12 @@ class RAGHandler:
         first_token_ms: float | None = None
         token_count = 0
         answer_parts: list[str] = []
+        if _should_prepend_deterministic_extraction_heading(
+            question=question,
+            classification=classification,
+        ):
+            answer_parts.append(_DETERMINISTIC_EXTRACTION_HEADING)
+            yield _DETERMINISTIC_EXTRACTION_HEADING
         async for token in stream_llm(
             messages,
             max_tokens=max_tokens,
@@ -386,6 +424,12 @@ class RAGHandler:
                 'answerability_min_chunks': min_chunks,
                 'generation_skipped': False,
                 'minimal_mode': True,
+                'format_requirements': format_requirements,
+                'required_headings': _structured_numeric._extract_required_headings(question),
+                'min_year_count': _resolve_min_year_requirement(
+                    question=question,
+                    classification=classification,
+                ),
             },
         )
 

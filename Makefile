@@ -86,7 +86,7 @@ tauri-icons: ## Generate Tauri icon assets from the master logo
 tauri-backend: ## Build Python backend sidecar artifact for Tauri packaging
 	./scripts/build_tauri_backend_sidecar.sh
 
-tauri-build: tauri-backend ## Build desktop bundle artifacts (requires Rust toolchain + Tauri CLI)
+tauri-build: ## Build desktop bundle artifacts (requires Rust toolchain + Tauri CLI)
 	cd src/frontend && npm run tauri:build
 
 app: frontend-build run ## Build frontend and run app on http://127.0.0.1:8420 (single command for testing)
