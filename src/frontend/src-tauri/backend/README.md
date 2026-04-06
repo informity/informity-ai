@@ -9,9 +9,7 @@ Expected packaged artifact layout (PyInstaller `onedir`):
   - `informity-backend.exe` executable
 
 The Tauri runtime loads the sidecar executable from:
-- `resources/backend/informity-backend-bundle/<binary-name>` (preferred `onedir`)
-- `resources/backend/<binary-name>/<binary-name>` (legacy `onedir` fallback)
-- `resources/backend/<binary-name>` (legacy `onefile` fallback)
+- `resources/backend/informity-backend-bundle/<binary-name>` (`onedir`)
 
 Build command:
 - `make tauri-backend`

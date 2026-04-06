@@ -768,7 +768,7 @@ export function SettingsView({
             <input
               type="checkbox"
               checked={form.chat_trace_logging ?? false}
-              onChange={(e) => updateDiagnosticsControl('chat_trace_logging', e.target.checked)}
+              onChange={(e) => update('chat_trace_logging', e.target.checked)}
             />
             <div>
               <span className="settings-checkbox-row-label">

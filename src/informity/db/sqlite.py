@@ -457,7 +457,7 @@ async def _load_sqlite_vec_extension(conn: aiosqlite.Connection) -> bool:
 
 
 async def init_db() -> None:
-    # Initialize database in reset-first mode (no backward compatibility/migrations).
+    # Initialize database from current schema.
     log.info('initializing_database', db_path=str(settings.db_path))
     conn = await get_connection()
     try:
@@ -468,27 +468,7 @@ async def init_db() -> None:
         else:
             log.debug('sqlite_vec_extension_not_loaded', msg='Extension loading not available or already loaded')
 
-        try:
-            await conn.executescript(_SCHEMA_SQL)
-        except aiosqlite.OperationalError as exc:
-            # Reset-first hardening: if an existing DB has legacy files schema
-            # without provider-safe columns, CREATE INDEX on new columns can fail
-            # before version/column checks run. Force reset and re-apply schema.
-            if 'no such column: source_provider' not in str(exc):
-                raise
-            log.warning('database_schema_apply_failed_resetting', error=str(exc))
-            await conn.executescript(_RESET_DROP_SQL)
-            await conn.executescript(_SCHEMA_SQL)
-        existing_version = await _get_schema_version(conn)
-        schema_outdated = await _schema_columns_outdated(conn)
-        if (existing_version is not None and existing_version != SCHEMA_VERSION) or schema_outdated:
-            log.warning(
-                'database_schema_outdated_resetting',
-                existing_version=existing_version,
-                target_version=SCHEMA_VERSION,
-            )
-            await conn.executescript(_RESET_DROP_SQL)
-            await conn.executescript(_SCHEMA_SQL)
+        await conn.executescript(_SCHEMA_SQL)
 
         # Ensure index exists
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_chunks_parent_id ON chunks(parent_id)')
@@ -570,67 +550,6 @@ async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
         )
     except (aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError) as exc:
         log.warning('startup_database_compaction_skipped', error=str(exc))
-
-
-async def _get_schema_version(conn: aiosqlite.Connection) -> int | None:
-    cursor = await conn.execute('SELECT version FROM schema_version ORDER BY version DESC LIMIT 1')
-    row = await cursor.fetchone()
-    return int(row['version']) if row else None
-
-
-async def _schema_columns_outdated(conn: aiosqlite.Connection) -> bool:
-    # Reset-first policy: if required columns are missing, full reset is required.
-    files_cursor = await conn.execute("PRAGMA table_info('files')")
-    files_rows = await files_cursor.fetchall()
-    files_columns = {row['name'] for row in files_rows}
-    required_files_columns = {
-        'source_provider',
-        'source_item_id',
-        'extractor',
-        'encoding',
-        'language',
-        'mime_type',
-        'ocr_used',
-        'page_count',
-        'tables_count',
-        'form_items_count',
-        'key_value_items_count',
-        'pictures_count',
-        'document_hash',
-    }
-
-    chunks_cursor = await conn.execute("PRAGMA table_info('chunks')")
-    chunks_rows = await chunks_cursor.fetchall()
-    chunks_columns = {row['name'] for row in chunks_rows}
-    required_chunks_columns = {'start_page', 'end_page', 'block_type', 'section_path', 'parent_id'}
-    diagnostics_cursor = await conn.execute("PRAGMA table_info('response_diagnostics_metrics')")
-    diagnostics_rows = await diagnostics_cursor.fetchall()
-    diagnostics_columns = {row['name'] for row in diagnostics_rows}
-    required_diagnostics_columns = {'unsupported_claim_count', 'evidence_coverage_rate', 'not_found_count'}
-    chat_cursor = await conn.execute("PRAGMA table_info('chat_messages')")
-    chat_rows = await chat_cursor.fetchall()
-    chat_columns = {row['name'] for row in chat_rows}
-    required_chat_columns = {'next_action', 'next_action_reason', 'chat_mode', 'is_internal'}
-    continuation_cursor = await conn.execute("PRAGMA table_info('continuation_pass_artifacts')")
-    continuation_rows = await continuation_cursor.fetchall()
-    continuation_columns = {row['name'] for row in continuation_rows}
-    required_continuation_columns = {
-        'chat_id',
-        'request_id',
-        'pass_index',
-        'stitch_mode',
-        'raw_answer',
-        'cleaned_answer',
-        'payload_hash',
-    }
-
-    return (
-        not required_files_columns.issubset(files_columns)
-        or not required_chunks_columns.issubset(chunks_columns)
-        or not required_diagnostics_columns.issubset(diagnostics_columns)
-        or not required_chat_columns.issubset(chat_columns)
-        or not required_continuation_columns.issubset(continuation_columns)
-    )
 
 
 async def get_db() -> AsyncGenerator[aiosqlite.Connection]:

@@ -276,9 +276,7 @@ make maintenance-index-repair
 make maintenance-download-nltk
 make maintenance-reinstall-packages
 make maintenance-chunk-structure
-make maintenance-legacy-chunks
 make maintenance-orphaned-chunks
-make maintenance-migrate-hf-cache
 
 # Diagnostics run control
 make diagnostics-stop

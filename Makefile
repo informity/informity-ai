@@ -4,7 +4,7 @@
 # ==============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help run dev cache-bootstrap test lint format baseline diagnostics-evaluate diagnostics-analyze diagnostics-pipeline diagnostics-stop reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build app qa-quick qa-full qa-security qa-secrets qa-lint qa-typecheck qa-docs smoke-basic smoke-infra smoke-pdf maintenance-index-check maintenance-index-repair maintenance-download-nltk maintenance-reinstall-packages maintenance-chunk-structure maintenance-legacy-chunks maintenance-orphaned-chunks maintenance-migrate-hf-cache
+.PHONY: help run dev test lint format baseline diagnostics-evaluate diagnostics-analyze diagnostics-pipeline diagnostics-stop reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build app qa-quick qa-full qa-security qa-secrets qa-lint qa-typecheck qa-docs smoke-basic smoke-infra smoke-pdf maintenance-index-check maintenance-index-repair maintenance-download-nltk maintenance-reinstall-packages maintenance-chunk-structure maintenance-orphaned-chunks
 
 # ==============================================================================
 # Configuration
@@ -53,22 +53,10 @@ install-dev: ## Install runtime + dev dependencies and download models into app 
 uninstall: ## Remove all user data, downloaded models, and .venv (fresh distribution state)
 	./scripts/install_uninstall_app.sh
 
-cache-bootstrap: ## Seed app-data cache from ~/.cache (one-time migration helper for dev)
-	@mkdir -p "$(APP_CACHE_DIR)"
-	@if [ ! -d "$(APP_HF_HUB_DIR)" ] && [ -d "$(HOME)/.cache/$(DIR_HUGGINGFACE)/$(DIR_HUB)" ]; then \
-		echo "Seeding huggingface cache into app data cache..."; \
-		mkdir -p "$(APP_CACHE_DIR)/$(DIR_HUGGINGFACE)"; \
-		rsync -a "$(HOME)/.cache/$(DIR_HUGGINGFACE)/$(DIR_HUB)/" "$(APP_HF_HUB_DIR)/"; \
-	fi
-	@if [ ! -d "$(APP_DOCLING_CACHE_DIR)" ] && [ -d "$(HOME)/.cache/$(DIR_DOCLING)" ]; then \
-		echo "Seeding docling cache into app data cache..."; \
-		rsync -a "$(HOME)/.cache/$(DIR_DOCLING)/" "$(APP_DOCLING_CACHE_DIR)/"; \
-	fi
-
-run: cache-bootstrap ## Run the application server (no reload — use for production or heavy indexing)
+run: ## Run the application server (no reload — use for production or heavy indexing)
 	uv run python -m informity.main
 
-dev: cache-bootstrap ## Run with auto-reload for development (code changes restart the server)
+dev: ## Run with auto-reload for development (code changes restart the server)
 	INFORMITY_DEV_RELOAD=true uv run uvicorn informity.main:app --host $(HOST) --port $(PORT) --reload --log-level info
 
 frontend: ## Run Vite dev server (hot reload) — use with backend: make run or make dev in another terminal
@@ -156,17 +144,11 @@ maintenance-download-nltk: ## Download NLTK stopwords corpus (temporary privacy 
 maintenance-reinstall-packages: ## Recreate .venv and reinstall dependencies
 	uv run python tools/maintenance/reinstall_packages.py
 
-maintenance-chunk-structure: ## Analyze chunk parent/child structure for legacy anomalies
+maintenance-chunk-structure: ## Analyze chunk parent/child structure for integrity anomalies
 	uv run python tools/maintenance/chunk_structure_analysis.py
-
-maintenance-legacy-chunks: ## Check likely legacy chunks with NULL parent_id in vector store
-	uv run python tools/maintenance/legacy_chunks_check.py
 
 maintenance-orphaned-chunks: ## Diagnose orphaned chunks (missing/invalid parent_id links)
 	uv run python tools/maintenance/orphaned_chunks_diagnostic.py
-
-maintenance-migrate-hf-cache: ## Migrate model cache from ~/.cache/huggingface to project cache
-	uv run python tools/maintenance/migrate_huggingface_cache.py
 
 lint: ## Run linter checks (ruff)
 	uv run ruff check src/ tests/

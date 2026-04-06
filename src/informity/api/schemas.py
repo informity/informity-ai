@@ -239,7 +239,7 @@ class SettingsResponse(BaseModel):
     rag_query_rewrite_max_history_messages: int = 3
     rag_query_rewrite_max_chars_per_turn: int = 260
     rag_query_rewrite_max_query_chars: int = 900
-    chat_history_messages: int       = 5  # Legacy/fallback history window when mode is unresolved
+    chat_history_messages: int       = 5  # Default history window when mode is unresolved
     chat_history_messages_assistant: int = 12  # Assistant mode history window
     chat_history_messages_researcher: int = 5  # Researcher mode history window
     default_chat_mode: Literal['assistant', 'researcher'] = 'researcher'
@@ -304,7 +304,7 @@ class SettingsUpdateRequest(BaseModel):
     rag_query_rewrite_max_history_messages: int | None = None
     rag_query_rewrite_max_chars_per_turn: int | None = None
     rag_query_rewrite_max_query_chars: int | None = None
-    chat_history_messages: int | None  = None  # Legacy/fallback history window when mode is unresolved
+    chat_history_messages: int | None  = None  # Default history window when mode is unresolved
     chat_history_messages_assistant: int | None = None  # Assistant mode history window
     chat_history_messages_researcher: int | None = None  # Researcher mode history window
     default_chat_mode: Literal['assistant', 'researcher'] | None = None

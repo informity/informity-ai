@@ -113,6 +113,12 @@ function renderSettingsView() {
   return { onSave, onDiscard, onResetSettings, onResetIndex }
 }
 
+function sectionHeaderFor(element: HTMLElement): string {
+  const section = element.closest('section')
+  const header = section?.querySelector('.settings-section-header')
+  return (header?.textContent || '').trim()
+}
+
 describe('SettingsView tabs and action bar behavior', () => {
   it('renders expected tabs and defaults to General tab selected', () => {
     renderSettingsView()
@@ -266,5 +272,27 @@ describe('SettingsView tabs and action bar behavior', () => {
         enable_raw_output_control: baseSettings.enable_raw_output_control,
       }),
     )
+  })
+
+  it('shows CPU responsiveness in System and not in Chat', () => {
+    renderSettingsView()
+    const cpuLabel = screen.getByText('CPU Responsiveness')
+    expect(sectionHeaderFor(cpuLabel)).toContain('System')
+  })
+
+  it('shows chat activity logs toggle in Chat and not in Diagnostics', () => {
+    renderSettingsView()
+    const logsLabel = screen.getByText('Save chat activity logs')
+    expect(sectionHeaderFor(logsLabel)).toContain('Chat')
+  })
+
+  it('renders updated plain-language settings labels', () => {
+    renderSettingsView()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
+    expect(screen.getByText('Conversation Memory')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Indexing' }))
+    expect(screen.getByText('File Processing Timeout')).toBeInTheDocument()
   })
 })
