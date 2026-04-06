@@ -200,4 +200,71 @@ describe('SettingsView tabs and action bar behavior', () => {
       expect(optionValues).toContain('Qwen3.5-35B-A3B-Q4_K_M.gguf')
     })
   })
+
+  it('hides advanced diagnostics controls when profile is not custom', () => {
+    localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, 'diagnostics')
+    renderSettingsView()
+
+    expect(screen.queryByText('Advanced Diagnostics')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Log Level')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Trace Redaction')).not.toBeInTheDocument()
+  })
+
+  it('shows advanced diagnostics controls when profile is custom', () => {
+    localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, 'diagnostics')
+    const settingsCustom = { ...baseSettings, diagnostics_profile: 'custom' as const }
+
+    render(
+      <MemoryRouter>
+        <SettingsView
+          settings={settingsCustom}
+          fileTypeOptions={[{ id: 'docs', label: 'Docs', extensions: ['.md', '.txt'] }]}
+          onSave={vi.fn()}
+          onDiscard={vi.fn()}
+          onResetSettings={vi.fn()}
+          onResetIndex={vi.fn()}
+          saving={false}
+        />
+      </MemoryRouter>,
+    )
+
+    expect(screen.getByText('Advanced Diagnostics')).toBeInTheDocument()
+    expect(screen.getByLabelText('Log Level')).toBeInTheDocument()
+    expect(screen.getByLabelText('Trace Redaction')).toBeInTheDocument()
+    expect(screen.getByLabelText('User Trace Retention (Days)')).toBeInTheDocument()
+    expect(screen.getByLabelText('Evaluation Trace Retention (Days)')).toBeInTheDocument()
+  })
+
+  it('does not render hidden advanced tuning controls in chat/indexing/diagnostics', () => {
+    renderSettingsView()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
+    expect(screen.queryByLabelText('Enable adaptive passage retrieval')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Indexing' }))
+    expect(screen.queryByText(/Chunk size:/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/Overlap:/i)).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('embedding-batch-size')).not.toBeInTheDocument()
+    expect(screen.queryByText('Embedding Batch Size')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Diagnostics' }))
+    expect(screen.queryByLabelText('Enable raw output view')).not.toBeInTheDocument()
+  })
+
+  it('keeps hidden settings in save payload (no contract regression)', () => {
+    const { onSave } = renderSettingsView()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Settings' }))
+
+    expect(onSave).toHaveBeenCalledTimes(1)
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        chunk_size_tokens: baseSettings.chunk_size_tokens,
+        chunk_overlap_tokens: baseSettings.chunk_overlap_tokens,
+        embedding_batch_size: baseSettings.embedding_batch_size,
+        adaptive_rag_tuning: baseSettings.adaptive_rag_tuning,
+        enable_raw_output_control: baseSettings.enable_raw_output_control,
+      }),
+    )
+  })
 })
