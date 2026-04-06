@@ -11,7 +11,7 @@ from informity.llm.query_patterns import build_conflict_amount_pattern
 from informity.llm.rag_runtime.retrieval_validation import _normalize_relevance_score
 from informity.llm.types import GroupBy, OutputShape, QuerySubtype
 
-_STRUCTURED_EXTRACTION_SUBTYPES = {QuerySubtype.EXTRACT_STRUCTURED_VALUES, QuerySubtype.AGGREGATE_BY_PERIOD}
+STRUCTURED_EXTRACTION_SUBTYPES = {QuerySubtype.EXTRACT_STRUCTURED_VALUES, QuerySubtype.AGGREGATE_BY_PERIOD}
 _NUMBER_PATTERN = re.compile(r'\(?\$?\d[\d,]*(?:\.\d{1,2})?\)?')
 _FIELD_LABEL_NEAR_NUMBER_PATTERN = re.compile(r'([A-Za-z][A-Za-z0-9\s/_-]{1,36})$')
 _REQUESTED_COLUMNS_PATTERN = re.compile(
@@ -65,7 +65,7 @@ def _should_run_structured_extraction(
         return True
     return (
         response_shape in {OutputShape.STRUCTURED_EXTRACT, OutputShape.METADATA_TABLE}
-        and classification.subtype in _STRUCTURED_EXTRACTION_SUBTYPES
+        and classification.subtype in STRUCTURED_EXTRACTION_SUBTYPES
     )
 
 

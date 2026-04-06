@@ -24,13 +24,13 @@ import { ServiceUnavailableState } from '../ServiceUnavailableState'
 import { formatFileSize } from '../../utils/formatFileSize'
 import { formatDuration } from '../../utils/formatDuration'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
+import { MENU_SCAN_NOW_PENDING_KEY } from '../../utils/storageKeys'
 import { proxyWheelToContainer } from '../../utils/wheelProxy'
 import type { IndexedFile } from '../../types/api'
 import '../../styles/shared/buttons.css'
 import './DashboardView.css'
 
 const POLL_INTERVAL_MS = 2000
-const MENU_SCAN_NOW_PENDING_KEY = 'informity.menu.scan_now.pending'
 
 interface StatCardProps {
   icon: string

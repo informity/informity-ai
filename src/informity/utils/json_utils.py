@@ -6,10 +6,6 @@
 import json
 from typing import Any
 
-import structlog
-
-log = structlog.get_logger(__name__)
-_JSON_FALLBACK_PREVIEW_CHARS = 160
 _JSON_INDENT = 2
 
 
@@ -67,28 +63,3 @@ def serialize_api_response(data: dict[str, Any]) -> str:
             'serialize_api_response requires JSON-serializable payload values '
             '(convert non-JSON types before serialization).',
         ) from exc
-
-
-def parse_json_safe(value: str | None, default: Any = None) -> Any:
-    """
-    Parse JSON string with safe fallback.
-
-    Args:
-        value: JSON string to parse
-        default: Default value to return if parsing fails (default: None)
-
-    Returns:
-        Parsed JSON value or default if parsing fails
-    """
-    if not value:
-        return default
-    try:
-        return json.loads(value)
-    except (json.JSONDecodeError, TypeError) as exc:
-        log.warning(
-            'json_parse_safe_fallback',
-            error=str(exc),
-            value_preview=str(value)[:_JSON_FALLBACK_PREVIEW_CHARS],
-            default_type=type(default).__name__,
-        )
-        return default

@@ -82,7 +82,6 @@ SCAN_PROGRESS_DB_BUSY_TIMEOUT_MS = 250
 SCAN_PROGRESS_UPDATE_TIMEOUT_SECONDS = 1.0
 SCAN_TERMINAL_UPDATE_RETRIES = 3
 SCAN_TERMINAL_UPDATE_RETRY_DELAY_SECONDS = 0.2
-SCAN_SOURCE_PROVIDER = FILESYSTEM_PROVIDER
 SCAN_ORCHESTRATOR = build_default_orchestrator()
 
 
@@ -762,7 +761,7 @@ async def _run_scan_task(
             directories = [str(d) for d in directories],
             extensions  = supported_extensions,
             extension_count = len(supported_extensions),
-            provider=SCAN_SOURCE_PROVIDER,
+            provider=FILESYSTEM_PROVIDER,
         )
         scanned_files = await asyncio.to_thread(
             SCAN_ORCHESTRATOR.discover_filesystem_scanned_files,
@@ -823,7 +822,7 @@ async def _run_scan_task(
                 'scan_indexing_start',
                 scan_id   = scan_id,
                 force     = force,
-                provider  = SCAN_SOURCE_PROVIDER,
+                provider  = FILESYSTEM_PROVIDER,
                 new       = len(changes.new),
                 changed   = len(changes.changed),
                 unchanged = len(changes.unchanged),
@@ -972,7 +971,7 @@ async def _run_scan_task(
         log.info(
             'scan_completed',
             scan_id  = scan_id,
-            provider = SCAN_SOURCE_PROVIDER,
+            provider = FILESYSTEM_PROVIDER,
             scanned  = files_scanned,
             indexed  = files_indexed,
             errors   = errors,

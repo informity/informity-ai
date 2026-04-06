@@ -54,6 +54,9 @@ export type DisplayBlock =
 
 export type CompletionMode = 'complete' | 'partial' | 'scoped_complete' | 'stopped'
 export type ChatMode = 'assistant' | 'researcher'
+export function isChatMode(value: unknown): value is ChatMode {
+  return value === 'assistant' || value === 'researcher'
+}
 export type NextAction = 'none' | 'continue' | 'regenerate' | 'assistant_switch'
 export type NextActionReason = 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_corpus'
 export type ContinuationProgressState = 'progressed' | 'stalled' | 'budget_exhausted'

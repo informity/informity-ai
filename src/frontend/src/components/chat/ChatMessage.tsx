@@ -5,6 +5,7 @@ import { getMessageRaw } from '../../api'
 import { SourceCard } from './SourceCard'
 import { MessageBlocks } from './MessageBlocks'
 import type { ChatMode, ChatSourceReference, DisplayBlock } from '../../types/api'
+import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
 import 'highlight.js/styles/github-dark.min.css'
 import './ChatMessage.css'
 
@@ -153,8 +154,8 @@ function ChatMessageComponent({
     })
   }
   if (!isUser && chatMode) {
-    const modeIcon = chatMode === 'assistant' ? 'ri-robot-2-line' : 'ri-search-ai-3-line'
-    const modeLabel = chatMode === 'assistant' ? 'Assistant' : 'Researcher'
+    const modeIcon = CHAT_MODE_ICONS[chatMode]
+    const modeLabel = CHAT_MODE_LABELS[chatMode]
     assistantMetaItems.push({
       key: 'mode',
       node: (

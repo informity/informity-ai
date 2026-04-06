@@ -45,13 +45,13 @@ help: ## Show this help message
 	@echo ""
 
 install: ## Install runtime dependencies and download models into app data
-	./scripts/install.sh
+	./scripts/install_app.sh
 
 install-dev: ## Install runtime + dev dependencies and download models into app data
-	INFORMITY_INSTALL_PROFILE=dev ./scripts/install.sh
+	INFORMITY_INSTALL_PROFILE=dev ./scripts/install_app.sh
 
 uninstall: ## Remove all user data, downloaded models, and .venv (fresh distribution state)
-	./scripts/uninstall.sh
+	./scripts/install_uninstall_app.sh
 
 cache-bootstrap: ## Seed app-data cache from ~/.cache (one-time migration helper for dev)
 	@mkdir -p "$(APP_CACHE_DIR)"
@@ -81,7 +81,7 @@ tauri-dev: ## Run desktop shell in development mode (requires Rust toolchain + T
 	cd src/frontend && npm run tauri:dev
 
 tauri-icons: ## Generate Tauri icon assets from the master logo
-	uv run python scripts/generate_tauri_icons.py
+	uv run python scripts/build_generate_tauri_icons.py
 
 tauri-backend: ## Build Python backend sidecar artifact for Tauri packaging
 	./scripts/build_tauri_backend_sidecar.sh
