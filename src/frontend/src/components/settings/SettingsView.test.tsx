@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { SettingsView } from './SettingsView'
+import { SETTINGS_ACTIVE_TAB_STORAGE_KEY } from '../../utils/storageKeys'
 
 vi.mock('../../api', () => ({
   getModelProfile: vi.fn(async () => ({})),
@@ -130,14 +131,14 @@ describe('SettingsView tabs and action bar behavior', () => {
   })
 
   it('restores active tab from localStorage and persists updates', async () => {
-    localStorage.setItem('informity.settings.activeTab', 'diagnostics')
+    localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, 'diagnostics')
     renderSettingsView()
 
     expect(screen.getByRole('tab', { name: 'Diagnostics' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.getByRole('tab', { name: 'General' })).toHaveAttribute('aria-selected', 'false')
 
     fireEvent.click(screen.getByRole('tab', { name: 'System' }))
-    expect(localStorage.getItem('informity.settings.activeTab')).toBe('system')
+    expect(localStorage.getItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY)).toBe('system')
   })
 
   it('shows Save/Discard on non-System tabs and hides them on System', async () => {
@@ -155,7 +156,7 @@ describe('SettingsView tabs and action bar behavior', () => {
   })
 
   it('keeps model selection editable and saves selected model when tab state is restored', async () => {
-    localStorage.setItem('informity.settings.activeTab', 'models')
+    localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, 'models')
     const { onSave } = renderSettingsView()
 
     const modelSelect = screen.getByLabelText('Model') as HTMLSelectElement
@@ -173,7 +174,7 @@ describe('SettingsView tabs and action bar behavior', () => {
   })
 
   it('includes installed models not present in catalog entries', async () => {
-    localStorage.setItem('informity.settings.activeTab', 'models')
+    localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, 'models')
     const settingsWithExtraModel = {
       ...baseSettings,
       available_models: ['main.gguf', 'alt.gguf', 'Qwen3.5-35B-A3B-Q4_K_M.gguf'],

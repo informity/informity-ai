@@ -15,6 +15,7 @@ import {
   type ModelsCatalogResponse,
 } from '../../api'
 import { isChatMode, type ChatMode } from '../../types/api'
+import { SETTINGS_ACTIVE_TAB_STORAGE_KEY } from '../../utils/storageKeys'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_OPTIONS, UI_THEME_STORAGE_KEY } from '../../utils/uiTheme'
 import { isDesktopRuntime, nativePickDirectoryDialog } from '../../tauriRuntime'
 import '../../styles/shared/buttons.css'
@@ -58,7 +59,6 @@ const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; icon: string }> = [
   { id: 'diagnostics', label: 'Diagnostics', icon: 'ri-pulse-line' },
   { id: 'system', label: 'System', icon: 'ri-server-line' },
 ]
-const SETTINGS_ACTIVE_TAB_STORAGE_KEY = 'informity.settings.activeTab'
 const SETTINGS_TAB_IDS = new Set<SettingsTab>(SETTINGS_TABS.map((tab) => tab.id))
 
 const INDEXING_SPEED_LABELS = ['', 'Responsive', 'Gentle', 'Balanced', 'Fast', 'Fastest']

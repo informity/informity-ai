@@ -6,11 +6,13 @@ import { NetworkBanner } from './NetworkBanner'
 import { PageFooter } from './PageFooter'
 import { useBackendStatus } from '../context/useBackendStatus'
 import { listenDesktopMenuActions } from '../tauriRuntime'
-import { MENU_SCAN_NOW_PENDING_KEY, SIDEBAR_COLLAPSED_KEY } from '../utils/storageKeys'
+import {
+  MENU_NEW_CHAT_PENDING_KEY,
+  MENU_SCAN_NOW_PENDING_KEY,
+  SIDEBAR_COLLAPSED_KEY,
+} from '../utils/storageKeys'
 import '../pages/PlaceholderPage.css'
 import './Layout.css'
-
-const MENU_NEW_CHAT_PENDING_KEY = 'informity.menu.new_chat.pending'
 
 export function Layout() {
   const navigate = useNavigate()

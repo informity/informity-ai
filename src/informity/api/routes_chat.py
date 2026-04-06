@@ -24,9 +24,6 @@ from informity.api.chat_continuation import (
     build_auto_continue_pass_prompt as _build_auto_continue_pass_prompt,
 )
 from informity.api.chat_continuation import (
-    build_continuing_status_message as _build_continuing_status_message,
-)
-from informity.api.chat_continuation import (
     detect_structural_incomplete_reason as _detect_structural_incomplete_reason,
 )
 from informity.api.chat_continuation import (
@@ -114,6 +111,7 @@ _PERSISTENCE_EXCEPTIONS = (aiosqlite.Error, ValueError, RuntimeError, OSError)
 _STREAM_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, ConnectionError, aiosqlite.Error)
 _STOP_FINALIZE_GRACE_SECONDS = 2.5
 _STOP_FINALIZATION_TASKS: dict[str, asyncio.Task[None]] = {}
+_CONTINUING_STATUS_MESSAGE = 'Continuing response...'
 _OUT_OF_CORPUS_RESPONSE_PATTERN = re.compile(
     r'(?is)\b(?:provided|indexed|these)?\s*(?:documents?|records?|context)\b.{0,120}\b'
     r'(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b'
@@ -523,7 +521,7 @@ async def chat(
                         ]
                         continuing_status = status_emitter.build_event(
                             'continuing',
-                            message=_build_continuing_status_message(),
+                            message=_CONTINUING_STATUS_MESSAGE,
                             pass_index=pass_index,
                             pass_total=max_total_passes,
                         )
