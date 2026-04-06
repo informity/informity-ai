@@ -7,7 +7,7 @@ import { ChatContext } from './chatContext'
 import { ApiError, getChat, getSettings, stopChatStream, streamChat, updateCurrentChat } from '../api'
 import { showToast } from './useToast'
 import { logApiError } from '../utils/logApiError'
-import { FORCE_NEW_CHAT_KEY } from '../utils/storageKeys'
+import { FORCE_NEW_CHAT_KEY, MESSAGE_MODE_MAP_STORAGE_KEY } from '../utils/storageKeys'
 import type {
   ChatMode,
   ChatMessageApi,
@@ -38,7 +38,6 @@ const STREAM_INACTIVITY_TIMEOUT_MS = 20 * 60 * 1000
 const STREAM_WATCHDOG_TIMEOUT_MESSAGE = 'Connection lost while waiting for response. Please try again.'
 const STREAM_WATCHDOG_INTERRUPTED_MESSAGE = 'Response was interrupted due to connection inactivity.'
 const STOP_ACK_TIMEOUT_MS = 1500
-const MESSAGE_MODE_MAP_STORAGE_KEY = 'informity.messageModeById'
 const STREAM_STATUS_LABELS: Record<string, string> = {
   classifying: 'Analyzing your request...',
   retrieving: 'Searching for relevant information...',

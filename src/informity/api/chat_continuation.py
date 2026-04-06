@@ -209,10 +209,6 @@ def is_duplicate_continuation_pass(previous_answer: str | None, current_answer: 
     return similarity >= _CONTINUATION_DUPLICATE_SIMILARITY_THRESHOLD
 
 
-def build_continuing_status_message() -> str:
-    return 'Continuing response...'
-
-
 def enforce_continuation_chat_binding(*, question: str, chat_id: str | None) -> None:
     if chat_id:
         return
