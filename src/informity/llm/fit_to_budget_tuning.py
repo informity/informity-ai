@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import hashlib
 import json
 import time
@@ -354,13 +355,8 @@ async def resolve_fit_to_budget_policy(
         stream_soft_limit_ratio=stream_soft_limit,
         first_token_late_ratio=first_token_late,
     )
-    policy = FitToBudgetPolicy(
-        enabled=policy.enabled,
-        rollout_stage=policy.rollout_stage,
-        sample_count=policy.sample_count,
-        timeout_rate=policy.timeout_rate,
-        completion_p95_seconds=policy.completion_p95_seconds,
-        first_token_p95_ms=policy.first_token_p95_ms,
+    policy = dataclasses.replace(
+        policy,
         soft_top_k_threshold=min(_DEEP_ANALYSIS_SOFT_TOP_K_CAP, policy.soft_top_k_threshold + _DEEP_ANALYSIS_SOFT_TOP_K_DELTA),
         soft_reasoning_threshold=min(
             _DEEP_ANALYSIS_SOFT_REASONING_CAP,

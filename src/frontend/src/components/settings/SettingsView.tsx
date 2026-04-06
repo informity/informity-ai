@@ -17,6 +17,7 @@ import {
 import { isChatMode, type ChatMode } from '../../types/api'
 import { SETTINGS_ACTIVE_TAB_STORAGE_KEY } from '../../utils/storageKeys'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_OPTIONS, UI_THEME_STORAGE_KEY } from '../../utils/uiTheme'
+import { formatModelSizeGb } from '../../utils/formatModelSizeGb'
 import { isDesktopRuntime, nativePickDirectoryDialog } from '../../tauriRuntime'
 import '../../styles/shared/buttons.css'
 import './SettingsView.css'
@@ -544,12 +545,6 @@ export function SettingsView({
     const precision = next >= 100 || unit === 0 ? 0 : 1
     return `${next.toFixed(precision)} ${units[unit]}`
   }
-  const formatModelSizeGb = (bytes: number | null | undefined): string => {
-    if (!Number.isFinite(bytes) || (bytes ?? 0) <= 0) return '--'
-    const gb = Number(bytes) / 1_000_000_000
-    return `${gb.toFixed(2)} GB`
-  }
-
   const modelProgressSummary = (() => {
     if (!modelEventMatchesSelected || !modelEvent) return null
     if (modelEvent.state !== 'in_progress') return null

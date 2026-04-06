@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import threading
 from collections import OrderedDict
 from time import monotonic
 from typing import TYPE_CHECKING
@@ -43,6 +44,7 @@ class Embedder:
     def __init__(self) -> None:
         self._model: SentenceTransformer | None = None
         self._query_embed_cache: OrderedDict[str, tuple[list[float], float]] = OrderedDict()
+        self._cache_lock = threading.Lock()
         self._mps_available: bool | None = None
 
     @property
@@ -90,21 +92,23 @@ class Embedder:
 
     def _cache_query_embedding(self, query: str, embedding: list[float]) -> None:
         now = monotonic()
-        self._query_embed_cache[query] = (embedding, now)
-        self._query_embed_cache.move_to_end(query)
-        while len(self._query_embed_cache) > _QUERY_EMBED_CACHE_MAX_SIZE:
-            self._query_embed_cache.popitem(last=False)
+        with self._cache_lock:
+            self._query_embed_cache[query] = (embedding, now)
+            self._query_embed_cache.move_to_end(query)
+            while len(self._query_embed_cache) > _QUERY_EMBED_CACHE_MAX_SIZE:
+                self._query_embed_cache.popitem(last=False)
 
     def _get_cached_query_embedding(self, query: str) -> list[float] | None:
-        cached = self._query_embed_cache.get(query)
-        if cached is None:
-            return None
-        embedding, ts = cached
-        if monotonic() - ts > _QUERY_EMBED_CACHE_TTL_SECONDS:
-            self._query_embed_cache.pop(query, None)
-            return None
-        self._query_embed_cache.move_to_end(query)
-        return embedding
+        with self._cache_lock:
+            cached = self._query_embed_cache.get(query)
+            if cached is None:
+                return None
+            embedding, ts = cached
+            if monotonic() - ts > _QUERY_EMBED_CACHE_TTL_SECONDS:
+                self._query_embed_cache.pop(query, None)
+                return None
+            self._query_embed_cache.move_to_end(query)
+            return embedding
 
     def _get_safe_batch_size(self) -> int:
         """
@@ -170,7 +174,8 @@ class Embedder:
         if self._model is not None:
             del self._model
             self._model = None
-        self._query_embed_cache.clear()
+        with self._cache_lock:
+            self._query_embed_cache.clear()
 
     def get_embedding_dimension(self) -> int:
         model = self._model

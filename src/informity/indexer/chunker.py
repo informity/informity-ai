@@ -466,7 +466,7 @@ def create_child_chunks(
     child_chunks: list[ChunkData] = []
     child_index = 0
 
-    for _parent_idx, parent in enumerate(parent_chunks):
+    for parent in parent_chunks:
         parent_text = parent.content
 
         # If parent is smaller than child_size, use it as-is (no need to split)

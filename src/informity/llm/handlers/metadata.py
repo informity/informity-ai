@@ -251,7 +251,7 @@ class MetadataHandler:
     ) -> dict[str, list[int] | list[str]]:
         """Get enumeration data (years, categories, file types)."""
         result: dict[str, list[int] | list[str]] = {}
-        filename_pattern = classification.filename_filter if classification.filename_filter else None
+        filename_pattern = classification.filename_filter
 
         if 'year' in question_lower:
             years = await get_distinct_years(db, filename_pattern=filename_pattern)
@@ -427,8 +427,8 @@ class MetadataHandler:
         count_row = await count_cursor.fetchone()
         total = int(count_row['cnt']) if count_row else 0
 
-        # Get files (limit to 100 for listing)
-        query_params = params + [100, 0]  # limit, offset
+        # Get files up to the display cap.
+        query_params = params + [MAX_FILE_LIST_DISPLAY, 0]  # limit, offset
         cursor = await db.execute(
             f'SELECT * FROM files {where_clause} ORDER BY filename ASC LIMIT ? OFFSET ?',
             query_params,
