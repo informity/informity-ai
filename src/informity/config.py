@@ -622,7 +622,7 @@ class Settings(BaseSettings):
             hf_cache,
             hf_hub,
             docling_cache,
-            # User data (in app_data_dir, cleared by uninstall.sh)
+            # User data (in app_data_dir, cleared by install_uninstall_app.sh)
             self.app_data_dir,
             db_dir,
             self.logs_dir,
@@ -844,7 +844,7 @@ def configure_hf_environment(*, fail_on_missing_full_privacy_models: bool = True
                 from informity.exceptions import ConfigurationError
                 raise ConfigurationError(
                     'Full Privacy Mode is enabled but required models are not cached. '
-                    'Please run the install script to download models: ./scripts/install.sh or make install\n\n'
+                    'Please run the install script to download models: ./scripts/install_app.sh or make install\n\n'
                     'Required models:\n'
                     f'  - Embedding: {settings.embedding_model}\n'
                     f'  - Reranker: {settings.rag_reranker_model}\n'

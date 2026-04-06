@@ -18,7 +18,9 @@ import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { showToast } from '../context/useToast'
 import { useConfirm } from '../context/useConfirm'
 import { useBackendStatus } from '../context/useBackendStatus'
+import { isChatMode, type ChatMode } from '../types/api'
 import { isBackendConnectionError } from '../utils/networkErrors'
+import { CHAT_MODE_STORAGE_KEY } from '../utils/storageKeys'
 import { proxyWheelToContainer } from '../utils/wheelProxy'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_STORAGE_KEY } from '../utils/uiTheme'
 import { setMenuBarIconEnabled } from '../tauriRuntime'
@@ -71,7 +73,7 @@ interface FormState {
   full_privacy?: boolean
   adaptive_rag_tuning?: boolean
   chat_history_messages?: number
-  default_chat_mode?: 'assistant' | 'researcher'
+  default_chat_mode?: ChatMode
   diagnostics_profile?: string
   chat_trace_logging?: boolean
   chat_trace_redaction_mode?: string
@@ -192,9 +194,9 @@ export function SettingsPage() {
           // ignore
         }
       }
-      if (updated.default_chat_mode === 'assistant' || updated.default_chat_mode === 'researcher') {
+      if (isChatMode(updated.default_chat_mode)) {
         try {
-          localStorage.setItem('informity_chat_mode', updated.default_chat_mode)
+          localStorage.setItem(CHAT_MODE_STORAGE_KEY, updated.default_chat_mode)
         } catch {
           // ignore
         }

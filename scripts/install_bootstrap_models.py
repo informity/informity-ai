@@ -3,7 +3,7 @@
 # Downloads embedding model, reranker (cross-encoder), and optional LLM
 # into app data, then writes config.json with embedding_offline
 # and llm_local_only set to true so the app always uses cached models after install.
-# Run from repo root: uv run python scripts/bootstrap_models.py
+# Run from repo root: uv run python scripts/install_bootstrap_models.py
 # Requires: INFORMITY_APP_DATA_DIR (default: ~/.informity)
 # and install.conf.json
 # ==============================================================================

@@ -10,22 +10,14 @@ import { ServiceUnavailableState } from '../ServiceUnavailableState'
 import { useChatContext } from '../../context/useChatContext'
 import { useBackendStatus } from '../../context/useBackendStatus'
 import { getCurrentChat, getSettings } from '../../api'
-import type { ChatMode } from '../../types/api'
+import { isChatMode, type ChatMode } from '../../types/api'
 import { logApiError } from '../../utils/logApiError'
-import { FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
+import { CHAT_MODE_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
+import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
 import './ChatView.css'
 
 const CHAT_INPUT_MIN_HEIGHT = 104
 const CHAT_INPUT_MAX_HEIGHT = 304
-const CHAT_MODE_STORAGE_KEY = 'informity_chat_mode'
-const CHAT_MODE_LABELS: Record<ChatMode, string> = {
-  assistant: 'Assistant',
-  researcher: 'Researcher',
-}
-const CHAT_MODE_ICONS: Record<ChatMode, string> = {
-  assistant: 'ri-robot-2-line',
-  researcher: 'ri-search-ai-3-line',
-}
 const ALL_CHAT_MODES: ChatMode[] = ['assistant', 'researcher']
 
 interface ChatViewProps {
@@ -92,7 +84,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     let cancelled = false
     try {
       const raw = window.localStorage.getItem(CHAT_MODE_STORAGE_KEY)
-      if (raw === 'assistant' || raw === 'researcher') {
+      if (isChatMode(raw)) {
         setChatMode(raw)
         return
       }
@@ -103,7 +95,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
       .then((data) => {
         if (cancelled) return
         const mode = (data as ChatSettingsResponse | null | undefined)?.default_chat_mode
-        if (mode === 'assistant' || mode === 'researcher') {
+        if (isChatMode(mode)) {
           setChatMode(mode)
           try {
             window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, mode)

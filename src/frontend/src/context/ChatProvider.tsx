@@ -18,6 +18,7 @@ import type {
   PlanStepPayload,
   StreamDonePayload,
 } from '../types/api'
+import { isChatMode } from '../types/api'
 
 interface ChatProviderProps {
   children: ReactNode
@@ -122,7 +123,7 @@ function readStoredMessageModes(): Record<string, ChatMode> {
     const parsed = JSON.parse(raw) as Record<string, unknown>
     const normalized: Record<string, ChatMode> = {}
     for (const [key, value] of Object.entries(parsed || {})) {
-      if (value === 'assistant' || value === 'researcher') {
+      if (isChatMode(value)) {
         normalized[key] = value
       }
     }
@@ -273,7 +274,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           m.role === 'assistant'
             ? (
                 storedMode
-                ?? (m.chat_mode === 'assistant' || m.chat_mode === 'researcher' ? m.chat_mode : undefined)
+                ?? (isChatMode(m.chat_mode) ? m.chat_mode : undefined)
                 ?? (nextActionReason === 'out_of_corpus' ? 'researcher' : undefined)
                 ?? ((m.sources?.length || 0) > 0 ? 'researcher' : undefined)
               )
@@ -426,7 +427,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       isStreaming: true,
       isContinuation: isInternalMessage,
       streamStatusText: isInternalMessage
-        ? getStreamStatusLabel('continuing') || 'Continuing response...'
+        ? getStreamStatusLabel('continuing')
         : 'Generating response...',
       isPartial: false,
       streamSectionProgress: undefined,
@@ -489,9 +490,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         const nextAction: 'none' | 'continue' | 'regenerate' | 'assistant_switch' = data?.next_action ?? 'none'
         const nextActionReason: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_corpus' | null =
           data?.next_action_reason ?? null
-        const chatMode = data?.chat_mode === 'assistant' || data?.chat_mode === 'researcher'
-          ? data.chat_mode
-          : undefined
+        const chatMode = isChatMode(data?.chat_mode) ? data.chat_mode : undefined
         const recoveryCallout = buildRecoveryCallout(nextAction, nextActionReason)
         const displayBlocks = Array.isArray(data?.display_blocks) ? data?.display_blocks : undefined
         const extraBlocks: DisplayBlock[] = [recoveryCallout].filter((v): v is DisplayBlock => v != null)

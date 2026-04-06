@@ -23,7 +23,7 @@ from informity.llm.rag_runtime import generation_terminal as _generation_termina
 from informity.llm.rag_runtime import retrieval_gatekeeper as _retrieval_gatekeeper
 from informity.llm.rag_runtime import retrieval_plan as _retrieval_plan
 from informity.llm.rag_runtime import retrieval_validation as _retrieval_validation
-from informity.llm.rag_runtime import structured_numeric as _structured_numeric
+from informity.llm.rag_runtime.structured_numeric import STRUCTURED_EXTRACTION_SUBTYPES
 from informity.llm.retrieval import retrieve_chunks
 from informity.llm.types import (
     ConfidenceBand,
@@ -51,7 +51,6 @@ _FILENAME_SUMMARY_FALLBACK_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _FILENAME_SUMMARY_DETERMINISTIC_EXTENSIONS = ('.md', '.txt')
-_STRUCTURED_EXTRACTION_SUBTYPES = _structured_numeric._STRUCTURED_EXTRACTION_SUBTYPES
 
 _INSUFFICIENT_CONTEXT_RESPONSE = (
     'The available documents do not contain enough information to answer this question.'
@@ -777,7 +776,7 @@ async def run_retrieval_pipeline(
     # fall back to narrative_synthesis.
     if (
         effective_response_shape == OutputShape.STRUCTURED_EXTRACT
-        and classification.subtype in _STRUCTURED_EXTRACTION_SUBTYPES
+        and classification.subtype in STRUCTURED_EXTRACTION_SUBTYPES
     ):
         fallback_events.append({
             'fallback_from': IntentProfileId.STRUCTURED_FIELD_EXTRACTION,

@@ -14,6 +14,7 @@ import {
   type ModelOperationEventResponse,
   type ModelsCatalogResponse,
 } from '../../api'
+import { isChatMode, type ChatMode } from '../../types/api'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_OPTIONS, UI_THEME_STORAGE_KEY } from '../../utils/uiTheme'
 import { isDesktopRuntime, nativePickDirectoryDialog } from '../../tauriRuntime'
 import '../../styles/shared/buttons.css'
@@ -174,7 +175,7 @@ interface SettingsData {
   full_privacy?: boolean
   adaptive_rag_tuning?: boolean
   chat_history_messages?: number
-  default_chat_mode?: 'assistant' | 'researcher'
+  default_chat_mode?: ChatMode
   log_level?: string
   diagnostics_profile?: string
   diagnostics_profile_presets?: Record<string, DiagnosticsProfilePreset>
@@ -210,7 +211,7 @@ interface FormState {
   full_privacy: boolean
   adaptive_rag_tuning: boolean
   chat_history_messages: number
-  default_chat_mode: 'assistant' | 'researcher'
+  default_chat_mode: ChatMode
   log_level: string
   diagnostics_profile: string
   chat_trace_logging: boolean
@@ -252,7 +253,7 @@ function buildFormState(settings: SettingsData): FormState {
     full_privacy: settings.full_privacy ?? true,
     adaptive_rag_tuning: settings.adaptive_rag_tuning ?? true,
     chat_history_messages: settings.chat_history_messages ?? 5,
-    default_chat_mode: settings.default_chat_mode === 'assistant' ? 'assistant' : 'researcher',
+    default_chat_mode: isChatMode(settings.default_chat_mode) ? settings.default_chat_mode : 'researcher',
     log_level: settings.log_level ?? 'info',
     diagnostics_profile: settings.diagnostics_profile ?? 'standard',
     chat_trace_logging: settings.chat_trace_logging ?? false,
@@ -717,7 +718,7 @@ export function SettingsView({
           <select
             className="settings-select"
             value={form.default_chat_mode}
-            onChange={(e) => update('default_chat_mode', e.target.value === 'assistant' ? 'assistant' : 'researcher')}
+            onChange={(e) => update('default_chat_mode', isChatMode(e.target.value) ? e.target.value : 'researcher')}
           >
             {CHAT_MODE_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>

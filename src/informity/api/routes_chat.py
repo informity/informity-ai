@@ -27,19 +27,16 @@ from informity.api.chat_continuation import (
     build_continuing_status_message as _build_continuing_status_message,
 )
 from informity.api.chat_continuation import (
-    enforce_continuation_chat_binding as _enforce_continuation_chat_binding,
+    detect_structural_incomplete_reason as _detect_structural_incomplete_reason,
 )
 from informity.api.chat_continuation import (
-    has_continue_worthy_gap as _has_continue_worthy_gap,
+    enforce_continuation_chat_binding as _enforce_continuation_chat_binding,
 )
 from informity.api.chat_continuation import (
     is_continuation_request as _is_continuation_request,
 )
 from informity.api.chat_continuation import (
     is_duplicate_continuation_pass as _is_duplicate_continuation_pass,
-)
-from informity.api.chat_continuation import (
-    mark_structural_output_gap as _mark_structural_output_gap,
 )
 from informity.api.chat_continuation import (
     normalize_continuation_classification as _normalize_continuation_classification,
@@ -106,7 +103,6 @@ from informity.utils.number_utils import safe_float, safe_int
 
 # Trace logging constants
 MAX_ANSWER_PREVIEW_LENGTH = 1500  # Maximum length of answer preview in trace logs
-DISPLAY_FALLBACK_MESSAGE = answer_sanitization.DISPLAY_FALLBACK_MESSAGE
 MAX_CHAT_MESSAGE_CHARS = 20000
 _VALID_COMPLETION_MODES = {
     CompletionMode.COMPLETE,
@@ -123,10 +119,6 @@ _OUT_OF_CORPUS_RESPONSE_PATTERN = re.compile(
     r'(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b'
     r'(?:contain|include|cover|mention|provide|have)\b'
 )
-
-
-def _resolve_chat_mode(raw_mode: object) -> str:
-    return resolve_chat_mode(str(raw_mode or ''))
 
 
 def _normalize_diagnostics_query_type(value: object) -> str:
@@ -301,7 +293,7 @@ async def chat(
         )
     await CHAT_GUARD.check_rate_limit()
     requested_run_id = str(request.run_id or '').strip() or None
-    resolved_chat_mode = _resolve_chat_mode(request.mode)
+    resolved_chat_mode = resolve_chat_mode(request.mode)
     _enforce_continuation_chat_binding(question=message_text, chat_id=request.chat_id)
 
     # Resolve chat ID — create a new one if not provided
@@ -706,7 +698,7 @@ async def chat(
                         has_remaining_scope = True
 
                     pass_sources_exhausted = len(pass_sources) == 0
-                    pass_continue_worthy_gap = _has_continue_worthy_gap(pass_has_remaining_scope) or has_contract_gap
+                    pass_continue_worthy_gap = pass_has_remaining_scope or has_contract_gap
                     pass_detail = {
                         'pass_index': pass_index,
                         'is_continuation': pass_index > 1,
@@ -851,7 +843,7 @@ async def chat(
                         chat_id=chat_id,
                         missing_required_headings=missing_sections_filled,
                     )
-                structural_incomplete_reason = _mark_structural_output_gap(cleaned_answer or full_answer)
+                structural_incomplete_reason = _detect_structural_incomplete_reason(cleaned_answer or full_answer)
                 if structural_incomplete_reason and completion_mode_override != CompletionMode.STOPPED:
                     log.info(
                         'structural_gap_triggers_continuation',

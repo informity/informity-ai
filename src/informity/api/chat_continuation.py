@@ -39,7 +39,8 @@ _CONTINUATION_STRUCTURED_OUTPUT_PATTERN = re.compile(
     r'\b(markdown\s+table|columns?\s*:|rows?\s+as|output\s+only\s+a\s+markdown\s+table)\b',
     re.IGNORECASE,
 )
-_TABLE_SEPARATOR_PATTERN = re.compile(r'^\s*\|?\s*:?-{3,}(?:\s*\|\s*:?-{3,})+\s*\|?\s*$')
+# Detect markdown table row separator lines in continuation cleanup logic.
+_TABLE_ROW_SEPARATOR_PATTERN = re.compile(r'^\s*\|?\s*:?-{3,}(?:\s*\|\s*:?-{3,})+\s*\|?\s*$')
 _EMPTY_ORDERED_LIST_ITEM_PATTERN = re.compile(r'^\s*\d+\.\s*$')
 
 
@@ -223,10 +224,6 @@ def enforce_continuation_chat_binding(*, question: str, chat_id: str | None) -> 
     )
 
 
-def has_continue_worthy_gap(has_remaining_scope_signal: bool) -> bool:
-    return has_remaining_scope_signal
-
-
 def detect_structural_incomplete_reason(answer: str) -> StructuralGapReason | None:
     text = str(answer or '')
     if not text.strip():
@@ -237,16 +234,12 @@ def detect_structural_incomplete_reason(answer: str) -> StructuralGapReason | No
     if not lines:
         return None
     last_line = lines[-1].rstrip()
-    has_markdown_table = any(_TABLE_SEPARATOR_PATTERN.match(line) for line in lines)
+    has_markdown_table = any(_TABLE_ROW_SEPARATOR_PATTERN.match(line) for line in lines)
     if has_markdown_table and last_line.lstrip().startswith('|') and not last_line.rstrip().endswith('|'):
         return StructuralGapReason.TRUNCATED_MARKDOWN_TABLE_ROW
     if _EMPTY_ORDERED_LIST_ITEM_PATTERN.match(last_line):
         return StructuralGapReason.TRUNCATED_MARKDOWN_LIST_ITEM
     return None
-
-
-def mark_structural_output_gap(answer: str) -> StructuralGapReason | None:
-    return detect_structural_incomplete_reason(answer)
 
 
 def resolve_auto_continue_policy() -> tuple[bool, int, str]:

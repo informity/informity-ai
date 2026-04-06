@@ -68,15 +68,15 @@ def test_continuation_flag_lexical_signal_not_overwritten_by_classifier_false() 
 
 
 def test_resolve_chat_mode_defaults_to_researcher_for_invalid() -> None:
-    assert routes_chat._resolve_chat_mode(None) == 'researcher'
-    assert routes_chat._resolve_chat_mode('') == 'researcher'
-    assert routes_chat._resolve_chat_mode('invalid') == 'researcher'
+    assert routes_chat.resolve_chat_mode(None) == 'researcher'
+    assert routes_chat.resolve_chat_mode('') == 'researcher'
+    assert routes_chat.resolve_chat_mode('invalid') == 'researcher'
 
 
 def test_resolve_chat_mode_accepts_assistant_and_researcher() -> None:
-    assert routes_chat._resolve_chat_mode('assistant') == 'assistant'
-    assert routes_chat._resolve_chat_mode('researcher') == 'researcher'
-    assert routes_chat._resolve_chat_mode('Assistant') == 'assistant'
+    assert routes_chat.resolve_chat_mode('assistant') == 'assistant'
+    assert routes_chat.resolve_chat_mode('researcher') == 'researcher'
+    assert routes_chat.resolve_chat_mode('Assistant') == 'assistant'
 
 
 def test_validate_contract_detects_missing_required_heading() -> None:

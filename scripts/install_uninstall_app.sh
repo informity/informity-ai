@@ -3,14 +3,14 @@
 # Informity AI — Uninstall (full local cleanup)
 # Removes app data, local environments, and generated caches/artifacts so the
 # repo returns to a fresh local state.
-# Run from repo root: ./scripts/uninstall.sh   or   bash scripts/uninstall.sh
+# Run from repo root: ./scripts/install_uninstall_app.sh   or   bash scripts/install_uninstall_app.sh
 # ==============================================================================
 
 set -e
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
-source "$REPO_ROOT/scripts/common_paths.sh"
+source "$REPO_ROOT/scripts/install_common_paths.sh"
 
 # Same default as install and the app (~/.informity)
 APP_DATA_DIR="${INFORMITY_APP_DATA_DIR:-$INFORMITY_DEFAULT_APP_DATA_DIR}"
@@ -72,5 +72,5 @@ else
     echo "Nothing to remove (already at fresh local state)."
 fi
 echo ""
-echo "To install again, run: ./scripts/install.sh"
+echo "To install again, run: ./scripts/install_app.sh"
 echo ""

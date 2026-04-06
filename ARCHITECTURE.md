@@ -68,15 +68,15 @@ class Settings(BaseSettings):
     embedding_batch_size:     int = 32
     embedding_offline:        bool = True   # Synced from full_privacy when set via UI
     embedding_max_threads:    int = 6       # CPU threads for embedding (0 = automatic)
-    enable_ocr_for_images:   bool = False  # OCR for image-only PDFs when text extraction fails
+    enable_ocr_for_images:   bool = True  # OCR for image-only PDFs when text extraction fails
 
     # Privacy — when full_privacy=True, no network; embedding and LLM use cache/local only
     full_privacy:   bool = True
     llm_local_only: bool = True   # Synced from full_privacy when set via UI
 
     # LLM — model configurable via env / config.json
-    # Current default: Qwen3 14B (Q5_K_M quantization)
-    llm_model_filename:   str   = 'Qwen3-14B-Q5_K_M.gguf'
+    # Current default: Qwen3.5 35B A3B (Q4_K_M quantization)
+    llm_model_filename:   str   = 'Qwen3.5-35B-A3B-Q4_K_M.gguf'
     llm_context_length:   int   = 16384  # 16K is ample; profile may override for other models
     llm_max_tokens:      int   = 2048
     llm_temperature:      float = 0.2
@@ -87,9 +87,7 @@ class Settings(BaseSettings):
     rag_rerank:           bool  = True
     rag_reranker_model:    str   = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
     rag_rerank_candidates: int  = 25    # Reduced from 35 for speed (reranker most effective on top 20-30)
-    rag_rerank_coverage:   bool  = False  # Also rerank coverage queries (lists, comparisons)
-    rag_enable_reasoning:   bool  = True   # LLM <think> blocks for chain-of-thought (stripped in stream)
-    rag_reasoning_budget:   int   = 1500   # Extra tokens reserved for reasoning
+    rag_rerank_coverage:   bool  = True  # Also rerank coverage queries (lists, comparisons)
 
     # Server
     host:       str  = '127.0.0.1'
@@ -294,26 +292,27 @@ class FileTypeOption(BaseModel):
 class ModelProfileInfo(BaseModel):
     # Read-only model profile information for the Settings UI.
     # All values are determined by the model profile — not user-editable.
-    name:                    str       # e.g. "Qwen3 14B"
+    name:                    str       # e.g. "Qwen3.5 35B A3B"
     family:                  str       # "chatml", "llama", etc.
     supports_reasoning:      bool      # Can use <think> blocks
     reasoning_mode:          str       # "Focused queries only", "Off", etc.
-    reasoning_budget:        int       # Extra tokens for reasoning
-    max_tokens_simple:       int       # Max tokens for simple queries
-    max_tokens_focused:      int       # Max tokens for focused queries
-    max_tokens_coverage:     int       # Max tokens for coverage queries
+    max_tokens:              int       # Max tokens
     coverage_top_k:          int       # Chunks retrieved for coverage queries
-    min_tokens_coverage:     int       # Min tokens before EOS for coverage
+    min_tokens_coverage:     int       # Min tokens target for coverage (pipeline-enforced)
     prompt_format:           str       # "Native (GGUF template)", "ChatML"
     coverage_prompt_format:  str       # Prompt format for coverage queries
     context_length:          int       # Max context window (tokens)
     temperature:             float     # Sampling temperature
+    top_p:                   float     # Nucleus sampling (1.0 = disabled)
     rag_top_k:               int       # Chunks to retrieve before filtering
+    rag_max_score:           float     # Max L2 distance for relevant chunk (lower = stricter)
+    rag_context_ratio:       float     # Share of prompt budget for context (rest for history)
+    timeout_seconds:         int       # Timeout seconds
 
 class SettingsResponse(BaseModel):
     # Current application settings exposed to the frontend.
     # Profile-controlled fields (llm_context_length, llm_max_tokens, llm_temperature,
-    # rag_top_k, coverage_top_k, rag_enable_reasoning, rag_reasoning_budget) are in model_profile, not here.
+    # rag_top_k, coverage_top_k) are in model_profile, not here.
     watched_directories:       list[str]
     ignore_patterns:           list[str]   # Custom exclude patterns only
     exclude_macos_system:      bool         = True
@@ -487,7 +486,7 @@ class HealthResponse(BaseModel):
 
 ### `indexer/reranker.py`
 - Lazy-loads cross-encoder for (query, chunk) re-ranking; model via `rag_reranker_model`; same HF cache as embedding; respects `embedding_offline`. Exposes `unload()` for shutdown.
-- Reranking is mandatory for all queries in v2 (no coverage skip).
+- Reranking is enabled by default and applied according to runtime settings (`rag_rerank`, `rag_rerank_coverage`).
 - **Imports:** sentence-transformers (CrossEncoder), config
 - **Imported by:** llm.retrieval
 
@@ -499,7 +498,7 @@ class HealthResponse(BaseModel):
 - **Imported by:** main (lifespan), api.routes_scan, api.routes_index, llm.model_adapter (get_retrieval_top_k)
 
 ### `llm/engine.py`
-- Loads GGUF via xllamacpp (CommonParams + Server, in-process); default `llm_model_filename` = `Qwen3-14B-Q5_K_M.gguf`; Apple Metal by default.
+- Loads GGUF via xllamacpp (CommonParams + Server, in-process); default `llm_model_filename` = `Qwen3.5-35B-A3B-Q4_K_M.gguf`; Apple Metal by default.
 - Chat template extracted from GGUF metadata via `gguf.GGUFReader` at load time. Token counting via tiktoken cl100k_base (±15% approximation).
 - Provides `generate_stream`; `count_tokens(text)` for RAG prompt budget. Handles model download when not local-only.
 - Uses `utils.directory_utils.ensure_file_directory()` for model directory creation.
@@ -535,7 +534,7 @@ class HealthResponse(BaseModel):
 - **Imported by:** llm.query_classifier
 
 ### `llm/retrieval.py`
-- Unified retrieval pipeline (v2): embed query → vector search with WHERE clauses (year, category, extension filters) → mandatory rerank → top-k. For coverage queries, uses file-anchored retrieval (one chunk per file, exhaustive).
+- Unified retrieval pipeline (v2): embed query → vector search with WHERE clauses (year, category, extension filters) → rerank (when enabled by settings) → top-k. For coverage queries, uses file-anchored retrieval (one chunk per file, exhaustive).
 - Records metrics in trace writer: `raw_chunks_count`, `children_reranked`, `parents_returned`.
 - **Imports:** embedder, reranker, db.vectors, db.sqlite (get_chunks_by_parent_ids, get_file_ids_matching_filters), metadata_filters, chat_trace (TraceWriter)
 - **Imported by:** llm.handlers.rag
@@ -799,8 +798,7 @@ main.py ← logging_config (configure_logging before loggers)
 
 ### RAG System Prompt (llm/rag.py)
 - Header: answer generator (not conversational); answer using ONLY provided context; output ONLY final answer — no intros, sources, or meta-commentary; start with answer content; never start with "Based on", "According to", etc.
-- When `rag_enable_reasoning` True: think step-by-step inside <think>...</think> tags, then output only the final answer after closing tag (streaming strips <think>).
-- When False: never reason, explain thinking, or narrate process.
+- Reasoning behavior is profile-controlled (`model_adapter.ReasoningMode`) rather than a global `rag_enable_reasoning` switch.
 - Footer: if list, start with first item; if statement, start with key fact; if insufficient context, say exactly "The available documents do not contain enough information to answer this question."; no speculation; use markdown (**bold**, bullets, tables); concise; stop after answer; no sources in answer.
 
 ### RAG Context Template (per chunk)
@@ -858,7 +856,7 @@ main.py ← logging_config (configure_logging before loggers)
 | `DELETE` | `/api/chat/chats/{chat_id}` | Delete chat and messages | No |
 | `GET` | `/api/settings` | Get current settings | No |
 | `PUT` | `/api/settings` | Update settings (partial) | No |
-| `POST` | `/api/settings/reset` | Reset all settings to factory defaults (Qwen3 14B) | No |
+| `POST` | `/api/settings/reset` | Reset all settings to factory defaults (Qwen3.5 35B A3B) | No |
 | `GET` | `/api/config/env-vars` | Env variable groups for Configuration page | No |
 | `GET` | `/api/file-types` | Canonical file type options | No |
 | `GET` | `/api/health` | Health check (HealthResponse) | No |
