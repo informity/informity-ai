@@ -26,6 +26,6 @@ def resolve_assistant_forced_classification(
     classification: QueryClassification | None,
 ) -> QueryClassification:
     """
-    Resolve assistant-mode classification with backward-compatible fallback.
+    Resolve assistant-mode classification and ensure a valid default.
     """
     return classification or QueryClassification(intent=QueryType.SIMPLE)

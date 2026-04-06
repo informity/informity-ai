@@ -515,31 +515,15 @@ fn resolve_packaged_sidecar_program(resource_dir: &Path) -> Result<PathBuf, Stri
         .join("informity-backend-bundle")
         .join(&binary_name);
 
-    // Preferred onedir layout with stable bundle directory:
+    // Required onedir layout with stable bundle directory:
     // resources/backend/informity-backend-bundle/<binary-name>
     if bundle_dir.exists() {
         return Ok(bundle_dir);
     }
 
-    // Backward-compatible onedir layout:
-    // resources/backend/<binary-name>/<binary-name>
-    let onedir = sidecar_root.join(&binary_name).join(&binary_name);
-    if onedir.exists() {
-        return Ok(onedir);
-    }
-
-    // Backward-compatible onefile layout:
-    // resources/backend/<binary-name>
-    let onefile = sidecar_root.join(&binary_name);
-    if onefile.exists() {
-        return Ok(onefile);
-    }
-
     Err(format!(
-        "backend sidecar not found (checked: {}, {}, {})",
+        "backend sidecar not found (checked: {})",
         bundle_dir.display(),
-        onedir.display(),
-        onefile.display()
     ))
 }
 
