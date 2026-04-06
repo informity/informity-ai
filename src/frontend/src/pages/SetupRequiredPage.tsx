@@ -3,6 +3,7 @@ import './PlaceholderPage.css'
 import { SETUP_STATES, type SetupState } from '../types/setupState'
 import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react'
 import type { SetupEventResponse, SetupTierOption } from '../api'
+import { formatModelSizeGb } from '../utils/formatModelSizeGb'
 
 type SetupBlockingState = Exclude<SetupState, typeof SETUP_STATES.READY>
 
@@ -319,7 +320,7 @@ export function SetupRequiredPage({
                       <span className="setup-tier__meta-item">
                         <i className="ri-download-2-line setup-tier__meta-icon" aria-hidden />
                         <span className="setup-tier__meta-label">Size:</span>
-                        <span className="setup-tier__meta-value">{(option.model_size_bytes / 1_000_000_000).toFixed(2)} GB</span>
+                        <span className="setup-tier__meta-value">{formatModelSizeGb(option.model_size_bytes)}</span>
                       </span>
                       <span className="setup-tier__meta-sep" aria-hidden>|</span>
                       <span className="setup-tier__meta-item">

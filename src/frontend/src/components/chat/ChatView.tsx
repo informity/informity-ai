@@ -14,6 +14,7 @@ import { isChatMode, type ChatMode } from '../../types/api'
 import { logApiError } from '../../utils/logApiError'
 import { CHAT_MODE_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
 import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
+import { proxyWheelToContainer } from '../../utils/wheelProxy'
 import './ChatView.css'
 
 const CHAT_INPUT_MIN_HEIGHT = 104
@@ -351,46 +352,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   }
 
   const handleMessagesWrapperWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    const container = messagesContainerRef.current
-    if (!container) return
-
-    const target = e.target as HTMLElement | null
-    if (!target) return
-
-    // Keep native wheel behavior over input controls.
-    if (target.closest('.chat-view__input-area')) return
-
-    const deltaY = e.deltaY
-    if (!Number.isFinite(deltaY) || deltaY === 0) return
-
-    const findScrollableAncestor = (node: HTMLElement): HTMLElement | null => {
-      let current: HTMLElement | null = node
-      while (current && current !== container) {
-        const style = window.getComputedStyle(current)
-        const overflowY = style.overflowY
-        const scrollableY = (overflowY === 'auto' || overflowY === 'scroll') && current.scrollHeight > current.clientHeight
-        if (scrollableY) return current
-        current = current.parentElement
-      }
-      return null
-    }
-
-    const nestedScrollable = findScrollableAncestor(target)
-    if (nestedScrollable) {
-      const maxScrollTop = nestedScrollable.scrollHeight - nestedScrollable.clientHeight
-      const atTop = nestedScrollable.scrollTop <= 0
-      const atBottom = nestedScrollable.scrollTop >= maxScrollTop - 1
-      const scrollingDown = deltaY > 0
-      const canNestedConsume = scrollingDown ? !atBottom : !atTop
-      if (canNestedConsume) return
-    }
-
-    e.preventDefault()
-    const maxContainerScroll = container.scrollHeight - container.clientHeight
-    const next = Math.min(maxContainerScroll, Math.max(0, container.scrollTop + deltaY))
-    if (next !== container.scrollTop) {
-      container.scrollTop = next
-    }
+    proxyWheelToContainer(e, messagesContainerRef.current, { excludeSelector: '.chat-view__input-area' })
   }, [])
 
   return (

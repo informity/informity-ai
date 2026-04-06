@@ -10,6 +10,11 @@ from informity.db.models import FileCategory
 from informity.file_patterns import YEAR_PATTERN
 
 _YEAR_EXTRACTION_TEXT_LIMIT = 1000
+_SKIP_DIRS: frozenset[str] = frozenset({
+    'library', 'applications', 'system', 'users', 'home',
+    '.git', '.venv', '.env', 'node_modules', '__pycache__',
+    'desktop', 'documents', 'downloads', 'movies', 'music', 'pictures',
+})
 
 
 def classify_file(path: Path, extension: str) -> FileCategory:
@@ -57,19 +62,12 @@ def generate_tags(path: Path) -> list[str]:
     # Extracts meaningful directory names, filters system dirs, normalizes.
     tags: list[str] = []
 
-    # System directories to skip
-    skip_dirs = {
-        'library', 'applications', 'system', 'users', 'home',
-        '.git', '.venv', '.env', 'node_modules', '__pycache__',
-        'desktop', 'documents', 'downloads', 'movies', 'music', 'pictures',
-    }
-
     # Extract directory components
     parts = path.parent.parts
 
     for part in parts:
         # Skip empty, single-char, or system dirs
-        if len(part) <= 1 or part.lower() in skip_dirs:
+        if len(part) <= 1 or part.lower() in _SKIP_DIRS:
             continue
 
         # Normalize: lowercase, replace spaces/hyphens with underscores

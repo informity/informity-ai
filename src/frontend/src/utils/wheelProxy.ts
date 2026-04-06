@@ -7,11 +7,13 @@ import type { WheelEvent } from 'react'
 export function proxyWheelToContainer(
   e: WheelEvent<HTMLElement>,
   container: HTMLElement | null,
+  options?: { excludeSelector?: string },
 ): void {
   if (!container) return
 
   const target = e.target as HTMLElement | null
   if (!target) return
+  if (options?.excludeSelector && target.closest(options.excludeSelector)) return
 
   const deltaY = e.deltaY
   if (!Number.isFinite(deltaY) || deltaY === 0) return

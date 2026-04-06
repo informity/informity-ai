@@ -46,7 +46,6 @@ function App({ startupError = null }: AppProps) {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setSetupError(message)
-      setSetupStatus((prev) => prev)
     }
   }, [])
 
