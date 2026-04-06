@@ -1212,24 +1212,6 @@ export function SettingsView({
             </div>
           </>
         )}
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-ai-generate-3d-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Other Models
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">Embedding and reranker models for document search.</p>
-          </div>
-
-          <div className="settings-control-group">
-            <label className="settings-control-label" htmlFor="settings-embed-model">Embedding model (document and query vectors)</label>
-          <input id="settings-embed-model" type="text" className="settings-input settings-input--readonly" value={settings.embedding_model || ''} readOnly disabled />
-        </div>
-        <div className="settings-control-group">
-          <label className="settings-control-label" htmlFor="settings-reranker-model">Reranker model (re-rank search results)</label>
-          <input id="settings-reranker-model" type="text" className="settings-input settings-input--readonly" value={settings.rag_reranker_model || ''} readOnly disabled />
-          </div>
-        </div>
         </section>
 
         <section className={sectionClass(activeTab === 'diagnostics')}>
