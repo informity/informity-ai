@@ -732,9 +732,9 @@ export function SettingsView({
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
               <i className="ri-message-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Chat Context
+              Conversation Memory
             </div>
-            <p className="settings-subsection-description ui-subsection-description">How many previous messages to include in context. Lower values free up tokens for more document passages; higher values improve continuity for follow-ups.</p>
+            <p className="settings-subsection-description ui-subsection-description">How many recent messages are kept for context in new replies. Higher values improve continuity but may slow responses.</p>
           </div>
           <div className="settings-slider-row">
             <span className="settings-slider-min">0</span>
@@ -757,61 +757,33 @@ export function SettingsView({
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-cpu-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              CPU Responsiveness
+              <i className="ri-archive-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              Conversation History
             </div>
             <p className="settings-subsection-description ui-subsection-description">
-              Controls CPU threads used by chat generation. Lower values keep the system more responsive. Requires restart.
-            </p>
-          </div>
-          <div className="settings-slider-row">
-            <span className="settings-slider-min">Responsive</span>
-            <span className="settings-slider-label">
-              <span className="settings-slider-current">{CHAT_CPU_RESPONSIVENESS_LABELS[chatCpuVal] || 'Balanced'}</span>
-              {' '}({form.llm_cpu_threads ?? 4} threads)
-            </span>
-            <span className="settings-slider-max">Faster</span>
-          </div>
-          <input
-            type="range"
-            className="settings-slider"
-            min={1}
-            max={3}
-            step={1}
-            value={chatCpuVal}
-            onChange={handleChatCpuChange}
-          />
-        </div>
-
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-chat-check-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Answer Quality
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">
-              Retrieval quality controls. The system applies automatic re-ranking for search results, including list and comparison queries.
+              Local chat diagnostics logs can help troubleshoot issues when needed.
             </p>
           </div>
           <label className="settings-checkbox-row">
             <input
               type="checkbox"
-              checked={form.adaptive_rag_tuning ?? true}
-              onChange={(e) => update('adaptive_rag_tuning', e.target.checked)}
+              checked={form.chat_trace_logging ?? false}
+              onChange={(e) => updateDiagnosticsControl('chat_trace_logging', e.target.checked)}
             />
             <div>
               <span className="settings-checkbox-row-label">
-                Enable adaptive passage retrieval
+                Save chat activity logs
                 <span className="settings-checkbox-row-info ui-tooltip-trigger">
                   <i className="ri-information-line" aria-hidden="true" />
                   <span className="settings-tooltip ui-tooltip">
-                    Dynamically adjusts the number of retrieved passages based on your corpus size to balance accuracy and performance.
+                    Saves chat diagnostics locally on your device to help with troubleshooting. Disabled by default.
                   </span>
                 </span>
               </span>
             </div>
           </label>
         </div>
+
         </section>
 
         <section className={sectionClass(activeTab === 'data')}>
@@ -1021,69 +993,6 @@ export function SettingsView({
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-timer-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Per-File Timeout
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">
-              Maximum processing time per file. Increase for large or complex PDFs. Range: 0-600 seconds (0 disables timeout; not recommended).
-            </p>
-          </div>
-          <input
-            id="scan-file-timeout"
-            type="number"
-            className="settings-input settings-input--number"
-            min={0}
-            max={600}
-            value={form.scan_file_timeout_seconds ?? 300}
-            onChange={(e) => update('scan_file_timeout_seconds', clamp(parseInteger(e.target.value, 300), 0, 600))}
-          />
-        </div>
-
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-text-snippet subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Text Processing
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">How document text is split into chunks before embedding. Affects search quality and retrieval.</p>
-          </div>
-          <div className="settings-slider-row">
-            <span className="settings-slider-min">200</span>
-            <span className="settings-slider-label">
-              Chunk size: <span className="settings-slider-current">{form.chunk_size_tokens ?? 512}</span> tokens
-            </span>
-            <span className="settings-slider-max">1200</span>
-          </div>
-          <input
-            type="range"
-            className="settings-slider"
-            min={200}
-            max={1200}
-            step={50}
-            value={form.chunk_size_tokens ?? 512}
-            onChange={(e) => update('chunk_size_tokens', clamp(parseInteger(e.target.value, 512), 200, 1200))}
-          />
-          <div className="settings-slider-row">
-            <span className="settings-slider-min">0</span>
-            <span className="settings-slider-label">
-              Overlap: <span className="settings-slider-current">{form.chunk_overlap_tokens ?? 60}</span> tokens
-            </span>
-            <span className="settings-slider-max">200</span>
-          </div>
-          <input
-            type="range"
-            className="settings-slider"
-            min={0}
-            max={200}
-            step={10}
-            value={form.chunk_overlap_tokens ?? 60}
-            onChange={(e) => update('chunk_overlap_tokens', clamp(parseInteger(e.target.value, 60), 0, 200))}
-          />
-        </div>
-
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
               <i className="ri-speed-up-line subsection-icon ui-subsection-icon" aria-hidden="true" />
               Performance
             </div>
@@ -1110,23 +1019,24 @@ export function SettingsView({
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-input-method-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Embedding Batch Size
+              <i className="ri-timer-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              File Processing Timeout
             </div>
             <p className="settings-subsection-description ui-subsection-description">
-              Number of text chunks embedded in parallel. Higher values use more memory. Allowed range: 1-256.
+              Maximum time to process one file. Increase for very large or complex files. Range: 0-600 seconds (0 disables timeout and can stall scans).
             </p>
           </div>
           <input
-            id="embedding-batch-size"
+            id="scan-file-timeout"
             type="number"
             className="settings-input settings-input--number"
-            min={1}
-            max={256}
-            value={form.embedding_batch_size ?? 32}
-            onChange={(e) => update('embedding_batch_size', clamp(parseInteger(e.target.value, 32), 1, 256))}
+            min={0}
+            max={600}
+            value={form.scan_file_timeout_seconds ?? 300}
+            onChange={(e) => update('scan_file_timeout_seconds', clamp(parseInteger(e.target.value, 300), 0, 600))}
           />
         </div>
+
         </section>
 
         <section className={sectionClass(activeTab === 'models')}>
@@ -1249,120 +1159,73 @@ export function SettingsView({
           </div>
         </div>
 
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-equalizer-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Runtime Diagnostics Controls
+        {form.diagnostics_profile === 'custom' && (
+          <div className="settings-subsection">
+            <div className="settings-subsection-head ui-subsection-head">
+              <div className="settings-subsection-title ui-subsection-title">
+                <i className="ri-tools-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                Advanced Diagnostics
+              </div>
+              <p className="settings-subsection-description ui-subsection-description">
+                Fine-grained overrides. Changing these fields switches Diagnostics Profile to Custom.
+              </p>
             </div>
-            <p className="settings-subsection-description ui-subsection-description">
-              Direct runtime switches used during debugging sessions. Response diagnostics metrics are collected automatically.
-            </p>
-          </div>
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.chat_trace_logging ?? false}
-              onChange={(e) => updateDiagnosticsControl('chat_trace_logging', e.target.checked)}
-            />
-            <div>
-              <span className="settings-checkbox-row-label">
-                Enable trace logging for each chat
-                <span className="settings-checkbox-row-info ui-tooltip-trigger">
-                  <i className="ri-information-line" aria-hidden="true" />
-                  <span className="settings-tooltip ui-tooltip">
-                    Save a JSON trace per message to the app data directory chats folder
-                    (default: ~/.informity/chats). Disabled by default.
-                  </span>
-                </span>
-              </span>
+            <div className="settings-control-group">
+              <label className="settings-control-label" htmlFor="settings-log-level">Log Level</label>
+              <select
+                id="settings-log-level"
+                className="settings-select"
+                value={form.log_level ?? 'info'}
+                onChange={(e) => updateDiagnosticsControl('log_level', e.target.value)}
+              >
+                {LOG_LEVEL_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
             </div>
-          </label>
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.enable_raw_output_control ?? false}
-              onChange={(e) => update('enable_raw_output_control', e.target.checked)}
-            />
-            <div>
-              <span className="settings-checkbox-row-label">
-                Enable raw output view
-                <span className="settings-checkbox-row-info ui-tooltip-trigger">
-                  <i className="ri-information-line" aria-hidden="true" />
-                  <span className="settings-tooltip ui-tooltip">
-                    Show a control to fetch and display raw model output (including think blocks) for each assistant message. Useful for debugging.
-                  </span>
-                </span>
-              </span>
+            <div className="settings-control-group">
+              <label className="settings-control-label" htmlFor="settings-trace-redaction">Trace Redaction</label>
+              <select
+                id="settings-trace-redaction"
+                className="settings-select"
+                value={form.chat_trace_redaction_mode ?? 'minimal'}
+                onChange={(e) => updateDiagnosticsControl('chat_trace_redaction_mode', e.target.value)}
+              >
+                {TRACE_REDACTION_OPTIONS.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
             </div>
-          </label>
-        </div>
-
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-tools-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Advanced Diagnostics
+            <div className="settings-control-group">
+              <label className="settings-control-label" htmlFor="settings-trace-retention-user">User Trace Retention (Days)</label>
+              <input
+                id="settings-trace-retention-user"
+                type="number"
+                className="settings-input settings-input--number"
+                min={0}
+                max={3650}
+                value={form.chat_trace_user_retention_days ?? 30}
+                onChange={(e) => updateDiagnosticsControl('chat_trace_user_retention_days', clamp(parseInteger(e.target.value, 0), 0, 3650))}
+              />
             </div>
-            <p className="settings-subsection-description ui-subsection-description">
-              Fine-grained overrides. Changing these fields switches Diagnostics Profile to Custom.
-            </p>
+            <div className="settings-control-group">
+              <label className="settings-control-label" htmlFor="settings-trace-retention-eval">Evaluation Trace Retention (Days)</label>
+              <input
+                id="settings-trace-retention-eval"
+                type="number"
+                className="settings-input settings-input--number"
+                min={0}
+                max={3650}
+                value={form.chat_trace_evaluation_retention_days ?? 30}
+                onChange={(e) => updateDiagnosticsControl('chat_trace_evaluation_retention_days', clamp(parseInteger(e.target.value, 0), 0, 3650))}
+              />
+            </div>
           </div>
-          <div className="settings-control-group">
-            <label className="settings-control-label" htmlFor="settings-log-level">Log Level</label>
-            <select
-              id="settings-log-level"
-              className="settings-select"
-              value={form.log_level ?? 'info'}
-              onChange={(e) => updateDiagnosticsControl('log_level', e.target.value)}
-            >
-              {LOG_LEVEL_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="settings-control-group">
-            <label className="settings-control-label" htmlFor="settings-trace-redaction">Trace Redaction</label>
-            <select
-              id="settings-trace-redaction"
-              className="settings-select"
-              value={form.chat_trace_redaction_mode ?? 'minimal'}
-              onChange={(e) => updateDiagnosticsControl('chat_trace_redaction_mode', e.target.value)}
-            >
-              {TRACE_REDACTION_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>
-                  {o.label}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="settings-control-group">
-            <label className="settings-control-label" htmlFor="settings-trace-retention-user">User Trace Retention (Days)</label>
-            <input
-              id="settings-trace-retention-user"
-              type="number"
-              className="settings-input settings-input--number"
-              min={0}
-              max={3650}
-              value={form.chat_trace_user_retention_days ?? 30}
-              onChange={(e) => updateDiagnosticsControl('chat_trace_user_retention_days', clamp(parseInteger(e.target.value, 0), 0, 3650))}
-            />
-          </div>
-          <div className="settings-control-group">
-            <label className="settings-control-label" htmlFor="settings-trace-retention-eval">Evaluation Trace Retention (Days)</label>
-            <input
-              id="settings-trace-retention-eval"
-              type="number"
-              className="settings-input settings-input--number"
-              min={0}
-              max={3650}
-              value={form.chat_trace_evaluation_retention_days ?? 30}
-              onChange={(e) => updateDiagnosticsControl('chat_trace_evaluation_retention_days', clamp(parseInteger(e.target.value, 0), 0, 3650))}
-            />
-          </div>
-        </div>
+        )}
         </section>
 
         <section className={sectionClass(activeTab === 'general')}>
@@ -1427,6 +1290,35 @@ export function SettingsView({
           System
         </div>
         <p className="settings-section-description">General application utilities and configuration references.</p>
+
+        <div className="settings-subsection">
+          <div className="settings-subsection-head ui-subsection-head">
+            <div className="settings-subsection-title ui-subsection-title">
+              <i className="ri-cpu-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              CPU Responsiveness
+            </div>
+            <p className="settings-subsection-description ui-subsection-description">
+              Controls CPU threads used by chat generation. Lower values keep the system more responsive. Requires restart.
+            </p>
+          </div>
+          <div className="settings-slider-row">
+            <span className="settings-slider-min">Responsive</span>
+            <span className="settings-slider-label">
+              <span className="settings-slider-current">{CHAT_CPU_RESPONSIVENESS_LABELS[chatCpuVal] || 'Balanced'}</span>
+              {' '}({form.llm_cpu_threads ?? 4} threads)
+            </span>
+            <span className="settings-slider-max">Faster</span>
+          </div>
+          <input
+            type="range"
+            className="settings-slider"
+            min={1}
+            max={3}
+            step={1}
+            value={chatCpuVal}
+            onChange={handleChatCpuChange}
+          />
+        </div>
 
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
