@@ -703,7 +703,7 @@ export function SettingsView({
           <i className="ri-chat-ai-4-line section-icon" aria-hidden="true" />
           Chat
         </div>
-        <p className="settings-section-description">Conversation context and answer quality options.</p>
+        <p className="settings-section-description">Conversation context and default chat settings.</p>
 
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
@@ -758,10 +758,10 @@ export function SettingsView({
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
               <i className="ri-archive-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Conversation History
+              Activity Logs
             </div>
             <p className="settings-subsection-description ui-subsection-description">
-              Local chat diagnostics logs can help troubleshoot issues when needed.
+              Save a local log of each chat session to help diagnose issues if something goes wrong.
             </p>
           </div>
           <label className="settings-checkbox-row">
@@ -1023,7 +1023,7 @@ export function SettingsView({
               File Processing Timeout
             </div>
             <p className="settings-subsection-description ui-subsection-description">
-              Maximum time to process one file. Increase for very large or complex files. Range: 0-600 seconds (0 disables timeout and can stall scans).
+              Maximum time allowed to process a single file. Increase this for very large or complex PDFs. Setting to 0 disables the timeout, which may cause a scan to stall on a problematic file.
             </p>
           </div>
           <input
@@ -1044,7 +1044,7 @@ export function SettingsView({
           <i className="ri-robot-2-line section-icon" aria-hidden="true" />
           Models
         </div>
-        <p className="settings-section-description">Manage installed model tiers, default model selection, and model profile references.</p>
+        <p className="settings-section-description">Select the AI model to use and view its capabilities.</p>
 
         {profile && (
           <>
@@ -1129,7 +1129,7 @@ export function SettingsView({
           <i className="ri-pulse-line section-icon" aria-hidden="true" />
           Diagnostics & Observability
         </div>
-        <p className="settings-section-description">Logging, trace, and diagnostics controls for operational troubleshooting.</p>
+        <p className="settings-section-description">Logging and diagnostics settings. Use these if something seems off or you need to share details with support.</p>
 
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
@@ -1167,7 +1167,7 @@ export function SettingsView({
                 Advanced Diagnostics
               </div>
               <p className="settings-subsection-description ui-subsection-description">
-                Fine-grained overrides. Changing these fields switches Diagnostics Profile to Custom.
+                Fine-grained controls for the Custom diagnostics profile.
               </p>
             </div>
             <div className="settings-control-group">
@@ -1307,7 +1307,7 @@ export function SettingsView({
               <span className="settings-slider-current">{CHAT_CPU_RESPONSIVENESS_LABELS[chatCpuVal] || 'Balanced'}</span>
               {' '}({form.llm_cpu_threads ?? 4} threads)
             </span>
-            <span className="settings-slider-max">Faster</span>
+            <span className="settings-slider-max">Fastest</span>
           </div>
           <input
             type="range"
