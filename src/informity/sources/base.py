@@ -7,6 +7,7 @@ from typing import Any, Protocol
 
 SourceProvider = str
 SourceItemId = str
+FILESYSTEM_PROVIDER: SourceProvider = 'filesystem'
 
 
 @dataclass(frozen=True)

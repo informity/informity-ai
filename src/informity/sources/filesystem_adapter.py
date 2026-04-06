@@ -4,12 +4,12 @@ from pathlib import Path
 from typing import Any
 
 from informity.scanner.crawler import scan_directories, scanned_file_for_path
-from informity.sources.base import IngestionItem, SourceItemRef
+from informity.sources.base import FILESYSTEM_PROVIDER, IngestionItem, SourceItemRef
 from informity.utils.path_utils import normalize_path
 
 
 class FilesystemSourceAdapter:
-    provider = 'filesystem'
+    provider = FILESYSTEM_PROVIDER
 
     def discover(self, scope: dict[str, Any]) -> list[SourceItemRef]:
         directories = scope.get('directories')

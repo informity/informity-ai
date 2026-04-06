@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 import structlog
 
 from informity.config import settings
+from informity.llm.contract_prompt_parser import EXPLICIT_YEAR_PATTERN
 from informity.llm.intent_router import get_intent_router
 from informity.llm.query_patterns import (
     build_aggregate_listing_scope_pattern,
@@ -135,7 +136,7 @@ def _looks_single_target_request(text: str) -> bool:
 
 
 def _has_multi_year_scope_signal(text: str) -> bool:
-    years = re.findall(r'\b(?:19|20)\d{2}\b', text)
+    years = [match.group(0) for match in EXPLICIT_YEAR_PATTERN.finditer(text)]
     if len(set(years)) >= 2:
         return True
     return bool(_YEAR_AGGREGATE_CUE_PATTERN.search(text))
@@ -256,7 +257,7 @@ def classify_query(query: str) -> QueryClassification:
     lowered = text.casefold()
     year_filter: int | None = None
 
-    year_candidates = re.findall(r'\b(?:19|20)\d{2}\b', lowered)
+    year_candidates = [match.group(0) for match in EXPLICIT_YEAR_PATTERN.finditer(lowered)]
     if len(year_candidates) == 1:
         _yr = int(year_candidates[0])
         if 1900 <= _yr <= 2099:

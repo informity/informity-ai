@@ -17,6 +17,7 @@ from informity.db.models import ChatMessage
 from informity.llm.contract_gate import build_contract_spec, enforce_required_sections
 from informity.llm.metrics_payload import build_metrics_payload
 from informity.llm.model_adapter import get_profile, get_retrieval_top_k
+from informity.llm.nlp_heuristics import BY_PER_YEAR_PATTERN
 from informity.llm.prompt_builder import build_messages, resolve_history_limit
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.query_patterns import build_referential_followup_pattern
@@ -50,7 +51,8 @@ _OUTPUT_CONTRACT_BULLET_LIMIT_PATTERN = re.compile(
 _REFERENTIAL_FOLLOWUP_PATTERN = build_referential_followup_pattern()
 _DETERMINISTIC_EXTRACTION_HEADING = '### Deterministic Numeric Extraction\n\n'
 _EXTRACTION_CUE_PATTERN = re.compile(r'\bextract\b', re.IGNORECASE)
-_BY_YEAR_CUE_PATTERN = re.compile(r'\b(?:by|per)\s+year\b', re.IGNORECASE)
+_STRICT_CONTRACT_MAX_TEMPERATURE = 0.2
+_STRICT_CONTRACT_MAX_TOP_P = 0.8
 
 
 def _has_explicit_output_contract(question: str) -> bool:
@@ -94,7 +96,10 @@ def _resolve_sampling_params(
         or 'one subsection per year' in requirements_joined
     )
     if strict_contract:
-        return min(profile_temperature, 0.2), min(profile_top_p, 0.8)
+        return (
+            min(profile_temperature, _STRICT_CONTRACT_MAX_TEMPERATURE),
+            min(profile_top_p, _STRICT_CONTRACT_MAX_TOP_P),
+        )
     return profile_temperature, profile_top_p
 
 
@@ -124,7 +129,7 @@ def _should_prepend_deterministic_extraction_heading(
         return False
     if not _EXTRACTION_CUE_PATTERN.search(question):
         return False
-    return _BY_YEAR_CUE_PATTERN.search(question)
+    return BY_PER_YEAR_PATTERN.search(question)
 
 
 def _build_history_aware_retrieval_query(question: str, history: list[ChatMessage] | None) -> tuple[str, bool]:

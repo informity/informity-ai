@@ -3,6 +3,7 @@ from __future__ import annotations
 import structlog
 
 from informity.scanner.crawler import ScannedFile
+from informity.sources.base import FILESYSTEM_PROVIDER
 from informity.sources.filesystem_adapter import FilesystemSourceAdapter
 from informity.sources.registry import SourceAdapterRegistry
 
@@ -21,7 +22,7 @@ class SourceIngestionOrchestrator:
         supported_extensions: list[str],
         follow_symlinks: bool,
     ) -> list[ScannedFile]:
-        adapter = self.registry.get('filesystem')
+        adapter = self.registry.get(FILESYSTEM_PROVIDER)
         refs = adapter.discover(
             {
                 'directories': directories,
@@ -38,7 +39,7 @@ class SourceIngestionOrchestrator:
             except (RuntimeError, ValueError, TypeError, OSError) as exc:
                 log.warning(
                     'source_item_fetch_failed',
-                    provider='filesystem',
+                    provider=FILESYSTEM_PROVIDER,
                     source_item_id=ref.item_id,
                     locator=ref.locator,
                     error=str(exc),
@@ -52,7 +53,7 @@ class SourceIngestionOrchestrator:
 
             log.warning(
                 'source_item_missing_scanned_file',
-                provider='filesystem',
+                provider=FILESYSTEM_PROVIDER,
                 source_item_id=item.source_item_id,
             )
         return scanned_files

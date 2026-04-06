@@ -11,26 +11,6 @@ import re
 _ALNUM_TOKEN_PATTERN = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$')
 _ORDINAL_ONLY_PATTERN = re.compile(r'^(?:\d+|[ivxlcdm]+|[a-z])$', re.IGNORECASE)
 _STOP_SECTION_TOKENS = {'in', 'for', 'then', 'under', 'with', 'using'}
-_AGGREGATION_TERMS = {
-    'aggregate',
-    'aggregated',
-    'summary',
-    'summaries',
-    'total',
-}
-_EXTRACTION_TASK_TERMS = {
-    'create',
-    'produce',
-    'extract',
-    'calculate',
-    'sum',
-    'total',
-    'compare',
-    'compile',
-    'build',
-}
-_SUMMARY_VERBS = {'summarize', 'summarise', 'describe'}
-_SUMMARY_CONTENT_TOKENS = {'content', 'contain', 'contains', 'summary'}
 _PERIOD_COMPARISON_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r'\byear[-\s]*over[-\s]*year\b', re.IGNORECASE),
     re.compile(r'\byoy\b', re.IGNORECASE),
@@ -52,7 +32,7 @@ _MENTION_ANCHOR_PATTERN = re.compile(
 )
 
 # Pre-compiled patterns for semantic checks
-_BY_PER_YEAR_PATTERN = re.compile(r'\b(?:by|per)\s+year\b', re.IGNORECASE)
+BY_PER_YEAR_PATTERN = re.compile(r'\b(?:by|per)\s+year\b', re.IGNORECASE)
 _AGGREGATION_TERM_PATTERN = re.compile(
     r'\b(?:aggregate|aggregated|summary|summaries|total)\b', re.IGNORECASE
 )
@@ -133,7 +113,7 @@ def has_aggregation_semantics(doc: _ParsedQuery) -> bool:
         return True
     if _AGGREGATION_TERM_PATTERN.search(text):
         return True
-    return bool(_BY_PER_YEAR_PATTERN.search(text))
+    return bool(BY_PER_YEAR_PATTERN.search(text))
 
 
 def has_period_comparison_semantics(doc: _ParsedQuery) -> bool:

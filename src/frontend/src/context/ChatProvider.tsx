@@ -7,6 +7,7 @@ import { ChatContext } from './chatContext'
 import { ApiError, getChat, getSettings, stopChatStream, streamChat, updateCurrentChat } from '../api'
 import { showToast } from './useToast'
 import { logApiError } from '../utils/logApiError'
+import { FORCE_NEW_CHAT_KEY } from '../utils/storageKeys'
 import type {
   ChatMode,
   ChatMessageApi,
@@ -29,7 +30,6 @@ interface GetChatResponse {
 const CLEANED_REVEAL_INTERVAL_MS = 14
 const CLEANED_REVEAL_CHARS_PER_TICK = 8
 const CONTINUE_SCOPED_PROMPT = 'Continue with the remaining sections from your last answer. Keep the same structure and avoid repeating completed sections.'
-const FORCE_NEW_CHAT_KEY = 'informity_force_new_chat'
 const ACTIVE_GENERATION_REJECT_MESSAGE = 'Please wait for the current answer to finish or press Stop.'
 // Keep watchdog well above backend generation hard limits.
 // This timer is only a dead-connection guard.
@@ -42,10 +42,9 @@ const STREAM_STATUS_LABELS: Record<string, string> = {
   classifying: 'Analyzing your request...',
   retrieving: 'Searching for relevant information...',
   generating: 'Generating response...',
+  continuing: 'Continuing response...',
   finalizing: 'Finalizing answer...',
 }
-
-type DonePayload = StreamDonePayload
 
 function normalizeCompletionMode(
   value: unknown,
@@ -55,12 +54,7 @@ function normalizeCompletionMode(
     : 'complete'
 }
 
-function getContinuingStatusLabel(): string {
-  return 'Continuing response...'
-}
-
 function getStreamStatusLabel(state: string): string | undefined {
-  if (state === 'continuing') return getContinuingStatusLabel()
   return STREAM_STATUS_LABELS[state]
 }
 
@@ -177,7 +171,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const streamDraftRef = useRef<ChatMessageDisplay | null>(null)
   const streamRevealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const streamRevealActiveRef = useRef(false)
-  const streamPendingDoneRef = useRef<DonePayload | null>(null)
+  const streamPendingDoneRef = useRef<StreamDonePayload | null>(null)
   const streamCleanedContentRef = useRef<string | null>(null)
   const streamRevealCharIndexRef = useRef(0)
   const streamWatchdogTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -432,7 +426,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       isStreaming: true,
       isContinuation: isInternalMessage,
       streamStatusText: isInternalMessage
-        ? getContinuingStatusLabel()
+        ? getStreamStatusLabel('continuing') || 'Continuing response...'
         : 'Generating response...',
       isPartial: false,
       streamSectionProgress: undefined,
@@ -472,7 +466,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         }, STREAM_INACTIVITY_TIMEOUT_MS)
       }
 
-      const finalizeDone = (data: DonePayload | null | undefined) => {
+      const finalizeDone = (data: StreamDonePayload | null | undefined) => {
         clearStreamWatchdog()
         streamWatchdogTimedOutRef.current = false
         clearRevealTimer()
@@ -750,10 +744,10 @@ export function ChatProvider({ children }: ChatProviderProps) {
             streamThrottleRef.current = null
           }
           if (streamRevealActiveRef.current) {
-            streamPendingDoneRef.current = data as DonePayload
+            streamPendingDoneRef.current = data as StreamDonePayload
             return
           }
-          finalizeDone(data as DonePayload)
+          finalizeDone(data as StreamDonePayload)
         },
         onError: (err) => {
           if (streamSessionRef.current !== sessionId) return

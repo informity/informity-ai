@@ -41,6 +41,7 @@ from informity.indexer.term_dictionary_builder import (
 )
 from informity.scanner.crawler import scanned_file_for_path
 from informity.scanner.extractors.base import register_extractors
+from informity.sources.base import FILESYSTEM_PROVIDER
 
 # ==============================================================================
 # Logger
@@ -49,7 +50,7 @@ from informity.scanner.extractors.base import register_extractors
 log = structlog.get_logger(__name__)
 _INDEX_RUNTIME_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError)
 _INDEX_CLEANUP_EXCEPTIONS = (OSError, PermissionError, RuntimeError)
-INDEX_SOURCE_PROVIDER = 'filesystem'
+INDEX_SOURCE_PROVIDER = FILESYSTEM_PROVIDER
 
 # ==============================================================================
 # Router

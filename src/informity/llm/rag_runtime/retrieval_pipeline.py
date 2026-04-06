@@ -14,6 +14,7 @@ from dataclasses import dataclass, field
 import aiosqlite
 import structlog
 
+from informity.llm.contract_prompt_parser import EXPLICIT_YEAR_PATTERN
 from informity.llm.intent_profiles import get_intent_profile_policy
 from informity.llm.model_adapter import get_retrieval_top_k
 from informity.llm.query_classifier import QueryClassification
@@ -215,7 +216,7 @@ def _build_focused_anchor_recovery_query(*, question: str, source_terms: list[st
     if not deduped:
         return None
     prefix = 'Find document evidence for: '
-    if re.search(r'\b(?:19|20)\d{2}\b', question):
+    if EXPLICIT_YEAR_PATTERN.search(question):
         prefix = 'Find matching year-specific document evidence for: '
     return prefix + '; '.join(deduped)
 

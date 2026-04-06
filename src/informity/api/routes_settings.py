@@ -212,11 +212,6 @@ def _build_model_profile_info(model_filename: str) -> ModelProfileInfo:
     return ModelProfileInfo(**profile.to_display_dict())
 
 
-def _normalize_main_model_filename(model_filename: str) -> str:
-    normalized = str(model_filename or '').strip()
-    return normalized
-
-
 def _read_config_file() -> dict:
     # Read the existing config file, or return an empty dict.
     config_path = _config_file_path()
@@ -335,7 +330,7 @@ async def get_config_reference() -> ConfigReferenceResponse:
 async def get_settings() -> SettingsResponse:
     # Access config.settings to always get the current singleton value
     s = config.settings
-    effective_llm_model_filename = _normalize_main_model_filename(s.llm_model_filename)
+    effective_llm_model_filename = str(s.llm_model_filename or '').strip()
     if effective_llm_model_filename and effective_llm_model_filename != s.llm_model_filename:
         s.llm_model_filename = effective_llm_model_filename
 
@@ -375,7 +370,7 @@ async def get_settings() -> SettingsResponse:
         adaptive_rag_tuning   = s.adaptive_rag_tuning,
         rag_rerank            = s.rag_rerank,
         rag_rerank_coverage   = s.rag_rerank_coverage,
-        rag_reranker_model    = s.rag_reranker_model.strip() or config._DEFAULT_RERANKER_MODEL,
+        rag_reranker_model    = s.rag_reranker_model.strip() or config.DEFAULT_RERANKER_MODEL,
         rag_rerank_candidates = s.rag_rerank_candidates,
         rag_query_rewrite_enabled = s.rag_query_rewrite_enabled,
         rag_query_rewrite_max_history_messages = s.rag_query_rewrite_max_history_messages,

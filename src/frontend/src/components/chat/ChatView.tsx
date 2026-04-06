@@ -12,11 +12,11 @@ import { useBackendStatus } from '../../context/useBackendStatus'
 import { getCurrentChat, getSettings } from '../../api'
 import type { ChatMode } from '../../types/api'
 import { logApiError } from '../../utils/logApiError'
+import { FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
 import './ChatView.css'
 
 const CHAT_INPUT_MIN_HEIGHT = 104
 const CHAT_INPUT_MAX_HEIGHT = 304
-const FORCE_NEW_CHAT_KEY = 'informity_force_new_chat'
 const CHAT_MODE_STORAGE_KEY = 'informity_chat_mode'
 const CHAT_MODE_LABELS: Record<ChatMode, string> = {
   assistant: 'Assistant',

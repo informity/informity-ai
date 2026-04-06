@@ -35,6 +35,7 @@ from informity.scanner.extractors.base import (
     BaseExtractor,
     get_extractor,
 )
+from informity.sources.base import FILESYSTEM_PROVIDER
 from informity.utils.path_utils import normalize_path
 
 if TYPE_CHECKING:
@@ -483,7 +484,7 @@ async def index_file(
         # 3. Insert file
         # content_hash already computed above (from ScannedFile or computed from Path)
         indexed_file = IndexedFile(
-            source_provider='filesystem',
+            source_provider=FILESYSTEM_PROVIDER,
             source_item_id=str(normalize_path(file_path, expand_user=False)),
             path=str(normalize_path(file_path, expand_user=False)),
             filename=filename,
@@ -618,7 +619,7 @@ async def reindex_file(
         normalized_path = str(normalize_path(path, expand_user=False))
         existing = await get_file_by_source_identity(
             db,
-            source_provider='filesystem',
+            source_provider=FILESYSTEM_PROVIDER,
             source_item_id=normalized_path,
         )
         if existing is None:
@@ -700,7 +701,7 @@ async def reindex_file(
         # Use content_hash from ScannedFile (already computed by crawler)
         # No need to re-read file bytes - scanned.content_hash is already available
         existing.content_hash = scanned.content_hash
-        existing.source_provider = 'filesystem'
+        existing.source_provider = FILESYSTEM_PROVIDER
         existing.source_item_id = str(normalize_path(path, expand_user=False))
         existing.size_bytes = scanned.size_bytes
         existing.extracted_text_preview = doc.preview_text or doc.text[:500]
