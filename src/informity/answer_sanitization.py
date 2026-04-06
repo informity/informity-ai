@@ -23,7 +23,7 @@ _OUT_OF_CORPUS_SENTENCE_PATTERN = re.compile(
 _OUT_OF_CORPUS_SIGNAL_PATTERN = re.compile(
     r'(?is)\b(?:documents?|context)\b.{0,120}\b(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b(?:contain|include|cover|mention|provide)\b'
 )
-_MAX_WORDS_PATTERN = re.compile(
+MAX_WORDS_PATTERN = re.compile(
     r'(?:<=?|at\s+most|max(?:imum)?|less than or equal to)\s*(\d+)\s*words?\b',
     re.IGNORECASE,
 )
@@ -118,7 +118,7 @@ def build_display_answer(raw_answer: str, fallback_message: str = DISPLAY_FALLBA
 
 
 def extract_requested_max_words(text: str) -> int | None:
-    match = _MAX_WORDS_PATTERN.search(str(text or ''))
+    match = MAX_WORDS_PATTERN.search(str(text or ''))
     if match is None:
         return None
     try:

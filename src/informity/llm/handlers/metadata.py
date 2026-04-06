@@ -3,7 +3,6 @@
 # Handles metadata queries (count, enumeration, file listing) using SQLite directly
 # ==============================================================================
 
-import re
 from collections.abc import AsyncGenerator
 from dataclasses import replace
 
@@ -17,6 +16,7 @@ from informity.db.sqlite import (
     get_distinct_years,
     row_to_indexed_file,
 )
+from informity.llm.contract_prompt_parser import EXPLICIT_YEAR_PATTERN
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.query_patterns import (
     build_aggregation_pattern,
@@ -36,9 +36,6 @@ _AGGREGATION_PATTERN = build_aggregation_pattern()
 _COUNT_PATTERN = build_count_pattern()
 _ENUMERATION_PATTERN = build_enumeration_pattern()
 _FILE_LIST_PATTERN = build_file_list_pattern()
-_EXPLICIT_YEAR_PATTERN = re.compile(r'\b(?:19|20)\d{2}\b')
-
-
 class MetadataHandler:
     """
     Handler for metadata queries (count, enumeration, file listing).
@@ -132,7 +129,7 @@ class MetadataHandler:
     def _extract_explicit_single_year_filter(self, question_lower: str) -> int | None:
         if any(keyword in question_lower for keyword in ('per year', 'each year', 'all years', 'what years')):
             return None
-        years = {int(match.group(0)) for match in _EXPLICIT_YEAR_PATTERN.finditer(question_lower)}
+        years = {int(match.group(0)) for match in EXPLICIT_YEAR_PATTERN.finditer(question_lower)}
         if len(years) != 1:
             return None
         year = next(iter(years))

@@ -41,6 +41,17 @@ interface RequestConfig {
   keepalive?: boolean
 }
 
+async function extractErrorDetail(response: Response): Promise<string> {
+  let detail = response.statusText
+  try {
+    const err = await response.json() as { detail?: string; error?: string }
+    detail = err.detail || err.error || detail
+  } catch {
+    // ignore
+  }
+  return detail
+}
+
 async function request<T = unknown>(
   method: string,
   path: string,
@@ -84,13 +95,7 @@ async function request<T = unknown>(
   const response = await fetch(fullUrl, config)
 
   if (!response.ok) {
-    let detail = response.statusText
-    try {
-      const err = await response.json() as { detail?: string; error?: string }
-      detail = err.detail || err.error || detail
-    } catch {
-      // ignore
-    }
+    const detail = await extractErrorDetail(response)
     throw new ApiError(detail || `HTTP ${response.status}`, response.status, detail)
   }
 
@@ -229,8 +234,8 @@ export async function streamChat(
 
   try {
     const response = await fetch(url, {
-      method:  'POST',
-      headers:  {
+      method: 'POST',
+      headers: {
         'Content-Type': 'application/json',
         ...(sessionToken ? { 'X-Informity-Session': sessionToken } : {}),
       },
@@ -239,13 +244,7 @@ export async function streamChat(
     })
 
     if (!response.ok) {
-      let detail = response.statusText
-      try {
-        const err = await response.json() as { detail?: string; error?: string }
-        detail = err.detail || err.error || detail
-      } catch {
-        // ignore
-      }
+      const detail = await extractErrorDetail(response)
       throw new ApiError(detail || `HTTP ${response.status}`, response.status, detail)
     }
 
@@ -257,6 +256,16 @@ export async function streamChat(
     let buffer = ''
     let currentEvent = 'token'
     const currentData: string[] = []
+    const eventCallbacks = {
+      onToken,
+      onChatId,
+      onStreamId,
+      onRequestId,
+      onSources,
+      onCleaned,
+      onStatus,
+      onPlanStep,
+    }
 
     while (true) {
       const { done, value } = await reader.read()
@@ -273,16 +282,7 @@ export async function streamChat(
           if (currentData.length > 0) {
             const data = currentData.join('\n').trim()
             if (data) {
-              const result = handleEvent(currentEvent, data, {
-                onToken,
-                onChatId,
-                onStreamId,
-                onRequestId,
-                onSources,
-                onCleaned,
-                onStatus,
-                onPlanStep,
-              }, streamState)
+              const result = handleEvent(currentEvent, data, eventCallbacks, streamState)
               if ((currentEvent === 'done' || currentEvent === 'timeout') && result) doneData = result
             }
             currentData.length = 0
@@ -294,16 +294,7 @@ export async function streamChat(
           if (currentData.length > 0) {
             const data = currentData.join('\n').trim()
             if (data) {
-              const result = handleEvent(currentEvent, data, {
-                onToken,
-                onChatId,
-                onStreamId,
-                onRequestId,
-                onSources,
-                onCleaned,
-                onStatus,
-                onPlanStep,
-              }, streamState)
+              const result = handleEvent(currentEvent, data, eventCallbacks, streamState)
               if ((currentEvent === 'done' || currentEvent === 'timeout') && result) doneData = result
             }
             currentData.length = 0
@@ -315,16 +306,7 @@ export async function streamChat(
     if (currentData.length > 0) {
       const data = currentData.join('\n').trim()
       if (data) {
-        const result = handleEvent(currentEvent, data, {
-          onToken,
-          onChatId,
-          onStreamId,
-          onRequestId,
-          onSources,
-          onCleaned,
-          onStatus,
-          onPlanStep,
-        }, streamState)
+        const result = handleEvent(currentEvent, data, eventCallbacks, streamState)
         if ((currentEvent === 'done' || currentEvent === 'timeout') && result) doneData = result
       }
     }

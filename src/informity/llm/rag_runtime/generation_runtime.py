@@ -5,6 +5,7 @@
 
 import re
 
+from informity.answer_sanitization import MAX_WORDS_PATTERN
 from informity.llm.timeout_policy import is_terminal_timeout_reason
 from informity.llm.types import TimeoutReason
 
@@ -40,11 +41,7 @@ def _apply_strict_format_prompt_controls(
     format_requirements = list(derive_format_requirements_fn(question, action_hints) or [])
     constraints = dict(output_constraints or {})
 
-    max_words_match = re.search(
-        r'(?:<=?|at\s+most|max(?:imum)?|less than or equal to)\s*(\d+)\s*words?\b',
-        question,
-        flags=re.IGNORECASE,
-    )
+    max_words_match = MAX_WORDS_PATTERN.search(question)
     if max_words_match:
         parsed_max_words = int(max_words_match.group(1))
         if parsed_max_words > 0:

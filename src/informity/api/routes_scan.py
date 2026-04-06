@@ -67,6 +67,7 @@ from informity.scanner.crawler import (
     scanned_file_for_path,
 )
 from informity.scanner.extractors.base import register_extractors
+from informity.sources.base import FILESYSTEM_PROVIDER
 from informity.sources.orchestrator import build_default_orchestrator
 from informity.utils.path_utils import normalize_path
 
@@ -81,7 +82,7 @@ SCAN_PROGRESS_DB_BUSY_TIMEOUT_MS = 250
 SCAN_PROGRESS_UPDATE_TIMEOUT_SECONDS = 1.0
 SCAN_TERMINAL_UPDATE_RETRIES = 3
 SCAN_TERMINAL_UPDATE_RETRY_DELAY_SECONDS = 0.2
-SCAN_SOURCE_PROVIDER = 'filesystem'
+SCAN_SOURCE_PROVIDER = FILESYSTEM_PROVIDER
 SCAN_ORCHESTRATOR = build_default_orchestrator()
 
 
