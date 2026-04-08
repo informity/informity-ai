@@ -1,6 +1,12 @@
 from informity.api import routes_chat
 from informity.api.chat_continuation import resolve_completion_state as _resolve_completion_state
-from informity.llm.contract_gate import ContractSpec, enforce_required_sections, validate_contract
+from informity.llm.contract_gate import (
+    ContractSpec,
+    build_contract_spec,
+    build_repair_guidance,
+    enforce_required_sections,
+    validate_contract,
+)
 from informity.llm.query_classifier import QueryClassification
 
 
@@ -128,3 +134,77 @@ def test_enforce_required_sections_noop_when_complete() -> None:
     )
     assert filled == []
     assert enforced == answer
+
+
+def test_build_repair_guidance_includes_missing_headings_and_year_floor() -> None:
+    guidance = build_repair_guidance(
+        result=validate_contract(
+            answer="## Scope\nDone",
+            spec=ContractSpec(required_headings=['Scope', 'Method'], min_year_count=2),
+        ),
+    )
+    assert guidance is not None
+    assert '## Method' in guidance
+    assert 'Do not repeat sections that are already complete.' in guidance
+    assert 'Include at least 2 distinct years' in guidance
+
+
+def test_build_contract_spec_enables_year_floor_for_coverage_aggregate_queries() -> None:
+    classification = QueryClassification(
+        intent='coverage',
+        subtype='aggregate_by_period',
+    )
+    spec = build_contract_spec(
+        question='Compare by year and use year-based subsections in the final output.',
+        classification=classification,
+    )
+    assert spec.min_year_count == 2
+
+
+def test_build_contract_spec_tracks_order_and_missing_evidence_requirements() -> None:
+    classification = QueryClassification(intent='coverage', subtype='aggregate_by_period')
+    spec = build_contract_spec(
+        question=(
+            'Use headings in exact order: ## Scope, ## Findings, ## Missing Evidence. '
+            'Explicitly call out missing evidence for unavailable records.'
+        ),
+        classification=classification,
+    )
+    assert spec.enforce_heading_order is True
+    assert spec.requires_missing_evidence_callout is True
+
+
+def test_enforce_required_sections_redacts_ssn() -> None:
+    answer = 'Taxpayer SSN: 123-45-6789'
+    enforced, _filled = enforce_required_sections(
+        answer=answer,
+        spec=ContractSpec(required_headings=[], min_year_count=0),
+    )
+    assert '123-45-6789' not in enforced
+    assert '[REDACTED-SSN]' in enforced
+
+
+def test_enforce_required_sections_inserts_missing_evidence_callout_when_requested() -> None:
+    answer = '## Scope\nDone'
+    enforced, _filled = enforce_required_sections(
+        answer=answer,
+        spec=ContractSpec(
+            required_headings=['Scope'],
+            min_year_count=0,
+            requires_missing_evidence_callout=True,
+        ),
+    )
+    assert 'Missing Evidence:' in enforced
+
+
+def test_enforce_required_sections_reorders_required_headings_when_order_enforced() -> None:
+    answer = '## Findings\nA\n\n## Scope\nB'
+    enforced, _filled = enforce_required_sections(
+        answer=answer,
+        spec=ContractSpec(
+            required_headings=['Scope', 'Findings'],
+            min_year_count=0,
+            enforce_heading_order=True,
+        ),
+    )
+    assert enforced.index('## Scope') < enforced.index('## Findings')

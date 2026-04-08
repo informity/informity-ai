@@ -118,6 +118,7 @@ class ChatRole(StrEnum):
 
 class StreamSignalTag(StrEnum):
     CLASSIFICATION = '__classification__'
+    SEARCHING_STATUS = '__searching_status__'
     TIMEOUT = '__timeout__'
     BUDGET_CHECKPOINT = '__budget_checkpoint__'
     PLAN_STEP = '__plan_step__'

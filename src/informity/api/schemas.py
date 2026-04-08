@@ -91,6 +91,20 @@ class ChatRequest(BaseModel):
     request_id: str | None = None  # Optional client-generated request ID for deterministic stop
     run_id: str | None = None      # Optional diagnostics run correlation ID
     mode: str | None = None        # Optional chat mode: assistant | researcher (invalid -> researcher)
+    chat_web_search_enabled: bool | None = None  # Optional chat-scoped assistant web-search toggle
+    chat_web_search_privacy_override: bool | None = None  # Optional chat-scoped privacy override for web search
+
+
+class ChatPreferencesUpdateRequest(BaseModel):
+    # Request to update chat-scoped UX preferences.
+    chat_web_search_enabled: bool | None = None
+    chat_web_search_privacy_override: bool | None = None
+
+    @model_validator(mode='after')
+    def _validate_non_empty(self) -> 'ChatPreferencesUpdateRequest':
+        if self.chat_web_search_enabled is None and self.chat_web_search_privacy_override is None:
+            raise ValueError('At least one chat preference field is required')
+        return self
 
 
 class ChatStopRequest(BaseModel):
@@ -221,6 +235,9 @@ class SettingsResponse(BaseModel):
     scan_hash_pool:          Literal['thread', 'process'] = 'thread'
     scan_hash_workers:       int = 0  # 0 = auto
     full_privacy:            bool  = True
+    tavily_api_key_set:      bool = False
+    web_search_max_results:  int = 5
+    web_search_timeout_seconds: float = 8.0
     embedding_offline:       bool
     llm_local_only:          bool
     llm_model_filename:   str
@@ -286,6 +303,9 @@ class SettingsUpdateRequest(BaseModel):
     scan_hash_pool:         Literal['thread', 'process'] | None = None
     scan_hash_workers:      int | None = None
     full_privacy:           bool | None = None
+    tavily_api_key:         str | None = None
+    web_search_max_results: int | None = None
+    web_search_timeout_seconds: float | None = None
     embedding_offline:      bool | None = None
     llm_local_only:        bool | None = None
     llm_model_filename:  str | None        = None

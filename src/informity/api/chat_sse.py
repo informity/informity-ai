@@ -24,9 +24,10 @@ SSE_PHASE_ORDER = {
 SSE_STATUS_ORDER = {
     'classifying': 1,
     'retrieving': 2,
-    'generating': 3,
-    'continuing': 4,
-    'finalizing': 5,
+    'searching': 3,
+    'generating': 4,
+    'continuing': 5,
+    'finalizing': 6,
 }
 
 _log = structlog.get_logger(__name__)

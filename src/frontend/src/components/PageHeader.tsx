@@ -25,9 +25,9 @@ export function PageHeader({
     <>
       <div className="page-header__title-row">
         <i className={`${icon} page-header__title-icon`} aria-hidden="true" />
-        <h1 className="page-header__title">{title}</h1>
+        <h1 className="page-header__title ui-title ui-title--view">{title}</h1>
       </div>
-      <div className="page-header__subtitle">{subtitle}</div>
+      <div className="page-header__subtitle ui-subtitle">{subtitle}</div>
     </>
   )
   return (

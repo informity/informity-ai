@@ -137,7 +137,11 @@ CONTENT_ANALYSIS_KEYWORDS: str = (
     r')\b'
 )
 PLURAL_CORPUS_SCOPE_KEYWORDS: str = r'\b(documents|files|records)\b'
-SINGLE_TARGET_KEYWORDS: str = r'\b(any|one|single|this|that)\s+(document|file|record)\b'
+SINGLE_TARGET_KEYWORDS: str = (
+    r'\b(?:any|one|single|this|that|the)\s+'
+    r'(?:[a-z0-9][a-z0-9\s-]{0,40}\s+)?'
+    r'(?:document|file|record|receipt|statement|report|return|form|invoice|summary)\b'
+)
 YEAR_AGGREGATE_CUE_KEYWORDS: str = (
     r'\b('
     r'by year|year[-\s]*by[-\s]*year|year[-\s]*over[-\s]*year|cross[-\s]*year|'

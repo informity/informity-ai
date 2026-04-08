@@ -23,6 +23,7 @@ export const UI_THEME_OPTIONS: Array<{ value: UiThemeValue; label: string }> = [
 
 export function normalizeUiTheme(theme: string | null | undefined): UiThemeValue | undefined {
   if (!theme) return undefined
+  // Legacy alias retained for pre-mono installs that may still persist this value.
   const normalized = theme === 'informity' ? 'mono' : theme
   return UI_THEME_VALUES.includes(normalized as UiThemeValue)
     ? (normalized as UiThemeValue)

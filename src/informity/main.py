@@ -441,7 +441,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
         )
 
         # Skip logging for static files (frontend assets)
-        if request.url.path.startswith('/') and request.url.path != '/api/health':
+        if not request.url.path.startswith('/api'):
             # Check if it's likely a static file request (has file extension or is root)
             path = request.url.path
             if path == '/' or '.' in path.split('/')[-1]:

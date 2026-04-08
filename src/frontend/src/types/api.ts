@@ -60,7 +60,7 @@ export function isChatMode(value: unknown): value is ChatMode {
 export type NextAction = 'none' | 'continue' | 'regenerate' | 'assistant_switch'
 export type NextActionReason = 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_corpus'
 export type ContinuationProgressState = 'progressed' | 'stalled' | 'budget_exhausted'
-export type StreamStatusState = 'classifying' | 'retrieving' | 'generating' | 'continuing' | 'finalizing'
+export type StreamStatusState = 'classifying' | 'retrieving' | 'searching' | 'generating' | 'continuing' | 'finalizing'
 
 export interface PlanStepPayload {
   step_id?: number
@@ -95,6 +95,7 @@ export interface StreamDonePayload {
   display_blocks?: DisplayBlock[]
   budget_metrics?: Record<string, unknown>
   budget_checkpoints?: Array<Record<string, unknown>>
+  web_search_used?: boolean
   continuation_passes?: number
   continuation_resolution_reason?: string | null
   continuation_progress_state?: ContinuationProgressState
@@ -150,6 +151,7 @@ export interface ChatMessageDisplay {
   nextActionReason?: NextActionReason | null
   continuationPasses?: number
   continueLabel?: 'Continue' | 'Continue Again'
+  webSearchUsed?: boolean
   streamPlanSteps?: Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>
 }
 

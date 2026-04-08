@@ -4,7 +4,7 @@
  */
 import { useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
 import { ChatContext } from './chatContext'
-import { ApiError, getChat, getSettings, stopChatStream, streamChat, updateCurrentChat } from '../api'
+import { ApiError, getChat, getSettings, stopChatStream, streamChat, updateChatPreferences, updateCurrentChat } from '../api'
 import { showToast } from './useToast'
 import { logApiError } from '../utils/logApiError'
 import { FORCE_NEW_CHAT_KEY, MESSAGE_MODE_MAP_STORAGE_KEY } from '../utils/storageKeys'
@@ -26,6 +26,8 @@ interface ChatProviderProps {
 
 interface GetChatResponse {
   messages?: ChatMessageApi[]
+  chat_web_search_enabled?: boolean
+  chat_web_search_privacy_override?: boolean
 }
 
 const CLEANED_REVEAL_INTERVAL_MS = 14
@@ -41,6 +43,7 @@ const STOP_ACK_TIMEOUT_MS = 1500
 const STREAM_STATUS_LABELS: Record<string, string> = {
   classifying: 'Analyzing your request...',
   retrieving: 'Searching for relevant information...',
+  searching: 'Searching the web...',
   generating: 'Generating response...',
   continuing: 'Continuing response...',
   finalizing: 'Finalizing answer...',
@@ -159,6 +162,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const [loadingChat, setLoadingChat] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [enableRawOutputControl, setEnableRawOutputControl] = useState(false)
+  const [chatWebSearchEnabled, setChatWebSearchEnabled] = useState(false)
+  const [chatWebSearchPrivacyOverride, setChatWebSearchPrivacyOverride] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamContentRef = useRef('')
   const streamThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -182,6 +187,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const isStreamingRef = useRef(false)
   const messagesCountRef = useRef(0)
   const lastAutoContinuedMessageIdRef = useRef<number | null>(null)
+  const chatPrefsRef = useRef<Record<string, { enabled: boolean; privacyOverride: boolean }>>({})
 
   useEffect(() => {
     currentChatIdRef.current = currentChatId
@@ -243,6 +249,25 @@ export function ChatProvider({ children }: ChatProviderProps) {
 
   const clearError = useCallback(() => setError(null), [])
 
+  const setChatWebSearchPreferences = useCallback(async (
+    prefs: { enabled: boolean; privacyOverride: boolean; persist?: boolean },
+  ) => {
+    const next = {
+      enabled: !!prefs.enabled,
+      privacyOverride: !!prefs.privacyOverride,
+    }
+    const chatKey = currentChatIdRef.current ?? '__draft__'
+    chatPrefsRef.current[chatKey] = next
+    setChatWebSearchEnabled(next.enabled)
+    setChatWebSearchPrivacyOverride(next.privacyOverride)
+    if (prefs.persist !== false && currentChatIdRef.current) {
+      await updateChatPreferences(currentChatIdRef.current, {
+        chat_web_search_enabled: next.enabled,
+        chat_web_search_privacy_override: next.privacyOverride,
+      }).catch((err) => logApiError(err, 'ChatProvider.setChatWebSearchPreferences'))
+    }
+  }, [])
+
   const selectChat = useCallback(async (selectedChatId: string) => {
     if (selectedChatId === currentChatId && messagesCountRef.current > 0) return
 
@@ -254,6 +279,13 @@ export function ChatProvider({ children }: ChatProviderProps) {
       const data = (await getChat(selectedChatId)) as GetChatResponse
       if (chatLoadSessionRef.current !== sessionId) return
       const historyMessages = data.messages || []
+      const resolvedPrefs = {
+        enabled: data.chat_web_search_enabled === true,
+        privacyOverride: data.chat_web_search_privacy_override === true,
+      }
+      chatPrefsRef.current[selectedChatId] = resolvedPrefs
+      setChatWebSearchEnabled(resolvedPrefs.enabled)
+      setChatWebSearchPrivacyOverride(resolvedPrefs.privacyOverride)
       const storedModes = readStoredMessageModes()
       const mapped: ChatMessageDisplay[] = historyMessages.map((m, index) => {
         const completionMode = normalizeCompletionMode(m.completion_mode)
@@ -304,6 +336,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           chatMode: inferredAssistantMode,
         }
       })
+      currentChatIdRef.current = selectedChatId
       setCurrentChatIdState(selectedChatId)
       setForceNewChatFlag(false)
       lastAutoContinuedMessageIdRef.current = null
@@ -317,7 +350,10 @@ export function ChatProvider({ children }: ChatProviderProps) {
       if (chatLoadSessionRef.current !== sessionId) return
       const is404 = err instanceof ApiError && err.status === 404
       if (is404) {
+        currentChatIdRef.current = null
         setCurrentChatIdState(null)
+        setChatWebSearchEnabled(false)
+        setChatWebSearchPrivacyOverride(false)
         setMessages([])
         setError(null)
         updateCurrentChat(null).catch((e) => logApiError(e, 'ChatProvider.selectChat.clearCurrentChat'))
@@ -388,11 +424,18 @@ export function ChatProvider({ children }: ChatProviderProps) {
 
   const sendMessage = useCallback(async (
     text: string,
-    options?: { isInternal?: boolean; mode?: ChatMode },
+    options?: {
+      isInternal?: boolean
+      mode?: ChatMode
+      chatWebSearchEnabled?: boolean
+      chatWebSearchPrivacyOverride?: boolean
+    },
   ) => {
     const message = text.trim()
     const isInternalMessage = !!options?.isInternal
     const chatMode: ChatMode = options?.mode ?? 'researcher'
+    const chatWebSearchEnabled = !!options?.chatWebSearchEnabled
+    const chatWebSearchPrivacyOverride = !!options?.chatWebSearchPrivacyOverride
     if (!message || sendInFlightRef.current) return
     if (isStreamingRef.current) {
       if (!isInternalMessage) {
@@ -452,6 +495,19 @@ export function ChatProvider({ children }: ChatProviderProps) {
     streamRequestIdRef.current = requestId
     streamStopRequestedRef.current = false
     const requestChatId = currentChatIdRef.current
+    if (!requestChatId) {
+      chatPrefsRef.current.__draft__ = {
+        enabled: chatWebSearchEnabled,
+        privacyOverride: chatWebSearchPrivacyOverride,
+      }
+    } else {
+      chatPrefsRef.current[requestChatId] = {
+        enabled: chatWebSearchEnabled,
+        privacyOverride: chatWebSearchPrivacyOverride,
+      }
+    }
+    setChatWebSearchEnabled(chatWebSearchEnabled)
+    setChatWebSearchPrivacyOverride(chatWebSearchPrivacyOverride)
     setActiveGenerationChatId(requestChatId)
     setActiveGenerationRequestId(requestId)
 
@@ -490,6 +546,10 @@ export function ChatProvider({ children }: ChatProviderProps) {
         const nextActionReason: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_corpus' | null =
           data?.next_action_reason ?? null
         const chatMode = isChatMode(data?.chat_mode) ? data.chat_mode : undefined
+        const webSearchUsed = data?.web_search_used === true
+          || (data?.budget_metrics != null
+            && typeof data.budget_metrics === 'object'
+            && (data.budget_metrics as Record<string, unknown>).web_search_used === true)
         const recoveryCallout = buildRecoveryCallout(nextAction, nextActionReason)
         const displayBlocks = Array.isArray(data?.display_blocks) ? data?.display_blocks : undefined
         const extraBlocks: DisplayBlock[] = [recoveryCallout].filter((v): v is DisplayBlock => v != null)
@@ -535,6 +595,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           nextActionReason,
           continuationPasses,
           continueLabel,
+          webSearchUsed,
         }
         if (isViewingGeneratingChat()) {
           setMessages((prev) => {
@@ -563,6 +624,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 nextActionReason,
                 continuationPasses,
                 continueLabel,
+                webSearchUsed,
               }
             }
             return next
@@ -632,6 +694,10 @@ export function ChatProvider({ children }: ChatProviderProps) {
             currentChatIdRef.current = id
             setCurrentChatIdState(id)
           }
+          if (chatPrefsRef.current[id] == null && chatPrefsRef.current.__draft__) {
+            chatPrefsRef.current[id] = chatPrefsRef.current.__draft__
+          }
+          delete chatPrefsRef.current.__draft__
           updateCurrentChat(id).catch((err) => logApiError(err, 'ChatProvider.sendMessage.onChatId'))
         },
         onStreamId: (id) => {
@@ -870,7 +936,12 @@ export function ChatProvider({ children }: ChatProviderProps) {
           setActiveGenerationRequestId(null)
           streamWatchdogTimedOutRef.current = false
         },
-      }, { mode: chatMode, requestId })
+      }, {
+        mode: chatMode,
+        requestId,
+        chatWebSearchEnabled,
+        chatWebSearchPrivacyOverride,
+      })
     } finally {
       clearStreamWatchdog()
       sendInFlightRef.current = false
@@ -879,12 +950,24 @@ export function ChatProvider({ children }: ChatProviderProps) {
 
   const continueLastScope = useCallback(async (
     anchorMessageId?: number,
-    options?: { mode?: ChatMode },
+    options?: {
+      mode?: ChatMode
+      chatWebSearchEnabled?: boolean
+      chatWebSearchPrivacyOverride?: boolean
+    },
   ) => {
     if (typeof anchorMessageId === 'number') {
       lastAutoContinuedMessageIdRef.current = anchorMessageId
     }
-    await sendMessage(CONTINUE_SCOPED_PROMPT, { isInternal: true, mode: options?.mode ?? 'researcher' })
+    await sendMessage(
+      CONTINUE_SCOPED_PROMPT,
+      {
+        isInternal: true,
+        mode: options?.mode ?? 'researcher',
+        chatWebSearchEnabled: options?.chatWebSearchEnabled ?? false,
+        chatWebSearchPrivacyOverride: options?.chatWebSearchPrivacyOverride ?? false,
+      },
+    )
   }, [sendMessage])
 
   const stopStreaming = useCallback(async (): Promise<boolean> => {
@@ -895,7 +978,11 @@ export function ChatProvider({ children }: ChatProviderProps) {
     setForceNewChatFlag(true)
     chatLoadSessionRef.current += 1
     setLoadingChat(false)
+    currentChatIdRef.current = null
     setCurrentChatIdState(null)
+    setChatWebSearchEnabled(false)
+    setChatWebSearchPrivacyOverride(false)
+    chatPrefsRef.current.__draft__ = { enabled: false, privacyOverride: false }
     lastAutoContinuedMessageIdRef.current = null
     setMessages([])
     setError(null)
@@ -930,6 +1017,9 @@ export function ChatProvider({ children }: ChatProviderProps) {
         loadingChat,
         error,
         enableRawOutputControl,
+        chatWebSearchEnabled,
+        chatWebSearchPrivacyOverride,
+        setChatWebSearchPreferences,
         selectChat,
         goToGeneratingChat,
         sendMessage,

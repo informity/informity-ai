@@ -47,6 +47,7 @@ interface ChatMessageProps {
   nextAction?: 'none' | 'continue' | 'regenerate' | 'assistant_switch'
   nextActionReason?: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_corpus' | null
   continueLabel?: 'Continue' | 'Continue Again'
+  webSearchUsed?: boolean
   createdAt?: string
   generationSeconds?: number
   enableRawOutputControl?: boolean
@@ -78,6 +79,7 @@ function ChatMessageComponent({
   stoppedByUser = false,
   nextAction = 'none',
   continueLabel = 'Continue',
+  webSearchUsed = false,
   createdAt,
   generationSeconds,
   enableRawOutputControl = false,
@@ -173,6 +175,17 @@ function ChatMessageComponent({
         <div className="chat-message__meta-item">
           <i className="ri-flow-chart chat-message__meta-icon" aria-hidden />
           <span>Continuation</span>
+        </div>
+      ),
+    })
+  }
+  if (!isUser && webSearchUsed) {
+    assistantMetaItems.push({
+      key: 'web_search',
+      node: (
+        <div className="chat-message__meta-item">
+          <i className="ri-global-line chat-message__meta-icon" aria-hidden />
+          <span>Web</span>
         </div>
       ),
     })
@@ -513,6 +526,7 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.nextAction === next.nextAction &&
     prev.nextActionReason === next.nextActionReason &&
     prev.continueLabel === next.continueLabel &&
+    prev.webSearchUsed === next.webSearchUsed &&
     prev.createdAt === next.createdAt &&
     prev.generationSeconds === next.generationSeconds &&
     prev.enableRawOutputControl === next.enableRawOutputControl &&

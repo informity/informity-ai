@@ -18,6 +18,7 @@ import { isChatMode, type ChatMode } from '../../types/api'
 import { SETTINGS_ACTIVE_TAB_STORAGE_KEY } from '../../utils/storageKeys'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_OPTIONS, UI_THEME_STORAGE_KEY } from '../../utils/uiTheme'
 import { formatModelSizeGb } from '../../utils/formatModelSizeGb'
+import { getFriendlyModelDownloadError } from '../../utils/modelDownloadErrors'
 import { isDesktopRuntime, nativePickDirectoryDialog } from '../../tauriRuntime'
 import '../../styles/shared/buttons.css'
 import './SettingsView.css'
@@ -66,6 +67,7 @@ const INDEXING_SPEED_LABELS = ['', 'Responsive', 'Gentle', 'Balanced', 'Fast', '
 const INDEXING_SPEED_TO_THREADS = [2, 4, 6, 8, 0]
 const CHAT_CPU_RESPONSIVENESS_LABELS = ['', 'Most Responsive', 'Balanced', 'Fastest']
 const CHAT_CPU_RESPONSIVENESS_TO_THREADS = [2, 4, 6]
+const MASKED_TAVILY_KEY = '••••••••••••••••••••••••••••••••••••••••••••••••••'
 
 function threadsToSpeed(threads: number): number {
   if (threads === 0) return 5
@@ -87,47 +89,21 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
 }
 
-function getFriendlyModelDownloadError(error: string | null | undefined): string {
-  const fallback = 'Something went wrong while downloading your model. Check your internet connection and try again.'
-  if (!error || !error.trim()) return fallback
-  const normalized = error.toLowerCase()
+function isMaskedTavilyKey(value: string): boolean {
+  return value === MASKED_TAVILY_KEY
+}
 
-  if (
-    normalized.includes('enospc')
-    || normalized.includes('no space left on device')
-    || normalized.includes('disk full')
-  ) {
-    return 'There is not enough disk space to download this model. Free up space and try again.'
-  }
-  if (
-    normalized.includes('timed out')
-    || normalized.includes('timeout')
-    || normalized.includes('connection')
-    || normalized.includes('network')
-    || normalized.includes('temporary failure in name resolution')
-    || normalized.includes('name or service not known')
-  ) {
-    return 'Download failed due to a network issue. Check your internet connection and try again.'
-  }
-  if (
-    normalized.includes('401')
-    || normalized.includes('403')
-    || normalized.includes('unauthorized')
-    || normalized.includes('forbidden')
-    || normalized.includes('gated')
-    || normalized.includes('repository not found')
-  ) {
-    return 'Model download is currently unavailable. Please try again.'
-  }
-  if (
-    normalized.includes('huggingface-hub is not installed')
-    || normalized.includes("no module named 'httpx'")
-    || normalized.includes('cannot import name')
-  ) {
-    return 'A required download component is unavailable. Restart the app and try again.'
-  }
-
-  return fallback
+function renderLabelWithMutedParens(text: string) {
+  const parts = text.split(/(\([^)]*\))/g)
+  return (
+    <>
+      {parts.map((part, index) => (
+        /^\([^)]*\)$/.test(part)
+          ? <span key={`paren-${index}`} className="settings-label-paren-muted">{part}</span>
+          : <span key={`text-${index}`}>{part}</span>
+      ))}
+    </>
+  )
 }
 
 interface ModelProfile {
@@ -174,6 +150,9 @@ interface SettingsData {
   enable_ocr_for_images?: boolean
   scan_file_timeout_seconds?: number
   full_privacy?: boolean
+  tavily_api_key_set?: boolean
+  web_search_max_results?: number
+  web_search_timeout_seconds?: number
   adaptive_rag_tuning?: boolean
   chat_history_messages?: number
   default_chat_mode?: ChatMode
@@ -210,6 +189,10 @@ interface FormState {
   enable_ocr_for_images: boolean
   scan_file_timeout_seconds: number
   full_privacy: boolean
+  tavily_api_key: string
+  clear_tavily_api_key: boolean
+  web_search_max_results: number
+  web_search_timeout_seconds: number
   adaptive_rag_tuning: boolean
   chat_history_messages: number
   default_chat_mode: ChatMode
@@ -252,6 +235,10 @@ function buildFormState(settings: SettingsData): FormState {
     enable_ocr_for_images: settings.enable_ocr_for_images ?? true,
     scan_file_timeout_seconds: settings.scan_file_timeout_seconds ?? 300,
     full_privacy: settings.full_privacy ?? true,
+    tavily_api_key: settings.tavily_api_key_set ? MASKED_TAVILY_KEY : '',
+    clear_tavily_api_key: false,
+    web_search_max_results: settings.web_search_max_results ?? 5,
+    web_search_timeout_seconds: settings.web_search_timeout_seconds ?? 8,
     adaptive_rag_tuning: settings.adaptive_rag_tuning ?? true,
     chat_history_messages: settings.chat_history_messages ?? 5,
     default_chat_mode: isChatMode(settings.default_chat_mode) ? settings.default_chat_mode : 'researcher',
@@ -271,7 +258,7 @@ function buildFormState(settings: SettingsData): FormState {
 function ProfileRow({ label, value }: { label: string; value: string | number | undefined }) {
   return (
     <div className="settings-profile-row">
-      <span className="settings-profile-row__label">{label}</span>
+      <span className="settings-profile-row__label">{renderLabelWithMutedParens(label)}</span>
       <span className="settings-profile-row__value">{value ?? '--'}</span>
     </div>
   )
@@ -660,11 +647,11 @@ export function SettingsView({
 
       <div className="settings-content">
         <section className={`${sectionClass(activeTab === 'general')} settings-section--privacy`}>
-          <div className="settings-section-header">
+          <div className="settings-section-header ui-title ui-title--section">
             <i className="ri-home-gear-line section-icon" aria-hidden="true" />
             General
           </div>
-          <p className="settings-section-description">
+          <p className="settings-section-description ui-description">
             Core application preferences including privacy and appearance.
           </p>
           <div className="settings-privacy-card ui-card ui-card--accent">
@@ -694,11 +681,11 @@ export function SettingsView({
         </section>
 
         <section className={sectionClass(activeTab === 'chat')}>
-        <div className="settings-section-header">
+        <div className="settings-section-header ui-title ui-title--section">
           <i className="ri-chat-ai-4-line section-icon" aria-hidden="true" />
           Chat
         </div>
-        <p className="settings-section-description">Conversation context and default chat settings.</p>
+        <p className="settings-section-description ui-description">Conversation context and default chat settings.</p>
 
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
@@ -781,12 +768,121 @@ export function SettingsView({
 
         </section>
 
+        <section className={`${sectionClass(activeTab === 'chat')} ui-section-divider settings-section--split`}>
+        <div className="settings-section-header ui-title ui-title--section">
+          <i className="ri-global-line section-icon" aria-hidden="true" />
+          Web Search
+        </div>
+        <p className="settings-section-description ui-description">
+          Get up-to-date answers in Assistant mode with optional web search. Queries are sent to search provider servers only when enabled in chat.
+        </p>
+
+        <div className="settings-subsection">
+          <div className="settings-subsection-head ui-subsection-head">
+            <div className="settings-subsection-title ui-subsection-title">
+              <i className="ri-search-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              Search Provider
+            </div>
+            <p className="settings-subsection-description ui-subsection-description">
+              Assistant web search is powered by <a className="settings-link" href="https://app.tavily.com/" target="_blank" rel="noreferrer">Tavily</a> and requires an API key. The free tier includes up to 1,000 requests per month.
+            </p>
+          </div>
+          <div className="settings-control-group">
+            <label className="settings-control-label" htmlFor="settings-tavily-api-key">
+              Tavily API key
+            </label>
+            <div className="settings-input-wrap">
+              <input
+                id="settings-tavily-api-key"
+                type="password"
+                className="settings-input settings-input--with-clear"
+                placeholder="tvly-..."
+                value={form.tavily_api_key}
+                onChange={(e) => {
+                  update('tavily_api_key', e.target.value)
+                  if (form.clear_tavily_api_key) update('clear_tavily_api_key', false)
+                }}
+                onFocus={() => {
+                  if (isMaskedTavilyKey(form.tavily_api_key)) {
+                    update('tavily_api_key', '')
+                  }
+                }}
+                onBlur={() => {
+                  if (
+                    !String(form.tavily_api_key || '').trim()
+                    && settings.tavily_api_key_set
+                    && !form.clear_tavily_api_key
+                  ) {
+                    update('tavily_api_key', MASKED_TAVILY_KEY)
+                  }
+                }}
+                autoComplete="off"
+              />
+              {(settings.tavily_api_key_set || String(form.tavily_api_key || '').trim().length > 0) && (
+                <button
+                  type="button"
+                  className="settings-input-clear"
+                  aria-label="Clear Tavily API key"
+                  title="Clear API key"
+                  onClick={() => {
+                    update('tavily_api_key', '')
+                    update('clear_tavily_api_key', true)
+                  }}
+                >
+                  <i className="ri-close-line" aria-hidden />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="settings-subsection">
+            <div className="settings-subsection-head ui-subsection-head">
+              <div className="settings-subsection-title ui-subsection-title">
+                <i className="ri-menu-search-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                Performance
+              </div>
+              <p className="settings-subsection-description ui-subsection-description">
+                Configure how many web search results to fetch and how long each request can run.
+              </p>
+            </div>
+            <div className="settings-control-group">
+              <label className="settings-control-label" htmlFor="settings-web-search-max-results">Results per search</label>
+              <input
+                id="settings-web-search-max-results"
+                type="number"
+                className="settings-input settings-input--number"
+                min={1}
+                max={10}
+                step={1}
+                value={form.web_search_max_results}
+                onChange={(e) => update('web_search_max_results', clamp(parseInteger(e.target.value, 5), 1, 10))}
+              />
+            </div>
+            <div className="settings-control-group">
+              <label className="settings-control-label" htmlFor="settings-web-search-timeout">
+                {renderLabelWithMutedParens('Search timeout (seconds)')}
+              </label>
+              <input
+                id="settings-web-search-timeout"
+                type="number"
+                className="settings-input settings-input--number"
+                min={1}
+                max={30}
+                step={1}
+                value={form.web_search_timeout_seconds}
+                onChange={(e) => update('web_search_timeout_seconds', clamp(parseInteger(e.target.value, 8), 1, 30))}
+              />
+            </div>
+          </div>
+        </div>
+        </section>
+
         <section className={sectionClass(activeTab === 'data')}>
-        <div className="settings-section-header">
+        <div className="settings-section-header ui-title ui-title--section">
           <i className="ri-folder-line section-icon" aria-hidden="true" />
           Data Sources
         </div>
-        <p className="settings-section-description">
+        <p className="settings-section-description ui-description">
           Choose which folders and file types the application scans and makes searchable.
         </p>
 
@@ -959,11 +1055,11 @@ export function SettingsView({
         </section>
 
         <section className={sectionClass(activeTab === 'indexing')}>
-        <div className="settings-section-header">
+        <div className="settings-section-header ui-title ui-title--section">
           <i className="ri-stack-line section-icon" aria-hidden="true" />
           Indexing
         </div>
-        <p className="settings-section-description">
+        <p className="settings-section-description ui-description">
           Controls how the application reads and prepares your files for search and chat.
         </p>
 
@@ -1035,11 +1131,11 @@ export function SettingsView({
         </section>
 
         <section className={sectionClass(activeTab === 'models')}>
-        <div className="settings-section-header">
+        <div className="settings-section-header ui-title ui-title--section">
           <i className="ri-robot-2-line section-icon" aria-hidden="true" />
           Models
         </div>
-        <p className="settings-section-description">Select the AI model to use and view its capabilities.</p>
+        <p className="settings-section-description ui-description">Select the AI model to use and view its capabilities.</p>
 
         {profile && (
           <>
@@ -1053,10 +1149,10 @@ export function SettingsView({
               </div>
             </div>
             <div className="settings-control-group">
-              <label className="settings-control-label" htmlFor="settings-llm-model">Model</label>
               <div className="settings-add-row settings-add-row--model">
                 <select
                   id="settings-llm-model"
+                  aria-label="Main model"
                   className="settings-select"
                   value={selectedModelFilename}
                   onChange={(e) => {
@@ -1120,11 +1216,11 @@ export function SettingsView({
         </section>
 
         <section className={sectionClass(activeTab === 'diagnostics')}>
-        <div className="settings-section-header">
+        <div className="settings-section-header ui-title ui-title--section">
           <i className="ri-pulse-line section-icon" aria-hidden="true" />
           Diagnostics & Observability
         </div>
-        <p className="settings-section-description">Logging and diagnostics settings. Use these if something seems off or you need to share details with support.</p>
+        <p className="settings-section-description ui-description">Logging and diagnostics settings. Use these if something seems off or you need to share details with support.</p>
 
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
@@ -1166,7 +1262,7 @@ export function SettingsView({
               </p>
             </div>
             <div className="settings-control-group">
-              <label className="settings-control-label" htmlFor="settings-log-level">Log Level</label>
+              <label className="settings-control-label" htmlFor="settings-log-level">Log level</label>
               <select
                 id="settings-log-level"
                 className="settings-select"
@@ -1181,7 +1277,7 @@ export function SettingsView({
               </select>
             </div>
             <div className="settings-control-group">
-              <label className="settings-control-label" htmlFor="settings-trace-redaction">Trace Redaction</label>
+              <label className="settings-control-label" htmlFor="settings-trace-redaction">Trace redaction</label>
               <select
                 id="settings-trace-redaction"
                 className="settings-select"
@@ -1196,7 +1292,9 @@ export function SettingsView({
               </select>
             </div>
             <div className="settings-control-group">
-              <label className="settings-control-label" htmlFor="settings-trace-retention-user">User Trace Retention (Days)</label>
+              <label className="settings-control-label" htmlFor="settings-trace-retention-user">
+                {renderLabelWithMutedParens('User trace retention (days)')}
+              </label>
               <input
                 id="settings-trace-retention-user"
                 type="number"
@@ -1208,7 +1306,9 @@ export function SettingsView({
               />
             </div>
             <div className="settings-control-group">
-              <label className="settings-control-label" htmlFor="settings-trace-retention-eval">Evaluation Trace Retention (Days)</label>
+              <label className="settings-control-label" htmlFor="settings-trace-retention-eval">
+                {renderLabelWithMutedParens('Evaluation trace retention (days)')}
+              </label>
               <input
                 id="settings-trace-retention-eval"
                 type="number"
@@ -1223,12 +1323,12 @@ export function SettingsView({
         )}
         </section>
 
-        <section className={sectionClass(activeTab === 'general')}>
-        <div className="settings-section-header">
+        <section className={`${sectionClass(activeTab === 'general')} ui-section-divider settings-section--split`}>
+        <div className="settings-section-header ui-title ui-title--section">
           <i className="ri-palette-line section-icon" aria-hidden="true" />
           Appearance
         </div>
-        <p className="settings-section-description">Customize the look and feel of the application.</p>
+        <p className="settings-section-description ui-description">Customize the look and feel of the application.</p>
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
@@ -1280,11 +1380,11 @@ export function SettingsView({
         </section>
 
         <section className={sectionClass(activeTab === 'system')}>
-        <div className="settings-section-header">
+        <div className="settings-section-header ui-title ui-title--section">
           <i className="ri-server-line section-icon" aria-hidden="true" />
           System
         </div>
-        <p className="settings-section-description">General application utilities and configuration references.</p>
+        <p className="settings-section-description ui-description">General application utilities and configuration references.</p>
 
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">

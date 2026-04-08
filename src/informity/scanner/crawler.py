@@ -351,11 +351,6 @@ def scanned_file_for_path(path: Path) -> ScannedFile | None:
 # Change Detection
 # ==============================================================================
 
-def _normalize_path(path: Path | str) -> str:
-    # Canonical form for path comparison (resolved absolute, same repr).
-    return str(normalize_path(path))
-
-
 def compare_with_db(
     scanned: list[ScannedFile],
     db_files: list[IndexedFile],
@@ -371,7 +366,7 @@ def compare_with_db(
 
     # Build a lookup from normalized path -> IndexedFile
     db_by_path: dict[str, IndexedFile] = {
-        _normalize_path(f.path): f for f in db_files
+        str(normalize_path(f.path)): f for f in db_files
     }
 
     # Set of normalized scanned paths for deletion detection
@@ -382,7 +377,7 @@ def compare_with_db(
     unchanged_files: list[ScannedFile] = []
 
     for sf in scanned:
-        path_norm = _normalize_path(sf.path)
+        path_norm = str(normalize_path(sf.path))
         scanned_paths_norm.add(path_norm)
 
         db_file = db_by_path.get(path_norm)
@@ -396,7 +391,7 @@ def compare_with_db(
     # Files in DB but not on disk = deleted (compare using normalized paths)
     deleted_files = [
         f for f in db_files
-        if _normalize_path(f.path) not in scanned_paths_norm
+        if str(normalize_path(f.path)) not in scanned_paths_norm
     ]
 
     log.info(

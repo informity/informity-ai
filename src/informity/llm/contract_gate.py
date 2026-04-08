@@ -14,12 +14,19 @@ from informity.llm.types import QuerySubtype, QueryType
 
 _MARKDOWN_HEADING_PATTERN = re.compile(r'^\s{0,3}#{1,6}\s+(.+?)\s*$', re.MULTILINE)
 _YEAR_TOKEN_PATTERN = re.compile(r'\b[12]\d{3}\b')
+_MISSING_EVIDENCE_REQUEST_PATTERN = re.compile(r'\bmissing\s+evidence\b|\bmissing\s+records?\b|\bgaps?\b', re.IGNORECASE)
+_MISSING_EVIDENCE_LINE_PATTERN = re.compile(r'(?im)^\s*(?:[-*]\s*)?missing\s+evidence\s*:')
+_SSN_PATTERN = re.compile(r'\b\d{3}-\d{2}-\d{4}\b')
+_REDACTED_SSN_TOKEN = '[REDACTED-SSN]'
 
 
 @dataclass(frozen=True)
 class ContractSpec:
     required_headings: list[str]
     min_year_count: int
+    enforce_heading_order: bool = False
+    requires_missing_evidence_callout: bool = False
+    enforce_forbidden_redaction: bool = True
 
 
 @dataclass(frozen=True)
@@ -45,7 +52,15 @@ def build_contract_spec(*, question: str, classification: QueryClassification | 
         and _contract_prompt_parser.has_year_subsection_cue(question)
     ):
         min_year_count = 2
-    return ContractSpec(required_headings=required_headings, min_year_count=min_year_count)
+    enforce_heading_order = bool(required_headings) and _contract_prompt_parser.has_ordered_heading_cue(question)
+    requires_missing_evidence_callout = bool(_MISSING_EVIDENCE_REQUEST_PATTERN.search(str(question or '')))
+    return ContractSpec(
+        required_headings=required_headings,
+        min_year_count=min_year_count,
+        enforce_heading_order=enforce_heading_order,
+        requires_missing_evidence_callout=requires_missing_evidence_callout,
+        enforce_forbidden_redaction=True,
+    )
 
 
 def validate_contract(*, answer: str, spec: ContractSpec) -> ContractValidationResult:
@@ -76,23 +91,35 @@ def enforce_required_sections(answer: str, spec: ContractSpec) -> tuple[str, lis
     # This is model-agnostic and only fills structural gaps when generation ends
     # before all explicitly requested sections are present.
     normalized_answer = str(answer or '').strip()
-    result = validate_contract(answer=normalized_answer, spec=spec)
-    if not result.missing_required_headings:
-        return normalized_answer, []
+    if spec.enforce_forbidden_redaction:
+        normalized_answer = _SSN_PATTERN.sub(_REDACTED_SSN_TOKEN, normalized_answer)
 
-    appended_blocks: list[str] = []
-    for heading in result.missing_required_headings:
-        appended_blocks.append(
-            '\n'.join(
-                [
-                    f'## {heading}',
-                    '- Insufficient evidence in retrieved context to complete this section.',
-                ]
-            )
+    if spec.enforce_heading_order and spec.required_headings:
+        normalized_answer = _normalize_required_heading_order(
+            answer=normalized_answer,
+            required_headings=spec.required_headings,
         )
-    appended = '\n\n'.join(appended_blocks).strip()
-    merged_answer = f'{normalized_answer}\n\n{appended}'.strip() if normalized_answer else appended
-    return merged_answer, list(result.missing_required_headings)
+
+    result = validate_contract(answer=normalized_answer, spec=spec)
+    if result.missing_required_headings:
+        appended_blocks: list[str] = []
+        for heading in result.missing_required_headings:
+            appended_blocks.append(
+                '\n'.join(
+                    [
+                        f'## {heading}',
+                        '- Insufficient evidence in retrieved context to complete this section.',
+                    ]
+                )
+            )
+        appended = '\n\n'.join(appended_blocks).strip()
+        normalized_answer = f'{normalized_answer}\n\n{appended}'.strip() if normalized_answer else appended
+
+    if spec.requires_missing_evidence_callout and _MISSING_EVIDENCE_LINE_PATTERN.search(normalized_answer) is None:
+        callout = 'Missing Evidence: insufficient evidence in retrieved context for at least one requested item.'
+        normalized_answer = f'{normalized_answer}\n\n{callout}'.strip() if normalized_answer else callout
+
+    return normalized_answer, list(result.missing_required_headings)
 
 
 def _normalize_heading_text(value: str) -> str:
@@ -123,3 +150,55 @@ def _find_missing_required_headings(answer: str, required_headings: list[str]) -
 
 def _count_distinct_years(answer: str) -> int:
     return len(set(_YEAR_TOKEN_PATTERN.findall(str(answer or ''))))
+
+
+def _normalize_required_heading_order(*, answer: str, required_headings: list[str]) -> str:
+    text = str(answer or '').strip()
+    if not text or not required_headings:
+        return text
+
+    heading_matches = list(_MARKDOWN_HEADING_PATTERN.finditer(text))
+    if not heading_matches:
+        return text
+
+    sections: list[tuple[str, str, str]] = []
+    for idx, match in enumerate(heading_matches):
+        heading_raw = str(match.group(1) or '').strip()
+        normalized_heading = _normalize_heading_text(heading_raw)
+        start = match.start()
+        end = heading_matches[idx + 1].start() if idx + 1 < len(heading_matches) else len(text)
+        block = text[start:end].strip()
+        sections.append((normalized_heading, heading_raw, block))
+
+    required_norm = [_normalize_heading_text(item) for item in required_headings]
+    required_set = set(required_norm)
+    section_map: dict[str, tuple[str, str, str]] = {}
+    for section in sections:
+        key = section[0]
+        if key and key not in section_map:
+            section_map[key] = section
+
+    if not any(key in section_map for key in required_set):
+        return text
+
+    rebuilt_blocks: list[str] = []
+    for heading in required_headings:
+        norm = _normalize_heading_text(heading)
+        existing = section_map.get(norm)
+        if existing is not None:
+            rebuilt_blocks.append(existing[2])
+        else:
+            rebuilt_blocks.append(
+                '\n'.join(
+                    [
+                        f'## {heading}',
+                        '- Insufficient evidence in retrieved context to complete this section.',
+                    ]
+                )
+            )
+
+    extras = [block for norm, _, block in sections if norm not in required_set]
+    if extras:
+        rebuilt_blocks.extend(extras)
+
+    return '\n\n'.join(part.strip() for part in rebuilt_blocks if str(part).strip()).strip()

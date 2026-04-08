@@ -194,6 +194,13 @@ CREATE TABLE IF NOT EXISTS chats (
 
 CREATE INDEX IF NOT EXISTS idx_chats_updated_at ON chats(updated_at);
 
+CREATE TABLE IF NOT EXISTS chat_preferences (
+    chat_id                           TEXT PRIMARY KEY REFERENCES chats(chat_id) ON DELETE CASCADE,
+    chat_web_search_enabled           INTEGER DEFAULT 0,
+    chat_web_search_privacy_override  INTEGER DEFAULT 0,
+    updated_at                        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS response_diagnostics_metrics (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
     chat_id             TEXT NOT NULL,
@@ -386,6 +393,7 @@ DROP TABLE IF EXISTS term_dictionary_state;
 DROP TABLE IF EXISTS response_diagnostics_metrics;
 DROP TABLE IF EXISTS continuation_pass_artifacts;
 DROP TABLE IF EXISTS chat_messages;
+DROP TABLE IF EXISTS chat_preferences;
 DROP TABLE IF EXISTS chunks;
 DROP TABLE IF EXISTS files;
 DROP TABLE IF EXISTS chats;
@@ -1418,6 +1426,78 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
     await db.commit()
     message.id = cursor.lastrowid
     return message
+
+
+async def get_chat_preferences(
+    db: aiosqlite.Connection,
+    chat_id: str,
+) -> dict[str, bool]:
+    # Read chat-scoped UI/runtime preferences used by the chat surface.
+    cursor = await db.execute(
+        """
+        SELECT chat_web_search_enabled, chat_web_search_privacy_override
+        FROM chat_preferences
+        WHERE chat_id = ?
+        """,
+        (chat_id,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return {
+            'chat_web_search_enabled': False,
+            'chat_web_search_privacy_override': False,
+        }
+    return {
+        'chat_web_search_enabled': bool(row['chat_web_search_enabled']),
+        'chat_web_search_privacy_override': bool(row['chat_web_search_privacy_override']),
+    }
+
+
+async def upsert_chat_preferences(
+    db: aiosqlite.Connection,
+    chat_id: str,
+    *,
+    chat_web_search_enabled: bool | None = None,
+    chat_web_search_privacy_override: bool | None = None,
+) -> dict[str, bool]:
+    # Upsert chat-scoped preferences. Unset fields preserve prior values.
+    await ensure_chat_exists(db, chat_id)
+    current = await get_chat_preferences(db, chat_id)
+    resolved_web_search_enabled = (
+        current['chat_web_search_enabled']
+        if chat_web_search_enabled is None
+        else bool(chat_web_search_enabled)
+    )
+    resolved_privacy_override = (
+        current['chat_web_search_privacy_override']
+        if chat_web_search_privacy_override is None
+        else bool(chat_web_search_privacy_override)
+    )
+    await db.execute(
+        """
+        INSERT INTO chat_preferences (
+            chat_id,
+            chat_web_search_enabled,
+            chat_web_search_privacy_override,
+            updated_at
+        )
+        VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(chat_id) DO UPDATE SET
+            chat_web_search_enabled = excluded.chat_web_search_enabled,
+            chat_web_search_privacy_override = excluded.chat_web_search_privacy_override,
+            updated_at = CURRENT_TIMESTAMP
+        """,
+        (
+            chat_id,
+            1 if resolved_web_search_enabled else 0,
+            1 if resolved_privacy_override else 0,
+        ),
+    )
+    await db.commit()
+    return {
+        'chat_web_search_enabled': resolved_web_search_enabled,
+        'chat_web_search_privacy_override': resolved_privacy_override,
+    }
 
 
 def _build_continuation_artifact_payload_hash(artifact: ContinuationPassArtifact) -> str:

@@ -99,6 +99,12 @@ def test_general_capabilities_query_stays_simple() -> None:
     assert 'deterministic_general_capability_to_simple' in result.reason_codes
 
 
+def test_non_promptcue_router_does_not_synthesize_freshness_signals() -> None:
+    result = classify_query('What is the weather in Escondido, CA today and tomorrow?')
+    assert result.needs_current_info is False
+    assert result.mentions_time is False
+
+
 def test_filename_slot_extraction() -> None:
     result = classify_query('Summarize content in sample-lender-statement.pdf')
     assert result.filename_filter == 'sample-lender-statement.pdf'
@@ -203,6 +209,54 @@ def test_coverage_narrow_scope_overrides_to_focused() -> None:
     assert result.route_candidate == 'targeted_fact_lookup'
     assert result.deterministic_override is True
     assert 'deterministic_override_narrow_scope_to_focused' in result.reason_codes
+
+
+def test_coverage_single_target_scope_overrides_to_focused() -> None:
+    class _CoverageOnlyRouter:
+        def classify_intent(self, _query: str) -> IntentPrediction:
+            return IntentPrediction('coverage', 0.9, [('coverage', 0.9)], ['forced_coverage'])
+
+    original = get_intent_router()
+    set_intent_router_for_testing(_CoverageOnlyRouter())
+    try:
+        result = classify_query('What does the 2020 property tax receipt contain?')
+    finally:
+        set_intent_router_for_testing(original)
+
+    assert result.intent == 'focused'
+    assert result.route_candidate == 'targeted_fact_lookup'
+    assert result.deterministic_override is True
+    assert any(
+        code in result.reason_codes
+        for code in (
+            'deterministic_override_single_target_to_focused',
+            'deterministic_override_narrow_scope_to_focused',
+        )
+    )
+
+
+def test_coverage_year_anchored_target_overrides_to_focused() -> None:
+    class _CoverageOnlyRouter:
+        def classify_intent(self, _query: str) -> IntentPrediction:
+            return IntentPrediction('coverage', 0.9, [('coverage', 0.9)], ['forced_coverage'])
+
+    original = get_intent_router()
+    set_intent_router_for_testing(_CoverageOnlyRouter())
+    try:
+        result = classify_query('What does the 2020 property tax receipt contain? Summarize the key fields.')
+    finally:
+        set_intent_router_for_testing(original)
+
+    assert result.intent == 'focused'
+    assert result.route_candidate == 'targeted_fact_lookup'
+    assert result.deterministic_override is True
+    assert any(
+        code in result.reason_codes
+        for code in (
+            'deterministic_override_year_anchored_target_to_focused',
+            'deterministic_override_narrow_scope_to_focused',
+        )
+    )
 
 
 def test_focused_plural_scope_analysis_overrides_to_coverage() -> None:

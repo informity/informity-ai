@@ -165,11 +165,11 @@ describe('SettingsView tabs and action bar behavior', () => {
     localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, 'models')
     const { onSave } = renderSettingsView()
 
-    const modelSelect = screen.getByLabelText('Model') as HTMLSelectElement
+    const modelSelect = screen.getByLabelText('Main model') as HTMLSelectElement
     expect(modelSelect.value).toBe('main.gguf')
 
     fireEvent.change(modelSelect, { target: { value: 'alt.gguf' } })
-    expect((screen.getByLabelText('Model') as HTMLSelectElement).value).toBe('alt.gguf')
+    expect((screen.getByLabelText('Main model') as HTMLSelectElement).value).toBe('alt.gguf')
 
     fireEvent.click(screen.getByRole('button', { name: 'Save Settings' }))
 
@@ -201,7 +201,7 @@ describe('SettingsView tabs and action bar behavior', () => {
     )
 
     await waitFor(() => {
-      const modelSelect = screen.getByLabelText('Model') as HTMLSelectElement
+      const modelSelect = screen.getByLabelText('Main model') as HTMLSelectElement
       const optionValues = Array.from(modelSelect.options).map((option) => option.value)
       expect(optionValues).toContain('Qwen3.5-35B-A3B-Q4_K_M.gguf')
     })
@@ -212,8 +212,8 @@ describe('SettingsView tabs and action bar behavior', () => {
     renderSettingsView()
 
     expect(screen.queryByText('Advanced Diagnostics')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Log Level')).not.toBeInTheDocument()
-    expect(screen.queryByLabelText('Trace Redaction')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Log level')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Trace redaction')).not.toBeInTheDocument()
   })
 
   it('shows advanced diagnostics controls when profile is custom', () => {
@@ -235,10 +235,10 @@ describe('SettingsView tabs and action bar behavior', () => {
     )
 
     expect(screen.getByText('Advanced Diagnostics')).toBeInTheDocument()
-    expect(screen.getByLabelText('Log Level')).toBeInTheDocument()
-    expect(screen.getByLabelText('Trace Redaction')).toBeInTheDocument()
-    expect(screen.getByLabelText('User Trace Retention (Days)')).toBeInTheDocument()
-    expect(screen.getByLabelText('Evaluation Trace Retention (Days)')).toBeInTheDocument()
+    expect(screen.getByLabelText('Log level')).toBeInTheDocument()
+    expect(screen.getByLabelText('Trace redaction')).toBeInTheDocument()
+    expect(screen.getByLabelText('User trace retention (days)')).toBeInTheDocument()
+    expect(screen.getByLabelText('Evaluation trace retention (days)')).toBeInTheDocument()
   })
 
   it('does not render hidden advanced tuning controls in chat/indexing/diagnostics', () => {

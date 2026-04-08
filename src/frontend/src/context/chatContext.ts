@@ -16,15 +16,27 @@ export interface ChatContextValue {
   loadingChat: boolean
   error: string | null
   enableRawOutputControl: boolean
+  chatWebSearchEnabled: boolean
+  chatWebSearchPrivacyOverride: boolean
+  setChatWebSearchPreferences: (prefs: { enabled: boolean; privacyOverride: boolean; persist?: boolean }) => Promise<void>
   selectChat: (chatId: string) => Promise<void>
   goToGeneratingChat: () => Promise<void>
   sendMessage: (
     text: string,
-    options?: { isInternal?: boolean; mode?: ChatMode },
+    options?: {
+      isInternal?: boolean
+      mode?: ChatMode
+      chatWebSearchEnabled?: boolean
+      chatWebSearchPrivacyOverride?: boolean
+    },
   ) => Promise<void>
   continueLastScope: (
     anchorMessageId?: number,
-    options?: { mode?: ChatMode },
+    options?: {
+      mode?: ChatMode
+      chatWebSearchEnabled?: boolean
+      chatWebSearchPrivacyOverride?: boolean
+    },
   ) => Promise<void>
   stopStreaming: () => Promise<boolean>
   newChat: () => Promise<void>

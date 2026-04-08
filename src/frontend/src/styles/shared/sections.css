@@ -87,3 +87,43 @@
   color: var(--color-text-muted);
   line-height: 1.5;
 }
+
+/* -----------------------------------------------------------------------------
+   Semantic Typography Primitives
+   Reusable title/subtitle/description classes for consistent copy styling.
+   ----------------------------------------------------------------------------- */
+
+.ui-title {
+  margin: 0;
+  color: var(--color-text);
+  font-weight: var(--font-weight-heading);
+  user-select: none;
+}
+
+.ui-title--view {
+  font-size: var(--font-size-view-title);
+  line-height: 1.2;
+}
+
+.ui-title--section {
+  font-size: var(--font-size-2xl);
+  line-height: 1.2;
+}
+
+.ui-title--subsection {
+  font-size: var(--font-size-subsection-title);
+  line-height: 1;
+}
+
+.ui-subtitle {
+  margin: 0;
+  font-size: var(--font-size-subtitle);
+  color: var(--color-text-muted);
+}
+
+.ui-description {
+  margin: 0;
+  font-size: var(--font-size-description);
+  color: var(--color-text-muted);
+  line-height: 1.5;
+}
