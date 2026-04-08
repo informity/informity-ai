@@ -4,7 +4,6 @@
 # ==============================================================================
 
 import re
-from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -25,7 +24,6 @@ from informity.llm.query_patterns import (
     build_coverage_pattern,
     build_enumeration_pattern,
     build_evidence_value_extraction_pattern,
-    build_extreme_value_lookup_pattern,
     build_fact_lookup_pattern,
     build_file_list_pattern,
     build_generic_capability_pattern,
@@ -78,7 +76,6 @@ _MULTI_DOC_LISTING_PATTERN = build_multi_document_listing_pattern()
 _GLOBAL_ENTITY_LISTING_PATTERN = build_global_entity_listing_pattern()
 _GENERIC_CAPABILITY_PATTERN = build_generic_capability_pattern()
 _FACT_LOOKUP_PATTERN = build_fact_lookup_pattern()
-_EXTREME_VALUE_LOOKUP_PATTERN = build_extreme_value_lookup_pattern()
 _AGGREGATE_LISTING_SCOPE_PATTERN = build_aggregate_listing_scope_pattern()
 _ANCHOR_DOCUMENT_TERM_PATTERN = build_anchor_document_term_pattern()
 _QUOTED_PHRASE_PATTERN = build_quoted_phrase_pattern()
@@ -149,10 +146,6 @@ def _is_general_capability_query(text: str) -> bool:
 
 def _looks_fact_lookup_query(text: str) -> bool:
     return bool(_FACT_LOOKUP_PATTERN.search(text))
-
-
-def _has_extreme_value_lookup_request(text: str) -> bool:
-    return bool(_EXTREME_VALUE_LOOKUP_PATTERN.search(text))
 
 
 def _has_aggregate_listing_scope_request(text: str) -> bool:
@@ -258,268 +251,6 @@ class QueryClassification:
         return ConfidenceBand.LOW
 
 
-def _apply_first_matching_rule(rules: list[tuple[bool, Callable[[], None]]]) -> None:
-    for condition, action in rules:
-        if condition:
-            action()
-            return
-
-
-def _apply_metadata_override_rules(
-    *,
-    apply_override: Callable[..., None],
-    is_inventory_metadata: bool,
-    has_corpus_scope: bool,
-    has_structured_schema: bool,
-    has_analysis_action: bool,
-    has_evidence_value_request: bool,
-    is_general_capability: bool,
-    looks_fact_lookup: bool,
-    broad_scope: bool,
-    has_multi_doc_listing: bool,
-    has_global_entity_listing: bool,
-    filename_filter: str | None,
-    has_extreme_value_lookup: bool,
-) -> None:
-    rules = [
-        (
-            (
-                not is_inventory_metadata
-                and not has_corpus_scope
-                and not has_structured_schema
-                and not has_analysis_action
-                and not has_evidence_value_request
-                and not is_general_capability
-                and looks_fact_lookup
-            ),
-            lambda: apply_override(
-                reason_code='deterministic_override_metadata_non_inventory_fact_lookup_to_focused',
-                new_intent=IntentLabel.FOCUSED,
-                new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
-                new_shape=OutputShape.NARRATIVE_SYNTHESIS,
-            ),
-        ),
-        (
-            has_structured_schema and not is_inventory_metadata and broad_scope,
-            lambda: apply_override(
-                reason_code='deterministic_override_structured_schema_request',
-                new_intent=IntentLabel.COVERAGE,
-                new_route=IntentProfileId.COMPARATIVE_ANALYSIS,
-                new_shape=OutputShape.METADATA_TABLE,
-                new_subtype=QuerySubtype.EXTRACT_STRUCTURED_VALUES,
-            ),
-        ),
-        (
-            has_structured_schema and not is_inventory_metadata and not broad_scope,
-            lambda: apply_override(
-                reason_code='deterministic_override_structured_schema_request',
-                new_intent=IntentLabel.FOCUSED,
-                new_route=IntentProfileId.STRUCTURED_FIELD_EXTRACTION,
-                new_shape=OutputShape.STRUCTURED_EXTRACT,
-                new_subtype=QuerySubtype.EXTRACT_STRUCTURED_VALUES,
-            ),
-        ),
-        (
-            has_analysis_action and not is_inventory_metadata and broad_scope,
-            lambda: apply_override(
-                reason_code='deterministic_override_analysis_request',
-                new_intent=IntentLabel.COVERAGE,
-                new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
-                new_shape=OutputShape.NARRATIVE_SYNTHESIS,
-            ),
-        ),
-        (
-            has_analysis_action and not is_inventory_metadata and not broad_scope,
-            lambda: apply_override(
-                reason_code='deterministic_override_analysis_request',
-                new_intent=IntentLabel.FOCUSED,
-                new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
-                new_shape=OutputShape.NARRATIVE_SYNTHESIS,
-            ),
-        ),
-        (
-            has_evidence_value_request and (is_inventory_metadata or has_corpus_scope)
-            and (broad_scope or has_multi_doc_listing),
-            lambda: apply_override(
-                reason_code='deterministic_override_inventory_with_evidence_request',
-                new_intent=IntentLabel.COVERAGE,
-                new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
-                new_shape=OutputShape.NARRATIVE_SYNTHESIS,
-            ),
-        ),
-        (
-            has_evidence_value_request and (is_inventory_metadata or has_corpus_scope)
-            and not (broad_scope or has_multi_doc_listing),
-            lambda: apply_override(
-                reason_code='deterministic_override_inventory_with_evidence_request',
-                new_intent=IntentLabel.FOCUSED,
-                new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
-                new_shape=OutputShape.NARRATIVE_SYNTHESIS,
-            ),
-        ),
-        (
-            has_corpus_scope and has_global_entity_listing and filename_filter is None and not has_extreme_value_lookup,
-            lambda: apply_override(
-                reason_code='deterministic_override_global_entity_listing_to_coverage',
-                new_intent=IntentLabel.COVERAGE,
-                new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
-                new_shape=OutputShape.NARRATIVE_SYNTHESIS,
-            ),
-        ),
-    ]
-    _apply_first_matching_rule(rules)
-
-
-def _apply_coverage_override_rules(
-    *,
-    apply_override: Callable[..., None],
-    has_extreme_value_lookup: bool,
-    has_structured_schema: bool,
-    has_multi_year_scope: bool,
-    broad_scope: bool,
-    has_corpus_scope: bool,
-    filename_filter: str | None,
-    source_terms: list[str],
-) -> None:
-    rules = [
-        (
-            has_extreme_value_lookup and not has_structured_schema and not has_multi_year_scope,
-            lambda: apply_override(
-                reason_code='deterministic_override_extreme_value_lookup_to_focused',
-                new_intent=IntentLabel.FOCUSED,
-                new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
-                new_shape=OutputShape.NARRATIVE_SYNTHESIS,
-            ),
-        ),
-        (
-            has_structured_schema,
-            lambda: apply_override(
-                reason_code='deterministic_override_structured_schema_for_coverage',
-                new_route=IntentProfileId.COMPARATIVE_ANALYSIS,
-                new_shape=OutputShape.METADATA_TABLE,
-                new_subtype=QuerySubtype.EXTRACT_STRUCTURED_VALUES,
-            ),
-        ),
-        (
-            not broad_scope
-            and not has_corpus_scope
-            and not has_multi_year_scope
-            and (filename_filter is not None or bool(source_terms)),
-            lambda: apply_override(
-                reason_code='deterministic_override_narrow_scope_to_focused',
-                new_intent=IntentLabel.FOCUSED,
-                new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
-            ),
-        ),
-    ]
-    _apply_first_matching_rule(rules)
-
-
-def _apply_focused_override_rules(
-    *,
-    apply_override: Callable[..., None],
-    has_corpus_scope: bool,
-    broad_scope: bool,
-    has_multi_doc_listing: bool,
-    single_target_scope: bool,
-    filename_filter: str | None,
-    has_extreme_value_lookup: bool,
-    has_aggregate_listing_scope: bool,
-    has_global_entity_listing: bool,
-    has_multi_year_scope: bool,
-    has_evidence_value_request: bool,
-    has_content_analysis: bool,
-    plural_scope: bool,
-    has_structured_schema: bool,
-) -> None:
-    rules = [
-        (
-            has_corpus_scope
-            and (broad_scope or has_multi_doc_listing)
-            and not single_target_scope
-            and filename_filter is None
-            and not has_extreme_value_lookup,
-            lambda: apply_override(
-                reason_code='deterministic_override_corpus_scope_to_coverage',
-                new_intent=IntentLabel.COVERAGE,
-                new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
-            ),
-        ),
-        (
-            has_aggregate_listing_scope
-            and not single_target_scope
-            and filename_filter is None
-            and not has_extreme_value_lookup,
-            lambda: apply_override(
-                reason_code='deterministic_override_aggregate_listing_to_coverage',
-                new_intent=IntentLabel.COVERAGE,
-                new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
-            ),
-        ),
-        (
-            has_corpus_scope
-            and has_global_entity_listing
-            and not single_target_scope
-            and filename_filter is None
-            and not has_extreme_value_lookup,
-            lambda: apply_override(
-                reason_code='deterministic_override_global_entity_listing_to_coverage',
-                new_intent=IntentLabel.COVERAGE,
-                new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
-            ),
-        ),
-        (
-            has_corpus_scope
-            and has_multi_year_scope
-            and has_evidence_value_request
-            and filename_filter is None,
-            lambda: apply_override(
-                reason_code='deterministic_override_multi_year_extraction_to_coverage',
-                new_intent=IntentLabel.COVERAGE,
-                new_route=IntentProfileId.COMPARATIVE_ANALYSIS,
-                new_shape=OutputShape.METADATA_TABLE,
-                new_subtype=QuerySubtype.AGGREGATE_BY_PERIOD,
-            ),
-        ),
-        (
-            has_multi_year_scope and has_content_analysis and filename_filter is None,
-            lambda: apply_override(
-                reason_code='deterministic_override_multi_year_analysis_request',
-                new_intent=IntentLabel.COVERAGE,
-                new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
-            ),
-        ),
-        (
-            plural_scope and not single_target_scope and has_content_analysis and filename_filter is None,
-            lambda: apply_override(
-                reason_code='deterministic_override_plural_scope_analysis_request',
-                new_intent=IntentLabel.COVERAGE,
-                new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
-            ),
-        ),
-        (
-            has_structured_schema and (broad_scope or has_corpus_scope),
-            lambda: apply_override(
-                reason_code='deterministic_override_structured_schema_for_coverage_scope',
-                new_intent=IntentLabel.COVERAGE,
-                new_route=IntentProfileId.COMPARATIVE_ANALYSIS,
-                new_shape=OutputShape.METADATA_TABLE,
-                new_subtype=QuerySubtype.EXTRACT_STRUCTURED_VALUES,
-            ),
-        ),
-        (
-            has_structured_schema and not (broad_scope or has_corpus_scope),
-            lambda: apply_override(
-                reason_code='deterministic_override_structured_schema_for_focused',
-                new_route=IntentProfileId.STRUCTURED_FIELD_EXTRACTION,
-                new_shape=OutputShape.STRUCTURED_EXTRACT,
-                new_subtype=QuerySubtype.EXTRACT_STRUCTURED_VALUES,
-            ),
-        ),
-    ]
-    _apply_first_matching_rule(rules)
-
-
 def classify_query(query: str) -> QueryClassification:
     """Classify query via pluggable intent router + deterministic slot extraction."""
     text = str(query or '').strip()
@@ -590,8 +321,6 @@ def classify_query(query: str) -> QueryClassification:
         # Blend PromptCue scope with deterministic lexical scope cues so
         # broad/focused routing remains stable when PromptCue scope confidence
         # is imperfect for corpus-specific phrasing.
-        broad_scope          = (str(pcue.scope) == 'broad') or _looks_broad_scope(lowered)
-        plural_scope         = broad_scope or _looks_plural_corpus_scope_request(lowered)
         single_target_scope  = (str(pcue.scope) == 'focused') or _looks_single_target_request(lowered)
         has_structured_schema = (
             bool(pcue.routing_hints.get('needs_structure'))
@@ -608,19 +337,12 @@ def classify_query(query: str) -> QueryClassification:
             or bool(getattr(semantic_hints, 'requires_multi_period_analysis', False))
             or _has_multi_year_scope_signal(lowered)
         )
-        has_content_analysis = pcue.primary_query_type in {
-            'analysis', 'comparison', 'summarization', 'coverage',
-        }
     else:
         # Regex fallback path — used when a non-PromptCue router is active.
-        broad_scope          = _looks_broad_scope(lowered)
-        plural_scope         = _looks_plural_corpus_scope_request(lowered)
         single_target_scope  = _looks_single_target_request(lowered)
         has_structured_schema = _has_structured_schema_request(lowered)
         has_analysis_action  = _has_analysis_action_request(lowered)
         has_multi_year_scope = _has_multi_year_scope_signal(lowered)
-        has_content_analysis = _has_content_analysis_request(lowered)
-    has_extreme_value_lookup = _has_extreme_value_lookup_request(lowered)
     has_aggregate_listing_scope = _has_aggregate_listing_scope_request(lowered)
     has_global_entity_listing = _has_global_entity_listing_request(lowered)
     looks_fact_lookup = _looks_fact_lookup_query(lowered)
@@ -684,103 +406,55 @@ def classify_query(query: str) -> QueryClassification:
         route_candidate = IntentProfileId.METADATA_INVENTORY
         if has_structured_schema:
             response_shape = OutputShape.METADATA_TABLE
-        _apply_metadata_override_rules(
-            apply_override=apply_override,
-            is_inventory_metadata=is_inventory_metadata,
-            has_corpus_scope=has_corpus_scope,
-            has_structured_schema=has_structured_schema,
-            has_analysis_action=has_analysis_action,
-            has_evidence_value_request=has_evidence_value_request,
-            is_general_capability=is_general_capability,
-            looks_fact_lookup=looks_fact_lookup,
-            broad_scope=broad_scope,
-            has_multi_doc_listing=has_multi_doc_listing,
-            has_global_entity_listing=has_global_entity_listing,
-            filename_filter=filename_filter,
-            has_extreme_value_lookup=has_extreme_value_lookup,
-        )
     elif intent == IntentLabel.SIMPLE:
         route_candidate = IntentProfileId.CLARIFICATION_OR_DISAMBIGUATION
     elif intent == IntentLabel.COVERAGE:
         route_candidate = IntentProfileId.CROSS_DOCUMENT_SYNTHESIS
-        if (
-            not has_corpus_scope
-            and not broad_scope
-            and single_target_scope
-            and not has_multi_doc_listing
-            and not has_multi_year_scope
-            and not has_aggregate_listing_scope
-            and not has_global_entity_listing
-        ):
-            apply_override(
-                reason_code='deterministic_override_single_target_to_focused',
-                new_intent=IntentLabel.FOCUSED,
-                new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
-                new_shape=OutputShape.NARRATIVE_SYNTHESIS,
-            )
-        elif (
-            not has_corpus_scope
-            and not broad_scope
-            and single_target_scope
-            and not has_multi_doc_listing
-            and not has_multi_year_scope
-            and not has_aggregate_listing_scope
-            and not has_global_entity_listing
-            and not has_content_analysis
-            and year_filter is not None
-        ):
-            apply_override(
-                reason_code='deterministic_override_year_anchored_target_to_focused',
-                new_intent=IntentLabel.FOCUSED,
-                new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
-                new_shape=OutputShape.NARRATIVE_SYNTHESIS,
-            )
-        _apply_coverage_override_rules(
-            apply_override=apply_override,
-            has_extreme_value_lookup=has_extreme_value_lookup,
-            has_structured_schema=has_structured_schema,
-            has_multi_year_scope=has_multi_year_scope,
-            broad_scope=broad_scope,
-            has_corpus_scope=has_corpus_scope,
-            filename_filter=filename_filter,
-            source_terms=source_terms,
-        )
     else:
         route_candidate = IntentProfileId.TARGETED_FACT_LOOKUP
-        _apply_focused_override_rules(
-            apply_override=apply_override,
-            has_corpus_scope=has_corpus_scope,
-            broad_scope=broad_scope,
-            has_multi_doc_listing=has_multi_doc_listing,
-            single_target_scope=single_target_scope,
-            filename_filter=filename_filter,
-            has_extreme_value_lookup=has_extreme_value_lookup,
-            has_aggregate_listing_scope=has_aggregate_listing_scope,
-            has_global_entity_listing=has_global_entity_listing,
-            has_multi_year_scope=has_multi_year_scope,
-            has_evidence_value_request=has_evidence_value_request,
-            has_content_analysis=has_content_analysis,
-            plural_scope=plural_scope,
-            has_structured_schema=has_structured_schema,
+
+    # Minimal deterministic guardrail: single-target requests should remain
+    # focused even when base classification predicts broad synthesis.
+    if (
+        intent == IntentLabel.COVERAGE
+        and single_target_scope
+        and not _looks_plural_corpus_scope_request(lowered)
+        and not has_multi_doc_listing
+        and not has_multi_year_scope
+        and not has_aggregate_listing_scope
+        and not has_global_entity_listing
+    ):
+        apply_override(
+            reason_code='deterministic_override_single_target_to_focused',
+            new_intent=IntentLabel.FOCUSED,
+            new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
+            new_shape=OutputShape.NARRATIVE_SYNTHESIS,
         )
 
+    # Minimal deterministic guardrail: plural corpus synthesis/listing prompts
+    # should route to coverage even when base classification predicts focused.
     if (
-        intent == IntentLabel.METADATA
-        and has_content_analysis
-        and not is_inventory_metadata
+        intent == IntentLabel.FOCUSED
+        and filename_filter is None
+        and has_corpus_scope
+        and (
+            has_multi_doc_listing
+            or has_aggregate_listing_scope
+            or has_global_entity_listing
+            or (has_structured_schema and _looks_plural_corpus_scope_request(lowered))
+            or (
+                has_analysis_action
+                and _looks_plural_corpus_scope_request(lowered)
+                and not single_target_scope
+            )
+        )
     ):
-        if broad_scope or (has_corpus_scope and plural_scope):
-            apply_override(
-                reason_code='deterministic_override_metadata_content_request',
-                new_intent=IntentLabel.COVERAGE,
-                new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
-            )
-        else:
-            apply_override(
-                reason_code='deterministic_override_metadata_content_request',
-                new_intent=IntentLabel.FOCUSED,
-                new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
-            )
+        apply_override(
+            reason_code='deterministic_override_plural_corpus_to_coverage',
+            new_intent=IntentLabel.COVERAGE,
+            new_route=IntentProfileId.CROSS_DOCUMENT_SYNTHESIS,
+            new_shape=OutputShape.NARRATIVE_SYNTHESIS,
+        )
 
     if (
         intent == IntentLabel.COVERAGE

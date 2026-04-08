@@ -173,53 +173,6 @@ CORPUS_DOCUMENT_SCOPE_KEYWORDS: str = r'\b(indexed\s+)?(files?|documents?|record
 # Compiled Pattern Builders
 # ==============================================================================
 
-def build_list_pattern() -> Pattern[str]:
-    """
-    Build regex pattern for list/enumeration queries.
-
-    Matches: "list (all)?", "display (all)?"
-    Note: "show me" and "give me" are handled by build_imperative_quantifier_pattern()
-    which requires quantifiers/document types to avoid false positives in content queries.
-
-    Returns:
-        Compiled regex pattern
-    """
-    return re.compile(
-        rf'\b({LIST_VERBS}(\s+all)?)\b',
-        re.IGNORECASE
-    )
-
-
-def build_file_query_pattern() -> Pattern[str]:
-    """
-    Build regex pattern for file/document queries with quantifiers.
-
-    Matches: "what/which/all files", "all documents", "every report", "each file"
-
-    Returns:
-        Compiled regex pattern
-    """
-    return re.compile(
-        rf'\b({QUESTION_WORDS}|{QUANTIFIERS})(\s+(the\s+)?)?{DOCUMENT_TYPES}\b',
-        re.IGNORECASE
-    )
-
-
-def build_imperative_quantifier_pattern() -> Pattern[str]:
-    """
-    Build regex pattern for imperative + quantifier queries.
-
-    Matches: "give me all", "show me every", "list all files"
-
-    Returns:
-        Compiled regex pattern
-    """
-    return re.compile(
-        rf'\b({IMPERATIVE_VERBS})(\s+({QUANTIFIERS}))?\s+(the\s+)?{DOCUMENT_TYPES}\b',
-        re.IGNORECASE
-    )
-
-
 def build_coverage_pattern() -> Pattern[str]:
     """
     Build regex pattern for coverage queries (broad scope).
@@ -253,30 +206,6 @@ def build_count_pattern() -> Pattern[str]:
     return re.compile(COUNT_PATTERN, re.IGNORECASE)
 
 
-def build_greeting_pattern() -> Pattern[str]:
-    """
-    Build regex pattern for greeting queries.
-
-    Matches: "hello", "hi", "hey", "thanks", etc.
-
-    Returns:
-        Compiled regex pattern
-    """
-    return re.compile(GREETING_PATTERN, re.IGNORECASE)
-
-
-def build_clarification_pattern() -> Pattern[str]:
-    """
-    Build regex pattern for clarification queries.
-
-    Matches: "can you clarify", "what do you mean", etc.
-
-    Returns:
-        Compiled regex pattern
-    """
-    return re.compile(CLARIFICATION_PATTERN, re.IGNORECASE)
-
-
 def build_meta_query_pattern() -> Pattern[str]:
     """
     Build regex pattern for meta queries (about the system itself).
@@ -287,18 +216,6 @@ def build_meta_query_pattern() -> Pattern[str]:
         Compiled regex pattern
     """
     return re.compile(META_QUERY_PATTERN, re.IGNORECASE)
-
-
-def build_document_keywords_pattern() -> Pattern[str]:
-    """
-    Build regex pattern for detecting document-related keywords.
-
-    Used to distinguish document queries from off-topic queries.
-
-    Returns:
-        Compiled regex pattern
-    """
-    return re.compile(DOCUMENT_KEYWORDS, re.IGNORECASE)
 
 
 def build_enumeration_pattern() -> Pattern[str]:
@@ -347,65 +264,6 @@ def build_aggregation_pattern() -> Pattern[str]:
         Compiled regex pattern
     """
     return re.compile(AGGREGATION_KEYWORDS, re.IGNORECASE)
-
-
-def build_aggregation_semantics_pattern() -> Pattern[str]:
-    """
-    Build regex pattern for aggregation semantics used by routing override.
-
-    Matches: "by year", "per year", "aggregate", "total by", "grouped by"
-
-    Returns:
-        Compiled regex pattern
-    """
-    return re.compile(AGGREGATION_SEMANTICS_KEYWORDS, re.IGNORECASE)
-
-
-def build_extraction_task_pattern() -> Pattern[str]:
-    """
-    Build regex pattern for extraction/aggregation task verbs.
-
-    Matches generic task wording: "create", "extract", "calculate", "compare", etc.
-
-    Returns:
-        Compiled regex pattern
-    """
-    return re.compile(EXTRACTION_TASK_VERBS, re.IGNORECASE)
-
-
-def build_group_by_year_pattern() -> Pattern[str]:
-    """
-    Build regex pattern for grouping by year constraints.
-    """
-    return re.compile(GROUP_BY_YEAR_KEYWORDS, re.IGNORECASE)
-
-
-def build_group_by_category_pattern() -> Pattern[str]:
-    """
-    Build regex pattern for grouping by category constraints.
-    """
-    return re.compile(GROUP_BY_CATEGORY_KEYWORDS, re.IGNORECASE)
-
-
-def build_group_by_file_pattern() -> Pattern[str]:
-    """
-    Build regex pattern for grouping by file constraints.
-    """
-    return re.compile(GROUP_BY_FILE_KEYWORDS, re.IGNORECASE)
-
-
-def build_structured_field_hint_pattern() -> Pattern[str]:
-    """
-    Build regex pattern for structured field hints (box/line/field).
-    """
-    return re.compile(STRUCTURED_FIELD_HINT_KEYWORDS, re.IGNORECASE)
-
-
-def build_section_hint_pattern() -> Pattern[str]:
-    """
-    Build regex pattern for section/part/schedule hints.
-    """
-    return re.compile(SECTION_HINT_KEYWORDS, re.IGNORECASE)
 
 
 def build_conflict_amount_pattern() -> Pattern[str]:

@@ -18,7 +18,7 @@ class _FakeIntentRouter:
             return IntentPrediction('simple', 0.9, [('simple', 0.9)], ['test_fake_router'])
         if 'what kind of documents' in lowered:
             return IntentPrediction('metadata', 0.9, [('metadata', 0.9)], ['test_fake_router'])
-        if 'compare' in lowered:
+        if 'compare' in lowered or 'summarize' in lowered:
             return IntentPrediction('coverage', 0.9, [('coverage', 0.9)], ['test_fake_router'])
         return IntentPrediction('focused', 0.85, [('focused', 0.85)], ['test_fake_router'])
 
@@ -75,10 +75,11 @@ def test_world_fact_lookup_does_not_stay_metadata_inventory() -> None:
     finally:
         set_intent_router_for_testing(original)
 
-    assert result.intent == 'focused'
-    assert result.route_candidate == 'targeted_fact_lookup'
-    assert result.is_metadata_query is False
-    assert 'deterministic_override_metadata_non_inventory_fact_lookup_to_focused' in result.reason_codes
+    # Simplified policy trusts primary classifier and avoids metadata->focused
+    # rescue overrides beyond minimal guardrails.
+    assert result.intent == 'metadata'
+    assert result.route_candidate == 'metadata_inventory'
+    assert result.is_metadata_query is True
 
 
 def test_routing_expansion_reason_code_is_recorded(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -125,10 +126,9 @@ def test_structured_schema_overrides_metadata_prediction_to_rag() -> None:
     finally:
         set_intent_router_for_testing(original)
 
-    assert result.intent in ('focused', 'coverage')
-    assert result.route_candidate in ('structured_field_extraction', 'comparative_analysis')
-    assert result.deterministic_override is True
-    assert 'deterministic_override_structured_schema_request' in result.reason_codes
+    assert result.intent == 'metadata'
+    assert result.route_candidate == 'metadata_inventory'
+    assert result.deterministic_override is False
 
 
 def test_inventory_capability_remains_metadata_without_override() -> None:
@@ -163,16 +163,9 @@ def test_inventory_with_evidence_request_overrides_to_rag() -> None:
     finally:
         set_intent_router_for_testing(original)
 
-    assert result.intent == 'coverage'
-    assert result.route_candidate == 'cross_document_synthesis'
-    assert result.deterministic_override is True
-    assert any(
-        code in result.reason_codes
-        for code in (
-            'deterministic_override_inventory_with_evidence_request',
-            'deterministic_override_global_entity_listing_to_coverage',
-        )
-    )
+    assert result.intent == 'metadata'
+    assert result.route_candidate == 'metadata_inventory'
+    assert result.deterministic_override is False
 
 
 def test_metadata_content_request_overrides_to_coverage() -> None:
@@ -187,10 +180,9 @@ def test_metadata_content_request_overrides_to_coverage() -> None:
     finally:
         set_intent_router_for_testing(original)
 
-    assert result.intent == 'coverage'
-    assert result.route_candidate == 'cross_document_synthesis'
-    assert result.deterministic_override is True
-    assert 'deterministic_override_metadata_content_request' in result.reason_codes
+    assert result.intent == 'metadata'
+    assert result.route_candidate == 'metadata_inventory'
+    assert result.deterministic_override is False
 
 
 def test_coverage_narrow_scope_overrides_to_focused() -> None:
@@ -208,7 +200,7 @@ def test_coverage_narrow_scope_overrides_to_focused() -> None:
     assert result.intent == 'focused'
     assert result.route_candidate == 'targeted_fact_lookup'
     assert result.deterministic_override is True
-    assert 'deterministic_override_narrow_scope_to_focused' in result.reason_codes
+    assert 'deterministic_override_single_target_to_focused' in result.reason_codes
 
 
 def test_coverage_single_target_scope_overrides_to_focused() -> None:
@@ -250,13 +242,7 @@ def test_coverage_year_anchored_target_overrides_to_focused() -> None:
     assert result.intent == 'focused'
     assert result.route_candidate == 'targeted_fact_lookup'
     assert result.deterministic_override is True
-    assert any(
-        code in result.reason_codes
-        for code in (
-            'deterministic_override_year_anchored_target_to_focused',
-            'deterministic_override_narrow_scope_to_focused',
-        )
-    )
+    assert 'deterministic_override_single_target_to_focused' in result.reason_codes
 
 
 def test_focused_plural_scope_analysis_overrides_to_coverage() -> None:
@@ -274,7 +260,7 @@ def test_focused_plural_scope_analysis_overrides_to_coverage() -> None:
     assert result.intent == 'coverage'
     assert result.route_candidate == 'cross_document_synthesis'
     assert result.deterministic_override is True
-    assert 'deterministic_override_plural_scope_analysis_request' in result.reason_codes
+    assert 'deterministic_override_plural_corpus_to_coverage' in result.reason_codes
 
 
 def test_focused_structured_schema_with_corpus_scope_overrides_to_coverage() -> None:
@@ -292,10 +278,10 @@ def test_focused_structured_schema_with_corpus_scope_overrides_to_coverage() -> 
         set_intent_router_for_testing(original)
 
     assert result.intent == 'coverage'
-    assert result.route_candidate == 'comparative_analysis'
-    assert result.response_shape == 'metadata_table'
+    assert result.route_candidate == 'cross_document_synthesis'
+    assert result.response_shape == 'narrative_synthesis'
     assert result.deterministic_override is True
-    assert 'deterministic_override_structured_schema_for_coverage_scope' in result.reason_codes
+    assert 'deterministic_override_plural_corpus_to_coverage' in result.reason_codes
 
 
 def test_coverage_multi_year_prompt_sets_aggregate_subtype() -> None:
@@ -334,7 +320,7 @@ def test_focused_multi_year_analysis_overrides_to_coverage() -> None:
     assert result.intent == 'coverage'
     assert result.route_candidate == 'cross_document_synthesis'
     assert result.deterministic_override is True
-    assert 'deterministic_override_multi_year_analysis_request' in result.reason_codes
+    assert 'deterministic_override_plural_corpus_to_coverage' in result.reason_codes
 
 
 def test_focused_multi_year_numeric_extraction_overrides_to_coverage_table() -> None:
@@ -351,12 +337,11 @@ def test_focused_multi_year_numeric_extraction_overrides_to_coverage_table() -> 
     finally:
         set_intent_router_for_testing(original)
 
-    assert result.intent == 'coverage'
-    assert result.route_candidate == 'comparative_analysis'
-    assert result.response_shape == 'metadata_table'
-    assert result.subtype == 'aggregate_by_period'
-    assert result.deterministic_override is True
-    assert 'deterministic_override_multi_year_extraction_to_coverage' in result.reason_codes
+    assert result.intent == 'focused'
+    assert result.route_candidate == 'targeted_fact_lookup'
+    assert result.response_shape == 'narrative_synthesis'
+    assert result.subtype is None
+    assert result.deterministic_override is False
 
 
 def test_focused_corpus_scope_listing_overrides_to_coverage() -> None:
@@ -374,13 +359,7 @@ def test_focused_corpus_scope_listing_overrides_to_coverage() -> None:
     assert result.intent == 'coverage'
     assert result.route_candidate == 'cross_document_synthesis'
     assert result.deterministic_override is True
-    assert any(
-        code in result.reason_codes
-        for code in (
-            'deterministic_override_corpus_scope_to_coverage',
-            'deterministic_override_global_entity_listing_to_coverage',
-        )
-    )
+    assert 'deterministic_override_plural_corpus_to_coverage' in result.reason_codes
 
 
 def test_coverage_extreme_value_lookup_overrides_to_focused() -> None:
@@ -398,7 +377,7 @@ def test_coverage_extreme_value_lookup_overrides_to_focused() -> None:
     assert result.intent == 'focused'
     assert result.route_candidate == 'targeted_fact_lookup'
     assert result.deterministic_override is True
-    assert 'deterministic_override_extreme_value_lookup_to_focused' in result.reason_codes
+    assert 'deterministic_override_single_target_to_focused' in result.reason_codes
 
 
 def test_focused_aggregate_listing_scope_overrides_to_coverage() -> None:
@@ -416,13 +395,7 @@ def test_focused_aggregate_listing_scope_overrides_to_coverage() -> None:
     assert result.intent == 'coverage'
     assert result.route_candidate == 'cross_document_synthesis'
     assert result.deterministic_override is True
-    assert any(
-        code in result.reason_codes
-        for code in (
-            'deterministic_override_aggregate_listing_to_coverage',
-            'deterministic_override_corpus_scope_to_coverage',
-        )
-    )
+    assert 'deterministic_override_plural_corpus_to_coverage' in result.reason_codes
 
 
 def test_source_terms_extract_anchor_phrase() -> None:

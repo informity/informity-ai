@@ -12,7 +12,11 @@ from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.query_handler import QueryHandler
-from informity.llm.handlers.rag import RAGHandler, _build_history_aware_retrieval_query
+from informity.llm.handlers.rag import (
+    RAGHandler,
+    _build_history_aware_retrieval_query,
+    _should_boost_coverage_top_k,
+)
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.rag_runtime.retrieval_pipeline import _deduplicate_prompt_chunks
@@ -38,6 +42,22 @@ class TestHandlerProtocol:
         assert isinstance(handler, QueryHandler)
         assert hasattr(handler, 'matches')
         assert hasattr(handler, 'handle')
+
+
+def test_should_boost_coverage_top_k_for_corpus_wide_entity_listing() -> None:
+    classification = QueryClassification(intent='coverage')
+    assert _should_boost_coverage_top_k(
+        'What are the names of people mentioned across all indexed documents?',
+        classification,
+    )
+
+
+def test_should_not_boost_top_k_for_focused_queries() -> None:
+    classification = QueryClassification(intent='focused')
+    assert not _should_boost_coverage_top_k(
+        'What are the names of people mentioned across all indexed documents?',
+        classification,
+    )
 
 
 class TestMetadataHandler:
