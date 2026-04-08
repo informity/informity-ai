@@ -52,6 +52,23 @@ _DETERMINISTIC_EXTRACTION_HEADING = '### Deterministic Numeric Extraction\n\n'
 _EXTRACTION_CUE_PATTERN = re.compile(r'\bextract\b', re.IGNORECASE)
 _STRICT_CONTRACT_MAX_TEMPERATURE = 0.2
 _STRICT_CONTRACT_MAX_TOP_P = 0.8
+_COVERAGE_ENTITY_LISTING_TOP_K_BOOST = 8
+_COVERAGE_ENTITY_LISTING_TOP_K_MAX = 60
+_GLOBAL_ENTITY_ENUMERATION_PATTERN = re.compile(
+    r'\b('
+    r'names?\s+of\s+people|people\s+mentioned|important\s+dates?|key\s+dates?|'
+    r'numeric\s+amounts?|financial\s+figures?|key\s+amounts?'
+    r')\b',
+    re.IGNORECASE,
+)
+_CORPUS_WIDE_SCOPE_PATTERN = re.compile(
+    r'\b('
+    r'across\s+all'
+    r'|'
+    r'across\b.*\b(indexed\s+)?(documents?|files?|records?)'
+    r')\b',
+    re.IGNORECASE,
+)
 
 
 def _has_explicit_output_contract(question: str) -> bool:
@@ -182,6 +199,15 @@ def _resolve_minimal_query_type(classification: QueryClassification) -> QueryTyp
     return QueryType.FOCUSED
 
 
+def _should_boost_coverage_top_k(question: str, classification: QueryClassification) -> bool:
+    if classification.intent != QueryType.COVERAGE:
+        return False
+    lowered = str(question or '').casefold()
+    if not lowered:
+        return False
+    return bool(_GLOBAL_ENTITY_ENUMERATION_PATTERN.search(lowered) and _CORPUS_WIDE_SCOPE_PATTERN.search(lowered))
+
+
 def _resolve_minimal_answerability_settings(query_type: QueryType) -> tuple[float, int]:
     if query_type == QueryType.COVERAGE:
         return (
@@ -231,6 +257,11 @@ class RAGHandler:
         profile = get_profile()
         effective_query_type = _resolve_minimal_query_type(classification)
         effective_top_k = get_retrieval_top_k(effective_query_type)
+        if _should_boost_coverage_top_k(question, classification):
+            effective_top_k = min(
+                _COVERAGE_ENTITY_LISTING_TOP_K_MAX,
+                effective_top_k + _COVERAGE_ENTITY_LISTING_TOP_K_BOOST,
+            )
         max_tokens = profile.get_max_tokens(effective_query_type)
         timeout_seconds = profile.get_timeout_seconds(effective_query_type)
         reasoning_enabled = profile.get_reasoning_enabled(effective_query_type)
