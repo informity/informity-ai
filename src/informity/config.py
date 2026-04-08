@@ -346,6 +346,9 @@ class Settings(BaseSettings):
     # When True, no network access: embedding and LLM use cache/local only (fully local).
     # When False, network is allowed (e.g. for model downloads). Synced to embedding_offline and llm_local_only.
     full_privacy:         bool = True
+    tavily_api_key: str = ''
+    web_search_max_results: int = 5
+    web_search_timeout_seconds: float = 8.0
 
     # -- LLM ------------------------------------------------------------------
     # When True, load LLM only from models_dir; never download from the network.

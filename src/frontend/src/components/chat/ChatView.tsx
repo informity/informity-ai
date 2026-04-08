@@ -31,6 +31,12 @@ interface GetCurrentChatResponse {
 }
 interface ChatSettingsResponse {
   default_chat_mode?: ChatMode
+  full_privacy?: boolean
+  tavily_api_key_set?: boolean
+}
+
+interface SettingsUpdatedEvent extends Event {
+  detail?: ChatSettingsResponse
 }
 
 export function ChatView({ prefillMessage = '', initialChatId = null }: ChatViewProps) {
@@ -42,6 +48,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     loadingChat,
     error,
     enableRawOutputControl,
+    chatWebSearchEnabled,
+    chatWebSearchPrivacyOverride,
+    setChatWebSearchPreferences,
     selectChat,
     sendMessage,
     continueLastScope,
@@ -51,6 +60,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   } = useChatContext()
   const [inputValue, setInputValue] = useState(prefillMessage)
   const [chatMode, setChatMode] = useState<ChatMode>('researcher')
+  const [fullPrivacyMode, setFullPrivacyMode] = useState(true)
+  const [tavilyApiKeySet, setTavilyApiKeySet] = useState(false)
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [animateToDocked, setAnimateToDocked] = useState(false)
@@ -83,11 +94,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
 
   useEffect(() => {
     let cancelled = false
+    let hasStoredMode = false
     try {
       const raw = window.localStorage.getItem(CHAT_MODE_STORAGE_KEY)
       if (isChatMode(raw)) {
+        hasStoredMode = true
         setChatMode(raw)
-        return
       }
     } catch {
       // ignore storage errors
@@ -95,8 +107,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     getSettings()
       .then((data) => {
         if (cancelled) return
-        const mode = (data as ChatSettingsResponse | null | undefined)?.default_chat_mode
-        if (isChatMode(mode)) {
+        const settings = (data as ChatSettingsResponse | null | undefined)
+        const mode = settings?.default_chat_mode
+        setFullPrivacyMode(!!settings?.full_privacy)
+        setTavilyApiKeySet(!!settings?.tavily_api_key_set)
+        if (!hasStoredMode && isChatMode(mode)) {
           setChatMode(mode)
           try {
             window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, mode)
@@ -112,17 +127,37 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   }, [])
 
   useEffect(() => {
+    const handleSettingsUpdated = (event: Event) => {
+      const detail = (event as SettingsUpdatedEvent).detail
+      if (!detail) return
+      if (typeof detail.full_privacy === 'boolean') {
+        setFullPrivacyMode(detail.full_privacy)
+      }
+      if (typeof detail.tavily_api_key_set === 'boolean') {
+        setTavilyApiKeySet(detail.tavily_api_key_set)
+      }
+    }
+    window.addEventListener('settings-updated', handleSettingsUpdated as EventListener)
+    return () => {
+      window.removeEventListener('settings-updated', handleSettingsUpdated as EventListener)
+    }
+  }, [])
+
+  useEffect(() => {
     const handlePointerDown = (event: MouseEvent) => {
-      if (!modeMenuRef.current) return
-      if (modeMenuRef.current.contains(event.target as Node)) return
-      setModeMenuOpen(false)
+      const target = event.target as Node
+      if (modeMenuRef.current && !modeMenuRef.current.contains(target)) {
+        setModeMenuOpen(false)
+      }
     }
     document.addEventListener('mousedown', handlePointerDown)
     return () => document.removeEventListener('mousedown', handlePointerDown)
   }, [])
 
   useEffect(() => {
-    if (offline || isStreaming) setModeMenuOpen(false)
+    if (offline || isStreaming) {
+      setModeMenuOpen(false)
+    }
   }, [offline, isStreaming])
 
   useEffect(() => {
@@ -266,8 +301,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
 
   const handleContinue = useCallback((anchorMessageId?: number) => {
     if (offline) return
-    void continueLastScope(anchorMessageId, { mode: chatMode })
-  }, [offline, continueLastScope, chatMode])
+    void continueLastScope(anchorMessageId, {
+      mode: chatMode,
+      chatWebSearchEnabled,
+      chatWebSearchPrivacyOverride,
+    })
+  }, [offline, continueLastScope, chatMode, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleRegenerate = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -277,8 +316,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
       .reverse()
       .find((msg) => msg.role === 'user' && !msg.isInternal && !!msg.content?.trim())
     if (!previousUser) return
-    void sendMessage(previousUser.content, { mode: chatMode })
-  }, [offline, isStreaming, messages, sendMessage, chatMode])
+    void sendMessage(previousUser.content, {
+      mode: chatMode,
+      chatWebSearchEnabled,
+      chatWebSearchPrivacyOverride,
+    })
+  }, [offline, isStreaming, messages, sendMessage, chatMode, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleAskInAssistant = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -294,16 +337,21 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     } catch {
       // ignore storage errors
     }
-    void sendMessage(previousUser.content, { mode: 'assistant' })
-  }, [offline, isStreaming, messages, sendMessage])
+    void sendMessage(previousUser.content, {
+      mode: 'assistant',
+      chatWebSearchEnabled,
+      chatWebSearchPrivacyOverride,
+    })
+  }, [offline, isStreaming, messages, sendMessage, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleNewChat = useCallback(() => {
     if (offline) return
     newChatRequestedRef.current = true
     setInputValue('')
+    void setChatWebSearchPreferences({ enabled: false, privacyOverride: false, persist: false })
     clearError()
     newChat().catch((err) => logApiError(err, 'ChatView.handleNewChat'))
-  }, [offline, clearError, newChat])
+  }, [offline, clearError, newChat, setChatWebSearchPreferences])
 
   useEffect(() => {
     const handleNewChatEvent = () => handleNewChat()
@@ -317,8 +365,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     if (!text) return
 
     setInputValue('')
-    await sendMessage(text, { mode: chatMode })
-  }, [offline, inputValue, sendMessage, chatMode])
+    await sendMessage(text, {
+      mode: chatMode,
+      chatWebSearchEnabled,
+      chatWebSearchPrivacyOverride,
+    })
+  }, [offline, inputValue, sendMessage, chatMode, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleStop = useCallback(() => {
     if (offline) return
@@ -350,6 +402,25 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     if (offline) return
     setInputValue(e.target.value)
   }
+
+  const webSearchToggleLocked = offline || isStreaming
+  const webSearchToggleTitle = fullPrivacyMode
+    ? (chatWebSearchEnabled
+      ? 'Web search override is enabled for this chat'
+      : 'Enable web search override for this chat')
+    : (chatWebSearchEnabled
+      ? 'Web search is enabled for this chat'
+      : 'Enable web search for this chat')
+
+  const handleWebSearchToggle = useCallback(() => {
+    if (webSearchToggleLocked) return
+    const next = !chatWebSearchEnabled
+    const nextPrivacyOverride = next ? fullPrivacyMode : false
+    void setChatWebSearchPreferences({
+      enabled: next,
+      privacyOverride: nextPrivacyOverride,
+    })
+  }, [webSearchToggleLocked, chatWebSearchEnabled, fullPrivacyMode, setChatWebSearchPreferences])
 
   const handleMessagesWrapperWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     proxyWheelToContainer(e, messagesContainerRef.current, { excludeSelector: '.chat-view__input-area' })
@@ -420,6 +491,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                       nextAction={msg.nextAction}
                       nextActionReason={msg.nextActionReason}
                       continueLabel={msg.continueLabel}
+                      webSearchUsed={msg.webSearchUsed}
                       createdAt={msg.createdAt}
                       generationSeconds={msg.generationSeconds}
                       enableRawOutputControl={enableRawOutputControl}
@@ -450,7 +522,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                         ? 'Service unavailable'
                         : isStreaming
                           ? 'Response in progress...'
-                          : 'Ask me anything...'
+                          : (chatMode === 'assistant' && chatWebSearchEnabled
+                            ? 'Search the web...'
+                            : 'Ask me anything...')
                     }
                     value={inputValue}
                     onChange={handleTextareaChange}
@@ -460,71 +534,89 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                     disabled={offline || isStreaming}
                   />
                   <div className="chat-view__controls-row">
-                    <div ref={modeMenuRef} className="chat-view__mode-selector">
-                      <button
-                        type="button"
-                        className="chat-view__mode-button"
-                        onClick={() => setModeMenuOpen((open) => !open)}
-                        disabled={offline || isStreaming}
-                        aria-haspopup="menu"
-                        aria-expanded={modeMenuOpen}
-                        aria-label="Select chat mode"
-                      >
-                        <i className={CHAT_MODE_ICONS[chatMode]} aria-hidden />
-                        <span>{CHAT_MODE_LABELS[chatMode]}</span>
-                        <i className="ri-arrow-down-s-line" aria-hidden />
-                      </button>
-                      {modeMenuOpen && (
-                        <div className="chat-view__mode-menu" role="menu">
-                          {ALL_CHAT_MODES.map((mode) => (
-                            <span key={mode} className="chat-view__mode-option-wrap">
-                              <button
-                                type="button"
-                                className={`chat-view__mode-option${chatMode === mode ? ' chat-view__mode-option--active' : ''}`}
-                                role="menuitemradio"
-                                aria-checked={chatMode === mode}
-                                disabled={offline || isStreaming}
-                                onClick={() => {
-                                  setChatMode(mode)
-                                  setModeMenuOpen(false)
-                                  try {
-                                    window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, mode)
-                                  } catch {
-                                    // ignore storage errors
-                                  }
-                                }}
-                              >
-                                <i className={CHAT_MODE_ICONS[mode]} aria-hidden />
-                                <span>{CHAT_MODE_LABELS[mode]}</span>
-                              </button>
-                            </span>
-                          ))}
-                        </div>
+                    <div className="chat-view__controls-left">
+                      {chatMode === 'assistant' && tavilyApiKeySet && (
+                        <button
+                          type="button"
+                          className={`chat-view__web-search-toggle${chatWebSearchEnabled ? ' chat-view__web-search-toggle--active' : ''}`}
+                          onClick={handleWebSearchToggle}
+                          disabled={webSearchToggleLocked}
+                          title={webSearchToggleTitle}
+                          aria-label="Toggle web search for this chat"
+                          aria-pressed={chatWebSearchEnabled}
+                        >
+                          <i className="ri-global-line" aria-hidden />
+                          {chatWebSearchEnabled && <span className="chat-view__web-search-pill">Search</span>}
+                        </button>
                       )}
                     </div>
-                    {isStreaming ? (
-                      <button
-                        type="button"
-                        className="chat-view__stop"
-                        onClick={handleStop}
-                        disabled={offline}
-                        title="Stop generating"
-                        aria-label="Stop generating response"
-                      >
-                        <i className="ri-stop-circle-line" aria-hidden style={{ fontSize: '1.125rem' }} />
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="chat-view__send"
-                        onClick={handleSend}
-                        disabled={offline || !inputValue.trim()}
-                        title="Send (Enter)"
-                        aria-label="Send message"
-                      >
-                        <i className="ri-arrow-up-line" aria-hidden style={{ fontSize: '1.125rem' }} />
-                      </button>
-                    )}
+                    <div className="chat-view__controls-right">
+                      <div ref={modeMenuRef} className="chat-view__mode-selector">
+                        <button
+                          type="button"
+                          className="chat-view__mode-button"
+                          onClick={() => setModeMenuOpen((open) => !open)}
+                          disabled={offline || isStreaming}
+                          aria-haspopup="menu"
+                          aria-expanded={modeMenuOpen}
+                          aria-label="Select chat mode"
+                        >
+                          <i className={CHAT_MODE_ICONS[chatMode]} aria-hidden />
+                          <span>{CHAT_MODE_LABELS[chatMode]}</span>
+                          <i className="ri-arrow-down-s-line" aria-hidden />
+                        </button>
+                        {modeMenuOpen && (
+                          <div className="chat-view__mode-menu" role="menu">
+                            {ALL_CHAT_MODES.map((mode) => (
+                              <span key={mode} className="chat-view__mode-option-wrap">
+                                <button
+                                  type="button"
+                                  className={`chat-view__mode-option${chatMode === mode ? ' chat-view__mode-option--active' : ''}`}
+                                  role="menuitemradio"
+                                  aria-checked={chatMode === mode}
+                                  disabled={offline || isStreaming}
+                                  onClick={() => {
+                                    setChatMode(mode)
+                                    setModeMenuOpen(false)
+                                    try {
+                                      window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, mode)
+                                    } catch {
+                                      // ignore storage errors
+                                    }
+                                  }}
+                                >
+                                  <i className={CHAT_MODE_ICONS[mode]} aria-hidden />
+                                  <span>{CHAT_MODE_LABELS[mode]}</span>
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      {isStreaming ? (
+                        <button
+                          type="button"
+                          className="chat-view__stop"
+                          onClick={handleStop}
+                          disabled={offline}
+                          title="Stop generating"
+                          aria-label="Stop generating response"
+                        >
+                          <i className="ri-stop-circle-line" aria-hidden style={{ fontSize: '1.125rem' }} />
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="chat-view__send"
+                          onClick={handleSend}
+                          disabled={offline || !inputValue.trim()}
+                          title="Send (Enter)"
+                          aria-label="Send message"
+                        >
+                          <i className="ri-arrow-up-line" aria-hidden style={{ fontSize: '1.125rem' }} />
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <p className="chat-view__disclaimer">Informity AI can make mistakes. Please double-check cited sources.</p>

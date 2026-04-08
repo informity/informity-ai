@@ -41,6 +41,9 @@ const UPDATABLE_KEYS = [
   'enable_ocr_for_images',
   'scan_file_timeout_seconds',
   'full_privacy',
+  'tavily_api_key',
+  'web_search_max_results',
+  'web_search_timeout_seconds',
   'adaptive_rag_tuning',
   'chat_history_messages',
   'default_chat_mode',
@@ -71,6 +74,10 @@ interface FormState {
   enable_ocr_for_images?: boolean
   scan_file_timeout_seconds?: number
   full_privacy?: boolean
+  tavily_api_key?: string
+  clear_tavily_api_key?: boolean
+  web_search_max_results?: number
+  web_search_timeout_seconds?: number
   adaptive_rag_tuning?: boolean
   chat_history_messages?: number
   default_chat_mode?: ChatMode
@@ -88,8 +95,19 @@ interface FormState {
 
 function buildPayload(form: FormState): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
+  if (form.clear_tavily_api_key) {
+    payload.tavily_api_key = ''
+  }
   for (const key of UPDATABLE_KEYS) {
     if (form[key] !== undefined) {
+      if (key === 'tavily_api_key') {
+        const candidate = String(form[key] || '').trim()
+        if (!candidate || /^•+$/.test(candidate)) {
+          continue
+        }
+        payload[key] = candidate
+        continue
+      }
       payload[key] = form[key]
     }
   }
@@ -97,6 +115,7 @@ function buildPayload(form: FormState): Record<string, unknown> {
 }
 
 interface SettingsData extends FormState {
+  tavily_api_key_set?: boolean
   file_type_options?: { id: string; label: string; extensions: string[] }[]
 }
 
@@ -177,6 +196,7 @@ export function SettingsPage() {
       const payload = buildPayload(form)
       const updated = (await updateSettings(payload)) as SettingsData
       setSettings(updated)
+      window.dispatchEvent(new CustomEvent('settings-updated', { detail: updated }))
       showToast('success', 'Settings saved')
       if (typeof updated.enable_menu_bar_icon === 'boolean') {
         try {
@@ -227,6 +247,7 @@ export function SettingsPage() {
       await resetSettings()
       const updated = (await getSettings()) as SettingsData
       setSettings(updated)
+      window.dispatchEvent(new CustomEvent('settings-updated', { detail: updated }))
       showToast('success', 'Settings reset')
     } catch (err) {
       const msg = getErrorMessage(err, 'Reset failed.')

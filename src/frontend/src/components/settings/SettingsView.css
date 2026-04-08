@@ -6,6 +6,7 @@
 .settings-view {
   --page-content-width: 58rem;
   --settings-narrow-width: 20rem;
+  --ui-section-divider-max-width: var(--page-content-width);
   max-width: var(--page-content-width);
   width: 100%;
   flex: 1;
@@ -119,13 +120,27 @@
   display: none;
 }
 
-.settings-section--privacy:not(.settings-section--hidden) + .settings-section {
+.settings-section--privacy:not(.settings-section--hidden) + .settings-section:not(.ui-section-divider) {
   margin-top: var(--space-lg);
   padding-top: var(--space-sm);
 }
 
-.settings-section--privacy:not(.settings-section--hidden) + .settings-section::before {
+.settings-section--privacy:not(.settings-section--hidden) + .settings-section:not(.ui-section-divider)::before {
   display: none;
+}
+
+.settings-section.ui-section-divider::before {
+  display: block;
+}
+
+.settings-section--split.ui-section-divider {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+}
+
+.settings-section--split .settings-section-header {
+  margin-top: var(--space-md);
+  margin-bottom: var(--space-sm);
 }
 
 .settings-section-header {
@@ -159,6 +174,7 @@
   margin-top: var(--space-xxs);
   margin-bottom: var(--space-lg);
   max-width: var(--page-content-width);
+  user-select: none;
 }
 
 /* Less space above first content when it is a single checkbox */
@@ -170,7 +186,7 @@
 .settings-section--privacy {
   margin: 0;
   padding-top: 0;
-  margin-bottom: var(--space-xl);
+  margin-bottom: 0;
   max-width: var(--page-content-width);
 }
 
@@ -260,6 +276,7 @@
 /* Consistent gap between description and next element */
 .settings-subsection-description {
   max-width: var(--page-content-width);
+  user-select: none;
 }
 
 .settings-subsection-description kbd {
@@ -285,9 +302,14 @@
 .settings-control-label {
   display: block;
   font-size: var(--font-size-form-label);
-  font-weight: var(--font-weight-heading);
+  font-weight: 400;
   color: var(--color-text);
   margin-bottom: var(--space-xs);
+  user-select: none;
+}
+
+.settings-label-paren-muted {
+  color: var(--color-text-muted);
 }
 
 .settings-field {
@@ -298,7 +320,7 @@
 .settings-label {
   display: block;
   font-size: var(--font-size-form-label);
-  font-weight: var(--font-weight-heading);
+  font-weight: 400;
   color: var(--color-text);
   margin-bottom: var(--space-xs);
 }
@@ -309,6 +331,7 @@
   font-size: var(--font-size-description);
   color: var(--color-text-muted);
   max-width: var(--page-content-width);
+  user-select: none;
 }
 
 .settings-subsection--profile .settings-input,
@@ -437,6 +460,7 @@
 .settings-checkbox span {
   font-size: var(--font-size-form-label);
   color: var(--color-text);
+  user-select: none;
 }
 
 .settings-checkbox-row {
@@ -469,6 +493,7 @@
 .settings-checkbox-row-label {
   font-size: var(--font-size-form-label);
   color: var(--color-text);
+  user-select: none;
 }
 
 /* -----------------------------------------------------------------------------
@@ -510,6 +535,37 @@
   color: var(--color-text);
   transition: border-color var(--transition-fast);
   box-sizing: border-box;
+}
+
+.settings-input-wrap {
+  position: relative;
+  max-width: var(--page-content-width);
+}
+
+.settings-input--with-clear {
+  padding-right: 2rem;
+}
+
+.settings-input-clear {
+  position: absolute;
+  top: 50%;
+  right: var(--space-sm);
+  transform: translateY(-50%);
+  width: 1.25rem;
+  height: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--border-radius-sm);
+  background: transparent;
+  color: var(--color-text-dimmed);
+  cursor: pointer;
+}
+
+.settings-input-clear:hover {
+  color: var(--color-text);
+  background: var(--color-bg-hover);
 }
 
 .settings-input::placeholder {
@@ -864,6 +920,7 @@
   color: var(--color-text);
   flex-shrink: 0;
   margin-right: var(--space-md);
+  user-select: none;
 }
 
 .settings-profile-row__value {

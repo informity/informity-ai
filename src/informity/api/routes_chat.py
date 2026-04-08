@@ -52,6 +52,7 @@ from informity.api.chat_sources import merge_sources, serialize_sources
 from informity.api.chat_sse import SSE_PHASE_ORDER, SseContractTracker, SseStatusEmitter
 from informity.api.chat_stream_registry import CHAT_STREAM_REGISTRY
 from informity.api.schemas import (
+    ChatPreferencesUpdateRequest,
     ChatRequest,
     ChatSourceReference,
     ChatStopRequest,
@@ -65,6 +66,7 @@ from informity.db.sqlite import (
     get_chat,
     get_chat_count,
     get_chat_message_by_id,
+    get_chat_preferences,
     get_chats,
     get_connection,
     get_db,
@@ -72,6 +74,7 @@ from informity.db.sqlite import (
     insert_continuation_pass_artifact,
     insert_diagnostics_metrics,
     set_chat_title,
+    upsert_chat_preferences,
 )
 from informity.diagnostics.observer import EvalMetrics, detect_issues, estimate_evidence_metrics
 from informity.diagnostics.resource_snapshot import build_resource_delta, capture_resource_snapshot
@@ -307,6 +310,17 @@ async def chat(
 
     # Fetch chat history (excluding the current message we're about to add)
     history = await get_chat(db, chat_id)
+    existing_chat_preferences = await get_chat_preferences(db, chat_id)
+    resolved_chat_web_search_enabled = (
+        existing_chat_preferences.get('chat_web_search_enabled') is True
+        if request.chat_web_search_enabled is None
+        else bool(request.chat_web_search_enabled)
+    )
+    resolved_chat_web_search_privacy_override = (
+        existing_chat_preferences.get('chat_web_search_privacy_override') is True
+        if request.chat_web_search_privacy_override is None
+        else bool(request.chat_web_search_privacy_override)
+    )
     user_message_is_internal = _is_continuation_request(message_text)
 
     # Persist the user message
@@ -317,6 +331,12 @@ async def chat(
         is_internal = user_message_is_internal,
     )
     await insert_chat_message(db, user_message)
+    await upsert_chat_preferences(
+        db,
+        chat_id,
+        chat_web_search_enabled=resolved_chat_web_search_enabled,
+        chat_web_search_privacy_override=resolved_chat_web_search_privacy_override,
+    )
 
     log.info(
         'chat_message_received',
@@ -338,8 +358,10 @@ async def chat(
             'question':         message_text,
             'question_length':  len(message_text),
             'history_messages': len(history),
-            'chat_mode':        resolved_chat_mode,
-            'resource_snapshot': request_resource_snapshot,
+        'chat_mode':        resolved_chat_mode,
+        'chat_web_search_enabled': resolved_chat_web_search_enabled,
+        'chat_web_search_privacy_override': resolved_chat_web_search_privacy_override,
+        'resource_snapshot': request_resource_snapshot,
         })
 
     # Build the SSE event generator
@@ -557,6 +579,8 @@ async def chat(
                         trace=trace_writer,
                         classification=locked_classification,
                         chat_mode=resolved_chat_mode,
+                        chat_web_search_enabled=resolved_chat_web_search_enabled,
+                        chat_web_search_privacy_override=resolved_chat_web_search_privacy_override,
                     ):
                         _raise_if_user_stopped()
 
@@ -575,6 +599,16 @@ async def chat(
                                 )
                                 if retrieving_status is not None:
                                     yield retrieving_status
+                            continue
+
+                        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.SEARCHING_STATUS:
+                            searching_payload = item[1] if isinstance(item[1], dict) else {}
+                            searching_status = status_emitter.build_event(
+                                'searching',
+                                message=str(searching_payload.get('message') or 'Searching the web...'),
+                            )
+                            if searching_status is not None:
+                                yield searching_status
                             continue
 
                         if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.TIMEOUT:
@@ -1390,11 +1424,40 @@ async def get_chat_messages(
             payload['content'] = cleaned_content
             payload['display_blocks'] = build_display_blocks(cleaned_content)
         serialized_messages.append(payload)
+    chat_preferences = await get_chat_preferences(db, chat_id)
 
     return {
-        'chat_id':  chat_id,
-        'messages': serialized_messages,
-        'total':    len(messages),
+        'chat_id':                           chat_id,
+        'messages':                          serialized_messages,
+        'total':                             len(messages),
+        'chat_web_search_enabled':           bool(chat_preferences.get('chat_web_search_enabled')),
+        'chat_web_search_privacy_override':  bool(chat_preferences.get('chat_web_search_privacy_override')),
+    }
+
+
+# ==============================================================================
+# PUT /api/chat/chats/{chat_id}/preferences — update chat preferences
+# ==============================================================================
+
+@router.put('/api/chat/chats/{chat_id}/preferences')
+async def update_chat_preferences(
+    chat_id: str,
+    request: ChatPreferencesUpdateRequest,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    messages = await get_chat(db, chat_id)
+    if not messages:
+        raise HTTPException(status_code=404, detail='Chat not found')
+    preferences = await upsert_chat_preferences(
+        db,
+        chat_id,
+        chat_web_search_enabled=request.chat_web_search_enabled,
+        chat_web_search_privacy_override=request.chat_web_search_privacy_override,
+    )
+    return {
+        'chat_id': chat_id,
+        'chat_web_search_enabled': bool(preferences.get('chat_web_search_enabled')),
+        'chat_web_search_privacy_override': bool(preferences.get('chat_web_search_privacy_override')),
     }
 
 

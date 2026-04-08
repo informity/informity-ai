@@ -288,7 +288,7 @@ async def test_answer_question_assistant_mode_forces_simple_handler(mock_db):
         async for item in answer_question('hello there', db=mock_db, chat_mode='assistant'):
             results.append(item)
 
-        mock_classify.assert_not_called()
+        mock_classify.assert_called_once_with('hello there')
         mock_simple_handler.assert_called_once()
         mock_rag_handler.assert_not_called()
         assert results[0] == 'Assistant reply'

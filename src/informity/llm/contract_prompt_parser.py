@@ -45,7 +45,38 @@ def extract_required_headings(question: str) -> list[str]:
     headings: list[str] = []
     seen: set[str] = set()
 
-    markdown_headings = re.findall(r'##\s+([^\n#]+)', text)
+    # 1) Parse explicit heading lists declared in prompt prose, for example:
+    # "headings in exact order: ## A, ## B, ## C."
+    inline_list_anchors = (
+        r'(?:headings?|sections?)\s+in\s+(?:this\s+)?exact\s+order\s*:\s*',
+        r'(?:headings?|sections?)\s+exactly\s*:\s*',
+        r'(?:with\s+)?exact\s+headings?\s*:\s*',
+        r'with\s+headings?\s+exactly\s*:\s*',
+        r'required\s+headings?\s+in\s+order\s*:\s*',
+        r'required\s+headings?\s*:\s*',
+    )
+    for anchor in inline_list_anchors:
+        for match in re.finditer(anchor, text, flags=re.IGNORECASE):
+            tail = text[match.end():]
+            stop_match = re.search(
+                r'\b(?:Under|In\s+each|For\s+each|If|Keep|When|Where)\b',
+                tail,
+                flags=re.IGNORECASE,
+            )
+            if stop_match is not None:
+                tail = tail[:stop_match.start()]
+            for inline_heading in re.findall(r'##\s*([^,\n#]+)', tail):
+                normalized = str(inline_heading).strip().rstrip(' .,;:')
+                if not normalized:
+                    continue
+                key = normalized.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                headings.append(normalized)
+
+    # 2) Parse markdown headings when they are written as standalone lines.
+    markdown_headings = re.findall(r'(?im)^\s*##\s+([^\n#]+?)\s*$', text)
     for raw_heading in markdown_headings:
         normalized = str(raw_heading).strip().rstrip(' .,;:')
         if not normalized:

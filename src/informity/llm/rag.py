@@ -4,6 +4,7 @@
 # ==============================================================================
 
 import asyncio
+import dataclasses
 from collections.abc import AsyncGenerator
 
 import aiosqlite
@@ -12,7 +13,6 @@ import structlog
 from informity.api.schemas import ChatSourceReference
 from informity.db.models import ChatMessage
 from informity.llm.chat_mode import is_assistant_mode, resolve_chat_mode
-from informity.llm.classification_policy import resolve_assistant_forced_classification
 from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.rag import RAGHandler
 from informity.llm.handlers.simple import SimpleHandler
@@ -39,6 +39,8 @@ async def answer_question(
     diagnostics_context: dict[str, object] | None = None,
     classification: QueryClassification | None = None,  # If provided, skip re-classification (continuation passes)
     chat_mode: str | None = None,
+    chat_web_search_enabled: bool = False,
+    chat_web_search_privacy_override: bool = False,
 ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
     """
     Query router - dispatches queries to appropriate handlers.
@@ -52,16 +54,36 @@ async def answer_question(
         normalized_chat_mode = resolve_chat_mode(chat_mode)
 
         if is_assistant_mode(normalized_chat_mode):
-            forced_classification = resolve_assistant_forced_classification(classification)
+            classify_elapsed_ms = 0.0
+            base_classification = classification
+            if base_classification is None:
+                classify_start = asyncio.get_running_loop().time()
+                base_classification = await asyncio.to_thread(classify_query, question)
+                classify_elapsed_ms = (asyncio.get_running_loop().time() - classify_start) * 1000.0
+
+            # Assistant always routes to SimpleHandler, but we preserve PromptCue
+            # freshness/action signals on the forced-simple classification.
+            if isinstance(base_classification, QueryClassification):
+                forced_classification = dataclasses.replace(
+                    base_classification,
+                    intent=QueryType.SIMPLE,
+                )
+            else:
+                forced_classification = QueryClassification(intent=QueryType.SIMPLE)
             if trace is not None:
                 trace.record('classification', {
                     'query_length': len(question),
                     'intent': QueryType.SIMPLE,
                     'route_candidate': forced_classification.route_candidate,
                     'confidence': forced_classification.confidence,
-                    'duration_ms': 0.0,
+                    'duration_ms': round(classify_elapsed_ms, 2),
                     'chat_mode': 'assistant',
                     'forced': True,
+                    'needs_current_info': forced_classification.needs_current_info,
+                    'should_check_recency': bool(
+                        forced_classification.action_hints.get('should_check_recency')
+                    ),
+                    'mentions_time': forced_classification.mentions_time,
                 })
             log.info(
                 'query_classified_forced_assistant',
@@ -77,6 +99,8 @@ async def answer_question(
                 trace=trace,
                 diagnostics_context=diagnostics_context,
                 chat_mode='assistant',
+                chat_web_search_enabled=chat_web_search_enabled,
+                chat_web_search_privacy_override=chat_web_search_privacy_override,
             ):
                 yield item
             return

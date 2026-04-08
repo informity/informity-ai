@@ -142,6 +142,12 @@ _SETTINGS_RANGE_RULES: dict[str, tuple[float, float, str]] = {
         'scan_file_timeout_seconds must be between 0 and 600',
     ),
     'scan_hash_workers': (0, 32, 'scan_hash_workers must be between 0 and 32 (0 = automatic)'),
+    'web_search_max_results': (1, 10, 'web_search_max_results must be between 1 and 10'),
+    'web_search_timeout_seconds': (
+        1,
+        30,
+        'web_search_timeout_seconds must be between 1 and 30',
+    ),
     'chat_trace_user_retention_days': (
         0,
         3650,
@@ -263,6 +269,9 @@ _UPDATABLE_FIELDS: set[str] = {
     'scan_hash_pool',
     'scan_hash_workers',
     'full_privacy',
+    'tavily_api_key',
+    'web_search_max_results',
+    'web_search_timeout_seconds',
     'embedding_offline',
     'llm_local_only',
     'llm_model_filename',
@@ -358,6 +367,9 @@ async def get_settings() -> SettingsResponse:
         scan_hash_pool          = s.scan_hash_pool,
         scan_hash_workers       = s.scan_hash_workers,
         full_privacy            = s.full_privacy,
+        tavily_api_key_set      = bool(str(s.tavily_api_key or '').strip()),
+        web_search_max_results  = s.web_search_max_results,
+        web_search_timeout_seconds = s.web_search_timeout_seconds,
         embedding_offline       = s.embedding_offline,
         llm_local_only          = s.llm_local_only,
         llm_model_filename   = effective_llm_model_filename,
@@ -507,6 +519,9 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                         status_code=400,
                         detail=f'llm_model_filename not found in models directory: {value}',
                     )
+
+            if field_name == 'tavily_api_key' and value is not None:
+                value = str(value).strip()
 
             # Defer full_privacy sync until after the loop so it always wins
             if field_name == 'full_privacy':

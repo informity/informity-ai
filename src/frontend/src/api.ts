@@ -218,7 +218,12 @@ export async function streamChat(
   message: string,
   chatId: string | null,
   callbacks: StreamChatCallbacks,
-  options?: { mode?: ChatMode; requestId?: string },
+  options?: {
+    mode?: ChatMode
+    requestId?: string
+    chatWebSearchEnabled?: boolean
+    chatWebSearchPrivacyOverride?: boolean
+  },
 ): Promise<void> {
   const { onToken, onChatId, onStreamId, onRequestId, onSources, onDone, onError, onCleaned, onStatus, onPlanStep, signal } = callbacks
   let doneData: StreamDonePayload | null = null
@@ -230,6 +235,8 @@ export async function streamChat(
     chat_id: chatId || null,
     mode: options?.mode ?? 'researcher',
     request_id: options?.requestId ?? null,
+    chat_web_search_enabled: options?.chatWebSearchEnabled ?? false,
+    chat_web_search_privacy_override: options?.chatWebSearchPrivacyOverride ?? false,
   })
 
   try {
@@ -421,6 +428,16 @@ export async function getChats(params: GetChatsParams = {}): Promise<unknown> {
 
 export async function getChat(chatId: string): Promise<unknown> {
   return request('GET', `/api/chat/chats/${chatId}`)
+}
+
+export async function updateChatPreferences(
+  chatId: string,
+  updates: {
+    chat_web_search_enabled?: boolean
+    chat_web_search_privacy_override?: boolean
+  },
+): Promise<unknown> {
+  return request('PUT', `/api/chat/chats/${chatId}/preferences`, { body: updates })
 }
 
 export async function stopChatStream(
