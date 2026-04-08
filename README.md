@@ -68,7 +68,7 @@ For first-run setup testing (install app/runtime dependencies only, no models pr
 INFORMITY_INSTALL_PROFILE=dev INFORMITY_INSTALL_SKIP_MODELS=1 ./scripts/install_app.sh
 ```
 
-- Uses `scripts/install.conf.json` for model IDs: `embedding_model`, `reranker_model` (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`), and optional LLM (default: **Qwen 14B** Q5_K_M via `repo_id` / `filename`).
+- Uses `scripts/install.conf.json` for model IDs: `embedding_model`, `reranker_model` (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`), and optional LLM (default: **Qwen3.5 35B A3B** Q4_K_M via `repo_id` / `filename`).
 - Downloads all models to `~/.informity/` by default (override with `INFORMITY_APP_DATA_DIR`) and writes `config.json` with `full_privacy=true` (no network after install).
 - After this, the app will **never** auto-download; it only uses what’s already in app data. With those settings enabled, the app makes **no network requests after install** (no Hugging Face or internet contact).
 
@@ -126,7 +126,7 @@ The app is **offline-first by default**. With **Full Privacy Mode** on (Settings
 - **Two models in the Hugging Face cache** (`cache/huggingface/hub/` under app data): (1) **Embedding model** (`nomic-ai/nomic-embed-text-v1.5`) for document and query vectors; (2) **Reranker** (`cross-encoder/ms-marco-MiniLM-L-6-v2`) for re-ranking search results. Settings → System shows both for transparency.
 - With `full_privacy=true` (default after install), embedding and reranker are loaded only from this cache. Set `INFORMITY_FULL_PRIVACY=false` (or turn off in Settings) once to allow downloads, then turn Full Privacy Mode back on for offline use.
 - **LLM (GGUF):** App default model is **Qwen3.5 35B A3B** (`Qwen3.5-35B-A3B-Q4_K_M.gguf`), stored in `models/llm/` under the app data directory. With `llm_local_only=true` (default), the app only loads from this directory and never downloads. Place your `.gguf` file there, or set `INFORMITY_LLM_LOCAL_ONLY=false` once to allow a one-time download, then set it back to true.  
-  Note: the optional installer seed in `scripts/install.conf.json` currently points to Qwen3 14B.
+  Note: the optional installer seed in `scripts/install.conf.json` points to Qwen3.5 35B A3B.
 
 After models are in place, the app runs fully offline with no internet required.
 

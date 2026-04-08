@@ -30,7 +30,7 @@ dependencies = [
     "nltk>=3.9.2",
     "pathspec==1.0.4",
     "pillow>=12.1.1",
-    "promptcue==0.3.5",
+    "promptcue==0.3.6",
     "psutil>=6.1.0",
     "pydantic-settings>=2.13.0",
     "pydantic>=2.12.5",
