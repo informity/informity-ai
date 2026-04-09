@@ -103,7 +103,7 @@ known-first-party = ["informity"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 addopts = "-m \"not integration and not diagnostics\""
 markers = [
     "integration: tests that require external models/resources or slower end-to-end paths",
