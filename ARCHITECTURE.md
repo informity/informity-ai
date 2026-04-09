@@ -337,6 +337,7 @@ class SettingsResponse(BaseModel):
     log_level:                 str          = 'info'
     chat_trace_logging:        bool         = False
     diagnostics_metrics_enabled: bool      = False   # Collect response diagnostics metrics for self-improvement
+    rag_minimal_mode:          bool        = True
     available_models:          list[str]        = Field(default_factory=list)
     file_type_options:         list[FileTypeOption] = Field(default_factory=list)
     config_file_path:          str               = ''
@@ -390,7 +391,7 @@ class EnvVarsResponse(BaseModel):
 # --- Health ---
 class HealthResponse(BaseModel):
     status:           str = 'ok'
-    version:          str = '0.7.0'
+    version:          str = APP_VERSION  # from informity.version
     app_display_name: str   # From config.APP_DISPLAY_NAME
 ```
 
@@ -527,8 +528,8 @@ class HealthResponse(BaseModel):
 - **Imported by:** llm.rag, llm.handlers.*
 
 ### `llm/query_patterns.py`
-- Standardized patterns for query intent classification: count patterns, list patterns, coverage patterns, aggregation patterns (date range, per year, min/max), greeting/clarification patterns, etc.
-- Provides building-block functions: `build_count_pattern()`, `build_list_pattern()`, `build_coverage_pattern()`, `build_aggregation_pattern()`, `build_greeting_pattern()`, etc.
+- Standardized patterns for query intent classification: count, file-listing, coverage, aggregation, continuation, referential follow-up, entity inventory, structured output, and more.
+- Provides building-block functions: `build_count_pattern()`, `build_file_list_pattern()`, `build_coverage_pattern()`, `build_aggregation_pattern()`, `build_referential_followup_pattern()`, `build_global_entity_listing_pattern()`, `build_exhaustive_entity_inventory_scope_pattern()`, etc.
 - Single source of truth for query pattern regexes used across the codebase.
 - **Imports:** re
 - **Imported by:** llm.query_classifier
@@ -695,10 +696,9 @@ class HealthResponse(BaseModel):
 - **Imports:** diagnostics.issue_types, openinference.semconv.trace (SpanAttributes, DocumentAttributes)
 - **Imported by:** api.routes_chat (lazy conditional), diagnostics.tools.evaluate
 
-### `informity/diagnostics/quality.py`
-- LLM-powered quality scoring (batch evaluation only, expensive): `score_faithfulness()`, `score_context_precision()`, `score_answer_relevance()`. Uses local LLM via xllamacpp (through llm.engine).
-- **Imports:** llm.engine (for local LLM access)
-- **Imported by:** diagnostics.tools.pipeline (optional, `--quality` flag)
+### `informity/diagnostics/resource_snapshot.py`
+- System resource snapshot at trace time: CPU, memory, disk. Used by observer to attach resource context to diagnostics metrics.
+- **Imported by:** diagnostics.observer
 
 ### `tools/diagnostics/evaluate.py`
 - Runs evaluation queries through `answer_question()` with trace writer (type='evaluation', run_id). Reads metrics from trace files (v2-compliant, no protocol pollution). Builds `EvalMetrics`, calls `detect_issues()`, stores via `insert_diagnostics_metrics()`.
@@ -778,7 +778,7 @@ api/routes_chat.py  api/routes_search.py
 diagnostics/ (sibling package)
   issue_types.py
   observer.py ──────┐
-  quality.py        │
+  resource_snapshot.py │
   tools/            │
     evaluate.py ────┘
     analyze.py
