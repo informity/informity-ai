@@ -102,5 +102,18 @@ class ChatStreamRegistry:
         async with self._lock:
             return stream_id in self._streams
 
+    async def stop_all(self) -> int:
+        # Stop all active streams (used by global operations like reset-all).
+        async with self._lock:
+            active_streams = list(self._streams.items())
+            for _, stream in active_streams:
+                if stream.stopped_by_user:
+                    continue
+                stream.stopped_by_user = True
+                stream.stop_event.set()
+                if stream.task is not None and not stream.task.done():
+                    stream.task.cancel()
+            return len(active_streams)
+
 
 CHAT_STREAM_REGISTRY = ChatStreamRegistry()

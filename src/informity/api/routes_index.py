@@ -16,6 +16,7 @@ from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
 import informity.api.operation_state as op_state
+from informity.api.chat_stream_registry import CHAT_STREAM_REGISTRY
 from informity.api.schemas import IndexStatusResponse, RebuildRequest
 from informity.api.security import EndpointGuard
 from informity.config import DirNames, reset_to_factory_defaults, settings
@@ -276,20 +277,20 @@ async def _run_reset_task() -> None:
     reset_result: dict | None = None
 
     try:
+        # Phase 1: Stop active operations first (chat streams) to release locks.
+        stopped_streams = await CHAT_STREAM_REGISTRY.stop_all()
+        if stopped_streams > 0:
+            await asyncio.sleep(0.25)
+            log.info('reset_stopped_active_chat_streams', stream_count=stopped_streams)
+
+        # Phase 2: Reset database state.
         db = await get_connection()
-
-        vectors_deleted = 0
-        try:
-            vectors_deleted = await asyncio.to_thread(vector_store.drop_all)
-        except _INDEX_RUNTIME_EXCEPTIONS as exc:
-            log.error('reset_vectors_failed', error=str(exc), exc_info=True)
-
         db_counts = await reset_all_data(db)
 
-        # Delete all user data directories (chat traces, diagnostics, logs)
+        # Phase 3: Delete user-generated directories.
         # Chat traces live under app_data_dir/chats/ when chat trace logging is enabled.
-        # Diagnostics contains user chat traces, evaluations, reports (privacy-sensitive).
-        # Logs contain runtime application logs (user-produced data).
+        # Diagnostics contains user traces/evaluations/reports.
+        # Logs contain runtime application logs.
         chat_traces_deleted = False
         diagnostics_deleted = False
         logs_deleted = False
@@ -319,12 +320,12 @@ async def _run_reset_task() -> None:
             except _INDEX_CLEANUP_EXCEPTIONS as exc:
                 log.error('reset_logs_failed', error=str(exc), exc_info=True)
 
-        # Recreate directory structure (empty)
-        settings.ensure_directories()
-
-        # Reset all settings to factory defaults (complete reset)
+        # Phase 4: Reset settings/configuration to factory defaults.
         await asyncio.to_thread(reset_to_factory_defaults)
         log.info('settings_reset_to_factory_defaults_during_data_reset')
+
+        # Keep runtime directories present after config reset.
+        settings.ensure_directories()
 
         # Invalidate adaptive top-k cache (corpus is empty)
         from informity.indexer.adaptive_tuning import invalidate_tuning_cache
@@ -333,7 +334,7 @@ async def _run_reset_task() -> None:
         reset_result = {
             'files_deleted':       db_counts.get('files', 0),
             'chunks_deleted':      db_counts.get('chunks', 0),
-            'vectors_deleted':     vectors_deleted,
+            'vectors_deleted':     db_counts.get('vec_chunks', 0),
             'chats_deleted':       db_counts.get('chat_messages', 0),
             'metrics_deleted':     db_counts.get('response_diagnostics_metrics', 0),
             'storage_compacted':   bool(db_counts.get('storage_compacted', False)),
@@ -346,7 +347,7 @@ async def _run_reset_task() -> None:
         log.info(
             'index_reset_completed',
             db_counts       = db_counts,
-            vectors_deleted = vectors_deleted,
+            vectors_deleted = db_counts.get('vec_chunks', 0),
         )
 
     except _INDEX_RUNTIME_EXCEPTIONS as exc:

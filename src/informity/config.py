@@ -446,6 +446,10 @@ class Settings(BaseSettings):
     # Term dictionary post-index builder controls.
     term_dictionary_build_enabled: bool = True
     term_dictionary_build_batch_size: int = 500
+    term_dictionary_exclude_person_names: bool = True
+    term_dictionary_quality_gate_enabled: bool = True
+    term_dictionary_quality_noise_rate_threshold: float = 0.55
+    term_dictionary_quality_min_candidates_for_gate: int = 20
     # Structured numeric extraction plausibility guards (runtime policy; avoid hardcoded thresholds).
     extraction_numeric_max_abs_value: float = 100000000.0
     extraction_numeric_max_unformatted_digits: int = 9

@@ -23,6 +23,8 @@ from informity.llm.term_dictionary import expand_query_for_retrieval
 from informity.llm.types import BlockType, FilterOperator, QueryType
 
 log = structlog.get_logger(__name__)
+_COVERAGE_DIVERSITY_PRIMARY_FILE_CAP = 1
+_COVERAGE_DIVERSITY_SECONDARY_FILE_CAP = 2
 
 
 def _coerce_reranker_score(value: object) -> float | None:
@@ -31,6 +33,66 @@ def _coerce_reranker_score(value: object) -> float | None:
     if isinstance(value, (int, float)):
         return float(value)
     return None
+
+
+def _select_top_children(
+    *,
+    reranked_children: list[dict],
+    top_k: int,
+    query_type: QueryType,
+) -> list[dict]:
+    if top_k <= 0:
+        return []
+    if query_type != QueryType.COVERAGE:
+        return reranked_children[:top_k]
+
+    selected: list[dict] = []
+    seen_chunk_ids: set[int] = set()
+    file_counts: dict[int, int] = {}
+
+    def _try_add(chunk: dict, *, per_file_cap: int | None) -> None:
+        if len(selected) >= top_k:
+            return
+        try:
+            chunk_id = int(chunk.get('chunk_id'))
+        except (TypeError, ValueError):
+            return
+        if chunk_id in seen_chunk_ids:
+            return
+
+        file_id_raw = chunk.get('file_id')
+        file_id: int | None = None
+        try:
+            if file_id_raw is not None:
+                file_id = int(file_id_raw)
+        except (TypeError, ValueError):
+            file_id = None
+
+        if (
+            per_file_cap is not None
+            and file_id is not None
+            and file_counts.get(file_id, 0) >= per_file_cap
+        ):
+            return
+
+        selected.append(chunk)
+        seen_chunk_ids.add(chunk_id)
+        if file_id is not None:
+            file_counts[file_id] = file_counts.get(file_id, 0) + 1
+
+    for per_file_cap in (
+        _COVERAGE_DIVERSITY_PRIMARY_FILE_CAP,
+        _COVERAGE_DIVERSITY_SECONDARY_FILE_CAP,
+        None,
+    ):
+        for chunk in reranked_children:
+            _try_add(chunk, per_file_cap=per_file_cap)
+            if len(selected) >= top_k:
+                break
+        if len(selected) >= top_k:
+            break
+
+    return selected[:top_k]
 
 
 async def retrieve_chunks(
@@ -303,7 +365,11 @@ async def retrieve_chunks(
     reranked_children = await asyncio.to_thread(reranker.rerank, query, filtered_child_chunks)
     pre_rerank_top_ids = [chunk.get('chunk_id') for chunk in filtered_child_chunks[:top_k]]
     rerank_elapsed_ms = (time.perf_counter() - rerank_start) * 1000
-    top_children = reranked_children[:top_k]
+    top_children = _select_top_children(
+        reranked_children=reranked_children,
+        top_k=top_k,
+        query_type=query_type,
+    )
     post_rerank_top_ids = [chunk.get('chunk_id') for chunk in top_children]
     rerank_top_k_overlap = len(set(pre_rerank_top_ids) & set(post_rerank_top_ids))
 

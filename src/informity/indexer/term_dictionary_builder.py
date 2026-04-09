@@ -26,6 +26,7 @@ from informity.db.sqlite import (
     start_term_dictionary_build_run,
     update_term_dictionary_build_run_progress,
 )
+from informity.indexer.term_dictionary_quality import evaluate_term_dictionary_quality
 from informity.llm.term_dictionary import normalize_term_text, term_dictionary_enabled
 
 log = structlog.get_logger(__name__)
@@ -36,7 +37,23 @@ _TERM_DEFINITION_PATTERN = re.compile(
 _ACRONYM_DEFINITION_PATTERN = re.compile(
     r'\b([A-Z][A-Z0-9]{1,9})\s+\(([A-Za-z][A-Za-z0-9/&-]*(?:\s+[A-Za-z][A-Za-z0-9/&-]*){1,6})\)'
 )
-_UPPERCASE_TOKEN_PATTERN = re.compile(r'\b[A-Z][A-Z0-9]{1,7}\b')
+_SINGLE_LETTER_ACRONYM_SEQUENCE_PATTERN = re.compile(
+    r'\b([A-Z](?:\s+[A-Z0-9]){1,9})\s*(?=\()'
+)
+_SINGLE_LETTER_ACRONYM_IN_PARENS_PATTERN = re.compile(
+    r'\(([A-Z](?:\s+[A-Z0-9]){1,9})\)'
+)
+_OCR_HYPHENATED_LINEBREAK_PATTERN = re.compile(r'([A-Za-z]{2,})-\s*\n\s*([A-Za-z]{2,})')
+_OCR_SPACED_HYPHEN_PATTERN = re.compile(r'([A-Za-z]{2,})\s*-\s*([A-Za-z]{2,})')
+_WORD_TOKEN_PATTERN = re.compile(r'[a-z0-9]+')
+_BOILERPLATE_PHRASES: tuple[str, ...] = (
+    'see instructions',
+    'see instruction',
+    'see note above',
+    'refer to instructions',
+    'refer to note above',
+    'for more information',
+)
 
 
 def _builder_enabled() -> bool:
@@ -68,6 +85,63 @@ def _trim_snippet(text: str, limit: int = 220) -> str:
     return snippet[:limit]
 
 
+def _preprocess_text_for_matching(text: str) -> str:
+    value = str(text or '')
+    if not value:
+        return ''
+    value = _OCR_HYPHENATED_LINEBREAK_PATTERN.sub(r'\1\2', value)
+    value = _OCR_SPACED_HYPHEN_PATTERN.sub(r'\1-\2', value)
+    value = _SINGLE_LETTER_ACRONYM_SEQUENCE_PATTERN.sub(
+        lambda m: m.group(1).replace(' ', ''),
+        value,
+    )
+    value = _SINGLE_LETTER_ACRONYM_IN_PARENS_PATTERN.sub(
+        lambda m: f"({m.group(1).replace(' ', '')})",
+        value,
+    )
+    return value
+
+
+def _looks_like_person_name(long_term: str, acronym: str) -> bool:
+    tokens = [token for token in re.split(r'\s+', long_term.strip()) if token]
+    if len(tokens) != 2:
+        return False
+    if not all(token.isalpha() for token in tokens):
+        return False
+    if not all(token[0:1].isupper() and token[1:].islower() for token in tokens):
+        return False
+    initials = ''.join(token[0] for token in tokens).upper()
+    return initials == acronym.strip().upper()
+
+
+def _canonical_has_minimum_shape(canonical: str) -> bool:
+    normalized = normalize_term_text(canonical)
+    if not normalized:
+        return False
+    if any(phrase in normalized for phrase in _BOILERPLATE_PHRASES):
+        return False
+    tokens = [token for token in _WORD_TOKEN_PATTERN.findall(normalized) if token]
+    if len(tokens) < 2:
+        return False
+    if len(set(tokens)) < 2:
+        return False
+    return not all(len(token) <= 2 for token in tokens)
+
+
+def _score_candidate_confidence(*, long_term: str, acronym: str, extraction_method: str) -> float:
+    score = 0.95
+    initials = ''.join(token[0] for token in re.findall(r'[A-Za-z]+', long_term)).upper()
+    if not initials or not acronym.upper().startswith(initials[: min(len(initials), len(acronym))]):
+        score -= 0.15
+    if any(ch.isdigit() for ch in long_term):
+        score -= 0.10
+    if extraction_method.endswith('ocr_normalized'):
+        score -= 0.08
+    if any(phrase in normalize_term_text(long_term) for phrase in _BOILERPLATE_PHRASES):
+        score = min(score, 0.35)
+    return max(0.0, min(1.0, score))
+
+
 def _add_candidate(
     candidates: dict[str, _Candidate],
     *,
@@ -85,6 +159,8 @@ def _add_candidate(
     if not canonical_norm or not alias_norm:
         return
     if canonical_norm == alias_norm:
+        return
+    if not _canonical_has_minimum_shape(canonical):
         return
 
     existing = candidates.get(canonical_norm)
@@ -113,43 +189,72 @@ def _extract_candidates_from_chunk(
     chunk_id: int | None,
     out: dict[str, _Candidate],
 ) -> None:
-    text = str(content or '')
-    if not text.strip():
+    raw_text = str(content or '')
+    if not raw_text.strip():
         return
 
-    for match in _TERM_DEFINITION_PATTERN.finditer(text):
-        long_term = match.group(1).strip()
-        acronym = match.group(2).strip()
-        if len(acronym) < 2:
-            continue
-        _add_candidate(
-            out,
-            canonical=long_term,
-            alias=acronym,
-            term_type='acronym',
-            confidence=0.95,
-            file_id=file_id,
-            chunk_id=chunk_id,
-            evidence_snippet=match.group(0),
-            extraction_method='definition_pair_long_acronym',
+    def _extract_from_text(text: str, *, normalized_pass: bool) -> None:
+        long_acronym_method = (
+            'definition_pair_long_acronym_ocr_normalized'
+            if normalized_pass
+            else 'definition_pair_long_acronym'
+        )
+        acronym_long_method = (
+            'definition_pair_acronym_long_ocr_normalized'
+            if normalized_pass
+            else 'definition_pair_acronym_long'
         )
 
-    for match in _ACRONYM_DEFINITION_PATTERN.finditer(text):
-        acronym = match.group(1).strip()
-        long_term = match.group(2).strip()
-        if len(acronym) < 2:
-            continue
-        _add_candidate(
-            out,
-            canonical=long_term,
-            alias=acronym,
-            term_type='acronym',
-            confidence=0.95,
-            file_id=file_id,
-            chunk_id=chunk_id,
-            evidence_snippet=match.group(0),
-            extraction_method='definition_pair_acronym_long',
-        )
+        for match in _TERM_DEFINITION_PATTERN.finditer(text):
+            long_term = match.group(1).strip()
+            acronym = match.group(2).strip()
+            if len(acronym) < 2:
+                continue
+            if bool(settings.term_dictionary_exclude_person_names) and _looks_like_person_name(long_term, acronym):
+                continue
+            _add_candidate(
+                out,
+                canonical=long_term,
+                alias=acronym,
+                term_type='acronym',
+                confidence=_score_candidate_confidence(
+                    long_term=long_term,
+                    acronym=acronym,
+                    extraction_method=long_acronym_method,
+                ),
+                file_id=file_id,
+                chunk_id=chunk_id,
+                evidence_snippet=match.group(0),
+                extraction_method=long_acronym_method,
+            )
+
+        for match in _ACRONYM_DEFINITION_PATTERN.finditer(text):
+            acronym = match.group(1).strip()
+            long_term = match.group(2).strip()
+            if len(acronym) < 2:
+                continue
+            if bool(settings.term_dictionary_exclude_person_names) and _looks_like_person_name(long_term, acronym):
+                continue
+            _add_candidate(
+                out,
+                canonical=long_term,
+                alias=acronym,
+                term_type='acronym',
+                confidence=_score_candidate_confidence(
+                    long_term=long_term,
+                    acronym=acronym,
+                    extraction_method=acronym_long_method,
+                ),
+                file_id=file_id,
+                chunk_id=chunk_id,
+                evidence_snippet=match.group(0),
+                extraction_method=acronym_long_method,
+            )
+
+    _extract_from_text(raw_text, normalized_pass=False)
+    preprocessed_text = _preprocess_text_for_matching(raw_text)
+    if preprocessed_text and preprocessed_text != raw_text:
+        _extract_from_text(preprocessed_text, normalized_pass=True)
 
 
 async def rebuild_term_dictionary(
@@ -210,9 +315,17 @@ async def rebuild_term_dictionary(
             candidate
             for candidate in candidates.values()
             if len(candidate.aliases) >= 1
-            and len(candidate.normalized_canonical) >= 5
             and candidate.confidence >= 0.65
         ]
+        quality_gate = evaluate_term_dictionary_quality(
+            total_candidates=len(candidates),
+            kept_candidates=len(filtered_candidates),
+            noise_rate_threshold=float(settings.term_dictionary_quality_noise_rate_threshold),
+            min_candidates_for_gate=int(settings.term_dictionary_quality_min_candidates_for_gate),
+            gate_enabled=bool(settings.term_dictionary_quality_gate_enabled),
+        )
+        if not quality_gate.passed:
+            raise RuntimeError(f'term_dictionary_quality_gate_failed:{quality_gate.reason}')
 
         await delete_term_dictionary_version(db, dict_version=target_version)
         for candidate in filtered_candidates:

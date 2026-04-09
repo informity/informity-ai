@@ -15,9 +15,7 @@ from informity.llm.intent_profiles import IntentProfilePolicy, get_intent_profil
 from informity.llm.model_adapter import ModelProfile, get_profile, get_retrieval_top_k
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.types import (
-    ConfidenceBand,
     FallbackReason,
-    IntentProfileId,
     OutputShape,
     RetrievalMode,
 )
@@ -65,19 +63,6 @@ async def build_execution_plan(
             'fallback_reason': FallbackReason.RESPONSE_SHAPE_NOT_ALLOWED_FOR_PROFILE,
         })
         effective_response_shape = OutputShape.NARRATIVE_SYNTHESIS
-    apply_low_confidence_guard = (
-        classification.confidence_band == ConfidenceBand.LOW
-        and not classification.deterministic_override
-    )
-    if apply_low_confidence_guard:
-        fallback_events.append({
-            'fallback_from': classification.route_candidate,
-            'fallback_to': IntentProfileId.CLARIFICATION_OR_DISAMBIGUATION,
-            'fallback_reason': FallbackReason.LOW_CONFIDENCE_ROUTE_GUARD,
-        })
-        selected_policy = get_intent_profile_policy(IntentProfileId.CLARIFICATION_OR_DISAMBIGUATION)
-        query_type = selected_policy.preferred_retrieval_mode
-
     retrieval_top_k = get_retrieval_top_k(query_type)
     timeout_seconds = profile.get_timeout_seconds(query_type)
     max_tokens = profile.get_max_tokens(query_type)

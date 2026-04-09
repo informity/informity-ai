@@ -8,6 +8,7 @@ import asyncio
 import hashlib
 import json
 from collections.abc import AsyncGenerator
+from contextlib import suppress
 from datetime import UTC, datetime
 
 import aiosqlite
@@ -48,6 +49,9 @@ _SQLITE_EXTENSION_LOAD_EXCEPTIONS = (
 )
 _SQLITE_BUSY_TIMEOUT_MS = 5000
 _CHAT_PREVIEW_TRUNCATE_LENGTH = 100
+_RESET_SCHEMA_RETRY_ATTEMPTS = 15
+_RESET_SCHEMA_RETRY_BASE_DELAY_SECONDS = 0.2
+_RESET_COMPACTION_RETRY_ATTEMPTS = 10
 
 # ==============================================================================
 # Schema — DDL statements for all tables
@@ -2474,16 +2478,35 @@ async def reset_all_data(db: aiosqlite.Connection) -> dict[str, object]:
     # Drop all tables and recreate from current schema so the database has the
     # latest structure (e.g. new columns). Returns a dict with table names and
     # 0 counts (tables are recreated empty).
-    await db.executescript(_RESET_DROP_SQL)
-    await db.executescript(_SCHEMA_SQL)
-    await db.execute('DELETE FROM schema_version')
-    await db.execute('INSERT INTO schema_version (version) VALUES (?)', (SCHEMA_VERSION,))
-    await db.commit()
+    reset_error: Exception | None = None
+    for attempt in range(1, _RESET_SCHEMA_RETRY_ATTEMPTS + 1):
+        try:
+            await db.executescript(_RESET_DROP_SQL)
+            await db.executescript(_SCHEMA_SQL)
+            await db.execute('DELETE FROM schema_version')
+            await db.execute('INSERT INTO schema_version (version) VALUES (?)', (SCHEMA_VERSION,))
+            await db.commit()
+            reset_error = None
+            break
+        except (aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError) as exc:
+            reset_error = exc
+            message = str(exc).lower()
+            is_lock_error = 'locked' in message or 'busy' in message
+            if is_lock_error and attempt < _RESET_SCHEMA_RETRY_ATTEMPTS:
+                with suppress(aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError):
+                    await db.rollback()
+                await asyncio.sleep(min(1.0, _RESET_SCHEMA_RETRY_BASE_DELAY_SECONDS * attempt))
+                continue
+            raise
+
+    if reset_error is not None:
+        raise reset_error
+
     # Reclaim disk space after destructive reset. VACUUM needs an exclusive lock,
     # so retry briefly to tolerate transient read traffic.
     storage_compacted = False
     compaction_error: str | None = None
-    for attempt in range(1, 6):
+    for attempt in range(1, _RESET_COMPACTION_RETRY_ATTEMPTS + 1):
         try:
             await db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
             await db.execute('VACUUM')
@@ -2493,7 +2516,7 @@ async def reset_all_data(db: aiosqlite.Connection) -> dict[str, object]:
             break
         except (aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError) as exc:
             compaction_error = str(exc)
-            if attempt < 5:
+            if attempt < _RESET_COMPACTION_RETRY_ATTEMPTS:
                 await asyncio.sleep(0.2 * attempt)
             continue
 
