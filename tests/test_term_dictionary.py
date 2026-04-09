@@ -232,7 +232,7 @@ def test_expand_query_for_routing_disabled_is_noop(monkeypatch: pytest.MonkeyPat
 
 
 def test_term_dictionary_builder_rejects_boilerplate_canonical_phrase() -> None:
-    out: dict[str, term_builder._Candidate] = {}
+    out: dict[tuple[str, str], term_builder._Candidate] = {}
     term_builder._extract_candidates_from_chunk(
         content='See instructions (SI) for all details.',
         file_id=1,
@@ -243,8 +243,9 @@ def test_term_dictionary_builder_rejects_boilerplate_canonical_phrase() -> None:
 
 
 def test_term_dictionary_builder_excludes_person_name_pairs_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(settings, 'term_dictionary_exclude_person_names', True)
-    out: dict[str, term_builder._Candidate] = {}
+    monkeypatch.setattr(settings, 'entity_extract_acronym', True)
+    monkeypatch.setattr(settings, 'entity_extract_person_name', False)
+    out: dict[tuple[str, str], term_builder._Candidate] = {}
     term_builder._extract_candidates_from_chunk(
         content='Jane Doe (JD) approved the request.',
         file_id=1,
@@ -255,16 +256,29 @@ def test_term_dictionary_builder_excludes_person_name_pairs_by_default(monkeypat
 
 
 def test_term_dictionary_builder_ocr_normalization_extracts_split_acronym() -> None:
-    out: dict[str, term_builder._Candidate] = {}
+    out: dict[tuple[str, str], term_builder._Candidate] = {}
     term_builder._extract_candidates_from_chunk(
         content='Return on Investment (R O I) improved in Q4.',
         file_id=1,
         chunk_id=1,
         out=out,
     )
-    candidate = out.get('return on investment')
+    candidate = out.get(('acronym', 'return on investment'))
     assert candidate is not None
     assert 'roi' in candidate.aliases
+
+
+def test_term_dictionary_builder_person_name_extractor_is_optional(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, 'entity_extract_acronym', False)
+    monkeypatch.setattr(settings, 'entity_extract_person_name', True)
+    out: dict[tuple[str, str], term_builder._Candidate] = {}
+    term_builder._extract_candidates_from_chunk(
+        content='Dr. Maria Garcia met with Maria Garcia yesterday.',
+        file_id=1,
+        chunk_id=1,
+        out=out,
+    )
+    assert ('person_name', 'maria garcia') in out
 
 
 def test_term_dictionary_quality_gate_fails_for_high_noise_rate() -> None:

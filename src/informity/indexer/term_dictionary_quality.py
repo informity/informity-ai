@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass
 
 
@@ -15,6 +16,8 @@ class TermDictionaryQualityMetrics:
     rejected_candidates: int
     noise_rate: float
     keep_rate: float
+    candidate_type_counts: dict[str, int]
+    kept_type_counts: dict[str, int]
 
 
 @dataclass(slots=True)
@@ -31,6 +34,8 @@ def evaluate_term_dictionary_quality(
     noise_rate_threshold: float,
     min_candidates_for_gate: int,
     gate_enabled: bool,
+    candidate_term_types: list[str] | None = None,
+    kept_term_types: list[str] | None = None,
 ) -> TermDictionaryQualityGateResult:
     total = max(0, int(total_candidates))
     kept = max(0, int(kept_candidates))
@@ -43,6 +48,8 @@ def evaluate_term_dictionary_quality(
         rejected_candidates=rejected,
         noise_rate=noise_rate,
         keep_rate=keep_rate,
+        candidate_type_counts=dict(Counter(candidate_term_types or [])),
+        kept_type_counts=dict(Counter(kept_term_types or [])),
     )
 
     if not gate_enabled:
@@ -64,4 +71,3 @@ def evaluate_term_dictionary_quality(
         )
 
     return TermDictionaryQualityGateResult(passed=True, reason='ok', metrics=metrics)
-

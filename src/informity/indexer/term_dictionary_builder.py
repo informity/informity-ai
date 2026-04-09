@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import uuid
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 import aiosqlite
@@ -46,6 +47,11 @@ _SINGLE_LETTER_ACRONYM_IN_PARENS_PATTERN = re.compile(
 _OCR_HYPHENATED_LINEBREAK_PATTERN = re.compile(r'([A-Za-z]{2,})-\s*\n\s*([A-Za-z]{2,})')
 _OCR_SPACED_HYPHEN_PATTERN = re.compile(r'([A-Za-z]{2,})\s*-\s*([A-Za-z]{2,})')
 _WORD_TOKEN_PATTERN = re.compile(r'[a-z0-9]+')
+_PERSON_NAME_PATTERN = re.compile(r'\b([A-Z][a-z]{1,29}(?:\s+[A-Z][a-z]{1,29}){1,2})\b')
+_PERSON_CONTEXT_CUE_PATTERN = re.compile(
+    r'\b(mr|mrs|ms|dr|prof|professor|president|governor|senator|representative|director|ceo|cfo)\.?\s+$',
+    re.IGNORECASE,
+)
 _BOILERPLATE_PHRASES: tuple[str, ...] = (
     'see instructions',
     'see instruction',
@@ -54,6 +60,102 @@ _BOILERPLATE_PHRASES: tuple[str, ...] = (
     'refer to note above',
     'for more information',
 )
+_PERSON_NAME_STOPWORDS: set[str] = {
+    'about',
+    'across',
+    'after',
+    'all',
+    'analysis',
+    'and',
+    'any',
+    'are',
+    'before',
+    'between',
+    'chapter',
+    'data',
+    'details',
+    'document',
+    'documents',
+    'during',
+    'each',
+    'evidence',
+    'figure',
+    'figures',
+    'file',
+    'files',
+    'for',
+    'from',
+    'guide',
+    'how',
+    'in',
+    'index',
+    'into',
+    'list',
+    'month',
+    'months',
+    'more',
+    'note',
+    'notes',
+    'on',
+    'or',
+    'overview',
+    'page',
+    'pages',
+    'part',
+    'policy',
+    'process',
+    'project',
+    'report',
+    'section',
+    'sections',
+    'summary',
+    'table',
+    'tables',
+    'the',
+    'this',
+    'through',
+    'to',
+    'topic',
+    'update',
+    'week',
+    'weeks',
+    'with',
+    'year',
+    'years',
+}
+_ORGANIZATION_SUFFIXES: set[str] = {
+    'inc',
+    'llc',
+    'ltd',
+    'corp',
+    'co',
+    'company',
+    'group',
+    'committee',
+    'agency',
+    'department',
+    'office',
+    'bank',
+    'university',
+}
+
+
+@dataclass(slots=True)
+class _Candidate:
+    canonical: str
+    normalized_canonical: str
+    term_type: str
+    confidence: float
+    aliases: dict[str, tuple[str, float]] = field(default_factory=dict)  # normalized_alias -> (raw_alias, confidence)
+    evidence: list[tuple[int | None, int | None, str, str]] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class _ExtractionContext:
+    raw_text: str
+    processed_text: str
+    file_id: int | None
+    chunk_id: int | None
 
 
 def _builder_enabled() -> bool:
@@ -70,14 +172,20 @@ def _batch_size() -> int:
     return max(50, min(2000, value))
 
 
-@dataclass(slots=True)
-class _Candidate:
-    canonical: str
-    normalized_canonical: str
-    term_type: str
-    confidence: float
-    aliases: dict[str, tuple[str, float]] = field(default_factory=dict)  # normalized_alias -> (raw_alias, confidence)
-    evidence: list[tuple[int | None, int | None, str, str]] = field(default_factory=list)
+def _entity_toggle_enabled(setting_name: str, *, default: bool) -> bool:
+    raw = getattr(settings, setting_name, default)
+    return bool(raw)
+
+
+def _enabled_entity_types() -> set[str]:
+    toggles = {
+        'acronym': _entity_toggle_enabled('entity_extract_acronym', default=True),
+        'person_name': _entity_toggle_enabled('entity_extract_person_name', default=False),
+        'organization': _entity_toggle_enabled('entity_extract_organization', default=False),
+        'location': _entity_toggle_enabled('entity_extract_location', default=False),
+        'numeric_id': _entity_toggle_enabled('entity_extract_numeric_id', default=False),
+    }
+    return {entity_type for entity_type, enabled in toggles.items() if enabled}
 
 
 def _trim_snippet(text: str, limit: int = 220) -> str:
@@ -114,16 +222,19 @@ def _looks_like_person_name(long_term: str, acronym: str) -> bool:
     return initials == acronym.strip().upper()
 
 
-def _canonical_has_minimum_shape(canonical: str) -> bool:
+def _canonical_has_minimum_shape(canonical: str, *, term_type: str) -> bool:
     normalized = normalize_term_text(canonical)
     if not normalized:
         return False
     if any(phrase in normalized for phrase in _BOILERPLATE_PHRASES):
         return False
     tokens = [token for token in _WORD_TOKEN_PATTERN.findall(normalized) if token]
-    if len(tokens) < 2:
+    min_tokens = 2
+    if term_type == 'numeric_id':
+        min_tokens = 1
+    if len(tokens) < min_tokens:
         return False
-    if len(set(tokens)) < 2:
+    if len(set(tokens)) < min(2, len(tokens)):
         return False
     return not all(len(token) <= 2 for token in tokens)
 
@@ -142,8 +253,40 @@ def _score_candidate_confidence(*, long_term: str, acronym: str, extraction_meth
     return max(0.0, min(1.0, score))
 
 
+def _is_valid_person_name_candidate(candidate: str) -> bool:
+    tokens = [token for token in candidate.split() if token]
+    if len(tokens) < 2 or len(tokens) > 3:
+        return False
+    if any(len(token) < 2 for token in tokens):
+        return False
+    lower_tokens = [token.casefold() for token in tokens]
+    if any(token in _PERSON_NAME_STOPWORDS for token in lower_tokens):
+        return False
+    if lower_tokens[-1] in _ORGANIZATION_SUFFIXES:
+        return False
+    return not any(any(char.isdigit() for char in token) for token in tokens)
+
+
+def _score_person_name_confidence(*, match_text: str, raw_text: str, mention_count: int, start_index: int) -> float:
+    score = 0.58
+    if mention_count > 1:
+        score += min(0.22, 0.08 * (mention_count - 1))
+    if len(match_text.split()) == 3:
+        score += 0.05
+
+    prefix_window = raw_text[max(0, start_index - 28):start_index]
+    if _PERSON_CONTEXT_CUE_PATTERN.search(prefix_window):
+        score += 0.12
+
+    normalized = normalize_term_text(match_text)
+    if normalized in {'john doe', 'jane doe'}:
+        score -= 0.20
+
+    return max(0.0, min(1.0, score))
+
+
 def _add_candidate(
-    candidates: dict[str, _Candidate],
+    candidates: dict[tuple[str, str], _Candidate],
     *,
     canonical: str,
     alias: str,
@@ -153,17 +296,19 @@ def _add_candidate(
     chunk_id: int | None,
     evidence_snippet: str,
     extraction_method: str,
+    allow_self_alias: bool = False,
 ) -> None:
     canonical_norm = normalize_term_text(canonical)
     alias_norm = normalize_term_text(alias)
     if not canonical_norm or not alias_norm:
         return
-    if canonical_norm == alias_norm:
+    if canonical_norm == alias_norm and not allow_self_alias:
         return
-    if not _canonical_has_minimum_shape(canonical):
+    if not _canonical_has_minimum_shape(canonical, term_type=term_type):
         return
 
-    existing = candidates.get(canonical_norm)
+    key = (term_type, canonical_norm)
+    existing = candidates.get(key)
     if existing is None:
         existing = _Candidate(
             canonical=canonical.strip(),
@@ -171,7 +316,7 @@ def _add_candidate(
             term_type=term_type,
             confidence=confidence,
         )
-        candidates[canonical_norm] = existing
+        candidates[key] = existing
 
     if confidence > existing.confidence:
         existing.confidence = confidence
@@ -182,17 +327,7 @@ def _add_candidate(
         existing.evidence.append((file_id, chunk_id, _trim_snippet(evidence_snippet), extraction_method))
 
 
-def _extract_candidates_from_chunk(
-    *,
-    content: str,
-    file_id: int | None,
-    chunk_id: int | None,
-    out: dict[str, _Candidate],
-) -> None:
-    raw_text = str(content or '')
-    if not raw_text.strip():
-        return
-
+def _extract_acronym_candidates(ctx: _ExtractionContext, out: dict[tuple[str, str], _Candidate]) -> None:
     def _extract_from_text(text: str, *, normalized_pass: bool) -> None:
         long_acronym_method = (
             'definition_pair_long_acronym_ocr_normalized'
@@ -210,7 +345,7 @@ def _extract_candidates_from_chunk(
             acronym = match.group(2).strip()
             if len(acronym) < 2:
                 continue
-            if bool(settings.term_dictionary_exclude_person_names) and _looks_like_person_name(long_term, acronym):
+            if _looks_like_person_name(long_term, acronym):
                 continue
             _add_candidate(
                 out,
@@ -222,8 +357,8 @@ def _extract_candidates_from_chunk(
                     acronym=acronym,
                     extraction_method=long_acronym_method,
                 ),
-                file_id=file_id,
-                chunk_id=chunk_id,
+                file_id=ctx.file_id,
+                chunk_id=ctx.chunk_id,
                 evidence_snippet=match.group(0),
                 extraction_method=long_acronym_method,
             )
@@ -233,7 +368,7 @@ def _extract_candidates_from_chunk(
             long_term = match.group(2).strip()
             if len(acronym) < 2:
                 continue
-            if bool(settings.term_dictionary_exclude_person_names) and _looks_like_person_name(long_term, acronym):
+            if _looks_like_person_name(long_term, acronym):
                 continue
             _add_candidate(
                 out,
@@ -245,16 +380,106 @@ def _extract_candidates_from_chunk(
                     acronym=acronym,
                     extraction_method=acronym_long_method,
                 ),
-                file_id=file_id,
-                chunk_id=chunk_id,
+                file_id=ctx.file_id,
+                chunk_id=ctx.chunk_id,
                 evidence_snippet=match.group(0),
                 extraction_method=acronym_long_method,
             )
 
-    _extract_from_text(raw_text, normalized_pass=False)
-    preprocessed_text = _preprocess_text_for_matching(raw_text)
-    if preprocessed_text and preprocessed_text != raw_text:
-        _extract_from_text(preprocessed_text, normalized_pass=True)
+    _extract_from_text(ctx.raw_text, normalized_pass=False)
+    if ctx.processed_text and ctx.processed_text != ctx.raw_text:
+        _extract_from_text(ctx.processed_text, normalized_pass=True)
+
+
+def _extract_person_name_candidates(ctx: _ExtractionContext, out: dict[tuple[str, str], _Candidate]) -> None:
+    mention_counts: dict[str, int] = {}
+    matches = list(_PERSON_NAME_PATTERN.finditer(ctx.raw_text))
+    if not matches:
+        return
+
+    for match in matches:
+        raw_name = match.group(1).strip()
+        normalized = normalize_term_text(raw_name)
+        if not normalized or not _is_valid_person_name_candidate(raw_name):
+            continue
+        mention_counts[normalized] = mention_counts.get(normalized, 0) + 1
+
+    for match in matches:
+        raw_name = match.group(1).strip()
+        normalized = normalize_term_text(raw_name)
+        if not normalized or normalized not in mention_counts:
+            continue
+        if not _is_valid_person_name_candidate(raw_name):
+            continue
+        confidence = _score_person_name_confidence(
+            match_text=raw_name,
+            raw_text=ctx.raw_text,
+            mention_count=mention_counts[normalized],
+            start_index=match.start(1),
+        )
+        if confidence < 0.64:
+            continue
+        canonical = ' '.join(token.capitalize() for token in normalized.split())
+        _add_candidate(
+            out,
+            canonical=canonical,
+            alias=raw_name,
+            term_type='person_name',
+            confidence=confidence,
+            file_id=ctx.file_id,
+            chunk_id=ctx.chunk_id,
+            evidence_snippet=match.group(0),
+            extraction_method='person_name_span_v1',
+            allow_self_alias=True,
+        )
+
+
+_EXTRACTOR_REGISTRY: dict[str, Callable[[_ExtractionContext, dict[tuple[str, str], _Candidate]], None]] = {
+    'acronym': _extract_acronym_candidates,
+    'person_name': _extract_person_name_candidates,
+}
+
+
+def _extract_candidates_from_chunk(
+    *,
+    content: str,
+    file_id: int | None,
+    chunk_id: int | None,
+    out: dict[tuple[str, str], _Candidate],
+    enabled_entity_types: set[str] | None = None,
+) -> None:
+    raw_text = str(content or '')
+    if not raw_text.strip():
+        return
+
+    effective_enabled = enabled_entity_types or _enabled_entity_types()
+    if not effective_enabled:
+        return
+
+    ctx = _ExtractionContext(
+        raw_text=raw_text,
+        processed_text=_preprocess_text_for_matching(raw_text),
+        file_id=file_id,
+        chunk_id=chunk_id,
+    )
+
+    for entity_type in sorted(effective_enabled):
+        extractor = _EXTRACTOR_REGISTRY.get(entity_type)
+        if extractor is None:
+            continue
+        extractor(ctx, out)
+
+
+def _candidate_passes_filter(candidate: _Candidate) -> bool:
+    min_confidence = 0.65
+    if candidate.term_type == 'person_name':
+        min_confidence = 0.72
+
+    has_observed_alias = len(candidate.aliases) >= 1
+    if candidate.term_type == 'person_name':
+        has_observed_alias = True
+
+    return has_observed_alias and candidate.confidence >= min_confidence
 
 
 async def rebuild_term_dictionary(
@@ -275,7 +500,8 @@ async def rebuild_term_dictionary(
     aliases_inserted = 0
     terms_inserted = 0
     last_chunk_id = 0
-    candidates: dict[str, _Candidate] = {}
+    candidates: dict[tuple[str, str], _Candidate] = {}
+    enabled_entity_types = _enabled_entity_types()
 
     # Keep history for diagnostics; do not overwrite previous runs.
     await start_term_dictionary_build_run(
@@ -283,7 +509,12 @@ async def rebuild_term_dictionary(
         run_id=run_identifier,
         target_version=target_version,
     )
-    log.info('term_dictionary_build_started', run_id=run_identifier, target_version=target_version)
+    log.info(
+        'term_dictionary_build_started',
+        run_id=run_identifier,
+        target_version=target_version,
+        enabled_entity_types=sorted(enabled_entity_types),
+    )
 
     try:
         while True:
@@ -302,6 +533,7 @@ async def rebuild_term_dictionary(
                     file_id=row['file_id'],
                     chunk_id=row['chunk_id'],
                     out=candidates,
+                    enabled_entity_types=enabled_entity_types,
                 )
             await update_term_dictionary_build_run_progress(
                 db,
@@ -310,19 +542,15 @@ async def rebuild_term_dictionary(
                 processed_chunks=processed_chunks,
             )
 
-        # Conservative candidate filter to reduce dictionary noise.
-        filtered_candidates = [
-            candidate
-            for candidate in candidates.values()
-            if len(candidate.aliases) >= 1
-            and candidate.confidence >= 0.65
-        ]
+        filtered_candidates = [candidate for candidate in candidates.values() if _candidate_passes_filter(candidate)]
         quality_gate = evaluate_term_dictionary_quality(
             total_candidates=len(candidates),
             kept_candidates=len(filtered_candidates),
             noise_rate_threshold=float(settings.term_dictionary_quality_noise_rate_threshold),
             min_candidates_for_gate=int(settings.term_dictionary_quality_min_candidates_for_gate),
             gate_enabled=bool(settings.term_dictionary_quality_gate_enabled),
+            candidate_term_types=[candidate.term_type for candidate in candidates.values()],
+            kept_term_types=[candidate.term_type for candidate in filtered_candidates],
         )
         if not quality_gate.passed:
             raise RuntimeError(f'term_dictionary_quality_gate_failed:{quality_gate.reason}')
@@ -352,16 +580,16 @@ async def rebuild_term_dictionary(
                 )
                 aliases_inserted += 1
 
-            # Always include canonical alias to make exact canonical matching explicit.
-            await insert_term_alias(
-                db,
-                term_id=term_id,
-                alias=candidate.canonical,
-                normalized_alias=candidate.normalized_canonical,
-                alias_type='canonical',
-                confidence=candidate.confidence,
-            )
-            aliases_inserted += 1
+            if candidate.normalized_canonical not in candidate.aliases:
+                await insert_term_alias(
+                    db,
+                    term_id=term_id,
+                    alias=candidate.canonical,
+                    normalized_alias=candidate.normalized_canonical,
+                    alias_type='canonical',
+                    confidence=candidate.confidence,
+                )
+                aliases_inserted += 1
 
             for file_id, chunk_id, snippet, method in candidate.evidence:
                 await insert_term_evidence(
@@ -388,6 +616,12 @@ async def rebuild_term_dictionary(
             processed_chunks=processed_chunks,
             terms_inserted=terms_inserted,
             aliases_inserted=aliases_inserted,
+            quality_metrics={
+                'noise_rate': quality_gate.metrics.noise_rate,
+                'keep_rate': quality_gate.metrics.keep_rate,
+                'candidate_type_counts': quality_gate.metrics.candidate_type_counts,
+                'kept_type_counts': quality_gate.metrics.kept_type_counts,
+            },
         )
         return {
             'status': 'completed',
@@ -396,6 +630,12 @@ async def rebuild_term_dictionary(
             'processed_chunks': processed_chunks,
             'terms_inserted': terms_inserted,
             'aliases_inserted': aliases_inserted,
+            'quality_metrics': {
+                'noise_rate': quality_gate.metrics.noise_rate,
+                'keep_rate': quality_gate.metrics.keep_rate,
+                'candidate_type_counts': quality_gate.metrics.candidate_type_counts,
+                'kept_type_counts': quality_gate.metrics.kept_type_counts,
+            },
         }
     except Exception as exc:  # noqa: BLE001 - final guard to always persist failed run status
         await finalize_term_dictionary_build_run(

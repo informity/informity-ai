@@ -347,8 +347,8 @@ CREATE TABLE IF NOT EXISTS term_entries (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_term_entries_version_norm
-    ON term_entries(dict_version, normalized_term);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_term_entries_version_type_norm
+    ON term_entries(dict_version, type, normalized_term);
 CREATE INDEX IF NOT EXISTS idx_term_entries_status_version
     ON term_entries(status, dict_version);
 
@@ -481,6 +481,17 @@ async def init_db() -> None:
             log.debug('sqlite_vec_extension_not_loaded', msg='Extension loading not available or already loaded')
 
         await conn.executescript(_SCHEMA_SQL)
+
+        # Term dictionary uniqueness is typed by design:
+        # allow same normalized term across different entity types.
+        await conn.execute('DROP INDEX IF EXISTS idx_term_entries_version_norm')
+        await conn.execute('DROP INDEX IF EXISTS idx_term_entries_version_type_norm')
+        await conn.execute(
+            '''
+            CREATE UNIQUE INDEX IF NOT EXISTS idx_term_entries_version_type_norm
+            ON term_entries(dict_version, type, normalized_term)
+            '''
+        )
 
         # Ensure index exists
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_chunks_parent_id ON chunks(parent_id)')

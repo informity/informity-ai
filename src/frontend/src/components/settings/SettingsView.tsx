@@ -156,6 +156,11 @@ interface SettingsData {
   adaptive_rag_tuning?: boolean
   chat_history_messages?: number
   default_chat_mode?: ChatMode
+  entity_extract_acronym?: boolean
+  entity_extract_person_name?: boolean
+  entity_extract_organization?: boolean
+  entity_extract_location?: boolean
+  entity_extract_numeric_id?: boolean
   log_level?: string
   diagnostics_profile?: string
   diagnostics_profile_presets?: Record<string, DiagnosticsProfilePreset>
@@ -196,6 +201,11 @@ interface FormState {
   adaptive_rag_tuning: boolean
   chat_history_messages: number
   default_chat_mode: ChatMode
+  entity_extract_acronym: boolean
+  entity_extract_person_name: boolean
+  entity_extract_organization: boolean
+  entity_extract_location: boolean
+  entity_extract_numeric_id: boolean
   log_level: string
   diagnostics_profile: string
   chat_trace_logging: boolean
@@ -242,6 +252,11 @@ function buildFormState(settings: SettingsData): FormState {
     adaptive_rag_tuning: settings.adaptive_rag_tuning ?? true,
     chat_history_messages: settings.chat_history_messages ?? 5,
     default_chat_mode: isChatMode(settings.default_chat_mode) ? settings.default_chat_mode : 'researcher',
+    entity_extract_acronym: settings.entity_extract_acronym ?? true,
+    entity_extract_person_name: settings.entity_extract_person_name ?? false,
+    entity_extract_organization: settings.entity_extract_organization ?? false,
+    entity_extract_location: settings.entity_extract_location ?? false,
+    entity_extract_numeric_id: settings.entity_extract_numeric_id ?? false,
     log_level: settings.log_level ?? 'info',
     diagnostics_profile: settings.diagnostics_profile ?? 'standard',
     chat_trace_logging: settings.chat_trace_logging ?? false,
@@ -1078,6 +1093,34 @@ export function SettingsView({
               onChange={(e) => update('enable_ocr_for_images', e.target.checked)}
             />
             <div><span className="settings-checkbox-row-label">Enable OCR for scanned documents</span></div>
+          </label>
+        </div>
+
+        <div className="settings-subsection">
+          <div className="settings-subsection-head ui-subsection-head">
+            <div className="settings-subsection-title ui-subsection-title">
+              <i className="ri-fingerprint-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              Entity Extraction
+            </div>
+            <p className="settings-subsection-description ui-subsection-description">
+              Control which entity types are extracted into the term dictionary during indexing.
+            </p>
+          </div>
+          <label className="settings-checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.entity_extract_acronym ?? true}
+              onChange={(e) => update('entity_extract_acronym', e.target.checked)}
+            />
+            <div><span className="settings-checkbox-row-label">Acronyms</span></div>
+          </label>
+          <label className="settings-checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.entity_extract_person_name ?? false}
+              onChange={(e) => update('entity_extract_person_name', e.target.checked)}
+            />
+            <div><span className="settings-checkbox-row-label">Person names</span></div>
           </label>
         </div>
 

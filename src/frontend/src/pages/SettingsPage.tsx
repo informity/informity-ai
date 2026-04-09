@@ -47,6 +47,11 @@ const UPDATABLE_KEYS = [
   'adaptive_rag_tuning',
   'chat_history_messages',
   'default_chat_mode',
+  'entity_extract_acronym',
+  'entity_extract_person_name',
+  'entity_extract_organization',
+  'entity_extract_location',
+  'entity_extract_numeric_id',
   'llm_model_filename',
   'diagnostics_profile',
   'chat_trace_logging',
@@ -81,6 +86,11 @@ interface FormState {
   adaptive_rag_tuning?: boolean
   chat_history_messages?: number
   default_chat_mode?: ChatMode
+  entity_extract_acronym?: boolean
+  entity_extract_person_name?: boolean
+  entity_extract_organization?: boolean
+  entity_extract_location?: boolean
+  entity_extract_numeric_id?: boolean
   diagnostics_profile?: string
   chat_trace_logging?: boolean
   chat_trace_redaction_mode?: string

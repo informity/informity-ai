@@ -260,6 +260,11 @@ class SettingsResponse(BaseModel):
     chat_history_messages_assistant: int = 12  # Assistant mode history window
     chat_history_messages_researcher: int = 5  # Researcher mode history window
     default_chat_mode: Literal['assistant', 'researcher'] = 'researcher'
+    entity_extract_acronym: bool = True
+    entity_extract_person_name: bool = False
+    entity_extract_organization: bool = False
+    entity_extract_location: bool = False
+    entity_extract_numeric_id: bool = False
     diagnostics_profile: str = 'standard'  # standard, troubleshooting, custom
     diagnostics_profile_presets: dict[str, DiagnosticsProfilePreset] = Field(default_factory=dict)
     log_level:             str        = 'info'  # debug, info, warning, error
@@ -328,6 +333,11 @@ class SettingsUpdateRequest(BaseModel):
     chat_history_messages_assistant: int | None = None  # Assistant mode history window
     chat_history_messages_researcher: int | None = None  # Researcher mode history window
     default_chat_mode: Literal['assistant', 'researcher'] | None = None
+    entity_extract_acronym: bool | None = None
+    entity_extract_person_name: bool | None = None
+    entity_extract_organization: bool | None = None
+    entity_extract_location: bool | None = None
+    entity_extract_numeric_id: bool | None = None
     diagnostics_profile: str | None = None  # standard, troubleshooting, custom
     log_level:             str | None  = None  # debug, info, warning, error
     chat_trace_logging:    bool | None = None   # Per-chat trace file for debugging
