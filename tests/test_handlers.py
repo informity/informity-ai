@@ -15,6 +15,7 @@ from informity.llm.handlers.query_handler import QueryHandler
 from informity.llm.handlers.rag import (
     RAGHandler,
     _build_history_aware_retrieval_query,
+    _resolve_exhaustive_inventory_term_type,
     _should_boost_coverage_top_k,
 )
 from informity.llm.handlers.simple import SimpleHandler
@@ -58,6 +59,22 @@ def test_should_not_boost_top_k_for_focused_queries() -> None:
         'What are the names of people mentioned across all indexed documents?',
         classification,
     )
+
+
+def test_resolve_exhaustive_inventory_term_type_for_people_names() -> None:
+    classification = QueryClassification(intent='coverage')
+    assert _resolve_exhaustive_inventory_term_type(
+        'What are the names of people mentioned across all indexed documents?',
+        classification,
+    ) == 'person_name'
+
+
+def test_resolve_exhaustive_inventory_term_type_none_without_corpus_scope() -> None:
+    classification = QueryClassification(intent='coverage')
+    assert _resolve_exhaustive_inventory_term_type(
+        'What are the names of people mentioned in this file?',
+        classification,
+    ) is None
 
 
 class TestMetadataHandler:
@@ -385,6 +402,51 @@ class TestRAGHandler:
         ]
         deduped = _deduplicate_prompt_chunks(chunks)
         assert len(deduped) == 1
+
+    @pytest.mark.asyncio
+    async def test_handle_uses_deterministic_term_inventory_for_exhaustive_people_query(self) -> None:
+        handler = RAGHandler()
+        classification = QueryClassification(intent='coverage')
+        mock_db = MagicMock()
+        mock_inventory_cursor = MagicMock()
+        mock_inventory_cursor.fetchall = AsyncMock(
+            return_value=[
+                {'canonical_term': 'Benjamin Bjork', 'confidence': 0.75, 'file_count': 1},
+                {'canonical_term': 'Glenn Perez', 'confidence': 0.75, 'file_count': 1},
+            ]
+        )
+        mock_sources_cursor = MagicMock()
+        mock_sources_cursor.fetchall = AsyncMock(
+            return_value=[
+                {
+                    'filename': 'retirement-plan.pdf',
+                    'path': '/docs/retirement-plan.pdf',
+                    'chunk_preview': 'Benjamin Bjork reviewed projected retirement distributions.',
+                    'relevance_score': 0.75,
+                }
+            ]
+        )
+        mock_db.execute = AsyncMock(side_effect=[mock_inventory_cursor, mock_sources_cursor])
+
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
+            results: list[object] = []
+            async for item in handler.handle(
+                'What are the names of people mentioned across all indexed documents?',
+                classification,
+                None,
+                mock_db,
+                None,
+            ):
+                results.append(item)
+
+        mock_retrieve.assert_not_called()
+        assert any(isinstance(item, str) and 'Benjamin Bjork' in item for item in results)
+        assert any(isinstance(item, str) and 'Glenn Perez' in item for item in results)
+        metrics_events = [item for item in results if isinstance(item, tuple) and item[0] == '__metrics__']
+        assert metrics_events
+        assert metrics_events[0][1].get('deterministic_inventory') is True
+        assert isinstance(results[-1], list)
+        assert results[-1]
 
     @pytest.mark.asyncio
     async def test_empty_retrieval_terminal_refusal_sets_no_remaining_scope(self) -> None:

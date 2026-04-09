@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 
 import aiosqlite
 import structlog
+from nameparser import HumanName
 
 from informity.config import settings
 from informity.db.sqlite import (
@@ -47,7 +48,7 @@ _SINGLE_LETTER_ACRONYM_IN_PARENS_PATTERN = re.compile(
 _OCR_HYPHENATED_LINEBREAK_PATTERN = re.compile(r'([A-Za-z]{2,})-\s*\n\s*([A-Za-z]{2,})')
 _OCR_SPACED_HYPHEN_PATTERN = re.compile(r'([A-Za-z]{2,})\s*-\s*([A-Za-z]{2,})')
 _WORD_TOKEN_PATTERN = re.compile(r'[a-z0-9]+')
-_PERSON_NAME_PATTERN = re.compile(r'\b([A-Z][a-z]{1,29}\s+[A-Z][a-z]{1,29})\b')
+_PERSON_NAME_PATTERN = re.compile(r'\b([A-Z][a-z]{1,29}\s+(?:[A-Z]\.?\s+)?[A-Z][a-z]{1,29})\b')
 _PERSON_STRONG_LEFT_CUE_PATTERN = re.compile(
     r'\b(mr|mrs|ms|dr|prof|professor|president|governor|senator|representative|director|ceo|cfo)\.?\s+$',
     re.IGNORECASE,
@@ -60,6 +61,11 @@ _PERSON_FIELD_LABEL_CUE_PATTERN = re.compile(
     r'\b(employee|owner|recipient|borrower|seller|buyer|insured|contact)\s+name[:\s]*$',
     re.IGNORECASE,
 )
+_PERSON_ROLE_LEFT_CUE_PATTERN = re.compile(
+    r'\b(employee|manager|director|officer|owner|president|ceo|cfo|treasurer|supervisor)\s+$',
+    re.IGNORECASE,
+)
+_PERSON_CAMEL_SPLIT_PATTERN = re.compile(r'([a-z])([A-Z])')
 _BOILERPLATE_PHRASES: tuple[str, ...] = (
     'see instructions',
     'see instruction',
@@ -160,6 +166,8 @@ _PERSON_DISALLOWED_TAIL_TOKENS: set[str] = {
     'information',
     'line',
     'lines',
+    'dept',
+    'department',
     'policy',
     'premium',
     'record',
@@ -172,6 +180,9 @@ _PERSON_DISALLOWED_TAIL_TOKENS: set[str] = {
     'table',
     'tables',
     'tax',
+    'first',
+    'second',
+    'third',
     'name',
     'no',
     'number',
@@ -197,6 +208,8 @@ _PERSON_DISALLOWED_LEAD_TOKENS: set[str] = {
     'mortgage',
     'payment',
     'property',
+    'production',
+    'retirement',
     'review',
     'schedule',
     'social',
@@ -365,11 +378,22 @@ def _score_candidate_confidence(*, long_term: str, acronym: str, extraction_meth
 
 def _is_valid_person_name_candidate(candidate: str) -> bool:
     tokens = [token for token in candidate.split() if token]
-    if len(tokens) != 2:
+    if len(tokens) < 2 or len(tokens) > 3:
         return False
+    if len(tokens) == 3:
+        middle = tokens[1].rstrip('.')
+        if not (len(middle) == 1 and middle.isalpha() and middle.isupper()):
+            return False
     if any(len(token) < 2 for token in tokens):
         return False
-    lower_tokens = [token.casefold() for token in tokens]
+    first = tokens[0]
+    last = tokens[-1]
+    if not (first[0:1].isupper() and first[1:].islower()):
+        return False
+    if not (last[0:1].isupper() and last[1:].islower()):
+        return False
+
+    lower_tokens = [token.casefold().rstrip('.') for token in tokens]
     if any(token in _PERSON_NAME_STOPWORDS for token in lower_tokens):
         return False
     if lower_tokens[0] in _PERSON_DISALLOWED_LEAD_TOKENS:
@@ -391,6 +415,8 @@ def _score_person_name_confidence(*, match_text: str, raw_text: str, mention_cou
         score += 0.45
     if _PERSON_FIELD_LABEL_CUE_PATTERN.search(prefix_window):
         score += 0.40
+    if _PERSON_ROLE_LEFT_CUE_PATTERN.search(prefix_window):
+        score += 0.18
     around_window = raw_text[max(0, start_index - 40): min(len(raw_text), start_index + 56)]
     if _PERSON_ACTION_CONTEXT_PATTERN.search(around_window):
         score += 0.10
@@ -400,6 +426,24 @@ def _score_person_name_confidence(*, match_text: str, raw_text: str, mention_cou
         score -= 0.35
 
     return max(0.0, min(1.0, score))
+
+
+def _canonicalize_person_name(name: str) -> str:
+    tokens = [token for token in name.split() if token]
+    if len(tokens) < 2:
+        return name.strip()
+    fallback_first = tokens[0].rstrip('.')
+    fallback_last = tokens[-1].rstrip('.')
+    fallback = f'{fallback_first.capitalize()} {fallback_last.capitalize()}'
+
+    parsed = HumanName(name)
+    first = str(parsed.first or '').strip().rstrip('.')
+    last = str(parsed.last or '').strip().rstrip('.')
+    if not first or not last:
+        return fallback
+    if not (first[0:1].isalpha() and last[0:1].isalpha()):
+        return fallback
+    return f'{first.capitalize()} {last.capitalize()}'
 
 
 def _add_candidate(
@@ -509,34 +553,36 @@ def _extract_acronym_candidates(ctx: _ExtractionContext, out: dict[tuple[str, st
 
 
 def _extract_person_name_candidates(ctx: _ExtractionContext, out: dict[tuple[str, str], _Candidate]) -> None:
+    scan_text = _PERSON_CAMEL_SPLIT_PATTERN.sub(r'\1 \2', ctx.raw_text)
     mention_counts: dict[str, int] = {}
-    matches = list(_PERSON_NAME_PATTERN.finditer(ctx.raw_text))
+    accepted: list[tuple[str, str, int, str]] = []
+    matches = list(_PERSON_NAME_PATTERN.finditer(scan_text))
     if not matches:
         return
 
     for match in matches:
         raw_name = match.group(1).strip()
-        normalized = normalize_term_text(raw_name)
-        if not normalized or not _is_valid_person_name_candidate(raw_name):
-            continue
-        mention_counts[normalized] = mention_counts.get(normalized, 0) + 1
-
-    for match in matches:
-        raw_name = match.group(1).strip()
-        normalized = normalize_term_text(raw_name)
-        if not normalized or normalized not in mention_counts:
-            continue
         if not _is_valid_person_name_candidate(raw_name):
+            continue
+        canonical = _canonicalize_person_name(raw_name)
+        canonical_norm = normalize_term_text(canonical)
+        if not canonical_norm:
+            continue
+        mention_counts[canonical_norm] = mention_counts.get(canonical_norm, 0) + 1
+        accepted.append((raw_name, canonical, match.start(1), match.group(0)))
+
+    for raw_name, canonical, start_index, evidence_snippet in accepted:
+        canonical_norm = normalize_term_text(canonical)
+        if canonical_norm not in mention_counts:
             continue
         confidence = _score_person_name_confidence(
             match_text=raw_name,
-            raw_text=ctx.raw_text,
-            mention_count=mention_counts[normalized],
-            start_index=match.start(1),
+            raw_text=scan_text,
+            mention_count=mention_counts[canonical_norm],
+            start_index=start_index,
         )
         if confidence < _ENTITY_POLICIES['person_name'].min_confidence:
             continue
-        canonical = ' '.join(token.capitalize() for token in normalized.split())
         _add_candidate(
             out,
             canonical=canonical,
@@ -545,7 +591,7 @@ def _extract_person_name_candidates(ctx: _ExtractionContext, out: dict[tuple[str
             confidence=confidence,
             file_id=ctx.file_id,
             chunk_id=ctx.chunk_id,
-            evidence_snippet=match.group(0),
+            evidence_snippet=evidence_snippet,
             extraction_method='person_name_span_v1',
             allow_self_alias=_ENTITY_POLICIES['person_name'].allow_self_alias,
         )
