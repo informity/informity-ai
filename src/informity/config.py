@@ -446,7 +446,11 @@ class Settings(BaseSettings):
     # Term dictionary post-index builder controls.
     term_dictionary_build_enabled: bool = True
     term_dictionary_build_batch_size: int = 500
-    term_dictionary_exclude_person_names: bool = True
+    entity_extract_acronym: bool = True
+    entity_extract_person_name: bool = False
+    entity_extract_organization: bool = False
+    entity_extract_location: bool = False
+    entity_extract_numeric_id: bool = False
     term_dictionary_quality_gate_enabled: bool = True
     term_dictionary_quality_noise_rate_threshold: float = 0.55
     term_dictionary_quality_min_candidates_for_gate: int = 20

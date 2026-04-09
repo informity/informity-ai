@@ -294,6 +294,11 @@ _UPDATABLE_FIELDS: set[str] = {
     'chat_history_messages_assistant',
     'chat_history_messages_researcher',
     'default_chat_mode',
+    'entity_extract_acronym',
+    'entity_extract_person_name',
+    'entity_extract_organization',
+    'entity_extract_location',
+    'entity_extract_numeric_id',
     'diagnostics_profile',
     'chat_trace_logging',
     'chat_trace_redaction_mode',
@@ -392,6 +397,11 @@ async def get_settings() -> SettingsResponse:
         chat_history_messages_assistant = s.chat_history_messages_assistant,
         chat_history_messages_researcher = s.chat_history_messages_researcher,
         default_chat_mode = s.default_chat_mode,
+        entity_extract_acronym = s.entity_extract_acronym,
+        entity_extract_person_name = s.entity_extract_person_name,
+        entity_extract_organization = s.entity_extract_organization,
+        entity_extract_location = s.entity_extract_location,
+        entity_extract_numeric_id = s.entity_extract_numeric_id,
         diagnostics_profile   = s.diagnostics_profile,
         diagnostics_profile_presets = {
             name: DiagnosticsProfilePreset(**values)
