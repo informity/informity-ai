@@ -103,7 +103,15 @@ interface FormState {
   llm_model_filename?: string
 }
 
-function buildPayload(form: FormState): Record<string, unknown> {
+function valuesEqual(a: unknown, b: unknown): boolean {
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false
+    return a.every((value, index) => value === b[index])
+  }
+  return a === b
+}
+
+function buildPayload(form: FormState, current: SettingsData | null): Record<string, unknown> {
   const payload: Record<string, unknown> = {}
   if (form.clear_tavily_api_key) {
     payload.tavily_api_key = ''
@@ -118,7 +126,11 @@ function buildPayload(form: FormState): Record<string, unknown> {
         payload[key] = candidate
         continue
       }
-      payload[key] = form[key]
+      const nextValue = form[key]
+      const currentValue = current ? current[key] : undefined
+      if (!valuesEqual(nextValue, currentValue)) {
+        payload[key] = nextValue
+      }
     }
   }
   return payload
@@ -203,7 +215,12 @@ export function SettingsPage() {
   const handleSave = async (form: FormState) => {
     setSaving(true)
     try {
-      const payload = buildPayload(form)
+      const payload = buildPayload(form, settings)
+      if (Object.keys(payload).length === 0) {
+        showToast('info', 'No changes to save')
+        setSaving(false)
+        return
+      }
       const updated = (await updateSettings(payload)) as SettingsData
       setSettings(updated)
       window.dispatchEvent(new CustomEvent('settings-updated', { detail: updated }))
@@ -289,6 +306,7 @@ export function SettingsPage() {
     if (!ok2) return
     setSaving(true)
     try {
+      showToast('info', 'Resetting data...')
       try {
         await resetIndex()
       } catch (err) {

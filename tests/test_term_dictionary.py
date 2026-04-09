@@ -281,6 +281,64 @@ def test_term_dictionary_builder_person_name_extractor_is_optional(monkeypatch: 
     assert ('person_name', 'maria garcia') in out
 
 
+def test_term_dictionary_builder_person_name_with_field_label_cue_is_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, 'entity_extract_acronym', False)
+    monkeypatch.setattr(settings, 'entity_extract_person_name', True)
+    out: dict[tuple[str, str], term_builder._Candidate] = {}
+    term_builder._extract_candidates_from_chunk(
+        content='Employee Name Maria Garcia Job Title Analyst',
+        file_id=1,
+        chunk_id=1,
+        out=out,
+    )
+    assert ('person_name', 'maria garcia') in out
+
+
+def test_term_dictionary_builder_person_name_rejects_document_phrase(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, 'entity_extract_acronym', False)
+    monkeypatch.setattr(settings, 'entity_extract_person_name', True)
+    out: dict[tuple[str, str], term_builder._Candidate] = {}
+    term_builder._extract_candidates_from_chunk(
+        content='Additional Medicare Tax was updated in this report section.',
+        file_id=1,
+        chunk_id=1,
+        out=out,
+    )
+    assert ('person_name', 'additional medicare') not in out
+
+
+def test_term_dictionary_builder_person_name_rejects_non_person_bill_phrase(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, 'entity_extract_acronym', False)
+    monkeypatch.setattr(settings, 'entity_extract_person_name', True)
+    out: dict[tuple[str, str], term_builder._Candidate] = {}
+    term_builder._extract_candidates_from_chunk(
+        content='Assembly Bill was reviewed and approved in the hearing.',
+        file_id=1,
+        chunk_id=1,
+        out=out,
+    )
+    assert ('person_name', 'assembly bill') not in out
+
+
+def test_term_dictionary_builder_person_name_repeated_mention_without_name_cue_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(settings, 'entity_extract_acronym', False)
+    monkeypatch.setattr(settings, 'entity_extract_person_name', True)
+    out: dict[tuple[str, str], term_builder._Candidate] = {}
+    term_builder._extract_candidates_from_chunk(
+        content='Maria Garcia followed up with finance. Later, Maria Garcia signed the response.',
+        file_id=1,
+        chunk_id=1,
+        out=out,
+    )
+    assert ('person_name', 'maria garcia') not in out
+
+
 def test_term_dictionary_quality_gate_fails_for_high_noise_rate() -> None:
     result = evaluate_term_dictionary_quality(
         total_candidates=100,
