@@ -61,7 +61,6 @@ _STRICT_CONTRACT_MAX_TOP_P = 0.8
 _COVERAGE_ENTITY_LISTING_TOP_K_BOOST = 8
 _COVERAGE_ENTITY_LISTING_TOP_K_MAX = 60
 _GLOBAL_ENTITY_ENUMERATION_PATTERN = build_global_entity_listing_pattern()
-_CORPUS_WIDE_SCOPE_PATTERN = build_exhaustive_entity_inventory_scope_pattern()
 _ENTITY_INVENTORY_SCOPE_PATTERN = build_exhaustive_entity_inventory_scope_pattern()
 _PERSON_INVENTORY_PATTERN = build_person_entity_listing_pattern()
 _ACRONYM_INVENTORY_PATTERN = build_acronym_entity_listing_pattern()
@@ -204,7 +203,7 @@ def _should_boost_coverage_top_k(question: str, classification: QueryClassificat
     lowered = str(question or '').casefold()
     if not lowered:
         return False
-    return bool(_GLOBAL_ENTITY_ENUMERATION_PATTERN.search(lowered) and _CORPUS_WIDE_SCOPE_PATTERN.search(lowered))
+    return bool(_GLOBAL_ENTITY_ENUMERATION_PATTERN.search(lowered) and _ENTITY_INVENTORY_SCOPE_PATTERN.search(lowered))
 
 
 def _resolve_minimal_answerability_settings(query_type: QueryType) -> tuple[float, int]:
@@ -663,8 +662,6 @@ class RAGHandler:
         try:
             if diagnostics_context is not None and trace is not None:
                 trace.record('diagnostics_context', diagnostics_context)
-            if not settings.rag_minimal_mode:
-                log.warning('rag_minimal_mode_forced_in_handler', configured_value=False)
             async for item in self._handle_minimal_mode(
                 question=question,
                 classification=classification,

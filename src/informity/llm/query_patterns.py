@@ -120,15 +120,6 @@ AGGREGATE_LISTING_SCOPE_KEYWORDS: str = (
     r'(names?|dates?|amounts?|figures?|values?)\s+mentioned\s+across\b'
     r')'
 )
-EXTREME_VALUE_LOOKUP_KEYWORDS: str = (
-    r'\b('
-    r'(largest|highest|maximum|max|biggest|lowest|minimum|min)\s+'
-    r'(amount|value|number|figure|total)s?'
-    r'|'
-    r'(amount|value|number|figure|total)\s+is\s+the\s+'
-    r'(largest|highest|maximum|max|biggest|lowest|minimum|min)'
-    r')\b'
-)
 CONTENT_ANALYSIS_KEYWORDS: str = (
     r'\b('
     r'summarize|summary|compare|contrast|contradictions?|conflicts?|overview|'
@@ -342,13 +333,6 @@ def build_evidence_value_extraction_pattern() -> Pattern[str]:
     Build regex pattern for evidence/value extraction cues.
     """
     return re.compile(EVIDENCE_VALUE_EXTRACTION_KEYWORDS, re.IGNORECASE)
-
-
-def build_extreme_value_lookup_pattern() -> Pattern[str]:
-    """
-    Build regex pattern for superlative single-value lookup requests.
-    """
-    return re.compile(EXTREME_VALUE_LOOKUP_KEYWORDS, re.IGNORECASE)
 
 
 def build_aggregate_listing_scope_pattern() -> Pattern[str]:

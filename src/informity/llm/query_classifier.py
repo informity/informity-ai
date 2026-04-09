@@ -207,8 +207,6 @@ class _ClassifierSignals:
 def _resolve_classifier_signals(
     *,
     lowered: str,
-    text: str,
-    filename_filter: str | None,
     pcue: PromptCueQueryObject | None,
 ) -> _ClassifierSignals:
     is_inventory_metadata = _is_inventory_metadata_request(lowered)
@@ -255,8 +253,6 @@ def _resolve_classifier_signals(
     ):
         is_inventory_metadata = False
 
-    _ = text
-    _ = filename_filter
     return _ClassifierSignals(
         is_inventory_metadata=is_inventory_metadata,
         has_evidence_value_request=has_evidence_value_request,
@@ -415,8 +411,6 @@ def classify_query(query: str) -> QueryClassification:
     source_terms = _extract_source_terms(text=text, filename_filter=filename_filter)
     signals = _resolve_classifier_signals(
         lowered=lowered,
-        text=text,
-        filename_filter=filename_filter,
         pcue=pcue,
     )
     if pcue is not None:
