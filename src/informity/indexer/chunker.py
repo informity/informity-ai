@@ -17,6 +17,8 @@ log = structlog.get_logger(__name__)
 
 _TIKTOKEN_ENCODER = tiktoken.get_encoding('cl100k_base')
 _SENTENCE_SEGMENTER = pysbd.Segmenter(language='en', clean=False)
+_TABLE_HEADER_LINE_PATTERN = re.compile(r'^\s*\|.*\|\s*$')
+_TABLE_SEPARATOR_LINE_PATTERN = re.compile(r'^\s*\|[\s\-:]+\|\s*$')
 
 
 @dataclass(frozen=True)
@@ -101,9 +103,6 @@ def _is_header_only_chunk(content: str) -> bool:
         return False
 
     # Count lines that look like table headers (start with | and contain separators)
-    header_line_pattern = re.compile(r'^\s*\|.*\|\s*$')
-    separator_line_pattern = re.compile(r'^\s*\|[\s\-:]+\|\s*$')
-
     header_lines = 0
     separator_lines = 0
     content_lines = 0
@@ -113,9 +112,9 @@ def _is_header_only_chunk(content: str) -> bool:
         if not stripped:
             continue
 
-        if separator_line_pattern.match(stripped):
+        if _TABLE_SEPARATOR_LINE_PATTERN.match(stripped):
             separator_lines += 1
-        elif header_line_pattern.match(stripped):
+        elif _TABLE_HEADER_LINE_PATTERN.match(stripped):
             header_lines += 1
         else:
             content_lines += 1
