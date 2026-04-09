@@ -7,6 +7,7 @@
 import re
 import sqlite3
 import threading
+from contextlib import suppress
 from dataclasses import dataclass, field
 
 import structlog
@@ -141,6 +142,16 @@ class VectorStore:
 
         self._thread_local.conn = conn
         return conn
+
+    def _reset_thread_connection(self) -> None:
+        conn = getattr(self._thread_local, 'conn', None)
+        if conn is not None:
+            with suppress(sqlite3.Error):
+                conn.close()
+        if hasattr(self._thread_local, 'conn'):
+            delattr(self._thread_local, 'conn')
+        if hasattr(self._thread_local, 'fts_chunks_columns'):
+            delattr(self._thread_local, 'fts_chunks_columns')
 
     def _get_fts_chunks_columns(self, conn: sqlite3.Connection) -> set[str]:
         columns = getattr(self._thread_local, 'fts_chunks_columns', None)
@@ -451,13 +462,21 @@ class VectorStore:
 
     def drop_all(self) -> int:
         conn = self._get_thread_connection()
-        cursor = conn.execute('SELECT COUNT(*) as count FROM vec_chunks')
-        row = cursor.fetchone()
-        count = int(row['count']) if row else 0
-        conn.execute('DELETE FROM vec_chunks')
-        conn.commit()
-        log.info('sqlite_vec_drop_all_complete', rows_deleted=count)
-        return count
+        try:
+            cursor = conn.execute('SELECT COUNT(*) as count FROM vec_chunks')
+            row = cursor.fetchone()
+            count = int(row['count']) if row else 0
+            conn.execute('DELETE FROM vec_chunks')
+            conn.commit()
+            log.info('sqlite_vec_drop_all_complete', rows_deleted=count)
+            return count
+        except sqlite3.Error:
+            with suppress(sqlite3.Error):
+                conn.rollback()
+            # Stale sqlite-vec/thread-local handles can leave the connection
+            # in a bad state after SQL logic errors; force a fresh handle.
+            self._reset_thread_connection()
+            raise
 
     def build_index(self) -> bool:
         log.info('vector_index_build_skipped', reason='exact_search_mode')

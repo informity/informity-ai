@@ -14,7 +14,7 @@ import aiosqlite
 
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.rag_runtime import retrieval_validation as _retrieval_validation
-from informity.llm.types import FallbackReason, GroupBy, IntentProfileId, OutputShape, RetrievalMode
+from informity.llm.types import FallbackReason, IntentProfileId, OutputShape, RetrievalMode
 
 
 @dataclass
@@ -73,7 +73,6 @@ async def run_validation_recovery_when_failed(
     classification: QueryClassification,
     effective_response_shape: OutputShape,
     selected_policy_profile_id: IntentProfileId,
-    selected_policy_fallback_target_route: IntentProfileId,
     scope_reset_detected: bool,
     prior_source_anchors: set[str],
     prior_has_remaining_scope: bool,
@@ -84,7 +83,6 @@ async def run_validation_recovery_when_failed(
     trace: object | None,
     retrieve_fn: Callable[..., Awaitable[list[dict]]],
     get_retrieval_top_k_fn: Callable[..., int],
-    get_intent_profile_policy_fn: Callable[..., object],
 ) -> ValidationRecoveryResult:
     quality_score = _compute_quality_score(
         retrieval_relevance_score=retrieval_relevance_score,
@@ -108,26 +106,20 @@ async def run_validation_recovery_when_failed(
             quality_score=quality_score,
         )
 
-    # Preserve the original query type before the fallback may change it.
-    # The fallback profile (e.g. clarification_or_disambiguation) may prefer 'focused'
-    # retrieval, which would change effective_query_type to 'focused'. The coverage
-    # floor override requires query_type == 'coverage', so we must pass the original
-    # query type when evaluating the override — the user's intent has not changed.
     original_query_type = effective_query_type
 
     has_strong_anchor = bool(
         classification.filename_filter
     )
-    fallback_profile = get_intent_profile_policy_fn(selected_policy_fallback_target_route)
     fallback_events.append({
         'fallback_from': selected_policy_profile_id,
-        'fallback_to': fallback_profile.profile_id,
+        'fallback_to': selected_policy_profile_id,
         'fallback_reason': FallbackReason.VALIDATION_GATE_FAILED,
         'validation_gates': validation_gates,
     })
     fallback_chunks = await retrieve_fn(
         query=retrieval_question,
-        top_k=get_retrieval_top_k_fn(fallback_profile.preferred_retrieval_mode),
+        top_k=get_retrieval_top_k_fn(effective_query_type),
         max_score=profile_rag_max_score,
         year_filter=classification.year_filter,
         category_filter=classification.category_filter,
@@ -135,35 +127,17 @@ async def run_validation_recovery_when_failed(
         filename_filter=retrieval_filename_filter,
         block_type_filter=None,
         section_filter=None,
-        query_type=fallback_profile.preferred_retrieval_mode,
+        query_type=effective_query_type,
         db=db,
         trace=trace,
     )
     if fallback_chunks:
         chunks = fallback_chunks
-        effective_query_type = fallback_profile.preferred_retrieval_mode
-        preserve_coverage_query_type = (
-            original_query_type == RetrievalMode.COVERAGE
-            and effective_query_type == RetrievalMode.FOCUSED
-            and classification.filename_filter is None
-            and (
-                classification.deterministic_override
-                or classification.has_multi_year_scope
-                or classification.group_by in {GroupBy.YEAR, GroupBy.FILE}
-            )
-        )
-        if preserve_coverage_query_type:
-            effective_query_type = RetrievalMode.COVERAGE
-            fallback_events.append({
-                'fallback_from': fallback_profile.preferred_retrieval_mode,
-                'fallback_to': RetrievalMode.COVERAGE,
-                'fallback_reason': FallbackReason.PRESERVE_COVERAGE_QUERY_TYPE_AFTER_FALLBACK,
-            })
         effective_top_k = min(effective_top_k, len(chunks))
         retrieval_relevance_passed, retrieval_relevance_score = _retrieval_validation._evaluate_retrieval_relevance_gate(
             chunks=chunks,
             query_type=effective_query_type,
-            route_candidate=fallback_profile.profile_id,
+            route_candidate=selected_policy_profile_id,
             has_strong_anchor=has_strong_anchor,
         )
         source_diversity_passed, distinct_sources_count = _retrieval_validation._evaluate_source_diversity_gate(
@@ -172,47 +146,16 @@ async def run_validation_recovery_when_failed(
         )
         retrieval_relevance_passed, fallback_events = _retrieval_validation._apply_coverage_evidence_floor_override(
             retrieval_relevance_passed=retrieval_relevance_passed,
-            # Use the original query type so coverage floor eligibility is not lost when the
-            # fallback profile switches to a focused-mode route (e.g. clarification_or_disambiguation).
-            query_type=original_query_type,
+            query_type=effective_query_type,
             subtype=classification.subtype,
             group_by=classification.group_by,
-            # Use effective_response_shape rather than classification.response_shape: the
-            # classifier may produce 'structured_extract' for listing-type coverage queries
-            # (e.g. "names of people", "dates across documents"), but execution_plan.py
-            # normalises it to 'narrative_synthesis'. The floor override eligibility check
-            # requires 'narrative_synthesis', so we must use the normalised shape.
             response_shape=effective_response_shape,
             distinct_sources_count=distinct_sources_count,
             chunk_count=len(chunks),
             fallback_events=fallback_events,
-            # Use the original route profile so coverage floor eligibility is preserved
-            # even after the fallback profile changes to clarification_or_disambiguation.
             route_profile_id=selected_policy_profile_id,
             retrieval_relevance_score=retrieval_relevance_score,
         )
-        # Escalation case: the fallback escalated the query from focused to coverage mode
-        # (e.g. targeted_fact_lookup -> cross_document_synthesis). The original floor override
-        # above uses the focused original_query_type and doesn't fire. Re-evaluate using the
-        # fallback profile's coverage eligibility so that year-filtered or broad-scope queries
-        # can pass through when sufficient evidence is present.
-        if (
-            not retrieval_relevance_passed
-            and original_query_type != effective_query_type
-            and effective_query_type == RetrievalMode.COVERAGE
-        ):
-            retrieval_relevance_passed, fallback_events = _retrieval_validation._apply_coverage_evidence_floor_override(
-                retrieval_relevance_passed=retrieval_relevance_passed,
-                query_type=effective_query_type,
-                subtype=classification.subtype,
-                group_by=classification.group_by,
-                response_shape=effective_response_shape,
-                distinct_sources_count=distinct_sources_count,
-                chunk_count=len(chunks),
-                fallback_events=fallback_events,
-                route_profile_id=fallback_profile.profile_id,
-                retrieval_relevance_score=retrieval_relevance_score,
-            )
         current_source_keys = _retrieval_validation._extract_current_source_keys(chunks)
         continuation_anchor_passed, anchor_overlap_count = _retrieval_validation._evaluate_continuation_anchor_gate(
             route_candidate=classification.route_candidate,

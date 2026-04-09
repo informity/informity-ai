@@ -355,7 +355,36 @@ def test_execution_plan_preserves_deterministic_override_under_low_confidence() 
     asyncio.run(_run())
 
 
-def test_retrieval_gatekeeper_preserves_coverage_query_type_after_fallback() -> None:
+def test_execution_plan_keeps_classifier_route_under_low_confidence() -> None:
+    classification = QueryClassification(
+        intent='focused',
+        route_candidate='targeted_fact_lookup',
+        confidence=0.20,
+        deterministic_override=False,
+    )
+
+    async def _run() -> None:
+        async with aiosqlite.connect(':memory:') as db:
+            plan = await _execution_plan.build_execution_plan(
+                question='What does document A say about item B?',
+                classification=classification,
+                diagnostics_context=None,
+                db=db,
+                resolve_fit_to_budget_policy_fn=lambda **_: asyncio.sleep(
+                    0,
+                    result=SimpleNamespace(enabled=False),
+                ),
+            )
+        assert plan.selected_policy.profile_id == 'targeted_fact_lookup'
+        assert not any(
+            event.get('fallback_reason') == 'low_confidence_route_guard'
+            for event in plan.fallback_events
+        )
+
+    asyncio.run(_run())
+
+
+def test_retrieval_gatekeeper_keeps_query_type_during_validation_recovery() -> None:
     classification = QueryClassification(
         intent='coverage',
         route_candidate='cross_document_synthesis',
@@ -390,7 +419,6 @@ def test_retrieval_gatekeeper_preserves_coverage_query_type_after_fallback() -> 
                 classification=classification,
                 effective_response_shape='narrative_synthesis',
                 selected_policy_profile_id='cross_document_synthesis',
-                selected_policy_fallback_target_route='clarification_or_disambiguation',
                 scope_reset_detected=False,
                 prior_source_anchors=set(),
                 prior_has_remaining_scope=False,
@@ -401,13 +429,13 @@ def test_retrieval_gatekeeper_preserves_coverage_query_type_after_fallback() -> 
                 trace=None,
                 retrieve_fn=_retrieve_fn,
                 get_retrieval_top_k_fn=lambda *_args, **_kwargs: 8,
-                get_intent_profile_policy_fn=lambda route: SimpleNamespace(
-                    profile_id=str(route),
-                    preferred_retrieval_mode='focused',
-                ),
             )
         assert result.effective_query_type == 'coverage'
         assert any(
+            event.get('fallback_reason') == 'validation_gate_failed'
+            for event in result.fallback_events
+        )
+        assert not any(
             event.get('fallback_reason') == 'preserve_coverage_query_type_after_fallback'
             for event in result.fallback_events
         )

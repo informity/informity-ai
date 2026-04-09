@@ -15,7 +15,6 @@ import aiosqlite
 import structlog
 
 from informity.llm.contract_prompt_parser import EXPLICIT_YEAR_PATTERN
-from informity.llm.intent_profiles import get_intent_profile_policy
 from informity.llm.model_adapter import get_retrieval_top_k
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.rag_runtime import deterministic_fallbacks as _deterministic_fallbacks
@@ -284,7 +283,6 @@ async def run_retrieval_pipeline(
     prior_source_anchors: set,
     retrieval_filename_filter: str | None,
     selected_policy_profile_id: IntentProfileId,
-    selected_policy_fallback_target_route: IntentProfileId,
     profile_rag_max_score: float,
     applied_degradations: list,
     fallback_events: list,
@@ -340,40 +338,48 @@ async def run_retrieval_pipeline(
     log.debug('chunks_retrieved', count=len(chunks), query_type=effective_query_type)
 
     # -------------------------------------------------------------------------
-    # 2. Empty chunk fallback (profile fallback retrieval)
+    # 2. Empty chunk fallback (retrieval-only recovery)
     # -------------------------------------------------------------------------
 
     if not chunks:
-        fallback_profile = get_intent_profile_policy(selected_policy_fallback_target_route)
-        fallback_events.append({
-            'fallback_from': selected_policy_profile_id,
-            'fallback_to': fallback_profile.profile_id,
-            'fallback_reason': FallbackReason.EMPTY_RETRIEVAL_RESULT,
-        })
-        fallback_chunks = await retrieve_chunks(
-            query=retrieval_question,
-            top_k=get_retrieval_top_k(fallback_profile.preferred_retrieval_mode),
-            max_score=profile_rag_max_score,
-            year_filter=classification.year_filter,
-            category_filter=classification.category_filter,
-            extension_filter=classification.file_type_filter,
-            filename_filter=retrieval_filename_filter,
-            block_type_filter=None,
-            section_filter=None,
-            query_type=fallback_profile.preferred_retrieval_mode,
-            db=db,
-            trace=trace,
-        )
-        if fallback_chunks:
-            chunks = fallback_chunks
-            effective_query_type = fallback_profile.preferred_retrieval_mode
+        schema_contract_recovery_chunks: list[dict] = []
+        if has_explicit_output_contract_fn(question):
+            schema_contract_recovery_chunks = await retrieve_chunks(
+                query=retrieval_question,
+                top_k=get_retrieval_top_k(RetrievalMode.COVERAGE),
+                max_score=profile_rag_max_score,
+                year_filter=classification.year_filter,
+                category_filter=classification.category_filter,
+                extension_filter=classification.file_type_filter,
+                filename_filter=None,
+                block_type_filter=None,
+                section_filter=None,
+                query_type=RetrievalMode.COVERAGE,
+                db=db,
+                trace=trace,
+            )
+        if schema_contract_recovery_chunks:
+            chunks = schema_contract_recovery_chunks
             effective_top_k = min(effective_top_k, len(chunks))
+            fallback_events.append({
+                'fallback_from': selected_policy_profile_id,
+                'fallback_to': selected_policy_profile_id,
+                'fallback_reason': FallbackReason.SCHEMA_CONTRACT_EMPTY_RETRIEVAL_RECOVERY,
+            })
         else:
-            schema_contract_recovery_chunks: list[dict] = []
-            if has_explicit_output_contract_fn(question):
-                schema_contract_recovery_chunks = await retrieve_chunks(
-                    query=retrieval_question,
-                    top_k=get_retrieval_top_k(RetrievalMode.COVERAGE),
+            focused_anchor_recovery_chunks: list[dict] = []
+            focused_anchor_recovery_query = _build_focused_anchor_recovery_query(
+                question=question,
+                source_terms=classification.source_terms,
+            )
+            if (
+                focused_anchor_recovery_query
+                and effective_query_type == RetrievalMode.FOCUSED
+                and not classification.filename_filter
+            ):
+                focused_anchor_recovery_chunks = await retrieve_chunks(
+                    query=focused_anchor_recovery_query,
+                    top_k=get_retrieval_top_k(RetrievalMode.FOCUSED),
                     max_score=profile_rag_max_score,
                     year_filter=classification.year_filter,
                     category_filter=classification.category_filter,
@@ -381,33 +387,28 @@ async def run_retrieval_pipeline(
                     filename_filter=None,
                     block_type_filter=None,
                     section_filter=None,
-                    query_type=RetrievalMode.COVERAGE,
+                    query_type=RetrievalMode.FOCUSED,
                     db=db,
                     trace=trace,
                 )
-            if schema_contract_recovery_chunks:
-                chunks = schema_contract_recovery_chunks
-                effective_query_type = RetrievalMode.COVERAGE
+            if focused_anchor_recovery_chunks:
+                chunks = focused_anchor_recovery_chunks
                 effective_top_k = min(effective_top_k, len(chunks))
                 fallback_events.append({
                     'fallback_from': selected_policy_profile_id,
                     'fallback_to': selected_policy_profile_id,
-                    'fallback_reason': FallbackReason.SCHEMA_CONTRACT_EMPTY_RETRIEVAL_RECOVERY,
+                    'fallback_reason': FallbackReason.FOCUSED_ANCHOR_EMPTY_RETRIEVAL_RECOVERY,
                 })
             else:
-                focused_anchor_recovery_chunks: list[dict] = []
-                focused_anchor_recovery_query = _build_focused_anchor_recovery_query(
-                    question=question,
-                    source_terms=classification.source_terms,
-                )
+                focused_year_recovery_chunks: list[dict] = []
                 if (
-                    focused_anchor_recovery_query
+                    classification.year_filter is not None
                     and effective_query_type == RetrievalMode.FOCUSED
                     and not classification.filename_filter
                 ):
-                    focused_anchor_recovery_chunks = await retrieve_chunks(
-                        query=focused_anchor_recovery_query,
-                        top_k=get_retrieval_top_k(RetrievalMode.FOCUSED),
+                    focused_year_recovery_chunks = await retrieve_chunks(
+                        query=retrieval_question,
+                        top_k=get_retrieval_top_k(RetrievalMode.COVERAGE),
                         max_score=profile_rag_max_score,
                         year_filter=classification.year_filter,
                         category_filter=classification.category_filter,
@@ -415,66 +416,35 @@ async def run_retrieval_pipeline(
                         filename_filter=None,
                         block_type_filter=None,
                         section_filter=None,
-                        query_type=RetrievalMode.FOCUSED,
+                        query_type=RetrievalMode.COVERAGE,
                         db=db,
                         trace=trace,
                     )
-                if focused_anchor_recovery_chunks:
-                    chunks = focused_anchor_recovery_chunks
-                    effective_query_type = RetrievalMode.FOCUSED
+                if focused_year_recovery_chunks:
+                    chunks = focused_year_recovery_chunks
                     effective_top_k = min(effective_top_k, len(chunks))
                     fallback_events.append({
                         'fallback_from': selected_policy_profile_id,
                         'fallback_to': selected_policy_profile_id,
-                        'fallback_reason': FallbackReason.FOCUSED_ANCHOR_EMPTY_RETRIEVAL_RECOVERY,
+                        'fallback_reason': FallbackReason.FOCUSED_YEAR_SCOPE_EMPTY_RETRIEVAL_RECOVERY,
                     })
                 else:
-                    focused_year_recovery_chunks: list[dict] = []
-                    if (
-                        classification.year_filter is not None
-                        and effective_query_type == RetrievalMode.FOCUSED
-                        and not classification.filename_filter
-                    ):
-                        focused_year_recovery_chunks = await retrieve_chunks(
-                            query=retrieval_question,
-                            top_k=get_retrieval_top_k(RetrievalMode.COVERAGE),
-                            max_score=profile_rag_max_score,
-                            year_filter=classification.year_filter,
-                            category_filter=classification.category_filter,
-                            extension_filter=classification.file_type_filter,
-                            filename_filter=None,
-                            block_type_filter=None,
-                            section_filter=None,
-                            query_type=RetrievalMode.COVERAGE,
-                            db=db,
-                            trace=trace,
-                        )
-                    if focused_year_recovery_chunks:
-                        chunks = focused_year_recovery_chunks
-                        effective_query_type = RetrievalMode.COVERAGE
-                        effective_top_k = min(effective_top_k, len(chunks))
-                        fallback_events.append({
-                            'fallback_from': selected_policy_profile_id,
-                            'fallback_to': selected_policy_profile_id,
-                            'fallback_reason': FallbackReason.FOCUSED_YEAR_SCOPE_EMPTY_RETRIEVAL_RECOVERY,
-                        })
-                    else:
-                        return RetrievalFailure(
-                            response_message=_INSUFFICIENT_CONTEXT_RESPONSE,
-                            sources=[],
-                            metrics_payload=_generation_terminal.build_generation_skipped_metrics_payload(
-                                query_type=effective_query_type,
-                                timeout_seconds=timeout_seconds,
-                                retrieval_elapsed_ms=retrieval_elapsed_ms,
-                                preflight_projected_seconds=preflight_projected_seconds,
-                                preflight_ratio=preflight_ratio,
-                                applied_degradations=applied_degradations,
-                                fallback_events=fallback_events,
-                                has_remaining_scope=False,
-                                validation_gates={'retrieval_relevance_gate': False, 'source_diversity_gate': False},
-                            ),
+                    return RetrievalFailure(
+                        response_message=_INSUFFICIENT_CONTEXT_RESPONSE,
+                        sources=[],
+                        metrics_payload=_generation_terminal.build_generation_skipped_metrics_payload(
+                            query_type=effective_query_type,
+                            timeout_seconds=timeout_seconds,
+                            retrieval_elapsed_ms=retrieval_elapsed_ms,
+                            preflight_projected_seconds=preflight_projected_seconds,
+                            preflight_ratio=preflight_ratio,
+                            applied_degradations=applied_degradations,
+                            fallback_events=fallback_events,
                             has_remaining_scope=False,
-                        )
+                            validation_gates={'retrieval_relevance_gate': False, 'source_diversity_gate': False},
+                        ),
+                        has_remaining_scope=False,
+                    )
 
     # -------------------------------------------------------------------------
     # 3. Validation gates
@@ -550,10 +520,9 @@ async def run_retrieval_pipeline(
         validation_gates=validation_gates,
         fallback_events=fallback_events,
         classification=classification,
-                effective_response_shape=effective_response_shape,
-                selected_policy_profile_id=selected_policy_profile_id,
-                selected_policy_fallback_target_route=selected_policy_fallback_target_route,
-                scope_reset_detected=scope_reset_detected,
+        effective_response_shape=effective_response_shape,
+        selected_policy_profile_id=selected_policy_profile_id,
+        scope_reset_detected=scope_reset_detected,
         prior_source_anchors=prior_source_anchors,
         prior_has_remaining_scope=prior_has_remaining_scope,
         retrieval_question=retrieval_question,
@@ -563,7 +532,6 @@ async def run_retrieval_pipeline(
         trace=trace,
         retrieve_fn=retrieve_chunks,
         get_retrieval_top_k_fn=get_retrieval_top_k,
-        get_intent_profile_policy_fn=get_intent_profile_policy,
     )
     chunks = recovery_result.chunks
     effective_query_type = recovery_result.effective_query_type
