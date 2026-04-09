@@ -158,6 +158,33 @@ GLOBAL_ENTITY_LISTING_KEYWORDS: str = (
     r'numeric\s+amounts?|key\s+amounts?|financial\s+figures?|financial\s+amounts?'
     r')\b'
 )
+EXHAUSTIVE_ENTITY_INVENTORY_SCOPE_KEYWORDS: str = (
+    r'\b('
+    r'across\s+all'
+    r'|'
+    r'across\b.*\b(indexed\s+)?(documents?|files?|records?)'
+    r'|'
+    r'all\s+(indexed\s+)?(documents?|files?|records?)'
+    r')\b'
+)
+PERSON_ENTITY_LISTING_KEYWORDS: str = (
+    r'\b('
+    r'names?\s+of\s+people'
+    r'|'
+    r'people\s+mentioned'
+    r'|'
+    r'names?\s+mentioned'
+    r')\b'
+)
+ACRONYM_ENTITY_LISTING_KEYWORDS: str = (
+    r'\b('
+    r'acronyms?'
+    r'|'
+    r'abbreviations?'
+    r'|'
+    r'initialisms?'
+    r')\b'
+)
 GENERIC_CAPABILITY_KEYWORDS: str = (
     r'\b(can\s+you\s+help|help\s+me\s+understand|what\s+information\s+is\s+available)\b'
 )
@@ -364,6 +391,21 @@ def build_multi_document_listing_pattern() -> Pattern[str]:
 def build_global_entity_listing_pattern() -> Pattern[str]:
     """Build regex pattern for global entity listing prompts."""
     return re.compile(GLOBAL_ENTITY_LISTING_KEYWORDS, re.IGNORECASE)
+
+
+def build_exhaustive_entity_inventory_scope_pattern() -> Pattern[str]:
+    """Build regex pattern for corpus-wide exhaustive scope cues."""
+    return re.compile(EXHAUSTIVE_ENTITY_INVENTORY_SCOPE_KEYWORDS, re.IGNORECASE)
+
+
+def build_person_entity_listing_pattern() -> Pattern[str]:
+    """Build regex pattern for person-name listing requests."""
+    return re.compile(PERSON_ENTITY_LISTING_KEYWORDS, re.IGNORECASE)
+
+
+def build_acronym_entity_listing_pattern() -> Pattern[str]:
+    """Build regex pattern for acronym/abbreviation listing requests."""
+    return re.compile(ACRONYM_ENTITY_LISTING_KEYWORDS, re.IGNORECASE)
 
 
 def build_generic_capability_pattern() -> Pattern[str]:

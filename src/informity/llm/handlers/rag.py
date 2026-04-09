@@ -19,7 +19,13 @@ from informity.llm.model_adapter import get_profile, get_retrieval_top_k
 from informity.llm.nlp_heuristics import BY_PER_YEAR_PATTERN
 from informity.llm.prompt_builder import build_messages, resolve_history_limit
 from informity.llm.query_classifier import QueryClassification
-from informity.llm.query_patterns import build_referential_followup_pattern
+from informity.llm.query_patterns import (
+    build_acronym_entity_listing_pattern,
+    build_exhaustive_entity_inventory_scope_pattern,
+    build_global_entity_listing_pattern,
+    build_person_entity_listing_pattern,
+    build_referential_followup_pattern,
+)
 from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
 from informity.llm.rag_runtime import generation_stream as _generation_stream
@@ -54,21 +60,14 @@ _STRICT_CONTRACT_MAX_TEMPERATURE = 0.2
 _STRICT_CONTRACT_MAX_TOP_P = 0.8
 _COVERAGE_ENTITY_LISTING_TOP_K_BOOST = 8
 _COVERAGE_ENTITY_LISTING_TOP_K_MAX = 60
-_GLOBAL_ENTITY_ENUMERATION_PATTERN = re.compile(
-    r'\b('
-    r'names?\s+of\s+people|people\s+mentioned|important\s+dates?|key\s+dates?|'
-    r'numeric\s+amounts?|financial\s+figures?|key\s+amounts?'
-    r')\b',
-    re.IGNORECASE,
-)
-_CORPUS_WIDE_SCOPE_PATTERN = re.compile(
-    r'\b('
-    r'across\s+all'
-    r'|'
-    r'across\b.*\b(indexed\s+)?(documents?|files?|records?)'
-    r')\b',
-    re.IGNORECASE,
-)
+_GLOBAL_ENTITY_ENUMERATION_PATTERN = build_global_entity_listing_pattern()
+_CORPUS_WIDE_SCOPE_PATTERN = build_exhaustive_entity_inventory_scope_pattern()
+_ENTITY_INVENTORY_SCOPE_PATTERN = build_exhaustive_entity_inventory_scope_pattern()
+_PERSON_INVENTORY_PATTERN = build_person_entity_listing_pattern()
+_ACRONYM_INVENTORY_PATTERN = build_acronym_entity_listing_pattern()
+_ENTITY_INVENTORY_MAX_ROWS = 300
+_ENTITY_INVENTORY_SOURCE_LIMIT = 12
+_ENTITY_INVENTORY_DEFAULT_PREVIEW = 'Indexed term evidence match.'
 
 
 def _has_explicit_output_contract(question: str) -> bool:
@@ -220,6 +219,135 @@ def _resolve_minimal_answerability_settings(query_type: QueryType) -> tuple[floa
     )
 
 
+def _resolve_exhaustive_inventory_term_type(
+    question: str,
+    classification: QueryClassification,
+) -> str | None:
+    if classification.intent != QueryType.COVERAGE:
+        return None
+    lowered = str(question or '').casefold()
+    if not lowered:
+        return None
+    if not _ENTITY_INVENTORY_SCOPE_PATTERN.search(lowered):
+        return None
+    if _PERSON_INVENTORY_PATTERN.search(lowered):
+        return 'person_name'
+    if _ACRONYM_INVENTORY_PATTERN.search(lowered):
+        return 'acronym'
+    return None
+
+
+async def _fetch_term_inventory_rows(
+    *,
+    db: aiosqlite.Connection,
+    term_type: str,
+    limit: int = _ENTITY_INVENTORY_MAX_ROWS,
+) -> list[dict[str, object]]:
+    cursor = await db.execute(
+        '''
+        SELECT
+            te.canonical_term AS canonical_term,
+            te.confidence AS confidence,
+            COUNT(DISTINCT tei.file_id) AS file_count
+        FROM term_entries te
+        JOIN term_dictionary_state tds ON tds.singleton_id = 1
+        LEFT JOIN term_evidence tei ON tei.term_id = te.term_id
+        WHERE te.dict_version = tds.current_version
+          AND te.status = 'active'
+          AND te.type = ?
+        GROUP BY te.term_id
+        ORDER BY te.canonical_term COLLATE NOCASE ASC
+        LIMIT ?
+        ''',
+        (term_type, max(1, int(limit))),
+    )
+    rows = await cursor.fetchall()
+    return [
+        {
+            'canonical_term': str(row['canonical_term'] or '').strip(),
+            'confidence': float(row['confidence'] or 0.0),
+            'file_count': int(row['file_count'] or 0),
+        }
+        for row in rows
+        if str(row['canonical_term'] or '').strip()
+    ]
+
+
+async def _fetch_term_inventory_sources(
+    *,
+    db: aiosqlite.Connection,
+    term_type: str,
+    limit: int = _ENTITY_INVENTORY_SOURCE_LIMIT,
+) -> list[ChatSourceReference]:
+    cursor = await db.execute(
+        '''
+        SELECT
+            f.filename AS filename,
+            f.path AS path,
+            MAX(COALESCE(tei.evidence_snippet, '')) AS chunk_preview,
+            MAX(te.confidence) AS relevance_score
+        FROM term_entries te
+        JOIN term_dictionary_state tds ON tds.singleton_id = 1
+        JOIN term_evidence tei ON tei.term_id = te.term_id
+        JOIN files f ON f.id = tei.file_id
+        WHERE te.dict_version = tds.current_version
+          AND te.status = 'active'
+          AND te.type = ?
+        GROUP BY f.id, f.filename, f.path
+        ORDER BY f.filename COLLATE NOCASE ASC
+        LIMIT ?
+        ''',
+        (term_type, max(1, int(limit))),
+    )
+    rows = await cursor.fetchall()
+    sources: list[ChatSourceReference] = []
+    for row in rows:
+        path = str(row['path'] or '').strip()
+        filename = str(row['filename'] or '').strip() or (path.rsplit('/', maxsplit=1)[-1] if path else 'source')
+        if not path:
+            continue
+        chunk_preview = str(row['chunk_preview'] or '').strip() or _ENTITY_INVENTORY_DEFAULT_PREVIEW
+        relevance_score = float(row['relevance_score'] or 0.0)
+        sources.append(
+            ChatSourceReference(
+                filename=filename,
+                path=path,
+                chunk_preview=chunk_preview,
+                relevance_score=relevance_score,
+            )
+        )
+    return sources
+
+
+def _format_term_inventory_answer(*, term_type: str, rows: list[dict[str, object]]) -> str:
+    if term_type == 'person_name':
+        title = 'people names'
+    elif term_type == 'acronym':
+        title = 'acronyms'
+    else:
+        title = 'entities'
+    if not rows:
+        return (
+            f'No {title} were found in the current indexed term dictionary. '
+            'Reindex your documents and try again.'
+        )
+
+    lines = [
+        f'From indexed term dictionary entries, here are the {title} found across the corpus:',
+        '',
+    ]
+    for row in rows:
+        name = str(row.get('canonical_term') or '').strip()
+        if not name:
+            continue
+        file_count = int(row.get('file_count') or 0)
+        if file_count > 0:
+            lines.append(f'- **{name}** ({file_count} file{"s" if file_count != 1 else ""})')
+        else:
+            lines.append(f'- **{name}**')
+    return '\n'.join(lines)
+
+
 def _evaluate_minimal_answerability(
     chunks: list[dict],
     *,
@@ -256,6 +384,45 @@ class RAGHandler:
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         profile = get_profile()
         effective_query_type = _resolve_minimal_query_type(classification)
+        inventory_term_type = _resolve_exhaustive_inventory_term_type(question, classification)
+        if inventory_term_type is not None:
+            inventory_start = time.perf_counter()
+            inventory_rows = await _fetch_term_inventory_rows(
+                db=db,
+                term_type=inventory_term_type,
+            )
+            inventory_sources = await _fetch_term_inventory_sources(
+                db=db,
+                term_type=inventory_term_type,
+            )
+            inventory_elapsed_ms = (time.perf_counter() - inventory_start) * 1000.0
+            if trace is not None:
+                trace.record('deterministic_inventory', {
+                    'enabled': True,
+                    'term_type': inventory_term_type,
+                    'entry_count': len(inventory_rows),
+                    'source_count': len(inventory_sources),
+                    'duration_ms': round(inventory_elapsed_ms, 1),
+                })
+            yield (
+                StreamSignalTag.METRICS,
+                build_metrics_payload(
+                    query_type=effective_query_type,
+                    raw_chunks_count=0,
+                    retrieval_duration_ms=round(inventory_elapsed_ms, 1),
+                    generation_skipped=True,
+                    minimal_mode=True,
+                    deterministic_inventory=True,
+                    deterministic_inventory_term_type=inventory_term_type,
+                ),
+            )
+            yield _format_term_inventory_answer(
+                term_type=inventory_term_type,
+                rows=inventory_rows,
+            )
+            yield inventory_sources
+            return
+
         effective_top_k = get_retrieval_top_k(effective_query_type)
         if _should_boost_coverage_top_k(question, classification):
             effective_top_k = min(

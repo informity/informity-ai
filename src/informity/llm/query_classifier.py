@@ -2,6 +2,7 @@
 # Informity AI — Query Classifier (v2)
 # Deterministic slot extraction and intent routing.
 # ==============================================================================
+from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
@@ -50,6 +51,8 @@ from informity.llm.types import (
 
 if TYPE_CHECKING:
     from promptcue import PromptCueQueryObject
+else:
+    PromptCueQueryObject = object
 
 log = structlog.get_logger(__name__)
 
@@ -185,6 +188,110 @@ def _extract_source_terms(*, text: str, filename_filter: str | None) -> list[str
     return terms
 
 
+@dataclass(frozen=True)
+class _ClassifierSignals:
+    is_inventory_metadata: bool
+    has_evidence_value_request: bool
+    has_corpus_scope: bool
+    has_multi_doc_listing: bool
+    is_general_capability: bool
+    single_target_scope: bool
+    has_structured_schema: bool
+    has_analysis_action: bool
+    has_multi_year_scope: bool
+    has_aggregate_listing_scope: bool
+    has_global_entity_listing: bool
+    looks_fact_lookup: bool
+
+
+def _resolve_classifier_signals(
+    *,
+    lowered: str,
+    text: str,
+    filename_filter: str | None,
+    pcue: PromptCueQueryObject | None,
+) -> _ClassifierSignals:
+    is_inventory_metadata = _is_inventory_metadata_request(lowered)
+    has_evidence_value_request = _has_evidence_value_extraction_request(lowered)
+    has_corpus_scope = _has_corpus_document_scope_request(lowered)
+    has_multi_doc_listing = _looks_multi_document_listing_request(lowered)
+    is_general_capability = _is_general_capability_query(lowered)
+    looks_fact_lookup = _looks_fact_lookup_query(lowered)
+    has_aggregate_listing_scope = _has_aggregate_listing_scope_request(lowered)
+    has_global_entity_listing = _has_global_entity_listing_request(lowered)
+
+    if pcue is not None:
+        semantic_hints = getattr(pcue, 'semantic_hints', None)
+        single_target_scope = (str(pcue.scope) == 'focused') or _looks_single_target_request(lowered)
+        has_structured_schema = (
+            bool(pcue.routing_hints.get('needs_structure'))
+            or bool(getattr(semantic_hints, 'requests_structure', False))
+            or _has_structured_schema_request(lowered)
+        )
+        has_analysis_action = (
+            bool(pcue.action_hints.get('should_compare'))
+            or bool(getattr(semantic_hints, 'requests_comparison', False))
+            or _has_analysis_action_request(lowered)
+        )
+        has_multi_year_scope = (
+            bool(pcue.routing_hints.get('has_temporal_scope'))
+            or bool(getattr(semantic_hints, 'requires_multi_period_analysis', False))
+            or _has_multi_year_scope_signal(lowered)
+        )
+    else:
+        single_target_scope = _looks_single_target_request(lowered)
+        has_structured_schema = _has_structured_schema_request(lowered)
+        has_analysis_action = _has_analysis_action_request(lowered)
+        has_multi_year_scope = _has_multi_year_scope_signal(lowered)
+
+    if (
+        is_inventory_metadata
+        and looks_fact_lookup
+        and not has_corpus_scope
+        and not has_structured_schema
+        and not has_analysis_action
+        and not has_evidence_value_request
+        and not is_general_capability
+    ):
+        is_inventory_metadata = False
+
+    _ = text
+    _ = filename_filter
+    return _ClassifierSignals(
+        is_inventory_metadata=is_inventory_metadata,
+        has_evidence_value_request=has_evidence_value_request,
+        has_corpus_scope=has_corpus_scope,
+        has_multi_doc_listing=has_multi_doc_listing,
+        is_general_capability=is_general_capability,
+        single_target_scope=single_target_scope,
+        has_structured_schema=has_structured_schema,
+        has_analysis_action=has_analysis_action,
+        has_multi_year_scope=has_multi_year_scope,
+        has_aggregate_listing_scope=has_aggregate_listing_scope,
+        has_global_entity_listing=has_global_entity_listing,
+        looks_fact_lookup=looks_fact_lookup,
+    )
+
+
+def _resolve_base_route(
+    *,
+    intent: IntentLabel,
+    has_structured_schema: bool,
+) -> tuple[IntentProfileId, OutputShape]:
+    response_shape = OutputShape.NARRATIVE_SYNTHESIS
+    if intent == IntentLabel.METADATA:
+        route_candidate = IntentProfileId.METADATA_INVENTORY
+        if has_structured_schema:
+            response_shape = OutputShape.METADATA_TABLE
+    elif intent == IntentLabel.SIMPLE:
+        route_candidate = IntentProfileId.CLARIFICATION_OR_DISAMBIGUATION
+    elif intent == IntentLabel.COVERAGE:
+        route_candidate = IntentProfileId.CROSS_DOCUMENT_SYNTHESIS
+    else:
+        route_candidate = IntentProfileId.TARGETED_FACT_LOOKUP
+    return route_candidate, response_shape
+
+
 @dataclass
 class QueryClassification:
     """
@@ -304,83 +411,42 @@ def classify_query(query: str) -> QueryClassification:
     if routing_expansion.canonical_terms:
         reason_codes.append('term_dictionary_routing_expansion_applied')
 
-    # --- Signals: prefer PromptCue when available, fall back to regex -----
-    # Corpus-specific signals (always from regex — PromptCue has no knowledge
-    # of indexed files, evidence values, or inventory structure).
-    is_inventory_metadata     = _is_inventory_metadata_request(lowered)
-    has_evidence_value_request = _has_evidence_value_extraction_request(lowered)
-    has_corpus_scope          = _has_corpus_document_scope_request(lowered)
-    has_multi_doc_listing     = _looks_multi_document_listing_request(lowered)
-    is_general_capability     = _is_general_capability_query(lowered)
-    source_terms              = _extract_source_terms(text=text, filename_filter=filename_filter)
-
+    # --- Signals: normalized once for deterministic policy application -------
+    source_terms = _extract_source_terms(text=text, filename_filter=filename_filter)
+    signals = _resolve_classifier_signals(
+        lowered=lowered,
+        text=text,
+        filename_filter=filename_filter,
+        pcue=pcue,
+    )
     if pcue is not None:
-        # PromptCue path — richer signals from 12-type classification + scope.
-        semantic_hints = getattr(pcue, 'semantic_hints', None)
-        is_continuation      = pcue.is_continuation
-        # Blend PromptCue scope with deterministic lexical scope cues so
-        # broad/focused routing remains stable when PromptCue scope confidence
-        # is imperfect for corpus-specific phrasing.
-        single_target_scope  = (str(pcue.scope) == 'focused') or _looks_single_target_request(lowered)
-        has_structured_schema = (
-            bool(pcue.routing_hints.get('needs_structure'))
-            or bool(getattr(semantic_hints, 'requests_structure', False))
-            or _has_structured_schema_request(lowered)
-        )
-        has_analysis_action  = (
-            bool(pcue.action_hints.get('should_compare'))
-            or bool(getattr(semantic_hints, 'requests_comparison', False))
-            or _has_analysis_action_request(lowered)
-        )
-        has_multi_year_scope = (
-            bool(pcue.routing_hints.get('has_temporal_scope'))
-            or bool(getattr(semantic_hints, 'requires_multi_period_analysis', False))
-            or _has_multi_year_scope_signal(lowered)
-        )
-    else:
-        # Regex fallback path — used when a non-PromptCue router is active.
-        single_target_scope  = _looks_single_target_request(lowered)
-        has_structured_schema = _has_structured_schema_request(lowered)
-        has_analysis_action  = _has_analysis_action_request(lowered)
-        has_multi_year_scope = _has_multi_year_scope_signal(lowered)
-    has_aggregate_listing_scope = _has_aggregate_listing_scope_request(lowered)
-    has_global_entity_listing = _has_global_entity_listing_request(lowered)
-    looks_fact_lookup = _looks_fact_lookup_query(lowered)
-    if (
-        is_inventory_metadata
-        and looks_fact_lookup
-        and not has_corpus_scope
-        and not has_structured_schema
-        and not has_analysis_action
-        and not has_evidence_value_request
-        and not is_general_capability
-    ):
-        # Treat world-knowledge fact lookups (e.g. "What year was ... signed?")
-        # as focused retrieval prompts, not corpus inventory queries.
-        is_inventory_metadata = False
+        is_continuation = pcue.is_continuation
 
     # --- Corpus metadata promotion ----------------------------------------
     # Inventory queries (count, enumeration, file listing, capability) are
     # always 'metadata' intent regardless of the router prediction.  PromptCue
     # has no knowledge of the indexed corpus, so it cannot classify these.
-    if is_inventory_metadata and intent != IntentLabel.METADATA:
+    if signals.is_inventory_metadata and intent != IntentLabel.METADATA:
         intent = IntentLabel.METADATA
         reason_codes.append('deterministic_inventory_metadata_promoted')
     elif (
-        is_general_capability
-        and not is_inventory_metadata
-        and not has_structured_schema
-        and not has_analysis_action
-        and not has_evidence_value_request
-        and not has_corpus_scope
+        signals.is_general_capability
+        and not signals.is_inventory_metadata
+        and not signals.has_structured_schema
+        and not signals.has_analysis_action
+        and not signals.has_evidence_value_request
+        and not signals.has_corpus_scope
     ):
         intent = IntentLabel.SIMPLE
         reason_codes.append('deterministic_general_capability_to_simple')
 
     deterministic_override = False
-    response_shape: OutputShape = OutputShape.NARRATIVE_SYNTHESIS
+    route_candidate, response_shape = _resolve_base_route(
+        intent=intent,
+        has_structured_schema=signals.has_structured_schema,
+    )
     subtype: QuerySubtype | None = None
-    group_by: GroupBy | None = GroupBy.YEAR if has_multi_year_scope else None
+    group_by: GroupBy | None = GroupBy.YEAR if signals.has_multi_year_scope else None
 
     def apply_override(
         *,
@@ -402,27 +468,16 @@ def classify_query(query: str) -> QueryClassification:
             subtype = new_subtype
         reason_codes.append(reason_code)
 
-    if intent == IntentLabel.METADATA:
-        route_candidate = IntentProfileId.METADATA_INVENTORY
-        if has_structured_schema:
-            response_shape = OutputShape.METADATA_TABLE
-    elif intent == IntentLabel.SIMPLE:
-        route_candidate = IntentProfileId.CLARIFICATION_OR_DISAMBIGUATION
-    elif intent == IntentLabel.COVERAGE:
-        route_candidate = IntentProfileId.CROSS_DOCUMENT_SYNTHESIS
-    else:
-        route_candidate = IntentProfileId.TARGETED_FACT_LOOKUP
-
     # Minimal deterministic guardrail: single-target requests should remain
     # focused even when base classification predicts broad synthesis.
     if (
         intent == IntentLabel.COVERAGE
-        and single_target_scope
+        and signals.single_target_scope
         and not _looks_plural_corpus_scope_request(lowered)
-        and not has_multi_doc_listing
-        and not has_multi_year_scope
-        and not has_aggregate_listing_scope
-        and not has_global_entity_listing
+        and not signals.has_multi_doc_listing
+        and not signals.has_multi_year_scope
+        and not signals.has_aggregate_listing_scope
+        and not signals.has_global_entity_listing
     ):
         apply_override(
             reason_code='deterministic_override_single_target_to_focused',
@@ -436,16 +491,16 @@ def classify_query(query: str) -> QueryClassification:
     if (
         intent == IntentLabel.FOCUSED
         and filename_filter is None
-        and has_corpus_scope
+        and signals.has_corpus_scope
         and (
-            has_multi_doc_listing
-            or has_aggregate_listing_scope
-            or has_global_entity_listing
-            or (has_structured_schema and _looks_plural_corpus_scope_request(lowered))
+            signals.has_multi_doc_listing
+            or signals.has_aggregate_listing_scope
+            or signals.has_global_entity_listing
+            or (signals.has_structured_schema and _looks_plural_corpus_scope_request(lowered))
             or (
-                has_analysis_action
+                signals.has_analysis_action
                 and _looks_plural_corpus_scope_request(lowered)
-                and not single_target_scope
+                and not signals.single_target_scope
             )
         )
     ):
@@ -459,12 +514,12 @@ def classify_query(query: str) -> QueryClassification:
     if (
         intent == IntentLabel.COVERAGE
         and filename_filter is None
-        and (has_multi_year_scope or group_by == GroupBy.YEAR)
+        and (signals.has_multi_year_scope or group_by == GroupBy.YEAR)
     ):
         if subtype != QuerySubtype.AGGREGATE_BY_PERIOD:
             subtype = QuerySubtype.AGGREGATE_BY_PERIOD
             reason_codes.append('deterministic_override_coverage_year_aggregate_subtype')
-        if response_shape != OutputShape.NARRATIVE_SYNTHESIS and not has_evidence_value_request:
+        if response_shape != OutputShape.NARRATIVE_SYNTHESIS and not signals.has_evidence_value_request:
             response_shape = OutputShape.NARRATIVE_SYNTHESIS
             reason_codes.append('deterministic_override_year_aggregate_narrative_shape')
 
@@ -476,7 +531,7 @@ def classify_query(query: str) -> QueryClassification:
         alternatives=prediction.alternatives,
         reason_codes=reason_codes,
         subtype=subtype,
-        has_multi_year_scope=has_multi_year_scope,
+        has_multi_year_scope=signals.has_multi_year_scope,
         group_by=group_by,
         source_terms=source_terms,
         year_filter=year_filter,
