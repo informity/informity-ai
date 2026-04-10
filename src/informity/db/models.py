@@ -21,7 +21,6 @@ class FileCategory(StrEnum):
     PLAINTEXT = 'plaintext'   # .txt, .md, .rst, .log
     DATA      = 'data'        # .csv, .xlsx (tabular data; config formats map to PLAINTEXT)
     WEB       = 'web'         # .html, .htm
-    CODE      = 'code'        # .py, .js, .ts (future)
     OTHER     = 'other'
 
 

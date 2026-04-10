@@ -12,12 +12,14 @@ import structlog
 
 from informity.api.schemas import ChatSourceReference
 from informity.db.models import ChatMessage
+from informity.db.sqlite import get_chunk_count
 from informity.llm.chat_mode import is_assistant_mode, resolve_chat_mode
 from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.rag import RAGHandler
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification, classify_query
 from informity.llm.types import QueryType, StreamSignalTag
+from informity.llm.user_messages import EMPTY_KNOWLEDGE_BASE_RESEARCHER_MESSAGE
 
 log = structlog.get_logger(__name__)
 _ROUTER_RUNTIME_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError)
@@ -151,6 +153,35 @@ async def answer_question(
                 confidence=classification.confidence,
                 chat_mode=normalized_chat_mode or 'researcher',
             )
+
+        total_chunks = await get_chunk_count(db)
+        if total_chunks == 0:
+            log.info(
+                'researcher_empty_index_short_circuit',
+                intent=classification.intent,
+                route_candidate=classification.route_candidate,
+                chat_mode=normalized_chat_mode or 'researcher',
+            )
+            if trace is not None:
+                trace.record('empty_index_gate', {
+                    'query_length': len(question),
+                    'intent': classification.intent,
+                    'chat_mode': normalized_chat_mode or 'researcher',
+                    'total_chunks': 0,
+                })
+            yield (
+                StreamSignalTag.METRICS,
+                {
+                    'query_type': classification.intent,
+                    'raw_chunks_count': 0,
+                    'generation_skipped': True,
+                    'answerability_passed': False,
+                    'index_empty': True,
+                },
+            )
+            yield EMPTY_KNOWLEDGE_BASE_RESEARCHER_MESSAGE
+            yield []
+            return
 
         # 2. Route to appropriate handler
         for handler in _HANDLER_REGISTRY:

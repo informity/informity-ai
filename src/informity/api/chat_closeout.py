@@ -3,11 +3,6 @@
 # Done-payload assembly and closeout-only numeric evidence helpers.
 # ==============================================================================
 
-import re
-
-_STRICT_NUMERIC_TOKEN_PATTERN = re.compile(r'\$?\d[\d,]*(?:\.\d{1,2})?')
-
-
 def build_display_blocks(cleaned_answer: str) -> list[dict[str, str]]:
     if not cleaned_answer:
         return []
@@ -39,6 +34,16 @@ def build_done_payload(
     resource_metrics: dict[str, object],
     message_id: int | None,
 ) -> dict:
+    web_search_tokens_label = budget_metrics.get('web_search_tokens_label')
+    if not isinstance(web_search_tokens_label, str) or not web_search_tokens_label.strip():
+        used_raw = budget_metrics.get('web_search_tokens_used')
+        limit_raw = budget_metrics.get('web_search_tokens_limit')
+        used = int(used_raw) if isinstance(used_raw, int) else None
+        limit = int(limit_raw) if isinstance(limit_raw, int) else None
+        if used is not None and limit is not None and limit > 0:
+            web_search_tokens_label = f'{used}/{limit}'
+        else:
+            web_search_tokens_label = None
     payload: dict[str, object] = {
         'elapsed_seconds': elapsed_seconds,
         'request_id': request_id if request_id else None,
@@ -54,7 +59,8 @@ def build_done_payload(
         'message_persisted': message_persisted,
         'display_blocks': build_display_blocks(cleaned_answer),
         'budget_metrics': budget_metrics,
-        'web_search_used': bool(budget_metrics.get('web_search_used') is True),
+        'web_search_used': budget_metrics.get('web_search_used') is True,
+        'web_search_tokens_label': web_search_tokens_label,
         'budget_checkpoints': budget_checkpoints,
         'continuation_passes': continuation_passes,
         'continuation_resolution_reason': continuation_resolution_reason,
@@ -68,104 +74,7 @@ def build_done_payload(
     return payload
 
 
-def _normalize_numeric_token(raw_value: str) -> str:
-    return re.sub(r'[^0-9.\-]', '', raw_value or '')
-
-
-def _is_year_token(token: str) -> bool:
-    return token.isdigit() and len(token) == 4 and 1900 <= int(token) <= 2099
-
-
-def _is_actionable_numeric_token(raw_token: str, normalized_token: str) -> bool:
-    if not normalized_token:
-        return False
-    digits_only = re.sub(r'[^0-9]', '', normalized_token)
-    if len(digits_only) <= 1:
-        return False
-    if _is_year_token(normalized_token):
-        return False
-    has_currency_shape = (
-        '$' in raw_token
-        or ',' in raw_token
-        or '.' in raw_token
-        or raw_token.strip().startswith('(')
-        or raw_token.strip().endswith(')')
-    )
-    if has_currency_shape:
-        return True
-    return not (normalized_token.isdigit() and len(normalized_token) < 5)
-
-
-def _build_support_span(text: str, start_idx: int, end_idx: int, radius: int = 48) -> str:
-    source = str(text or '')
-    span_start = max(0, start_idx - radius)
-    span_end = min(len(source), end_idx + radius)
-    return re.sub(r'\s+', ' ', source[span_start:span_end]).strip()
-
-
-def build_canonical_numeric_fact_index(
-    sources: list[dict[str, object]],
-) -> tuple[dict[str, dict[str, object]], list[dict[str, object]]]:
-    fact_by_token: dict[str, dict[str, object]] = {}
-    facts: list[dict[str, object]] = []
-    claim_id = 1
-    for source in sources:
-        filename = str(source.get('filename') or '').strip()
-        preview = str(source.get('chunk_preview') or '')
-        if not filename or not preview.strip():
-            continue
-        for match in _STRICT_NUMERIC_TOKEN_PATTERN.finditer(preview):
-            raw = match.group(0)
-            normalized = _normalize_numeric_token(raw)
-            if not _is_actionable_numeric_token(raw, normalized):
-                continue
-            if normalized in fact_by_token:
-                continue
-            fact = {
-                'claim_id': f'cf-{claim_id}',
-                'metric': 'numeric_claim',
-                'value': normalized,
-                'unit': 'unknown',
-                'period': None,
-                'entity': None,
-                'source_file': filename,
-                'source_page': None,
-                'confidence': 1.0,
-                'support_span': _build_support_span(preview, match.start(), match.end()),
-            }
-            claim_id += 1
-            fact_by_token[normalized] = fact
-            facts.append(fact)
-    return fact_by_token, facts
-
-
-def summarize_strict_claim_evidence_gate(
-    *,
-    sources: list[dict[str, object]],
-    unsupported_claims: list[object],
-) -> dict[str, object]:
-    fact_index, canonical_facts = build_canonical_numeric_fact_index(sources)
-    unsupported_tokens = {
-        token for token in (
-            _normalize_numeric_token(str(item))
-            for item in unsupported_claims
-            if isinstance(item, (str, int, float))
-        )
-        if token
-    }
-    unsupported_tokens_with_facts = sum(1 for token in unsupported_tokens if token in fact_index)
-    return {
-        'canonical_fact_count': len(canonical_facts),
-        'replaced_line_count': 0,
-        'bound_line_count': 0,
-        'unsupported_token_count': len(unsupported_tokens),
-        'unsupported_token_with_fact_count': unsupported_tokens_with_facts,
-    }
-
-
 __all__ = [
     'build_display_blocks',
     'build_done_payload',
-    'build_canonical_numeric_fact_index',
-    'summarize_strict_claim_evidence_gate',
 ]

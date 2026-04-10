@@ -3,6 +3,7 @@
 # Shared fixtures for all tests.
 # ==============================================================================
 
+import sys
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,6 +16,12 @@ import pytest
 # ==============================================================================
 # Fixture Directory
 # ==============================================================================
+
+# Ensure repository-root imports (e.g., tools.diagnostics.*) resolve reliably
+# in CI regardless of how pytest is invoked.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 
 @pytest.fixture(autouse=True)

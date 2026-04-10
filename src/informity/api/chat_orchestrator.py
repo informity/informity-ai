@@ -66,6 +66,3 @@ class ChatOrchestrator:
                 'request_id': request_id if request_id else None,
             },
         }
-
-    def initial_state(self) -> ChatOrchestratorState:
-        return ChatOrchestratorState()

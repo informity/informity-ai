@@ -6,8 +6,10 @@
 import type { ChatMode, PlanStepPayload, StreamChatCallbacks, StreamDonePayload } from './types/api'
 import type { SetupState } from './types/setupState'
 
+const DEFAULT_API_BASE = 'http://localhost:8420'
+
 function getApiBase(): string {
-  return window.__INFORMITY_API_BASE__ || import.meta.env.VITE_API_URL || 'http://localhost:8420'
+  return window.__INFORMITY_API_BASE__ || import.meta.env.VITE_API_URL || DEFAULT_API_BASE
 }
 
 function getSessionToken(): string | null {
@@ -176,20 +178,6 @@ export async function openFile(path: string): Promise<unknown> {
 
 export async function getFileTypes(): Promise<unknown> {
   return request('GET', '/api/file-types')
-}
-
-// -----------------------------------------------------------------------------
-// Search
-// -----------------------------------------------------------------------------
-
-export async function search(
-  query: string,
-  params: { limit?: number; category?: string; file_types?: string[] } = {},
-): Promise<unknown> {
-  const { limit = 20, category, file_types } = params
-  return request('POST', '/api/search', {
-    body: { query, limit, category, file_types },
-  })
 }
 
 // -----------------------------------------------------------------------------

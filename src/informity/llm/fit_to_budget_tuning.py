@@ -16,6 +16,9 @@ from informity.llm.types import QueryType
 
 log = structlog.get_logger(__name__)
 
+# Tuning constants are intentionally centralized in this module.
+# They define rollout gates, sample thresholds, and policy multipliers used to
+# derive runtime fit-to-budget thresholds from diagnostics traces.
 _CACHE_TTL_SECONDS = 600.0
 _MAX_DB_ROWS = 500
 _MAX_TRACE_FILES = 300

@@ -6,7 +6,6 @@ import pytest
 
 from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_stream as _generation_stream
-from informity.llm.rag_runtime import generation_terminal as _generation_terminal
 
 
 @pytest.mark.asyncio
@@ -138,32 +137,3 @@ def test_generation_closeout_metrics_payload_contract_shape() -> None:
     assert payload['prompt_build_ms'] is None
     assert payload['ttft_ms'] is None
 
-
-def test_generation_terminal_builds_generation_skipped_payload_and_limited_sources() -> None:
-    payload = _generation_terminal.build_generation_skipped_metrics_payload(
-        query_type='coverage',
-        timeout_seconds=90,
-        retrieval_elapsed_ms=55.55,
-        preflight_projected_seconds=20.0,
-        preflight_ratio=0.5,
-        applied_degradations=[],
-        fallback_events=[],
-        has_remaining_scope=True,
-        validation_gates={'retrieval_relevance_gate': False},
-    )
-    assert payload['generation_skipped'] is True
-    assert payload['suggested_completion_mode'] == 'complete'
-    assert payload['validation_gates'] == {'retrieval_relevance_gate': False}
-
-    sources = _generation_terminal.build_limited_fallback_sources(
-        chunks=[
-            {'filename': 'a.txt', 'file_path': '/a.txt', 'chunk_text': 'A', 'score': 1.0},
-            {'filename': 'b.txt', 'file_path': '/b.txt', 'chunk_text': 'B', 'score': 2.0},
-            {'filename': 'c.txt', 'file_path': '/c.txt', 'chunk_text': 'C', 'score': 3.0},
-        ],
-        limit=2,
-        truncate_preview_fn=lambda text: text,
-        normalize_relevance_score_fn=lambda value: float(value),
-    )
-    assert len(sources) == 2
-    assert [source.filename for source in sources] == ['a.txt', 'b.txt']

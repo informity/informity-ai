@@ -6,7 +6,6 @@
 .settings-view {
   --page-content-width: 58rem;
   --settings-narrow-width: 20rem;
-  --ui-section-divider-max-width: var(--page-content-width);
   max-width: var(--page-content-width);
   width: 100%;
   flex: 1;
@@ -120,29 +119,6 @@
   display: none;
 }
 
-.settings-section--privacy:not(.settings-section--hidden) + .settings-section:not(.ui-section-divider) {
-  margin-top: var(--space-lg);
-  padding-top: var(--space-sm);
-}
-
-.settings-section--privacy:not(.settings-section--hidden) + .settings-section:not(.ui-section-divider)::before {
-  display: none;
-}
-
-.settings-section.ui-section-divider::before {
-  display: block;
-}
-
-.settings-section--split.ui-section-divider {
-  margin-top: var(--space-md);
-  padding-top: var(--space-md);
-}
-
-.settings-section--split .settings-section-header {
-  margin-top: var(--space-md);
-  margin-bottom: var(--space-sm);
-}
-
 .settings-section-header {
   display: flex;
   align-items: center;
@@ -180,71 +156,6 @@
 /* Less space above first content when it is a single checkbox */
 .settings-section-description:has(+ .settings-checkbox-row) {
   margin-bottom: var(--space-md);
-}
-
-/* Privacy section — dashboard-card style */
-.settings-section--privacy {
-  margin: 0;
-  padding-top: 0;
-  margin-bottom: 0;
-  max-width: var(--page-content-width);
-}
-
-.settings-section--privacy > .settings-section-description {
-  margin-bottom: var(--space-xl);
-}
-
-.settings-privacy-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
-  padding: var(--space-lg);
-  width: min(100%, var(--settings-narrow-width));
-}
-
-.settings-privacy-card__icon {
-  border-radius: 8px;
-}
-
-.settings-privacy-card__content {
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-  min-width: 0;
-  flex: 1;
-}
-
-.settings-privacy-card__head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-xs);
-}
-
-.settings-privacy-card__title {
-  font-size: var(--font-size-section-title);
-  font-weight: var(--font-weight-heading);
-  color: var(--color-text);
-  line-height: 1.2;
-}
-
-.settings-privacy-card__checkbox {
-  margin-top: 0;
-  margin-bottom: 0;
-}
-
-/* Privacy card tooltip — appear below (avoid clipping) */
-.settings-privacy-card__head .settings-checkbox-row-info .settings-tooltip {
-  top: calc(100% + 8px);
-  bottom: auto;
-  left: 50%;
-  transform: translateX(-50%);
-}
-
-.settings-privacy-card__head .settings-checkbox-row-info .settings-tooltip::after {
-  top: 0;
-  transform: translate(-50%, -100%);
-  border-top-color: transparent;
-  border-bottom-color: var(--surface-tooltip);
 }
 
 /* -----------------------------------------------------------------------------

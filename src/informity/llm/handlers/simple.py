@@ -19,34 +19,17 @@ from informity.llm.model_adapter import get_profile
 from informity.llm.prompt_builder import build_messages, resolve_history_limit
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.streaming import stream_llm
+from informity.llm.system_prompts import (
+    SIMPLE_ASSISTANT_SYSTEM_PROMPT,
+    SIMPLE_ASSISTANT_WEB_SEARCH_SYNTHESIS_PROMPT,
+    SIMPLE_RESEARCHER_SYSTEM_PROMPT,
+)
 from informity.llm.types import QueryType, StreamSignalTag
+from informity.llm.user_messages import get_web_search_status_message
 from informity.llm.web_search import format_search_context, search_web
 
 log = structlog.get_logger(__name__)
 _HANDLER_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, asyncio.TimeoutError)
-
-# Assistant mode system prompt (no corpus/index access)
-_ASSISTANT_SYSTEM_PROMPT = """You are a helpful AI assistant. Answer conversationally, clearly, and directly.
-
-You have no access to indexed documents, local files, or any private corpus unless the user explicitly provides content in this chat.
-If asked to search files or cite corpus evidence, explain briefly that this is direct assistant chat without document retrieval.
-
-Keep responses concise."""
-
-_ASSISTANT_WEB_SEARCH_SYNTHESIS_PROMPT = """You are a helpful AI assistant.
-
-Use provided web search context when relevant and answer directly.
-If web context is insufficient, say what remains uncertain.
-Keep responses concise."""
-
-# Researcher-simple prompt remains corpus-aware for non-RAG simple replies.
-_RESEARCHER_SIMPLE_SYSTEM_PROMPT = """You are a helpful AI assistant. Answer questions conversationally and helpfully.
-
-You have access to a private document corpus.
-Answer conversationally and directly. You do not need to cite documents for casual or conversational replies.
-If asked about document search capabilities, describe them accurately but briefly.
-
-Keep responses concise."""
 
 
 class SimpleHandler:
@@ -83,9 +66,9 @@ class SimpleHandler:
             query_type = QueryType.SIMPLE
             normalized_chat_mode = resolve_chat_mode(chat_mode)
             system_prompt = (
-                _ASSISTANT_SYSTEM_PROMPT
+                SIMPLE_ASSISTANT_SYSTEM_PROMPT
                 if is_assistant_mode(normalized_chat_mode)
-                else _RESEARCHER_SIMPLE_SYSTEM_PROMPT
+                else SIMPLE_RESEARCHER_SYSTEM_PROMPT
             )
             allow_assistant_web_search = (
                 is_assistant_mode(normalized_chat_mode)
@@ -115,13 +98,14 @@ class SimpleHandler:
 
             response_question = question
             response_system_prompt = system_prompt
-            needs_current_info = bool(classification.needs_current_info)
-            should_check_recency = bool(classification.action_hints.get('should_check_recency'))
-            mentions_time = bool(classification.mentions_time)
             should_use_web_search = (
                 allow_assistant_web_search
-                and (needs_current_info or should_check_recency)
+                and bool(chat_web_search_enabled)
             )
+            web_search_tokens_used: int | None = None
+            web_search_tokens_limit: int | None = None
+            web_search_tokens_label: str | None = None
+            web_search_status: str | None = None
 
             if should_use_web_search:
                 web_search_used = True
@@ -129,14 +113,47 @@ class SimpleHandler:
                     StreamSignalTag.SEARCHING_STATUS,
                     {'message': 'Searching the web...'},
                 )
-                web_results = await asyncio.to_thread(
+                web_outcome = await asyncio.to_thread(
                     search_web,
                     question,
                     allow_privacy_override=bool(chat_web_search_privacy_override),
                 )
-                search_context = format_search_context(web_results)
+                web_search_status = str(web_outcome.status or '').strip() or 'ok'
+                web_search_tokens_used = web_outcome.usage_used
+                web_search_tokens_limit = web_outcome.usage_limit
+                if (
+                    isinstance(web_search_tokens_used, int)
+                    and isinstance(web_search_tokens_limit, int)
+                    and web_search_tokens_limit > 0
+                ):
+                    web_search_tokens_label = f'{web_search_tokens_used}/{web_search_tokens_limit}'
+                if web_search_status != 'ok':
+                    fallback_message = get_web_search_status_message(web_search_status)
+                    if trace is not None:
+                        trace.record('web_search', {
+                            'status': web_search_status,
+                            'tokens_used': web_search_tokens_used,
+                            'tokens_limit': web_search_tokens_limit,
+                            'result_count': 0,
+                        })
+                    yield (
+                        StreamSignalTag.METRICS,
+                        build_metrics_payload(
+                            query_type=QueryType.SIMPLE,
+                            raw_chunks_count=0,
+                            web_search_used=True,
+                            web_search_status=web_search_status,
+                            web_search_tokens_used=web_search_tokens_used,
+                            web_search_tokens_limit=web_search_tokens_limit,
+                            web_search_tokens_label=web_search_tokens_label,
+                        ),
+                    )
+                    yield fallback_message
+                    yield []
+                    return
+                search_context = format_search_context(web_outcome.results)
                 response_question = f"{question}\n\n{search_context}"
-                response_system_prompt = _ASSISTANT_WEB_SEARCH_SYNTHESIS_PROMPT
+                response_system_prompt = SIMPLE_ASSISTANT_WEB_SEARCH_SYNTHESIS_PROMPT
 
             # Build messages via shared prompt-builder path so assistant/researcher
             # simple chats also benefit from token-budget-aware history trimming.
@@ -159,10 +176,10 @@ class SimpleHandler:
                     'chat_mode': normalized_chat_mode or 'researcher',
                     'reasoning_enabled':  False,  # Simple queries never use reasoning
                     'web_search_eligible': allow_assistant_web_search,
-                    'web_search_signal_needs_current_info': needs_current_info,
-                    'web_search_signal_should_check_recency': should_check_recency,
-                    'web_search_signal_mentions_time': mentions_time,
                     'web_search_triggered': web_search_used,
+                    'web_search_status': web_search_status,
+                    'web_search_tokens_used': web_search_tokens_used,
+                    'web_search_tokens_limit': web_search_tokens_limit,
                 })
 
             async for token in stream_llm(
@@ -184,9 +201,9 @@ class SimpleHandler:
                     'total_elapsed_ms':  round(llm_elapsed_ms, 1),
                     'model_profile':     profile.name,
                     'web_search_used':   web_search_used,
-                    'web_search_signal_needs_current_info': needs_current_info,
-                    'web_search_signal_should_check_recency': should_check_recency,
-                    'web_search_signal_mentions_time': mentions_time,
+                    'web_search_status': web_search_status,
+                    'web_search_tokens_used': web_search_tokens_used,
+                    'web_search_tokens_limit': web_search_tokens_limit,
                 })
 
             # Simple queries have no sources
@@ -203,6 +220,10 @@ class SimpleHandler:
                     query_type=QueryType.SIMPLE,
                     raw_chunks_count=0,
                     web_search_used=web_search_used,
+                    web_search_status=web_search_status,
+                    web_search_tokens_used=web_search_tokens_used,
+                    web_search_tokens_limit=web_search_tokens_limit,
+                    web_search_tokens_label=web_search_tokens_label,
                 ),
             )
             yield sources

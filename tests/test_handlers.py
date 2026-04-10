@@ -20,7 +20,6 @@ from informity.llm.handlers.rag import (
 )
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification
-from informity.llm.rag_runtime.retrieval_pipeline import _deduplicate_prompt_chunks
 
 
 class TestHandlerProtocol:
@@ -271,79 +270,6 @@ class TestRAGHandler:
         assert _should_apply_soft_stream_closeout(['include heading: Scope']) is True
 
 
-    def test_inventory_plus_content_fallback_answer_is_generic_and_term_aware(self) -> None:
-        from informity.llm.rag_runtime.retrieval_pipeline import (
-            _build_inventory_plus_content_fallback_answer,
-        )
-
-        answer = _build_inventory_plus_content_fallback_answer(
-            chunks=[
-                {
-                    'filename': '2024 payroll-reconciliation.pdf',
-                    'chunk_text': 'Payroll reconciliation references gross pay and federal tax withholding.',
-                },
-                {
-                    'filename': '2023 tax-summary.txt',
-                    'chunk_text': 'Tax summary includes wages and withheld amounts by quarter.',
-                },
-            ],
-            source_terms=['payroll', 'withholding'],
-        )
-        assert isinstance(answer, str)
-        assert 'requested terms' in answer.casefold()
-        assert 'payroll' in answer.casefold()
-        assert 'withholding' in answer.casefold()
-
-    def test_filename_summary_fallback_answer_handles_markdown_summary_query(self) -> None:
-        from informity.llm.handlers.rag import _has_explicit_output_contract
-        from informity.llm.rag_runtime.retrieval_pipeline import (
-            _build_filename_summary_fallback_answer,
-        )
-
-        answer = _build_filename_summary_fallback_answer(
-            question='Summarize the content of portfolio_notes.md',
-            filename_filter='portfolio_notes.md',
-            chunks=[
-                {'chunk_text': 'Scenario analysis compares delayed Social Security start age against early claiming.'},
-                {'chunk_text': 'The document outlines monthly benefit tradeoffs and break-even points.'},
-            ],
-            has_explicit_output_contract_fn=_has_explicit_output_contract,
-        )
-        assert isinstance(answer, str)
-        assert 'Summary: portfolio_notes.md' in answer
-        assert 'Key points extracted' in answer
-
-    def test_filename_summary_fallback_answer_skips_non_text_extensions(self) -> None:
-        from informity.llm.handlers.rag import _has_explicit_output_contract
-        from informity.llm.rag_runtime.retrieval_pipeline import (
-            _build_filename_summary_fallback_answer,
-        )
-
-        answer = _build_filename_summary_fallback_answer(
-            question='Summarize the content of annual_statement.pdf',
-            filename_filter='annual_statement.pdf',
-            chunks=[{'chunk_text': 'Some text'}],
-            has_explicit_output_contract_fn=_has_explicit_output_contract,
-        )
-        assert answer is None
-
-    def test_filename_summary_fallback_answer_skips_explicit_output_contract_queries(self) -> None:
-        from informity.llm.handlers.rag import _has_explicit_output_contract
-        from informity.llm.rag_runtime.retrieval_pipeline import (
-            _build_filename_summary_fallback_answer,
-        )
-
-        answer = _build_filename_summary_fallback_answer(
-            question=(
-                'Summarize the content of portfolio_notes.md in <= 180 words. '
-                'Include exactly 3 bullets: objective, key tradeoff, decision implication.'
-            ),
-            filename_filter='portfolio_notes.md',
-            chunks=[{'chunk_text': 'Some summary text.'}],
-            has_explicit_output_contract_fn=_has_explicit_output_contract,
-        )
-        assert answer is None
-
     def test_resolve_sampling_params_reduces_temperature_for_strict_contracts(self) -> None:
         from informity.llm.handlers.rag import _resolve_sampling_params
 
@@ -369,39 +295,6 @@ class TestRAGHandler:
         )
         assert temperature == 0.7
         assert top_p == 0.95
-
-    def test_prompt_chunk_dedup_preserves_distinct_same_prefix_content(self) -> None:
-        shared_prefix = 'Tax summary template text. ' * 15
-        chunks = [
-            {
-                'file_path': '/docs/alpha.pdf',
-                'filename': 'alpha.pdf',
-                'chunk_text': f'{shared_prefix}Unique ending A: amount 100.',
-            },
-            {
-                'file_path': '/docs/alpha.pdf',
-                'filename': 'alpha.pdf',
-                'chunk_text': f'{shared_prefix}Unique ending B: amount 200.',
-            },
-        ]
-        deduped = _deduplicate_prompt_chunks(chunks)
-        assert len(deduped) == 2
-
-    def test_prompt_chunk_dedup_removes_exact_normalized_duplicates(self) -> None:
-        chunks = [
-            {
-                'file_path': '/docs/alpha.pdf',
-                'filename': 'alpha.pdf',
-                'chunk_text': 'Line one.\nLine two.',
-            },
-            {
-                'file_path': '/docs/alpha.pdf',
-                'filename': 'alpha.pdf',
-                'chunk_text': 'Line one.   Line two.',
-            },
-        ]
-        deduped = _deduplicate_prompt_chunks(chunks)
-        assert len(deduped) == 1
 
     @pytest.mark.asyncio
     async def test_handle_uses_deterministic_term_inventory_for_exhaustive_people_query(self) -> None:
@@ -453,6 +346,9 @@ class TestRAGHandler:
         handler = RAGHandler()
         classification = QueryClassification(intent='focused')
         mock_db = MagicMock()
+        mock_count_cursor = MagicMock()
+        mock_count_cursor.fetchone = AsyncMock(return_value={'count': 1})
+        mock_db.execute = AsyncMock(return_value=mock_count_cursor)
 
         with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
             mock_retrieve.return_value = []

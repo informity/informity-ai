@@ -39,6 +39,10 @@ Assistant Mode Rules:
 2. When the user specifies focus terms (for example: \"focused on X and Y\" or \"include A, B, C\"), ensure those terms appear in the final answer.
 """
 
+# Prompt budgeting constants:
+# - reserve tokens for generation so prompt assembly cannot consume the full context
+# - keep a tokenizer mismatch buffer because cl100k is an estimate for runtime tokenizers
+# - include fixed per-message protocol overhead in budgeting calculations
 _GENERATION_RESERVE_TOKENS = 2000
 _TOKENIZER_MISMATCH_BUFFER_RATIO = 0.12
 _MESSAGE_OVERHEAD_TOKENS = 6

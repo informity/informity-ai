@@ -113,7 +113,6 @@ class FilterOperator(StrEnum):
 class ChatRole(StrEnum):
     USER = 'user'
     ASSISTANT = 'assistant'
-    SYSTEM = 'system'
 
 
 class StreamSignalTag(StrEnum):

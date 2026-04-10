@@ -71,7 +71,8 @@ async def test_answer_question_no_db():
 @pytest.mark.asyncio
 async def test_answer_question_calls_classify(mock_db):
     # Should call classify_query with the question
-    with patch('informity.llm.rag.classify_query') as mock_classify:
+    with patch('informity.llm.rag.classify_query') as mock_classify, \
+         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)):
         mock_classify.return_value = QueryClassification(
             intent='focused',
             year_filter=None,
@@ -101,6 +102,7 @@ async def test_answer_question_routes_to_metadata_handler(mock_db):
         yield []
 
     with patch('informity.llm.rag.classify_query', return_value=classification), \
+         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
          patch('informity.llm.handlers.metadata.MetadataHandler.handle', new_callable=MagicMock) as mock_handler:
         mock_handler.return_value = mock_meta_gen()
 
@@ -124,6 +126,7 @@ async def test_answer_question_routes_to_simple_handler(mock_db):
         yield []
 
     with patch('informity.llm.rag.classify_query', return_value=classification), \
+         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
          patch('informity.llm.handlers.simple.SimpleHandler.handle', new_callable=MagicMock) as mock_handler:
         mock_handler.return_value = mock_simple_gen()
 
@@ -150,6 +153,7 @@ async def test_answer_question_routes_to_rag_handler(mock_db, mock_chunks):
         yield mock_chunks
 
     with patch('informity.llm.rag.classify_query', return_value=classification), \
+         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
          patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_handler:
         mock_handler.return_value = mock_rag_gen()
 
@@ -178,6 +182,7 @@ async def test_answer_question_passes_filters_to_handler(mock_db):
         yield []
 
     with patch('informity.llm.rag.classify_query', return_value=classification), \
+         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
          patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_handler:
         mock_handler.return_value = mock_rag_gen()
 
@@ -206,6 +211,7 @@ async def test_answer_question_passes_history_to_handler(mock_db):
         yield []
 
     with patch('informity.llm.rag.classify_query', return_value=classification), \
+         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
          patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_handler:
         mock_handler.return_value = mock_rag_gen()
 
@@ -253,6 +259,7 @@ async def test_answer_question_sources_structure(mock_db, mock_chunks):
         yield sources
 
     with patch('informity.llm.rag.classify_query', return_value=classification), \
+         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
          patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_handler:
         mock_handler.return_value = mock_handler_gen()
 
@@ -304,6 +311,7 @@ async def test_answer_question_invalid_chat_mode_falls_back_to_researcher(mock_d
         yield []
 
     with patch('informity.llm.rag.classify_query', return_value=classification) as mock_classify, \
+         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
          patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_rag_handler:
         mock_rag_handler.return_value = mock_rag_gen()
 
@@ -313,4 +321,35 @@ async def test_answer_question_invalid_chat_mode_falls_back_to_researcher(mock_d
 
         mock_classify.assert_called_once_with('test question')
         mock_rag_handler.assert_called_once()
+        assert results[-1] == []
+
+
+@pytest.mark.asyncio
+async def test_answer_question_researcher_empty_index_short_circuits(mock_db):
+    classification = QueryClassification(
+        intent='metadata',
+        is_metadata_query=True,
+    )
+
+    with patch('informity.llm.rag.classify_query', return_value=classification), \
+         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=0)), \
+         patch('informity.llm.handlers.metadata.MetadataHandler.handle', new_callable=MagicMock) as mock_meta_handler, \
+         patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_rag_handler:
+        results = []
+        async for item in answer_question('what documents do i have', db=mock_db, chat_mode='researcher'):
+            results.append(item)
+
+        mock_meta_handler.assert_not_called()
+        mock_rag_handler.assert_not_called()
+        assert any(
+            isinstance(item, tuple)
+            and len(item) == 2
+            and item[0] == '__metrics__'
+            and bool(item[1].get('index_empty')) is True
+            for item in results
+        )
+        assert any(
+            isinstance(item, str) and 'Your knowledge base is empty. To get started with Researcher mode:' in item
+            for item in results
+        )
         assert results[-1] == []
