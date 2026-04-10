@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = ROOT / ".archive" / "informity-logo-white.png"
@@ -30,7 +30,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--app-logo-scale",
         type=float,
-        default=0.68,
+        default=0.76,
         help="Relative logo size for app icon glyph (0.0-1.0).",
     )
     parser.add_argument(
@@ -73,23 +73,11 @@ def resize_binary(mask: Image.Image, size: tuple[int, int]) -> Image.Image:
 def build_app_icon(
     logo_mask: Image.Image,
     size: int,
-    margin_ratio: float = 0.074,
-    radius_ratio: float = 0.222,
-    logo_scale: float = 0.68,
+    logo_scale: float = 0.76,
 ) -> Image.Image:
-    margin = max(1, round(size * margin_ratio))
-    inner = max(1, size - (margin * 2))
-    corner_radius = max(1, round(inner * radius_ratio))
-    logo_size = max(1, round(inner * logo_scale))
-
-    image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    draw.rounded_rectangle(
-        (margin, margin, size - margin - 1, size - margin - 1),
-        radius=corner_radius,
-        fill=(255, 255, 255, 255),
-    )
-
+    logo_size = max(1, round(size * logo_scale))
+    # Full-bleed square artboard; let macOS apply final corner shaping.
+    image = Image.new("RGBA", (size, size), (255, 255, 255, 255))
     symbol_mask = resize_binary(logo_mask, (logo_size, logo_size))
     symbol = Image.new("RGBA", (logo_size, logo_size), (0, 0, 0, 255))
     offset = ((size - logo_size) // 2, (size - logo_size) // 2)
