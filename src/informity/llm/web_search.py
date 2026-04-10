@@ -6,8 +6,8 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.error
-import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from typing import Protocol
@@ -18,7 +18,8 @@ from informity.config import settings
 
 log = structlog.get_logger(__name__)
 
-_TAVILY_SEARCH_URL = 'https://api.tavily.com/search'
+_TAVILY_SEARCH_URL = str(os.getenv('INFORMITY_TAVILY_SEARCH_URL') or 'https://api.tavily.com/search').strip()
+_TAVILY_USAGE_URL = str(os.getenv('INFORMITY_TAVILY_USAGE_URL') or 'https://api.tavily.com/usage').strip()
 _MAX_QUERY_LENGTH = 512
 _MAX_SNIPPET_LENGTH = 600
 
@@ -30,6 +31,14 @@ class SearchResult:
     snippet: str
 
 
+@dataclass(frozen=True)
+class WebSearchOutcome:
+    results: list[SearchResult]
+    status: str = 'ok'
+    usage_used: int | None = None
+    usage_limit: int | None = None
+
+
 class SearchProvider(Protocol):
     def search(
         self,
@@ -37,7 +46,7 @@ class SearchProvider(Protocol):
         query: str,
         max_results: int,
         timeout_seconds: float,
-    ) -> list[SearchResult]:
+    ) -> WebSearchOutcome:
         ...
 
 
@@ -51,12 +60,12 @@ class TavilyProvider:
         query: str,
         max_results: int,
         timeout_seconds: float,
-    ) -> list[SearchResult]:
+    ) -> WebSearchOutcome:
         if not self._api_key:
-            return []
+            return WebSearchOutcome(results=[], status='api_key_missing')
         safe_query = str(query or '').strip()[:_MAX_QUERY_LENGTH]
         if not safe_query:
-            return []
+            return WebSearchOutcome(results=[])
 
         payload: dict[str, object] = {
             'api_key': self._api_key,
@@ -71,25 +80,56 @@ class TavilyProvider:
         request = urllib.request.Request(
             _TAVILY_SEARCH_URL,
             data=body,
-            headers={'Content-Type': 'application/json'},
+            headers={
+                'Content-Type': 'application/json',
+                'Authorization': f'Bearer {self._api_key}',
+            },
             method='POST',
         )
         try:
             with urllib.request.urlopen(request, timeout=max(1.0, float(timeout_seconds))) as response:
                 raw = response.read().decode('utf-8')
-        except (TimeoutError, urllib.error.URLError, urllib.error.HTTPError) as exc:
+        except urllib.error.HTTPError as exc:
+            status = _classify_tavily_http_error(exc)
             log.warning('web_search_tavily_failed', error=str(exc))
-            return []
+            usage_used, usage_limit = self._fetch_usage(timeout_seconds=timeout_seconds)
+            return WebSearchOutcome(
+                results=[],
+                status=status,
+                usage_used=usage_used,
+                usage_limit=usage_limit,
+            )
+        except (TimeoutError, urllib.error.URLError) as exc:
+            log.warning('web_search_tavily_failed', error=str(exc))
+            usage_used, usage_limit = self._fetch_usage(timeout_seconds=timeout_seconds)
+            return WebSearchOutcome(
+                results=[],
+                status='network_error',
+                usage_used=usage_used,
+                usage_limit=usage_limit,
+            )
 
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError:
             log.warning('web_search_tavily_invalid_json')
-            return []
+            usage_used, usage_limit = self._fetch_usage(timeout_seconds=timeout_seconds)
+            return WebSearchOutcome(
+                results=[],
+                status='provider_error',
+                usage_used=usage_used,
+                usage_limit=usage_limit,
+            )
 
         rows = parsed.get('results')
         if not isinstance(rows, list):
-            return []
+            usage_used, usage_limit = self._fetch_usage(timeout_seconds=timeout_seconds)
+            return WebSearchOutcome(
+                results=[],
+                status='provider_error',
+                usage_used=usage_used,
+                usage_limit=usage_limit,
+            )
 
         results: list[SearchResult] = []
         for row in rows:
@@ -107,15 +147,103 @@ class TavilyProvider:
                     snippet=snippet[:_MAX_SNIPPET_LENGTH],
                 ),
             )
-        return results
+        usage_used, usage_limit = _extract_usage_from_search_response(parsed)
+        if usage_used is None or usage_limit is None:
+            usage_used, usage_limit = self._fetch_usage(timeout_seconds=timeout_seconds)
+        return WebSearchOutcome(
+            results=results,
+            status='ok',
+            usage_used=usage_used,
+            usage_limit=usage_limit,
+        )
+
+    def _fetch_usage(self, *, timeout_seconds: float) -> tuple[int | None, int | None]:
+        request = urllib.request.Request(
+            _TAVILY_USAGE_URL,
+            headers={
+                'Authorization': f'Bearer {self._api_key}',
+            },
+            method='GET',
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=max(1.0, min(4.0, float(timeout_seconds)))) as response:
+                raw = response.read().decode('utf-8')
+        except (TimeoutError, urllib.error.URLError, urllib.error.HTTPError):
+            return None, None
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return None, None
+        key = payload.get('key')
+        account = payload.get('account') if isinstance(payload.get('account'), dict) else {}
+        if not isinstance(key, dict):
+            key = {}
+        usage = _safe_int(key.get('usage'))
+        limit = _safe_int(key.get('limit'))
+        if usage is None:
+            usage = (
+                _safe_int(key.get('search_usage'))
+                or _safe_int(account.get('plan_usage'))
+                or _safe_int(account.get('search_usage'))
+            )
+        if limit is None:
+            limit = (
+                _safe_int(account.get('plan_limit'))
+                or _safe_int(account.get('limit'))
+            )
+        return usage, limit
 
 
-def search_web(query: str, *, allow_privacy_override: bool = False) -> list[SearchResult]:
+def _safe_int(value: object) -> int | None:
+    try:
+        if isinstance(value, bool):
+            return None
+        parsed = int(str(value).strip())
+    except (TypeError, ValueError):
+        return None
+    if parsed < 0:
+        return None
+    return parsed
+
+
+def _extract_usage_from_search_response(payload: dict[str, object]) -> tuple[int | None, int | None]:
+    key = payload.get('key')
+    if isinstance(key, dict):
+        usage = _safe_int(key.get('usage'))
+        limit = _safe_int(key.get('limit'))
+        if usage is not None and limit is not None:
+            return usage, limit
+    return None, None
+
+
+def _classify_tavily_http_error(exc: urllib.error.HTTPError) -> str:
+    code = int(getattr(exc, 'code', 0) or 0)
+    if code == 429:
+        return 'rate_limited'
+    if code in {401, 403}:
+        return 'auth_invalid'
+    if code in {402, 432, 433}:
+        return 'quota_exceeded'
+    # Attempt best-effort content-based disambiguation.
+    try:
+        body = exc.read().decode('utf-8', errors='ignore').casefold()
+    except Exception:  # noqa: BLE001
+        body = ''
+    if 'quota' in body or 'credit' in body or 'insufficient' in body:
+        return 'quota_exceeded'
+    if 'rate limit' in body or 'too many requests' in body:
+        return 'rate_limited'
+    if 'unauthorized' in body or 'invalid api key' in body or 'forbidden' in body:
+        return 'auth_invalid'
+    return 'provider_error'
+
+
+def search_web(query: str, *, allow_privacy_override: bool = False) -> WebSearchOutcome:
     # Runtime gate: no network calls in full privacy mode.
     if settings.full_privacy and not allow_privacy_override:
-        return []
+        return WebSearchOutcome(results=[], status='privacy_blocked')
     if not str(settings.tavily_api_key or '').strip():
-        return []
+        return WebSearchOutcome(results=[], status='api_key_missing')
 
     provider = TavilyProvider(api_key=settings.tavily_api_key)
     return provider.search(

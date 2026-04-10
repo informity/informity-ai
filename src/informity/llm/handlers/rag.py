@@ -14,6 +14,7 @@ import structlog
 from informity.api.schemas import ChatSourceReference
 from informity.config import settings
 from informity.db.models import ChatMessage
+from informity.db.sqlite import get_chunk_count
 from informity.llm.metrics_payload import build_metrics_payload
 from informity.llm.model_adapter import get_profile, get_retrieval_top_k
 from informity.llm.nlp_heuristics import BY_PER_YEAR_PATTERN
@@ -29,7 +30,6 @@ from informity.llm.query_patterns import (
 from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
 from informity.llm.rag_runtime import generation_stream as _generation_stream
-from informity.llm.rag_runtime import retrieval_pipeline as _retrieval_pipeline
 from informity.llm.rag_runtime import retrieval_validation as _retrieval_validation
 from informity.llm.rag_runtime import structured_numeric as _structured_numeric
 from informity.llm.retrieval import retrieve_chunks
@@ -39,20 +39,16 @@ from informity.llm.types import (
     QueryType,
     StreamSignalTag,
 )
+from informity.llm.user_messages import (
+    EMPTY_KNOWLEDGE_BASE_RESEARCHER_MESSAGE,
+    INSUFFICIENT_CONTEXT_RESEARCHER_MESSAGE,
+)
 
 log = structlog.get_logger(__name__)
 _HANDLER_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, asyncio.TimeoutError)
 
-_INSUFFICIENT_CONTEXT_RESPONSE = _retrieval_pipeline._INSUFFICIENT_CONTEXT_RESPONSE
+_INSUFFICIENT_CONTEXT_RESPONSE = INSUFFICIENT_CONTEXT_RESEARCHER_MESSAGE
 _CHUNK_PREVIEW_MAX_LENGTH = 200
-_OUTPUT_CONTRACT_WORD_LIMIT_PATTERN = re.compile(
-    r'\b(?:<=?|at\s+most|max(?:imum)?)\s*\d+\s+words?\b',
-    re.IGNORECASE,
-)
-_OUTPUT_CONTRACT_BULLET_LIMIT_PATTERN = re.compile(
-    r'\bexactly\s+\d+\s+bullets?\b',
-    re.IGNORECASE,
-)
 _REFERENTIAL_FOLLOWUP_PATTERN = build_referential_followup_pattern()
 _DETERMINISTIC_EXTRACTION_HEADING = '### Deterministic Numeric Extraction\n\n'
 _EXTRACTION_CUE_PATTERN = re.compile(r'\bextract\b', re.IGNORECASE)
@@ -67,16 +63,6 @@ _ACRONYM_INVENTORY_PATTERN = build_acronym_entity_listing_pattern()
 _ENTITY_INVENTORY_MAX_ROWS = 300
 _ENTITY_INVENTORY_SOURCE_LIMIT = 12
 _ENTITY_INVENTORY_DEFAULT_PREVIEW = 'Indexed term evidence match.'
-
-
-def _has_explicit_output_contract(question: str) -> bool:
-    if _OUTPUT_CONTRACT_WORD_LIMIT_PATTERN.search(question):
-        return True
-    if _OUTPUT_CONTRACT_BULLET_LIMIT_PATTERN.search(question):
-        return True
-    if 'output must contain' in question.casefold():
-        return True
-    return bool(_structured_numeric._derive_format_requirements(question))
 
 
 def _collapse_duplicate_insufficient_context_message(
@@ -492,6 +478,10 @@ class RAGHandler:
             })
 
         if not answerability_passed:
+            index_empty = False
+            if len(chunks) == 0:
+                total_chunks = await get_chunk_count(db)
+                index_empty = total_chunks == 0
             yield (
                 StreamSignalTag.METRICS,
                 {
@@ -504,9 +494,13 @@ class RAGHandler:
                     'answerability_min_chunks': min_chunks,
                     'generation_skipped': True,
                     'minimal_mode': True,
+                    'index_empty': index_empty,
                 },
             )
-            yield _INSUFFICIENT_CONTEXT_RESPONSE
+            if index_empty:
+                yield EMPTY_KNOWLEDGE_BASE_RESEARCHER_MESSAGE
+            else:
+                yield _INSUFFICIENT_CONTEXT_RESPONSE
             yield []
             return
 

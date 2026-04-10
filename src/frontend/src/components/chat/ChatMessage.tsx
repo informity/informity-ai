@@ -45,9 +45,9 @@ interface ChatMessageProps {
   completionMode?: 'complete' | 'partial' | 'scoped_complete' | 'stopped'
   stoppedByUser?: boolean
   nextAction?: 'none' | 'continue' | 'regenerate' | 'assistant_switch'
-  nextActionReason?: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_corpus' | null
   continueLabel?: 'Continue' | 'Continue Again'
   webSearchUsed?: boolean
+  webSearchTokensLabel?: string
   createdAt?: string
   generationSeconds?: number
   enableRawOutputControl?: boolean
@@ -80,6 +80,7 @@ function ChatMessageComponent({
   nextAction = 'none',
   continueLabel = 'Continue',
   webSearchUsed = false,
+  webSearchTokensLabel,
   createdAt,
   generationSeconds,
   enableRawOutputControl = false,
@@ -185,7 +186,11 @@ function ChatMessageComponent({
       node: (
         <div className="chat-message__meta-item">
           <i className="ri-global-line chat-message__meta-icon" aria-hidden />
-          <span>Web</span>
+          <span>
+            {webSearchTokensLabel
+              ? `Web Search Tokens: ${webSearchTokensLabel}`
+              : 'Web Search'}
+          </span>
         </div>
       ),
     })
@@ -524,9 +529,9 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.completionMode === next.completionMode &&
     prev.stoppedByUser === next.stoppedByUser &&
     prev.nextAction === next.nextAction &&
-    prev.nextActionReason === next.nextActionReason &&
     prev.continueLabel === next.continueLabel &&
     prev.webSearchUsed === next.webSearchUsed &&
+    prev.webSearchTokensLabel === next.webSearchTokensLabel &&
     prev.createdAt === next.createdAt &&
     prev.generationSeconds === next.generationSeconds &&
     prev.enableRawOutputControl === next.enableRawOutputControl &&

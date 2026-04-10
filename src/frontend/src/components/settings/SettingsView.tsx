@@ -661,7 +661,7 @@ export function SettingsView({
       </div>
 
       <div className="settings-content">
-        <section className={`${sectionClass(activeTab === 'general')} settings-section--privacy`}>
+        <section className={sectionClass(activeTab === 'general')}>
           <div className="settings-section-header ui-title ui-title--section">
             <i className="ri-home-gear-line section-icon" aria-hidden="true" />
             General
@@ -669,29 +669,72 @@ export function SettingsView({
           <p className="settings-section-description ui-description">
             Core application preferences including privacy and appearance.
           </p>
-          <div className="settings-privacy-card ui-card ui-card--accent">
-            <div className="settings-privacy-card__icon ui-card__icon-accent">
-              <i className="ri-shield-check-line" aria-hidden="true" />
-            </div>
-            <div className="settings-privacy-card__content">
-              <div className="settings-privacy-card__head">
-                <span className="settings-privacy-card__title">Full Privacy Mode</span>
-                <span className="settings-checkbox-row-info ui-tooltip-trigger">
-                  <i className="ri-information-line" aria-hidden="true" />
-                  <span className="settings-tooltip ui-tooltip">
-                    All processing stays on this computer — no network access. Requires restart.
-                  </span>
-                </span>
+
+          <div className="settings-subsection">
+            <div className="settings-subsection-head ui-subsection-head">
+              <div className="settings-subsection-title ui-subsection-title">
+                Full Privacy Mode
               </div>
-              <label className="settings-checkbox-row settings-privacy-card__checkbox">
-                <input
-                  type="checkbox"
-                  checked={form.full_privacy ?? true}
-                  onChange={(e) => update('full_privacy', e.target.checked)}
-                />
-                <div><span className="settings-checkbox-row-label">Enable</span></div>
-              </label>
+              <p className="settings-subsection-description ui-subsection-description">
+                All processing stays on this computer with no network access. Requires restart.
+              </p>
             </div>
+            <label className="settings-checkbox-row">
+              <input
+                type="checkbox"
+                checked={form.full_privacy ?? true}
+                onChange={(e) => update('full_privacy', e.target.checked)}
+              />
+              <div><span className="settings-checkbox-row-label">Enable</span></div>
+            </label>
+          </div>
+          <div className="settings-subsection">
+            <div className="settings-subsection-head ui-subsection-head">
+              <div className="settings-subsection-title ui-subsection-title">
+                <i className="ri-contrast-2-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                Theme
+              </div>
+              <p className="settings-subsection-description ui-subsection-description">Choose the accent color. Preview instantly; save to persist.</p>
+            </div>
+            <select
+              className="settings-select"
+              value={form.ui_theme ?? UI_THEME_DEFAULT}
+              onChange={(e) => {
+                const value = e.target.value
+                update('ui_theme', value)
+                document.documentElement.setAttribute('data-accent', value)
+                try {
+                  localStorage.setItem(UI_THEME_STORAGE_KEY, value)
+                } catch {
+                  /* ignore */
+                }
+              }}
+            >
+              {UI_THEME_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="settings-subsection">
+            <div className="settings-subsection-head ui-subsection-head">
+              <div className="settings-subsection-title ui-subsection-title">
+                <i className="ri-layout-top-2-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                Menu Bar Icon
+              </div>
+              <p className="settings-subsection-description ui-subsection-description">
+                Show the Informity AI icon in the macOS menu bar while the app is running.
+              </p>
+            </div>
+            <label className="settings-checkbox-row">
+              <input
+                type="checkbox"
+                checked={form.enable_menu_bar_icon ?? false}
+                onChange={(e) => update('enable_menu_bar_icon', e.target.checked)}
+              />
+              <div><span className="settings-checkbox-row-label">Enable menu bar icon</span></div>
+            </label>
           </div>
         </section>
 
@@ -783,20 +826,12 @@ export function SettingsView({
 
         </section>
 
-        <section className={`${sectionClass(activeTab === 'chat')} ui-section-divider settings-section--split`}>
-        <div className="settings-section-header ui-title ui-title--section">
-          <i className="ri-global-line section-icon" aria-hidden="true" />
-          Web Search
-        </div>
-        <p className="settings-section-description ui-description">
-          Get up-to-date answers in Assistant mode with optional web search. Queries are sent to search provider servers only when enabled in chat.
-        </p>
-
+        <section className={sectionClass(activeTab === 'chat')}>
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
               <i className="ri-search-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Search Provider
+              Web Search Provider
             </div>
             <p className="settings-subsection-description ui-subsection-description">
               Assistant web search is powered by <a className="settings-link" href="https://app.tavily.com/" target="_blank" rel="noreferrer">Tavily</a> and requires an API key. The free tier includes up to 1,000 requests per month.
@@ -849,45 +884,45 @@ export function SettingsView({
               )}
             </div>
           </div>
+        </div>
 
-          <div className="settings-subsection">
-            <div className="settings-subsection-head ui-subsection-head">
-              <div className="settings-subsection-title ui-subsection-title">
-                <i className="ri-menu-search-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-                Performance
-              </div>
-              <p className="settings-subsection-description ui-subsection-description">
-                Configure how many web search results to fetch and how long each request can run.
-              </p>
+        <div className="settings-subsection">
+          <div className="settings-subsection-head ui-subsection-head">
+            <div className="settings-subsection-title ui-subsection-title">
+              <i className="ri-menu-search-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              Web Search Performance
             </div>
-            <div className="settings-control-group">
-              <label className="settings-control-label" htmlFor="settings-web-search-max-results">Results per search</label>
-              <input
-                id="settings-web-search-max-results"
-                type="number"
-                className="settings-input settings-input--number"
-                min={1}
-                max={10}
-                step={1}
-                value={form.web_search_max_results}
-                onChange={(e) => update('web_search_max_results', clamp(parseInteger(e.target.value, 5), 1, 10))}
-              />
-            </div>
-            <div className="settings-control-group">
-              <label className="settings-control-label" htmlFor="settings-web-search-timeout">
-                {renderLabelWithMutedParens('Search timeout (seconds)')}
-              </label>
-              <input
-                id="settings-web-search-timeout"
-                type="number"
-                className="settings-input settings-input--number"
-                min={1}
-                max={30}
-                step={1}
-                value={form.web_search_timeout_seconds}
-                onChange={(e) => update('web_search_timeout_seconds', clamp(parseInteger(e.target.value, 8), 1, 30))}
-              />
-            </div>
+            <p className="settings-subsection-description ui-subsection-description">
+              Configure how many web search results to fetch and how long each request can run.
+            </p>
+          </div>
+          <div className="settings-control-group">
+            <label className="settings-control-label" htmlFor="settings-web-search-max-results">Results per search</label>
+            <input
+              id="settings-web-search-max-results"
+              type="number"
+              className="settings-input settings-input--number"
+              min={1}
+              max={10}
+              step={1}
+              value={form.web_search_max_results}
+              onChange={(e) => update('web_search_max_results', clamp(parseInteger(e.target.value, 5), 1, 10))}
+            />
+          </div>
+          <div className="settings-control-group">
+            <label className="settings-control-label" htmlFor="settings-web-search-timeout">
+              {renderLabelWithMutedParens('Search timeout (seconds)')}
+            </label>
+            <input
+              id="settings-web-search-timeout"
+              type="number"
+              className="settings-input settings-input--number"
+              min={1}
+              max={30}
+              step={1}
+              value={form.web_search_timeout_seconds}
+              onChange={(e) => update('web_search_timeout_seconds', clamp(parseInteger(e.target.value, 8), 1, 30))}
+            />
           </div>
         </div>
         </section>
@@ -1364,62 +1399,6 @@ export function SettingsView({
             </div>
           </div>
         )}
-        </section>
-
-        <section className={`${sectionClass(activeTab === 'general')} ui-section-divider settings-section--split`}>
-        <div className="settings-section-header ui-title ui-title--section">
-          <i className="ri-palette-line section-icon" aria-hidden="true" />
-          Appearance
-        </div>
-        <p className="settings-section-description ui-description">Customize the look and feel of the application.</p>
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-contrast-2-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Theme
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">Choose the accent color. Preview instantly; save to persist.</p>
-          </div>
-          <select
-            className="settings-select"
-            value={form.ui_theme ?? UI_THEME_DEFAULT}
-            onChange={(e) => {
-              const value = e.target.value
-              update('ui_theme', value)
-              document.documentElement.setAttribute('data-accent', value)
-              try {
-                localStorage.setItem(UI_THEME_STORAGE_KEY, value)
-              } catch {
-                /* ignore */
-              }
-            }}
-          >
-            {UI_THEME_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>
-                {o.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-layout-top-2-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Menu Bar Icon
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">
-              Show the Informity AI icon in the macOS menu bar while the app is running.
-            </p>
-          </div>
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.enable_menu_bar_icon ?? false}
-              onChange={(e) => update('enable_menu_bar_icon', e.target.checked)}
-            />
-            <div><span className="settings-checkbox-row-label">Enable menu bar icon</span></div>
-          </label>
-        </div>
         </section>
 
         <section className={sectionClass(activeTab === 'system')}>

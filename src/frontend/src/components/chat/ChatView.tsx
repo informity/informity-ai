@@ -488,10 +488,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                       isPartial={msg.isPartial}
                       hasRemainingScope={msg.hasRemainingScope}
                       completionMode={msg.completionMode}
+                      stoppedByUser={msg.stoppedByUser}
                       nextAction={msg.nextAction}
-                      nextActionReason={msg.nextActionReason}
                       continueLabel={msg.continueLabel}
                       webSearchUsed={msg.webSearchUsed}
+                      webSearchTokensLabel={msg.webSearchTokensLabel}
                       createdAt={msg.createdAt}
                       generationSeconds={msg.generationSeconds}
                       enableRawOutputControl={enableRawOutputControl}

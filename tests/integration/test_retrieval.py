@@ -19,8 +19,8 @@ import aiosqlite
 import pytest
 
 from informity.config import settings
-from informity.llm.rag_runtime.retrieval_pipeline import _INSUFFICIENT_CONTEXT_RESPONSE
 from informity.llm.retrieval import retrieve_chunks
+from informity.llm.user_messages import INSUFFICIENT_CONTEXT_RESEARCHER_MESSAGE
 
 # ---------------------------------------------------------------------------
 # Per-test DB connection
@@ -333,17 +333,17 @@ async def test_coverage_extension_filter_restricts_to_md(db):
 
 async def test_insufficient_context_response_is_non_empty_string():
     """The refusal phrase constant is a non-empty string."""
-    assert isinstance(_INSUFFICIENT_CONTEXT_RESPONSE, str)
-    assert len(_INSUFFICIENT_CONTEXT_RESPONSE) > 0
+    assert isinstance(INSUFFICIENT_CONTEXT_RESEARCHER_MESSAGE, str)
+    assert len(INSUFFICIENT_CONTEXT_RESEARCHER_MESSAGE) > 0
 
 
 async def test_retrieve_returns_empty_list_not_string_on_no_match(db):
     """
     retrieve_chunks returns [] when no chunks match — never the refusal phrase.
-    The pipeline layer (retrieval_pipeline.py) adds the phrase; this layer must not.
+    Refusal phrases are resolved at higher orchestration layers; retrieval must stay data-only.
     """
     results = await retrieve_chunks(
         query='xyz', top_k=5, extension_filter='.xyz', db=db,
     )
     assert results == [], f'Expected [], got {results!r}'
-    assert results is not _INSUFFICIENT_CONTEXT_RESPONSE
+    assert results is not INSUFFICIENT_CONTEXT_RESEARCHER_MESSAGE

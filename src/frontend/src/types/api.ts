@@ -96,6 +96,7 @@ export interface StreamDonePayload {
   budget_metrics?: Record<string, unknown>
   budget_checkpoints?: Array<Record<string, unknown>>
   web_search_used?: boolean
+  web_search_tokens_label?: string
   continuation_passes?: number
   continuation_resolution_reason?: string | null
   continuation_progress_state?: ContinuationProgressState
@@ -152,6 +153,7 @@ export interface ChatMessageDisplay {
   continuationPasses?: number
   continueLabel?: 'Continue' | 'Continue Again'
   webSearchUsed?: boolean
+  webSearchTokensLabel?: string
   streamPlanSteps?: Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>
 }
 

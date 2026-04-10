@@ -81,7 +81,7 @@ export function Layout() {
     }
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
-  }, [requestNewChat])
+  }, [navigate, requestNewChat])
 
   useEffect(() => {
     if (pathname !== '/chat') return
@@ -94,7 +94,7 @@ export function Layout() {
     }
     if (!pending) return
     dispatchNewChat()
-  }, [pathname])
+  }, [dispatchNewChat, pathname])
 
   useEffect(() => {
     const isVisible = (element: HTMLElement) => {
