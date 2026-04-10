@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [develop, master]
   pull_request:
-    branches: [master]
+    branches: [develop, master]
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
