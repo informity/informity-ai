@@ -20,6 +20,7 @@ import { useConfirm } from '../context/useConfirm'
 import { useBackendStatus } from '../context/useBackendStatus'
 import { isChatMode, type ChatMode } from '../types/api'
 import { isBackendConnectionError } from '../utils/networkErrors'
+import { extractErrorMessage } from '../utils/errorMessages'
 import { CHAT_MODE_STORAGE_KEY } from '../utils/storageKeys'
 import { proxyWheelToContainer } from '../utils/wheelProxy'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_STORAGE_KEY } from '../utils/uiTheme'
@@ -159,19 +160,6 @@ function sleep(ms: number): Promise<void> {
   })
 }
 
-function getErrorMessage(err: unknown, fallback: string): string {
-  if (err instanceof ApiError) {
-    const detail = `${err.detail || ''}`.trim()
-    if (detail) return detail
-    return `HTTP ${err.status}`
-  }
-  if (err instanceof Error) {
-    const message = `${err.message || ''}`.trim()
-    if (message) return message
-  }
-  return fallback
-}
-
 export function SettingsPage() {
   const confirm = useConfirm()
   const { offline } = useBackendStatus()
@@ -196,7 +184,7 @@ export function SettingsPage() {
       const settingsData = (await getSettings()) as SettingsData
       setSettings(settingsData)
     } catch (err) {
-      const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Failed to load'
+      const msg = extractErrorMessage(err, 'Failed to load')
       const disconnected = isBackendConnectionError(err)
       setError(msg)
       if (!disconnected) {
@@ -229,7 +217,7 @@ export function SettingsPage() {
         try {
           await setMenuBarIconEnabled(updated.enable_menu_bar_icon)
         } catch (err) {
-          showToast('warning', `Menu bar icon update failed: ${getErrorMessage(err, 'Unknown error')}`)
+          showToast('warning', `Menu bar icon update failed: ${extractErrorMessage(err, 'Unknown error')}`)
         }
       }
       if (form.ui_theme) {
@@ -249,7 +237,7 @@ export function SettingsPage() {
         }
       }
     } catch (err) {
-      const msg = err instanceof ApiError ? err.detail : 'Save failed.'
+      const msg = extractErrorMessage(err, 'Save failed.')
       showToast('error', msg)
     } finally {
       setSaving(false)
@@ -277,7 +265,7 @@ export function SettingsPage() {
       window.dispatchEvent(new CustomEvent('settings-updated', { detail: updated }))
       showToast('success', 'Settings reset')
     } catch (err) {
-      const msg = getErrorMessage(err, 'Reset failed.')
+      const msg = extractErrorMessage(err, 'Reset failed.')
       showToast('error', msg)
     } finally {
       setSaving(false)
@@ -386,7 +374,7 @@ export function SettingsPage() {
       showToast('success', completionMessage)
     } catch (err) {
       if (resetPollingCancelledRef.current) return
-      const msg = getErrorMessage(err, 'Reset failed.')
+      const msg = extractErrorMessage(err, 'Reset failed.')
       showToast('error', msg)
     } finally {
       if (!resetPollingCancelledRef.current) {

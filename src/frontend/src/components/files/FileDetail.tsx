@@ -3,13 +3,14 @@
  * Sliding panel with file info, preview, actions.
  */
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { getFile, reindexFile, removeFile, ApiError } from '../../api'
+import { getFile, reindexFile, removeFile } from '../../api'
 import { useBackendStatus } from '../../context/useBackendStatus'
 import { showToast } from '../../context/useToast'
 import { useConfirm } from '../../context/useConfirm'
 import { formatCategory, getFileIcon } from '../../utils/fileFormatting'
 import { formatFileSize } from '../../utils/formatFileSize'
 import { formatDate } from '../../utils/formatDate'
+import { extractErrorMessage } from '../../utils/errorMessages'
 import type { IndexedFile } from '../../types/api'
 import './FileDetail.css'
 
@@ -60,7 +61,7 @@ export function FileDetail({ fileId, onClose, onRemoved }: FileDetailProps) {
         setExpanded(false)
       })
       .catch((err) => {
-        setError(err instanceof Error ? err.message : 'Failed to load file')
+        setError(extractErrorMessage(err, 'Failed to load file'))
         setFile(null)
       })
       .finally(() => setLoading(false))
@@ -90,7 +91,7 @@ export function FileDetail({ fileId, onClose, onRemoved }: FileDetailProps) {
       const data = (await getFile(fileId)) as IndexedFile
       setFile(data)
     } catch (err) {
-      const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Re-index failed'
+      const msg = extractErrorMessage(err, 'Re-index failed')
       setError(msg)
       showToast('error', msg)
     } finally {
@@ -117,7 +118,7 @@ export function FileDetail({ fileId, onClose, onRemoved }: FileDetailProps) {
       onClose?.()
       showToast('success', 'File removed from index')
     } catch (err) {
-      const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Remove failed'
+      const msg = extractErrorMessage(err, 'Remove failed')
       setError(msg)
       showToast('error', msg)
     } finally {

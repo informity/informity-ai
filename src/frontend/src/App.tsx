@@ -24,6 +24,7 @@ import { SettingsPage } from './pages/SettingsPage'
 import { ConfigurationPage } from './pages/ConfigurationPage'
 import { SetupRequiredPage } from './pages/SetupRequiredPage'
 import { type SetupState, isSetupBlockingState } from './types/setupState'
+import { extractErrorMessage } from './utils/errorMessages'
 import './App.css'
 
 interface AppProps {
@@ -44,7 +45,7 @@ function App({ startupError = null }: AppProps) {
       setSetupStatus(status)
       setSetupError(null)
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
+      const message = extractErrorMessage(error, 'Unable to determine setup status.')
       setSetupError(message)
     }
   }, [])
@@ -150,7 +151,7 @@ function App({ startupError = null }: AppProps) {
                               void startSetup(tier, modelFilename)
                                 .then(() => refreshSetupStatus())
                                 .catch((error) => {
-                                  const message = error instanceof Error ? error.message : String(error)
+                                  const message = extractErrorMessage(error, 'Setup start failed.')
                                   setSetupError(message)
                                 })
                                 .finally(() => setSetupStartPending(false))
@@ -160,7 +161,7 @@ function App({ startupError = null }: AppProps) {
                               void retrySetup()
                                 .then(() => Promise.all([refreshSetupStatus(), getSetupEvents().then(setSetupEvent)]))
                                 .catch((error) => {
-                                  const message = error instanceof Error ? error.message : String(error)
+                                  const message = extractErrorMessage(error, 'Setup retry failed.')
                                   setSetupError(message)
                                 })
                                 .finally(() => setSetupActionPending(false))
@@ -170,7 +171,7 @@ function App({ startupError = null }: AppProps) {
                               void cancelSetup()
                                 .then(() => Promise.all([refreshSetupStatus(), getSetupEvents().then(setSetupEvent)]))
                                 .catch((error) => {
-                                  const message = error instanceof Error ? error.message : String(error)
+                                  const message = extractErrorMessage(error, 'Cancel download failed.')
                                   setSetupError(message)
                                 })
                                 .finally(() => setSetupActionPending(false))
@@ -187,7 +188,7 @@ function App({ startupError = null }: AppProps) {
                                   setSetupCancelled(true)
                                 })
                                 .catch((error) => {
-                                  const message = error instanceof Error ? error.message : String(error)
+                                  const message = extractErrorMessage(error, 'Setup cancel failed.')
                                   setSetupError(message)
                                 })
                                 .finally(() => setSetupActionPending(false))

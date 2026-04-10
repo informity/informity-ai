@@ -59,7 +59,6 @@ export function isChatMode(value: unknown): value is ChatMode {
 }
 export type NextAction = 'none' | 'continue' | 'regenerate' | 'assistant_switch'
 export type NextActionReason = 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_corpus'
-export type ContinuationProgressState = 'progressed' | 'stalled' | 'budget_exhausted'
 export type StreamStatusState = 'classifying' | 'retrieving' | 'searching' | 'generating' | 'continuing' | 'finalizing'
 
 export interface PlanStepPayload {
@@ -99,7 +98,6 @@ export interface StreamDonePayload {
   web_search_tokens_label?: string
   continuation_passes?: number
   continuation_resolution_reason?: string | null
-  continuation_progress_state?: ContinuationProgressState
   next_action?: NextAction
   next_action_reason?: NextActionReason | null
   pass_details?: Array<Record<string, unknown>>
@@ -142,12 +140,9 @@ export interface ChatMessageDisplay {
   hasRemainingScope?: boolean
   completionMode?: CompletionMode
   stoppedByUser?: boolean
-  timeoutReason?: string | null
   createdAt?: string
   generationSeconds?: number
   chatMode?: ChatMode
-  continuationResolutionReason?: string | null
-  continuationProgressState?: ContinuationProgressState | null
   nextAction?: NextAction
   nextActionReason?: NextActionReason | null
   continuationPasses?: number

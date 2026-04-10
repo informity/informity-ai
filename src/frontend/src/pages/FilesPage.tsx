@@ -10,11 +10,12 @@ import { FileFilters } from '../components/files/FileFilters'
 import { FileDetail } from '../components/files/FileDetail'
 import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { CenteredState } from '../components/CenteredState'
-import { getFiles, reindexFile, removeFile, ApiError } from '../api'
+import { getFiles, reindexFile, removeFile } from '../api'
 import { showToast } from '../context/useToast'
 import { useConfirm } from '../context/useConfirm'
 import { useBackendStatus } from '../context/useBackendStatus'
 import { useDebounce } from '../utils/useDebounce'
+import { extractErrorMessage } from '../utils/errorMessages'
 import { isBackendConnectionError } from '../utils/networkErrors'
 import type { IndexedFile } from '../types/api'
 import '../pages/PlaceholderPage.css'
@@ -57,7 +58,7 @@ export function FilesPage() {
       setFiles(data.files || [])
       setTotal(data.total ?? 0)
     } catch (err) {
-      const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Failed to load files'
+      const msg = extractErrorMessage(err, 'Failed to load files')
       const disconnected = isBackendConnectionError(err)
       setError(msg)
       setFiles([])
@@ -116,7 +117,7 @@ export function FilesPage() {
         showToast('success', 'File re-indexed')
         loadFiles()
       } catch (err) {
-        const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Re-index failed'
+        const msg = extractErrorMessage(err, 'Re-index failed')
         showToast('error', msg)
       }
     },
@@ -142,7 +143,7 @@ export function FilesPage() {
         if (selectedFileId === file.id) setSelectedFileId(null)
         loadFiles()
       } catch (err) {
-        const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Remove failed'
+        const msg = extractErrorMessage(err, 'Remove failed')
         showToast('error', msg)
       }
     },

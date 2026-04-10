@@ -38,6 +38,10 @@ INSUFFICIENT_CONTEXT_RESEARCHER_MESSAGE = (
     'The available documents do not contain enough information to answer this question.'
 )
 
+MISSING_EVIDENCE_CALLOUT_MESSAGE = (
+    'Missing Evidence: insufficient evidence in retrieved context for at least one requested item.'
+)
+
 
 def get_web_search_status_message(status: str) -> str:
     normalized_status = str(status or '').strip()

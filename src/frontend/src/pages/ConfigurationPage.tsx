@@ -3,12 +3,13 @@
  * Environment variables and application defaults reference.
  */
 import { useState, useEffect } from 'react'
-import { getEnvVars, getConfigReference, ApiError } from '../api'
+import { getEnvVars, getConfigReference } from '../api'
 import { PageHeader } from '../components/PageHeader'
 import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { showToast } from '../context/useToast'
 import { useBackendStatus } from '../context/useBackendStatus'
 import { isBackendConnectionError } from '../utils/networkErrors'
+import { extractErrorMessage } from '../utils/errorMessages'
 import '../pages/PlaceholderPage.css'
 import './ConfigurationPage.css'
 
@@ -117,7 +118,7 @@ export function ConfigurationPage() {
       })
       .catch((err) => {
         if (!cancelled) {
-          const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Failed to load'
+          const msg = extractErrorMessage(err, 'Failed to load')
           const disconnected = isBackendConnectionError(err)
           setError(msg)
           if (!disconnected) {

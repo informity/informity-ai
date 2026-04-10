@@ -527,7 +527,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                       nextAction={msg.nextAction}
                       continueLabel={msg.continueLabel}
                       webSearchUsed={msg.webSearchUsed}
-                      webSearchTokensLabel={msg.webSearchTokensLabel}
                       createdAt={msg.createdAt}
                       generationSeconds={msg.generationSeconds}
                       enableRawOutputControl={enableRawOutputControl}
