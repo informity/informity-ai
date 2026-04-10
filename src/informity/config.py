@@ -118,7 +118,7 @@ class DirNames:
 
     # Model/cache subdirectories
     LLM = 'llm'  # LLM models (*.gguf files)
-    DIAGNOSTICS_MODELS = 'models'  # Diagnostics LLM models (*.gguf files) under tools/diagnostics/models/
+    DIAGNOSTICS_LLM = 'diagnostics'  # Diagnostics LLM models under app_data_dir/models/diagnostics/ in desktop runtime
     HUGGINGFACE = 'huggingface'  # HuggingFace cache under cache/huggingface/
     HUB = 'hub'  # HuggingFace hub cache under cache/huggingface/hub/
     DOCLING = 'docling'  # Docling models under cache/docling/ (flat, docling creates its own structure inside)
@@ -534,7 +534,7 @@ class Settings(BaseSettings):
     # Default: False (opt-in feature). Set to True to enable LLM-powered analysis.
     diagnostics_llm_analysis_enabled: bool = False
     # Directory for diagnostics analysis models.
-    # Default: {repo_root}/tools/diagnostics/models
+    # Default: {app_data_dir}/models/diagnostics
     diagnostics_models_dir: Path | None = Field(default=None)
     # Model filename to use for diagnostics analysis (default: DeepSeek R1 for analysis tasks).
     # User can override via config.json or INFORMITY_DIAGNOSTICS_LLM_MODEL_FILENAME env var.
@@ -566,9 +566,6 @@ class Settings(BaseSettings):
         # Resolve relative paths (e.g. ./data) to absolute
         self.app_data_dir = normalize_path(self.app_data_dir, expand_user=True)
 
-        # Repo root: used for diagnostics tooling paths (tools/diagnostics/models).
-        repo_root = _get_repo_root()
-
         # Cache directory: defaults to app_data_dir/cache (same root as models, DB, logs).
         # Override via INFORMITY_CACHE_DIR env var.
         if self.cache_dir is None:
@@ -584,10 +581,10 @@ class Settings(BaseSettings):
         else:
             self.models_dir = normalize_path(self.models_dir, expand_user=True)
 
-        # Diagnostics models directory: tools/diagnostics/models.
+        # Diagnostics models directory: always under app_data_dir for writable runtime storage.
         if self.diagnostics_models_dir is None:
             self.diagnostics_models_dir = (
-                repo_root / DirNames.TOOLS / DirNames.DIAGNOSTICS / DirNames.DIAGNOSTICS_MODELS
+                self.app_data_dir / DirNames.MODELS / DirNames.DIAGNOSTICS_LLM
             )
         else:
             self.diagnostics_models_dir = normalize_path(self.diagnostics_models_dir, expand_user=True)
@@ -608,9 +605,9 @@ class Settings(BaseSettings):
     # -- Directory Creation ---------------------------------------------------
     def ensure_directories(self) -> None:
         # Create all required directories if they don't exist.
-        # Runtime directory structure (all under app_data_dir except diagnostics_models_dir):
+        # Runtime directory structure:
         # - app_data_dir/models/llm/ - Chat/RAG LLM models (*.gguf files)
-        # - tools/diagnostics/models/ - Diagnostics LLM models (*.gguf files)
+        # - diagnostics_models_dir - Diagnostics LLM models (*.gguf files)
         # - app_data_dir/cache/huggingface/hub/ - HuggingFace cache
         # - app_data_dir/cache/docling/ - Docling models
         cache_root = self.cache_dir
