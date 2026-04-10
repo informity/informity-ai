@@ -147,9 +147,12 @@ class TavilyProvider:
                     snippet=snippet[:_MAX_SNIPPET_LENGTH],
                 ),
             )
-        usage_used, usage_limit = _extract_usage_from_search_response(parsed)
-        if usage_used is None or usage_limit is None:
-            usage_used, usage_limit = self._fetch_usage(timeout_seconds=timeout_seconds)
+        # Prefer live usage endpoint after each successful search so UI reflects
+        # current Tavily credit counters; fall back to search payload when needed.
+        payload_usage_used, payload_usage_limit = _extract_usage_from_search_response(parsed)
+        live_usage_used, live_usage_limit = self._fetch_usage(timeout_seconds=timeout_seconds)
+        usage_used = live_usage_used if live_usage_used is not None else payload_usage_used
+        usage_limit = live_usage_limit if live_usage_limit is not None else payload_usage_limit
         return WebSearchOutcome(
             results=results,
             status='ok',
