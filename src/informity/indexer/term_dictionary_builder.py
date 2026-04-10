@@ -32,6 +32,14 @@ from informity.indexer.term_dictionary_quality import evaluate_term_dictionary_q
 from informity.llm.term_dictionary import normalize_term_text, term_dictionary_enabled
 
 log = structlog.get_logger(__name__)
+_TERM_DICTIONARY_BUILD_GUARD_EXCEPTIONS = (
+    aiosqlite.Error,
+    RuntimeError,
+    ValueError,
+    TypeError,
+    OSError,
+    LookupError,
+)
 
 _TERM_DEFINITION_PATTERN = re.compile(
     r'\b([A-Za-z][A-Za-z0-9/&-]*(?:\s+[A-Za-z][A-Za-z0-9/&-]*){1,6})\s+\(([A-Z][A-Z0-9]{1,9})\)'
@@ -862,7 +870,7 @@ async def rebuild_term_dictionary(
                 'kept_type_counts': quality_gate.metrics.kept_type_counts,
             },
         }
-    except Exception as exc:  # noqa: BLE001 - final guard to always persist failed run status
+    except _TERM_DICTIONARY_BUILD_GUARD_EXCEPTIONS as exc:
         await finalize_term_dictionary_build_run(
             db,
             run_id=run_identifier,

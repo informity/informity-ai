@@ -77,6 +77,7 @@ from informity.utils.path_utils import normalize_path
 
 log = structlog.get_logger(__name__)
 _SCAN_RUNTIME_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError)
+_SCAN_UNHANDLED_GUARD_EXCEPTIONS = (AssertionError, AttributeError, ImportError, LookupError, UnicodeError)
 SCAN_CANCEL_POLL_INTERVAL_SECONDS = 0.25
 SCAN_PROGRESS_DB_BUSY_TIMEOUT_MS = 250
 SCAN_PROGRESS_UPDATE_TIMEOUT_SECONDS = 1.0
@@ -668,7 +669,7 @@ async def _run_scan_task(
                 error_code='scan_processing_exception',
                 retryable=True,
             )
-        except Exception as exc:
+        except _SCAN_UNHANDLED_GUARD_EXCEPTIONS as exc:
             # Last-resort guard: never let unexpected exception classes kill
             # the background scan task silently.
             errors += 1
@@ -1039,7 +1040,7 @@ async def _run_scan_task(
             context='failed_terminal',
             terminal=True,
         )
-    except Exception as exc:
+    except _SCAN_UNHANDLED_GUARD_EXCEPTIONS as exc:
         # Last-resort guard: ensure scan status does not remain "running"
         # when unexpected exceptions escape the scan loop.
         log.error(
