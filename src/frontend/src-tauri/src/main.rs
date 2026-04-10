@@ -24,9 +24,6 @@ const BACKEND_RESOURCE_DIR: &str = "backend";
 const BACKEND_BINARY_STEM: &str = "informity-backend";
 const MANAGED_BACKEND_PID_FILENAME: &str = "informity-ai-backend.pid";
 const MANAGED_BACKEND_PID_FILE_ENV: &str = "INFORMITY_MANAGED_PID_FILE";
-const TOOLS_DIRNAME: &str = "tools";
-const DIAGNOSTICS_DIRNAME: &str = "diagnostics";
-const MODELS_DIRNAME: &str = "models";
 const CACHE_DIRNAME: &str = "cache";
 const CONFIG_FILENAME: &str = "config.json";
 const APP_DATA_DIRNAME: &str = ".informity";
@@ -187,22 +184,6 @@ async fn backend_start(
     } else {
         None
     };
-    let diagnostics_models_dir_override =
-        if env::var_os("INFORMITY_DIAGNOSTICS_MODELS_DIR").is_none() {
-            if cfg!(debug_assertions) {
-                repo_root
-                    .as_ref()
-                    .map(|path| {
-                        path.join(TOOLS_DIRNAME)
-                            .join(DIAGNOSTICS_DIRNAME)
-                            .join(MODELS_DIRNAME)
-                    })
-            } else {
-                None
-            }
-        } else {
-            None
-        };
     let repo_root_override = if env::var_os("INFORMITY_REPO_ROOT").is_none() {
         repo_root.clone()
     } else {
@@ -232,9 +213,6 @@ async fn backend_start(
         if let Some(cache_dir) = &cache_dir_override {
             let _ = std::fs::create_dir_all(cache_dir);
             command.env("INFORMITY_CACHE_DIR", cache_dir);
-        }
-        if let Some(diagnostics_models_dir) = &diagnostics_models_dir_override {
-            command.env("INFORMITY_DIAGNOSTICS_MODELS_DIR", diagnostics_models_dir);
         }
         if let Some(repo_root_path) = &repo_root_override {
             command.env("INFORMITY_REPO_ROOT", repo_root_path);

@@ -181,7 +181,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             (
                 'diagnostics_models_dir',
                 f'Directory for diagnostics LLM model files '
-                f'(default: {{repo_root}}/{DirNames.TOOLS}/{DirNames.DIAGNOSTICS}/{DirNames.DIAGNOSTICS_MODELS}). '
+                f'(default: {{app_data_dir}}/{DirNames.MODELS}/{DirNames.DIAGNOSTICS_LLM}). '
                 f'Separate from chat and classifier models.',
             ),
         ],
