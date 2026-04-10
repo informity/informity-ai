@@ -4,7 +4,7 @@
 # ==============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help run dev test lint format baseline diagnostics-evaluate diagnostics-analyze diagnostics-pipeline diagnostics-stop reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build app qa-quick qa-full qa-security qa-secrets qa-lint qa-typecheck qa-docs smoke-basic smoke-infra smoke-pdf maintenance-index-check maintenance-index-repair maintenance-download-nltk maintenance-reinstall-packages maintenance-chunk-structure maintenance-orphaned-chunks
+.PHONY: help run dev test lint format baseline diagnostics-evaluate diagnostics-analyze diagnostics-pipeline diagnostics-stop reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build tauri-build-signed app qa-quick qa-full qa-security qa-secrets qa-lint qa-typecheck qa-docs smoke-basic smoke-infra smoke-pdf maintenance-index-check maintenance-index-repair maintenance-download-nltk maintenance-reinstall-packages maintenance-chunk-structure maintenance-orphaned-chunks
 
 # ==============================================================================
 # Configuration
@@ -76,6 +76,9 @@ tauri-backend: ## Build Python backend sidecar artifact for Tauri packaging
 
 tauri-build: ## Build desktop bundle artifacts (requires Rust toolchain + Tauri CLI)
 	cd src/frontend && npm run tauri:build
+
+tauri-build-signed: ## Build, sign, notarize, staple, and verify macOS release artifacts using .env.codesign
+	./scripts/build_tauri_signed_release.sh
 
 app: frontend-build run ## Build frontend and run app on http://127.0.0.1:8420 (single command for testing)
 
