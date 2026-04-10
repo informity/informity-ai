@@ -9,10 +9,11 @@ import { PageHeader } from '../components/PageHeader'
 import { HistoryFilters } from '../components/history/HistoryFilters'
 import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { CenteredState } from '../components/CenteredState'
-import { getChats, ApiError } from '../api'
+import { getChats } from '../api'
 import { showToast } from '../context/useToast'
 import { useBackendStatus } from '../context/useBackendStatus'
 import { useDebounce } from '../utils/useDebounce'
+import { extractErrorMessage } from '../utils/errorMessages'
 import { isBackendConnectionError } from '../utils/networkErrors'
 import type { ChatListItem } from '../types/api'
 import '../pages/PlaceholderPage.css'
@@ -49,7 +50,7 @@ export function HistoryPage() {
       setChats(data.chats || [])
       setTotal(data.total || 0)
     } catch (err) {
-      const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Failed to load chats'
+      const msg = extractErrorMessage(err, 'Failed to load chats')
       const disconnected = isBackendConnectionError(err)
       setError(msg)
       setChats([])

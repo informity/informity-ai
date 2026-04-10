@@ -6,10 +6,11 @@ import { useState, useCallback, useMemo, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { formatDuration } from '../../utils/formatDuration'
-import { setChatTitle, deleteChat, ApiError } from '../../api'
+import { setChatTitle, deleteChat } from '../../api'
 import { useChatContext } from '../../context/useChatContext'
 import { showToast } from '../../context/useToast'
 import { useConfirm } from '../../context/useConfirm'
+import { extractErrorMessage } from '../../utils/errorMessages'
 import { SortIcon } from '../SortIcon'
 import { StateMessage } from '../StateMessage'
 import type { ChatListItem } from '../../types/api'
@@ -136,7 +137,7 @@ export function HistoryTable({
         onChatRenamed?.()
         showToast('success', 'Chat renamed')
       } catch (err) {
-        const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Failed to rename'
+        const msg = extractErrorMessage(err, 'Failed to rename')
         showToast('error', msg)
       }
     },
@@ -196,7 +197,7 @@ export function HistoryTable({
         window.dispatchEvent(new CustomEvent('chats-updated'))
         showToast('success', 'Chat deleted')
       } catch (err) {
-        const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Failed to delete'
+        const msg = extractErrorMessage(err, 'Failed to delete')
         showToast('error', msg)
       }
     },

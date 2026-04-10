@@ -172,14 +172,22 @@ src/informity/
 │   ├── retrieval.py          # Unified retrieval pipeline (vector search → rerank)
 │   ├── term_dictionary.py    # Runtime query expansion via corpus term dictionary
 │   ├── intent_router.py      # Promptcue-backed intent classification router
-│   ├── intent_normalization.py  # Normalizes promptcue intent policy fields
+│   ├── classification_policy.py  # Intent routing policy and normalization
 │   ├── intent_profiles.py    # IntentProfile definitions and FitToBudgetPolicy defaults
 │   ├── fit_to_budget_tuning.py  # Adaptive context-window budget policies
 │   ├── promptcue_adapter.py  # Adapter for promptcue intent classification
-│   ├── nlp_heuristics.py     # Lightweight NLP utilities (tokenize, group-by extraction)
+│   ├── chat_mode.py          # Assistant vs Researcher mode routing policy
+│   ├── contract_gate.py      # Final closeout contract validation/repair
+│   ├── contract_prompt_parser.py  # Parses required output section cues from user prompts
+│   ├── metrics_payload.py    # Normalized diagnostics metrics payload helpers
+│   ├── nlp_heuristics.py     # Minimal deterministic lexical cues
 │   ├── prompt_builder.py     # Prompt construction and budget management
 │   ├── streaming.py          # LLM stream wrapper
 │   ├── metadata_filters.py   # Unified metadata filter extraction (year, category, extension)
+│   ├── system_prompts.py     # Centralized system prompt templates
+│   ├── timeout_policy.py     # Request timeout policy mapping by mode/intent
+│   ├── user_messages.py      # Centralized user-facing message strings
+│   ├── web_search.py         # Tavily-backed web search adapter and status handling
 │   ├── rag_runtime/          # RAG execution sub-pipeline (retrieval + generation phases)
 │   └── handlers/             # Query handlers (metadata, rag, simple)
 └── api/

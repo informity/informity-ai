@@ -24,6 +24,7 @@ import { ServiceUnavailableState } from '../ServiceUnavailableState'
 import { formatFileSize } from '../../utils/formatFileSize'
 import { formatDuration } from '../../utils/formatDuration'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
+import { extractErrorMessage } from '../../utils/errorMessages'
 import { MENU_SCAN_NOW_PENDING_KEY } from '../../utils/storageKeys'
 import { proxyWheelToContainer } from '../../utils/wheelProxy'
 import type { IndexedFile } from '../../types/api'
@@ -324,7 +325,7 @@ export function DashboardView() {
       }
       showToast('success', successMessage)
     } catch (err) {
-      const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : failureFallbackMessage
+      const msg = extractErrorMessage(err, failureFallbackMessage)
       setScanError(msg)
       showToast('error', msg)
     } finally {
@@ -384,7 +385,7 @@ export function DashboardView() {
       await loadScanStatus()
       showToast('success', 'Cancelling scan…')
     } catch (err) {
-      const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Cancel failed'
+      const msg = extractErrorMessage(err, 'Cancel failed')
       setScanError(msg)
       showToast('error', msg)
       setCancelling(false)
@@ -430,13 +431,12 @@ export function DashboardView() {
           }
           showToast('success', 'Index rebuild started')
         } catch (forceErr) {
-          const msg =
-            forceErr instanceof ApiError ? forceErr.detail : forceErr instanceof Error ? forceErr.message : 'Rebuild failed'
+          const msg = extractErrorMessage(forceErr, 'Rebuild failed')
           setScanError(msg)
           showToast('error', msg)
         }
       } else {
-        const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Rebuild failed'
+        const msg = extractErrorMessage(err, 'Rebuild failed')
         setScanError(msg)
         showToast('error', msg)
       }

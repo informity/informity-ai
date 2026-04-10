@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from informity.llm import contract_prompt_parser as _contract_prompt_parser
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.types import QuerySubtype, QueryType
+from informity.llm.user_messages import MISSING_EVIDENCE_CALLOUT_MESSAGE
 
 _MARKDOWN_HEADING_PATTERN = re.compile(r'^\s{0,3}#{1,6}\s+(.+?)\s*$', re.MULTILINE)
 _YEAR_TOKEN_PATTERN = re.compile(r'\b[12]\d{3}\b')
@@ -18,6 +19,7 @@ _MISSING_EVIDENCE_REQUEST_PATTERN = re.compile(r'\bmissing\s+evidence\b|\bmissin
 _MISSING_EVIDENCE_LINE_PATTERN = re.compile(r'(?im)^\s*(?:[-*]\s*)?missing\s+evidence\s*:')
 _SSN_PATTERN = re.compile(r'\b\d{3}-\d{2}-\d{4}\b')
 _REDACTED_SSN_TOKEN = '[REDACTED-SSN]'
+_SECTION_INSUFFICIENT_EVIDENCE_LINE = '- Insufficient evidence in retrieved context to complete this section.'
 
 
 @dataclass(frozen=True)
@@ -108,7 +110,7 @@ def enforce_required_sections(answer: str, spec: ContractSpec) -> tuple[str, lis
                 '\n'.join(
                     [
                         f'## {heading}',
-                        '- Insufficient evidence in retrieved context to complete this section.',
+                        _SECTION_INSUFFICIENT_EVIDENCE_LINE,
                     ]
                 )
             )
@@ -116,7 +118,7 @@ def enforce_required_sections(answer: str, spec: ContractSpec) -> tuple[str, lis
         normalized_answer = f'{normalized_answer}\n\n{appended}'.strip() if normalized_answer else appended
 
     if spec.requires_missing_evidence_callout and _MISSING_EVIDENCE_LINE_PATTERN.search(normalized_answer) is None:
-        callout = 'Missing Evidence: insufficient evidence in retrieved context for at least one requested item.'
+        callout = MISSING_EVIDENCE_CALLOUT_MESSAGE
         normalized_answer = f'{normalized_answer}\n\n{callout}'.strip() if normalized_answer else callout
 
     return normalized_answer, list(result.missing_required_headings)
@@ -192,7 +194,7 @@ def _normalize_required_heading_order(*, answer: str, required_headings: list[st
                 '\n'.join(
                     [
                         f'## {heading}',
-                        '- Insufficient evidence in retrieved context to complete this section.',
+                        _SECTION_INSUFFICIENT_EVIDENCE_LINE,
                     ]
                 )
             )

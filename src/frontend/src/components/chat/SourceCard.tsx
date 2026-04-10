@@ -4,9 +4,10 @@
  * Click to open file in system default application.
  */
 import { memo, useState, useCallback } from 'react'
-import { openFile, ApiError } from '../../api'
+import { openFile } from '../../api'
 import { useBackendStatus } from '../../context/useBackendStatus'
 import { showToast } from '../../context/useToast'
+import { extractErrorMessage } from '../../utils/errorMessages'
 import { getFileIcon } from '../../utils/fileFormatting'
 import './SourceCard.css'
 
@@ -61,7 +62,7 @@ function SourceCardComponent({
       try {
         await openFile(path)
       } catch (err) {
-        const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Failed to open file'
+        const msg = extractErrorMessage(err, 'Failed to open file')
         showToast('error', msg)
       } finally {
         setOpening(false)

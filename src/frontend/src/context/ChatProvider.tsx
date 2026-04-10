@@ -7,6 +7,7 @@ import { ChatContext } from './chatContext'
 import { ApiError, getChat, getSettings, stopChatStream, streamChat, updateChatPreferences, updateCurrentChat } from '../api'
 import { showToast } from './useToast'
 import { logApiError } from '../utils/logApiError'
+import { extractErrorMessage } from '../utils/errorMessages'
 import { FORCE_NEW_CHAT_KEY, MESSAGE_MODE_MAP_STORAGE_KEY } from '../utils/storageKeys'
 import type {
   ChatMode,
@@ -327,7 +328,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
           hasRemainingScope,
           completionMode,
           stoppedByUser,
-          timeoutReason: null,
           nextAction,
           nextActionReason,
           continueLabel: 'Continue',
@@ -358,7 +358,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         setError(null)
         updateCurrentChat(null).catch((e) => logApiError(e, 'ChatProvider.selectChat.clearCurrentChat'))
       } else {
-        const msg = err instanceof ApiError ? err.detail : err instanceof Error ? err.message : 'Failed to load chat'
+        const msg = extractErrorMessage(err, 'Failed to load chat')
         setError(msg)
         showToast('error', msg)
       }
@@ -536,12 +536,9 @@ export function ChatProvider({ children }: ChatProviderProps) {
         const stoppedByUser = data?.stopped_by_user ?? (completionMode === 'stopped')
         const hasRemainingScope = data?.has_remaining_scope
           ?? (isPartial || completionMode === 'scoped_complete' || completionMode === 'stopped')
-        const timeoutReason = data?.timeout_reason ?? null
         const continuationPasses = typeof data?.continuation_passes === 'number'
           ? data.continuation_passes
           : 0
-        const continuationResolutionReason = data?.continuation_resolution_reason ?? null
-        const continuationProgressState = data?.continuation_progress_state
         const nextAction: 'none' | 'continue' | 'regenerate' | 'assistant_switch' = data?.next_action ?? 'none'
         const nextActionReason: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_corpus' | null =
           data?.next_action_reason ?? null
@@ -624,11 +621,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
           hasRemainingScope,
           completionMode,
           stoppedByUser,
-          timeoutReason,
           generationSeconds: elapsed,
           chatMode,
-          continuationResolutionReason,
-          continuationProgressState: continuationProgressState ?? null,
           nextAction,
           nextActionReason,
           continuationPasses,
@@ -654,11 +648,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 hasRemainingScope,
                 completionMode,
                 stoppedByUser,
-                timeoutReason,
                 generationSeconds: elapsed ?? last.generationSeconds,
                 chatMode: chatMode ?? last.chatMode,
-                continuationResolutionReason,
-                continuationProgressState: continuationProgressState ?? last.continuationProgressState ?? null,
                 nextAction,
                 nextActionReason,
                 continuationPasses,
@@ -942,6 +933,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
             streamWatchdogTimedOutRef.current = false
             return
           }
+          // Keep explicit 429 handling here: backend uses this code when another
+          // generation is active, and we intentionally surface a stable UX message.
           const msg = err instanceof ApiError
             ? (err.status === 429 ? ACTIVE_GENERATION_REJECT_MESSAGE : err.detail)
             : (err.message || 'Failed to send message')

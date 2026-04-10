@@ -76,7 +76,7 @@ class Reranker:
             scores = scores.tolist()
 
         # Match chunks with scores and sort by score (higher = more relevant)
-        ranked = sorted(zip(chunks, scores, strict=False), key=lambda x: x[1], reverse=True)
+        ranked = sorted(zip(chunks, scores, strict=True), key=lambda x: x[1], reverse=True)
 
         return [
             {**chunk, 'score': float(score)}

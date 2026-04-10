@@ -47,7 +47,6 @@ interface ChatMessageProps {
   nextAction?: 'none' | 'continue' | 'regenerate' | 'assistant_switch'
   continueLabel?: 'Continue' | 'Continue Again'
   webSearchUsed?: boolean
-  webSearchTokensLabel?: string
   createdAt?: string
   generationSeconds?: number
   enableRawOutputControl?: boolean
@@ -526,7 +525,6 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.nextAction === next.nextAction &&
     prev.continueLabel === next.continueLabel &&
     prev.webSearchUsed === next.webSearchUsed &&
-    prev.webSearchTokensLabel === next.webSearchTokensLabel &&
     prev.createdAt === next.createdAt &&
     prev.generationSeconds === next.generationSeconds &&
     prev.enableRawOutputControl === next.enableRawOutputControl &&

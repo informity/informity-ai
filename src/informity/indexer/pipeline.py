@@ -704,7 +704,7 @@ async def reindex_file(
         existing.source_provider = FILESYSTEM_PROVIDER
         existing.source_item_id = str(normalize_path(path, expand_user=False))
         existing.size_bytes = scanned.size_bytes
-        existing.extracted_text_preview = doc.preview_text or doc.text[:500]
+        existing.extracted_text_preview = doc.preview_text or doc.text[:MAX_EXTRACTED_TEXT_PREVIEW]
         existing.category = category
         existing.tags = tags
         existing.year = year
