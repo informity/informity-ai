@@ -4,9 +4,9 @@
 # ==============================================================================
 
 import os
+import tomllib
 from importlib import metadata
 from pathlib import Path
-import tomllib
 
 _PACKAGE_NAME = 'informity'
 _ENV_VERSION_KEY = 'INFORMITY_APP_VERSION'
