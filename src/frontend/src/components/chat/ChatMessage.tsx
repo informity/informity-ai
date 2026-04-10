@@ -80,7 +80,6 @@ function ChatMessageComponent({
   nextAction = 'none',
   continueLabel = 'Continue',
   webSearchUsed = false,
-  webSearchTokensLabel,
   createdAt,
   generationSeconds,
   enableRawOutputControl = false,
