@@ -186,11 +186,7 @@ function ChatMessageComponent({
       node: (
         <div className="chat-message__meta-item">
           <i className="ri-global-line chat-message__meta-icon" aria-hidden />
-          <span>
-            {webSearchTokensLabel
-              ? `Web Search Tokens: ${webSearchTokensLabel}`
-              : 'Web Search'}
-          </span>
+          <span>Web Search</span>
         </div>
       ),
     })
