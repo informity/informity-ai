@@ -10,7 +10,7 @@ import { ServiceUnavailableState } from '../ServiceUnavailableState'
 import { useChatContext } from '../../context/useChatContext'
 import { useBackendStatus } from '../../context/useBackendStatus'
 import { getCurrentChat, getSettings } from '../../api'
-import { isChatMode, type ChatMode } from '../../types/api'
+import { isChatMode, type ChatMessageDisplay, type ChatMode } from '../../types/api'
 import { logApiError } from '../../utils/logApiError'
 import { CHAT_MODE_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
 import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
@@ -37,6 +37,16 @@ interface ChatSettingsResponse {
 
 interface SettingsUpdatedEvent extends Event {
   detail?: ChatSettingsResponse
+}
+
+function resolveChatModeFromHistory(history: ChatMessageDisplay[]): ChatMode | null {
+  for (let i = history.length - 1; i >= 0; i -= 1) {
+    const candidate = history[i]?.chatMode
+    if (isChatMode(candidate)) {
+      return candidate
+    }
+  }
+  return null
 }
 
 export function ChatView({ prefillMessage = '', initialChatId = null }: ChatViewProps) {
@@ -267,6 +277,18 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     setShowScrollToBottom(false)
     isNearBottomRef.current = true
   }, [messages.length])
+
+  useEffect(() => {
+    if (!contextChatId || messages.length === 0 || loadingChat) return
+    const restoredMode = resolveChatModeFromHistory(messages)
+    if (!restoredMode || restoredMode === chatMode) return
+    setChatMode(restoredMode)
+    try {
+      window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, restoredMode)
+    } catch {
+      // ignore storage errors
+    }
+  }, [contextChatId, messages, loadingChat, chatMode])
 
   const lastMessage = messages[messages.length - 1]
   const streamContent = lastMessage?.role === 'assistant' ? lastMessage.content : ''
