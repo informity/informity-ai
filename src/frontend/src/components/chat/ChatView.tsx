@@ -60,6 +60,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   } = useChatContext()
   const [inputValue, setInputValue] = useState(prefillMessage)
   const [chatMode, setChatMode] = useState<ChatMode>('researcher')
+  const [defaultChatMode, setDefaultChatMode] = useState<ChatMode>('researcher')
   const [fullPrivacyMode, setFullPrivacyMode] = useState(true)
   const [tavilyApiKeySet, setTavilyApiKeySet] = useState(false)
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
@@ -111,6 +112,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
         const mode = settings?.default_chat_mode
         setFullPrivacyMode(!!settings?.full_privacy)
         setTavilyApiKeySet(!!settings?.tavily_api_key_set)
+        if (isChatMode(mode)) {
+          setDefaultChatMode(mode)
+        }
         if (!hasStoredMode && isChatMode(mode)) {
           setChatMode(mode)
           try {
@@ -135,6 +139,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
       }
       if (typeof detail.tavily_api_key_set === 'boolean') {
         setTavilyApiKeySet(detail.tavily_api_key_set)
+      }
+      if (isChatMode(detail.default_chat_mode)) {
+        setDefaultChatMode(detail.default_chat_mode)
       }
     }
     window.addEventListener('settings-updated', handleSettingsUpdated as EventListener)
@@ -348,10 +355,16 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     if (offline) return
     newChatRequestedRef.current = true
     setInputValue('')
+    setChatMode(defaultChatMode)
+    try {
+      window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, defaultChatMode)
+    } catch {
+      // ignore storage errors
+    }
     void setChatWebSearchPreferences({ enabled: false, privacyOverride: false, persist: false })
     clearError()
     newChat().catch((err) => logApiError(err, 'ChatView.handleNewChat'))
-  }, [offline, clearError, newChat, setChatWebSearchPreferences])
+  }, [offline, defaultChatMode, clearError, newChat, setChatWebSearchPreferences])
 
   useEffect(() => {
     const handleNewChatEvent = () => handleNewChat()
