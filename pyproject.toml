@@ -5,7 +5,7 @@
 
 [project]
 name = "informity"
-version = "0.9.1"
+version = "0.9.2"
 description = "A macOS desktop app that scans local files, indexes them with vector embeddings, and provides RAG-based chat using a local LLM."
 readme = "README.md"
 requires-python = ">=3.13"
