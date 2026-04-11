@@ -292,6 +292,13 @@ class Settings(BaseSettings):
     # user can enable them in Settings. PDF (.pdf) is included by default since docling
     # provides reliable extraction.
     follow_symlinks:  bool = False
+    source_scopes_enabled: dict[str, bool] = Field(
+        default_factory=lambda: {
+            'filesystem:file': True,
+            'mail.apple:mail': False,
+            'mail.outlook:mail': False,
+        }
+    )
     # Per-file processing timeout during scan/index (seconds). Prevents a single
     # broken or corrupted file from stalling the entire scan indefinitely.
     # Set to 0 to disable (not recommended — a hung file will block the scan forever).

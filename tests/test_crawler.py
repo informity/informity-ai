@@ -43,10 +43,20 @@ def _sha256(text: str) -> str:
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def _make_indexed_file(path: str, content_hash: str) -> IndexedFile:
+def _make_indexed_file(
+    path: str,
+    content_hash: str,
+    *,
+    source_provider: str = "filesystem",
+    entity_type: str = "file",
+    source_item_id: str | None = None,
+) -> IndexedFile:
     # Create a minimal IndexedFile for change detection tests.
     return IndexedFile(
         id=1,
+        source_provider=source_provider,
+        entity_type=entity_type,
+        source_item_id=source_item_id or path,
         path=path,
         filename=Path(path).name,
         extension=Path(path).suffix,
@@ -597,6 +607,39 @@ class TestChangeDetection:
         assert len(changeset.new) == 0
         assert len(changeset.changed) == 0
         assert len(changeset.unchanged) == 0
+        assert len(changeset.deleted) == 0
+
+    def test_compare_is_scoped_to_provider_and_entity_type(self) -> None:
+        scanned = [
+            ScannedFile(
+                path=Path("/docs/keep.txt"),
+                filename="keep.txt",
+                extension=".txt",
+                size_bytes=100,
+                content_hash="same_hash",
+                modified_at=datetime.now(tz=UTC),
+            ),
+        ]
+        db_files = [
+            _make_indexed_file("/docs/keep.txt", "same_hash", source_provider="filesystem", entity_type="file"),
+            _make_indexed_file(
+                "source://mail.apple/mail/msg-1",
+                "mail_hash",
+                source_provider="mail.apple",
+                entity_type="mail",
+                source_item_id="msg-1",
+            ),
+        ]
+
+        changeset = compare_with_db(
+            scanned,
+            db_files=db_files,
+            source_provider="filesystem",
+            entity_type="file",
+        )
+        assert len(changeset.new) == 0
+        assert len(changeset.changed) == 0
+        assert len(changeset.unchanged) == 1
         assert len(changeset.deleted) == 0
 
     def test_changeset_dataclass_fields(self) -> None:

@@ -252,6 +252,7 @@ def _write_config_file(data: dict) -> None:
 
 _UPDATABLE_FIELDS: set[str] = {
     'watched_directories',
+    'source_scopes_enabled',
     'ignore_patterns',
     'exclude_macos_system',
     'exclude_developer_data',
@@ -354,6 +355,7 @@ async def get_settings() -> SettingsResponse:
 
     return SettingsResponse(
         watched_directories     = [str(p) for p in s.watched_directories],
+        source_scopes_enabled   = dict(s.source_scopes_enabled),
         ignore_patterns        = list(s.ignore_patterns),
         exclude_macos_system   = s.exclude_macos_system,
         exclude_developer_data  = s.exclude_developer_data,

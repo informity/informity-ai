@@ -169,6 +169,7 @@ class IndexStatusResponse(BaseModel):
     indexed_content_size_bytes: int  = 0
     reset_in_progress:          bool  = False
     last_reset_result:         dict | None = None   # Set when reset completes: files_deleted, etc.
+    source_scope_stats:        list[dict[str, object]] = Field(default_factory=list)
 
 
 # ==============================================================================
@@ -215,6 +216,7 @@ class DiagnosticsProfilePreset(BaseModel):
 class SettingsResponse(BaseModel):
     # Current application settings exposed to the frontend.
     watched_directories:       list[str]
+    source_scopes_enabled:     dict[str, bool] = Field(default_factory=dict)
     ignore_patterns:           list[str]   # Custom exclude patterns only
     exclude_macos_system:      bool         = True
     exclude_developer_data:   bool         = True
@@ -289,6 +291,7 @@ class SettingsUpdateRequest(BaseModel):
     # llm_context_length,
     # llm_temperature, rag_top_k.
     watched_directories:       list[str] | None = None
+    source_scopes_enabled:     dict[str, bool] | None = None
     ignore_patterns:           list[str] | None = None
     exclude_macos_system:      bool | None      = None
     exclude_developer_data:    bool | None       = None

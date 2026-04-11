@@ -32,6 +32,8 @@ log = structlog.get_logger(__name__)
 # ==============================================================================
 
 HASH_CHUNK_SIZE = 8192  # Read files in 8KB chunks for hashing
+DEFAULT_SCAN_SOURCE_PROVIDER = 'filesystem'
+DEFAULT_SCAN_ENTITY_TYPE = 'file'
 
 
 # ==============================================================================
@@ -364,6 +366,9 @@ def scanned_file_for_path(path: Path) -> ScannedFile | None:
 def compare_with_db(
     scanned: list[ScannedFile],
     db_files: list[IndexedFile],
+    *,
+    source_provider: str = DEFAULT_SCAN_SOURCE_PROVIDER,
+    entity_type: str = DEFAULT_SCAN_ENTITY_TYPE,
 ) -> ChangeSet:
     # Compare scanned files against database records.
     # Returns a ChangeSet with new, changed, unchanged, and deleted lists.
@@ -374,9 +379,15 @@ def compare_with_db(
     # Uses normalized paths so symlinks / slight path differences don't cause
     # false "new" or "changed" classification.
 
+    scoped_db_files = [
+        f
+        for f in db_files
+        if f.source_provider == source_provider and f.entity_type == entity_type
+    ]
+
     # Build a lookup from normalized path -> IndexedFile
     db_by_path: dict[str, IndexedFile] = {
-        str(normalize_path(f.path)): f for f in db_files
+        str(normalize_path(f.path)): f for f in scoped_db_files
     }
 
     # Set of normalized scanned paths for deletion detection
@@ -400,12 +411,14 @@ def compare_with_db(
 
     # Files in DB but not on disk = deleted (compare using normalized paths)
     deleted_files = [
-        f for f in db_files
+        f for f in scoped_db_files
         if str(normalize_path(f.path)) not in scanned_paths_norm
     ]
 
     log.info(
         'change_detection_complete',
+        source_provider=source_provider,
+        entity_type=entity_type,
         new=len(new_files),
         changed=len(changed_files),
         unchanged=len(unchanged_files),
