@@ -305,10 +305,9 @@ def _cleanup_setup_artifacts(model_filename: str | None) -> None:
     if not model_name:
         return
 
-    target_path = settings.models_dir / model_name
-    with suppress(OSError):
-        target_path.unlink(missing_ok=True)
-
+    # Do not delete the final GGUF file here. Users may pre-seed models manually,
+    # and download flow writes to temp artifacts before atomic replace.
+    # Cleanup is intentionally limited to partial/lock artifacts.
     patterns = (
         f'{model_name}.part*',
         f'{model_name}.tmp*',
