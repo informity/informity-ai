@@ -71,9 +71,6 @@ _DEFAULT_APP_DATA_DIR = Path.home() / APP_DATA_DIRNAME
 # Default model for reset-to-factory and first load: Qwen3.5 35B A3B.
 _DEFAULT_LLM_MODEL_FILENAME = 'Qwen3.5-35B-A3B-Q4_K_M.gguf'
 
-# Default diagnostics analysis model filename (DeepSeek R1 optimized for analysis tasks).
-_DEFAULT_DIAGNOSTICS_LLM_MODEL_FILENAME = 'DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf'
-
 # Default embedding model (sentence-transformers)
 _DEFAULT_EMBEDDING_MODEL = 'nomic-ai/nomic-embed-text-v1.5'
 
@@ -118,7 +115,6 @@ class DirNames:
 
     # Model/cache subdirectories
     LLM = 'llm'  # LLM models (*.gguf files)
-    DIAGNOSTICS_LLM = 'diagnostics'  # Diagnostics LLM models under app_data_dir/models/diagnostics/ in desktop runtime
     HUGGINGFACE = 'huggingface'  # HuggingFace cache under cache/huggingface/
     HUB = 'hub'  # HuggingFace hub cache under cache/huggingface/hub/
     DOCLING = 'docling'  # Docling models under cache/docling/ (flat, docling creates its own structure inside)
@@ -515,7 +511,7 @@ class Settings(BaseSettings):
     # Third-party loggers (e.g. aiosqlite) are always set to WARNING in logging_config.
     log_level: str = _DEFAULT_LOG_LEVEL
     # When True, write a per-chat trace log (chat_{chat_id}.json) for each
-    # chat message. Used for troubleshooting and LLM-assisted analysis of relevance/accuracy.
+    # chat message. Used for troubleshooting and diagnostics analysis of relevance/accuracy.
     chat_trace_logging: bool = False
     # Trace payload redaction level:
     # - off: full trace payload (max debugging, least privacy)
@@ -532,21 +528,6 @@ class Settings(BaseSettings):
     # for each assistant message. Useful for debugging. Disabled by default.
     enable_raw_output_control: bool = False
 
-    # -- Diagnostics Pipeline LLM Enhancement -------------------------------------
-    # When True, use local LLM to enhance root cause analysis in diagnostics pipeline.
-    # Default: False (opt-in feature). Set to True to enable LLM-powered analysis.
-    diagnostics_llm_analysis_enabled: bool = False
-    # Directory for diagnostics analysis models.
-    # Default: {app_data_dir}/models/diagnostics
-    diagnostics_models_dir: Path | None = Field(default=None)
-    # Model filename to use for diagnostics analysis (default: DeepSeek R1 for analysis tasks).
-    # User can override via config.json or INFORMITY_DIAGNOSTICS_LLM_MODEL_FILENAME env var.
-    diagnostics_llm_model_filename: str = _DEFAULT_DIAGNOSTICS_LLM_MODEL_FILENAME
-    # Maximum seconds for LLM inference. Generous default so diagnostics analysis can
-    # produce full results (14B models need several minutes for long JSON output).
-    diagnostics_llm_timeout_seconds: int = 600
-    # Maximum number of issues to analyze per run (limit analysis scope)
-    diagnostics_llm_max_issues_per_run: int = 10
     # Diagnostics performance/resource alert budgets for run artifacts.
     diagnostics_alert_max_elapsed_seconds: float = 120.0
     diagnostics_alert_analysis_max_elapsed_seconds: float = 150.0
@@ -584,14 +565,6 @@ class Settings(BaseSettings):
         else:
             self.models_dir = normalize_path(self.models_dir, expand_user=True)
 
-        # Diagnostics models directory: always under app_data_dir for writable runtime storage.
-        if self.diagnostics_models_dir is None:
-            self.diagnostics_models_dir = (
-                self.app_data_dir / DirNames.MODELS / DirNames.DIAGNOSTICS_LLM
-            )
-        else:
-            self.diagnostics_models_dir = normalize_path(self.diagnostics_models_dir, expand_user=True)
-
         # User data paths derive from app_data_dir
         if self.db_path is None:
             self.db_path = self.app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
@@ -610,12 +583,10 @@ class Settings(BaseSettings):
         # Create all required directories if they don't exist.
         # Runtime directory structure:
         # - app_data_dir/models/llm/ - Chat/RAG LLM models (*.gguf files)
-        # - diagnostics_models_dir - Diagnostics LLM models (*.gguf files)
         # - app_data_dir/cache/huggingface/hub/ - HuggingFace cache
         # - app_data_dir/cache/docling/ - Docling models
         cache_root = self.cache_dir
         llm_dir = self.models_dir
-        diagnostics_models_dir = self.diagnostics_models_dir
         hf_cache      = cache_root / DirNames.HUGGINGFACE
         hf_hub        = hf_cache / DirNames.HUB
         docling_cache = cache_root / DirNames.DOCLING
@@ -629,7 +600,6 @@ class Settings(BaseSettings):
             # Cache structure (non-model artifacts)
             cache_root,
             llm_dir,
-            diagnostics_models_dir,
             hf_cache,
             hf_hub,
             docling_cache,
@@ -746,8 +716,6 @@ def reset_to_factory_defaults() -> Settings:
     config_path.parent.mkdir(parents=True, exist_ok=True)
     default_config = {
         'llm_model_filename':      _DEFAULT_LLM_MODEL_FILENAME,
-        'diagnostics_llm_model_filename': _DEFAULT_DIAGNOSTICS_LLM_MODEL_FILENAME,
-        'diagnostics_llm_analysis_enabled': False,  # Disabled by default (opt-in feature)
         'diagnostics_profile':     'standard',
         'chat_trace_logging':      False,
         'enable_raw_output_control': False,

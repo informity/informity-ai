@@ -104,7 +104,7 @@ def _resolve_first_token_deadline_seconds(*, wall_clock: float, profile_tps: flo
 
 def remove_models_dir_cache() -> None:
     # Remove any nested .cache directories left by huggingface_hub after download.
-    for models_dir in [settings.models_dir, settings.diagnostics_models_dir]:
+    for models_dir in [settings.models_dir]:
         if models_dir is None:
             continue
         cache_dir = models_dir / '.cache'

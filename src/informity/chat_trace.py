@@ -1,7 +1,7 @@
 # ==============================================================================
 # Informity AI — Chat Trace Logging
 # Writes a per-chat, per-message trace log as a single JSON object file
-# for debugging and LLM-assisted analysis of relevance and accuracy.
+# for debugging and diagnostics analysis of relevance and accuracy.
 # Only active when settings.chat_trace_logging is True.
 #
 # Format: One JSON object per file (pretty-printed).
@@ -402,7 +402,7 @@ class _ChatTraceWriter:
             return
 
         # For evaluation runs with run_id, always write a trace file (even if no steps)
-        # so every query×model produces a trace for diagnostics analysis.
+        # so every query×model produces a trace for diagnostics processing.
         # User traces only flush when at least one step is recorded.
         if not self._steps and self._chat_type != 'evaluation':
             return

@@ -54,3 +54,24 @@ def test_extract_required_headings_inline_with_exact_headings_phrase() -> None:
         'Confidence Notes',
         'Next Verification Steps',
     ]
+
+
+def test_extract_required_headings_supports_exactly_n_sections_phrase() -> None:
+    question = (
+        'Summarize cross-year changes in extracted numeric values. '
+        'Output exactly 3 sections: ## Biggest Increase, ## Biggest Decrease, ## Ambiguous Delta.'
+    )
+    headings = parser.extract_required_headings(question)
+    assert headings == ['Biggest Increase', 'Biggest Decrease', 'Ambiguous Delta']
+
+
+def test_extract_required_labels_supports_columns_and_format_cues() -> None:
+    question = (
+        'Output bullets in format: Field | Value | Source Snippet. '
+        'Under details include one markdown table with columns: Year, Amount, Evidence Note.'
+    )
+    labels = parser.extract_required_labels(question)
+    assert 'Field' in labels
+    assert 'Value' in labels
+    assert 'Source Snippet' in labels
+    assert 'Year' in labels

@@ -167,7 +167,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'Application logging and debugging options.',
         [
             ('log_level', 'Application log level: debug, info, warning, error. Default info to reduce noise.'),
-            ('chat_trace_logging', 'When true, write a per-chat trace log (chat_{chat_id}.json) for each chat message. Used for troubleshooting and LLM-assisted analysis.'),
+            ('chat_trace_logging', 'When true, write a per-chat trace log (chat_{chat_id}.json) for each chat message. Used for troubleshooting and diagnostics analysis.'),
         ],
     ),
     (
@@ -175,16 +175,6 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'Diagnostics evaluation pipeline settings for quality analysis and self-improvement.',
         [
             ('diagnostics_dir', 'Directory for diagnostics data (quality evaluation runs, traces, reports).'),
-            ('diagnostics_llm_analysis_enabled', 'When true, use local LLM to enhance root cause analysis in diagnostics pipeline. Default false (opt-in feature).'),
-            ('diagnostics_llm_max_issues_per_run', 'Maximum number of issues to analyze per run (limits analysis scope to prevent excessive processing time).'),
-            ('diagnostics_llm_model_filename', 'GGUF filename in diagnostics_models_dir for LLM-powered analysis (default: DeepSeek R1 optimized for analysis tasks).'),
-            ('diagnostics_llm_timeout_seconds', 'Maximum seconds for LLM inference during diagnostics analysis. Generous default so analysis can produce full results.'),
-            (
-                'diagnostics_models_dir',
-                f'Directory for diagnostics LLM model files '
-                f'(default: {{app_data_dir}}/{DirNames.MODELS}/{DirNames.DIAGNOSTICS_LLM}). '
-                f'Separate from chat and classifier models.',
-            ),
         ],
     ),
 ]
@@ -192,7 +182,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
 _RUNTIME_ENV_VARS: list[tuple[str, str]] = [
     (
         'INFORMITY_REPO_ROOT',
-        'Repository root override for diagnostics paths and local tooling resolution.',
+        'Repository root override for local tooling resolution.',
     ),
     (
         'INFORMITY_SUPPRESS_CONSOLE_LOGS',
