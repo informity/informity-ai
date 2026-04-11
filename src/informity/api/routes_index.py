@@ -123,7 +123,6 @@ def _compute_disk_sizes() -> tuple[int, int]:
     model_size_bytes = 0
     model_dirs = (
         settings.models_dir,
-        settings.diagnostics_models_dir,
     )
     for models_dir in model_dirs:
         if models_dir is None or not models_dir.exists():

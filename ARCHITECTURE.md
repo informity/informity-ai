@@ -2,7 +2,7 @@
 
 This file is the **single source of truth** for types, interfaces, and module responsibilities. When generating code for any module, consult this file first.
 
-**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils); `scanner/` (crawler, watcher, extractors — docling unified extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, model_adapter, rag QueryRouter, query_classifier, query_patterns, nlp_heuristics, types, retrieval, prompt_builder, streaming, metadata_filters, intent_router, classification_policy, intent_profiles, fit_to_budget_tuning, promptcue_adapter, term_dictionary, chat_mode, contract_gate, contract_prompt_parser, metrics_payload, system_prompts, timeout_policy, user_messages, web_search, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics: `src/informity/diagnostics/` (issue_types, observer) and `tools/diagnostics/` (pipeline, evaluate, analyze, generate_queries, golden_set). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
+**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils); `scanner/` (crawler, watcher, extractors — docling unified extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, model_adapter, rag QueryRouter, query_classifier, query_patterns, nlp_heuristics, types, retrieval, prompt_builder, streaming, metadata_filters, intent_router, classification_policy, intent_profiles, fit_to_budget_tuning, promptcue_adapter, term_dictionary, chat_mode, contract_gate, contract_prompt_parser, metrics_payload, system_prompts, timeout_policy, user_messages, web_search, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics runtime modules: `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
 
 ---
 
@@ -39,7 +39,6 @@ class Settings(BaseSettings):
     db_path:       Path | None = Field(default=None)  # Computed: app_data_dir / 'db' / f'{APP_SLUG}.db'
     # Note: vectors_dir removed - vectors now stored in SQLite database (vec_chunks table) via sqlite-vec extension
     models_dir:    Path | None = Field(default=None)  # Computed: app_data_dir/models/llm (shared between desktop and dev)
-    diagnostics_models_dir: Path | None = Field(default=None)  # Computed: {repo_root}/tools/diagnostics/models (diagnostics LLM models, decoupled from app_data_dir)
     logs_dir:      Path | None = Field(default=None)   # Computed: app_data_dir / 'logs'
 
     # Scanner
@@ -100,10 +99,6 @@ class Settings(BaseSettings):
 
     # Diagnostics Evaluation (optional)
     diagnostics_metrics_enabled:      bool = False   # Enable diagnostics metrics collection during chat
-    diagnostics_llm_analysis_enabled:  bool = False   # Enable LLM-powered root cause analysis
-    diagnostics_llm_model_filename:    str  = 'DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf'  # LLM model for diagnostics analysis
-    diagnostics_llm_timeout_seconds:   int  = 600     # Timeout for LLM analysis
-    diagnostics_llm_max_issues_per_run: int = 10      # Maximum number of issues to analyze per run
     diagnostics_dir:               Path | None = Field(default=None)  # Computed: app_data_dir / 'diagnostics'
 
     model_config = {'env_prefix': 'INFORMITY_'}
@@ -404,7 +399,7 @@ class HealthResponse(BaseModel):
 - Retrieval top-k (`rag_top_k`, `coverage_top_k`) is NOT in config — model-profile-only via `model_adapter.get_retrieval_top_k()`. When `adaptive_rag_tuning` is enabled, corpus-aware values override from `indexer.adaptive_tuning` cache.
 - Exports `APP_SLUG`, `APP_DISPLAY_NAME`; preset pattern lists `EXCLUDE_MACOS_SYSTEM_PATTERNS`, `EXCLUDE_DEVELOPER_PATTERNS`; `DiagnosticsConstants` (run ID prefixes, chat ID prefixes); `DirNames` class (directory name constants).
 - Provides singleton `settings`; `ensure_directories()`; `get_effective_ignore_patterns(settings)` to combine preset (when enabled) + custom ignore patterns.
-- Computes derived paths: `cache_dir` (default: `app_data_dir/cache`), `models_dir` (default: `app_data_dir/models/llm` — shared between desktop .app and dev/tools so models are never duplicated), `diagnostics_models_dir` (`{repo_root}/tools/diagnostics/models`, decoupled from `app_data_dir`), user data paths from `app_data_dir`.
+- Computes derived paths: `cache_dir` (default: `app_data_dir/cache`), `models_dir` (default: `app_data_dir/models/llm`), user data paths from `app_data_dir`.
 - Uses `utils.path_utils.normalize_path()` and `normalize_paths()` for path resolution, `utils.json_utils.serialize_config()` for config file serialization, `utils.directory_utils.ensure_directories()` for directory creation.
 - Applies CPU thread limits at import time (`embedding_max_threads` → OMP_NUM_THREADS etc., TOKENIZERS_PARALLELISM=false) before any heavy libs load.
 - Provides `configure_hf_environment()` to set HF cache paths and offline flags based on settings.
@@ -508,7 +503,7 @@ class HealthResponse(BaseModel):
 
 ### `llm/model_adapter.py`
 - Per-model configuration via frozen `ModelProfile` dataclass. Each supported model has its own profile with prompt format, reasoning behavior, token limits, stop sequences, and post-processing rules.
-- Profiles: `QWEN3_14B_PROFILE`, `QWEN3_5_9B_PROFILE`, `QWEN3_5_35B_A3B_PROFILE`, `DEEPSEEK_R1_DISTILL_PROFILE`, `DEFAULT_PROFILE`.
+- Profiles: `QWEN3_14B_PROFILE`, `QWEN3_5_9B_PROFILE`, `QWEN3_5_35B_A3B_PROFILE`, `DEFAULT_PROFILE`.
 - Enums: `ModelFamily` (CHATML, LLAMA, MISTRAL), `PromptFormat` (NATIVE_GGUF, CHATML), `ReasoningMode` (ALWAYS, FOCUSED_ONLY, NEVER).
 - Profile methods: `get_stop_sequences(reasoning_enabled)`, `get_max_tokens(query_type)`, `get_reasoning_enabled(query_type)`, `get_prompt_format(query_type)`, `prepare_messages(messages, query_type)`.
 - `get_profile()` / `get_profile_for_filename(filename)` for profile resolution.
@@ -683,47 +678,22 @@ class HealthResponse(BaseModel):
 
 ## Diagnostics
 
-**Layout:** Core types live in `src/informity/diagnostics/` (issue_types, observer). Evaluation tools live in `tools/diagnostics/` (pipeline, evaluate, analyze, generate_queries, golden_set). Strict one-way imports: diagnostics → informity ✅ | informity → diagnostics ❌ (except one lazy conditional import in `routes_chat.py`).
+Core types live in `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Strict one-way imports: diagnostics → informity ✅ | informity → diagnostics ❌ (except one lazy conditional import in `routes_chat.py`).
 
 ### `informity/diagnostics/issue_types.py`
 - `IssueType` enum (6 types for v2): `retrieval_failure`, `insufficient_retrieval`, `empty_answer`, `refusal_bias`, `timeout`, `very_short_answer`.
-- **Imported by:** diagnostics.observer, diagnostics.tools.*
+- **Imported by:** diagnostics.observer
 
 ### `informity/diagnostics/observer.py`
 - `EvalMetrics` dataclass (OTel-named fields via `openinference-semantic-conventions`): chat_id, question, model_filename, query_type, raw_chunks_count, sources_count, generation_seconds, answer_length, timeout_occurred, has_empty_answer, has_refusal_pattern.
 - `detect_issues(answer: str, metrics: EvalMetrics) -> list[IssueType]` — heuristic issue detection.
 - `populate_signals(answer: str, metrics: EvalMetrics) -> dict` — quality signal extraction.
 - **Imports:** diagnostics.issue_types, openinference.semconv.trace (SpanAttributes, DocumentAttributes)
-- **Imported by:** api.routes_chat (lazy conditional), diagnostics.tools.evaluate
+- **Imported by:** api.routes_chat (lazy conditional)
 
 ### `informity/diagnostics/resource_snapshot.py`
 - System resource snapshot at trace time: CPU, memory, disk. Used by observer to attach resource context to diagnostics metrics.
 - **Imported by:** diagnostics.observer
-
-### `tools/diagnostics/evaluate.py`
-- Runs evaluation queries through `answer_question()` with trace writer (type='evaluation', run_id). Reads metrics from trace files (v2-compliant, no protocol pollution). Builds `EvalMetrics`, calls `detect_issues()`, stores via `insert_diagnostics_metrics()`.
-- **Imports:** informity.llm.rag (answer_question), informity.chat_trace, informity.db.sqlite, diagnostics.observer
-- **Imported by:** diagnostics.tools.pipeline
-
-### `tools/diagnostics/analyze.py`
-- Aggregates metrics from `response_diagnostics_metrics` table via `get_diagnostics_metrics_since()`. Generates `report.md` and `report.json` with statistics, issue breakdowns, per-model comparisons.
-- **Imports:** informity.db.sqlite, diagnostics.issue_types
-- **Imported by:** diagnostics.tools.pipeline
-
-### `tools/diagnostics/generate_queries.py`
-- Builds query sets from indexed files. Strategies: `balanced`, `coverage`, `focused`, `reasoning`. Query types (for generation only): metadata, focused, coverage, aggregation, comparison, analysis, reasoning. Outputs `queries.json`.
-- **Imports:** informity.db.sqlite, informity.config
-- **Imported by:** diagnostics.tools.pipeline
-
-### `tools/diagnostics/pipeline.py`
-- End-to-end orchestrator: golden set → generate queries → evaluate → analyze → quality scoring (optional). Streams to terminal; `--quiet` for minimal output.
-- **Imports:** subprocess, informity.config
-- **Run:** `uv run python tools/diagnostics/pipeline.py` (options: `--num-queries`, `--query-strategy`, `--quality`, `--quiet`)
-
-### `tools/diagnostics/golden_set.py`
-- Pre-flight validation: validates index has files/chunks, can retrieve chunks, can generate answers. Runs 3-5 sanity queries before full evaluation.
-- **Imports:** informity.db.sqlite
-- **Imported by:** diagnostics.tools.pipeline
 
 ### `main.py`
 - FastAPI app; health `GET /api/health` (HealthResponse); mounts static frontend from `src/frontend/dist/` when built (Vite output). Vanilla backup archived at `.archive/frontend-bak/`.
@@ -779,12 +749,6 @@ diagnostics/ (sibling package)
   issue_types.py
   observer.py ──────┐
   resource_snapshot.py │
-  tools/            │
-    evaluate.py ────┘
-    analyze.py
-    generate_queries.py
-    pipeline.py
-    golden_set.py
      ↑
 main.py ← logging_config (configure_logging before loggers)
 ```
@@ -817,8 +781,7 @@ main.py ← logging_config (configure_logging before loggers)
 | App data root | `~/.informity` (default); override via `INFORMITY_APP_DATA_DIR` |
 | SQLite database | `{app_data_dir}/db/informity.db` |
 | SQLite vectors | Stored in `vec_chunks` table within SQLite database (sqlite-vec extension) |
-| LLM models (RAG) | `{app_data_dir}/models/llm/` (shared between desktop .app and dev tools) |
-| LLM models (diagnostics) | `{repo_root}/tools/diagnostics/models/` (decoupled from app data) |
+| LLM models (RAG) | `{app_data_dir}/models/llm/` (shared between desktop .app and development workflows) |
 | Config file | `{app_data_dir}/config.json` |
 | Logs | `{app_data_dir}/logs/` |
 | Unified cache root | `{app_data_dir}/cache/` (default) or override via `INFORMITY_CACHE_DIR` |
@@ -827,7 +790,7 @@ main.py ← logging_config (configure_logging before loggers)
 | Diagnostics directory | `{app_data_dir}/diagnostics/` (default) or `{diagnostics_dir}/` if set |
 | Diagnostics evaluation runs | `{diagnostics_dir}/runs/{run_id}/` (queries/ with golden_queries.json, queries.json; traces/; results/ with run.json, report.md, report.json, llm_insights.json, tasks.json, tasks.md) |
 | Trace files (evaluation) | `{diagnostics_dir}/runs/{run_id}/traces/{chat_id}--{message_id}.json` |
-| Trace files (user chats) | `{diagnostics_dir}/chats/{chat_id}/{message_id}.json` (when chat_trace_logging enabled) |
+| Trace files (user chats) | `{app_data_dir}/chats/{chat_id}/{message_id}.json` (when chat_trace_logging enabled) |
 
 ---
 

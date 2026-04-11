@@ -1,14 +1,13 @@
 # ==============================================================================
 # Informity AI — Model Profile Tests
 # Tests profile detection, selection, stop sequences, reasoning mode, prompt
-# format, max tokens, and model-specific behavior for Qwen3.5 35B A3B, DeepSeek R1
-# Distill 14B (diagnostics), and the default profile.
+# format, max tokens, and model-specific behavior for Qwen3.5 35B A3B,
+# Qwen3.5 9B, Qwen3 14B, and the default profile.
 # ==============================================================================
 
 import pytest
 
 from informity.llm.model_adapter import (
-    DEEPSEEK_R1_DISTILL_PROFILE,
     DEFAULT_PROFILE,
     QWEN3_5_9B_PROFILE,
     QWEN3_5_35B_A3B_PROFILE,
@@ -35,11 +34,6 @@ class TestGetProfileForFilename:
     def test_qwen3_5_35b_a3b_lowercase(self) -> None:
         profile = get_profile_for_filename('qwen3.5-35b-a3b-q4_k_m.gguf')
         assert profile is QWEN3_5_35B_A3B_PROFILE
-
-    def test_deepseek_r1_distill_14b_detected(self) -> None:
-        profile = get_profile_for_filename('DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf')
-        assert profile is DEEPSEEK_R1_DISTILL_PROFILE
-        assert profile.name == 'DeepSeek R1 Distill'
 
     def test_qwen2_5_3b_returns_default(self) -> None:
         # No dedicated Qwen2.5-3B profile; falls through to default

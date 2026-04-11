@@ -174,6 +174,15 @@ def test_build_contract_spec_tracks_order_and_missing_evidence_requirements() ->
     assert spec.requires_missing_evidence_callout is True
 
 
+def test_build_contract_spec_extracts_required_labels_from_format_contract() -> None:
+    classification = QueryClassification(intent='coverage', subtype='extract_structured_values')
+    spec = build_contract_spec(
+        question='Output rows in format: Field | Value | Source Snippet.',
+        classification=classification,
+    )
+    assert 'Source Snippet' in spec.required_labels
+
+
 def test_enforce_required_sections_redacts_ssn() -> None:
     answer = 'Taxpayer SSN: 123-45-6789'
     enforced, _filled = enforce_required_sections(
@@ -208,3 +217,16 @@ def test_enforce_required_sections_reorders_required_headings_when_order_enforce
         ),
     )
     assert enforced.index('## Scope') < enforced.index('## Findings')
+
+
+def test_enforce_required_sections_appends_missing_required_labels() -> None:
+    answer = '## Findings\n- Field: Revenue\n- Value: 100'
+    enforced, _filled = enforce_required_sections(
+        answer=answer,
+        spec=ContractSpec(
+            required_headings=[],
+            min_year_count=0,
+            required_labels=['Field', 'Value', 'Source Snippet'],
+        ),
+    )
+    assert 'Source Snippet: Missing Evidence:' in enforced
