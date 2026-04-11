@@ -8,7 +8,7 @@
 import asyncio
 from collections import OrderedDict
 from datetime import UTC, datetime
-from typing import Literal
+from typing import Literal, TypedDict, cast
 from uuid import uuid4
 
 import aiosqlite
@@ -55,8 +55,8 @@ _FILE_REINDEX_MAX_HISTORY = 256
 FileReindexStatus = Literal['running', 'completed', 'failed']
 
 
-class FileReindexOperation(dict):
-    # Typed dict-like payload for per-file reindex operation status.
+class FileReindexOperation(TypedDict):
+    # Typed payload for per-file reindex operation status.
     operation_id: str
     operation_type: str
     file_id: int
@@ -188,7 +188,7 @@ async def get_file_reindex_operation(operation_id: str) -> FileReindexOperation 
         op = _FILE_REINDEX_OPERATIONS.get(operation_id)
         if op is None:
             return None
-        return dict(op)
+        return cast(FileReindexOperation, dict(op))
 
 
 async def list_file_reindex_operations(*, status: FileReindexStatus | None = None) -> list[FileReindexOperation]:
@@ -198,7 +198,7 @@ async def list_file_reindex_operations(*, status: FileReindexStatus | None = Non
         if status is not None:
             ops = [op for op in ops if op['status'] == status]
         # newest first
-        return [dict(op) for op in reversed(ops)]
+        return [cast(FileReindexOperation, dict(op)) for op in reversed(ops)]
 
 
 async def get_running_file_reindex_count() -> int:

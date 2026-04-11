@@ -565,24 +565,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         const webSearchTokensLimit = typeof webSearchTokensLimitRaw === 'number'
           ? webSearchTokensLimitRaw
           : undefined
-        const webSearchTokensLabelRaw = (
-          data?.web_search_tokens_label
-          ?? (
-            data?.budget_metrics != null
-            && typeof data.budget_metrics === 'object'
-            ? (data.budget_metrics as Record<string, unknown>).web_search_tokens_label
-            : undefined
-          )
-        )
-        const webSearchTokensLabel = typeof webSearchTokensLabelRaw === 'string'
-          ? webSearchTokensLabelRaw
-          : (
-            webSearchTokensUsed != null && webSearchTokensLimit != null && webSearchTokensLimit > 0
-              ? `${webSearchTokensUsed}/${webSearchTokensLimit}`
-              : undefined
-          )
-        const hasWebSearchTokens = webSearchTokensLabel != null
-          || webSearchTokensUsed != null
+        const hasWebSearchTokens = webSearchTokensUsed != null
           || webSearchTokensLimit != null
         const webSearchUsedResolved = webSearchUsed || hasWebSearchTokens
         const recoveryCallout = buildRecoveryCallout(nextAction, nextActionReason)
@@ -628,7 +611,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
           continuationPasses,
           continueLabel,
           webSearchUsed: webSearchUsedResolved,
-          webSearchTokensLabel,
         }
         if (isViewingGeneratingChat()) {
           setMessages((prev) => {
@@ -655,7 +637,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 continuationPasses,
                 continueLabel,
                 webSearchUsed: webSearchUsedResolved,
-                webSearchTokensLabel,
               }
             }
             return next

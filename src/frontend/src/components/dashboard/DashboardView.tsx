@@ -27,7 +27,7 @@ import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { extractErrorMessage } from '../../utils/errorMessages'
 import { MENU_SCAN_NOW_PENDING_KEY } from '../../utils/storageKeys'
 import { proxyWheelToContainer } from '../../utils/wheelProxy'
-import type { IndexedFile } from '../../types/api'
+import type { IndexedFile, IndexStatus, ScanStatus } from '../../types/api'
 import '../../styles/shared/buttons.css'
 import './DashboardView.css'
 
@@ -53,36 +53,6 @@ function StatCard({ icon, label, value, subtitle }: StatCardProps) {
       </div>
     </div>
   )
-}
-
-interface IndexStatus {
-  total_files?: number
-  total_chunks?: number
-  total_embeddings?: number
-  chat_count?: number
-  indexed_content_size_bytes?: number
-  db_size_bytes?: number
-  vectors_size_bytes?: number
-  model_size_bytes?: number
-}
-
-interface ScanStatus {
-  status?: string
-  started_at?: string
-  files_scanned?: number
-  files_indexed?: number
-  errors?: number
-  timeout_errors?: number
-  recent_errors?: Array<{
-    path?: string
-    filename?: string
-    operation?: string
-    error_code?: string | null
-    error_message?: string
-    is_timeout?: boolean
-    created_at?: string | null
-  }>
-  elapsed_seconds?: number
 }
 
 interface SettingsData {

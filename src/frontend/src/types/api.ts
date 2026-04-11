@@ -6,8 +6,10 @@
 export interface ChatSourceReference {
   filename: string
   path: string
-  chunk_preview?: string
-  relevance_score?: number
+  chunk_preview: string
+  relevance_score: number
+  extraction_quality?: string | null
+  extraction_note?: string | null
 }
 
 export interface DisplayTextBlock {
@@ -148,7 +150,6 @@ export interface ChatMessageDisplay {
   continuationPasses?: number
   continueLabel?: 'Continue' | 'Continue Again'
   webSearchUsed?: boolean
-  webSearchTokensLabel?: string
   streamPlanSteps?: Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>
 }
 
@@ -181,6 +182,42 @@ export interface IndexedFile {
   modified_at: string
   created_at?: string
   chunk_count?: number
+}
+
+export interface IndexStatus {
+  total_files?: number
+  total_chunks?: number
+  total_embeddings?: number
+  chat_count?: number
+  indexed_content_size_bytes?: number
+  db_size_bytes?: number
+  vectors_size_bytes?: number
+  model_size_bytes?: number
+  last_scan_at?: string | null
+  reset_in_progress?: boolean
+  last_reset_result?: Record<string, unknown> | null
+  source_scope_stats?: Array<Record<string, unknown>>
+}
+
+export interface ScanRecentError {
+  path?: string
+  filename?: string
+  operation?: string
+  error_code?: string | null
+  error_message?: string
+  is_timeout?: boolean
+  created_at?: string | null
+}
+
+export interface ScanStatus {
+  status?: string
+  started_at?: string
+  files_scanned?: number
+  files_indexed?: number
+  errors?: number
+  timeout_errors?: number
+  recent_errors?: ScanRecentError[]
+  elapsed_seconds?: number
 }
 
 export type FileReindexOperationStatus = 'running' | 'completed' | 'failed'
