@@ -245,14 +245,15 @@ class ModelProfile:
 
 # -- Qwen3 14B Instruct --------------------------------------------------------
 # Balanced profile for slower hardware.
+# Keep template-level thinking disabled for reliability on lower-memory devices.
 QWEN3_14B_PROFILE = ModelProfile(
     name              = 'Qwen3 14B',
     family            = ModelFamily.CHATML,
     filename_patterns = ('qwen3-14b', 'qwen-3-14b'),
 
     supports_think_blocks         = True,
-    reasoning_mode                = ReasoningMode.FOCUSED_ONLY,
-    no_think_token                = '/no_think',
+    reasoning_mode                = ReasoningMode.NEVER,
+    no_think_token                = None,
 
     prompt_format          = PromptFormat.NATIVE_GGUF,
     coverage_prompt_format = PromptFormat.NATIVE_GGUF,
@@ -280,6 +281,7 @@ QWEN3_14B_PROFILE = ModelProfile(
 
     strip_meta_commentary = False,
     strip_citations       = True,
+    chat_template_kwargs  = {'enable_thinking': False},
 )
 
 

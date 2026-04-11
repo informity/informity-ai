@@ -23,6 +23,19 @@ _OUT_OF_CORPUS_SENTENCE_PATTERN = re.compile(
 _OUT_OF_CORPUS_SIGNAL_PATTERN = re.compile(
     r'(?is)\b(?:documents?|context)\b.{0,120}\b(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b(?:contain|include|cover|mention|provide)\b'
 )
+_IDENTITY_LEAK_PATTERNS = (
+    re.compile(r'^\s*(?:my name is|i am|i\'m)\s+qwen\b[^.!?\n]*[.!?]?\s*', re.IGNORECASE),
+    re.compile(
+        r'^\s*(?:i am|i\'m)\s+(?:an?\s+)?large language model\b[^.!?\n]*(?:alibaba(?:\s+cloud)?)?[^.!?\n]*[.!?]?\s*',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'^\s*(?:i was|i am|i\'m)\s+(?:created|developed|built)\s+by\s+alibaba(?:\s+cloud)?\b[^.!?\n]*[.!?]?\s*',
+        re.IGNORECASE,
+    ),
+)
+_IDENTITY_LEAK_HINT_PATTERN = re.compile(r'(?i)\bqwen\b|\balibaba(?:\s+cloud)?\b')
+_IDENTITY_BRAND_LINE = 'I’m Informity AI, your local assistant.'
 MAX_WORDS_PATTERN = re.compile(
     r'(?:<=?|at\s+most|max(?:imum)?|less than or equal to)\s*(\d+)\s*words?\b',
     re.IGNORECASE,
@@ -103,14 +116,36 @@ def sanitize_display_answer(text: str) -> str:
     return cleaned.strip()
 
 
+def normalize_assistant_identity_claim(text: str) -> str:
+    """
+    Deterministically replace leaked base-model self-identification at answer start.
+    Only rewrites an opening identity sentence; never rewrites general content.
+    """
+    raw = str(text or '')
+    if not raw:
+        return raw
+    opening_window = raw.lstrip()[:240]
+    if _IDENTITY_LEAK_HINT_PATTERN.search(opening_window) is None:
+        return raw
+
+    for pattern in _IDENTITY_LEAK_PATTERNS:
+        match = pattern.match(raw)
+        if match is None:
+            continue
+        remainder = raw[match.end():].lstrip()
+        return f'{_IDENTITY_BRAND_LINE} {remainder}'.strip() if remainder else _IDENTITY_BRAND_LINE
+    return raw
+
+
 def build_display_answer(raw_answer: str, fallback_message: str = DISPLAY_FALLBACK_MESSAGE) -> tuple[str, bool]:
     """
     Build UI-safe answer while preserving canonical raw answer in storage.
     Returns (display_answer, reasoning_only_output).
     """
-    cleaned_answer = sanitize_display_answer(raw_answer)
-    reasoning_only_output = bool(raw_answer) and not cleaned_answer and (
-        '<think>' in raw_answer.lower() or '<<think>>' in raw_answer.lower()
+    normalized_raw_answer = normalize_assistant_identity_claim(raw_answer)
+    cleaned_answer = sanitize_display_answer(normalized_raw_answer)
+    reasoning_only_output = bool(normalized_raw_answer) and not cleaned_answer and (
+        '<think>' in normalized_raw_answer.lower() or '<<think>>' in normalized_raw_answer.lower()
     )
     if reasoning_only_output:
         return fallback_message, True

@@ -244,6 +244,18 @@ async def test_get_setup_status_reflects_setup_state_file(
     assert status.setup_state_file_present is True
 
 
+def test_recommend_setup_tier_prefers_small_on_16gb_class_devices() -> None:
+    tier, reason = routes_system._recommend_setup_tier(ram_total_gb=16.0, free_disk_gb=200.0)
+    assert tier == 'small'
+    assert '24 GB' in reason
+
+
+def test_recommend_setup_tier_uses_balanced_for_24gb_and_above() -> None:
+    tier, reason = routes_system._recommend_setup_tier(ram_total_gb=24.0, free_disk_gb=200.0)
+    assert tier == 'balanced'
+    assert '24 GB' in reason
+
+
 @pytest.mark.asyncio
 async def test_start_setup_persists_in_progress_state(
     monkeypatch: pytest.MonkeyPatch,

@@ -152,9 +152,12 @@ export function SetupRequiredPage({
   }, [tierOptions])
 
   const initialTier = useMemo<SetupTierOption['tier']>(() => {
+    const recommended = recommendedTier
+      ? sortedTierOptions.find((option) => option.tier === recommendedTier)?.tier
+      : undefined
     const qualityTier = sortedTierOptions.find((option) => option.tier === 'quality')?.tier
     const fallback = sortedTierOptions[0]?.tier ?? 'quality'
-    return qualityTier ?? recommendedTier ?? fallback
+    return recommended ?? qualityTier ?? fallback
   }, [recommendedTier, sortedTierOptions])
   const [selectedTier, setSelectedTier] = useState<SetupTierOption['tier']>(initialTier)
   const [expandedTier, setExpandedTier] = useState<SetupTierOption['tier'] | null>(null)
