@@ -18,7 +18,7 @@ import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { showToast } from '../context/useToast'
 import { useConfirm } from '../context/useConfirm'
 import { useBackendStatus } from '../context/useBackendStatus'
-import { isChatMode, type ChatMode } from '../types/api'
+import { isChatMode, type ChatMode, type IndexStatus } from '../types/api'
 import { isBackendConnectionError } from '../utils/networkErrors'
 import { extractErrorMessage } from '../utils/errorMessages'
 import { CHAT_MODE_STORAGE_KEY } from '../utils/storageKeys'
@@ -140,15 +140,6 @@ function buildPayload(form: FormState, current: SettingsData | null): Record<str
 interface SettingsData extends FormState {
   tavily_api_key_set?: boolean
   file_type_options?: { id: string; label: string; extensions: string[] }[]
-}
-
-interface IndexStatusData {
-  reset_in_progress?: boolean
-  last_reset_result?: {
-    error?: string
-    storage_compacted?: boolean
-    compaction_error?: string | null
-  } | null
 }
 
 const RESET_POLL_INTERVAL_MS = 500
@@ -302,7 +293,7 @@ export function SettingsPage() {
         if (err instanceof ApiError && err.status === 409) {
           const detail = `${err.detail || ''}`.toLowerCase()
           if (detail.includes('reset is already in progress')) {
-            const status = (await getIndexStatus()) as IndexStatusData
+            const status = (await getIndexStatus()) as IndexStatus
             if (resetPollingCancelledRef.current) return
             if (status.reset_in_progress) {
               showToast('info', 'Reset already in progress. Waiting for completion...')
@@ -333,11 +324,11 @@ export function SettingsPage() {
       }
       const deadline = Date.now() + RESET_POLL_TIMEOUT_MS
       let completed = false
-      let finalStatus: IndexStatusData | null = null
+      let finalStatus: IndexStatus | null = null
       while (Date.now() < deadline) {
         if (resetPollingCancelledRef.current) return
         try {
-          const status = (await getIndexStatus()) as IndexStatusData
+          const status = (await getIndexStatus()) as IndexStatus
           if (resetPollingCancelledRef.current) return
           if (!status.reset_in_progress) {
             finalStatus = status
@@ -356,7 +347,11 @@ export function SettingsPage() {
         await load()
         return
       }
-      const resetResult = finalStatus?.last_reset_result
+      const resetResult = finalStatus?.last_reset_result as {
+        error?: string
+        storage_compacted?: boolean
+        compaction_error?: string | null
+      } | null | undefined
       const resetError = `${resetResult?.error || ''}`.trim()
       if (resetError) {
         showToast('error', `Reset failed: ${resetError}`)

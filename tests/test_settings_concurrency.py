@@ -97,5 +97,4 @@ async def test_scan_file_timeout_seconds_updates_runtime_policy_cap(
     )
     assert updated.scan_file_timeout_seconds == 550
     assert config.settings.scan_timeout_policy.default.max_seconds == 550
-    if 'filesystem:file' in config.settings.scan_timeout_policy.overrides:
-        assert config.settings.scan_timeout_policy.overrides['filesystem:file'].max_seconds == 550
+    assert config.settings.scan_timeout_policy.overrides['filesystem:file'].max_seconds == 550

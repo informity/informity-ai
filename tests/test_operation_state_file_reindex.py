@@ -3,12 +3,15 @@ import pytest
 import informity.api.operation_state as op_state
 
 
-@pytest.mark.asyncio
-async def test_file_reindex_operation_dedupes_by_file_id() -> None:
+@pytest.fixture(autouse=True)
+async def _reset_file_reindex_state() -> None:
     async with op_state._FILE_REINDEX_STATE_LOCK:
         op_state._FILE_REINDEX_OPERATIONS.clear()
         op_state._FILE_REINDEX_RUNNING_BY_FILE_ID.clear()
 
+
+@pytest.mark.asyncio
+async def test_file_reindex_operation_dedupes_by_file_id() -> None:
     first, first_is_new = await op_state.begin_file_reindex_operation(file_id=17, filename='a.txt')
     second, second_is_new = await op_state.begin_file_reindex_operation(file_id=17, filename='a.txt')
 
@@ -21,10 +24,6 @@ async def test_file_reindex_operation_dedupes_by_file_id() -> None:
 
 @pytest.mark.asyncio
 async def test_file_reindex_operation_transitions_to_completed() -> None:
-    async with op_state._FILE_REINDEX_STATE_LOCK:
-        op_state._FILE_REINDEX_OPERATIONS.clear()
-        op_state._FILE_REINDEX_RUNNING_BY_FILE_ID.clear()
-
     operation, _ = await op_state.begin_file_reindex_operation(file_id=99, filename='b.txt')
     completed = await op_state.complete_file_reindex_operation(
         operation['operation_id'],
@@ -42,4 +41,3 @@ async def test_file_reindex_operation_transitions_to_completed() -> None:
     assert fetched is not None
     assert fetched['status'] == 'completed'
     assert fetched['chunks_created'] == 42
-

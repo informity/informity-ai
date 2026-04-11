@@ -99,12 +99,15 @@ export function FileDetail({
       return
     }
     if (!fileId) return
+    setActionLoading('reindex')
     try {
       await reindexFile(fileId)
     } catch (err) {
       const msg = extractErrorMessage(err, 'Re-index failed')
       setError(msg)
       showToast('error', msg)
+    } finally {
+      setActionLoading(null)
     }
   }
 

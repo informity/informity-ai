@@ -49,15 +49,23 @@ _SETTINGS_RUNTIME_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeE
 
 router = APIRouter(tags=['settings'])
 _CONFIG_FILE_ASYNC_LOCK = asyncio.Lock()
+_DIAG_PROFILE_STANDARD = 'standard'
+_DIAG_PROFILE_TROUBLESHOOTING = 'troubleshooting'
+_DIAG_PROFILE_CUSTOM = 'custom'
+_DIAG_PROFILE_ALLOWED_VALUES = (
+    _DIAG_PROFILE_STANDARD,
+    _DIAG_PROFILE_TROUBLESHOOTING,
+    _DIAG_PROFILE_CUSTOM,
+)
 _DIAGNOSTICS_PROFILE_PRESETS: dict[str, dict[str, object]] = {
-    'standard': {
+    _DIAG_PROFILE_STANDARD: {
         'log_level': 'info',
         'chat_trace_logging': False,
         'chat_trace_redaction_mode': 'minimal',
         'chat_trace_user_retention_days': 30,
         'chat_trace_evaluation_retention_days': 30,
     },
-    'troubleshooting': {
+    _DIAG_PROFILE_TROUBLESHOOTING: {
         'log_level': 'debug',
         'chat_trace_logging': True,
         'chat_trace_redaction_mode': 'minimal',
@@ -172,9 +180,9 @@ _SETTINGS_ALLOWED_VALUE_RULES: dict[str, tuple[tuple[str, ...], bool, str]] = {
         _allowed_values_detail('log_level', config.LOG_LEVEL_ALLOWED_VALUES),
     ),
     'diagnostics_profile': (
-        ('standard', 'troubleshooting', 'custom'),
+        _DIAG_PROFILE_ALLOWED_VALUES,
         True,
-        'diagnostics_profile must be one of: standard, troubleshooting, custom',
+        _allowed_values_detail('diagnostics_profile', _DIAG_PROFILE_ALLOWED_VALUES),
     ),
     'chat_trace_redaction_mode': (
         ('off', 'minimal', 'strict'),
@@ -603,8 +611,8 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                 'chat_trace_evaluation_retention_days',
             )
         ):
-            config.settings.diagnostics_profile = 'custom'
-            config_data['diagnostics_profile'] = 'custom'
+            config.settings.diagnostics_profile = _DIAG_PROFILE_CUSTOM
+            config_data['diagnostics_profile'] = _DIAG_PROFILE_CUSTOM
 
         # Timeout policy internals are backend-managed and derived from scalar cap.
         config_data.pop('scan_timeout_policy', None)

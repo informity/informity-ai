@@ -37,6 +37,7 @@ from informity.db.sqlite import (
     update_scan_record,
 )
 from informity.db.vectors import vector_store
+from informity.indexer.adaptive_tuning import invalidate_tuning_cache, update_tuning_cache
 from informity.indexer.pipeline import reindex_file
 from informity.indexer.term_dictionary_builder import (
     get_term_dictionary_build_status,
@@ -371,38 +372,37 @@ async def _run_reset_task(
             settings.ensure_directories()
 
         # Invalidate adaptive top-k cache (corpus is empty)
-        from informity.indexer.adaptive_tuning import invalidate_tuning_cache
         invalidate_tuning_cache()
 
-        reset_result = {
-            'files_deleted':       db_counts.get('files', 0),
-            'chunks_deleted':      db_counts.get('chunks', 0),
-            'vectors_deleted':     db_counts.get('vec_chunks', 0),
-            'chats_deleted':       db_counts.get('chat_messages', 0),
-            'metrics_deleted':     db_counts.get('response_diagnostics_metrics', 0),
-            'storage_compacted':   bool(db_counts.get('storage_compacted', False)),
-            'compaction_error':    db_counts.get('compaction_error'),
-            'chat_traces_deleted': chat_traces_deleted,
-            'diagnostics_deleted': diagnostics_deleted,
-            'logs_deleted':        logs_deleted,
-            'scoped_reset':        scoped_reset,
-        }
         if scoped_reset:
-            reset_result.update(
-                {
-                    'source_provider': source_provider,
-                    'entity_type': entity_type,
-                    'files_deleted': db_counts.get('files_deleted', 0),
-                    'chunks_deleted': db_counts.get('chunks_deleted', 0),
-                    'vectors_deleted': db_counts.get('vectors_deleted', 0),
-                    'file_failures_deleted': db_counts.get('file_failures_deleted', 0),
-                }
-            )
+            reset_result = {
+                'scoped_reset': True,
+                'source_provider': source_provider,
+                'entity_type': entity_type,
+                'files_deleted': db_counts.get('files_deleted', 0),
+                'chunks_deleted': db_counts.get('chunks_deleted', 0),
+                'vectors_deleted': db_counts.get('vectors_deleted', 0),
+                'file_failures_deleted': db_counts.get('file_failures_deleted', 0),
+            }
+        else:
+            reset_result = {
+                'scoped_reset': False,
+                'files_deleted': db_counts.get('files', 0),
+                'chunks_deleted': db_counts.get('chunks', 0),
+                'vectors_deleted': db_counts.get('vec_chunks', 0),
+                'chats_deleted': db_counts.get('chat_messages', 0),
+                'metrics_deleted': db_counts.get('response_diagnostics_metrics', 0),
+                'storage_compacted': bool(db_counts.get('storage_compacted', False)),
+                'compaction_error': db_counts.get('compaction_error'),
+                'chat_traces_deleted': chat_traces_deleted,
+                'diagnostics_deleted': diagnostics_deleted,
+                'logs_deleted': logs_deleted,
+            }
 
         log.info(
             'index_reset_completed',
             db_counts       = db_counts,
-            vectors_deleted = db_counts.get('vec_chunks', 0),
+            vectors_deleted = reset_result.get('vectors_deleted', 0),
         )
 
     except _INDEX_RUNTIME_EXCEPTIONS as exc:
@@ -542,7 +542,6 @@ async def _run_rebuild_task(scan_id: int) -> None:
 
         # Update adaptive top-k cache after corpus changed (force immediate recompute).
         try:
-            from informity.indexer.adaptive_tuning import update_tuning_cache
             await update_tuning_cache(db, force_recompute=True)
         except (ImportError, _INDEX_RUNTIME_EXCEPTIONS) as exc:
             log.warning('adaptive_tuning_rebuild_update_failed', error=str(exc))

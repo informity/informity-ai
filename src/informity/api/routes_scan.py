@@ -14,6 +14,7 @@ import uuid
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import aiosqlite
 import structlog
@@ -351,7 +352,7 @@ async def list_file_reindex_operations(
 ) -> dict:
     if status not in {'running', 'completed', 'failed', 'all'}:
         raise HTTPException(status_code=400, detail='Invalid status filter')
-    normalized_status = None if status == 'all' else status
+    normalized_status: op_state.FileReindexStatus | None = None if status == 'all' else cast(op_state.FileReindexStatus, status)
     operations = await op_state.list_file_reindex_operations(status=normalized_status)
     return {
         'status': 'ok',
