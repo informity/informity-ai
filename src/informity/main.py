@@ -48,6 +48,7 @@ from informity.api.security import (
     TAURI_SESSION_HEADER,
     get_cors_allow_origins,
     get_tauri_session_token_from_env,
+    is_loopback_host,
     is_tauri_desktop_mode,
     is_tauri_session_authorized,
 )
@@ -513,6 +514,17 @@ class DesktopSessionMiddleware(BaseHTTPMiddleware):
     """
 
     async def dispatch(self, request: Request, call_next):
+        client_host = request.client.host if request.client else None
+        if (
+            not _DESKTOP_SESSION_MODE
+            and request.url.path.startswith('/api')
+            and request.method != 'OPTIONS'
+            and not is_loopback_host(client_host)
+        ):
+            return JSONResponse(
+                status_code=403,
+                content={'detail': 'API is only accessible from localhost in non-desktop mode.'},
+            )
         if (
             _DESKTOP_SESSION_MODE
             and request.url.path.startswith('/api')
@@ -607,6 +619,12 @@ def main() -> None:
     # Run the application with uvicorn.
     # reload=True only when dev_reload is set (e.g. make dev); never in production.
     # access_log=False because we have custom RequestLoggingMiddleware that provides structured logging.
+    if not is_loopback_host(settings.host):
+        log.warning(
+            'non_loopback_host_configured',
+            host=settings.host,
+            msg='API is bound to a non-loopback host; this increases local-network exposure risk.',
+        )
     uvicorn.run(
         app,
         host=settings.host,

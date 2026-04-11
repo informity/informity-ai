@@ -11,6 +11,7 @@ from collections.abc import AsyncGenerator
 import aiosqlite
 import structlog
 
+from informity.api.error_messages import to_client_error_message
 from informity.api.schemas import ChatSourceReference
 from informity.config import settings
 from informity.db.models import ChatMessage
@@ -666,5 +667,5 @@ class RAGHandler:
                 yield item
         except _HANDLER_RUNTIME_EXCEPTIONS as exc:
             log.error('rag_handler_failed', error=str(exc), exc_info=True)
-            yield f"Error: {exc}"
+            yield to_client_error_message(exc)
             yield []

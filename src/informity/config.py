@@ -19,7 +19,7 @@ import structlog
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
-from informity.utils.directory_utils import ensure_directories
+from informity.utils.directory_utils import ensure_directories, ensure_private_file
 from informity.utils.json_utils import serialize_config
 from informity.utils.path_utils import normalize_path, normalize_paths
 
@@ -309,6 +309,9 @@ class Settings(BaseSettings):
     scan_hash_pool: Literal['thread', 'process'] = 'thread'
     # Hash worker count for crawl hashing. 0 = auto (min(4, max(2, cpu_count // 3))).
     scan_hash_workers: int = 0
+    # Max file size (bytes) for scan-time SHA-256 hashing. Oversized files are skipped.
+    # This prevents long scan stalls on very large binaries and media blobs.
+    scan_hash_max_file_size_bytes: int = 500 * 1024 * 1024  # 500 MB
 
     # -- Indexer --------------------------------------------------------------
     chunk_size_tokens:    int = 512  # Parent chunk size (for context windows)
@@ -757,6 +760,7 @@ def reset_to_factory_defaults() -> Settings:
         serialize_config(default_config),
         encoding='utf-8',
     )
+    ensure_private_file(config_path)
     log.info('config_file_written_factory_defaults', path=str(config_path))
 
     # Rebuild settings (will load default config; profile supplies all other defaults)

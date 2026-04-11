@@ -32,6 +32,7 @@ from informity.db.utils import (
 )
 from informity.diagnostics.issue_types import IssueType
 from informity.llm.types import ChatRole, DiagnosticsQueryType
+from informity.utils.directory_utils import ensure_private_file
 
 # ==============================================================================
 # Logger
@@ -509,6 +510,8 @@ async def init_db() -> None:
             '''
         )
         await conn.commit()
+        if settings.db_path is not None:
+            ensure_private_file(settings.db_path)
         await _compact_empty_db_if_bloated(conn)
         log.info('database_initialized', schema_version=SCHEMA_VERSION)
     finally:
