@@ -35,6 +35,7 @@ from informity.scanner.extractors.base import (
     BaseExtractor,
     get_extractor,
 )
+from informity.scanner.extractors.text_utils import MAX_FILE_SIZE_BYTES
 from informity.sources.base import FILESYSTEM_PROVIDER
 from informity.utils.path_utils import normalize_path
 
@@ -439,6 +440,17 @@ async def index_file(
             # Get metadata from file system
             stat = file_path.stat()
             size_bytes = stat.st_size
+            if size_bytes > MAX_FILE_SIZE_BYTES:
+                return IndexResult(
+                    success=False,
+                    chunks_created=0,
+                    error=(
+                        f'File too large to index directly ({size_bytes / (1024 * 1024):.1f} MB). '
+                        f'Max allowed: {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB.'
+                    ),
+                    error_code='file_too_large',
+                    retryable=False,
+                )
             modified_at = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
             filename = file_path.name
             extension = file_path.suffix

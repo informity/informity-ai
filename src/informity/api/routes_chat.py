@@ -51,6 +51,7 @@ from informity.api.chat_orchestrator import ChatOrchestrator
 from informity.api.chat_sources import merge_sources, serialize_sources
 from informity.api.chat_sse import SSE_PHASE_ORDER, SseContractTracker, SseStatusEmitter
 from informity.api.chat_stream_registry import CHAT_STREAM_REGISTRY
+from informity.api.error_messages import to_client_error_message
 from informity.api.schemas import (
     ChatPreferencesUpdateRequest,
     ChatRequest,
@@ -1175,7 +1176,10 @@ async def chat(
                     })
                     await _flush_trace_writer_safe()
                 _update_sse_phase('error')
-                yield {'event': 'error', 'data': serialize_api_response({'error': str(exc)})}
+                yield {
+                    'event': 'error',
+                    'data': serialize_api_response({'error': to_client_error_message(exc)}),
+                }
 
             completion_mode, done_has_remaining_scope, next_action, next_action_reason = (
                 resolve_completion_and_action(

@@ -31,7 +31,7 @@ from informity.api.schemas import (
 from informity.file_types import get_file_type_options
 from informity.llm.model_adapter import discover_available_models, get_profile_for_filename
 from informity.scanner.watcher import invalidate_watcher_cache
-from informity.utils.directory_utils import ensure_file_directory
+from informity.utils.directory_utils import ensure_file_directory, ensure_private_file
 from informity.utils.json_utils import serialize_config
 from informity.utils.path_utils import resolve_and_check_path
 
@@ -240,7 +240,9 @@ def _write_config_file(data: dict) -> None:
         serialize_config(data),
         encoding='utf-8',
     )
+    ensure_private_file(temp_path)
     temp_path.replace(config_path)
+    ensure_private_file(config_path)
     log.info('config_file_written', path=str(config_path))
 
 

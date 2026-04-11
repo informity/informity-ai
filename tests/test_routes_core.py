@@ -189,7 +189,9 @@ async def test_get_diagnostics_returns_system_and_index_stats(
 
     monkeypatch.setattr(routes_system, 'get_db', _fake_get_db)
 
-    diagnostics = await routes_system.get_diagnostics(request=MagicMock())
+    diagnostics = await routes_system.get_diagnostics(
+        request=SimpleNamespace(client=SimpleNamespace(host='127.0.0.1')),
+    )
     assert diagnostics.total_files == 5
     assert diagnostics.total_chunks == 12
     assert diagnostics.indexed_content_size_bytes == 2048
@@ -204,6 +206,14 @@ async def test_shutdown_rejects_non_localhost() -> None:
     request = SimpleNamespace(client=SimpleNamespace(host='10.0.0.8'))
     with pytest.raises(HTTPException) as exc_info:
         await routes_system.shutdown(request=request)
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_rejects_non_localhost() -> None:
+    request = SimpleNamespace(client=SimpleNamespace(host='10.0.0.8'))
+    with pytest.raises(HTTPException) as exc_info:
+        await routes_system.get_diagnostics(request=request)
     assert exc_info.value.status_code == 403
 
 

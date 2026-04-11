@@ -126,6 +126,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('embedding_max_threads', 'Max CPU threads for embedding model (0 = auto; set lower to keep system responsive).'),
             ('scan_hash_pool', 'Hash executor for scan crawling: thread (default) or process.'),
             ('scan_hash_workers', 'Hash worker count for scan crawling (0 = auto).'),
+            ('scan_hash_max_file_size_bytes', 'Maximum file size (bytes) eligible for scan-time SHA-256 hashing. Oversized files are skipped.'),
         ],
     ),
     (
@@ -202,6 +203,8 @@ _RUNTIME_ENV_VARS: list[tuple[str, str]] = [
         'Desktop runtime session token for local API authorization (managed by the desktop shell).',
     ),
 ]
+_SENSITIVE_ENV_VALUE_MARKER = '***set***'
+_SENSITIVE_ENV_NAME_HINTS = ('TOKEN', 'SECRET', 'PASSWORD', 'KEY')
 
 
 def _describe_unmapped_field(field: str) -> str:
@@ -211,6 +214,17 @@ def _describe_unmapped_field(field: str) -> str:
         f'Advanced setting: {label}. '
         f'Configurable via {_env_name(field)}.'
     )
+
+
+def _format_runtime_env_default(name: str) -> str:
+    # Redact runtime secrets while still indicating presence.
+    raw = str(os.environ.get(name, '')).strip()
+    if not raw:
+        return ''
+    upper_name = str(name or '').upper()
+    if any(hint in upper_name for hint in _SENSITIVE_ENV_NAME_HINTS):
+        return _SENSITIVE_ENV_VALUE_MARKER
+    return raw
 
 
 def get_env_vars_response(settings: object) -> EnvVarsResponse:
@@ -263,7 +277,7 @@ def get_env_vars_response(settings: object) -> EnvVarsResponse:
     runtime_items = [
         EnvVarItem(
             name=name,
-            default=str(os.environ.get(name, '')).strip(),
+            default=_format_runtime_env_default(name),
             description=desc,
         )
         for name, desc in sorted(_RUNTIME_ENV_VARS, key=lambda x: x[0])

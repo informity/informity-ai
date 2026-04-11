@@ -34,6 +34,7 @@ from informity.api.schemas import (
     SetupStatusResponse,
     SetupTierOption,
 )
+from informity.api.security import is_loopback_host
 from informity.api.setup_state import SetupState
 from informity.config import (
     APP_DISPLAY_NAME,
@@ -1015,6 +1016,13 @@ async def get_diagnostics(request: Request) -> DiagnosticsResponse:
     Returns system diagnostics: app version, Python version, OS, RAM, disk space,
     model info, DB stats, uptime. Useful for debugging issues in packaged builds.
     """
+    client_host = request.client.host if request.client else None
+    if not is_loopback_host(client_host):
+        raise HTTPException(
+            status_code=403,
+            detail='Diagnostics endpoint is only accessible from localhost',
+        )
+
     # Get Python and platform info
     python_version = platform.python_version()
     platform_name = platform.system()
@@ -1112,7 +1120,7 @@ async def shutdown(request: Request) -> ShutdownResponse:
     """
     # Security: only allow shutdown from localhost
     client_host = request.client.host if request.client else None
-    if client_host not in ('127.0.0.1', 'localhost', '::1'):
+    if not is_loopback_host(client_host):
         raise HTTPException(
             status_code=403,
             detail='Shutdown endpoint is only accessible from localhost',
