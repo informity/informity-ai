@@ -424,7 +424,7 @@ async def index_file(
                 extension = f'.{extension}'
             modified_at = item.modified_at or datetime.now(UTC)
             content_hash = item.content_hash or hashlib.sha256(item.content_text.encode('utf-8')).hexdigest()
-            size_bytes = int(item.metadata.get('size_bytes') or len((item.content_text or '').encode('utf-8')))
+            size_bytes = int(item.size_bytes or item.metadata.get('size_bytes') or len((item.content_text or '').encode('utf-8')))
             # IngestionItem provides normalized text directly.
             doc_text = item.content_text or ''
             file_metadata = {

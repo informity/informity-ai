@@ -137,9 +137,9 @@ _SETTINGS_RANGE_RULES: dict[str, tuple[float, float, str]] = {
     ),
     'llm_cpu_threads': (0, 32, 'llm_cpu_threads must be between 0 and 32 (0 = automatic)'),
     'scan_file_timeout_seconds': (
-        0,
+        1,
         600,
-        'scan_file_timeout_seconds must be between 0 and 600',
+        'scan_file_timeout_seconds must be between 1 and 600',
     ),
     'scan_hash_workers': (0, 32, 'scan_hash_workers must be between 0 and 32 (0 = automatic)'),
     'web_search_max_results': (1, 10, 'web_search_max_results must be between 1 and 10'),
@@ -518,6 +518,15 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                 value = (value or '').strip()
                 if not value:
                     raise HTTPException(status_code=400, detail='rag_reranker_model cannot be empty')
+            if field_name == 'scan_file_timeout_seconds' and value is not None:
+                policy = config.settings.scan_timeout_policy
+                policy.default.max_seconds = int(value)
+                if 'filesystem:file' in policy.overrides:
+                    policy.overrides['filesystem:file'].max_seconds = int(value)
+                config.settings.scan_timeout_policy = policy
+                config.settings.scan_file_timeout_seconds = int(value)
+                config_data[field_name] = int(value)
+                continue
             if field_name == 'diagnostics_profile' and value is not None:
                 diagnostics_profile_value = value
                 continue
@@ -596,6 +605,9 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
         ):
             config.settings.diagnostics_profile = 'custom'
             config_data['diagnostics_profile'] = 'custom'
+
+        # Timeout policy internals are backend-managed and derived from scalar cap.
+        config_data.pop('scan_timeout_policy', None)
 
         # Cross-field validation: ensure chunk_overlap_tokens < chunk_size_tokens
         if config.settings.chunk_overlap_tokens >= config.settings.chunk_size_tokens:

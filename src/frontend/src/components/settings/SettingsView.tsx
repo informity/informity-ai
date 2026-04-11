@@ -243,7 +243,7 @@ function buildFormState(settings: SettingsData): FormState {
     embedding_max_threads: settings.embedding_max_threads ?? 6,
     llm_cpu_threads: settings.llm_cpu_threads ?? 4,
     enable_ocr_for_images: settings.enable_ocr_for_images ?? true,
-    scan_file_timeout_seconds: settings.scan_file_timeout_seconds ?? 300,
+    scan_file_timeout_seconds: settings.scan_file_timeout_seconds ?? 600,
     full_privacy: settings.full_privacy ?? true,
     tavily_api_key: settings.tavily_api_key_set ? MASKED_TAVILY_KEY : '',
     clear_tavily_api_key: false,
@@ -1192,17 +1192,17 @@ export function SettingsView({
               File Processing Timeout
             </div>
             <p className="settings-subsection-description ui-subsection-description">
-              Maximum time allowed to process a single file. Increase this for very large or complex PDFs. Setting to 0 disables the timeout, which may cause a scan to stall on a problematic file.
+              Timeout cap for single-file processing. Dynamic scoped timeout policy is applied internally; this value controls the hard cap.
             </p>
           </div>
           <input
             id="scan-file-timeout"
             type="number"
             className="settings-input settings-input--number"
-            min={0}
+            min={1}
             max={600}
-            value={form.scan_file_timeout_seconds ?? 300}
-            onChange={(e) => update('scan_file_timeout_seconds', clamp(parseInteger(e.target.value, 300), 0, 600))}
+            value={form.scan_file_timeout_seconds ?? 600}
+            onChange={(e) => update('scan_file_timeout_seconds', clamp(parseInteger(e.target.value, 600), 1, 600))}
           />
         </div>
 

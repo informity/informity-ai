@@ -139,6 +139,7 @@ def _compute_disk_sizes() -> tuple[int, int]:
 @router.get('/api/index/status', response_model=IndexStatusResponse)
 async def get_index_status(
     db: aiosqlite.Connection = Depends(get_db),
+    include_source_scope_stats: bool = False,
 ) -> IndexStatusResponse:
     # Gather statistics from SQLite (including vector storage).
     reset_in_progress, last_reset_result = await op_state.get_reset_state_snapshot()
@@ -181,7 +182,9 @@ async def get_index_status(
 
     indexed_content_size_bytes = await get_indexed_content_size_bytes(db)
     chat_count                 = await get_chat_count(db)
-    source_scope_stats         = await get_index_scope_counts(db)
+    source_scope_stats: list[dict[str, object]] = []
+    if include_source_scope_stats:
+        source_scope_stats = await get_index_scope_counts(db)
 
     # Compute DB and model directory sizes in a thread to avoid blocking the event loop
     db_size_bytes, model_size_bytes = await asyncio.to_thread(_compute_disk_sizes)

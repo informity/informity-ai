@@ -183,6 +183,20 @@ export interface IndexedFile {
   chunk_count?: number
 }
 
+export type FileReindexOperationStatus = 'running' | 'completed' | 'failed'
+
+export interface FileReindexOperation {
+  operation_id: string
+  operation_type: 'file_reindex'
+  file_id: number
+  filename: string
+  status: FileReindexOperationStatus
+  started_at: string
+  completed_at?: string | null
+  error?: string | null
+  chunks_created?: number | null
+}
+
 export interface ChatListItem {
   chat_id: string
   title?: string

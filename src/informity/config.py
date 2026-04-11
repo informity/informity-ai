@@ -19,6 +19,7 @@ import structlog
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
+from informity.timeout_policy import ScopedTimeoutPolicy, default_scoped_timeout_policy
 from informity.utils.directory_utils import ensure_directories, ensure_private_file
 from informity.utils.json_utils import serialize_config
 from informity.utils.path_utils import normalize_path, normalize_paths
@@ -299,11 +300,11 @@ class Settings(BaseSettings):
             'mail.outlook:mail': False,
         }
     )
-    # Per-file processing timeout during scan/index (seconds). Prevents a single
-    # broken or corrupted file from stalling the entire scan indefinitely.
-    # Set to 0 to disable (not recommended — a hung file will block the scan forever).
-    # Default 300s (5 min) handles large PDFs; increase for very large/complex documents.
-    scan_file_timeout_seconds: int = 300
+    # User-facing timeout cap (seconds) for single-item processing.
+    # Runtime timeout policy uses this value as the default/override hard cap.
+    scan_file_timeout_seconds: int = 600
+    # Shared per-item timeout policy by source scope.
+    scan_timeout_policy: ScopedTimeoutPolicy = Field(default_factory=default_scoped_timeout_policy)
     # Running-scan stale detection threshold (seconds) used when a new scan/rebuild
     # request checks for already-running operations.
     scan_stale_threshold_seconds: int = 300
@@ -582,6 +583,14 @@ class Settings(BaseSettings):
             self.logs_dir = self.app_data_dir / DirNames.LOGS
         if self.diagnostics_dir is None:
             self.diagnostics_dir = self.app_data_dir / DirNames.DIAGNOSTICS
+
+        self.scan_timeout_policy = default_scoped_timeout_policy()
+        timeout_cap = int(self.scan_file_timeout_seconds)
+        timeout_cap = max(1, min(600, timeout_cap))
+        self.scan_file_timeout_seconds = timeout_cap
+        self.scan_timeout_policy.default.max_seconds = timeout_cap
+        if 'filesystem:file' in self.scan_timeout_policy.overrides:
+            self.scan_timeout_policy.overrides['filesystem:file'].max_seconds = timeout_cap
 
         return self
 
