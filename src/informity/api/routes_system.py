@@ -196,9 +196,9 @@ def _recommend_setup_tier(*, ram_total_gb: float, free_disk_gb: float) -> tuple[
         return 'small', 'Low free disk detected; smaller model is safer for setup.'
     if ram_total_gb >= 32.0:
         return 'quality', 'Detected >=32 GB RAM; quality tier fits this device best.'
-    if ram_total_gb >= 16.0:
-        return 'balanced', 'Detected >=16 GB RAM; balanced tier is recommended.'
-    return 'small', 'Detected <16 GB RAM; small tier is recommended for reliability.'
+    if ram_total_gb >= 24.0:
+        return 'balanced', 'Detected >=24 GB RAM; balanced tier is recommended.'
+    return 'small', 'Detected <24 GB RAM; small tier is recommended for reliability.'
 
 
 def _setup_state_path() -> Path:
