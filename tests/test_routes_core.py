@@ -126,7 +126,13 @@ async def test_get_index_status_aggregates_counts_and_sizes(monkeypatch: pytest.
     assert status.db_size_bytes == 111
     assert status.model_size_bytes == 222
     assert status.last_reset_result == {'ok': True}
-    assert status.source_scope_stats == [
+    assert status.source_scope_stats == []
+
+    status_with_scope = await routes_index.get_index_status(
+        db=MagicMock(),
+        include_source_scope_stats=True,
+    )
+    assert status_with_scope.source_scope_stats == [
         {'source_provider': 'filesystem', 'entity_type': 'file', 'files_count': 7, 'chunks_count': 30}
     ]
 

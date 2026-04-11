@@ -66,6 +66,23 @@ CANONICAL_DIAGNOSTICS_TYPES = (DIAGNOSTICS_TYPE_USER, DIAGNOSTICS_TYPE_EVALUATIO
 CANONICAL_DIAGNOSTICS_QUERY_TYPES = tuple(item.value for item in DiagnosticsQueryType)
 CANONICAL_DIAGNOSTICS_ISSUE_TYPES = tuple(sorted(issue.value for issue in IssueType))
 
+_FTS_TRIGGERS_SQL = """
+CREATE TRIGGER IF NOT EXISTS fts_chunks_ai AFTER INSERT ON vec_chunks BEGIN
+    INSERT INTO fts_chunks(rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
+    VALUES (new.chunk_id, new.chunk_text, new.chunk_id, new.file_id, new.file_path, new.year, new.filename, new.extension, new.category);
+END;
+
+CREATE TRIGGER IF NOT EXISTS fts_chunks_ad AFTER DELETE ON vec_chunks BEGIN
+    DELETE FROM fts_chunks WHERE rowid = old.chunk_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS fts_chunks_au AFTER UPDATE ON vec_chunks BEGIN
+    DELETE FROM fts_chunks WHERE rowid = old.chunk_id;
+    INSERT INTO fts_chunks(rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
+    VALUES (new.chunk_id, new.chunk_text, new.chunk_id, new.file_id, new.file_path, new.year, new.filename, new.extension, new.category);
+END;
+"""
+
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY
@@ -303,22 +320,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(
     tokenize='porter unicode61'
 );
 
-CREATE TRIGGER IF NOT EXISTS fts_chunks_ai AFTER INSERT ON vec_chunks BEGIN
-    INSERT INTO fts_chunks(rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
-    VALUES (new.chunk_id, new.chunk_text, new.chunk_id, new.file_id, new.file_path, new.year, new.filename, new.extension, new.category);
-END;
-
-CREATE TRIGGER IF NOT EXISTS fts_chunks_ad AFTER DELETE ON vec_chunks BEGIN
-    INSERT INTO fts_chunks(fts_chunks, rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
-    VALUES ('delete', old.chunk_id, old.chunk_text, old.chunk_id, old.file_id, old.file_path, old.year, old.filename, old.extension, old.category);
-END;
-
-CREATE TRIGGER IF NOT EXISTS fts_chunks_au AFTER UPDATE ON vec_chunks BEGIN
-    INSERT INTO fts_chunks(fts_chunks, rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
-    VALUES ('delete', old.chunk_id, old.chunk_text, old.chunk_id, old.file_id, old.file_path, old.year, old.filename, old.extension, old.category);
-    INSERT INTO fts_chunks(rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
-    VALUES (new.chunk_id, new.chunk_text, new.chunk_id, new.file_id, new.file_path, new.year, new.filename, new.extension, new.category);
-END;
+""" + _FTS_TRIGGERS_SQL + """
 
 CREATE TABLE IF NOT EXISTS term_dictionary_state (
     singleton_id INTEGER PRIMARY KEY CHECK(singleton_id = 1),
@@ -502,6 +504,12 @@ async def init_db() -> None:
 
         # Ensure index exists
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_chunks_parent_id ON chunks(parent_id)')
+        # Ensure FTS triggers are on the current syntax. Older trigger variants
+        # using fts5 "delete" pseudo-inserts can raise SQL logic error on DELETE.
+        await conn.execute('DROP TRIGGER IF EXISTS fts_chunks_ai')
+        await conn.execute('DROP TRIGGER IF EXISTS fts_chunks_ad')
+        await conn.execute('DROP TRIGGER IF EXISTS fts_chunks_au')
+        await conn.executescript(_FTS_TRIGGERS_SQL)
 
         await conn.execute('DELETE FROM schema_version')
         await conn.execute(
@@ -1110,6 +1118,15 @@ async def insert_chunks_batch(db: aiosqlite.Connection, file_id: int, chunks: li
     if not chunks:
         return []
 
+    # Capture ID watermark before insert so we can fetch exactly the rows we
+    # inserted, avoiding ambiguous remapping when chunk_index values repeat.
+    max_id_cursor = await db.execute(
+        'SELECT COALESCE(MAX(id), 0) AS max_id FROM chunks WHERE file_id = ?',
+        (file_id,),
+    )
+    max_id_row = await max_id_cursor.fetchone()
+    id_watermark = int(max_id_row['max_id']) if max_id_row else 0
+
     await db.executemany(
         """
         INSERT INTO chunks (
@@ -1136,51 +1153,21 @@ async def insert_chunks_batch(db: aiosqlite.Connection, file_id: int, chunks: li
     )
     await db.commit()
 
-    # Fetch ONLY the IDs of the chunks we just inserted (match by chunk_index AND parent_id)
-    # This is critical: we must return only the newly inserted chunks, not all chunks for the file.
-    # Parent and child chunks can share chunk_index values, so we must also match by parent_id
-    # to distinguish them. Otherwise, when inserting children after parents, we'd return parent IDs.
-    chunk_indices = [c.chunk_index for c in chunks]
-    # Determine parent_id filter: if all chunks have parent_id=None, filter for parents;
-    # if all have parent_id set, filter for children; if mixed, we need per-chunk matching
-    parent_id_values = [c.parent_id for c in chunks]
-    all_parents = all(pid is None for pid in parent_id_values)
-    all_children = all(pid is not None for pid in parent_id_values)
-
-    if all_parents:
-        # All chunks are parents (parent_id IS NULL)
-        placeholders = ','.join('?' * len(chunk_indices))
-        cursor = await db.execute(
-            f'SELECT id FROM chunks WHERE file_id = ? AND chunk_index IN ({placeholders}) AND parent_id IS NULL ORDER BY chunk_index',
-            (file_id, *chunk_indices),
-        )
-    elif all_children:
-        # All chunks are children (parent_id IS NOT NULL)
-        placeholders = ','.join('?' * len(chunk_indices))
-        cursor = await db.execute(
-            f'SELECT id FROM chunks WHERE file_id = ? AND chunk_index IN ({placeholders}) AND parent_id IS NOT NULL ORDER BY chunk_index',
-            (file_id, *chunk_indices),
-        )
-    else:
-        # Mixed: need to match each chunk individually by (chunk_index, parent_id)
-        # Build a query that matches each (chunk_index, parent_id) pair
-        conditions = []
-        params = [file_id]
-        for c in chunks:
-            if c.parent_id is None:
-                conditions.append('(chunk_index = ? AND parent_id IS NULL)')
-            else:
-                conditions.append('(chunk_index = ? AND parent_id = ?)')
-            params.append(c.chunk_index)
-            if c.parent_id is not None:
-                params.append(c.parent_id)
-        where_clause = ' OR '.join(conditions)
-        cursor = await db.execute(
-            f'SELECT id FROM chunks WHERE file_id = ? AND ({where_clause}) ORDER BY chunk_index',
-            params,
-        )
-
+    cursor = await db.execute(
+        '''
+        SELECT id
+        FROM chunks
+        WHERE file_id = ? AND id > ?
+        ORDER BY id ASC
+        ''',
+        (file_id, id_watermark),
+    )
     rows = await cursor.fetchall()
+    if len(rows) != len(chunks):
+        raise RuntimeError(
+            f'Chunk insert ID mapping mismatch for file_id={file_id}: '
+            f'expected {len(chunks)} new rows, got {len(rows)}'
+        )
     return [row['id'] for row in rows]
 
 

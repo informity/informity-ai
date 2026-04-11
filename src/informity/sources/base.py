@@ -32,6 +32,7 @@ class IngestionItem:
     author: str | None
     modified_at: datetime | None
     content_text: str
+    size_bytes: int
     content_hash: str
     metadata: dict[str, object]
     attachments: list[Path]
