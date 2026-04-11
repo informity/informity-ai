@@ -17,8 +17,8 @@ from watchdog.events import FileMovedEvent, FileSystemEvent, FileSystemEventHand
 from watchdog.observers import Observer
 
 from informity.config import get_effective_ignore_patterns, settings
-from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE
 from informity.scanner.crawler import should_ignore
+from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE
 from informity.utils.path_utils import normalize_path, resolve_and_check_path
 
 # ==============================================================================
