@@ -8,6 +8,10 @@ from typing import Any, Protocol
 SourceProvider = str
 SourceItemId = str
 FILESYSTEM_PROVIDER: SourceProvider = 'filesystem'
+MAIL_APPLE_PROVIDER: SourceProvider = 'mail.apple'
+MAIL_OUTLOOK_PROVIDER: SourceProvider = 'mail.outlook'
+SOURCE_ENTITY_FILE = 'file'
+SOURCE_ENTITY_MAIL = 'mail'
 
 
 @dataclass(frozen=True)

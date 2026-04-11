@@ -67,7 +67,7 @@ from informity.scanner.crawler import (
     scanned_file_for_path,
 )
 from informity.scanner.extractors.base import register_extractors
-from informity.sources.base import FILESYSTEM_PROVIDER
+from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE
 from informity.sources.orchestrator import build_default_orchestrator
 from informity.utils.path_utils import normalize_path
 
@@ -779,8 +779,17 @@ async def _run_scan_task(
         async with op_state.get_ingestion_lock():
             if await _cancel_requested('pre_compare'):
                 return
-            db_files = await get_all_files_for_scan(db)
-            changes  = compare_with_db(scanned_files, db_files)
+            db_files = await get_all_files_for_scan(
+                db,
+                source_provider=FILESYSTEM_PROVIDER,
+                entity_type=SOURCE_ENTITY_FILE,
+            )
+            changes  = compare_with_db(
+                scanned_files,
+                db_files,
+                source_provider=FILESYSTEM_PROVIDER,
+                entity_type=SOURCE_ENTITY_FILE,
+            )
 
             async def _filter_retry_suppressed(files: list[ScannedFile]) -> tuple[list[ScannedFile], int]:
                 kept: list[ScannedFile] = []
@@ -789,8 +798,10 @@ async def _run_scan_task(
                     normalized_path = str(normalize_path(sf.path, expand_user=False))
                     skip, error_code = await should_skip_file_retry(
                         db,
-                        normalized_path,
-                        sf.content_hash,
+                        source_provider=FILESYSTEM_PROVIDER,
+                        entity_type=SOURCE_ENTITY_FILE,
+                        source_item_id=normalized_path,
+                        content_hash=sf.content_hash,
                     )
                     if not skip:
                         kept.append(sf)
@@ -860,10 +871,18 @@ async def _run_scan_task(
                 normalized_path = str(normalize_path(sf.path, expand_user=False))
                 # Persist failure/success state for retry suppression across scans.
                 if result.success:
-                    await clear_file_failure(db, normalized_path)
+                    await clear_file_failure(
+                        db,
+                        source_provider=FILESYSTEM_PROVIDER,
+                        entity_type=SOURCE_ENTITY_FILE,
+                        source_item_id=normalized_path,
+                    )
                 else:
                     await record_file_failure(
                         db,
+                        source_provider=FILESYSTEM_PROVIDER,
+                        entity_type=SOURCE_ENTITY_FILE,
+                        source_item_id=normalized_path,
                         path=normalized_path,
                         content_hash=sf.content_hash,
                         error_code=result.error_code,
@@ -889,10 +908,18 @@ async def _run_scan_task(
                     raise
                 normalized_path = str(normalize_path(sf.path, expand_user=False))
                 if result.success:
-                    await clear_file_failure(db, normalized_path)
+                    await clear_file_failure(
+                        db,
+                        source_provider=FILESYSTEM_PROVIDER,
+                        entity_type=SOURCE_ENTITY_FILE,
+                        source_item_id=normalized_path,
+                    )
                 else:
                     await record_file_failure(
                         db,
+                        source_provider=FILESYSTEM_PROVIDER,
+                        entity_type=SOURCE_ENTITY_FILE,
+                        source_item_id=normalized_path,
                         path=normalized_path,
                         content_hash=sf.content_hash,
                         error_code=result.error_code,
@@ -919,10 +946,18 @@ async def _run_scan_task(
                         raise
                     normalized_path = str(normalize_path(sf.path, expand_user=False))
                     if result.success:
-                        await clear_file_failure(db, normalized_path)
+                        await clear_file_failure(
+                            db,
+                            source_provider=FILESYSTEM_PROVIDER,
+                            entity_type=SOURCE_ENTITY_FILE,
+                            source_item_id=normalized_path,
+                        )
                     else:
                         await record_file_failure(
                             db,
+                            source_provider=FILESYSTEM_PROVIDER,
+                            entity_type=SOURCE_ENTITY_FILE,
+                            source_item_id=normalized_path,
                             path=normalized_path,
                             content_hash=sf.content_hash,
                             error_code=result.error_code,

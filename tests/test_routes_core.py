@@ -105,6 +105,11 @@ async def test_get_index_status_aggregates_counts_and_sizes(monkeypatch: pytest.
     monkeypatch.setattr(routes_index, 'get_chat_count', AsyncMock(return_value=2))
     monkeypatch.setattr(
         routes_index,
+        'get_index_scope_counts',
+        AsyncMock(return_value=[{'source_provider': 'filesystem', 'entity_type': 'file', 'files_count': 7, 'chunks_count': 30}]),
+    )
+    monkeypatch.setattr(
+        routes_index,
         'get_latest_completed_scan',
         AsyncMock(return_value=SimpleNamespace(completed_at=datetime(2026, 2, 1, tzinfo=UTC))),
     )
@@ -121,6 +126,9 @@ async def test_get_index_status_aggregates_counts_and_sizes(monkeypatch: pytest.
     assert status.db_size_bytes == 111
     assert status.model_size_bytes == 222
     assert status.last_reset_result == {'ok': True}
+    assert status.source_scope_stats == [
+        {'source_provider': 'filesystem', 'entity_type': 'file', 'files_count': 7, 'chunks_count': 30}
+    ]
 
 
 @pytest.mark.asyncio

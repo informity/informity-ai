@@ -27,11 +27,13 @@ from informity.db.sqlite import (
     get_db,
     get_file_count,
     get_index_integrity_issues,
+    get_index_scope_counts,
     get_indexed_content_size_bytes,
     get_latest_completed_scan,
     insert_scan_record,
     purge_term_dictionary,
     reset_all_data,
+    reset_index_data_scope,
     update_scan_record,
 )
 from informity.db.vectors import vector_store
@@ -42,7 +44,7 @@ from informity.indexer.term_dictionary_builder import (
 )
 from informity.scanner.crawler import scanned_file_for_path
 from informity.scanner.extractors.base import register_extractors
-from informity.sources.base import FILESYSTEM_PROVIDER
+from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE
 
 # ==============================================================================
 # Logger
@@ -157,6 +159,7 @@ async def get_index_status(
             indexed_content_size_bytes = 0,
             reset_in_progress          = True,
             last_reset_result          = last_reset_result,
+            source_scope_stats         = [],
         )
 
     total_files  = await get_file_count(db)
@@ -178,6 +181,7 @@ async def get_index_status(
 
     indexed_content_size_bytes = await get_indexed_content_size_bytes(db)
     chat_count                 = await get_chat_count(db)
+    source_scope_stats         = await get_index_scope_counts(db)
 
     # Compute DB and model directory sizes in a thread to avoid blocking the event loop
     db_size_bytes, model_size_bytes = await asyncio.to_thread(_compute_disk_sizes)
@@ -194,6 +198,7 @@ async def get_index_status(
         indexed_content_size_bytes = indexed_content_size_bytes,
         reset_in_progress          = reset_in_progress,
         last_reset_result          = last_reset_result,
+        source_scope_stats         = source_scope_stats,
     )
 
 
@@ -205,6 +210,8 @@ async def get_index_status(
 async def reset_index(
     background_tasks: BackgroundTasks,
     force: bool = False,
+    source_provider: str | None = None,
+    entity_type: str | None = None,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
     # Delete ALL user data: files, chunks, vectors, scan history,
@@ -215,6 +222,14 @@ async def reset_index(
     # Runs in background so the request returns immediately.
 
     async with op_state.get_scan_operation_lock():
+        source_provider = (source_provider or '').strip().lower() or None
+        entity_type = (entity_type or '').strip().lower() or None
+        if (source_provider is None) != (entity_type is None):
+            raise HTTPException(
+                status_code=400,
+                detail='source_provider and entity_type must be provided together for scoped reset.',
+            )
+
         if not await op_state.try_begin_reset():
             raise HTTPException(
                 status_code=409,
@@ -232,8 +247,18 @@ async def reset_index(
             await op_state.finish_reset(result=None)
             raise
 
-    background_tasks.add_task(_run_reset_task)
-    return {'status': 'reset_started'}
+    background_tasks.add_task(
+        _run_reset_task,
+        source_provider=source_provider,
+        entity_type=entity_type,
+    )
+    payload = {'status': 'reset_started'}
+    if source_provider and entity_type:
+        payload['scope'] = {
+            'source_provider': source_provider,
+            'entity_type': entity_type,
+        }
+    return payload
 
 
 @router.get('/api/index/term-dictionary/status')
@@ -262,7 +287,11 @@ async def purge_term_dictionary_now(
 # Background Reset Task
 # ==============================================================================
 
-async def _run_reset_task() -> None:
+async def _run_reset_task(
+    *,
+    source_provider: str | None = None,
+    entity_type: str | None = None,
+) -> None:
     from informity.db.sqlite import get_connection
 
     clear_contextvars()
@@ -276,15 +305,26 @@ async def _run_reset_task() -> None:
     reset_result: dict | None = None
 
     try:
+        scoped_reset = bool(source_provider and entity_type)
+
         # Phase 1: Stop active operations first (chat streams) to release locks.
-        stopped_streams = await CHAT_STREAM_REGISTRY.stop_all()
-        if stopped_streams > 0:
-            await asyncio.sleep(0.25)
-            log.info('reset_stopped_active_chat_streams', stream_count=stopped_streams)
+        if not scoped_reset:
+            stopped_streams = await CHAT_STREAM_REGISTRY.stop_all()
+            if stopped_streams > 0:
+                await asyncio.sleep(0.25)
+                log.info('reset_stopped_active_chat_streams', stream_count=stopped_streams)
 
         # Phase 2: Reset database state.
         db = await get_connection()
-        db_counts = await reset_all_data(db)
+        db_counts: dict[str, object]
+        if scoped_reset and source_provider and entity_type:
+            db_counts = await reset_index_data_scope(
+                db,
+                source_provider=source_provider,
+                entity_type=entity_type,
+            )
+        else:
+            db_counts = await reset_all_data(db)
 
         # Phase 3: Delete user-generated directories.
         # Chat traces live under app_data_dir/chats/ when chat trace logging is enabled.
@@ -294,37 +334,38 @@ async def _run_reset_task() -> None:
         diagnostics_deleted = False
         logs_deleted = False
 
-        chat_traces_dir = settings.app_data_dir / DirNames.CHAT_LOGS
-        if chat_traces_dir.exists():
-            try:
-                await asyncio.to_thread(shutil.rmtree, chat_traces_dir)
-                chat_traces_deleted = True
-                log.info('chat_traces_deleted', path=str(chat_traces_dir))
-            except _INDEX_CLEANUP_EXCEPTIONS as exc:
-                log.error('reset_chat_traces_failed', error=str(exc), exc_info=True)
+        if not scoped_reset:
+            chat_traces_dir = settings.app_data_dir / DirNames.CHAT_LOGS
+            if chat_traces_dir.exists():
+                try:
+                    await asyncio.to_thread(shutil.rmtree, chat_traces_dir)
+                    chat_traces_deleted = True
+                    log.info('chat_traces_deleted', path=str(chat_traces_dir))
+                except _INDEX_CLEANUP_EXCEPTIONS as exc:
+                    log.error('reset_chat_traces_failed', error=str(exc), exc_info=True)
 
-        if settings.diagnostics_dir and settings.diagnostics_dir.exists():
-            try:
-                await asyncio.to_thread(shutil.rmtree, settings.diagnostics_dir)
-                diagnostics_deleted = True
-                log.info('diagnostics_deleted', path=str(settings.diagnostics_dir))
-            except _INDEX_CLEANUP_EXCEPTIONS as exc:
-                log.error('reset_diagnostics_failed', error=str(exc), exc_info=True)
+            if settings.diagnostics_dir and settings.diagnostics_dir.exists():
+                try:
+                    await asyncio.to_thread(shutil.rmtree, settings.diagnostics_dir)
+                    diagnostics_deleted = True
+                    log.info('diagnostics_deleted', path=str(settings.diagnostics_dir))
+                except _INDEX_CLEANUP_EXCEPTIONS as exc:
+                    log.error('reset_diagnostics_failed', error=str(exc), exc_info=True)
 
-        if settings.logs_dir and settings.logs_dir.exists():
-            try:
-                await asyncio.to_thread(shutil.rmtree, settings.logs_dir)
-                logs_deleted = True
-                log.info('logs_deleted', path=str(settings.logs_dir))
-            except _INDEX_CLEANUP_EXCEPTIONS as exc:
-                log.error('reset_logs_failed', error=str(exc), exc_info=True)
+            if settings.logs_dir and settings.logs_dir.exists():
+                try:
+                    await asyncio.to_thread(shutil.rmtree, settings.logs_dir)
+                    logs_deleted = True
+                    log.info('logs_deleted', path=str(settings.logs_dir))
+                except _INDEX_CLEANUP_EXCEPTIONS as exc:
+                    log.error('reset_logs_failed', error=str(exc), exc_info=True)
 
-        # Phase 4: Reset settings/configuration to factory defaults.
-        await asyncio.to_thread(reset_to_factory_defaults)
-        log.info('settings_reset_to_factory_defaults_during_data_reset')
+            # Phase 4: Reset settings/configuration to factory defaults.
+            await asyncio.to_thread(reset_to_factory_defaults)
+            log.info('settings_reset_to_factory_defaults_during_data_reset')
 
-        # Keep runtime directories present after config reset.
-        settings.ensure_directories()
+            # Keep runtime directories present after config reset.
+            settings.ensure_directories()
 
         # Invalidate adaptive top-k cache (corpus is empty)
         from informity.indexer.adaptive_tuning import invalidate_tuning_cache
@@ -341,7 +382,19 @@ async def _run_reset_task() -> None:
             'chat_traces_deleted': chat_traces_deleted,
             'diagnostics_deleted': diagnostics_deleted,
             'logs_deleted':        logs_deleted,
+            'scoped_reset':        scoped_reset,
         }
+        if scoped_reset:
+            reset_result.update(
+                {
+                    'source_provider': source_provider,
+                    'entity_type': entity_type,
+                    'files_deleted': db_counts.get('files_deleted', 0),
+                    'chunks_deleted': db_counts.get('chunks_deleted', 0),
+                    'vectors_deleted': db_counts.get('vectors_deleted', 0),
+                    'file_failures_deleted': db_counts.get('file_failures_deleted', 0),
+                }
+            )
 
         log.info(
             'index_reset_completed',
@@ -397,7 +450,11 @@ async def _run_rebuild_task(scan_id: int) -> None:
         register_extractors()
 
         # Get all currently indexed files (no arbitrary limit)
-        all_files     = await get_all_files_for_scan(db)
+        all_files     = await get_all_files_for_scan(
+            db,
+            source_provider=FILESYSTEM_PROVIDER,
+            entity_type=SOURCE_ENTITY_FILE,
+        )
         files_scanned = len(all_files)
 
         # Drop and recreate the vector store before rebuilding so no stale vectors

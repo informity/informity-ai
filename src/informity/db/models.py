@@ -40,6 +40,7 @@ class IndexedFile(BaseModel):
     # Represents a file in the SQLite `files` table.
     id:                     int | None       = None
     source_provider:        str              = 'filesystem'
+    entity_type:            str              = 'file'
     source_item_id:         str              = ''
     path:                   str                         # Absolute POSIX path
     filename:               str

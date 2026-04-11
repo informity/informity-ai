@@ -17,6 +17,7 @@ from watchdog.events import FileMovedEvent, FileSystemEvent, FileSystemEventHand
 from watchdog.observers import Observer
 
 from informity.config import get_effective_ignore_patterns, settings
+from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE
 from informity.scanner.crawler import should_ignore
 from informity.utils.path_utils import normalize_path, resolve_and_check_path
 
@@ -199,6 +200,7 @@ async def _process_pending(items: list[tuple[str, str]]) -> None:
         clear_file_failure,
         get_connection,
         get_file_by_path,
+        get_file_by_source_identity,
         record_file_failure,
         should_skip_file_retry,
     )
@@ -212,8 +214,16 @@ async def _process_pending(items: list[tuple[str, str]]) -> None:
         try:
             for path_str, action in items:
                 path = Path(path_str)
+                source_item_id = str(normalize_path(path, expand_user=False))
                 if action == 'delete':
-                    existing = await get_file_by_path(db, path_str)
+                    existing = await get_file_by_source_identity(
+                        db,
+                        source_provider=FILESYSTEM_PROVIDER,
+                        entity_type=SOURCE_ENTITY_FILE,
+                        source_item_id=source_item_id,
+                    )
+                    if existing is None:
+                        existing = await get_file_by_path(db, path_str)
                     if existing is not None:
                         await remove_file(db, existing)
                     else:
@@ -225,8 +235,10 @@ async def _process_pending(items: list[tuple[str, str]]) -> None:
                         continue
                     skip_retry, error_code = await should_skip_file_retry(
                         db,
-                        path_str,
-                        scanned.content_hash,
+                        source_provider=FILESYSTEM_PROVIDER,
+                        entity_type=SOURCE_ENTITY_FILE,
+                        source_item_id=source_item_id,
+                        content_hash=scanned.content_hash,
                     )
                     if skip_retry:
                         log.info(
@@ -236,16 +248,31 @@ async def _process_pending(items: list[tuple[str, str]]) -> None:
                             error_code=error_code,
                         )
                         continue
-                    existing = await get_file_by_path(db, path_str)
+                    existing = await get_file_by_source_identity(
+                        db,
+                        source_provider=FILESYSTEM_PROVIDER,
+                        entity_type=SOURCE_ENTITY_FILE,
+                        source_item_id=source_item_id,
+                    )
+                    if existing is None:
+                        existing = await get_file_by_path(db, path_str)
                     if existing is not None:
                         result = await reindex_file(db, scanned)
                     else:
                         result = await index_file(db, scanned)
                     if result.success:
-                        await clear_file_failure(db, path_str)
+                        await clear_file_failure(
+                            db,
+                            source_provider=FILESYSTEM_PROVIDER,
+                            entity_type=SOURCE_ENTITY_FILE,
+                            source_item_id=source_item_id,
+                        )
                         continue
                     await record_file_failure(
                         db,
+                        source_provider=FILESYSTEM_PROVIDER,
+                        entity_type=SOURCE_ENTITY_FILE,
+                        source_item_id=source_item_id,
                         path=path_str,
                         content_hash=scanned.content_hash,
                         error_code=result.error_code,
