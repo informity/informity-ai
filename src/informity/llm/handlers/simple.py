@@ -10,8 +10,8 @@ from collections.abc import AsyncGenerator
 import aiosqlite
 import structlog
 
-from informity.api.schemas import ChatSourceReference
 from informity.api.error_messages import to_client_error_message
+from informity.api.schemas import ChatSourceReference
 from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.chat_mode import is_assistant_mode, resolve_chat_mode

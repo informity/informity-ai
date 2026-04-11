@@ -3,8 +3,8 @@
 # Standardized directory creation and management
 # ==============================================================================
 
-from pathlib import Path
 from contextlib import suppress
+from pathlib import Path
 
 
 def ensure_private_file(path: Path) -> None:
