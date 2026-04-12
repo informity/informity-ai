@@ -206,6 +206,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     next_action        TEXT,
     next_action_reason TEXT,
     chat_mode          TEXT,
+    model_filename     TEXT,
     is_internal        INTEGER DEFAULT 0,
     created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -490,6 +491,7 @@ async def init_db() -> None:
             log.debug('sqlite_vec_extension_not_loaded', msg='Extension loading not available or already loaded')
 
         await conn.executescript(_SCHEMA_SQL)
+        await _ensure_chat_messages_model_filename_column(conn)
 
         # Term dictionary uniqueness is typed by design:
         # allow same normalized term across different entity types.
@@ -530,6 +532,19 @@ async def init_db() -> None:
         log.info('database_initialized', schema_version=SCHEMA_VERSION)
     finally:
         await conn.close()
+
+
+async def _ensure_chat_messages_model_filename_column(conn: aiosqlite.Connection) -> None:
+    """
+    Non-destructive migration: add chat_messages.model_filename when missing.
+    """
+    cursor = await conn.execute('PRAGMA table_info(chat_messages)')
+    rows = await cursor.fetchall()
+    column_names = {str(row['name']) for row in rows}
+    if 'model_filename' in column_names:
+        return
+    await conn.execute('ALTER TABLE chat_messages ADD COLUMN model_filename TEXT')
+    log.info('database_migration_applied', migration='add_chat_messages_model_filename')
 
 
 async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
@@ -707,6 +722,7 @@ def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
         next_action        = row['next_action'],
         next_action_reason = row['next_action_reason'],
         chat_mode          = row['chat_mode'],
+        model_filename     = row['model_filename'],
         is_internal        = bool(row['is_internal']),
         created_at         = parse_timestamp(row['created_at']),
     )
@@ -1461,9 +1477,9 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
         INSERT INTO chat_messages (
             chat_id, role, content, sources, generation_seconds,
             completion_mode, stopped_by_user, has_remaining_scope, next_action, next_action_reason,
-            chat_mode, is_internal
+            chat_mode, model_filename, is_internal
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             message.chat_id,
@@ -1477,6 +1493,7 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
             message.next_action,
             message.next_action_reason,
             message.chat_mode,
+            message.model_filename,
             1 if message.is_internal else 0,
         ),
     )

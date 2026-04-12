@@ -109,6 +109,7 @@ export interface ChatMessageApi {
   id?: number
   role: string
   content: string
+  model_filename?: string | null
   sources?: ChatSourceReference[]
   display_blocks?: DisplayBlock[]
   is_internal?: boolean
@@ -126,6 +127,7 @@ export interface ChatMessageDisplay {
   id?: number
   role: string
   content: string
+  modelFilename?: string | null
   sources?: ChatSourceReference[]
   displayBlocks?: DisplayBlock[]
   isInternal?: boolean
