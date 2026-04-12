@@ -36,6 +36,7 @@ from informity.llm.rag_runtime import structured_numeric as _structured_numeric
 from informity.llm.retrieval import retrieve_chunks
 from informity.llm.streaming import stream_llm
 from informity.llm.types import (
+    OutputFormat,
     QuerySubtype,
     QueryType,
     StreamSignalTag,
@@ -102,6 +103,42 @@ def _resolve_sampling_params(
             min(profile_top_p, _STRICT_CONTRACT_MAX_TOP_P),
         )
     return profile_temperature, profile_top_p
+
+
+def _apply_output_format_preferences(
+    *,
+    output_format: OutputFormat | None,
+    format_requirements: list[str],
+    output_constraints: dict[str, int],
+) -> None:
+    if output_format == OutputFormat.TABLE:
+        format_requirements.append('Output as a markdown table.')
+        return
+    if output_format == OutputFormat.BULLETS:
+        format_requirements.append('Output using bullet points.')
+        return
+    if output_format == OutputFormat.CSV:
+        format_requirements.append('Output as CSV with a single header row.')
+        return
+    if output_format == OutputFormat.LIST:
+        format_requirements.append('Output as a concise list.')
+        return
+    if output_format == OutputFormat.NARRATIVE:
+        format_requirements.append('Output as narrative paragraphs, not a table.')
+        output_constraints.pop('exact_top_level_bullets', None)
+
+
+def _apply_negation_preferences(
+    *,
+    is_negation_query: bool,
+    format_requirements: list[str],
+) -> None:
+    if not is_negation_query:
+        return
+    format_requirements.append(
+        'If exact negation cannot be guaranteed from retrieved evidence and metadata filters, '
+        'state that limitation explicitly and avoid definitive exclusion claims.'
+    )
 
 
 def _truncate_preview(text: str, max_length: int = _CHUNK_PREVIEW_MAX_LENGTH) -> str:
@@ -454,6 +491,7 @@ class RAGHandler:
             category_filter=classification.category_filter,
             extension_filter=classification.file_type_filter,
             filename_filter=classification.filename_filter,
+            filename_exclude=classification.filename_exclude,
             block_type_filter=classification.block_type_filter,
             section_filter=classification.section_filter,
             query_type=effective_query_type,
@@ -521,6 +559,15 @@ class RAGHandler:
             derive_format_requirements_fn=_structured_numeric._derive_format_requirements,
             action_hints=classification.action_hints,
             applied_degradations=[],
+        )
+        _apply_output_format_preferences(
+            output_format=classification.output_format,
+            format_requirements=format_requirements,
+            output_constraints=output_constraints,
+        )
+        _apply_negation_preferences(
+            is_negation_query=classification.is_negation_query,
+            format_requirements=format_requirements,
         )
         stop_sequences = profile.get_stop_sequences(reasoning_enabled)
         generation_temperature, generation_top_p = _resolve_sampling_params(

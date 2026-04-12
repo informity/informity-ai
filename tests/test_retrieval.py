@@ -82,6 +82,33 @@ async def test_retrieve_chunks_applies_filters(mock_db):
 
 
 @pytest.mark.asyncio
+async def test_retrieve_chunks_applies_filename_exclude_filters(mock_db):
+    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
+         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch('informity.llm.retrieval.build_where_clause_and_params') as mock_build_where:
+
+        mock_embedder.embed_query.return_value = [0.1] * 768
+        mock_vector_store.search_similar.return_value = []
+        mock_reranker.rerank.return_value = []
+        mock_build_where.return_value = ('filename != ?', ['sample.pdf'])
+
+        await retrieve_chunks(
+            'test query',
+            top_k=5,
+            filename_exclude=['sample.pdf', 'other.pdf'],
+            db=mock_db,
+        )
+
+        filters = mock_build_where.call_args_list[0][0][0]
+        filename_ne_filters = [
+            f for f in filters
+            if f.field == 'filename' and f.operator == 'ne'
+        ]
+        assert len(filename_ne_filters) == 2
+
+
+@pytest.mark.asyncio
 async def test_retrieve_chunks_calls_reranker(mock_db):
     # Should call reranker after vector search
     with patch('informity.llm.retrieval.embedder') as mock_embedder, \

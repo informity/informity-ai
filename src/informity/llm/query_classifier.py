@@ -21,17 +21,25 @@ from informity.llm.query_patterns import (
     build_content_analysis_pattern,
     build_continuation_pattern,
     build_corpus_document_scope_pattern,
+    build_comparative_pattern,
     build_count_pattern,
     build_coverage_pattern,
     build_enumeration_pattern,
     build_evidence_value_extraction_pattern,
     build_fact_lookup_pattern,
+    build_filename_exclusion_pattern,
     build_file_list_pattern,
     build_generic_capability_pattern,
     build_global_entity_listing_pattern,
     build_inventory_capability_pattern,
     build_meta_query_pattern,
     build_multi_document_listing_pattern,
+    build_output_format_bullets_pattern,
+    build_output_format_csv_pattern,
+    build_output_format_list_pattern,
+    build_output_format_narrative_pattern,
+    build_output_format_table_pattern,
+    build_negation_pattern,
     build_plural_corpus_scope_pattern,
     build_quoted_phrase_pattern,
     build_single_target_pattern,
@@ -45,6 +53,7 @@ from informity.llm.types import (
     GroupBy,
     IntentLabel,
     IntentProfileId,
+    OutputFormat,
     OutputShape,
     QuerySubtype,
 )
@@ -84,6 +93,14 @@ _AGGREGATE_LISTING_SCOPE_PATTERN = build_aggregate_listing_scope_pattern()
 _ANCHOR_DOCUMENT_TERM_PATTERN = build_anchor_document_term_pattern()
 _QUOTED_PHRASE_PATTERN = build_quoted_phrase_pattern()
 _CORPUS_DOCUMENT_SCOPE_PATTERN = build_corpus_document_scope_pattern()
+_COMPARATIVE_PATTERN = build_comparative_pattern()
+_OUTPUT_FORMAT_TABLE_PATTERN = build_output_format_table_pattern()
+_OUTPUT_FORMAT_BULLETS_PATTERN = build_output_format_bullets_pattern()
+_OUTPUT_FORMAT_CSV_PATTERN = build_output_format_csv_pattern()
+_OUTPUT_FORMAT_LIST_PATTERN = build_output_format_list_pattern()
+_OUTPUT_FORMAT_NARRATIVE_PATTERN = build_output_format_narrative_pattern()
+_NEGATION_PATTERN = build_negation_pattern()
+_FILENAME_EXCLUSION_PATTERN = build_filename_exclusion_pattern()
 
 
 def _has_structured_schema_request(text: str) -> bool:
@@ -95,11 +112,29 @@ def _has_analysis_action_request(text: str) -> bool:
 
 
 def _is_inventory_metadata_request(text: str) -> bool:
+    how_much_inventory_cue = bool(
+        re.search(
+            r'\bhow\s+much\s+(?:data|information|files?|documents?|records?)\s+'
+            r'(?:do\s+i\s+have|are\s+indexed|is\s+indexed|in\s+the\s+index|in\s+my\s+index|total)\b',
+            text,
+            re.IGNORECASE,
+        )
+    )
+    metadata_aggregation_cue = bool(
+        re.search(
+            r'\b(time\s+span|date\s+span|span\s+of|date\s+range|range\s+of\s+dates?|from\s+when|to\s+when)\b',
+            text,
+            re.IGNORECASE,
+        )
+        and re.search(r'\b(files?|documents?|records?|data|index(?:ed)?)\b', text, re.IGNORECASE)
+    )
     return bool(
         _COUNT_PATTERN.search(text)
         or _ENUMERATION_PATTERN.search(text)
         or _FILE_LIST_PATTERN.search(text)
         or _INVENTORY_CAPABILITY_PATTERN.search(text)
+        or how_much_inventory_cue
+        or metadata_aggregation_cue
     )
 
 
@@ -154,6 +189,35 @@ def _looks_fact_lookup_query(text: str) -> bool:
 
 def _has_aggregate_listing_scope_request(text: str) -> bool:
     return bool(_AGGREGATE_LISTING_SCOPE_PATTERN.search(text))
+
+
+def _detect_output_format(text: str) -> OutputFormat | None:
+    if _OUTPUT_FORMAT_CSV_PATTERN.search(text):
+        return OutputFormat.CSV
+    if _OUTPUT_FORMAT_TABLE_PATTERN.search(text):
+        return OutputFormat.TABLE
+    if _OUTPUT_FORMAT_BULLETS_PATTERN.search(text):
+        return OutputFormat.BULLETS
+    if _OUTPUT_FORMAT_LIST_PATTERN.search(text):
+        return OutputFormat.LIST
+    if _OUTPUT_FORMAT_NARRATIVE_PATTERN.search(text):
+        return OutputFormat.NARRATIVE
+    return None
+
+
+def _extract_filename_exclusions(text: str) -> list[str]:
+    exclusions: list[str] = []
+    seen: set[str] = set()
+    for match in _FILENAME_EXCLUSION_PATTERN.finditer(text):
+        value = str(match.group(1) or '').strip()
+        if not value:
+            continue
+        key = value.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        exclusions.append(value)
+    return exclusions
 
 
 def _extract_source_terms(*, text: str, filename_filter: str | None) -> list[str]:
@@ -306,6 +370,10 @@ class QueryClassification:
         filename_filter: Extracted filename filter (str | None)
         block_type_filter: Extracted structural block filter ('table'|'form'|'narrative')
         section_filter: Extracted section hint (str | None)
+        output_format: Preferred output format extracted from query.
+        secondary_intent: Optional secondary intent for compound queries.
+        filename_exclude: Filename exclusions extracted from query.
+        is_negation_query: Whether query contains explicit negation/exclusion semantics.
         is_metadata_query: Whether this is a metadata query (count/enumeration)
         is_file_list_query: Whether this is a file listing query
     """
@@ -327,6 +395,10 @@ class QueryClassification:
     filename_filter: str | None = None
     block_type_filter: BlockType | None = None
     section_filter: str | None = None
+    output_format: OutputFormat | None = None
+    secondary_intent: IntentLabel | None = None
+    filename_exclude: list[str] = field(default_factory=list)
+    is_negation_query: bool = False
     is_metadata_query: bool = False
     is_file_list_query: bool = False
     is_continuation: bool = False
@@ -378,6 +450,11 @@ def classify_query(query: str) -> QueryClassification:
     filename_match = re.search(r'([a-z0-9][a-z0-9._-]*\.(?:pdf|txt|md|csv|json|docx?|xlsx?))', lowered)
     if filename_match:
         filename_filter = filename_match.group(1)
+    output_format = _detect_output_format(lowered)
+    filename_exclude = _extract_filename_exclusions(lowered)
+    is_negation_query = bool(_NEGATION_PATTERN.search(lowered))
+    has_comparative_request = bool(_COMPARATIVE_PATTERN.search(lowered))
+    secondary_intent: IntentLabel | None = None
 
     is_continuation = bool(_CONTINUATION_PATTERN.search(lowered))
 
@@ -441,6 +518,19 @@ def classify_query(query: str) -> QueryClassification:
         has_structured_schema=signals.has_structured_schema,
     )
     subtype: QuerySubtype | None = None
+    if has_comparative_request:
+        subtype = QuerySubtype.COMPARATIVE
+        if intent != IntentLabel.METADATA:
+            route_candidate = IntentProfileId.COMPARATIVE_ANALYSIS
+        reason_codes.append('deterministic_comparative_subtype_detected')
+
+    if re.search(r'\b(and|also|as\s+well\s+as)\b', lowered):
+        if _COUNT_PATTERN.search(lowered) and re.search(r'\blist\s+(?:them|those|files?|documents?)\b', lowered):
+            secondary_intent = IntentLabel.METADATA
+            reason_codes.append('deterministic_compound_count_list_detected')
+        elif _FILE_LIST_PATTERN.search(lowered) and re.search(r'\b(mention|mentions|contain|contains|include|includes)\b', lowered):
+            secondary_intent = IntentLabel.FOCUSED
+            reason_codes.append('deterministic_compound_list_content_detected')
     group_by: GroupBy | None = GroupBy.YEAR if signals.has_multi_year_scope else None
 
     def apply_override(
@@ -532,6 +622,10 @@ def classify_query(query: str) -> QueryClassification:
         year_filter=year_filter,
         file_type_filter=file_type_filter,
         filename_filter=filename_filter,
+        output_format=output_format,
+        secondary_intent=secondary_intent,
+        filename_exclude=filename_exclude,
+        is_negation_query=is_negation_query,
         is_metadata_query=(intent == IntentLabel.METADATA),
         is_file_list_query=(intent == IntentLabel.METADATA and bool(_FILE_LIST_PATTERN.search(lowered))),
         is_continuation=is_continuation,
