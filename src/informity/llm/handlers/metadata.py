@@ -24,7 +24,7 @@ from informity.llm.query_patterns import (
     build_enumeration_pattern,
     build_file_list_pattern,
 )
-from informity.llm.types import QueryType, StreamSignalTag
+from informity.llm.types import OutputFormat, OutputShape, QuerySubtype, QueryType, StreamSignalTag
 
 log = structlog.get_logger(__name__)
 
@@ -45,7 +45,10 @@ class MetadataHandler:
 
     def matches(self, classification: QueryClassification) -> bool:
         """Match metadata queries."""
-        return classification.intent == QueryType.METADATA
+        return (
+            classification.intent == QueryType.METADATA
+            or classification.subtype == QuerySubtype.COMPARATIVE
+        )
 
     async def handle(
         self,
@@ -81,13 +84,26 @@ class MetadataHandler:
                 'is_metadata_query': classification.is_metadata_query,
                 'is_file_list_query': classification.is_file_list_query,
                 'year_filter': effective_classification.year_filter,
+                'subtype': effective_classification.subtype,
             })
+        prefer_table = (
+            classification.output_format == OutputFormat.TABLE
+            or classification.response_shape == OutputShape.METADATA_TABLE
+        )
+
+        if effective_classification.subtype == QuerySubtype.COMPARATIVE:
+            comparative = await self._get_comparative(db, question_lower, effective_classification)
+            response = self._format_comparative_response(comparative, question_lower)
+            yield response
+            yield (StreamSignalTag.METRICS, {'query_type': QueryType.METADATA, 'raw_chunks_count': 0})
+            yield []
+            return
 
         # 1. Aggregation queries: "date range", "earliest", "latest", "per year"
         # Check aggregation before count to handle "how many files are from each year"
         if _AGGREGATION_PATTERN.search(question_lower):
             aggregation = await self._get_aggregation(db, question_lower, effective_classification)
-            response = self._format_aggregation_response(aggregation, question_lower)
+            response = self._format_aggregation_response(aggregation, question_lower, as_table=prefer_table)
             yield response
             yield (StreamSignalTag.METRICS, {'query_type': QueryType.METADATA, 'raw_chunks_count': 0})
             yield []
@@ -97,7 +113,7 @@ class MetadataHandler:
         # Check before count so "how many years" returns years count, not file count
         if _ENUMERATION_PATTERN.search(question_lower):
             enumeration = await self._get_enumeration(db, question_lower, effective_classification)
-            response = self._format_enumeration_response(enumeration, question_lower)
+            response = self._format_enumeration_response(enumeration, question_lower, as_table=prefer_table)
             yield response
             yield (StreamSignalTag.METRICS, {'query_type': QueryType.METADATA, 'raw_chunks_count': 0})
             yield []
@@ -106,7 +122,7 @@ class MetadataHandler:
         # 3. Count queries: "how many files", "how many PDFs"
         if _COUNT_PATTERN.search(question_lower):
             count = await self._get_count(db, effective_classification)
-            response = self._format_count_response(count, effective_classification)
+            response = self._format_count_response(count, effective_classification, as_table=prefer_table)
             yield response
             yield (StreamSignalTag.METRICS, {'query_type': QueryType.METADATA, 'raw_chunks_count': 0})
             yield []
@@ -243,6 +259,68 @@ class MetadataHandler:
 
         return result
 
+    async def _get_comparative(
+        self,
+        db: aiosqlite.Connection,
+        question_lower: str,
+        classification: QueryClassification,
+    ) -> dict[str, str | int | None]:
+        """
+        Resolve basic comparative metadata queries with SQL aggregation.
+        """
+        if 'year' in question_lower:
+            group_field = 'year'
+        elif 'categor' in question_lower:
+            group_field = 'category'
+        else:
+            group_field = 'filename'
+
+        ascending = any(token in question_lower for token in ('fewest', 'lowest', 'smallest', 'least'))
+        order_direction = 'ASC' if ascending else 'DESC'
+
+        conditions: list[str] = []
+        params: list[str | int] = []
+        if classification.year_filter and group_field != 'year':
+            conditions.append('year = ?')
+            params.append(classification.year_filter)
+        if classification.category_filter and group_field != 'category':
+            conditions.append('category = ?')
+            params.append(classification.category_filter)
+        if classification.file_type_filter:
+            extension = classification.file_type_filter
+            if not extension.startswith('.'):
+                extension = f'.{extension}'
+            conditions.append('extension = ?')
+            params.append(extension)
+        if classification.filename_filter and group_field != 'filename':
+            conditions.append('filename = ?')
+            params.append(classification.filename_filter)
+        if group_field == 'year':
+            conditions.append('year IS NOT NULL')
+        if group_field == 'category':
+            conditions.append('category IS NOT NULL')
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ''
+
+        query = f"""
+            SELECT {group_field} AS bucket, COUNT(*) AS cnt
+            FROM files
+            {where_clause}
+            GROUP BY {group_field}
+            ORDER BY cnt {order_direction}, {group_field} ASC
+            LIMIT 1
+        """
+        cursor = await db.execute(query, params)
+        row = await cursor.fetchone()
+        if not row or row['bucket'] is None:
+            return {'group_field': group_field, 'bucket': None, 'count': 0, 'ascending': ascending}
+        return {
+            'group_field': group_field,
+            'bucket': str(row['bucket']),
+            'count': int(row['cnt'] or 0),
+            'ascending': ascending,
+        }
+
     async def _get_enumeration(
         self,
         db: aiosqlite.Connection,
@@ -276,6 +354,7 @@ class MetadataHandler:
         self,
         count: int,
         classification: QueryClassification,
+        as_table: bool = False,
     ) -> str:
         """Format count query response."""
         filters = []
@@ -289,14 +368,35 @@ class MetadataHandler:
             filters.append(f"named '{classification.filename_filter}'")
 
         filter_text = f" {', '.join(filters)}" if filters else ""
+        if as_table:
+            scope = ', '.join(filters) if filters else 'all files'
+            return '\n'.join([
+                '| Metric | Value |',
+                '|---|---|',
+                f'| File count ({scope}) | {count} |',
+            ])
         return f"You have **{count}** file{'s' if count != 1 else ''}{filter_text}."
 
     def _format_aggregation_response(
         self,
         aggregation: dict[str, dict[str, int] | list[dict[str, int]] | None],
         question_lower: str,
+        as_table: bool = False,
     ) -> str:
         """Format aggregation query response."""
+        if as_table:
+            rows: list[str] = ['| Metric | Value |', '|---|---|']
+            date_range = aggregation.get('date_range')
+            if isinstance(date_range, dict):
+                rows.append(f"| Date range | {date_range.get('min')} to {date_range.get('max')} |")
+            per_year = aggregation.get('per_year')
+            if isinstance(per_year, list):
+                for item in per_year:
+                    rows.append(f"| Files in {item['year']} | {item['count']} |")
+            if len(rows) == 2:
+                return "I couldn't determine what aggregation you'd like. Please specify: date range or per year counts."
+            return '\n'.join(rows)
+
         parts = []
 
         if 'date_range' in aggregation:
@@ -323,10 +423,26 @@ class MetadataHandler:
         self,
         enumeration: dict[str, list[int] | list[str]],
         question_lower: str,
+        as_table: bool = False,
     ) -> str:
         """Format enumeration query response."""
         # Check if this is a "how many" query (wants count, not list)
         is_count_query = 'how many' in question_lower
+
+        if as_table:
+            rows: list[str] = ['| Dimension | Value |', '|---|---|']
+            if 'years' in enumeration:
+                years = enumeration['years']
+                rows.append(f"| Years covered | {', '.join(map(str, years)) if years else 'None'} |")
+            if 'categories' in enumeration:
+                categories = enumeration['categories']
+                rows.append(f"| Categories | {', '.join(categories) if categories else 'None'} |")
+            if 'extensions' in enumeration:
+                extensions = enumeration['extensions']
+                rows.append(f"| File types | {', '.join(extensions) if extensions else 'None'} |")
+            if len(rows) == 2:
+                return "I couldn't determine what you'd like to enumerate. Please specify: years, categories, or file types."
+            return '\n'.join(rows)
 
         parts = []
 
@@ -384,6 +500,31 @@ class MetadataHandler:
             return "I couldn't determine what you'd like to enumerate. Please specify: years, categories, or file types."
 
         return '\n\n'.join(parts)
+
+    def _format_comparative_response(
+        self,
+        comparative: dict[str, str | int | None],
+        question_lower: str,
+    ) -> str:
+        group_field = str(comparative.get('group_field') or 'filename')
+        bucket = comparative.get('bucket')
+        count = int(comparative.get('count') or 0)
+        ascending = bool(comparative.get('ascending'))
+
+        if bucket is None:
+            return "I couldn't find enough metadata to resolve that comparison."
+
+        adjective = 'fewest' if ascending else 'most'
+        if group_field == 'year':
+            label = 'Year'
+        elif group_field == 'category':
+            label = 'Category'
+        else:
+            label = 'File'
+        return (
+            f"**{label} with the {adjective} files:** {bucket} "
+            f"({count} file{'s' if count != 1 else ''})."
+        )
 
     async def _get_files_with_filters(
         self,

@@ -14,12 +14,15 @@ from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.query_handler import QueryHandler
 from informity.llm.handlers.rag import (
     RAGHandler,
+    _apply_output_format_preferences,
+    _apply_negation_preferences,
     _build_history_aware_retrieval_query,
     _resolve_exhaustive_inventory_term_type,
     _should_boost_coverage_top_k,
 )
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification
+from informity.llm.types import OutputFormat
 
 
 class TestHandlerProtocol:
@@ -87,6 +90,11 @@ class TestMetadataHandler:
         handler = MetadataHandler()
         classification = QueryClassification(intent='focused')
         assert handler.matches(classification) is False
+
+    def test_matches_comparative_subtype_even_when_not_metadata_intent(self) -> None:
+        handler = MetadataHandler()
+        classification = QueryClassification(intent='focused', subtype='comparative')
+        assert handler.matches(classification) is True
 
     @pytest.mark.asyncio
     async def test_handle_count_query(self) -> None:
@@ -174,6 +182,33 @@ class TestMetadataHandler:
             classification=classification,
         )
         assert 'from 2021' in response
+
+    @pytest.mark.asyncio
+    async def test_handle_comparative_query_uses_sql_aggregation(self) -> None:
+        handler = MetadataHandler()
+        classification = QueryClassification(intent='focused', subtype='comparative')
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone = AsyncMock(return_value={'bucket': 2023, 'cnt': 2})
+        mock_db = MagicMock()
+        mock_db.execute = AsyncMock(return_value=mock_cursor)
+
+        results = []
+        async for item in handler.handle('Which year has the fewest files?', classification, None, mock_db, None):
+            results.append(item)
+
+        assert any(isinstance(item, str) and 'fewest files' in item.lower() for item in results)
+        assert results[-1] == []
+
+    def test_format_enumeration_response_as_table_when_requested(self) -> None:
+        handler = MetadataHandler()
+        response = handler._format_enumeration_response(
+            {'years': [2022, 2023], 'categories': ['tax']},
+            'what years and categories',
+            as_table=True,
+        )
+        assert '| Dimension | Value |' in response
+        assert '2022, 2023' in response
+        assert 'tax' in response
 
 
 class TestRAGHandler:
@@ -305,6 +340,24 @@ class TestRAGHandler:
         )
         assert temperature == 0.7
         assert top_p == 0.95
+
+    def test_apply_output_format_preferences_adds_table_requirement(self) -> None:
+        requirements: list[str] = []
+        constraints: dict[str, int] = {}
+        _apply_output_format_preferences(
+            output_format=OutputFormat.TABLE,
+            format_requirements=requirements,
+            output_constraints=constraints,
+        )
+        assert 'markdown table' in ' '.join(requirements).lower()
+
+    def test_apply_negation_preferences_adds_limitation_requirement(self) -> None:
+        requirements: list[str] = []
+        _apply_negation_preferences(
+            is_negation_query=True,
+            format_requirements=requirements,
+        )
+        assert 'exact negation cannot be guaranteed' in ' '.join(requirements).lower()
 
     @pytest.mark.asyncio
     async def test_handle_uses_deterministic_term_inventory_for_exhaustive_people_query(self) -> None:

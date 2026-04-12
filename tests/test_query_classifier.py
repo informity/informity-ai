@@ -401,3 +401,86 @@ def test_focused_aggregate_listing_scope_overrides_to_coverage() -> None:
 def test_source_terms_extract_anchor_phrase() -> None:
     result = classify_query('What does the 2020 property tax receipt contain? Summarize the key fields.')
     assert any('2020 property tax receipt' in term.casefold() for term in result.source_terms)
+
+
+def test_metadata_route_for_conversational_enumeration() -> None:
+    result = classify_query('Tell me about the years in my data')
+    assert result.intent == 'metadata'
+    assert result.route_candidate == 'metadata_inventory'
+
+
+def test_metadata_route_for_enumerate_categories() -> None:
+    result = classify_query('Enumerate the categories')
+    assert result.intent == 'metadata'
+    assert result.route_candidate == 'metadata_inventory'
+
+
+def test_metadata_route_for_how_much_data() -> None:
+    result = classify_query('How much data do I have?')
+    assert result.intent == 'metadata'
+    assert result.route_candidate == 'metadata_inventory'
+
+
+def test_metadata_route_for_time_span_question() -> None:
+    result = classify_query('From when to when is the data?')
+    assert result.intent == 'metadata'
+    assert result.route_candidate == 'metadata_inventory'
+
+
+def test_coverage_override_for_summary_of_files_phrase() -> None:
+    result = classify_query('Provide a summary of the files')
+    assert result.intent == 'coverage'
+    assert result.route_candidate == 'cross_document_synthesis'
+    assert 'deterministic_override_plural_corpus_to_coverage' in result.reason_codes
+
+
+def test_continuation_detected_for_show_me_the_rest_phrase() -> None:
+    result = classify_query('Show me the rest')
+    assert result.is_continuation is True
+
+
+def test_continuation_detected_for_same_question_filter_update() -> None:
+    result = classify_query('Same question but for 2023')
+    assert result.is_continuation is True
+    assert result.year_filter == 2023
+
+
+def test_output_format_table_detected_from_query() -> None:
+    result = classify_query('Build a table by year from indexed files')
+    assert result.output_format == 'table'
+
+
+def test_output_format_bullets_detected_from_query() -> None:
+    result = classify_query('Show as bullet points')
+    assert result.output_format == 'bullets'
+
+
+def test_output_format_csv_detected_from_query() -> None:
+    result = classify_query('CSV format')
+    assert result.output_format == 'csv'
+
+
+def test_comparative_subtype_detected_from_query() -> None:
+    result = classify_query('Which year has the fewest files?')
+    assert result.subtype == 'comparative'
+
+
+def test_negation_signal_detected_from_query() -> None:
+    result = classify_query("Find files that don't mention escrow")
+    assert result.is_negation_query is True
+
+
+def test_filename_exclusion_extracted_from_query() -> None:
+    result = classify_query('Exclude file sample-lender-statement.pdf from results')
+    assert result.filename_exclude == ['sample-lender-statement.pdf']
+
+
+def test_compound_count_and_list_sets_secondary_intent() -> None:
+    result = classify_query('How many files from 2023 are indexed and list them')
+    assert result.secondary_intent == 'metadata'
+
+
+def test_comparative_year_query_routes_to_metadata() -> None:
+    result = classify_query('Which year has the fewest files?')
+    assert result.intent == 'metadata'
+    assert result.subtype == 'comparative'

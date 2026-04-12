@@ -103,6 +103,7 @@ async def retrieve_chunks(
     category_filter: str | None = None,
     extension_filter: str | None = None,
     filename_filter: str | None = None,
+    filename_exclude: list[str] | None = None,
     block_type_filter: str | None = None,
     section_filter: str | None = None,
     query_type: QueryType = QueryType.FOCUSED,
@@ -157,6 +158,18 @@ async def retrieve_chunks(
                     field='filename',
                     operator=FilterOperator.LIKE,
                     value=f'%{normalized_filename_filter}%',
+                )
+            )
+    if filename_exclude:
+        for excluded_name in filename_exclude:
+            normalized_excluded_name = str(excluded_name or '').strip()
+            if not normalized_excluded_name:
+                continue
+            filters.append(
+                MetadataFilter(
+                    field='filename',
+                    operator=FilterOperator.NE,
+                    value=normalized_excluded_name,
                 )
             )
 
@@ -260,6 +273,7 @@ async def retrieve_chunks(
                 'category_filter':     category_filter,
                 'extension_filter':    extension_filter,
                 'filename_filter':     filename_filter,
+                'filename_exclude':    list(filename_exclude or []),
                 'block_type_filter':   safe_block_type_filter,
                 'section_filter':      safe_section_filter,
                 'max_score':           max_score,
@@ -460,6 +474,7 @@ async def retrieve_chunks(
             'category_filter':     category_filter,
             'extension_filter':    extension_filter,
             'filename_filter':     filename_filter,
+            'filename_exclude':    list(filename_exclude or []),
             'block_type_filter':   safe_block_type_filter,
             'section_filter':      safe_section_filter,
             'max_score':           max_score,

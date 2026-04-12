@@ -34,6 +34,14 @@ class OutputShape(StrEnum):
     HYBRID = 'hybrid'
 
 
+class OutputFormat(StrEnum):
+    TABLE = 'table'
+    LIST = 'list'
+    BULLETS = 'bullets'
+    NARRATIVE = 'narrative'
+    CSV = 'csv'
+
+
 class ConfidenceBand(StrEnum):
     HIGH = 'high'
     MEDIUM = 'medium'
@@ -44,6 +52,7 @@ class QuerySubtype(StrEnum):
     EXTRACT_STRUCTURED_VALUES = 'extract_structured_values'
     AGGREGATE_BY_PERIOD = 'aggregate_by_period'
     FILE_INVENTORY = 'file_inventory'
+    COMPARATIVE = 'comparative'
 
 
 class GroupBy(StrEnum):
@@ -162,6 +171,7 @@ __all__ = [
     'IntentLabel',
     'IntentProfileId',
     'NextAction',
+    'OutputFormat',
     'OutputShape',
     'QuerySubtype',
     'QueryType',
