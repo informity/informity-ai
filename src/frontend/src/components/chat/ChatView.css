@@ -293,7 +293,7 @@
   font-family: inherit;
   font-size: var(--font-size-base);
   line-height: 1.5;
-  border: 1px var(--layout-divider-style, solid) var(--layout-divider-color, var(--color-border));
+  border: 1px solid var(--color-primary-border);
   border-radius: var(--border-radius);
   background: var(--color-bg-surface);
   color: var(--color-text);
