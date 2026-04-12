@@ -6,6 +6,7 @@
 import asyncio
 import dataclasses
 from collections.abc import AsyncGenerator
+from typing import Any
 
 import aiosqlite
 import structlog
@@ -19,7 +20,7 @@ from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.rag import RAGHandler
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification, classify_query
-from informity.llm.types import QueryType, StreamSignalTag
+from informity.llm.types import IntentProfileId, OutputShape, QueryType, StreamSignalTag
 from informity.llm.user_messages import EMPTY_KNOWLEDGE_BASE_RESEARCHER_MESSAGE
 
 log = structlog.get_logger(__name__)
@@ -31,6 +32,40 @@ _HANDLER_REGISTRY = [
     SimpleHandler(),    # Simple/conversational queries (greetings, clarifications, off-topic)
     RAGHandler(),       # Focused and coverage queries (fallback - should always match)
 ]
+
+
+def _resolve_handler_for_classification(classification: QueryClassification) -> Any | None:
+    for handler in _HANDLER_REGISTRY:
+        if handler.matches(classification):
+            return handler
+    return None
+
+
+def _build_secondary_classification(classification: QueryClassification) -> QueryClassification | None:
+    secondary_intent = classification.secondary_intent
+    if secondary_intent is None or secondary_intent == classification.intent:
+        return None
+    if secondary_intent == QueryType.METADATA:
+        return dataclasses.replace(
+            classification,
+            intent=QueryType.METADATA,
+            route_candidate=IntentProfileId.METADATA_INVENTORY,
+            response_shape=OutputShape.NARRATIVE_SYNTHESIS,
+            secondary_intent=None,
+            is_metadata_query=True,
+            is_file_list_query=True,
+        )
+    if secondary_intent == QueryType.FOCUSED:
+        return dataclasses.replace(
+            classification,
+            intent=QueryType.FOCUSED,
+            route_candidate=IntentProfileId.TARGETED_FACT_LOOKUP,
+            response_shape=OutputShape.NARRATIVE_SYNTHESIS,
+            secondary_intent=None,
+            is_metadata_query=False,
+            is_file_list_query=False,
+        )
+    return None
 
 
 async def answer_question(
@@ -185,15 +220,22 @@ async def answer_question(
             return
 
         # 2. Route to appropriate handler
-        for handler in _HANDLER_REGISTRY:
-            if handler.matches(classification):
+        primary_handler = _resolve_handler_for_classification(classification)
+        if primary_handler is not None:
+            secondary_classification = _build_secondary_classification(classification)
+            secondary_handler = (
+                _resolve_handler_for_classification(secondary_classification)
+                if secondary_classification is not None else None
+            )
+            merged_sources: list[ChatSourceReference] = []
+            if secondary_handler is None:
                 log.info(
                     'route_dispatched',
-                    handler=type(handler).__name__,
+                    handler=type(primary_handler).__name__,
                     intent=classification.intent,
                     route_candidate=classification.route_candidate,
                 )
-                async for item in handler.handle(
+                async for item in primary_handler.handle(
                     question=question,
                     classification=classification,
                     history=history,
@@ -203,6 +245,52 @@ async def answer_question(
                 ):
                     yield item
                 return
+
+            log.info(
+                'route_dispatched_compound',
+                primary_handler=type(primary_handler).__name__,
+                primary_intent=classification.intent,
+                secondary_handler=type(secondary_handler).__name__,
+                secondary_intent=secondary_classification.intent if secondary_classification is not None else None,
+                route_candidate=classification.route_candidate,
+            )
+            for run_index, (run_handler, run_classification) in enumerate(
+                (
+                    (primary_handler, classification),
+                    (secondary_handler, secondary_classification),
+                ),
+                start=1,
+            ):
+                if run_classification is None:
+                    continue
+                async for item in run_handler.handle(
+                    question=question,
+                    classification=run_classification,
+                    history=history,
+                    db=db,
+                    trace=trace,
+                    diagnostics_context=diagnostics_context,
+                ):
+                    if isinstance(item, list):
+                        for source in item:
+                            if source not in merged_sources:
+                                merged_sources.append(source)
+                        continue
+                    if (
+                        run_index == 2
+                        and isinstance(item, tuple)
+                        and len(item) == 2
+                        and item[0] == StreamSignalTag.METRICS
+                    ):
+                        metrics_payload = item[1]
+                        if isinstance(metrics_payload, dict):
+                            metrics_payload = dict(metrics_payload)
+                            metrics_payload['compound_secondary_intent_applied'] = True
+                            yield (item[0], metrics_payload)
+                            continue
+                    yield item
+            yield merged_sources
+            return
 
         # Fallback: should never reach here (RAGHandler matches everything)
         log.error('no_handler_matched', intent=classification.intent)

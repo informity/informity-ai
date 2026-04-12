@@ -445,6 +445,11 @@ def test_continuation_detected_for_same_question_filter_update() -> None:
     assert result.year_filter == 2023
 
 
+def test_continuation_not_detected_for_new_topic_what_about_question() -> None:
+    result = classify_query('What about the interest rate?')
+    assert result.is_continuation is False
+
+
 def test_output_format_table_detected_from_query() -> None:
     result = classify_query('Build a table by year from indexed files')
     assert result.output_format == 'table'
@@ -484,3 +489,28 @@ def test_comparative_year_query_routes_to_metadata() -> None:
     result = classify_query('Which year has the fewest files?')
     assert result.intent == 'metadata'
     assert result.subtype == 'comparative'
+
+
+def test_comparative_file_mentions_routes_to_focused_comparative_path() -> None:
+    result = classify_query('Which file has the most mentions of escrow?')
+    assert result.intent == 'focused'
+    assert result.subtype == 'comparative'
+    assert result.route_candidate == 'comparative_analysis'
+    assert result.group_by == 'file'
+
+
+def test_number_of_content_phrase_does_not_route_to_metadata() -> None:
+    result = classify_query('What is the number of employees listed in each contract?')
+    assert result.intent != 'metadata'
+
+
+def test_describe_all_files_routes_to_coverage_not_metadata() -> None:
+    result = classify_query('Describe all files')
+    assert result.intent == 'coverage'
+    assert result.route_candidate == 'cross_document_synthesis'
+
+
+def test_describe_the_files_i_have_routes_to_metadata_via_inventory_capability() -> None:
+    result = classify_query('Describe the files I have')
+    assert result.intent == 'metadata'
+    assert result.route_candidate == 'metadata_inventory'

@@ -101,6 +101,7 @@ _OUTPUT_FORMAT_LIST_PATTERN = build_output_format_list_pattern()
 _OUTPUT_FORMAT_NARRATIVE_PATTERN = build_output_format_narrative_pattern()
 _NEGATION_PATTERN = build_negation_pattern()
 _FILENAME_EXCLUSION_PATTERN = build_filename_exclusion_pattern()
+_COMPARATIVE_FILE_CONTENT_CUE_PATTERN = re.compile(r'\b(mention|mentions|contain|contains|include|includes)\b')
 
 
 def _has_structured_schema_request(text: str) -> bool:
@@ -189,6 +190,20 @@ def _looks_fact_lookup_query(text: str) -> bool:
 
 def _has_aggregate_listing_scope_request(text: str) -> bool:
     return bool(_AGGREGATE_LISTING_SCOPE_PATTERN.search(text))
+
+
+def _resolve_comparative_group_by(text: str) -> GroupBy | None:
+    match = re.search(r'\bwhich\s+(file|document|year|category)\b', text)
+    if not match:
+        return None
+    token = str(match.group(1) or '')
+    if token in {'year'}:
+        return GroupBy.YEAR
+    if token in {'category'}:
+        return GroupBy.CATEGORY
+    if token in {'file', 'document'}:
+        return GroupBy.FILE
+    return None
 
 
 def _detect_output_format(text: str) -> OutputFormat | None:
@@ -454,6 +469,7 @@ def classify_query(query: str) -> QueryClassification:
     filename_exclude = _extract_filename_exclusions(lowered)
     is_negation_query = bool(_NEGATION_PATTERN.search(lowered))
     has_comparative_request = bool(_COMPARATIVE_PATTERN.search(lowered))
+    comparative_group_by = _resolve_comparative_group_by(lowered)
     secondary_intent: IntentLabel | None = None
 
     is_continuation = bool(_CONTINUATION_PATTERN.search(lowered))
@@ -498,7 +514,11 @@ def classify_query(query: str) -> QueryClassification:
     # Inventory queries (count, enumeration, file listing, capability) are
     # always 'metadata' intent regardless of the router prediction.  PromptCue
     # has no knowledge of the indexed corpus, so it cannot classify these.
-    if signals.is_inventory_metadata and intent != IntentLabel.METADATA:
+    inventory_metadata_signal = signals.is_inventory_metadata
+    if has_comparative_request and comparative_group_by == GroupBy.FILE:
+        inventory_metadata_signal = False
+
+    if inventory_metadata_signal and intent != IntentLabel.METADATA:
         intent = IntentLabel.METADATA
         reason_codes.append('deterministic_inventory_metadata_promoted')
     elif (
@@ -520,7 +540,10 @@ def classify_query(query: str) -> QueryClassification:
     subtype: QuerySubtype | None = None
     if has_comparative_request:
         subtype = QuerySubtype.COMPARATIVE
-        if intent != IntentLabel.METADATA:
+        if comparative_group_by in {GroupBy.YEAR, GroupBy.CATEGORY} and intent != IntentLabel.METADATA:
+            intent = IntentLabel.METADATA
+            reason_codes.append('deterministic_comparative_metadata_group_detected')
+        elif intent != IntentLabel.METADATA:
             route_candidate = IntentProfileId.COMPARATIVE_ANALYSIS
         reason_codes.append('deterministic_comparative_subtype_detected')
 
@@ -528,10 +551,12 @@ def classify_query(query: str) -> QueryClassification:
         if _COUNT_PATTERN.search(lowered) and re.search(r'\blist\s+(?:them|those|files?|documents?)\b', lowered):
             secondary_intent = IntentLabel.METADATA
             reason_codes.append('deterministic_compound_count_list_detected')
-        elif _FILE_LIST_PATTERN.search(lowered) and re.search(r'\b(mention|mentions|contain|contains|include|includes)\b', lowered):
+        elif _FILE_LIST_PATTERN.search(lowered) and _COMPARATIVE_FILE_CONTENT_CUE_PATTERN.search(lowered):
             secondary_intent = IntentLabel.FOCUSED
             reason_codes.append('deterministic_compound_list_content_detected')
     group_by: GroupBy | None = GroupBy.YEAR if signals.has_multi_year_scope else None
+    if has_comparative_request and comparative_group_by is not None:
+        group_by = comparative_group_by
 
     def apply_override(
         *,
@@ -552,6 +577,14 @@ def classify_query(query: str) -> QueryClassification:
         if new_subtype is not None:
             subtype = new_subtype
         reason_codes.append(reason_code)
+
+    if has_comparative_request and comparative_group_by == GroupBy.FILE:
+        apply_override(
+            reason_code='deterministic_comparative_file_scope_to_focused',
+            new_intent=IntentLabel.FOCUSED,
+            new_route=IntentProfileId.COMPARATIVE_ANALYSIS,
+            new_shape=OutputShape.NARRATIVE_SYNTHESIS,
+        )
 
     # Minimal deterministic guardrail: single-target requests should remain
     # focused even when base classification predicts broad synthesis.
@@ -576,6 +609,7 @@ def classify_query(query: str) -> QueryClassification:
     if (
         intent == IntentLabel.FOCUSED
         and filename_filter is None
+        and not (has_comparative_request and comparative_group_by == GroupBy.FILE)
         and signals.has_corpus_scope
         and (
             signals.has_multi_doc_listing

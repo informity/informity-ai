@@ -47,7 +47,10 @@ class MetadataHandler:
         """Match metadata queries."""
         return (
             classification.intent == QueryType.METADATA
-            or classification.subtype == QuerySubtype.COMPARATIVE
+            or (
+                classification.subtype == QuerySubtype.COMPARATIVE
+                and classification.group_by in {'year', 'category'}
+            )
         )
 
     async def handle(
@@ -268,12 +271,12 @@ class MetadataHandler:
         """
         Resolve basic comparative metadata queries with SQL aggregation.
         """
-        if 'year' in question_lower:
+        if classification.group_by == 'year' or 'year' in question_lower:
             group_field = 'year'
-        elif 'categor' in question_lower:
+        elif classification.group_by == 'category' or 'categor' in question_lower:
             group_field = 'category'
         else:
-            group_field = 'filename'
+            return {'group_field': 'unsupported', 'bucket': None, 'count': 0, 'ascending': False}
 
         ascending = any(token in question_lower for token in ('fewest', 'lowest', 'smallest', 'least'))
         order_direction = 'ASC' if ascending else 'DESC'
@@ -292,7 +295,7 @@ class MetadataHandler:
                 extension = f'.{extension}'
             conditions.append('extension = ?')
             params.append(extension)
-        if classification.filename_filter and group_field != 'filename':
+        if classification.filename_filter:
             conditions.append('filename = ?')
             params.append(classification.filename_filter)
         if group_field == 'year':
