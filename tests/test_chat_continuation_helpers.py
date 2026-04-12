@@ -21,7 +21,12 @@ def test_is_continuation_request_supports_conversational_followups() -> None:
     assert is_continuation_request('tell me more') is True
     assert is_continuation_request('show me the rest') is True
     assert is_continuation_request('anything else?') is True
+    assert is_continuation_request('what about that?') is True
 
 
 def test_is_continuation_request_supports_filter_update_phrase() -> None:
     assert is_continuation_request('same question but for 2023') is True
+
+
+def test_is_continuation_request_rejects_new_topic_what_about_question() -> None:
+    assert is_continuation_request('what about the interest rate?') is False

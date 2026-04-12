@@ -18,7 +18,7 @@ QUANTIFIERS: str = r'(all|every|each)'
 DOCUMENT_TYPES: str = r'(files?|documents?|reports?)'
 
 # List-triggering verbs: explicit list commands and conversational inventory verbs.
-LIST_VERBS: str = r'(list|display|enumerate|describe)'
+LIST_VERBS: str = r'(list|display|enumerate)'
 
 # Query verbs: information retrieval verbs used with document nouns for list intent.
 QUERY_VERBS: str = r'(show|give\s+me|tell\s+me|tell\s+us|can\s+you\s+show\s+me)'
@@ -31,7 +31,7 @@ QUESTION_WORDS: str = r'(what|which)'
 
 # Coverage verbs: broad synthesis actions.
 COVERAGE_VERBS: str = (
-    r'(summarize|compare|analyze|review|provide|describe|outline|'
+    r'(summarize|compare|analyze|review|provide|outline|'
     r'give\s+me\s+an\s+overview|give\s+me\s+a\s+breakdown)'
 )
 
@@ -42,9 +42,9 @@ COUNT_PATTERN: str = (
     r'|'
     r'what(?:\s+is|\s*\'s)?\s+the\s+total'
     r'|'
-    r'count\s+of'
+    r'count\s+of\s+(?:indexed\s+)?(?:files?|documents?|records?)'
     r'|'
-    r'number\s+of'
+    r'number\s+of\s+(?:indexed\s+)?(?:files?|documents?|records?)'
     r')\b'
 )
 
@@ -152,8 +152,6 @@ CONTINUATION_KEYWORDS: str = (
     r'|'
     r'anything\s+else'
     r'|'
-    r'what\s+about'
-    r'|'
     r'same\s+(?:query|question|thing|request)\s*(?:but\s*)?(?:for|with|from|in)\s+\w+'
     r')\b'
 )
@@ -209,7 +207,8 @@ ANALYSIS_ACTION_KEYWORDS: str = (
 # Inventory/capability metadata phrasing for indexed corpus.
 INVENTORY_CAPABILITY_KEYWORDS: str = (
     r'\b(what\s+kind\s+of\s+(files?|documents?)\s+do\s+you\s+have|'
-    r'what\s+(files?|documents?)\s+are\s+indexed|what\s+is\s+indexed)\b'
+    r'what\s+(files?|documents?)\s+are\s+indexed|what\s+is\s+indexed|'
+    r'describe\s+(?:the\s+)?(?:files?|documents?)\s+(?:i\s+have|we\s+have))\b'
 )
 
 # Evidence/value extraction cues that indicate content synthesis is needed, not

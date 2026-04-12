@@ -93,8 +93,13 @@ class TestMetadataHandler:
 
     def test_matches_comparative_subtype_even_when_not_metadata_intent(self) -> None:
         handler = MetadataHandler()
-        classification = QueryClassification(intent='focused', subtype='comparative')
+        classification = QueryClassification(intent='focused', subtype='comparative', group_by='year')
         assert handler.matches(classification) is True
+
+    def test_does_not_match_comparative_file_scope_when_not_metadata_intent(self) -> None:
+        handler = MetadataHandler()
+        classification = QueryClassification(intent='focused', subtype='comparative', group_by='file')
+        assert handler.matches(classification) is False
 
     @pytest.mark.asyncio
     async def test_handle_count_query(self) -> None:
@@ -186,7 +191,7 @@ class TestMetadataHandler:
     @pytest.mark.asyncio
     async def test_handle_comparative_query_uses_sql_aggregation(self) -> None:
         handler = MetadataHandler()
-        classification = QueryClassification(intent='focused', subtype='comparative')
+        classification = QueryClassification(intent='focused', subtype='comparative', group_by='year')
         mock_cursor = MagicMock()
         mock_cursor.fetchone = AsyncMock(return_value={'bucket': 2023, 'cnt': 2})
         mock_db = MagicMock()

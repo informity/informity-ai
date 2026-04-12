@@ -30,12 +30,14 @@ _CONTINUATION_PHRASES = frozenset({
     'continue', 'continue please', 'please continue', 'go on', 'carry on',
     'resume', 'proceed', 'keep going', 'go ahead', 'next', 'next section',
     'next part', 'more', 'more please', 'the rest', 'rest', 'what else',
-    'tell me more', 'show me the rest', 'anything else',
+    'tell me more', 'show me the rest', 'anything else', 'what about',
+    'what about it', 'what about that', 'what about this', 'what about those',
+    'what about these', 'what about them', 'what about him', 'what about her',
 })
 _CONTINUATION_PATTERN = re.compile(
     r'^\s*('
     r'continue|go on|carry on|resume|proceed|keep going|go ahead|'
-    r'what else|tell me more|show me the rest|anything else|what about|'
+    r'what else|tell me more|show me the rest|anything else|'
     r'same (?:query|question|thing|request)\s*(?:but\s*)?(?:for|with|from|in)\s+\w+'
     r')\b',
     re.IGNORECASE,

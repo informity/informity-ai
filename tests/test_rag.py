@@ -115,6 +115,41 @@ async def test_answer_question_routes_to_metadata_handler(mock_db):
 
 
 @pytest.mark.asyncio
+async def test_answer_question_runs_secondary_intent_handler_for_compound_query(mock_db):
+    classification = QueryClassification(
+        intent='metadata',
+        is_metadata_query=True,
+        secondary_intent='focused',
+    )
+
+    async def mock_meta_gen():
+        yield 'There are 5 files.'
+        yield [{'filename': 'meta.txt', 'path': '/test/meta.txt', 'chunk_preview': 'meta', 'relevance_score': 1.0}]
+
+    async def mock_rag_gen():
+        yield 'Escrow appears in file1.'
+        yield [{'filename': 'file1.txt', 'path': '/test/file1.txt', 'chunk_preview': 'escrow', 'relevance_score': 0.8}]
+
+    with patch('informity.llm.rag.classify_query', return_value=classification), \
+         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
+         patch('informity.llm.handlers.metadata.MetadataHandler.handle', new_callable=MagicMock) as mock_meta_handler, \
+         patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_rag_handler:
+        mock_meta_handler.return_value = mock_meta_gen()
+        mock_rag_handler.return_value = mock_rag_gen()
+
+        results = []
+        async for item in answer_question('List files and include mentions of escrow', db=mock_db):
+            results.append(item)
+
+        mock_meta_handler.assert_called_once()
+        mock_rag_handler.assert_called_once()
+        assert any(isinstance(item, str) and 'There are 5 files.' in item for item in results)
+        assert any(isinstance(item, str) and 'Escrow appears in file1.' in item for item in results)
+        assert isinstance(results[-1], list)
+        assert len(results[-1]) == 2
+
+
+@pytest.mark.asyncio
 async def test_answer_question_routes_to_simple_handler(mock_db):
     # Should route simple queries to SimpleHandler
     classification = QueryClassification(
