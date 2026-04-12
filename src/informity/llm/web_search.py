@@ -430,9 +430,6 @@ def search_web(query: str, *, allow_privacy_override: bool = False) -> WebSearch
     if primary_outcome.status == 'ok':
         return primary_outcome
 
-    if primary_outcome.status == 'privacy_blocked':
-        return primary_outcome
-
     if primary_outcome.status not in _RETRYABLE_FAILOVER_STATUSES:
         return primary_outcome
 
