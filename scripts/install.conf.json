@@ -2,8 +2,10 @@
   "embedding_model": "nomic-ai/nomic-embed-text-v1.5",
   "reranker_model": "cross-encoder/ms-marco-MiniLM-L-6-v2",
   "llm": {
-    "repo_id": "Qwen/Qwen3.5-35B-A3B-GGUF",
+    "repo_id": "unsloth/Qwen3.5-35B-A3B-GGUF",
+    "revision": "bc014a17be43adabd7066b7a86075ff935c6a4e2",
     "filename": "Qwen3.5-35B-A3B-Q4_K_M.gguf",
-    "local_filename": "Qwen3.5-35B-A3B-Q4_K_M.gguf"
+    "local_filename": "Qwen3.5-35B-A3B-Q4_K_M.gguf",
+    "sha256": "3b46d1066bc91cc2d613e3bc22ce691dd77e6f0d33c9060690d24ce6de494375"
   }
 }

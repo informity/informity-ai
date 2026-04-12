@@ -116,7 +116,17 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
 _SETUP_TIER_REPOS: dict[str, str] = {
     'small': 'bartowski/Qwen_Qwen3.5-9B-GGUF',
     'balanced': 'Qwen/Qwen3-14B-GGUF',
-    'quality': 'Qwen/Qwen3.5-35B-A3B-GGUF',
+    'quality': 'unsloth/Qwen3.5-35B-A3B-GGUF',
+}
+_SETUP_TIER_REVISIONS: dict[str, str] = {
+    'small': 'ff13963796ee209598509a81340172bb1c3869fe',
+    'balanced': '530227a7d994db8eca5ab5ced2fb692b614357fd',
+    'quality': 'bc014a17be43adabd7066b7a86075ff935c6a4e2',
+}
+_SETUP_MODEL_SHA256: dict[str, str] = {
+    'Qwen_Qwen3.5-9B-Q4_K_M.gguf': '9437f5bf0dd0c97800caaf902f41e6a6aa00223ab232f159eda41dcbbb492645',
+    'Qwen3-14B-Q5_K_M.gguf': 'e7c9aba1129ca2936be9eca01419d9f86af40e08caa01230d5574b34d08e3e31',
+    'Qwen3.5-35B-A3B-Q4_K_M.gguf': '3b46d1066bc91cc2d613e3bc22ce691dd77e6f0d33c9060690d24ce6de494375',
 }
 _setup_runtime: dict[str, object] = {
     'state': SetupState.REQUIRED.value,
@@ -457,6 +467,8 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
     global _setup_task, _setup_download_cancel_event
     target_path = settings.models_dir / model_filename
     repo_id = _SETUP_TIER_REPOS.get(tier)
+    revision = _SETUP_TIER_REVISIONS.get(tier)
+    expected_sha256 = _SETUP_MODEL_SHA256.get(model_filename)
     try:
         _update_setup_runtime(
             state=SetupState.IN_PROGRESS.value,
@@ -511,6 +523,8 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
             target_path,
             repo_id,
             model_filename,
+            revision,
+            expected_sha256,
             _on_progress,
             cancel_event,
         )
@@ -612,14 +626,26 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
             _setup_task = None
 
 
-def _resolve_tier_for_model(model_filename: str) -> tuple[str, str]:
+def _resolve_tier_for_model(model_filename: str) -> tuple[str, str, str | None, str | None]:
     for option in _SETUP_TIER_OPTIONS:
         if option.model_filename == model_filename:
-            return option.tier, _SETUP_TIER_REPOS[option.tier]
+            tier = option.tier
+            return (
+                tier,
+                _SETUP_TIER_REPOS[tier],
+                _SETUP_TIER_REVISIONS.get(tier),
+                _SETUP_MODEL_SHA256.get(model_filename),
+            )
     raise HTTPException(status_code=400, detail='Unknown model filename')
 
 
-async def _run_model_download_workflow(*, model_filename: str, repo_id: str) -> None:
+async def _run_model_download_workflow(
+    *,
+    model_filename: str,
+    repo_id: str,
+    revision: str | None,
+    expected_sha256: str | None,
+) -> None:
     global _model_task, _model_download_cancel_event
     target_path = settings.models_dir / model_filename
     try:
@@ -662,6 +688,8 @@ async def _run_model_download_workflow(*, model_filename: str, repo_id: str) -> 
             target_path,
             repo_id,
             model_filename,
+            revision,
+            expected_sha256,
             _on_progress,
             cancel_event,
         )
@@ -936,7 +964,7 @@ async def get_models_catalog() -> ModelsCatalogResponse:
 async def download_model(payload: ModelActionRequest) -> ModelActionResponse:
     global _model_task
     model_filename = str(payload.model_filename or '').strip()
-    _, repo_id = _resolve_tier_for_model(model_filename)
+    _, repo_id, revision, expected_sha256 = _resolve_tier_for_model(model_filename)
     if _is_model_file_ready(model_filename):
         return ModelActionResponse(accepted=False, detail='Model is already installed')
 
@@ -956,7 +984,14 @@ async def download_model(payload: ModelActionRequest) -> ModelActionResponse:
             error=None,
             cancel_requested=False,
         )
-        _model_task = asyncio.create_task(_run_model_download_workflow(model_filename=model_filename, repo_id=repo_id))
+        _model_task = asyncio.create_task(
+            _run_model_download_workflow(
+                model_filename=model_filename,
+                repo_id=repo_id,
+                revision=revision,
+                expected_sha256=expected_sha256,
+            )
+        )
     return ModelActionResponse(accepted=True, detail='Download started')
 
 

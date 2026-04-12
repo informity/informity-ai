@@ -22,7 +22,8 @@ class InformityError(Exception):
 
     def _format_message(self) -> str:
         if self.source_path is not None:
-            return f'{self.detail} [source: {self.source_path}]'
+            # User-facing exception text should not leak absolute filesystem paths.
+            return f'{self.detail} [source: {self.source_path.name}]'
         return self.detail
 
 
@@ -54,5 +55,4 @@ class ConfigurationError(InformityError):
     # Raised when configuration is invalid or incompatible.
     # Examples: Full Privacy enabled but models not cached, invalid settings combination.
     pass
-
 
