@@ -17,11 +17,11 @@ QUANTIFIERS: str = r'(all|every|each)'
 # Document types: "files", "documents", "reports"
 DOCUMENT_TYPES: str = r'(files?|documents?|reports?)'
 
-# List-triggering verbs: "list", "display" (explicit list commands)
-LIST_VERBS: str = r'(list|display)'
+# List-triggering verbs: explicit list commands and conversational inventory verbs.
+LIST_VERBS: str = r'(list|display|enumerate|describe)'
 
-# Query verbs: "show", "give me" (information retrieval - require quantifiers/document types for list intent)
-QUERY_VERBS: str = r'(show|give\s+me)'
+# Query verbs: information retrieval verbs used with document nouns for list intent.
+QUERY_VERBS: str = r'(show|give\s+me|tell\s+me|tell\s+us|can\s+you\s+show\s+me)'
 
 # All imperative verbs used by imperative_quantifier_pattern
 IMPERATIVE_VERBS: str = rf'({LIST_VERBS}|{QUERY_VERBS})'
@@ -29,11 +29,24 @@ IMPERATIVE_VERBS: str = rf'({LIST_VERBS}|{QUERY_VERBS})'
 # Question words: "what", "which"
 QUESTION_WORDS: str = r'(what|which)'
 
-# Coverage verbs: "summarize", "compare", "analyze", "review"
-COVERAGE_VERBS: str = r'(summarize|compare|analyze|review)'
+# Coverage verbs: broad synthesis actions.
+COVERAGE_VERBS: str = (
+    r'(summarize|compare|analyze|review|provide|describe|outline|'
+    r'give\s+me\s+an\s+overview|give\s+me\s+a\s+breakdown)'
+)
 
-# Count queries: "how many"
-COUNT_PATTERN: str = r'\bhow\s+many\b'
+# Count queries: canonical and conversational count phrasings.
+COUNT_PATTERN: str = (
+    r'\b('
+    r'how\s+many'
+    r'|'
+    r'what(?:\s+is|\s*\'s)?\s+the\s+total'
+    r'|'
+    r'count\s+of'
+    r'|'
+    r'number\s+of'
+    r')\b'
+)
 
 # Greeting patterns
 GREETING_PATTERN: str = r'\b(hello|hi|hey|greetings|thanks|thank\s+you|thank\s+you\s+very\s+much)\b'
@@ -50,7 +63,49 @@ DOCUMENT_KEYWORDS: str = r'\b(files?|documents?|reports?|search|find|index|index
 # Aggregation keywords: date range, min/max, earliest/latest, per year
 # Note: Using 'minimum'/'maximum' instead of standalone 'min'/'max' to avoid false positives
 # in content queries like "what is the minimum salary" (should be focused, not metadata)
-AGGREGATION_KEYWORDS: str = r'\b(date\s+range|range\s+of\s+dates?|earliest|latest|oldest|newest|minimum|maximum|per\s+year|from\s+each\s+year|grouped\s+by|aggregate|summary\s+statistics)\b'
+AGGREGATION_KEYWORDS: str = (
+    r'\b('
+    r'date\s+range'
+    r'|'
+    r'range\s+of\s+dates?'
+    r'|'
+    r'earliest'
+    r'|'
+    r'latest'
+    r'|'
+    r'oldest'
+    r'|'
+    r'newest'
+    r'|'
+    r'minimum'
+    r'|'
+    r'maximum'
+    r'|'
+    r'per\s+year'
+    r'|'
+    r'from\s+each\s+year'
+    r'|'
+    r'grouped\s+by'
+    r'|'
+    r'group\s+by'
+    r'|'
+    r'breakdown\s+by'
+    r'|'
+    r'aggregate'
+    r'|'
+    r'summary\s+statistics'
+    r'|'
+    r'span\s+of'
+    r'|'
+    r'date\s+span'
+    r'|'
+    r'time\s+span'
+    r'|'
+    r'from\s+when'
+    r'|'
+    r'to\s+when'
+    r')\b'
+)
 
 # Aggregation semantics for routing override in classification (Phase 1)
 AGGREGATION_SEMANTICS_KEYWORDS: str = (
@@ -78,7 +133,29 @@ CONFLICT_AMOUNT_KEYWORDS: str = (
 
 # Continuation cues for follow-up generation on prior context.
 CONTINUATION_KEYWORDS: str = (
-    r'\b(continue|go\s+on|keep\s+going|next\s+section|the\s+rest)\b'
+    r'\b('
+    r'continue'
+    r'|'
+    r'go\s+on'
+    r'|'
+    r'keep\s+going'
+    r'|'
+    r'next\s+section'
+    r'|'
+    r'the\s+rest'
+    r'|'
+    r'what\s+else'
+    r'|'
+    r'tell\s+me\s+more'
+    r'|'
+    r'show\s+me\s+the\s+rest'
+    r'|'
+    r'anything\s+else'
+    r'|'
+    r'what\s+about'
+    r'|'
+    r'same\s+(?:query|question|thing|request)\s*(?:but\s*)?(?:for|with|from|in)\s+\w+'
+    r')\b'
 )
 REFERENTIAL_FOLLOWUP_KEYWORDS: str = (
     r'\b('
@@ -92,10 +169,40 @@ STRUCTURED_OUTPUT_SCHEMA_KEYWORDS: str = (
     r'\b(markdown\s+table|columns?|output\s+only|format|headings?\s+in\s+exact\s+order|'
     r'exact\s+column\s+names?|rows?\s+as)\b'
 )
+OUTPUT_FORMAT_TABLE_KEYWORDS: str = (
+    r'\b(build\s+a\s+table|as\s+a\s+table|in\s+table\s+form|markdown\s+table|in\s+columns?)\b'
+)
+OUTPUT_FORMAT_BULLETS_KEYWORDS: str = r'\b(as\s+bullet\s+points?|bullet\s+list|as\s+bullets?)\b'
+OUTPUT_FORMAT_CSV_KEYWORDS: str = r'\b(csv\s+format|as\s+csv|output\s+csv)\b'
+OUTPUT_FORMAT_LIST_KEYWORDS: str = (
+    r'\b(as\s+a\s+list|list\s+format|list\s+(?:all\s+)?(?:files?|documents?|records?))\b'
+)
+OUTPUT_FORMAT_NARRATIVE_KEYWORDS: str = r'\b(in\s+narrative\s+form|as\s+paragraphs?)\b'
+COMPARATIVE_KEYWORDS: str = (
+    r'\bwhich\s+(?:file|document|year|category)\s+'
+    r'(?:has|have|is|are)\s+(?:the\s+)?'
+    r'(?:most|fewest|highest|lowest|largest|smallest|greatest|least)\b'
+)
+NEGATION_KEYWORDS: str = (
+    r'\b('
+    r'(?:files?|documents?)\s+(?:that|which)?\s*(?:don\'t|doesn\'t|do\s+not|does\s+not)\s+'
+    r'(?:mention|contain|include|have)'
+    r'|'
+    r'(?:without|lacking|missing)\s+(?:any\s+)?(?:mention\s+of|reference\s+to)'
+    r'|'
+    r'exclude\s+file'
+    r'|'
+    r'not\s+from\s+file'
+    r')\b'
+)
+FILENAME_EXCLUSION_KEYWORDS: str = (
+    r'\b(?:exclude\s+file|exclude|not\s+from\s+file)\s+'
+    r'([a-z0-9][a-z0-9._-]*\.(?:pdf|txt|md|csv|json|docx?|xlsx?))\b'
+)
 
 # Analysis/synthesis action directives that imply content generation (not inventory metadata).
 ANALYSIS_ACTION_KEYWORDS: str = (
-    r'\b(summarize|compare|analyze|synthesize|explain|evaluate|assess|review|'
+    r'\b(summarize|summary|overview|breakdown|describe|compare|analyze|synthesize|explain|evaluate|assess|review|'
     r'find\s+one|recommendation|implication|tradeoff|with\s+evidence)\b'
 )
 
@@ -127,7 +234,7 @@ CONTENT_ANALYSIS_KEYWORDS: str = (
     r'what does'
     r')\b'
 )
-PLURAL_CORPUS_SCOPE_KEYWORDS: str = r'\b(documents|files|records)\b'
+PLURAL_CORPUS_SCOPE_KEYWORDS: str = r'\b(documents|files|records|data|content)\b'
 SINGLE_TARGET_KEYWORDS: str = (
     r'\b(?:any|one|single|this|that|the)\s+'
     r'(?:[a-z0-9][a-z0-9\s-]{0,40}\s+)?'
@@ -207,8 +314,18 @@ def build_coverage_pattern() -> Pattern[str]:
     # Coverage verb + quantifier + document type
     verb_pattern = rf'\b{COVERAGE_VERBS}(\s+{QUANTIFIERS})(\s+(the\s+)?)?(\w+\s+){{0,2}}(years?|{DOCUMENT_TYPES})\b'
 
-    # Combine both patterns
-    combined = rf'({quantifier_pattern}|{verb_pattern})'
+    # Coverage phrasing without explicit quantifiers.
+    implied_overview_pattern = (
+        r'\b('
+        r'(?:provide|give\s+me|describe|outline)\s+(?:an?\s+)?(?:overview|summary|breakdown)\s+'
+        r'(?:of|for)\s+(?:the\s+)?(?:data|content|documents?|files?|records?)'
+        r'|'
+        r'give\s+me\s+an\s+overview\s+of\s+what(?:\s+is|\s*\'s)?\s+in\s+the\s+data'
+        r')\b'
+    )
+
+    # Combine patterns
+    combined = rf'({quantifier_pattern}|{verb_pattern}|{implied_overview_pattern})'
     return re.compile(combined, re.IGNORECASE)
 
 
@@ -246,9 +363,11 @@ def build_enumeration_pattern() -> Pattern[str]:
     Returns:
         Compiled regex pattern
     """
+    enumeration_verbs = rf'({QUESTION_WORDS}|how\s+many|enumerate|list|show|tell\s+me\s+about)'
+    targets = r'(years?|categories?|file\s+types?|extensions?)'
     return re.compile(
-        rf'\b({QUESTION_WORDS}|how\s+many)\s+(years?|categories?|file\s+types?|extensions?)\b',
-        re.IGNORECASE
+        rf'\b{enumeration_verbs}\s+(?:the\s+)?{targets}\b',
+        re.IGNORECASE,
     )
 
 
@@ -312,6 +431,46 @@ def build_structured_output_schema_pattern() -> Pattern[str]:
     Build regex pattern for explicit structured output schema requests.
     """
     return re.compile(STRUCTURED_OUTPUT_SCHEMA_KEYWORDS, re.IGNORECASE)
+
+
+def build_output_format_table_pattern() -> Pattern[str]:
+    """Build regex pattern for explicit table output requests."""
+    return re.compile(OUTPUT_FORMAT_TABLE_KEYWORDS, re.IGNORECASE)
+
+
+def build_output_format_bullets_pattern() -> Pattern[str]:
+    """Build regex pattern for explicit bullet output requests."""
+    return re.compile(OUTPUT_FORMAT_BULLETS_KEYWORDS, re.IGNORECASE)
+
+
+def build_output_format_csv_pattern() -> Pattern[str]:
+    """Build regex pattern for explicit CSV output requests."""
+    return re.compile(OUTPUT_FORMAT_CSV_KEYWORDS, re.IGNORECASE)
+
+
+def build_output_format_list_pattern() -> Pattern[str]:
+    """Build regex pattern for explicit list output requests."""
+    return re.compile(OUTPUT_FORMAT_LIST_KEYWORDS, re.IGNORECASE)
+
+
+def build_output_format_narrative_pattern() -> Pattern[str]:
+    """Build regex pattern for explicit narrative output requests."""
+    return re.compile(OUTPUT_FORMAT_NARRATIVE_KEYWORDS, re.IGNORECASE)
+
+
+def build_comparative_pattern() -> Pattern[str]:
+    """Build regex pattern for comparative/superlative queries."""
+    return re.compile(COMPARATIVE_KEYWORDS, re.IGNORECASE)
+
+
+def build_negation_pattern() -> Pattern[str]:
+    """Build regex pattern for negation/exclusion query cues."""
+    return re.compile(NEGATION_KEYWORDS, re.IGNORECASE)
+
+
+def build_filename_exclusion_pattern() -> Pattern[str]:
+    """Build regex pattern for filename exclusion extraction."""
+    return re.compile(FILENAME_EXCLUSION_KEYWORDS, re.IGNORECASE)
 
 
 def build_analysis_action_pattern() -> Pattern[str]:

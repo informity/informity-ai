@@ -29,10 +29,15 @@ _CONTINUATION_DUPLICATE_MIN_LENGTH = 240
 _CONTINUATION_PHRASES = frozenset({
     'continue', 'continue please', 'please continue', 'go on', 'carry on',
     'resume', 'proceed', 'keep going', 'go ahead', 'next', 'next section',
-    'next part', 'more', 'more please', 'the rest', 'rest',
+    'next part', 'more', 'more please', 'the rest', 'rest', 'what else',
+    'tell me more', 'show me the rest', 'anything else',
 })
 _CONTINUATION_PATTERN = re.compile(
-    r'^\s*(continue|go on|carry on|resume|proceed|keep going|go ahead)\b',
+    r'^\s*('
+    r'continue|go on|carry on|resume|proceed|keep going|go ahead|'
+    r'what else|tell me more|show me the rest|anything else|what about|'
+    r'same (?:query|question|thing|request)\s*(?:but\s*)?(?:for|with|from|in)\s+\w+'
+    r')\b',
     re.IGNORECASE,
 )
 _CONTINUATION_STRUCTURED_OUTPUT_PATTERN = re.compile(
