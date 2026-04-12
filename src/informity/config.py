@@ -354,6 +354,8 @@ class Settings(BaseSettings):
     # When False, network is allowed (e.g. for model downloads). Synced to embedding_offline and llm_local_only.
     full_privacy:         bool = True
     tavily_api_key: str = ''
+    linkup_api_key: str = ''
+    web_search_primary_provider: Literal['tavily', 'linkup'] = 'tavily'
     web_search_max_results: int = 5
     web_search_timeout_seconds: float = 8.0
 

@@ -194,6 +194,11 @@ _SETTINGS_ALLOWED_VALUE_RULES: dict[str, tuple[tuple[str, ...], bool, str]] = {
         True,
         'default_chat_mode must be one of: assistant, researcher',
     ),
+    'web_search_primary_provider': (
+        ('tavily', 'linkup'),
+        True,
+        'web_search_primary_provider must be one of: tavily, linkup',
+    ),
     'ui_theme': (
         config.UI_THEME_ALLOWED_VALUES,
         False,
@@ -281,6 +286,8 @@ _UPDATABLE_FIELDS: set[str] = {
     'scan_hash_workers',
     'full_privacy',
     'tavily_api_key',
+    'linkup_api_key',
+    'web_search_primary_provider',
     'web_search_max_results',
     'web_search_timeout_seconds',
     'embedding_offline',
@@ -385,6 +392,16 @@ async def get_settings() -> SettingsResponse:
         scan_hash_workers       = s.scan_hash_workers,
         full_privacy            = s.full_privacy,
         tavily_api_key_set      = bool(str(s.tavily_api_key or '').strip()),
+        linkup_api_key_set      = bool(str(s.linkup_api_key or '').strip()),
+        web_search_configured   = (
+            bool(str(s.tavily_api_key or '').strip())
+            or bool(str(s.linkup_api_key or '').strip())
+        ),
+        web_search_primary_provider = (
+            'linkup'
+            if str(s.web_search_primary_provider or '').strip().lower() == 'linkup'
+            else 'tavily'
+        ),
         web_search_max_results  = s.web_search_max_results,
         web_search_timeout_seconds = s.web_search_timeout_seconds,
         embedding_offline       = s.embedding_offline,
@@ -552,6 +569,8 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                     )
 
             if field_name == 'tavily_api_key' and value is not None:
+                value = str(value).strip()
+            if field_name == 'linkup_api_key' and value is not None:
                 value = str(value).strip()
 
             # Defer full_privacy sync until after the loop so it always wins

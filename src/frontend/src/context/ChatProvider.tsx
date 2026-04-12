@@ -547,27 +547,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           || (data?.budget_metrics != null
             && typeof data.budget_metrics === 'object'
             && (data.budget_metrics as Record<string, unknown>).web_search_used === true)
-        const webSearchTokensUsedRaw = (
-          data?.budget_metrics != null
-          && typeof data.budget_metrics === 'object'
-          ? (data.budget_metrics as Record<string, unknown>).web_search_tokens_used
-          : undefined
-        )
-        const webSearchTokensLimitRaw = (
-          data?.budget_metrics != null
-          && typeof data.budget_metrics === 'object'
-          ? (data.budget_metrics as Record<string, unknown>).web_search_tokens_limit
-          : undefined
-        )
-        const webSearchTokensUsed = typeof webSearchTokensUsedRaw === 'number'
-          ? webSearchTokensUsedRaw
-          : undefined
-        const webSearchTokensLimit = typeof webSearchTokensLimitRaw === 'number'
-          ? webSearchTokensLimitRaw
-          : undefined
-        const hasWebSearchTokens = webSearchTokensUsed != null
-          || webSearchTokensLimit != null
-        const webSearchUsedResolved = webSearchUsed || hasWebSearchTokens
+        const webSearchUsedResolved = webSearchUsed
         const recoveryCallout = buildRecoveryCallout(nextAction, nextActionReason)
         const displayBlocks = Array.isArray(data?.display_blocks) ? data?.display_blocks : undefined
         const extraBlocks: DisplayBlock[] = [recoveryCallout].filter((v): v is DisplayBlock => v != null)

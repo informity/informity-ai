@@ -34,16 +34,6 @@ def build_done_payload(
     resource_metrics: dict[str, object],
     message_id: int | None,
 ) -> dict:
-    web_search_tokens_label = budget_metrics.get('web_search_tokens_label')
-    if not isinstance(web_search_tokens_label, str) or not web_search_tokens_label.strip():
-        used_raw = budget_metrics.get('web_search_tokens_used')
-        limit_raw = budget_metrics.get('web_search_tokens_limit')
-        used = int(used_raw) if isinstance(used_raw, int) else None
-        limit = int(limit_raw) if isinstance(limit_raw, int) else None
-        if used is not None and limit is not None and limit > 0:
-            web_search_tokens_label = f'{used}/{limit}'
-        else:
-            web_search_tokens_label = None
     payload: dict[str, object] = {
         'elapsed_seconds': elapsed_seconds,
         'request_id': request_id if request_id else None,
@@ -60,7 +50,6 @@ def build_done_payload(
         'display_blocks': build_display_blocks(cleaned_answer),
         'budget_metrics': budget_metrics,
         'web_search_used': budget_metrics.get('web_search_used') is True,
-        'web_search_tokens_label': web_search_tokens_label,
         'budget_checkpoints': budget_checkpoints,
         'continuation_passes': continuation_passes,
         'continuation_resolution_reason': continuation_resolution_reason,
