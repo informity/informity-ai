@@ -238,6 +238,9 @@ class SettingsResponse(BaseModel):
     scan_hash_workers:       int = 0  # 0 = auto
     full_privacy:            bool  = True
     tavily_api_key_set:      bool = False
+    linkup_api_key_set:      bool = False
+    web_search_configured:   bool = False
+    web_search_primary_provider: Literal['tavily', 'linkup'] = 'tavily'
     web_search_max_results:  int = 5
     web_search_timeout_seconds: float = 8.0
     embedding_offline:       bool
@@ -312,6 +315,8 @@ class SettingsUpdateRequest(BaseModel):
     scan_hash_workers:      int | None = None
     full_privacy:           bool | None = None
     tavily_api_key:         str | None = None
+    linkup_api_key:         str | None = None
+    web_search_primary_provider: Literal['tavily', 'linkup'] | None = None
     web_search_max_results: int | None = None
     web_search_timeout_seconds: float | None = None
     embedding_offline:      bool | None = None

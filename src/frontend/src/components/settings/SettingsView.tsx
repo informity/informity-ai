@@ -68,6 +68,7 @@ const INDEXING_SPEED_TO_THREADS = [2, 4, 6, 8, 0]
 const CHAT_CPU_RESPONSIVENESS_LABELS = ['', 'Most Responsive', 'Balanced', 'Fastest']
 const CHAT_CPU_RESPONSIVENESS_TO_THREADS = [2, 4, 6]
 const MASKED_TAVILY_KEY = '••••••••••••••••••••••••••••••••••••••••••••••••••'
+const MASKED_LINKUP_KEY = '••••••••••••••••••••••••••••••••••••••••••••••••••'
 
 function threadsToSpeed(threads: number): number {
   if (threads === 0) return 5
@@ -91,6 +92,10 @@ function clamp(value: number, min: number, max: number): number {
 
 function isMaskedTavilyKey(value: string): boolean {
   return value === MASKED_TAVILY_KEY
+}
+
+function isMaskedLinkupKey(value: string): boolean {
+  return value === MASKED_LINKUP_KEY
 }
 
 function renderLabelWithMutedParens(text: string) {
@@ -151,6 +156,7 @@ interface SettingsData {
   scan_file_timeout_seconds?: number
   full_privacy?: boolean
   tavily_api_key_set?: boolean
+  linkup_api_key_set?: boolean
   web_search_max_results?: number
   web_search_timeout_seconds?: number
   adaptive_rag_tuning?: boolean
@@ -196,6 +202,8 @@ interface FormState {
   full_privacy: boolean
   tavily_api_key: string
   clear_tavily_api_key: boolean
+  linkup_api_key: string
+  clear_linkup_api_key: boolean
   web_search_max_results: number
   web_search_timeout_seconds: number
   adaptive_rag_tuning: boolean
@@ -247,6 +255,8 @@ function buildFormState(settings: SettingsData): FormState {
     full_privacy: settings.full_privacy ?? true,
     tavily_api_key: settings.tavily_api_key_set ? MASKED_TAVILY_KEY : '',
     clear_tavily_api_key: false,
+    linkup_api_key: settings.linkup_api_key_set ? MASKED_LINKUP_KEY : '',
+    clear_linkup_api_key: false,
     web_search_max_results: settings.web_search_max_results ?? 5,
     web_search_timeout_seconds: settings.web_search_timeout_seconds ?? 8,
     adaptive_rag_tuning: settings.adaptive_rag_tuning ?? true,
@@ -834,12 +844,18 @@ export function SettingsView({
               Web Search Provider
             </div>
             <p className="settings-subsection-description ui-subsection-description">
-              Assistant web search is powered by <a className="settings-link" href="https://app.tavily.com/" target="_blank" rel="noreferrer">Tavily</a> and requires an API key. The free tier includes up to 1,000 requests per month.
+              Assistant web search is powered by third-party services <a className="settings-link" href="https://app.tavily.com/" target="_blank" rel="noreferrer">Tavily</a> and <a className="settings-link" href="https://www.linkup.so/" target="_blank" rel="noreferrer">Linkup</a>.
             </p>
           </div>
           <div className="settings-control-group">
             <label className="settings-control-label" htmlFor="settings-tavily-api-key">
               Tavily API key
+              <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                <i className="ri-information-line" aria-hidden="true" />
+                <span className="settings-tooltip ui-tooltip">
+                  1000 free queries per month. Pricing subject to change.
+                </span>
+              </span>
             </label>
             <div className="settings-input-wrap">
               <input
@@ -877,6 +893,59 @@ export function SettingsView({
                   onClick={() => {
                     update('tavily_api_key', '')
                     update('clear_tavily_api_key', true)
+                  }}
+                >
+                  <i className="ri-close-line" aria-hidden />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="settings-control-group">
+            <label className="settings-control-label" htmlFor="settings-linkup-api-key">
+              Linkup API key
+              <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                <i className="ri-information-line" aria-hidden="true" />
+                <span className="settings-tooltip ui-tooltip">
+                  1000 standard or 100 deep free queries per month. Pricing subject to change.
+                </span>
+              </span>
+            </label>
+            <div className="settings-input-wrap">
+              <input
+                id="settings-linkup-api-key"
+                type="password"
+                className="settings-input settings-input--with-clear"
+                placeholder="sk-..."
+                value={form.linkup_api_key}
+                onChange={(e) => {
+                  update('linkup_api_key', e.target.value)
+                  if (form.clear_linkup_api_key) update('clear_linkup_api_key', false)
+                }}
+                onFocus={() => {
+                  if (isMaskedLinkupKey(form.linkup_api_key)) {
+                    update('linkup_api_key', '')
+                  }
+                }}
+                onBlur={() => {
+                  if (
+                    !String(form.linkup_api_key || '').trim()
+                    && settings.linkup_api_key_set
+                    && !form.clear_linkup_api_key
+                  ) {
+                    update('linkup_api_key', MASKED_LINKUP_KEY)
+                  }
+                }}
+                autoComplete="off"
+              />
+              {(settings.linkup_api_key_set || String(form.linkup_api_key || '').trim().length > 0) && (
+                <button
+                  type="button"
+                  className="settings-input-clear"
+                  aria-label="Clear Linkup API key"
+                  title="Clear API key"
+                  onClick={() => {
+                    update('linkup_api_key', '')
+                    update('clear_linkup_api_key', true)
                   }}
                 >
                   <i className="ri-close-line" aria-hidden />

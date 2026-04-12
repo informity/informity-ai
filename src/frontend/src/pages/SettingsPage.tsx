@@ -43,6 +43,7 @@ const UPDATABLE_KEYS = [
   'scan_file_timeout_seconds',
   'full_privacy',
   'tavily_api_key',
+  'linkup_api_key',
   'web_search_max_results',
   'web_search_timeout_seconds',
   'adaptive_rag_tuning',
@@ -82,6 +83,8 @@ interface FormState {
   full_privacy?: boolean
   tavily_api_key?: string
   clear_tavily_api_key?: boolean
+  linkup_api_key?: string
+  clear_linkup_api_key?: boolean
   web_search_max_results?: number
   web_search_timeout_seconds?: number
   adaptive_rag_tuning?: boolean
@@ -117,9 +120,20 @@ function buildPayload(form: FormState, current: SettingsData | null): Record<str
   if (form.clear_tavily_api_key) {
     payload.tavily_api_key = ''
   }
+  if (form.clear_linkup_api_key) {
+    payload.linkup_api_key = ''
+  }
   for (const key of UPDATABLE_KEYS) {
     if (form[key] !== undefined) {
       if (key === 'tavily_api_key') {
+        const candidate = String(form[key] || '').trim()
+        if (!candidate || /^•+$/.test(candidate)) {
+          continue
+        }
+        payload[key] = candidate
+        continue
+      }
+      if (key === 'linkup_api_key') {
         const candidate = String(form[key] || '').trim()
         if (!candidate || /^•+$/.test(candidate)) {
           continue
@@ -139,6 +153,8 @@ function buildPayload(form: FormState, current: SettingsData | null): Record<str
 
 interface SettingsData extends FormState {
   tavily_api_key_set?: boolean
+  linkup_api_key_set?: boolean
+  web_search_configured?: boolean
   file_type_options?: { id: string; label: string; extensions: string[] }[]
 }
 
