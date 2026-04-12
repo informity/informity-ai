@@ -305,6 +305,10 @@ html[data-accent='mono'] .page-header {
   border-bottom: 1px dotted #4a4a4a;
 }
 
+html[data-accent='mono'] .sidebar {
+  background: var(--color-bg);
+}
+
 html[data-accent='mono'] .settings-tabs {
   border-bottom: 1px dotted #4a4a4a;
 }
