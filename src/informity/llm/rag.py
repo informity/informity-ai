@@ -5,6 +5,7 @@
 
 import asyncio
 import dataclasses
+import re
 from collections.abc import AsyncGenerator
 from typing import Any
 
@@ -20,7 +21,7 @@ from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.rag import RAGHandler
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification, classify_query
-from informity.llm.types import IntentProfileId, OutputShape, QueryType, StreamSignalTag
+from informity.llm.types import IntentProfileId, OutputShape, QuerySubtype, QueryType, StreamSignalTag
 from informity.llm.user_messages import EMPTY_KNOWLEDGE_BASE_RESEARCHER_MESSAGE
 
 log = structlog.get_logger(__name__)
@@ -32,6 +33,13 @@ _HANDLER_REGISTRY = [
     SimpleHandler(),    # Simple/conversational queries (greetings, clarifications, off-topic)
     RAGHandler(),       # Focused and coverage queries (fallback - should always match)
 ]
+
+_COMPOUND_RESPONSE_SEPARATOR = '\n\n---\n\n'
+_COMPOUND_SECONDARY_MAX_QUERY_WORDS = 32
+_COMPOUND_SECONDARY_BROAD_SCOPE_PATTERN = re.compile(
+    r'\b(all|across|every|each|by\s+year|year[-\s]*by[-\s]*year|cross[-\s]*year|summarize|compare)\b',
+    re.IGNORECASE,
+)
 
 
 def _resolve_handler_for_classification(classification: QueryClassification) -> Any | None:
@@ -66,6 +74,29 @@ def _build_secondary_classification(classification: QueryClassification) -> Quer
             is_file_list_query=False,
         )
     return None
+
+
+def _should_execute_secondary_path(
+    *,
+    question: str,
+    primary: QueryClassification,
+    secondary: QueryClassification,
+) -> tuple[bool, str | None]:
+    # Metadata secondary work is cheap (SQL-only) and can proceed without an extra gate.
+    if secondary.intent != QueryType.FOCUSED:
+        return True, None
+    # Secondary focused execution can invoke full RAG. Keep it constrained to
+    # compact metadata-first compounds to avoid unbounded latency.
+    if primary.intent != QueryType.METADATA:
+        return False, 'secondary_focused_requires_metadata_primary'
+    if primary.subtype == QuerySubtype.AGGREGATE_BY_PERIOD or primary.has_multi_year_scope:
+        return False, 'secondary_focused_blocked_for_multi_year_scope'
+    query_words = len(re.findall(r'\S+', str(question or '')))
+    if query_words > _COMPOUND_SECONDARY_MAX_QUERY_WORDS:
+        return False, 'secondary_focused_query_length_budget_exceeded'
+    if _COMPOUND_SECONDARY_BROAD_SCOPE_PATTERN.search(str(question or '')):
+        return False, 'secondary_focused_broad_scope_budget_block'
+    return True, None
 
 
 async def answer_question(
@@ -227,6 +258,20 @@ async def answer_question(
                 _resolve_handler_for_classification(secondary_classification)
                 if secondary_classification is not None else None
             )
+            if secondary_handler is not None and secondary_classification is not None:
+                should_run_secondary, skip_reason = _should_execute_secondary_path(
+                    question=question,
+                    primary=classification,
+                    secondary=secondary_classification,
+                )
+                if not should_run_secondary:
+                    log.info(
+                        'route_compound_secondary_skipped_budget_gate',
+                        reason=skip_reason,
+                        primary_intent=classification.intent,
+                        secondary_intent=secondary_classification.intent,
+                    )
+                    secondary_handler = None
             merged_sources: list[ChatSourceReference] = []
             if secondary_handler is None:
                 log.info(
@@ -263,6 +308,7 @@ async def answer_question(
             ):
                 if run_classification is None:
                     continue
+                secondary_separator_emitted = False
                 async for item in run_handler.handle(
                     question=question,
                     classification=run_classification,
@@ -288,6 +334,9 @@ async def answer_question(
                             metrics_payload['compound_secondary_intent_applied'] = True
                             yield (item[0], metrics_payload)
                             continue
+                    if run_index == 2 and not secondary_separator_emitted and isinstance(item, str):
+                        yield _COMPOUND_RESPONSE_SEPARATOR
+                        secondary_separator_emitted = True
                     yield item
             yield merged_sources
             return
