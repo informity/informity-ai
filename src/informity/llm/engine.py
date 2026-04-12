@@ -15,6 +15,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import shutil
@@ -552,6 +553,8 @@ class LLMEngine:
         target_path: Path,
         repo_id: str | None = None,
         filename: str | None = None,
+        revision: str | None = None,
+        expected_sha256: str | None = None,
         progress_callback: Callable[[int, int | None, float], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> None:
@@ -561,7 +564,13 @@ class LLMEngine:
         repo = repo_id or settings.llm_hf_repo
         fname = filename or target_path.name
 
-        log.info('downloading_llm_model', repo=repo, filename=fname, target=str(target_path))
+        log.info(
+            'downloading_llm_model',
+            repo=repo,
+            filename=fname,
+            revision=revision,
+            target=str(target_path),
+        )
         start = time.perf_counter()
 
         try:
@@ -576,7 +585,7 @@ class LLMEngine:
             tmp_path = target_path.parent / f'{target_path.name}.incomplete'
             bytes_done = int(tmp_path.stat().st_size) if tmp_path.exists() else 0
 
-            url = hf_hub_url(repo_id=repo, filename=fname)
+            url = hf_hub_url(repo_id=repo, filename=fname, revision=revision)
             headers = build_hf_headers()
             if bytes_done > 0:
                 headers['Range'] = f'bytes={bytes_done}-'
@@ -632,6 +641,15 @@ class LLMEngine:
                 progress_callback(bytes_done, total_bytes or bytes_done, speed_bps)
 
             tmp_path.replace(target_path)
+            if expected_sha256:
+                actual_sha256 = self._compute_file_sha256(target_path)
+                if actual_sha256.lower() != expected_sha256.strip().lower():
+                    with suppress(OSError):
+                        target_path.unlink(missing_ok=True)
+                    raise LLMError(
+                        f'Model integrity verification failed for {fname}: '
+                        f'expected {expected_sha256}, got {actual_sha256}.'
+                    )
 
         except ImportError as exc:
             raise LLMError(f'huggingface-hub is not installed: {exc}') from exc
@@ -650,6 +668,13 @@ class LLMEngine:
             elapsed_s=round(elapsed_s, 1),
         )
         remove_models_dir_cache()
+
+    def _compute_file_sha256(self, path: Path) -> str:
+        sha256 = hashlib.sha256()
+        with path.open('rb') as f:
+            for chunk in iter(lambda: f.read(1024 * 1024), b''):
+                sha256.update(chunk)
+        return sha256.hexdigest()
 
     # -- Synchronous chat completion ------------------------------------------
 

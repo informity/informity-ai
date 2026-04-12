@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sys
@@ -193,8 +194,10 @@ def _download_docling_models(app_data: Path) -> None:
 
 def _download_llm(app_data: Path, llm: dict) -> None:
     repo_id       = llm.get('repo_id') or ''
+    revision      = llm.get('revision') or None
     filename      = llm.get('filename') or ''
     local_fname   = llm.get('local_filename') or filename
+    expected_sha256 = str(llm.get('sha256') or '').strip().lower() or None
     if not repo_id or not filename:
         raise SystemExit('llm must have repo_id and filename in install config.')
 
@@ -217,13 +220,29 @@ def _download_llm(app_data: Path, llm: dict) -> None:
     downloaded = hf_hub_download(
         repo_id   = repo_id,
         filename  = filename,
+        revision  = revision,
         local_dir = str(models_dir),
         cache_dir = str(hf_hub),
     )
     downloaded_path = Path(downloaded)
     if downloaded_path.name != local_fname and downloaded_path.exists():
         downloaded_path.rename(target_path)
+    if expected_sha256:
+        actual_sha256 = _compute_sha256(target_path)
+        if actual_sha256.lower() != expected_sha256:
+            raise SystemExit(
+                f'LLM integrity verification failed for {local_fname}: '
+                f'expected {expected_sha256}, got {actual_sha256}'
+            )
     print(f'LLM saved as {target_path.name}')
+
+
+def _compute_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open('rb') as f:
+        for chunk in iter(lambda: f.read(1024 * 1024), b''):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def _is_hf_model_cached(model_name: str, hf_hub_cache: Path) -> bool:

@@ -107,8 +107,15 @@ def scan_directories(
             continue
 
         log.info('scanning_directory', directory=str(directory))
+        allowed_roots = (directory.resolve(),)
 
-        for file_path in _walk_directory(directory, ignores, ext_set, follow):
+        for file_path in _walk_directory(
+            directory,
+            ignores,
+            ext_set,
+            follow,
+            _allowed_roots=allowed_roots,
+        ):
             candidate_paths.append(file_path)
 
     if not candidate_paths:
@@ -132,6 +139,7 @@ def _walk_directory(
     follow_symlinks: bool,
     _visited: set[tuple[int, int]] | None = None,
     _ignore_spec: PathSpec | None = None,
+    _allowed_roots: tuple[Path, ...] | None = None,
 ) -> list[Path]:
     # Recursively walk a directory, filtering by ignore patterns and extensions.
     # When follow_symlinks is True, tracks visited (dev, ino) pairs to prevent
@@ -142,6 +150,8 @@ def _walk_directory(
         _visited = set()
     if _ignore_spec is None:
         _ignore_spec = PathSpec.from_lines('gitignore', ignore_patterns)
+    if _allowed_roots is None:
+        _allowed_roots = (directory.resolve(),)
 
     # Protect against symlink cycles by tracking visited directory inodes
     if follow_symlinks:
@@ -169,6 +179,22 @@ def _walk_directory(
         if entry.is_symlink() and not follow_symlinks:
             continue
 
+        if entry.is_symlink() and follow_symlinks:
+            with_context = {'entry': str(entry)}
+            try:
+                target = entry.resolve()
+            except OSError as exc:
+                log.warning('symlink_resolve_failed', error=str(exc), **with_context)
+                continue
+            if not _is_within_allowed_roots(target, _allowed_roots):
+                log.warning(
+                    'symlink_target_outside_scan_root',
+                    entry=str(entry),
+                    target=str(target),
+                    roots=[str(root) for root in _allowed_roots],
+                )
+                continue
+
         # Check ignore patterns against the entry name and relative parts
         if should_ignore(entry, ignore_patterns, ignore_spec=_ignore_spec):
             continue
@@ -182,12 +208,27 @@ def _walk_directory(
                     follow_symlinks,
                     _visited,
                     _ignore_spec,
+                    _allowed_roots,
                 )
             )
         elif entry.is_file() and entry.suffix.lower() in extensions:
             results.append(entry)
 
     return results
+
+
+def _is_within_allowed_roots(path: Path, roots: tuple[Path, ...]) -> bool:
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return False
+    for root in roots:
+        try:
+            if resolved.is_relative_to(root):
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def _normalize_match_path(path: Path) -> str:

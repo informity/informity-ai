@@ -513,11 +513,7 @@ async def init_db() -> None:
         await conn.execute('DROP TRIGGER IF EXISTS fts_chunks_au')
         await conn.executescript(_FTS_TRIGGERS_SQL)
 
-        await conn.execute('DELETE FROM schema_version')
-        await conn.execute(
-            'INSERT INTO schema_version (version) VALUES (?)',
-            (SCHEMA_VERSION,),
-        )
+        await _ensure_schema_version(conn)
         await conn.execute(
             '''
             INSERT INTO term_dictionary_state (singleton_id, current_version)
@@ -545,6 +541,27 @@ async def _ensure_chat_messages_model_filename_column(conn: aiosqlite.Connection
         return
     await conn.execute('ALTER TABLE chat_messages ADD COLUMN model_filename TEXT')
     log.info('database_migration_applied', migration='add_chat_messages_model_filename')
+
+
+async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
+    """
+    Ensure schema_version row exists and matches expected runtime SCHEMA_VERSION.
+    Fail closed on mismatch to avoid silent cross-version corruption.
+    """
+    cursor = await conn.execute('SELECT version FROM schema_version LIMIT 1')
+    row = await cursor.fetchone()
+    if row is None:
+        await conn.execute('INSERT INTO schema_version (version) VALUES (?)', (SCHEMA_VERSION,))
+        return
+
+    existing = int(row['version'])
+    if existing == SCHEMA_VERSION:
+        return
+
+    raise RuntimeError(
+        f'Database schema version mismatch: found {existing}, expected {SCHEMA_VERSION}. '
+        'Run a reset/migration before continuing.'
+    )
 
 
 async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
