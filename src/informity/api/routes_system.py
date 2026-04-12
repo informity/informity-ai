@@ -9,7 +9,6 @@ import math
 import os
 import platform
 import threading
-from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
