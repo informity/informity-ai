@@ -135,6 +135,7 @@ class ChatMessage(BaseModel):
     next_action: NextAction | str | None = None
     next_action_reason: str | None = None
     chat_mode: str | None = None
+    model_filename: str | None = None
     is_internal: bool = False
     created_at:       datetime | None = None
 
