@@ -3,7 +3,16 @@
 # Standardized directory creation and management
 # ==============================================================================
 
+from contextlib import suppress
 from pathlib import Path
+
+
+def ensure_private_file(path: Path) -> None:
+    """
+    Best-effort private file permission hardening (owner read/write only).
+    """
+    with suppress(OSError):
+        path.chmod(0o600)
 
 
 def ensure_directory(path: Path, parents: bool = True, exist_ok: bool = True) -> Path:

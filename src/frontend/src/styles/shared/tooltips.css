@@ -71,6 +71,18 @@
   transform: none;
 }
 
+.ui-tooltip--up-right {
+  left: 0;
+  right: auto;
+  transform: none;
+}
+
+.ui-tooltip--up-right::after {
+  left: 0.5rem;
+  right: auto;
+  transform: none;
+}
+
 .ui-tooltip--below {
   bottom: auto;
   top: calc(100% + 8px);

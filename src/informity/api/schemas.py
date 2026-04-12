@@ -169,6 +169,7 @@ class IndexStatusResponse(BaseModel):
     indexed_content_size_bytes: int  = 0
     reset_in_progress:          bool  = False
     last_reset_result:         dict | None = None   # Set when reset completes: files_deleted, etc.
+    source_scope_stats:        list[dict[str, object]] = Field(default_factory=list)
 
 
 # ==============================================================================
@@ -215,6 +216,7 @@ class DiagnosticsProfilePreset(BaseModel):
 class SettingsResponse(BaseModel):
     # Current application settings exposed to the frontend.
     watched_directories:       list[str]
+    source_scopes_enabled:     dict[str, bool] = Field(default_factory=dict)
     ignore_patterns:           list[str]   # Custom exclude patterns only
     exclude_macos_system:      bool         = True
     exclude_developer_data:   bool         = True
@@ -231,11 +233,14 @@ class SettingsResponse(BaseModel):
     embedding_max_threads:   int   = 6
     llm_cpu_threads:         int   = 8
     enable_ocr_for_images:   bool  = True  # Enable OCR fallback for image-only PDFs by default
-    scan_file_timeout_seconds: int = 300   # Per-file processing timeout (seconds); 0 = no timeout, max 600
+    scan_file_timeout_seconds: int = 600
     scan_hash_pool:          Literal['thread', 'process'] = 'thread'
     scan_hash_workers:       int = 0  # 0 = auto
     full_privacy:            bool  = True
     tavily_api_key_set:      bool = False
+    linkup_api_key_set:      bool = False
+    web_search_configured:   bool = False
+    web_search_primary_provider: Literal['tavily', 'linkup'] = 'tavily'
     web_search_max_results:  int = 5
     web_search_timeout_seconds: float = 8.0
     embedding_offline:       bool
@@ -289,6 +294,7 @@ class SettingsUpdateRequest(BaseModel):
     # llm_context_length,
     # llm_temperature, rag_top_k.
     watched_directories:       list[str] | None = None
+    source_scopes_enabled:     dict[str, bool] | None = None
     ignore_patterns:           list[str] | None = None
     exclude_macos_system:      bool | None      = None
     exclude_developer_data:    bool | None       = None
@@ -304,11 +310,13 @@ class SettingsUpdateRequest(BaseModel):
     embedding_max_threads:  int | None = None
     llm_cpu_threads:        int | None = None
     enable_ocr_for_images:  bool | None = None  # Enable OCR for image-only PDFs when regular extraction fails
-    scan_file_timeout_seconds: int | None = None  # Per-file processing timeout (seconds); 0 = no timeout, max 600
+    scan_file_timeout_seconds: int | None = None
     scan_hash_pool:         Literal['thread', 'process'] | None = None
     scan_hash_workers:      int | None = None
     full_privacy:           bool | None = None
     tavily_api_key:         str | None = None
+    linkup_api_key:         str | None = None
+    web_search_primary_provider: Literal['tavily', 'linkup'] | None = None
     web_search_max_results: int | None = None
     web_search_timeout_seconds: float | None = None
     embedding_offline:      bool | None = None

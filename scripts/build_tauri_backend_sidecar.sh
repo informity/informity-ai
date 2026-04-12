@@ -63,6 +63,31 @@ verify_sidecar_contents() {
   rm -f "$listing_file"
 }
 
+sign_sidecar_macho_files() {
+  local sidecar_dir="$1"
+  local identity="${APPLE_SIGNING_IDENTITY:-}"
+
+  if [[ -z "$identity" ]]; then
+    echo "APPLE_SIGNING_IDENTITY not set; skipping sidecar Mach-O signing."
+    return 0
+  fi
+  if [[ ! -d "$sidecar_dir" ]]; then
+    echo "ERROR: sidecar signing failed (missing directory: $sidecar_dir)" >&2
+    return 1
+  fi
+
+  echo "Signing sidecar Mach-O files with identity: $identity"
+  local signed_count=0
+  while IFS= read -r -d '' candidate; do
+    if file "$candidate" | grep -q "Mach-O"; then
+      codesign --force --sign "$identity" --options runtime --timestamp "$candidate"
+      signed_count=$((signed_count + 1))
+    fi
+  done < <(find "$sidecar_dir" -type f -print0)
+
+  echo "Signed $signed_count sidecar Mach-O files."
+}
+
 echo "Building Tauri backend sidecar (${BACKEND_NAME})..."
 uv run --with pyinstaller pyinstaller \
   --noconfirm \
@@ -107,5 +132,6 @@ verify_sidecar_contents "$DIST_DIR/$BACKEND_NAME"
 rm -rf "$OUT_DIR/$BACKEND_BUNDLE_DIR" "$OUT_DIR/$BACKEND_NAME"
 cp -R "$DIST_DIR/$BACKEND_NAME" "$OUT_DIR/$BACKEND_BUNDLE_DIR"
 chmod +x "$OUT_DIR/$BACKEND_BUNDLE_DIR/$BACKEND_NAME" || true
+sign_sidecar_macho_files "$OUT_DIR/$BACKEND_BUNDLE_DIR"
 
 echo "Sidecar ready: $OUT_DIR/$BACKEND_BUNDLE_DIR/"

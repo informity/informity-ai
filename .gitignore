@@ -31,10 +31,14 @@ build/
 .env
 .env.*
 !.env.example
+!.env.codesign.example
 *.local
 
-# Project runtime data
-data/
+# Local macOS signing/notarization secrets
+.env.codesign
+.secrets/
+
+# Local runtime artifacts (only if manually generated inside repo)
 *.db
 *.db-journal
 *.db-wal

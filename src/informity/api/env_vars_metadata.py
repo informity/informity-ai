@@ -126,6 +126,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('embedding_max_threads', 'Max CPU threads for embedding model (0 = auto; set lower to keep system responsive).'),
             ('scan_hash_pool', 'Hash executor for scan crawling: thread (default) or process.'),
             ('scan_hash_workers', 'Hash worker count for scan crawling (0 = auto).'),
+            ('scan_hash_max_file_size_bytes', 'Maximum file size (bytes) eligible for scan-time SHA-256 hashing. Oversized files are skipped.'),
         ],
     ),
     (
@@ -166,7 +167,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'Application logging and debugging options.',
         [
             ('log_level', 'Application log level: debug, info, warning, error. Default info to reduce noise.'),
-            ('chat_trace_logging', 'When true, write a per-chat trace log (chat_{chat_id}.json) for each chat message. Used for troubleshooting and LLM-assisted analysis.'),
+            ('chat_trace_logging', 'When true, write a per-chat trace log (chat_{chat_id}.json) for each chat message. Used for troubleshooting and diagnostics analysis.'),
         ],
     ),
     (
@@ -174,16 +175,6 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'Diagnostics evaluation pipeline settings for quality analysis and self-improvement.',
         [
             ('diagnostics_dir', 'Directory for diagnostics data (quality evaluation runs, traces, reports).'),
-            ('diagnostics_llm_analysis_enabled', 'When true, use local LLM to enhance root cause analysis in diagnostics pipeline. Default false (opt-in feature).'),
-            ('diagnostics_llm_max_issues_per_run', 'Maximum number of issues to analyze per run (limits analysis scope to prevent excessive processing time).'),
-            ('diagnostics_llm_model_filename', 'GGUF filename in diagnostics_models_dir for LLM-powered analysis (default: DeepSeek R1 optimized for analysis tasks).'),
-            ('diagnostics_llm_timeout_seconds', 'Maximum seconds for LLM inference during diagnostics analysis. Generous default so analysis can produce full results.'),
-            (
-                'diagnostics_models_dir',
-                f'Directory for diagnostics LLM model files '
-                f'(default: {{repo_root}}/{DirNames.TOOLS}/{DirNames.DIAGNOSTICS}/{DirNames.DIAGNOSTICS_MODELS}). '
-                f'Separate from chat and classifier models.',
-            ),
         ],
     ),
 ]
@@ -191,7 +182,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
 _RUNTIME_ENV_VARS: list[tuple[str, str]] = [
     (
         'INFORMITY_REPO_ROOT',
-        'Repository root override for diagnostics paths and local tooling resolution.',
+        'Repository root override for local tooling resolution.',
     ),
     (
         'INFORMITY_SUPPRESS_CONSOLE_LOGS',
@@ -202,6 +193,8 @@ _RUNTIME_ENV_VARS: list[tuple[str, str]] = [
         'Desktop runtime session token for local API authorization (managed by the desktop shell).',
     ),
 ]
+_SENSITIVE_ENV_VALUE_MARKER = '***set***'
+_SENSITIVE_ENV_NAME_HINTS = ('TOKEN', 'SECRET', 'PASSWORD', 'KEY')
 
 
 def _describe_unmapped_field(field: str) -> str:
@@ -211,6 +204,17 @@ def _describe_unmapped_field(field: str) -> str:
         f'Advanced setting: {label}. '
         f'Configurable via {_env_name(field)}.'
     )
+
+
+def _format_runtime_env_default(name: str) -> str:
+    # Redact runtime secrets while still indicating presence.
+    raw = str(os.environ.get(name, '')).strip()
+    if not raw:
+        return ''
+    upper_name = str(name or '').upper()
+    if any(hint in upper_name for hint in _SENSITIVE_ENV_NAME_HINTS):
+        return _SENSITIVE_ENV_VALUE_MARKER
+    return raw
 
 
 def get_env_vars_response(settings: object) -> EnvVarsResponse:
@@ -263,7 +267,7 @@ def get_env_vars_response(settings: object) -> EnvVarsResponse:
     runtime_items = [
         EnvVarItem(
             name=name,
-            default=str(os.environ.get(name, '')).strip(),
+            default=_format_runtime_env_default(name),
             description=desc,
         )
         for name, desc in sorted(_RUNTIME_ENV_VARS, key=lambda x: x[0])

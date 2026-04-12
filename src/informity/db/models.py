@@ -40,6 +40,7 @@ class IndexedFile(BaseModel):
     # Represents a file in the SQLite `files` table.
     id:                     int | None       = None
     source_provider:        str              = 'filesystem'
+    entity_type:            str              = 'file'
     source_item_id:         str              = ''
     path:                   str                         # Absolute POSIX path
     filename:               str
@@ -134,6 +135,7 @@ class ChatMessage(BaseModel):
     next_action: NextAction | str | None = None
     next_action_reason: str | None = None
     chat_mode: str | None = None
+    model_filename: str | None = None
     is_internal: bool = False
     created_at:       datetime | None = None
 

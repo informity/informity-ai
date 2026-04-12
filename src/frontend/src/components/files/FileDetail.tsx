@@ -20,9 +20,17 @@ interface FileDetailProps {
   fileId: number | null
   onClose?: () => void
   onRemoved?: () => void
+  onReindexRequest?: (file: IndexedFile) => Promise<void> | void
+  isReindexing?: boolean
 }
 
-export function FileDetail({ fileId, onClose, onRemoved }: FileDetailProps) {
+export function FileDetail({
+  fileId,
+  onClose,
+  onRemoved,
+  onReindexRequest,
+  isReindexing = false,
+}: FileDetailProps) {
   const { offline } = useBackendStatus()
   const [file, setFile] = useState<IndexedFile | null>(null)
   const [loading, setLoading] = useState(false)
@@ -84,12 +92,16 @@ export function FileDetail({ fileId, onClose, onRemoved }: FileDetailProps) {
 
   const handleReindex = async () => {
     if (offline) return
+    if (!file) return
+    if (isReindexing) return
+    if (onReindexRequest) {
+      await onReindexRequest(file)
+      return
+    }
     if (!fileId) return
     setActionLoading('reindex')
     try {
       await reindexFile(fileId)
-      const data = (await getFile(fileId)) as IndexedFile
-      setFile(data)
     } catch (err) {
       const msg = extractErrorMessage(err, 'Re-index failed')
       setError(msg)
@@ -234,11 +246,15 @@ export function FileDetail({ fileId, onClose, onRemoved }: FileDetailProps) {
                 type="button"
                 className="file-detail__btn file-detail__btn--secondary"
                 onClick={handleReindex}
-                disabled={offline || actionLoading !== null}
+                disabled={offline || actionLoading !== null || isReindexing}
                 title="Re-extract and re-index this file (same as Rebuild Index for this file)"
               >
-                <i className="ri-refresh-line" aria-hidden style={{ fontSize: '1rem' }} />
-                <span>{actionLoading === 'reindex' ? 'Reindexing...' : 'Reindex'}</span>
+                <i
+                  className={isReindexing ? 'ri-loader-4-line file-detail__spinner' : 'ri-refresh-line'}
+                  aria-hidden
+                  style={{ fontSize: '1rem' }}
+                />
+                <span>{isReindexing ? 'Reindexing...' : 'Reindex'}</span>
               </button>
               <button
                 type="button"

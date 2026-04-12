@@ -21,9 +21,6 @@ def test_desktop_session_uses_app_data_model_paths(
     assert settings.db_path == app_data_resolved / DirNames.DB / f"{APP_SLUG}.db"
     assert settings.logs_dir == app_data_resolved / DirNames.LOGS
     assert settings.models_dir == app_data_resolved / DirNames.MODELS / DirNames.LLM
-    assert settings.diagnostics_models_dir.as_posix().endswith(
-        f"/{DirNames.TOOLS}/{DirNames.DIAGNOSTICS}/{DirNames.DIAGNOSTICS_MODELS}"
-    )
 
 
 def test_non_desktop_session_uses_app_data_model_paths(
@@ -39,6 +36,3 @@ def test_non_desktop_session_uses_app_data_model_paths(
     app_data_resolved = app_data.resolve()
 
     assert settings.models_dir == app_data_resolved / DirNames.MODELS / DirNames.LLM
-    assert settings.diagnostics_models_dir.as_posix().endswith(
-        f"/{DirNames.TOOLS}/{DirNames.DIAGNOSTICS}/{DirNames.DIAGNOSTICS_MODELS}"
-    )

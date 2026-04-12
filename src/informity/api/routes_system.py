@@ -9,7 +9,6 @@ import math
 import os
 import platform
 import threading
-from contextlib import suppress
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -34,6 +33,7 @@ from informity.api.schemas import (
     SetupStatusResponse,
     SetupTierOption,
 )
+from informity.api.security import is_loopback_host
 from informity.api.setup_state import SetupState
 from informity.config import (
     APP_DISPLAY_NAME,
@@ -196,9 +196,9 @@ def _recommend_setup_tier(*, ram_total_gb: float, free_disk_gb: float) -> tuple[
         return 'small', 'Low free disk detected; smaller model is safer for setup.'
     if ram_total_gb >= 32.0:
         return 'quality', 'Detected >=32 GB RAM; quality tier fits this device best.'
-    if ram_total_gb >= 16.0:
-        return 'balanced', 'Detected >=16 GB RAM; balanced tier is recommended.'
-    return 'small', 'Detected <16 GB RAM; small tier is recommended for reliability.'
+    if ram_total_gb >= 24.0:
+        return 'balanced', 'Detected >=24 GB RAM; balanced tier is recommended.'
+    return 'small', 'Detected <24 GB RAM; small tier is recommended for reliability.'
 
 
 def _setup_state_path() -> Path:
@@ -304,10 +304,9 @@ def _cleanup_setup_artifacts(model_filename: str | None) -> None:
     if not model_name:
         return
 
-    target_path = settings.models_dir / model_name
-    with suppress(OSError):
-        target_path.unlink(missing_ok=True)
-
+    # Do not delete the final GGUF file here. Users may pre-seed models manually,
+    # and download flow writes to temp artifacts before atomic replace.
+    # Cleanup is intentionally limited to partial/lock artifacts.
     patterns = (
         f'{model_name}.part*',
         f'{model_name}.tmp*',
@@ -1015,6 +1014,13 @@ async def get_diagnostics(request: Request) -> DiagnosticsResponse:
     Returns system diagnostics: app version, Python version, OS, RAM, disk space,
     model info, DB stats, uptime. Useful for debugging issues in packaged builds.
     """
+    client_host = request.client.host if request.client else None
+    if not is_loopback_host(client_host):
+        raise HTTPException(
+            status_code=403,
+            detail='Diagnostics endpoint is only accessible from localhost',
+        )
+
     # Get Python and platform info
     python_version = platform.python_version()
     platform_name = platform.system()
@@ -1112,7 +1118,7 @@ async def shutdown(request: Request) -> ShutdownResponse:
     """
     # Security: only allow shutdown from localhost
     client_host = request.client.host if request.client else None
-    if client_host not in ('127.0.0.1', 'localhost', '::1'):
+    if not is_loopback_host(client_host):
         raise HTTPException(
             status_code=403,
             detail='Shutdown endpoint is only accessible from localhost',

@@ -467,5 +467,10 @@ class MetadataHandler:
         if total > MAX_FILE_LIST_DISPLAY:
             file_items.append(f"\n*... and {total - MAX_FILE_LIST_DISPLAY} more files*")
 
-        header = f"**Found {total} file{'s' if total != 1 else ''}:**\n\n"
+        if classification.year_filter:
+            header = (
+                f"**Found {total} file{'s' if total != 1 else ''} from {classification.year_filter}:**\n\n"
+            )
+        else:
+            header = f"**Found {total} file{'s' if total != 1 else ''}:**\n\n"
         return header + '\n'.join(file_items)

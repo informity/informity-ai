@@ -19,7 +19,8 @@ import structlog
 from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
-from informity.utils.directory_utils import ensure_directories
+from informity.timeout_policy import ScopedTimeoutPolicy, default_scoped_timeout_policy
+from informity.utils.directory_utils import ensure_directories, ensure_private_file
 from informity.utils.json_utils import serialize_config
 from informity.utils.path_utils import normalize_path, normalize_paths
 
@@ -71,9 +72,6 @@ _DEFAULT_APP_DATA_DIR = Path.home() / APP_DATA_DIRNAME
 # Default model for reset-to-factory and first load: Qwen3.5 35B A3B.
 _DEFAULT_LLM_MODEL_FILENAME = 'Qwen3.5-35B-A3B-Q4_K_M.gguf'
 
-# Default diagnostics analysis model filename (DeepSeek R1 optimized for analysis tasks).
-_DEFAULT_DIAGNOSTICS_LLM_MODEL_FILENAME = 'DeepSeek-R1-Distill-Qwen-14B-Q4_K_M.gguf'
-
 # Default embedding model (sentence-transformers)
 _DEFAULT_EMBEDDING_MODEL = 'nomic-ai/nomic-embed-text-v1.5'
 
@@ -118,7 +116,6 @@ class DirNames:
 
     # Model/cache subdirectories
     LLM = 'llm'  # LLM models (*.gguf files)
-    DIAGNOSTICS_MODELS = 'models'  # Diagnostics LLM models (*.gguf files) under tools/diagnostics/models/
     HUGGINGFACE = 'huggingface'  # HuggingFace cache under cache/huggingface/
     HUB = 'hub'  # HuggingFace hub cache under cache/huggingface/hub/
     DOCLING = 'docling'  # Docling models under cache/docling/ (flat, docling creates its own structure inside)
@@ -296,11 +293,18 @@ class Settings(BaseSettings):
     # user can enable them in Settings. PDF (.pdf) is included by default since docling
     # provides reliable extraction.
     follow_symlinks:  bool = False
-    # Per-file processing timeout during scan/index (seconds). Prevents a single
-    # broken or corrupted file from stalling the entire scan indefinitely.
-    # Set to 0 to disable (not recommended — a hung file will block the scan forever).
-    # Default 300s (5 min) handles large PDFs; increase for very large/complex documents.
-    scan_file_timeout_seconds: int = 300
+    source_scopes_enabled: dict[str, bool] = Field(
+        default_factory=lambda: {
+            'filesystem:file': True,
+            'mail.apple:mail': False,
+            'mail.outlook:mail': False,
+        }
+    )
+    # User-facing timeout cap (seconds) for single-item processing.
+    # Runtime timeout policy uses this value as the default/override hard cap.
+    scan_file_timeout_seconds: int = 600
+    # Shared per-item timeout policy by source scope.
+    scan_timeout_policy: ScopedTimeoutPolicy = Field(default_factory=default_scoped_timeout_policy)
     # Running-scan stale detection threshold (seconds) used when a new scan/rebuild
     # request checks for already-running operations.
     scan_stale_threshold_seconds: int = 300
@@ -309,6 +313,9 @@ class Settings(BaseSettings):
     scan_hash_pool: Literal['thread', 'process'] = 'thread'
     # Hash worker count for crawl hashing. 0 = auto (min(4, max(2, cpu_count // 3))).
     scan_hash_workers: int = 0
+    # Max file size (bytes) for scan-time SHA-256 hashing. Oversized files are skipped.
+    # This prevents long scan stalls on very large binaries and media blobs.
+    scan_hash_max_file_size_bytes: int = 500 * 1024 * 1024  # 500 MB
 
     # -- Indexer --------------------------------------------------------------
     chunk_size_tokens:    int = 512  # Parent chunk size (for context windows)
@@ -347,6 +354,8 @@ class Settings(BaseSettings):
     # When False, network is allowed (e.g. for model downloads). Synced to embedding_offline and llm_local_only.
     full_privacy:         bool = True
     tavily_api_key: str = ''
+    linkup_api_key: str = ''
+    web_search_primary_provider: Literal['tavily', 'linkup'] = 'tavily'
     web_search_max_results: int = 5
     web_search_timeout_seconds: float = 8.0
 
@@ -512,7 +521,7 @@ class Settings(BaseSettings):
     # Third-party loggers (e.g. aiosqlite) are always set to WARNING in logging_config.
     log_level: str = _DEFAULT_LOG_LEVEL
     # When True, write a per-chat trace log (chat_{chat_id}.json) for each
-    # chat message. Used for troubleshooting and LLM-assisted analysis of relevance/accuracy.
+    # chat message. Used for troubleshooting and diagnostics analysis of relevance/accuracy.
     chat_trace_logging: bool = False
     # Trace payload redaction level:
     # - off: full trace payload (max debugging, least privacy)
@@ -529,21 +538,6 @@ class Settings(BaseSettings):
     # for each assistant message. Useful for debugging. Disabled by default.
     enable_raw_output_control: bool = False
 
-    # -- Diagnostics Pipeline LLM Enhancement -------------------------------------
-    # When True, use local LLM to enhance root cause analysis in diagnostics pipeline.
-    # Default: False (opt-in feature). Set to True to enable LLM-powered analysis.
-    diagnostics_llm_analysis_enabled: bool = False
-    # Directory for diagnostics analysis models.
-    # Default: {repo_root}/tools/diagnostics/models
-    diagnostics_models_dir: Path | None = Field(default=None)
-    # Model filename to use for diagnostics analysis (default: DeepSeek R1 for analysis tasks).
-    # User can override via config.json or INFORMITY_DIAGNOSTICS_LLM_MODEL_FILENAME env var.
-    diagnostics_llm_model_filename: str = _DEFAULT_DIAGNOSTICS_LLM_MODEL_FILENAME
-    # Maximum seconds for LLM inference. Generous default so diagnostics analysis can
-    # produce full results (14B models need several minutes for long JSON output).
-    diagnostics_llm_timeout_seconds: int = 600
-    # Maximum number of issues to analyze per run (limit analysis scope)
-    diagnostics_llm_max_issues_per_run: int = 10
     # Diagnostics performance/resource alert budgets for run artifacts.
     diagnostics_alert_max_elapsed_seconds: float = 120.0
     diagnostics_alert_analysis_max_elapsed_seconds: float = 150.0
@@ -566,9 +560,6 @@ class Settings(BaseSettings):
         # Resolve relative paths (e.g. ./data) to absolute
         self.app_data_dir = normalize_path(self.app_data_dir, expand_user=True)
 
-        # Repo root: used for diagnostics tooling paths (tools/diagnostics/models).
-        repo_root = _get_repo_root()
-
         # Cache directory: defaults to app_data_dir/cache (same root as models, DB, logs).
         # Override via INFORMITY_CACHE_DIR env var.
         if self.cache_dir is None:
@@ -584,14 +575,6 @@ class Settings(BaseSettings):
         else:
             self.models_dir = normalize_path(self.models_dir, expand_user=True)
 
-        # Diagnostics models directory: tools/diagnostics/models.
-        if self.diagnostics_models_dir is None:
-            self.diagnostics_models_dir = (
-                repo_root / DirNames.TOOLS / DirNames.DIAGNOSTICS / DirNames.DIAGNOSTICS_MODELS
-            )
-        else:
-            self.diagnostics_models_dir = normalize_path(self.diagnostics_models_dir, expand_user=True)
-
         # User data paths derive from app_data_dir
         if self.db_path is None:
             self.db_path = self.app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
@@ -603,19 +586,25 @@ class Settings(BaseSettings):
         if self.diagnostics_dir is None:
             self.diagnostics_dir = self.app_data_dir / DirNames.DIAGNOSTICS
 
+        self.scan_timeout_policy = default_scoped_timeout_policy()
+        timeout_cap = int(self.scan_file_timeout_seconds)
+        timeout_cap = max(1, min(600, timeout_cap))
+        self.scan_file_timeout_seconds = timeout_cap
+        self.scan_timeout_policy.default.max_seconds = timeout_cap
+        if 'filesystem:file' in self.scan_timeout_policy.overrides:
+            self.scan_timeout_policy.overrides['filesystem:file'].max_seconds = timeout_cap
+
         return self
 
     # -- Directory Creation ---------------------------------------------------
     def ensure_directories(self) -> None:
         # Create all required directories if they don't exist.
-        # Runtime directory structure (all under app_data_dir except diagnostics_models_dir):
+        # Runtime directory structure:
         # - app_data_dir/models/llm/ - Chat/RAG LLM models (*.gguf files)
-        # - tools/diagnostics/models/ - Diagnostics LLM models (*.gguf files)
         # - app_data_dir/cache/huggingface/hub/ - HuggingFace cache
         # - app_data_dir/cache/docling/ - Docling models
         cache_root = self.cache_dir
         llm_dir = self.models_dir
-        diagnostics_models_dir = self.diagnostics_models_dir
         hf_cache      = cache_root / DirNames.HUGGINGFACE
         hf_hub        = hf_cache / DirNames.HUB
         docling_cache = cache_root / DirNames.DOCLING
@@ -629,7 +618,6 @@ class Settings(BaseSettings):
             # Cache structure (non-model artifacts)
             cache_root,
             llm_dir,
-            diagnostics_models_dir,
             hf_cache,
             hf_hub,
             docling_cache,
@@ -746,8 +734,6 @@ def reset_to_factory_defaults() -> Settings:
     config_path.parent.mkdir(parents=True, exist_ok=True)
     default_config = {
         'llm_model_filename':      _DEFAULT_LLM_MODEL_FILENAME,
-        'diagnostics_llm_model_filename': _DEFAULT_DIAGNOSTICS_LLM_MODEL_FILENAME,
-        'diagnostics_llm_analysis_enabled': False,  # Disabled by default (opt-in feature)
         'diagnostics_profile':     'standard',
         'chat_trace_logging':      False,
         'enable_raw_output_control': False,
@@ -760,6 +746,7 @@ def reset_to_factory_defaults() -> Settings:
         serialize_config(default_config),
         encoding='utf-8',
     )
+    ensure_private_file(config_path)
     log.info('config_file_written_factory_defaults', path=str(config_path))
 
     # Rebuild settings (will load default config; profile supplies all other defaults)

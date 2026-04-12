@@ -25,7 +25,7 @@ from informity.llm.types import ChatRole, QueryType
 
 class ModelFamily(StrEnum):
     """Chat template family. Determines structural stop sequences."""
-    CHATML  = 'chatml'      # Qwen, DeepSeek, Phi (<|im_start|>)
+    CHATML  = 'chatml'      # Qwen, Phi (<|im_start|>)
     LLAMA   = 'llama'       # Meta Llama 2/3
     MISTRAL = 'mistral'     # Mistral / Mixtral / Codestral
 
@@ -127,7 +127,7 @@ class ModelProfile:
     context_length: int   = 16384   # Max context window (model architecture limit)
     generation_tokens_per_second: float = 12.0  # Runtime budget estimate baseline used by generation runtime.
     temperature:    float  = 0.1     # Sampling temperature (0 = deterministic)
-    top_p:          float  = 1.0    # Nucleus sampling (1.0 = disabled; e.g. 0.95 for R1)
+    top_p:          float  = 1.0    # Nucleus sampling (1.0 = disabled)
     rag_top_k:      int   = 18      # Chunks to retrieve before filtering
     retrieval_top_k_candidates: int = 25  # Candidate pool before reranking
     retrieval_top_k_final: int = 12       # Final parent chunks after reranking
@@ -245,14 +245,15 @@ class ModelProfile:
 
 # -- Qwen3 14B Instruct --------------------------------------------------------
 # Balanced profile for slower hardware.
+# Keep template-level thinking disabled for reliability on lower-memory devices.
 QWEN3_14B_PROFILE = ModelProfile(
     name              = 'Qwen3 14B',
     family            = ModelFamily.CHATML,
     filename_patterns = ('qwen3-14b', 'qwen-3-14b'),
 
     supports_think_blocks         = True,
-    reasoning_mode                = ReasoningMode.FOCUSED_ONLY,
-    no_think_token                = '/no_think',
+    reasoning_mode                = ReasoningMode.NEVER,
+    no_think_token                = None,
 
     prompt_format          = PromptFormat.NATIVE_GGUF,
     coverage_prompt_format = PromptFormat.NATIVE_GGUF,
@@ -280,6 +281,7 @@ QWEN3_14B_PROFILE = ModelProfile(
 
     strip_meta_commentary = False,
     strip_citations       = True,
+    chat_template_kwargs  = {'enable_thinking': False},
 )
 
 
@@ -381,44 +383,6 @@ QWEN3_5_35B_A3B_PROFILE = ModelProfile(
 )
 
 
-# -- DeepSeek R1 Distill (14B — quality analysis / diagnostics) ---------------
-# Used for LLM-powered diagnostics analysis (diagnostics_llm_model_filename).
-# Qwen-based; ChatML. Profile ensures correct prompt format and stop sequences.
-# Also used when RAG model is 14B variant (filename matches r1-distill but not 32b).
-DEEPSEEK_R1_DISTILL_PROFILE = ModelProfile(
-    name              = 'DeepSeek R1 Distill',
-    family            = ModelFamily.CHATML,
-    filename_patterns = ('deepseek-r1', 'r1-distill'),
-
-    supports_think_blocks = True,
-    reasoning_mode       = ReasoningMode.FOCUSED_ONLY,
-    no_think_token       = '/no_think',
-
-    prompt_format          = PromptFormat.NATIVE_GGUF,
-    coverage_prompt_format = PromptFormat.NATIVE_GGUF,
-
-    max_tokens         = 4096,   # Quality analysis can produce long JSON
-    coverage_top_k      = 20,
-    min_tokens_coverage = 200,
-
-    timeout_seconds = 240,
-
-    context_length = 16384,
-    generation_tokens_per_second = 12.0,
-    temperature    = 0.1,
-    top_p          = 0.9,
-    rag_top_k      = 18,
-
-    rag_max_score            = 0.90,
-    rag_context_ratio        = 0.75,
-
-    stop_sequences  = _CHATML_STRUCTURAL + _CITATION + _FALLBACK_PHRASE_STOPS,
-
-    strip_meta_commentary = True,
-    strip_citations       = True,
-)
-
-
 # -- Default profile for unknown models (conservative ChatML) -----------------
 DEFAULT_PROFILE = ModelProfile(
     name              = 'Unknown (ChatML default)',
@@ -460,7 +424,6 @@ DEFAULT_PROFILE = ModelProfile(
 
 # Order matters: more specific patterns first.
 _PROFILE_REGISTRY: list[ModelProfile] = [
-    DEEPSEEK_R1_DISTILL_PROFILE,   # DeepSeek-R1-Distill-Qwen-14B (diagnostics)
     QWEN3_5_35B_A3B_PROFILE,       # Qwen3.5-35B-A3B-Q4_K_M
     QWEN3_5_9B_PROFILE,            # Qwen3.5-9B-Q4_K_M (analysis RAG)
     QWEN3_14B_PROFILE,             # Qwen3-14B-Q5_K_M (analysis RAG profile)

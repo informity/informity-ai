@@ -313,6 +313,16 @@
   cursor: not-allowed;
 }
 
+.file-detail__spinner {
+  animation: file-detail-spin 1s linear infinite;
+}
+
+@keyframes file-detail-spin {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
 .file-detail__btn--secondary {
   color: var(--color-text-secondary);
   border-color: var(--color-text-secondary);

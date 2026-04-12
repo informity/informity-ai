@@ -55,6 +55,7 @@ else:
     PromptCueQueryObject = object
 
 log = structlog.get_logger(__name__)
+_PROMPTCUE_CLASSIFY_EXCEPTIONS = (RuntimeError, ValueError, TypeError, AttributeError)
 
 # Module-level constants mirror Settings thresholds for local classifier consumers.
 CONFIDENCE_HIGH_THRESHOLD: float = float(settings.classification_confidence_high_threshold)
@@ -396,7 +397,7 @@ def classify_query(query: str) -> QueryClassification:
     if isinstance(router, PromptCueIntentAdapter):
         try:
             prediction, pcue = router.classify(router_query_text)
-        except Exception:  # noqa: BLE001
+        except _PROMPTCUE_CLASSIFY_EXCEPTIONS:
             log.warning('promptcue_adapter_classify_failed', query=router_query_text[:120])
             prediction = router.classify_intent(router_query_text)
     else:

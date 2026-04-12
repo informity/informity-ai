@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
+import * as api from '../api'
 
 vi.mock('../context/useChatContext', () => ({
   useChatContext: () => ({
@@ -13,6 +14,7 @@ vi.mock('../context/useChatContext', () => ({
 
 vi.mock('../api', () => ({
   getScanStatus: vi.fn(async () => ({ status: 'completed' })),
+  listFileReindexOperations: vi.fn(async () => ({ running_count: 0, operations: [] })),
 }))
 
 import { Sidebar } from './Sidebar'
@@ -36,5 +38,21 @@ describe('Sidebar', () => {
     )
 
     expect(container.querySelector('.sidebar__status-dot')).toBeNull()
+  })
+
+  it('shows indexing spinner on files item when file reindex is running', async () => {
+    vi.spyOn(api, 'listFileReindexOperations').mockResolvedValueOnce({
+      status: 'ok',
+      running_count: 1,
+      operations: [],
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/dashboard']}>
+        <Sidebar collapsed={false} onToggleCollapsed={() => {}} />
+      </MemoryRouter>,
+    )
+
+    expect(await screen.findByLabelText('Indexing')).toBeInTheDocument()
   })
 })

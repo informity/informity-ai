@@ -215,7 +215,7 @@
   font-size: var(--font-size-form-label);
   font-weight: 400;
   color: var(--color-text);
-  margin-bottom: var(--space-xs);
+  margin-bottom: calc(var(--space-xs) + 2px);
   user-select: none;
 }
 
@@ -233,7 +233,7 @@
   font-size: var(--font-size-form-label);
   font-weight: 400;
   color: var(--color-text);
-  margin-bottom: var(--space-xs);
+  margin-bottom: calc(var(--space-xs) + 2px);
 }
 
 .settings-field-hint {
@@ -426,6 +426,18 @@
 
 .settings-checkbox-row-info:hover {
   color: var(--color-text);
+}
+
+.settings-tooltip {
+  left: 0;
+  right: auto;
+  transform: none;
+}
+
+.settings-tooltip::after {
+  left: 0.5rem;
+  right: auto;
+  transform: none;
 }
 
 /* -----------------------------------------------------------------------------

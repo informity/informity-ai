@@ -165,6 +165,16 @@ class TestMetadataHandler:
         assert 'filename = ?' in execute_calls[0].args[0]
         assert list(execute_calls[0].args[1]) == ['report.pdf']
 
+    def test_format_file_list_response_includes_year_in_header_when_filtered(self) -> None:
+        handler = MetadataHandler()
+        classification = QueryClassification(intent='metadata', year_filter=2021)
+        response = handler._format_file_list_response(
+            files=[MagicMock(filename='example.txt')],
+            total=1,
+            classification=classification,
+        )
+        assert 'from 2021' in response
+
 
 class TestRAGHandler:
 
