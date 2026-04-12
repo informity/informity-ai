@@ -238,7 +238,7 @@ class TestPromptBuilder:
 
         assert 'Answer using ONLY' in messages[0]['content']
         assert 'Use markdown:' in messages[0]['content']
-        assert 'not contain enough information' in messages[0]['content']
+        assert 'insufficient for a complete answer' in messages[0]['content']
 
     def test_system_prompt_includes_context_anchor(self) -> None:
         messages = build_messages('Question', [])
