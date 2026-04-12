@@ -10,6 +10,7 @@ from collections.abc import AsyncGenerator
 import aiosqlite
 import structlog
 
+from informity.api.error_messages import to_client_error_message
 from informity.api.schemas import ChatSourceReference
 from informity.db.models import ChatMessage
 from informity.db.sqlite import get_chunk_count
@@ -210,5 +211,5 @@ async def answer_question(
 
     except _ROUTER_RUNTIME_EXCEPTIONS as exc:
         log.error('answer_question_failed', error=str(exc), exc_info=True)
-        yield f"Error: {exc}"
+        yield to_client_error_message(exc)
         yield []

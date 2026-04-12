@@ -6,8 +6,10 @@
 export interface ChatSourceReference {
   filename: string
   path: string
-  chunk_preview?: string
-  relevance_score?: number
+  chunk_preview: string
+  relevance_score: number
+  extraction_quality?: string | null
+  extraction_note?: string | null
 }
 
 export interface DisplayTextBlock {
@@ -95,7 +97,6 @@ export interface StreamDonePayload {
   budget_metrics?: Record<string, unknown>
   budget_checkpoints?: Array<Record<string, unknown>>
   web_search_used?: boolean
-  web_search_tokens_label?: string
   continuation_passes?: number
   continuation_resolution_reason?: string | null
   next_action?: NextAction
@@ -108,6 +109,7 @@ export interface ChatMessageApi {
   id?: number
   role: string
   content: string
+  model_filename?: string | null
   sources?: ChatSourceReference[]
   display_blocks?: DisplayBlock[]
   is_internal?: boolean
@@ -125,6 +127,7 @@ export interface ChatMessageDisplay {
   id?: number
   role: string
   content: string
+  modelFilename?: string | null
   sources?: ChatSourceReference[]
   displayBlocks?: DisplayBlock[]
   isInternal?: boolean
@@ -148,7 +151,6 @@ export interface ChatMessageDisplay {
   continuationPasses?: number
   continueLabel?: 'Continue' | 'Continue Again'
   webSearchUsed?: boolean
-  webSearchTokensLabel?: string
   streamPlanSteps?: Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>
 }
 
@@ -181,6 +183,56 @@ export interface IndexedFile {
   modified_at: string
   created_at?: string
   chunk_count?: number
+}
+
+export interface IndexStatus {
+  total_files?: number
+  total_chunks?: number
+  total_embeddings?: number
+  chat_count?: number
+  indexed_content_size_bytes?: number
+  db_size_bytes?: number
+  vectors_size_bytes?: number
+  model_size_bytes?: number
+  last_scan_at?: string | null
+  reset_in_progress?: boolean
+  last_reset_result?: Record<string, unknown> | null
+  source_scope_stats?: Array<Record<string, unknown>>
+}
+
+export interface ScanRecentError {
+  path?: string
+  filename?: string
+  operation?: string
+  error_code?: string | null
+  error_message?: string
+  is_timeout?: boolean
+  created_at?: string | null
+}
+
+export interface ScanStatus {
+  status?: string
+  started_at?: string
+  files_scanned?: number
+  files_indexed?: number
+  errors?: number
+  timeout_errors?: number
+  recent_errors?: ScanRecentError[]
+  elapsed_seconds?: number
+}
+
+export type FileReindexOperationStatus = 'running' | 'completed' | 'failed'
+
+export interface FileReindexOperation {
+  operation_id: string
+  operation_type: 'file_reindex'
+  file_id: number
+  filename: string
+  status: FileReindexOperationStatus
+  started_at: string
+  completed_at?: string | null
+  error?: string | null
+  chunks_created?: number | null
 }
 
 export interface ChatListItem {

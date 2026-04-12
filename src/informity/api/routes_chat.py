@@ -51,6 +51,7 @@ from informity.api.chat_orchestrator import ChatOrchestrator
 from informity.api.chat_sources import merge_sources, serialize_sources
 from informity.api.chat_sse import SSE_PHASE_ORDER, SseContractTracker, SseStatusEmitter
 from informity.api.chat_stream_registry import CHAT_STREAM_REGISTRY
+from informity.api.error_messages import to_client_error_message
 from informity.api.schemas import (
     ChatPreferencesUpdateRequest,
     ChatRequest,
@@ -187,6 +188,7 @@ async def _finalize_stopped_stream_if_active(
                                 role='assistant',
                                 content='',
                                 sources=[],
+                                model_filename=settings.llm_model_filename,
                                 completion_mode=CompletionMode.STOPPED,
                                 stopped_by_user=True,
                                 has_remaining_scope=True,
@@ -252,6 +254,7 @@ async def _persist_terminal_assistant_message(
         role='assistant',
         content=content,
         sources=sources,
+        model_filename=settings.llm_model_filename,
         generation_seconds=generation_seconds,
         completion_mode=completion_mode,
         stopped_by_user=stopped_by_user,
@@ -328,6 +331,7 @@ async def chat(
         chat_id = chat_id,
         role    = 'user',
         content = message_text,
+        model_filename = settings.llm_model_filename,
         is_internal = user_message_is_internal,
     )
     await insert_chat_message(db, user_message)
@@ -358,10 +362,11 @@ async def chat(
             'question':         message_text,
             'question_length':  len(message_text),
             'history_messages': len(history),
-        'chat_mode':        resolved_chat_mode,
-        'chat_web_search_enabled': resolved_chat_web_search_enabled,
-        'chat_web_search_privacy_override': resolved_chat_web_search_privacy_override,
-        'resource_snapshot': request_resource_snapshot,
+            'chat_mode':        resolved_chat_mode,
+            'model_filename':   settings.llm_model_filename,
+            'chat_web_search_enabled': resolved_chat_web_search_enabled,
+            'chat_web_search_privacy_override': resolved_chat_web_search_privacy_override,
+            'resource_snapshot': request_resource_snapshot,
         })
 
     # Build the SSE event generator
@@ -537,6 +542,7 @@ async def chat(
                                 role='assistant',
                                 content=assistant_history_content,
                                 sources=serialize_sources(list(source_map.values())),
+                                model_filename=settings.llm_model_filename,
                                 completion_mode=CompletionMode.SCOPED_COMPLETE,
                                 has_remaining_scope=True,
                             ),
@@ -943,6 +949,7 @@ async def chat(
                     role='assistant',
                     content=full_answer,
                     sources=source_dicts,
+                    model_filename=settings.llm_model_filename,
                     generation_seconds=generation_seconds,
                     completion_mode=message_completion_mode,
                     has_remaining_scope=message_has_remaining_scope,
@@ -1175,7 +1182,10 @@ async def chat(
                     })
                     await _flush_trace_writer_safe()
                 _update_sse_phase('error')
-                yield {'event': 'error', 'data': serialize_api_response({'error': str(exc)})}
+                yield {
+                    'event': 'error',
+                    'data': serialize_api_response({'error': to_client_error_message(exc)}),
+                }
 
             completion_mode, done_has_remaining_scope, next_action, next_action_reason = (
                 resolve_completion_and_action(

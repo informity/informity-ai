@@ -35,7 +35,8 @@ from informity.scanner.extractors.base import (
     BaseExtractor,
     get_extractor,
 )
-from informity.sources.base import FILESYSTEM_PROVIDER
+from informity.scanner.extractors.text_utils import MAX_FILE_SIZE_BYTES
+from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE, IngestionItem
 from informity.utils.path_utils import normalize_path
 
 if TYPE_CHECKING:
@@ -399,16 +400,47 @@ async def _chunk_embed_store(
 
 async def index_file(
     db: aiosqlite.Connection,
-    file_path_or_scanned: Union[Path, 'ScannedFile'],
+    file_path_or_scanned: Union[Path, 'ScannedFile', IngestionItem],
     extractor: BaseExtractor | None = None,
+    *,
+    source_provider: str = FILESYSTEM_PROVIDER,
+    entity_type: str = SOURCE_ENTITY_FILE,
 ) -> IndexResult:
     # Index a single file: extract → chunk → embed → store.
     # Accepts either (db, file_path, extractor) or (db, scanned: ScannedFile).
     try:
         scanned_file = None
-        # Handle both ScannedFile and Path
+        # Handle IngestionItem, ScannedFile, and Path
         # Check for ScannedFile-specific attributes (content_hash, filename, extension)
-        if hasattr(file_path_or_scanned, 'content_hash') and hasattr(file_path_or_scanned, 'filename'):
+        if isinstance(file_path_or_scanned, IngestionItem):
+            item = file_path_or_scanned
+            source_provider = item.provider or source_provider
+            entity_type = item.item_type or entity_type
+            pseudo_path = str(item.metadata.get('path') or f'source://{source_provider}/{entity_type}/{item.source_item_id}')
+            file_path = Path(pseudo_path)
+            filename = str(item.metadata.get('filename') or item.title or item.source_item_id or 'source-item')
+            extension = str(item.metadata.get('extension') or '.txt')
+            if extension and not extension.startswith('.'):
+                extension = f'.{extension}'
+            modified_at = item.modified_at or datetime.now(UTC)
+            content_hash = item.content_hash or hashlib.sha256(item.content_text.encode('utf-8')).hexdigest()
+            size_bytes = int(item.size_bytes or item.metadata.get('size_bytes') or len((item.content_text or '').encode('utf-8')))
+            # IngestionItem provides normalized text directly.
+            doc_text = item.content_text or ''
+            file_metadata = {
+                'extractor': item.metadata.get('extractor'),
+                'encoding': item.metadata.get('encoding'),
+                'language': item.metadata.get('language'),
+                'mime_type': item.metadata.get('mime_type'),
+                'ocr_used': bool(item.metadata.get('ocr_used', False)),
+                'page_count': item.metadata.get('page_count'),
+                'tables_count': item.metadata.get('tables_count'),
+                'form_items_count': item.metadata.get('form_items_count'),
+                'key_value_items_count': item.metadata.get('key_value_items_count'),
+                'pictures_count': item.metadata.get('pictures_count'),
+                'document_hash': item.metadata.get('document_hash'),
+            }
+        elif hasattr(file_path_or_scanned, 'content_hash') and hasattr(file_path_or_scanned, 'filename'):
             # It's a ScannedFile
             scanned = file_path_or_scanned
             scanned_file = scanned
@@ -427,6 +459,8 @@ async def index_file(
             filename = scanned.filename
             extension = scanned.extension
             content_hash = scanned.content_hash  # Already computed by crawler
+            doc_text = ''
+            file_metadata: dict[str, object]
         else:
             # It's a Path
             file_path = file_path_or_scanned
@@ -439,11 +473,24 @@ async def index_file(
             # Get metadata from file system
             stat = file_path.stat()
             size_bytes = stat.st_size
+            if size_bytes > MAX_FILE_SIZE_BYTES:
+                return IndexResult(
+                    success=False,
+                    chunks_created=0,
+                    error=(
+                        f'File too large to index directly ({size_bytes / (1024 * 1024):.1f} MB). '
+                        f'Max allowed: {MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB.'
+                    ),
+                    error_code='file_too_large',
+                    retryable=False,
+                )
             modified_at = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
             filename = file_path.name
             extension = file_path.suffix
             # Compute content hash (Path doesn't have pre-computed hash)
             content_hash = hashlib.sha256(file_path.read_bytes()).hexdigest()
+            doc_text = ''
+            file_metadata = {}
 
         # Log file indexing start at INFO level
         log.info(
@@ -454,44 +501,58 @@ async def index_file(
             size_bytes=size_bytes
         )
 
-        # 1. Extract (run in thread pool to avoid blocking and help with memory)
-        doc = await asyncio.to_thread(extractor.extract, file_path)
-        if doc.error:
-            retryable = doc.metadata.get('retryable', 'true').lower() != 'false'
-            error_code = doc.metadata.get('error_code')
-            log.error(
-                'extraction_failed',
-                path=str(file_path),
-                filename=filename,
-                error=doc.error,
-                error_code=error_code,
-                retryable=retryable,
-            )
-            return IndexResult(
-                success=False,
-                chunks_created=0,
-                error=doc.error,
-                error_code=error_code,
-                retryable=retryable,
-            )
+        if not isinstance(file_path_or_scanned, IngestionItem):
+            # 1. Extract (run in thread pool to avoid blocking and help with memory)
+            doc = await asyncio.to_thread(extractor.extract, file_path)
+            if doc.error:
+                retryable = doc.metadata.get('retryable', 'true').lower() != 'false'
+                error_code = doc.metadata.get('error_code')
+                log.error(
+                    'extraction_failed',
+                    path=str(file_path),
+                    filename=filename,
+                    error=doc.error,
+                    error_code=error_code,
+                    retryable=retryable,
+                )
+                return IndexResult(
+                    success=False,
+                    chunks_created=0,
+                    error=doc.error,
+                    error_code=error_code,
+                    retryable=retryable,
+                )
+            doc_text = doc.text
+            file_metadata = _build_file_metadata(file_path, doc.metadata)
 
         # 2. Classify
         category = classify_file(file_path, extension)
-        year = extract_year(file_path, doc.text)
+        year = extract_year(file_path, doc_text)
         tags = generate_tags(file_path)
-        file_metadata = _build_file_metadata(file_path, doc.metadata)
 
         # 3. Insert file
         # content_hash already computed above (from ScannedFile or computed from Path)
         indexed_file = IndexedFile(
-            source_provider=FILESYSTEM_PROVIDER,
-            source_item_id=str(normalize_path(file_path, expand_user=False)),
-            path=str(normalize_path(file_path, expand_user=False)),
+            source_provider=source_provider,
+            entity_type=entity_type,
+            source_item_id=(
+                file_path_or_scanned.source_item_id
+                if isinstance(file_path_or_scanned, IngestionItem)
+                else str(normalize_path(file_path, expand_user=False))
+            ),
+            path=(
+                str(file_path)
+                if isinstance(file_path_or_scanned, IngestionItem)
+                else str(normalize_path(file_path, expand_user=False))
+            ),
             filename=filename,
             extension=extension,
             size_bytes=size_bytes,
             content_hash=content_hash,
-            extracted_text_preview=doc.preview_text or doc.text[:MAX_EXTRACTED_TEXT_PREVIEW],
+            extracted_text_preview=(
+                (doc.preview_text if not isinstance(file_path_or_scanned, IngestionItem) else '')
+                or doc_text[:MAX_EXTRACTED_TEXT_PREVIEW]
+            ),
             category=category,
             tags=tags,
             year=year,
@@ -509,37 +570,90 @@ async def index_file(
             indexed_at=datetime.now(UTC),
             modified_at=modified_at,
         )
-        try:
-            file_record = await insert_file(db, indexed_file)
-        except sqlite3.IntegrityError as exc:
-            # Idempotency hardening: another writer inserted the same source identity concurrently.
-            message = str(exc)
-            if (
-                'UNIQUE constraint failed: files.path' not in message
-                and 'UNIQUE constraint failed: files.source_provider, files.source_item_id' not in message
-            ):
-                raise
-            normalized_path = str(normalize_path(file_path, expand_user=False))
-            log.warning(
-                'index_file_duplicate_identity_conflict',
-                path=normalized_path,
-                action='reindex_fallback',
-            )
-            if scanned_file is None:
-                # Build minimal ScannedFile from already-computed metadata.
-                from informity.scanner.crawler import ScannedFile as ScannerScannedFile
-                scanned_file = ScannerScannedFile(
-                    path=normalize_path(file_path, expand_user=False),
-                    filename=filename,
-                    extension=extension.lower(),
-                    size_bytes=size_bytes,
-                    content_hash=content_hash,
-                    modified_at=modified_at,
+        existing_by_identity = await get_file_by_source_identity(
+            db,
+            source_provider=indexed_file.source_provider,
+            entity_type=indexed_file.entity_type,
+            source_item_id=indexed_file.source_item_id,
+        )
+        if isinstance(file_path_or_scanned, IngestionItem) and existing_by_identity is not None and existing_by_identity.id is not None:
+            file_record = existing_by_identity
+            try:
+                await delete_chunks_for_file(db, file_record.id)
+                await asyncio.to_thread(vector_store.delete_by_file_id, file_record.id)
+            except _INDEXER_RUNTIME_EXCEPTIONS as exc:
+                log.warning(
+                    'ingestion_item_old_data_cleanup_failed',
+                    file_id=file_record.id,
+                    source_provider=indexed_file.source_provider,
+                    entity_type=indexed_file.entity_type,
+                    source_item_id=indexed_file.source_item_id,
+                    error=str(exc),
                 )
-            return await reindex_file(db, scanned_file)
+
+            file_record.source_provider = indexed_file.source_provider
+            file_record.entity_type = indexed_file.entity_type
+            file_record.source_item_id = indexed_file.source_item_id
+            file_record.path = indexed_file.path
+            file_record.filename = indexed_file.filename
+            file_record.extension = indexed_file.extension
+            file_record.size_bytes = indexed_file.size_bytes
+            file_record.content_hash = indexed_file.content_hash
+            file_record.extracted_text_preview = indexed_file.extracted_text_preview
+            file_record.category = indexed_file.category
+            file_record.tags = indexed_file.tags
+            file_record.year = indexed_file.year
+            file_record.extractor = indexed_file.extractor
+            file_record.encoding = indexed_file.encoding
+            file_record.language = indexed_file.language
+            file_record.mime_type = indexed_file.mime_type
+            file_record.ocr_used = indexed_file.ocr_used
+            file_record.page_count = indexed_file.page_count
+            file_record.tables_count = indexed_file.tables_count
+            file_record.form_items_count = indexed_file.form_items_count
+            file_record.key_value_items_count = indexed_file.key_value_items_count
+            file_record.pictures_count = indexed_file.pictures_count
+            file_record.document_hash = indexed_file.document_hash
+            file_record.indexed_at = indexed_file.indexed_at
+            file_record.modified_at = indexed_file.modified_at
+            file_record = await update_file(db, file_record)
+        else:
+            try:
+                file_record = await insert_file(db, indexed_file)
+            except sqlite3.IntegrityError as exc:
+                # Idempotency hardening: another writer inserted the same source identity concurrently.
+                message = str(exc)
+                if (
+                    'UNIQUE constraint failed: files.path' not in message
+                    and 'UNIQUE constraint failed: files.source_provider, files.entity_type, files.source_item_id' not in message
+                ):
+                    raise
+                normalized_path = str(normalize_path(file_path, expand_user=False))
+                log.warning(
+                    'index_file_duplicate_identity_conflict',
+                    path=normalized_path,
+                    action='reindex_fallback',
+                )
+                if scanned_file is None:
+                    # Build minimal ScannedFile from already-computed metadata.
+                    from informity.scanner.crawler import ScannedFile as ScannerScannedFile
+                    scanned_file = ScannerScannedFile(
+                        path=normalize_path(file_path, expand_user=False),
+                        filename=filename,
+                        extension=extension.lower(),
+                        size_bytes=size_bytes,
+                        content_hash=content_hash,
+                        modified_at=modified_at,
+                    )
+                return await reindex_file(
+                    db,
+                    scanned_file,
+                    source_provider=source_provider,
+                    entity_type=entity_type,
+                )
 
         # 4. Post-process extracted text (clean glyph sequences, etc.)
-        cleaned_text = post_process_extracted_text(doc.text)
+        cleaned_text = post_process_extracted_text(doc_text)
 
         # 5. Chunk, embed, and store (shared logic)
         # Pass per-chunk metadata ranges from extractor (for docling formats with provenance)
@@ -552,9 +666,21 @@ async def index_file(
             extension=extension,
             category=category.value,
             year=year,
-            char_to_page_ranges=doc.char_to_page_ranges,
-            char_to_block_type_ranges=doc.char_to_block_type_ranges,
-            char_to_header_level_ranges=doc.char_to_header_level_ranges,
+            char_to_page_ranges=(
+                doc.char_to_page_ranges
+                if not isinstance(file_path_or_scanned, IngestionItem)
+                else None
+            ),
+            char_to_block_type_ranges=(
+                doc.char_to_block_type_ranges
+                if not isinstance(file_path_or_scanned, IngestionItem)
+                else None
+            ),
+            char_to_header_level_ranges=(
+                doc.char_to_header_level_ranges
+                if not isinstance(file_path_or_scanned, IngestionItem)
+                else None
+            ),
         )
         result.extractor = file_metadata['extractor'] if isinstance(file_metadata['extractor'], str) else None
         result.ocr_used = bool(file_metadata['ocr_used'])
@@ -593,6 +719,19 @@ async def index_file(
         return IndexResult(success=False, chunks_created=0, error=str(exc))
 
 
+async def index_ingestion_item(
+    db: aiosqlite.Connection,
+    item: IngestionItem,
+) -> IndexResult:
+    # Provider-agnostic indexing entrypoint for normalized source items.
+    return await index_file(
+        db,
+        item,
+        source_provider=item.provider or FILESYSTEM_PROVIDER,
+        entity_type=item.item_type or SOURCE_ENTITY_FILE,
+    )
+
+
 # ==============================================================================
 # Public API — reindex_file
 # ==============================================================================
@@ -600,6 +739,9 @@ async def index_file(
 async def reindex_file(
     db: aiosqlite.Connection,
     scanned: 'ScannedFile',
+    *,
+    source_provider: str = FILESYSTEM_PROVIDER,
+    entity_type: str = SOURCE_ENTITY_FILE,
 ) -> IndexResult:
     # Re-index a file that has changed on disk.
     # Removes old chunks and embeddings, then runs the full pipeline.
@@ -619,7 +761,8 @@ async def reindex_file(
         normalized_path = str(normalize_path(path, expand_user=False))
         existing = await get_file_by_source_identity(
             db,
-            source_provider=FILESYSTEM_PROVIDER,
+            source_provider=source_provider,
+            entity_type=entity_type,
             source_item_id=normalized_path,
         )
         if existing is None:
@@ -635,7 +778,13 @@ async def reindex_file(
                     chunks_created=0,
                     error=f'No extractor for extension: {scanned.extension}',
                 )
-            return await index_file(db, path, extractor)
+            return await index_file(
+                db,
+                path,
+                extractor,
+                source_provider=source_provider,
+                entity_type=entity_type,
+            )
 
         file_id = existing.id
 
@@ -701,7 +850,8 @@ async def reindex_file(
         # Use content_hash from ScannedFile (already computed by crawler)
         # No need to re-read file bytes - scanned.content_hash is already available
         existing.content_hash = scanned.content_hash
-        existing.source_provider = FILESYSTEM_PROVIDER
+        existing.source_provider = source_provider
+        existing.entity_type = entity_type
         existing.source_item_id = str(normalize_path(path, expand_user=False))
         existing.size_bytes = scanned.size_bytes
         existing.extracted_text_preview = doc.preview_text or doc.text[:MAX_EXTRACTED_TEXT_PREVIEW]

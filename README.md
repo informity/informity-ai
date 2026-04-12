@@ -1,6 +1,6 @@
 # Informity AI
 
-[![Version](https://img.shields.io/badge/version-0.9.2-blue.svg)](#)
+[![Version](https://img.shields.io/badge/version-0.9.3-blue.svg)](#)
 [![Python](https://img.shields.io/badge/python-3.13+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-macOS-black?logo=apple)](#)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -19,8 +19,7 @@ Informity scans and indexes local files, then answers questions with a local RAG
 - [Offline Mode](#offline-mode)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
-- [Diagnostics Evaluation](#diagnostics-evaluation)
-- [Tooling Layout](#tooling-layout)
+- [Release Scripts](#release-scripts)
 - [Development](#development)
 - [License](#license)
 
@@ -30,7 +29,6 @@ Informity scans and indexes local files, then answers questions with a local RAG
 - Offline-first runtime (full privacy mode)
 - SQLite + sqlite-vec for metadata + embeddings
 - Local LLM inference via `xllamacpp` (Metal/GPU on macOS)
-- Built-in diagnostics pipeline for regression and quality evaluation
 
 ## Quick Start
 
@@ -105,7 +103,6 @@ Directory layout:
       hub/                 # Model blobs + snapshots (required)
       modules/             # Custom model code, created at first load (required)
     docling/               # Docling models for document extraction
-tools/diagnostics/models/  # Diagnostics LLM models (repo-local, separate from user data)
 ```
 
 **One cache only (avoid duplicates)**
@@ -166,7 +163,7 @@ src/informity/
 │   └── pipeline.py           # index_file, reindex_file, remove_file — orchestration
 ├── llm/
 │   ├── engine.py             # LLM inference (xllamacpp, Metal)
-│   ├── model_adapter.py      # Per-model profiles (Qwen3 14B, Qwen3.5 9B, Qwen3.5 35B A3B, DeepSeek R1)
+│   ├── model_adapter.py      # Per-model profiles (Qwen3 14B, Qwen3.5 9B, Qwen3.5 35B A3B)
 │   ├── rag.py                # QueryRouter — dispatches to handlers based on intent
 │   ├── query_classifier.py   # Deterministic slot extraction + NLP/promptcue intent routing
 │   ├── retrieval.py          # Unified retrieval pipeline (vector search → rerank)
@@ -211,83 +208,23 @@ src/informity/diagnostics/    # Diagnostics package
 ├── issue_types.py            # IssueType enum
 ├── observer.py               # EvalMetrics dataclass, detect_issues(), populate_signals()
 └── resource_snapshot.py      # System resource snapshot at trace time
-tools/diagnostics/            # Evaluation pipeline tools
-├── evaluate.py               # Runs queries, collects metrics, writes traces
-├── analyze.py                # Aggregates metrics, generates reports
-├── generate_queries.py       # Builds query sets from index
-├── pipeline.py               # End-to-end orchestrator
-└── golden_set.py             # Pre-flight validation queries
 ```
 
-## Diagnostics Evaluation
+## Release Scripts
 
-Informity includes a diagnostics evaluation system for testing RAG performance and identifying issues. The pipeline does **not** require the main application to be running; it uses the same index and config.
+`scripts/` is committed and includes both developer setup scripts and maintainer release automation.
 
-**Pipeline (recommended):** Generates queries from your index, runs golden set + regular evaluation, then analysis. Output streams to the terminal; use `--quiet` to show only the final message. Redirect output if you need a log (e.g. `2>&1 | tee run.log`).
-
-```bash
-# Run full pipeline (default: generate 15 queries, balanced strategy)
-uv run python tools/diagnostics/pipeline.py
-
-# Custom query count/strategy with deterministic seed
-uv run python tools/diagnostics/pipeline.py --num-queries 20 --query-strategy balanced --seed 42
-
-# Run with a custom query suite file (skips generation)
-uv run python tools/diagnostics/pipeline.py --run-id custom-suite --queries-file .internal/TEST-QUERIES.json
-
-# Minimal output
-uv run python tools/diagnostics/pipeline.py --quiet
-```
-
-**Query generation:** Regular queries are generated from the index with strategies `balanced`, `coverage`, `focused`, `reasoning`, and `phase5`. Balanced (default) includes a curated versioned regression bank (`tools/diagnostics/query_banks/regression_v1.json`) plus generated metadata/focused/coverage/aggregation/comparison queries.
-
-**Run steps individually:**
+Maintainer-focused build/release scripts:
 
 ```bash
-# Generate queries only (optional; pipeline does this by default)
-uv run python tools/diagnostics/generate_queries.py --run-id {run_id} --num-queries 15 --strategy balanced --seed 42
+# Generate Tauri icons from source logo
+make tauri-icons
 
-# Run evaluation
-uv run python tools/diagnostics/evaluate.py --run-id {run_id} --queries-file data/diagnostics/runs/{run_id}/queries/queries.json
+# Build backend sidecar used for Tauri packaging
+make tauri-backend
 
-# Analyze results
-uv run python tools/diagnostics/analyze.py --run-id {run_id}
-```
-
-Results are saved to `{app_data_dir}/diagnostics/runs/{run_id}/` (default: `~/.informity/diagnostics/runs/{run_id}/`):
-- `queries/` - `queries.json` (generated regular queries)
-- `traces/` - Trace files per query×model
-- `results/` - `run.json`, `report.md`, `report.json`, `pipeline_manifest.json`
-
-Metrics are read from trace files (app-compliant, no protocol pollution). The evaluation system uses OTel-compatible field naming conventions.
-
-## Tooling Layout
-
-`tools/` is organized by purpose:
-
-- `tools/diagnostics/` - diagnostics pipeline and orchestration (`pipeline.py`, `run_all.sh`, `run_test_queries_suite.py`, etc.)
-- `tools/qa/` - release/quality gate helpers (`docs_lint.py`, `secret_scan.py`)
-- `tools/performance/` - performance benchmark scripts
-- `tools/smoke/` - manual smoke scripts (not part of `pytest tests/`)
-- `tools/maintenance/` - operational maintenance utilities
-
-Convenience commands:
-
-```bash
-# Smoke scripts
-make smoke-basic
-make smoke-infra
-
-# Maintenance
-make maintenance-index-check
-make maintenance-index-repair
-make maintenance-download-nltk
-make maintenance-reinstall-packages
-make maintenance-chunk-structure
-make maintenance-orphaned-chunks
-
-# Diagnostics run control
-make diagnostics-stop
+# Build + sign + notarize macOS release (requires local signing credentials)
+make tauri-build-signed
 ```
 
 Runtime chat diagnostics metrics are also persisted in SQLite (`response_diagnostics_metrics`) for operational observability. Use `GET /api/diagnostics/summary` for aggregated counts/rates/query-type breakdowns over a time window.

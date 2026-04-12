@@ -10,14 +10,14 @@ import { FileFilters } from '../components/files/FileFilters'
 import { FileDetail } from '../components/files/FileDetail'
 import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { CenteredState } from '../components/CenteredState'
-import { getFiles, reindexFile, removeFile } from '../api'
+import { getFileReindexOperation, getFiles, listFileReindexOperations, reindexFile, removeFile } from '../api'
 import { showToast } from '../context/useToast'
 import { useConfirm } from '../context/useConfirm'
 import { useBackendStatus } from '../context/useBackendStatus'
 import { useDebounce } from '../utils/useDebounce'
 import { extractErrorMessage } from '../utils/errorMessages'
 import { isBackendConnectionError } from '../utils/networkErrors'
-import type { IndexedFile } from '../types/api'
+import type { FileReindexOperation, IndexedFile } from '../types/api'
 import '../pages/PlaceholderPage.css'
 
 const PAGE_SIZE = 25
@@ -39,6 +39,7 @@ export function FilesPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [selectedFileId, setSelectedFileId] = useState<number | null>(null)
+  const [reindexOperationsByFileId, setReindexOperationsByFileId] = useState<Record<number, string>>({})
   const { offline } = useBackendStatus()
 
   const debouncedSearch = useDebounce(filters.search, SEARCH_DEBOUNCE_MS)
@@ -70,6 +71,113 @@ export function FilesPage() {
       setLoading(false)
     }
   }, [debouncedSearch, filters.extension, sort, order, offset])
+
+  const setReindexOperationForFile = useCallback((fileId: number, operationId: string) => {
+    setReindexOperationsByFileId((prev) => ({ ...prev, [fileId]: operationId }))
+  }, [])
+
+  const clearReindexOperationForFile = useCallback((fileId: number) => {
+    setReindexOperationsByFileId((prev) => {
+      if (!(fileId in prev)) return prev
+      const next = { ...prev }
+      delete next[fileId]
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    const entries = Object.entries(reindexOperationsByFileId)
+    if (entries.length === 0) {
+      return
+    }
+
+    let timeoutId: ReturnType<typeof setTimeout> | null = null
+    let cancelled = false
+
+    const poll = async () => {
+      try {
+        const results = await Promise.all(
+          entries.map(async ([fileId, operationId]) => {
+            try {
+              const operation = await getFileReindexOperation(operationId)
+              return { fileId: Number(fileId), operation, statusError: null as string | null }
+            } catch {
+              return { fileId: Number(fileId), operation: null, statusError: 'status_unavailable' as string }
+            }
+          }),
+        )
+
+        const completed: Array<{ fileId: number; operation: FileReindexOperation }> = []
+        for (const result of results) {
+          if (result.statusError) {
+            // If operation status cannot be fetched (for example evicted history),
+            // clear local spinner state to avoid stuck UI.
+            clearReindexOperationForFile(result.fileId)
+            continue
+          }
+          if (result.operation && result.operation.status !== 'running') {
+            completed.push({ fileId: result.fileId, operation: result.operation })
+          }
+        }
+
+        if (completed.length > 0 && !cancelled) {
+          let hadSuccess = false
+          for (const item of completed) {
+            clearReindexOperationForFile(item.fileId)
+            if (item.operation.status === 'completed') {
+              hadSuccess = true
+              showToast('success', `Reindex complete: ${item.operation.filename}`)
+            } else {
+              showToast('error', item.operation.error || `Reindex failed: ${item.operation.filename}`)
+            }
+          }
+          if (hadSuccess) {
+            loadFiles()
+          }
+        }
+      } catch {
+        // Keep polling while operations are active; transient failures should not
+        // drop operation UI state.
+      } finally {
+        if (!cancelled) {
+          timeoutId = setTimeout(poll, 1500)
+        }
+      }
+    }
+
+    poll()
+
+    return () => {
+      cancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [clearReindexOperationForFile, loadFiles, reindexOperationsByFileId])
+
+  useEffect(() => {
+    let cancelled = false
+
+    const hydrateRunningReindexOperations = async () => {
+      try {
+        const response = await listFileReindexOperations('running')
+        if (cancelled) return
+        const hydrated: Record<number, string> = {}
+        for (const operation of response.operations || []) {
+          if (operation.status === 'running' && Number.isFinite(operation.file_id)) {
+            hydrated[operation.file_id] = operation.operation_id
+          }
+        }
+        setReindexOperationsByFileId((prev) => ({ ...hydrated, ...prev }))
+      } catch {
+        // keep local operation state; sidebar still reflects global running status
+      }
+    }
+
+    void hydrateRunningReindexOperations()
+
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   useEffect(() => {
     loadFiles()
@@ -112,16 +220,19 @@ export function FilesPage() {
   const handleReindex = useCallback(
     async (file: IndexedFile) => {
       if (!file?.id) return
+      if (reindexOperationsByFileId[file.id]) return
       try {
-        await reindexFile(file.id)
-        showToast('success', 'File re-indexed')
-        loadFiles()
+        const result = (await reindexFile(file.id)) as { operation_id?: string }
+        if (!result.operation_id) {
+          throw new Error('Reindex operation did not return operation id')
+        }
+        setReindexOperationForFile(file.id, result.operation_id)
       } catch (err) {
         const msg = extractErrorMessage(err, 'Re-index failed')
         showToast('error', msg)
       }
     },
-    [loadFiles],
+    [reindexOperationsByFileId, setReindexOperationForFile],
   )
 
   const handleRemove = useCallback(
@@ -203,6 +314,7 @@ export function FilesPage() {
                   onReindex={handleReindex}
                   onRemove={handleRemove}
                   selectedFileId={selectedFileId}
+                  reindexingFileIds={new Set(Object.keys(reindexOperationsByFileId).map(Number))}
                 />
               )}
             </div>
@@ -214,6 +326,8 @@ export function FilesPage() {
           fileId={selectedFileId}
           onClose={handleCloseDetail}
           onRemoved={handleFileRemoved}
+          isReindexing={Boolean(reindexOperationsByFileId[selectedFileId])}
+          onReindexRequest={handleReindex}
         />
       )}
     </div>

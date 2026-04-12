@@ -3,7 +3,13 @@
  * Single place for all fetch() calls. Components never call fetch directly.
  */
 
-import type { ChatMode, PlanStepPayload, StreamChatCallbacks, StreamDonePayload } from './types/api'
+import type {
+  ChatMode,
+  FileReindexOperation,
+  PlanStepPayload,
+  StreamChatCallbacks,
+  StreamDonePayload,
+} from './types/api'
 import type { SetupState } from './types/setupState'
 
 const DEFAULT_API_BASE = 'http://localhost:8420'
@@ -166,6 +172,18 @@ export async function getFile(id: number): Promise<unknown> {
 
 export async function reindexFile(id: number): Promise<unknown> {
   return request('POST', `/api/files/${id}/reindex`)
+}
+
+export async function listFileReindexOperations(
+  status: 'running' | 'completed' | 'failed' | 'all' = 'running',
+): Promise<{ status: string; running_count: number; operations: FileReindexOperation[] }> {
+  return request('GET', '/api/files/reindex/operations', { params: { status } })
+}
+
+export async function getFileReindexOperation(
+  operationId: string,
+): Promise<FileReindexOperation> {
+  return request('GET', `/api/files/reindex/operations/${operationId}`)
 }
 
 export async function removeFile(id: number): Promise<unknown> {

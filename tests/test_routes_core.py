@@ -105,6 +105,11 @@ async def test_get_index_status_aggregates_counts_and_sizes(monkeypatch: pytest.
     monkeypatch.setattr(routes_index, 'get_chat_count', AsyncMock(return_value=2))
     monkeypatch.setattr(
         routes_index,
+        'get_index_scope_counts',
+        AsyncMock(return_value=[{'source_provider': 'filesystem', 'entity_type': 'file', 'files_count': 7, 'chunks_count': 30}]),
+    )
+    monkeypatch.setattr(
+        routes_index,
         'get_latest_completed_scan',
         AsyncMock(return_value=SimpleNamespace(completed_at=datetime(2026, 2, 1, tzinfo=UTC))),
     )
@@ -121,6 +126,15 @@ async def test_get_index_status_aggregates_counts_and_sizes(monkeypatch: pytest.
     assert status.db_size_bytes == 111
     assert status.model_size_bytes == 222
     assert status.last_reset_result == {'ok': True}
+    assert status.source_scope_stats == []
+
+    status_with_scope = await routes_index.get_index_status(
+        db=MagicMock(),
+        include_source_scope_stats=True,
+    )
+    assert status_with_scope.source_scope_stats == [
+        {'source_provider': 'filesystem', 'entity_type': 'file', 'files_count': 7, 'chunks_count': 30}
+    ]
 
 
 @pytest.mark.asyncio
@@ -189,7 +203,9 @@ async def test_get_diagnostics_returns_system_and_index_stats(
 
     monkeypatch.setattr(routes_system, 'get_db', _fake_get_db)
 
-    diagnostics = await routes_system.get_diagnostics(request=MagicMock())
+    diagnostics = await routes_system.get_diagnostics(
+        request=SimpleNamespace(client=SimpleNamespace(host='127.0.0.1')),
+    )
     assert diagnostics.total_files == 5
     assert diagnostics.total_chunks == 12
     assert diagnostics.indexed_content_size_bytes == 2048
@@ -204,6 +220,14 @@ async def test_shutdown_rejects_non_localhost() -> None:
     request = SimpleNamespace(client=SimpleNamespace(host='10.0.0.8'))
     with pytest.raises(HTTPException) as exc_info:
         await routes_system.shutdown(request=request)
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_get_diagnostics_rejects_non_localhost() -> None:
+    request = SimpleNamespace(client=SimpleNamespace(host='10.0.0.8'))
+    with pytest.raises(HTTPException) as exc_info:
+        await routes_system.get_diagnostics(request=request)
     assert exc_info.value.status_code == 403
 
 
@@ -242,6 +266,18 @@ async def test_get_setup_status_reflects_setup_state_file(
     assert status.state == 'setup_in_progress'
     assert status.required_models_ready is False
     assert status.setup_state_file_present is True
+
+
+def test_recommend_setup_tier_prefers_small_on_16gb_class_devices() -> None:
+    tier, reason = routes_system._recommend_setup_tier(ram_total_gb=16.0, free_disk_gb=200.0)
+    assert tier == 'small'
+    assert '24 GB' in reason
+
+
+def test_recommend_setup_tier_uses_balanced_for_24gb_and_above() -> None:
+    tier, reason = routes_system._recommend_setup_tier(ram_total_gb=24.0, free_disk_gb=200.0)
+    assert tier == 'balanced'
+    assert '24 GB' in reason
 
 
 @pytest.mark.asyncio

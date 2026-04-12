@@ -30,6 +30,7 @@ interface FileTableProps {
   onReindex?: (file: IndexedFile) => void
   onRemove?: (file: IndexedFile, e: React.MouseEvent) => void
   selectedFileId?: number | null
+  reindexingFileIds?: Set<number>
   offline?: boolean
 }
 
@@ -46,6 +47,7 @@ export function FileTable({
   onReindex,
   onRemove,
   selectedFileId = null,
+  reindexingFileIds = new Set<number>(),
   offline = false,
 }: FileTableProps) {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
@@ -177,6 +179,7 @@ export function FileTable({
             {files.map((file, index) => {
               const iconClass = getFileIcon(file.extension)
               const isSelected = selectedFileId === file.id || selectedIds.has(file.id)
+              const isReindexing = reindexingFileIds.has(file.id)
 
               return (
                 <tr
@@ -221,12 +224,18 @@ export function FileTable({
                           type="button"
                           className="file-table__action-btn data-table__action-btn"
                           onClick={() => onReindex?.(file)}
-                          disabled={offline}
-                          title="Reindex file"
+                          disabled={offline || isReindexing}
+                          title={isReindexing ? 'Reindex in progress' : 'Reindex file'}
                         >
-                          <i className="ri-refresh-line" aria-hidden style={{ fontSize: '0.875rem' }} />
+                          <i
+                            className={isReindexing ? 'ri-loader-4-line file-table__spinner' : 'ri-refresh-line'}
+                            aria-hidden
+                            style={{ fontSize: '0.875rem' }}
+                          />
                         </button>
-                        <span className="data-table__action-tooltip ui-tooltip ui-tooltip--nowrap">Reindex file</span>
+                        <span className="data-table__action-tooltip ui-tooltip ui-tooltip--nowrap">
+                          {isReindexing ? 'Reindexing...' : 'Reindex file'}
+                        </span>
                       </span>
                       <span className="data-table__action-wrap data-table__action-wrap--last ui-tooltip-trigger">
                         <button

@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from informity.llm import contract_prompt_parser as _contract_prompt_parser
 from informity.llm.query_classifier import QueryClassification
@@ -20,12 +20,27 @@ _MISSING_EVIDENCE_LINE_PATTERN = re.compile(r'(?im)^\s*(?:[-*]\s*)?missing\s+evi
 _SSN_PATTERN = re.compile(r'\b\d{3}-\d{2}-\d{4}\b')
 _REDACTED_SSN_TOKEN = '[REDACTED-SSN]'
 _SECTION_INSUFFICIENT_EVIDENCE_LINE = '- Insufficient evidence in retrieved context to complete this section.'
+_ABSENCE_CLAIM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (
+        re.compile(
+            r'(?is)\bthe\s+provided\s+(?:documents?|context)\s+do(?:es)?\s+not\s+contain\b[^.\n]*[.]?',
+        ),
+        'Retrieved context did not provide enough evidence to confirm that request.',
+    ),
+    (
+        re.compile(
+            r'(?is)\bnone\s+of\s+the\s+provided\s+(?:documents?|context)\s+(?:mention|contain)\b[^.\n]*[.]?',
+        ),
+        'Retrieved context did not provide enough evidence to confirm that request.',
+    ),
+)
 
 
 @dataclass(frozen=True)
 class ContractSpec:
     required_headings: list[str]
     min_year_count: int
+    required_labels: list[str] = field(default_factory=list)
     enforce_heading_order: bool = False
     requires_missing_evidence_callout: bool = False
     enforce_forbidden_redaction: bool = True
@@ -46,6 +61,7 @@ class ContractValidationResult:
 
 def build_contract_spec(*, question: str, classification: QueryClassification | None) -> ContractSpec:
     required_headings = _contract_prompt_parser.extract_required_headings(question)
+    required_labels = _contract_prompt_parser.extract_required_labels(question)
     min_year_count = 0
     if (
         classification is not None
@@ -58,6 +74,7 @@ def build_contract_spec(*, question: str, classification: QueryClassification | 
     requires_missing_evidence_callout = bool(_MISSING_EVIDENCE_REQUEST_PATTERN.search(str(question or '')))
     return ContractSpec(
         required_headings=required_headings,
+        required_labels=required_labels,
         min_year_count=min_year_count,
         enforce_heading_order=enforce_heading_order,
         requires_missing_evidence_callout=requires_missing_evidence_callout,
@@ -120,6 +137,11 @@ def enforce_required_sections(answer: str, spec: ContractSpec) -> tuple[str, lis
     if spec.requires_missing_evidence_callout and _MISSING_EVIDENCE_LINE_PATTERN.search(normalized_answer) is None:
         callout = MISSING_EVIDENCE_CALLOUT_MESSAGE
         normalized_answer = f'{normalized_answer}\n\n{callout}'.strip() if normalized_answer else callout
+
+    if spec.required_labels:
+        normalized_answer = _enforce_required_labels(normalized_answer, spec.required_labels)
+
+    normalized_answer = _normalize_absence_claims(normalized_answer)
 
     return normalized_answer, list(result.missing_required_headings)
 
@@ -204,3 +226,28 @@ def _normalize_required_heading_order(*, answer: str, required_headings: list[st
         rebuilt_blocks.extend(extras)
 
     return '\n\n'.join(part.strip() for part in rebuilt_blocks if str(part).strip()).strip()
+
+
+def _enforce_required_labels(answer: str, required_labels: list[str]) -> str:
+    text = str(answer or '').strip()
+    missing_labels = [
+        label for label in required_labels
+        if label and label.casefold() not in text.casefold()
+    ]
+    if not missing_labels:
+        return text
+    missing_lines = '\n'.join(
+        f'- {label}: Missing Evidence: insufficient evidence in retrieved context.'
+        for label in missing_labels
+    )
+    return f'{text}\n\n{missing_lines}'.strip() if text else missing_lines
+
+
+def _normalize_absence_claims(answer: str) -> str:
+    text = str(answer or '').strip()
+    if not text:
+        return text
+    normalized = text
+    for pattern, replacement in _ABSENCE_CLAIM_PATTERNS:
+        normalized = pattern.sub(replacement, normalized)
+    return re.sub(r'\n{3,}', '\n\n', normalized).strip()

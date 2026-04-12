@@ -4,7 +4,7 @@
 # ==============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help run dev test lint format baseline diagnostics-evaluate diagnostics-analyze diagnostics-pipeline diagnostics-stop reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build app qa-quick qa-full qa-security qa-secrets qa-lint qa-typecheck qa-docs smoke-basic smoke-infra smoke-pdf maintenance-index-check maintenance-index-repair maintenance-download-nltk maintenance-reinstall-packages maintenance-chunk-structure maintenance-orphaned-chunks
+.PHONY: help run dev test lint format reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build tauri-build-signed app qa-quick qa-full qa-security qa-lint qa-typecheck
 
 # ==============================================================================
 # Configuration
@@ -68,14 +68,17 @@ frontend-build: ## Build frontend for production (output: src/frontend/dist/)
 tauri-dev: ## Run desktop shell in development mode (requires Rust toolchain + Tauri CLI)
 	cd src/frontend && npm run tauri:dev
 
-tauri-icons: ## Generate Tauri icon assets from the master logo
+tauri-icons: ## Maintainers: generate Tauri icon assets from the master logo
 	uv run python scripts/build_generate_tauri_icons.py
 
-tauri-backend: ## Build Python backend sidecar artifact for Tauri packaging
+tauri-backend: ## Maintainers: build Python backend sidecar artifact for Tauri packaging
 	./scripts/build_tauri_backend_sidecar.sh
 
 tauri-build: ## Build desktop bundle artifacts (requires Rust toolchain + Tauri CLI)
 	cd src/frontend && npm run tauri:build
+
+tauri-build-signed: ## Maintainers: build/sign/notarize/staple/verify macOS release artifacts (requires .env.codesign)
+	./scripts/build_tauri_signed_release.sh
 
 app: frontend-build run ## Build frontend and run app on http://127.0.0.1:8420 (single command for testing)
 
@@ -83,17 +86,12 @@ test: ## Run the test suite
 	uv run python -m pytest tests/ -v
 
 qa-quick: ## On-demand quick quality gate (backend reliability smoke tests + frontend type/test/build)
-	python3 tools/qa/docs_lint.py
 	uv run python -m pytest tests/test_api_security.py tests/test_index_integrity.py tests/test_rag_split_contract.py tests/test_diagnostics_metrics_contract.py tests/test_json_serializer_contract.py -v
 	cd src/frontend && npm run typecheck && npm run test && npm run build
 
 qa-full: ## On-demand full quality gate (all backend tests + frontend type/test/build)
-	python3 tools/qa/docs_lint.py
 	uv run python -m pytest tests/ -v
 	cd src/frontend && npm run typecheck && npm run test && npm run build
-
-qa-docs: ## On-demand internal docs lint (headers, statuses, internal links)
-	python3 tools/qa/docs_lint.py
 
 qa-lint: ## On-demand code style checks (non-release-blocking while baseline debt exists)
 	uv run ruff check src/ tests/
@@ -101,54 +99,9 @@ qa-lint: ## On-demand code style checks (non-release-blocking while baseline deb
 qa-typecheck: ## On-demand TypeScript strict checks (tracked separately from release gate)
 	cd src/frontend && npm run typecheck
 
-qa-security: qa-secrets ## On-demand security gate (secret scan + dependency vulnerability audit)
+qa-security: ## On-demand security gate (dependency vulnerability audit)
 	@echo "Running pip-audit (CVE-2025-69872 ignored until upstream diskcache fix is available)."
 	uv run --with pip-audit pip-audit --ignore-vuln CVE-2025-69872
-
-qa-secrets: ## On-demand local secret scan using regex heuristics
-	uv run python tools/qa/secret_scan.py
-
-baseline: ## Run performance baseline (server must be running: make dev)
-	uv run python tools/performance/performance_baseline.py --output tools/performance-baseline.md
-
-diagnostics-evaluate: ## Run evaluation queries against all models
-	uv run python tools/diagnostics/evaluate.py
-
-diagnostics-analyze: ## Analyze diagnostics metrics and generate report
-	uv run python tools/diagnostics/analyze.py --days 30 --type evaluation --diagnose --format markdown
-
-diagnostics-pipeline: ## Run full diagnostics pipeline (evaluate → analyze → generate tasks)
-	uv run python tools/diagnostics/pipeline.py
-
-diagnostics-stop: ## Stop active diagnostics run via lock/PID control
-	uv run python tools/diagnostics/stop.py
-
-smoke-basic: ## Run lightweight smoke checks for index/search/chat wiring
-	uv run python tools/smoke/smoke_basic_operations.py
-
-smoke-infra: ## Run infrastructure smoke checks for scanner/indexer/db contracts
-	uv run python tools/smoke/smoke_infrastructure.py
-
-smoke-pdf: ## Run PDF extractor smoke script against provided PDF paths/dir
-	uv run python tools/smoke/smoke_pdf_extraction.py
-
-maintenance-index-check: ## Check cross-store index integrity issues
-	uv run python tools/maintenance/index_integrity.py
-
-maintenance-index-repair: ## Repair cross-store index integrity issues
-	uv run python tools/maintenance/index_integrity.py --repair
-
-maintenance-download-nltk: ## Download NLTK stopwords corpus (temporary privacy toggle)
-	uv run python tools/maintenance/download_nltk_data.py
-
-maintenance-reinstall-packages: ## Recreate .venv and reinstall dependencies
-	uv run python tools/maintenance/reinstall_packages.py
-
-maintenance-chunk-structure: ## Analyze chunk parent/child structure for integrity anomalies
-	uv run python tools/maintenance/chunk_structure_analysis.py
-
-maintenance-orphaned-chunks: ## Diagnose orphaned chunks (missing/invalid parent_id links)
-	uv run python tools/maintenance/orphaned_chunks_diagnostic.py
 
 lint: ## Run linter checks (ruff)
 	uv run ruff check src/ tests/

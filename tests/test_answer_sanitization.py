@@ -3,6 +3,7 @@ from informity.answer_sanitization import (
     build_display_answer,
     count_words,
     extract_requested_max_words,
+    normalize_assistant_identity_claim,
     sanitize_display_answer,
     truncate_to_word_limit,
 )
@@ -87,3 +88,24 @@ def test_truncate_to_word_limit_noop_within_limit() -> None:
     truncated, applied = truncate_to_word_limit(text, 5)
     assert applied is False
     assert truncated == text
+
+
+def test_normalize_assistant_identity_claim_rewrites_qwen_intro() -> None:
+    raw = "My name is Qwen. I'm a large language model created by Alibaba Cloud. How can I help?"
+    normalized = normalize_assistant_identity_claim(raw)
+    assert normalized.startswith("I’m Informity AI, your local assistant.")
+    assert "How can I help?" in normalized
+    assert "Qwen" not in normalized
+
+
+def test_normalize_assistant_identity_claim_keeps_regular_qwen_reference() -> None:
+    raw = "Qwen is one of the available model families in this app."
+    normalized = normalize_assistant_identity_claim(raw)
+    assert normalized == raw
+
+
+def test_build_display_answer_applies_identity_guard_before_cleaning() -> None:
+    raw = "I am Qwen, created by Alibaba Cloud."
+    cleaned, reasoning_only = build_display_answer(raw)
+    assert reasoning_only is False
+    assert cleaned == "I’m Informity AI, your local assistant."

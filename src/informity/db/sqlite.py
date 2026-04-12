@@ -32,6 +32,7 @@ from informity.db.utils import (
 )
 from informity.diagnostics.issue_types import IssueType
 from informity.llm.types import ChatRole, DiagnosticsQueryType
+from informity.utils.directory_utils import ensure_private_file
 
 # ==============================================================================
 # Logger
@@ -57,13 +58,30 @@ _RESET_COMPACTION_RETRY_ATTEMPTS = 10
 # Schema — DDL statements for all tables
 # ==============================================================================
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 1
 
 DIAGNOSTICS_TYPE_USER = 'user'
 DIAGNOSTICS_TYPE_EVALUATION = 'evaluation'
 CANONICAL_DIAGNOSTICS_TYPES = (DIAGNOSTICS_TYPE_USER, DIAGNOSTICS_TYPE_EVALUATION)
 CANONICAL_DIAGNOSTICS_QUERY_TYPES = tuple(item.value for item in DiagnosticsQueryType)
 CANONICAL_DIAGNOSTICS_ISSUE_TYPES = tuple(sorted(issue.value for issue in IssueType))
+
+_FTS_TRIGGERS_SQL = """
+CREATE TRIGGER IF NOT EXISTS fts_chunks_ai AFTER INSERT ON vec_chunks BEGIN
+    INSERT INTO fts_chunks(rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
+    VALUES (new.chunk_id, new.chunk_text, new.chunk_id, new.file_id, new.file_path, new.year, new.filename, new.extension, new.category);
+END;
+
+CREATE TRIGGER IF NOT EXISTS fts_chunks_ad AFTER DELETE ON vec_chunks BEGIN
+    DELETE FROM fts_chunks WHERE rowid = old.chunk_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS fts_chunks_au AFTER UPDATE ON vec_chunks BEGIN
+    DELETE FROM fts_chunks WHERE rowid = old.chunk_id;
+    INSERT INTO fts_chunks(rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
+    VALUES (new.chunk_id, new.chunk_text, new.chunk_id, new.file_id, new.file_path, new.year, new.filename, new.extension, new.category);
+END;
+"""
 
 _SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS schema_version (
@@ -73,6 +91,7 @@ CREATE TABLE IF NOT EXISTS schema_version (
 CREATE TABLE IF NOT EXISTS files (
     id                     INTEGER PRIMARY KEY AUTOINCREMENT,
     source_provider        TEXT NOT NULL DEFAULT 'filesystem',
+    entity_type            TEXT NOT NULL DEFAULT 'file',
     source_item_id         TEXT NOT NULL DEFAULT '',
     path                   TEXT UNIQUE NOT NULL,
     filename               TEXT NOT NULL,
@@ -99,8 +118,8 @@ CREATE TABLE IF NOT EXISTS files (
     created_at             TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE UNIQUE INDEX IF NOT EXISTS idx_files_source_provider_item_id
-    ON files(source_provider, source_item_id)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_files_source_provider_entity_item_id
+    ON files(source_provider, entity_type, source_item_id)
     WHERE source_item_id != '';
 CREATE INDEX IF NOT EXISTS idx_files_content_hash  ON files(content_hash);
 CREATE INDEX IF NOT EXISTS idx_files_category      ON files(category);
@@ -109,15 +128,20 @@ CREATE INDEX IF NOT EXISTS idx_files_year          ON files(year);
 CREATE INDEX IF NOT EXISTS idx_files_filters_composite ON files(year, category, extension);
 
 CREATE TABLE IF NOT EXISTS file_failures (
-    path          TEXT PRIMARY KEY,
+    source_provider TEXT NOT NULL,
+    entity_type    TEXT NOT NULL DEFAULT 'file',
+    source_item_id TEXT NOT NULL,
+    path          TEXT,
     content_hash  TEXT NOT NULL,
     error_code    TEXT,
     error_message TEXT,
     retryable     INTEGER DEFAULT 1,
     failure_count INTEGER DEFAULT 1,
     first_seen_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_seen_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    last_seen_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (source_provider, entity_type, source_item_id)
 );
+CREATE INDEX IF NOT EXISTS idx_file_failures_path ON file_failures(path);
 
 CREATE TABLE IF NOT EXISTS chunks (
     id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,6 +206,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     next_action        TEXT,
     next_action_reason TEXT,
     chat_mode          TEXT,
+    model_filename     TEXT,
     is_internal        INTEGER DEFAULT 0,
     created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -296,22 +321,7 @@ CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(
     tokenize='porter unicode61'
 );
 
-CREATE TRIGGER IF NOT EXISTS fts_chunks_ai AFTER INSERT ON vec_chunks BEGIN
-    INSERT INTO fts_chunks(rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
-    VALUES (new.chunk_id, new.chunk_text, new.chunk_id, new.file_id, new.file_path, new.year, new.filename, new.extension, new.category);
-END;
-
-CREATE TRIGGER IF NOT EXISTS fts_chunks_ad AFTER DELETE ON vec_chunks BEGIN
-    INSERT INTO fts_chunks(fts_chunks, rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
-    VALUES ('delete', old.chunk_id, old.chunk_text, old.chunk_id, old.file_id, old.file_path, old.year, old.filename, old.extension, old.category);
-END;
-
-CREATE TRIGGER IF NOT EXISTS fts_chunks_au AFTER UPDATE ON vec_chunks BEGIN
-    INSERT INTO fts_chunks(fts_chunks, rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
-    VALUES ('delete', old.chunk_id, old.chunk_text, old.chunk_id, old.file_id, old.file_path, old.year, old.filename, old.extension, old.category);
-    INSERT INTO fts_chunks(rowid, chunk_text, chunk_id, file_id, file_path, year, filename, extension, category)
-    VALUES (new.chunk_id, new.chunk_text, new.chunk_id, new.file_id, new.file_path, new.year, new.filename, new.extension, new.category);
-END;
+""" + _FTS_TRIGGERS_SQL + """
 
 CREATE TABLE IF NOT EXISTS term_dictionary_state (
     singleton_id INTEGER PRIMARY KEY CHECK(singleton_id = 1),
@@ -481,6 +491,7 @@ async def init_db() -> None:
             log.debug('sqlite_vec_extension_not_loaded', msg='Extension loading not available or already loaded')
 
         await conn.executescript(_SCHEMA_SQL)
+        await _ensure_chat_messages_model_filename_column(conn)
 
         # Term dictionary uniqueness is typed by design:
         # allow same normalized term across different entity types.
@@ -495,6 +506,12 @@ async def init_db() -> None:
 
         # Ensure index exists
         await conn.execute('CREATE INDEX IF NOT EXISTS idx_chunks_parent_id ON chunks(parent_id)')
+        # Ensure FTS triggers are on the current syntax. Older trigger variants
+        # using fts5 "delete" pseudo-inserts can raise SQL logic error on DELETE.
+        await conn.execute('DROP TRIGGER IF EXISTS fts_chunks_ai')
+        await conn.execute('DROP TRIGGER IF EXISTS fts_chunks_ad')
+        await conn.execute('DROP TRIGGER IF EXISTS fts_chunks_au')
+        await conn.executescript(_FTS_TRIGGERS_SQL)
 
         await conn.execute('DELETE FROM schema_version')
         await conn.execute(
@@ -509,10 +526,25 @@ async def init_db() -> None:
             '''
         )
         await conn.commit()
+        if settings.db_path is not None:
+            ensure_private_file(settings.db_path)
         await _compact_empty_db_if_bloated(conn)
         log.info('database_initialized', schema_version=SCHEMA_VERSION)
     finally:
         await conn.close()
+
+
+async def _ensure_chat_messages_model_filename_column(conn: aiosqlite.Connection) -> None:
+    """
+    Non-destructive migration: add chat_messages.model_filename when missing.
+    """
+    cursor = await conn.execute('PRAGMA table_info(chat_messages)')
+    rows = await cursor.fetchall()
+    column_names = {str(row['name']) for row in rows}
+    if 'model_filename' in column_names:
+        return
+    await conn.execute('ALTER TABLE chat_messages ADD COLUMN model_filename TEXT')
+    log.info('database_migration_applied', migration='add_chat_messages_model_filename')
 
 
 async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
@@ -593,6 +625,7 @@ def row_to_indexed_file(row: aiosqlite.Row) -> IndexedFile:
     return IndexedFile(
         id                     = row['id'],
         source_provider        = row['source_provider'] or 'filesystem',
+        entity_type            = row['entity_type'] or 'file',
         source_item_id         = row['source_item_id'] or row['path'] or '',
         path                   = row['path'],
         filename               = row['filename'],
@@ -689,6 +722,7 @@ def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
         next_action        = row['next_action'],
         next_action_reason = row['next_action_reason'],
         chat_mode          = row['chat_mode'],
+        model_filename     = row['model_filename'],
         is_internal        = bool(row['is_internal']),
         created_at         = parse_timestamp(row['created_at']),
     )
@@ -703,16 +737,17 @@ async def insert_file(db: aiosqlite.Connection, file: IndexedFile) -> IndexedFil
     cursor = await db.execute(
         """
         INSERT INTO files (
-            source_provider, source_item_id,
+            source_provider, entity_type, source_item_id,
             path, filename, extension, size_bytes, content_hash,
             extracted_text_preview, category, tags, year,
             extractor, encoding, language, mime_type, ocr_used,
             page_count, tables_count, form_items_count, key_value_items_count, pictures_count, document_hash,
             indexed_at, modified_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             file.source_provider,
+            file.entity_type,
             file.source_item_id,
             file.path,
             file.filename,
@@ -756,15 +791,16 @@ async def get_file_by_source_identity(
     db: aiosqlite.Connection,
     *,
     source_provider: str,
+    entity_type: str,
     source_item_id: str,
 ) -> IndexedFile | None:
     # Look up a file by provider-safe source identity.
     cursor = await db.execute(
         '''
         SELECT * FROM files
-        WHERE source_provider = ? AND source_item_id = ?
+        WHERE source_provider = ? AND entity_type = ? AND source_item_id = ?
         ''',
-        (source_provider, source_item_id),
+        (source_provider, entity_type, source_item_id),
     )
     row = await cursor.fetchone()
     if row is None:
@@ -774,7 +810,10 @@ async def get_file_by_source_identity(
 
 async def should_skip_file_retry(
     db: aiosqlite.Connection,
-    path: str,
+    *,
+    source_provider: str,
+    entity_type: str,
+    source_item_id: str,
     content_hash: str,
 ) -> tuple[bool, str | None]:
     # Return True when a file has a non-retryable failure for the same content hash.
@@ -782,9 +821,11 @@ async def should_skip_file_retry(
         """
         SELECT retryable, content_hash, error_code
         FROM file_failures
-        WHERE path = ?
+        WHERE source_provider = ?
+          AND entity_type = ?
+          AND source_item_id = ?
         """,
-        (path,),
+        (source_provider, entity_type, source_item_id),
     )
     row = await cursor.fetchone()
     if row is None:
@@ -797,7 +838,10 @@ async def should_skip_file_retry(
 async def record_file_failure(
     db: aiosqlite.Connection,
     *,
-    path: str,
+    source_provider: str,
+    entity_type: str,
+    source_item_id: str,
+    path: str | None,
     content_hash: str,
     error_code: str | None,
     error_message: str | None,
@@ -808,10 +852,12 @@ async def record_file_failure(
     cursor = await db.execute(
         """
         INSERT INTO file_failures (
-            path, content_hash, error_code, error_message, retryable,
+            source_provider, entity_type, source_item_id, path,
+            content_hash, error_code, error_message, retryable,
             failure_count, first_seen_at, last_seen_at
-        ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)
-        ON CONFLICT(path) DO UPDATE SET
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+        ON CONFLICT(source_provider, entity_type, source_item_id) DO UPDATE SET
+            path          = excluded.path,
             content_hash  = excluded.content_hash,
             error_code    = excluded.error_code,
             error_message = excluded.error_message,
@@ -825,6 +871,9 @@ async def record_file_failure(
             last_seen_at  = excluded.last_seen_at
         """,
         (
+            source_provider,
+            entity_type,
+            source_item_id,
             path,
             content_hash,
             error_code,
@@ -838,9 +887,23 @@ async def record_file_failure(
     await cursor.close()
 
 
-async def clear_file_failure(db: aiosqlite.Connection, path: str) -> None:
+async def clear_file_failure(
+    db: aiosqlite.Connection,
+    *,
+    source_provider: str,
+    entity_type: str,
+    source_item_id: str,
+) -> None:
     # Remove failure state after a successful index/reindex.
-    await db.execute('DELETE FROM file_failures WHERE path = ?', (path,))
+    await db.execute(
+        '''
+        DELETE FROM file_failures
+        WHERE source_provider = ?
+          AND entity_type = ?
+          AND source_item_id = ?
+        ''',
+        (source_provider, entity_type, source_item_id),
+    )
     await db.commit()
 
 
@@ -866,10 +929,30 @@ async def get_files_by_ids(db: aiosqlite.Connection, file_ids: list[int]) -> dic
     return {row['id']: row_to_indexed_file(row) for row in rows}
 
 
-async def get_all_files_for_scan(db: aiosqlite.Connection) -> list[IndexedFile]:
+async def get_all_files_for_scan(
+    db: aiosqlite.Connection,
+    *,
+    source_provider: str | None = None,
+    entity_type: str | None = None,
+) -> list[IndexedFile]:
     # Return all indexed files (no pagination). Used by scan task for change
     # detection so every file on disk can be matched; avoids pagination limits.
-    cursor = await db.execute('SELECT * FROM files ORDER BY path ASC')
+    conditions: list[str] = []
+    params: list[str] = []
+    if source_provider:
+        conditions.append('source_provider = ?')
+        params.append(source_provider)
+    if entity_type:
+        conditions.append('entity_type = ?')
+        params.append(entity_type)
+    where_clause = ''
+    if conditions:
+        where_clause = 'WHERE ' + ' AND '.join(conditions)
+
+    cursor = await db.execute(
+        f'SELECT * FROM files {where_clause} ORDER BY path ASC',
+        params,
+    )
     rows   = await cursor.fetchall()
     return [row_to_indexed_file(row) for row in rows]
 
@@ -993,7 +1076,7 @@ async def update_file(db: aiosqlite.Connection, file: IndexedFile) -> IndexedFil
     await db.execute(
         """
         UPDATE files SET
-            source_provider = ?, source_item_id = ?,
+            source_provider = ?, entity_type = ?, source_item_id = ?,
             path = ?, filename = ?, extension = ?, size_bytes = ?,
             content_hash = ?, extracted_text_preview = ?, category = ?,
             tags = ?, year = ?, extractor = ?, encoding = ?, language = ?, mime_type = ?,
@@ -1004,6 +1087,7 @@ async def update_file(db: aiosqlite.Connection, file: IndexedFile) -> IndexedFil
         """,
         (
             file.source_provider,
+            file.entity_type,
             file.source_item_id,
             file.path,
             file.filename,
@@ -1050,6 +1134,15 @@ async def insert_chunks_batch(db: aiosqlite.Connection, file_id: int, chunks: li
     if not chunks:
         return []
 
+    # Capture ID watermark before insert so we can fetch exactly the rows we
+    # inserted, avoiding ambiguous remapping when chunk_index values repeat.
+    max_id_cursor = await db.execute(
+        'SELECT COALESCE(MAX(id), 0) AS max_id FROM chunks WHERE file_id = ?',
+        (file_id,),
+    )
+    max_id_row = await max_id_cursor.fetchone()
+    id_watermark = int(max_id_row['max_id']) if max_id_row else 0
+
     await db.executemany(
         """
         INSERT INTO chunks (
@@ -1076,51 +1169,21 @@ async def insert_chunks_batch(db: aiosqlite.Connection, file_id: int, chunks: li
     )
     await db.commit()
 
-    # Fetch ONLY the IDs of the chunks we just inserted (match by chunk_index AND parent_id)
-    # This is critical: we must return only the newly inserted chunks, not all chunks for the file.
-    # Parent and child chunks can share chunk_index values, so we must also match by parent_id
-    # to distinguish them. Otherwise, when inserting children after parents, we'd return parent IDs.
-    chunk_indices = [c.chunk_index for c in chunks]
-    # Determine parent_id filter: if all chunks have parent_id=None, filter for parents;
-    # if all have parent_id set, filter for children; if mixed, we need per-chunk matching
-    parent_id_values = [c.parent_id for c in chunks]
-    all_parents = all(pid is None for pid in parent_id_values)
-    all_children = all(pid is not None for pid in parent_id_values)
-
-    if all_parents:
-        # All chunks are parents (parent_id IS NULL)
-        placeholders = ','.join('?' * len(chunk_indices))
-        cursor = await db.execute(
-            f'SELECT id FROM chunks WHERE file_id = ? AND chunk_index IN ({placeholders}) AND parent_id IS NULL ORDER BY chunk_index',
-            (file_id, *chunk_indices),
-        )
-    elif all_children:
-        # All chunks are children (parent_id IS NOT NULL)
-        placeholders = ','.join('?' * len(chunk_indices))
-        cursor = await db.execute(
-            f'SELECT id FROM chunks WHERE file_id = ? AND chunk_index IN ({placeholders}) AND parent_id IS NOT NULL ORDER BY chunk_index',
-            (file_id, *chunk_indices),
-        )
-    else:
-        # Mixed: need to match each chunk individually by (chunk_index, parent_id)
-        # Build a query that matches each (chunk_index, parent_id) pair
-        conditions = []
-        params = [file_id]
-        for c in chunks:
-            if c.parent_id is None:
-                conditions.append('(chunk_index = ? AND parent_id IS NULL)')
-            else:
-                conditions.append('(chunk_index = ? AND parent_id = ?)')
-            params.append(c.chunk_index)
-            if c.parent_id is not None:
-                params.append(c.parent_id)
-        where_clause = ' OR '.join(conditions)
-        cursor = await db.execute(
-            f'SELECT id FROM chunks WHERE file_id = ? AND ({where_clause}) ORDER BY chunk_index',
-            params,
-        )
-
+    cursor = await db.execute(
+        '''
+        SELECT id
+        FROM chunks
+        WHERE file_id = ? AND id > ?
+        ORDER BY id ASC
+        ''',
+        (file_id, id_watermark),
+    )
     rows = await cursor.fetchall()
+    if len(rows) != len(chunks):
+        raise RuntimeError(
+            f'Chunk insert ID mapping mismatch for file_id={file_id}: '
+            f'expected {len(chunks)} new rows, got {len(rows)}'
+        )
     return [row['id'] for row in rows]
 
 
@@ -1414,9 +1477,9 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
         INSERT INTO chat_messages (
             chat_id, role, content, sources, generation_seconds,
             completion_mode, stopped_by_user, has_remaining_scope, next_action, next_action_reason,
-            chat_mode, is_internal
+            chat_mode, model_filename, is_internal
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             message.chat_id,
@@ -1430,6 +1493,7 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
             message.next_action,
             message.next_action_reason,
             message.chat_mode,
+            message.model_filename,
             1 if message.is_internal else 0,
         ),
     )
@@ -1971,6 +2035,33 @@ async def get_chunk_count(db: aiosqlite.Connection) -> int:
     cursor = await db.execute('SELECT COUNT(*) as count FROM chunks')
     row = await cursor.fetchone()
     return int(row['count']) if row else 0
+
+
+async def get_index_scope_counts(db: aiosqlite.Connection) -> list[dict[str, object]]:
+    # Aggregate indexed file/chunk counts per source scope.
+    cursor = await db.execute(
+        '''
+        SELECT
+            f.source_provider AS source_provider,
+            f.entity_type AS entity_type,
+            COUNT(DISTINCT f.id) AS files_count,
+            COUNT(c.id) AS chunks_count
+        FROM files f
+        LEFT JOIN chunks c ON c.file_id = f.id
+        GROUP BY f.source_provider, f.entity_type
+        ORDER BY f.source_provider ASC, f.entity_type ASC
+        '''
+    )
+    rows = await cursor.fetchall()
+    return [
+        {
+            'source_provider': str(row['source_provider'] or ''),
+            'entity_type': str(row['entity_type'] or ''),
+            'files_count': int(row['files_count'] or 0),
+            'chunks_count': int(row['chunks_count'] or 0),
+        }
+        for row in rows
+    ]
 
 
 async def get_corpus_stats(db: aiosqlite.Connection) -> dict:
@@ -2560,3 +2651,87 @@ async def reset_all_data(db: aiosqlite.Connection) -> dict[str, object]:
         compaction_error=compaction_error,
     )
     return counts
+
+
+async def reset_index_data_scope(
+    db: aiosqlite.Connection,
+    *,
+    source_provider: str,
+    entity_type: str,
+) -> dict[str, object]:
+    # Delete indexed content for one source scope only.
+    source_provider = source_provider.strip().lower()
+    entity_type = entity_type.strip().lower()
+
+    files_cursor = await db.execute(
+        '''
+        SELECT id
+        FROM files
+        WHERE source_provider = ? AND entity_type = ?
+        ''',
+        (source_provider, entity_type),
+    )
+    file_rows = await files_cursor.fetchall()
+    file_ids = [int(row['id']) for row in file_rows]
+
+    files_deleted = len(file_ids)
+    if files_deleted == 0:
+        return {
+            'source_provider': source_provider,
+            'entity_type': entity_type,
+            'files_deleted': 0,
+            'chunks_deleted': 0,
+            'vectors_deleted': 0,
+            'file_failures_deleted': 0,
+        }
+
+    placeholders = ', '.join('?' * len(file_ids))
+    chunks_cursor = await db.execute(
+        f'SELECT COUNT(*) AS cnt FROM chunks WHERE file_id IN ({placeholders})',
+        file_ids,
+    )
+    chunk_row = await chunks_cursor.fetchone()
+    chunks_deleted = int(chunk_row['cnt']) if chunk_row else 0
+
+    vectors_cursor = await db.execute(
+        f'SELECT COUNT(*) AS cnt FROM vec_chunks WHERE file_id IN ({placeholders})',
+        file_ids,
+    )
+    vector_row = await vectors_cursor.fetchone()
+    vectors_deleted = int(vector_row['cnt']) if vector_row else 0
+
+    file_failures_cursor = await db.execute(
+        '''
+        SELECT COUNT(*) AS cnt
+        FROM file_failures
+        WHERE source_provider = ? AND entity_type = ?
+        ''',
+        (source_provider, entity_type),
+    )
+    file_failures_row = await file_failures_cursor.fetchone()
+    file_failures_deleted = int(file_failures_row['cnt']) if file_failures_row else 0
+
+    await db.execute(
+        '''
+        DELETE FROM file_failures
+        WHERE source_provider = ? AND entity_type = ?
+        ''',
+        (source_provider, entity_type),
+    )
+    await db.execute(
+        '''
+        DELETE FROM files
+        WHERE source_provider = ? AND entity_type = ?
+        ''',
+        (source_provider, entity_type),
+    )
+    await db.commit()
+
+    return {
+        'source_provider': source_provider,
+        'entity_type': entity_type,
+        'files_deleted': files_deleted,
+        'chunks_deleted': chunks_deleted,
+        'vectors_deleted': vectors_deleted,
+        'file_failures_deleted': file_failures_deleted,
+    }

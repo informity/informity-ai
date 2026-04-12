@@ -53,6 +53,7 @@ class FilesystemSourceAdapter:
             author=None,
             modified_at=scanned.modified_at,
             content_text='',
+            size_bytes=scanned.size_bytes,
             content_hash=scanned.content_hash,
             metadata={
                 'path': normalized_path,

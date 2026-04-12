@@ -31,7 +31,7 @@ from informity.api.schemas import (
 from informity.file_types import get_file_type_options
 from informity.llm.model_adapter import discover_available_models, get_profile_for_filename
 from informity.scanner.watcher import invalidate_watcher_cache
-from informity.utils.directory_utils import ensure_file_directory
+from informity.utils.directory_utils import ensure_file_directory, ensure_private_file
 from informity.utils.json_utils import serialize_config
 from informity.utils.path_utils import resolve_and_check_path
 
@@ -49,15 +49,23 @@ _SETTINGS_RUNTIME_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeE
 
 router = APIRouter(tags=['settings'])
 _CONFIG_FILE_ASYNC_LOCK = asyncio.Lock()
+_DIAG_PROFILE_STANDARD = 'standard'
+_DIAG_PROFILE_TROUBLESHOOTING = 'troubleshooting'
+_DIAG_PROFILE_CUSTOM = 'custom'
+_DIAG_PROFILE_ALLOWED_VALUES = (
+    _DIAG_PROFILE_STANDARD,
+    _DIAG_PROFILE_TROUBLESHOOTING,
+    _DIAG_PROFILE_CUSTOM,
+)
 _DIAGNOSTICS_PROFILE_PRESETS: dict[str, dict[str, object]] = {
-    'standard': {
+    _DIAG_PROFILE_STANDARD: {
         'log_level': 'info',
         'chat_trace_logging': False,
         'chat_trace_redaction_mode': 'minimal',
         'chat_trace_user_retention_days': 30,
         'chat_trace_evaluation_retention_days': 30,
     },
-    'troubleshooting': {
+    _DIAG_PROFILE_TROUBLESHOOTING: {
         'log_level': 'debug',
         'chat_trace_logging': True,
         'chat_trace_redaction_mode': 'minimal',
@@ -137,9 +145,9 @@ _SETTINGS_RANGE_RULES: dict[str, tuple[float, float, str]] = {
     ),
     'llm_cpu_threads': (0, 32, 'llm_cpu_threads must be between 0 and 32 (0 = automatic)'),
     'scan_file_timeout_seconds': (
-        0,
+        1,
         600,
-        'scan_file_timeout_seconds must be between 0 and 600',
+        'scan_file_timeout_seconds must be between 1 and 600',
     ),
     'scan_hash_workers': (0, 32, 'scan_hash_workers must be between 0 and 32 (0 = automatic)'),
     'web_search_max_results': (1, 10, 'web_search_max_results must be between 1 and 10'),
@@ -172,9 +180,9 @@ _SETTINGS_ALLOWED_VALUE_RULES: dict[str, tuple[tuple[str, ...], bool, str]] = {
         _allowed_values_detail('log_level', config.LOG_LEVEL_ALLOWED_VALUES),
     ),
     'diagnostics_profile': (
-        ('standard', 'troubleshooting', 'custom'),
+        _DIAG_PROFILE_ALLOWED_VALUES,
         True,
-        'diagnostics_profile must be one of: standard, troubleshooting, custom',
+        _allowed_values_detail('diagnostics_profile', _DIAG_PROFILE_ALLOWED_VALUES),
     ),
     'chat_trace_redaction_mode': (
         ('off', 'minimal', 'strict'),
@@ -185,6 +193,11 @@ _SETTINGS_ALLOWED_VALUE_RULES: dict[str, tuple[tuple[str, ...], bool, str]] = {
         ('assistant', 'researcher'),
         True,
         'default_chat_mode must be one of: assistant, researcher',
+    ),
+    'web_search_primary_provider': (
+        ('tavily', 'linkup'),
+        True,
+        'web_search_primary_provider must be one of: tavily, linkup',
     ),
     'ui_theme': (
         config.UI_THEME_ALLOWED_VALUES,
@@ -240,7 +253,9 @@ def _write_config_file(data: dict) -> None:
         serialize_config(data),
         encoding='utf-8',
     )
+    ensure_private_file(temp_path)
     temp_path.replace(config_path)
+    ensure_private_file(config_path)
     log.info('config_file_written', path=str(config_path))
 
 
@@ -250,6 +265,7 @@ def _write_config_file(data: dict) -> None:
 
 _UPDATABLE_FIELDS: set[str] = {
     'watched_directories',
+    'source_scopes_enabled',
     'ignore_patterns',
     'exclude_macos_system',
     'exclude_developer_data',
@@ -270,6 +286,8 @@ _UPDATABLE_FIELDS: set[str] = {
     'scan_hash_workers',
     'full_privacy',
     'tavily_api_key',
+    'linkup_api_key',
+    'web_search_primary_provider',
     'web_search_max_results',
     'web_search_timeout_seconds',
     'embedding_offline',
@@ -352,6 +370,7 @@ async def get_settings() -> SettingsResponse:
 
     return SettingsResponse(
         watched_directories     = [str(p) for p in s.watched_directories],
+        source_scopes_enabled   = dict(s.source_scopes_enabled),
         ignore_patterns        = list(s.ignore_patterns),
         exclude_macos_system   = s.exclude_macos_system,
         exclude_developer_data  = s.exclude_developer_data,
@@ -373,6 +392,16 @@ async def get_settings() -> SettingsResponse:
         scan_hash_workers       = s.scan_hash_workers,
         full_privacy            = s.full_privacy,
         tavily_api_key_set      = bool(str(s.tavily_api_key or '').strip()),
+        linkup_api_key_set      = bool(str(s.linkup_api_key or '').strip()),
+        web_search_configured   = (
+            bool(str(s.tavily_api_key or '').strip())
+            or bool(str(s.linkup_api_key or '').strip())
+        ),
+        web_search_primary_provider = (
+            'linkup'
+            if str(s.web_search_primary_provider or '').strip().lower() == 'linkup'
+            else 'tavily'
+        ),
         web_search_max_results  = s.web_search_max_results,
         web_search_timeout_seconds = s.web_search_timeout_seconds,
         embedding_offline       = s.embedding_offline,
@@ -514,6 +543,15 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                 value = (value or '').strip()
                 if not value:
                     raise HTTPException(status_code=400, detail='rag_reranker_model cannot be empty')
+            if field_name == 'scan_file_timeout_seconds' and value is not None:
+                policy = config.settings.scan_timeout_policy
+                policy.default.max_seconds = int(value)
+                if 'filesystem:file' in policy.overrides:
+                    policy.overrides['filesystem:file'].max_seconds = int(value)
+                config.settings.scan_timeout_policy = policy
+                config.settings.scan_file_timeout_seconds = int(value)
+                config_data[field_name] = int(value)
+                continue
             if field_name == 'diagnostics_profile' and value is not None:
                 diagnostics_profile_value = value
                 continue
@@ -531,6 +569,8 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                     )
 
             if field_name == 'tavily_api_key' and value is not None:
+                value = str(value).strip()
+            if field_name == 'linkup_api_key' and value is not None:
                 value = str(value).strip()
 
             # Defer full_privacy sync until after the loop so it always wins
@@ -590,8 +630,11 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                 'chat_trace_evaluation_retention_days',
             )
         ):
-            config.settings.diagnostics_profile = 'custom'
-            config_data['diagnostics_profile'] = 'custom'
+            config.settings.diagnostics_profile = _DIAG_PROFILE_CUSTOM
+            config_data['diagnostics_profile'] = _DIAG_PROFILE_CUSTOM
+
+        # Timeout policy internals are backend-managed and derived from scalar cap.
+        config_data.pop('scan_timeout_policy', None)
 
         # Cross-field validation: ensure chunk_overlap_tokens < chunk_size_tokens
         if config.settings.chunk_overlap_tokens >= config.settings.chunk_size_tokens:

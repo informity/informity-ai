@@ -62,21 +62,63 @@ async def test_scan_file_timeout_seconds_rejects_out_of_range_values(
     with pytest.raises(HTTPException) as exc_info_low:
         await routes_settings.update_settings(SettingsUpdateRequest(scan_file_timeout_seconds=-1))
     assert exc_info_low.value.status_code == 400
-    assert 'scan_file_timeout_seconds must be between 0 and 600' in str(exc_info_low.value.detail)
+    assert 'scan_file_timeout_seconds must be between 1 and 600' in str(exc_info_low.value.detail)
 
     with pytest.raises(HTTPException) as exc_info_high:
         await routes_settings.update_settings(SettingsUpdateRequest(scan_file_timeout_seconds=601))
     assert exc_info_high.value.status_code == 400
-    assert 'scan_file_timeout_seconds must be between 0 and 600' in str(exc_info_high.value.detail)
+    assert 'scan_file_timeout_seconds must be between 1 and 600' in str(exc_info_high.value.detail)
 
 
 @pytest.mark.asyncio
-async def test_scan_file_timeout_seconds_accepts_zero_and_persists(
+async def test_scan_file_timeout_seconds_rejects_zero(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config.settings, 'app_data_dir', tmp_path)
     monkeypatch.setattr(routes_settings, '_list_available_models', lambda: [])
 
-    updated = await routes_settings.update_settings(SettingsUpdateRequest(scan_file_timeout_seconds=0))
-    assert updated.scan_file_timeout_seconds == 0
+    with pytest.raises(HTTPException) as exc_info:
+        await routes_settings.update_settings(SettingsUpdateRequest(scan_file_timeout_seconds=0))
+    assert exc_info.value.status_code == 400
+    assert 'scan_file_timeout_seconds must be between 1 and 600' in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_scan_file_timeout_seconds_updates_runtime_policy_cap(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config.settings, 'app_data_dir', tmp_path)
+    monkeypatch.setattr(routes_settings, '_list_available_models', lambda: [])
+
+    updated = await routes_settings.update_settings(
+        SettingsUpdateRequest(scan_file_timeout_seconds=550)
+    )
+    assert updated.scan_file_timeout_seconds == 550
+    assert config.settings.scan_timeout_policy.default.max_seconds == 550
+    assert config.settings.scan_timeout_policy.overrides['filesystem:file'].max_seconds == 550
+
+
+@pytest.mark.asyncio
+async def test_web_search_provider_settings_support_dual_keys(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config.settings, 'app_data_dir', tmp_path)
+    monkeypatch.setattr(routes_settings, '_list_available_models', lambda: [])
+
+    updated = await routes_settings.update_settings(
+        SettingsUpdateRequest(
+            tavily_api_key='  tvly-test  ',
+            linkup_api_key='  lk-test  ',
+            web_search_primary_provider='linkup',
+        ),
+    )
+
+    assert updated.tavily_api_key_set is True
+    assert updated.linkup_api_key_set is True
+    assert updated.web_search_configured is True
+    assert updated.web_search_primary_provider == 'linkup'
+    assert config.settings.tavily_api_key == 'tvly-test'
+    assert config.settings.linkup_api_key == 'lk-test'

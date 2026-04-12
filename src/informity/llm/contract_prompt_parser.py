@@ -49,6 +49,7 @@ def extract_required_headings(question: str) -> list[str]:
     # "headings in exact order: ## A, ## B, ## C."
     inline_list_anchors = (
         r'(?:headings?|sections?)\s+in\s+(?:this\s+)?exact\s+order\s*:\s*',
+        r'exactly\s+\d+\s+sections?\s*:\s*',
         r'(?:headings?|sections?)\s+exactly\s*:\s*',
         r'(?:with\s+)?exact\s+headings?\s*:\s*',
         r'with\s+headings?\s+exactly\s*:\s*',
@@ -103,3 +104,52 @@ def extract_required_headings(question: str) -> list[str]:
         headings.append(heading)
 
     return headings
+
+
+def extract_required_labels(question: str) -> list[str]:
+    """
+    Extract explicit label/column contracts from prompt prose.
+
+    Examples:
+    - "columns: Field, Value, Source Snippet"
+    - "format: Field | Value | Source Snippet"
+    """
+    text = str(question or '')
+    labels: list[str] = []
+    seen: set[str] = set()
+
+    anchor_patterns = (
+        r'\bcolumns?\s*:\s*',
+        r'\bformat\s*:\s*',
+    )
+    for anchor in anchor_patterns:
+        for match in re.finditer(anchor, text, flags=re.IGNORECASE):
+            tail = text[match.end():]
+            stop_match = re.search(
+                r'\b(?:Under|In\s+each|For\s+each|If|Keep|When|Where|Output|Return|Then)\b',
+                tail,
+                flags=re.IGNORECASE,
+            )
+            if stop_match is not None:
+                tail = tail[:stop_match.start()]
+            normalized_tail = re.sub(r'\s+', ' ', tail).strip().strip('.')
+            if not normalized_tail:
+                continue
+            # Support both comma-separated and pipe-separated format declarations.
+            if '|' in normalized_tail:
+                candidates = [part.strip().strip('`').strip() for part in normalized_tail.split('|')]
+            else:
+                candidates = [part.strip().strip('`').strip() for part in normalized_tail.split(',')]
+            for candidate in candidates:
+                if not candidate:
+                    continue
+                if len(candidate.split()) > 5:
+                    continue
+                if not re.search(r'[A-Za-z]', candidate):
+                    continue
+                key = candidate.casefold()
+                if key in seen:
+                    continue
+                seen.add(key)
+                labels.append(candidate)
+    return labels

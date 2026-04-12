@@ -6,22 +6,12 @@
 from __future__ import annotations
 
 WEB_SEARCH_STATUS_MESSAGES: dict[str, str] = {
-    'quota_exceeded': (
-        'Web search is unavailable: Tavily API quota exceeded. '
-        'Add credits or wait for your monthly reset.'
-    ),
-    'rate_limited': (
-        'Web search is temporarily unavailable: Tavily rate limit reached. '
-        'Please try again in a moment.'
-    ),
-    'auth_invalid': (
-        'Web search failed: invalid Tavily API key. '
-        'Update your key in Settings > Chat > Web Search.'
-    ),
-    'network_error': (
-        'Web search is temporarily unavailable due to a network issue. '
-        'Please try again.'
-    ),
+    'api_key_missing': 'Web search is temporarily unavailable. Please try again.',
+    'quota_exceeded': 'Web search is temporarily unavailable. Please try again.',
+    'rate_limited': 'Web search is temporarily unavailable. Please try again.',
+    'auth_invalid': 'Web search is temporarily unavailable. Please try again.',
+    'privacy_blocked': 'Web search is temporarily unavailable. Please try again.',
+    'network_error': 'Web search is temporarily unavailable. Please try again.',
     'provider_error': 'Web search is temporarily unavailable. Please try again.',
 }
 

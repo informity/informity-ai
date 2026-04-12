@@ -32,7 +32,7 @@ interface GetCurrentChatResponse {
 interface ChatSettingsResponse {
   default_chat_mode?: ChatMode
   full_privacy?: boolean
-  tavily_api_key_set?: boolean
+  web_search_configured?: boolean
 }
 
 interface SettingsUpdatedEvent extends Event {
@@ -72,7 +72,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   const [chatMode, setChatMode] = useState<ChatMode>('researcher')
   const [defaultChatMode, setDefaultChatMode] = useState<ChatMode>('researcher')
   const [fullPrivacyMode, setFullPrivacyMode] = useState(true)
-  const [tavilyApiKeySet, setTavilyApiKeySet] = useState(false)
+  const [webSearchConfigured, setWebSearchConfigured] = useState(false)
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [animateToDocked, setAnimateToDocked] = useState(false)
@@ -121,7 +121,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
         const settings = (data as ChatSettingsResponse | null | undefined)
         const mode = settings?.default_chat_mode
         setFullPrivacyMode(!!settings?.full_privacy)
-        setTavilyApiKeySet(!!settings?.tavily_api_key_set)
+        setWebSearchConfigured(!!settings?.web_search_configured)
         if (isChatMode(mode)) {
           setDefaultChatMode(mode)
         }
@@ -147,8 +147,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
       if (typeof detail.full_privacy === 'boolean') {
         setFullPrivacyMode(detail.full_privacy)
       }
-      if (typeof detail.tavily_api_key_set === 'boolean') {
-        setTavilyApiKeySet(detail.tavily_api_key_set)
+      if (typeof detail.web_search_configured === 'boolean') {
+        setWebSearchConfigured(detail.web_search_configured)
       }
       if (isChatMode(detail.default_chat_mode)) {
         setDefaultChatMode(detail.default_chat_mode)
@@ -570,7 +570,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                   />
                   <div className="chat-view__controls-row">
                     <div className="chat-view__controls-left">
-                      {chatMode === 'assistant' && tavilyApiKeySet && (
+                      {chatMode === 'assistant' && webSearchConfigured && (
                         <button
                           type="button"
                           className={`chat-view__web-search-toggle${chatWebSearchEnabled ? ' chat-view__web-search-toggle--active' : ''}`}

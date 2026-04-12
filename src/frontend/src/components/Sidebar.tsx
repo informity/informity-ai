@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
-import { getScanStatus } from '../api'
+import { getScanStatus, listFileReindexOperations } from '../api'
 import { useChatContext } from '../context/useChatContext'
 import './Sidebar.css'
 
@@ -24,29 +24,35 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
     isStreaming,
   } = useChatContext()
   const [isScanRunning, setIsScanRunning] = useState(false)
+  const [isFileReindexRunning, setIsFileReindexRunning] = useState(false)
 
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout> | null = null
     let cancelled = false
 
-    const pollScanStatus = async () => {
+    const pollStatuses = async () => {
       try {
-        const status = (await getScanStatus()) as { status?: string }
+        const [scanStatus, fileReindexStatus] = await Promise.all([
+          getScanStatus() as Promise<{ status?: string }>,
+          listFileReindexOperations('running'),
+        ])
         if (!cancelled) {
-          setIsScanRunning(status?.status === "running")
+          setIsScanRunning(scanStatus?.status === 'running')
+          setIsFileReindexRunning((fileReindexStatus?.running_count ?? 0) > 0)
         }
       } catch {
         if (!cancelled) {
           setIsScanRunning(false)
+          setIsFileReindexRunning(false)
         }
       } finally {
         if (!cancelled) {
-          timeoutId = setTimeout(pollScanStatus, SCAN_STATUS_POLL_MS)
+          timeoutId = setTimeout(pollStatuses, SCAN_STATUS_POLL_MS)
         }
       }
     }
 
-    pollScanStatus()
+    pollStatuses()
 
     return () => {
       cancelled = true
@@ -99,12 +105,14 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             {!collapsed && (
               <span className="sidebar__label">
                 <span>{label}</span>
-                {(path === '/chat' && isStreaming) || (path === '/dashboard' && isScanRunning) ? (
+                {(path === '/chat' && isStreaming)
+                  || (path === '/dashboard' && isScanRunning)
+                  || (path === '/files' && isFileReindexRunning) ? (
                   <span className="sidebar__status-slot">
                     <span
                       className="sidebar__status"
                       aria-live="polite"
-                      aria-label={path === '/chat' ? 'Generating' : 'Scanning'}
+                      aria-label={path === '/chat' ? 'Generating' : path === '/dashboard' ? 'Scanning' : 'Indexing'}
                     >
                       <i className="ri-loader-4-line sidebar__status-spinner" aria-hidden />
                     </span>

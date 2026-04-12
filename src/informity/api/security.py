@@ -19,6 +19,7 @@ _TAURI_DEV_ORIGINS: tuple[str, ...] = (
     'http://localhost:5173',
 )
 _TAURI_ORIGIN = 'tauri://localhost'
+_LOOPBACK_HOSTS = {'127.0.0.1', '::1', 'localhost'}
 
 
 def get_tauri_session_token_from_env(env: Mapping[str, str] | None = None) -> str | None:
@@ -26,6 +27,10 @@ def get_tauri_session_token_from_env(env: Mapping[str, str] | None = None) -> st
     values = env if env is not None else os.environ
     token = (values.get('INFORMITY_TAURI_SESSION_TOKEN') or '').strip()
     return token or None
+
+
+def is_loopback_host(host: str | None) -> bool:
+    return bool(host and str(host).strip().lower() in _LOOPBACK_HOSTS)
 
 
 def is_tauri_desktop_mode(session_token: str | None) -> bool:

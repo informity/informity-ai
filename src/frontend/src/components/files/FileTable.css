@@ -84,6 +84,16 @@
   color: var(--color-danger-solid);
 }
 
+.file-table__spinner {
+  animation: file-table-spin 1s linear infinite;
+}
+
+@keyframes file-table-spin {
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
 .file-table__pagination {
   flex-shrink: 0;
   display: flex;

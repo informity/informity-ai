@@ -6,6 +6,7 @@ from informity.api.security import (
     EndpointGuard,
     get_cors_allow_origins,
     get_tauri_session_token_from_env,
+    is_loopback_host,
     is_tauri_desktop_mode,
     is_tauri_session_authorized,
 )
@@ -77,3 +78,11 @@ def test_get_cors_allow_origins_standard_mode() -> None:
     assert 'http://127.0.0.1:5173' in origins
     assert 'http://localhost:5173' in origins
     assert 'tauri://localhost' in origins
+
+
+def test_is_loopback_host() -> None:
+    assert is_loopback_host('127.0.0.1') is True
+    assert is_loopback_host('localhost') is True
+    assert is_loopback_host('::1') is True
+    assert is_loopback_host('0.0.0.0') is False
+    assert is_loopback_host('192.168.1.10') is False
