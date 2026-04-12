@@ -140,74 +140,74 @@ After models are in place, the app runs fully offline with no internet required.
 ## Project Structure
 
 ```
-src/frontend/                 # React + Vite UI (build output: dist/)
+src/frontend/                       # React + Vite UI (build output: dist/)
 src/informity/
-├── main.py                   # FastAPI app entry point, lifespan, health
-├── config.py                 # Settings via pydantic-settings (config.json + env)
+├── main.py                         # FastAPI app entry point, lifespan, health
+├── config.py                       # Settings via pydantic-settings (config.json + env)
 ├── db/
-│   ├── models.py             # Pydantic models (IndexedFile, Chunk, ScanRecord, ChatMessage, etc.)
-│   ├── sqlite.py             # SQLite connection, schema, queries (aiosqlite)
-│   └── vectors.py            # SQLite vector storage via sqlite-vec (ChunkEmbedding, VectorStore)
+│   ├── models.py                   # Pydantic models (IndexedFile, Chunk, ScanRecord, ChatMessage, etc.)
+│   ├── sqlite.py                   # SQLite connection, schema, queries (aiosqlite)
+│   └── vectors.py                  # SQLite vector storage via sqlite-vec (ChunkEmbedding, VectorStore)
 ├── scanner/
-│   ├── crawler.py            # Filesystem traversal, SHA-256 hashes, compare_with_db
-│   ├── watcher.py            # watchdog file change monitoring
-│   └── extractors/           # Unified docling extractor (PDF, DOCX, PPTX, XLSX, HTML, CSV) + text extractor
+│   ├── crawler.py                  # Filesystem traversal, SHA-256 hashes, compare_with_db
+│   ├── watcher.py                  # watchdog file change monitoring
+│   └── extractors/                 # Unified docling extractor (PDF, DOCX, PPTX, XLSX, HTML, CSV) + text extractor
 ├── indexer/
-│   ├── chunker.py            # Parent-child chunking (child ~150 tokens, parent ~512 tokens)
-│   ├── embedder.py           # Embedding generation (nomic-embed-text-v1.5)
-│   ├── classifier.py         # Auto-tagging, categorization, year extraction
-│   ├── post_process.py       # Hyphenation repair (index-time only)
-│   ├── reranker.py           # Cross-encoder re-ranking (mandatory for all queries)
-│   ├── adaptive_tuning.py    # Corpus-aware top-k tuning cache
+│   ├── chunker.py                  # Parent-child chunking (child ~150 tokens, parent ~512 tokens)
+│   ├── embedder.py                 # Embedding generation (nomic-embed-text-v1.5)
+│   ├── classifier.py               # Auto-tagging, categorization, year extraction
+│   ├── post_process.py             # Hyphenation repair (index-time only)
+│   ├── reranker.py                 # Cross-encoder re-ranking (mandatory for all queries)
+│   ├── adaptive_tuning.py          # Corpus-aware top-k tuning cache
 │   ├── term_dictionary_builder.py  # Builds term/acronym dictionary from indexed corpus
-│   └── pipeline.py           # index_file, reindex_file, remove_file — orchestration
+│   └── pipeline.py                 # index_file, reindex_file, remove_file — orchestration
 ├── llm/
-│   ├── engine.py             # LLM inference (xllamacpp, Metal)
-│   ├── model_adapter.py      # Per-model profiles (Qwen3 14B, Qwen3.5 9B, Qwen3.5 35B A3B)
-│   ├── rag.py                # QueryRouter — dispatches to handlers based on intent
-│   ├── query_classifier.py   # Deterministic slot extraction + NLP/promptcue intent routing
-│   ├── retrieval.py          # Unified retrieval pipeline (vector search → rerank)
-│   ├── term_dictionary.py    # Runtime query expansion via corpus term dictionary
-│   ├── intent_router.py      # Promptcue-backed intent classification router
-│   ├── classification_policy.py  # Intent routing policy and normalization
-│   ├── intent_profiles.py    # IntentProfile definitions and FitToBudgetPolicy defaults
-│   ├── fit_to_budget_tuning.py  # Adaptive context-window budget policies
-│   ├── promptcue_adapter.py  # Adapter for promptcue intent classification
-│   ├── chat_mode.py          # Assistant vs Researcher mode routing policy
-│   ├── contract_gate.py      # Final closeout contract validation/repair
-│   ├── contract_prompt_parser.py  # Parses required output section cues from user prompts
-│   ├── metrics_payload.py    # Normalized diagnostics metrics payload helpers
-│   ├── nlp_heuristics.py     # Minimal deterministic lexical cues
-│   ├── prompt_builder.py     # Prompt construction and budget management
-│   ├── streaming.py          # LLM stream wrapper
-│   ├── metadata_filters.py   # Unified metadata filter extraction (year, category, extension)
-│   ├── system_prompts.py     # Centralized system prompt templates
-│   ├── timeout_policy.py     # Request timeout policy mapping by mode/intent
-│   ├── user_messages.py      # Centralized user-facing message strings
-│   ├── web_search.py         # Tavily-backed web search adapter and status handling
-│   ├── rag_runtime/          # RAG execution sub-pipeline (retrieval + generation phases)
-│   └── handlers/             # Query handlers (metadata, rag, simple)
+│   ├── engine.py                   # LLM inference (xllamacpp, Metal)
+│   ├── model_adapter.py            # Per-model profiles (Qwen3 14B, Qwen3.5 9B, Qwen3.5 35B A3B)
+│   ├── rag.py                      # QueryRouter — dispatches to handlers based on intent
+│   ├── query_classifier.py         # Deterministic slot extraction + NLP/promptcue intent routing
+│   ├── retrieval.py                # Unified retrieval pipeline (vector search → rerank)
+│   ├── term_dictionary.py          # Runtime query expansion via corpus term dictionary
+│   ├── intent_router.py            # Promptcue-backed intent classification router
+│   ├── classification_policy.py    # Intent routing policy and normalization
+│   ├── intent_profiles.py          # IntentProfile definitions and FitToBudgetPolicy defaults
+│   ├── fit_to_budget_tuning.py     # Adaptive context-window budget policies
+│   ├── promptcue_adapter.py        # Adapter for promptcue intent classification
+│   ├── chat_mode.py                # Assistant vs Researcher mode routing policy
+│   ├── contract_gate.py            # Final closeout contract validation/repair
+│   ├── contract_prompt_parser.py   # Parses required output section cues from user prompts
+│   ├── metrics_payload.py          # Normalized diagnostics metrics payload helpers
+│   ├── nlp_heuristics.py           # Minimal deterministic lexical cues
+│   ├── prompt_builder.py           # Prompt construction and budget management
+│   ├── streaming.py                # LLM stream wrapper
+│   ├── metadata_filters.py         # Unified metadata filter extraction (year, category, extension)
+│   ├── system_prompts.py           # Centralized system prompt templates
+│   ├── timeout_policy.py           # Request timeout policy mapping by mode/intent
+│   ├── user_messages.py            # Centralized user-facing message strings
+│   ├── web_search.py               # Tavily-backed web search adapter and status handling
+│   ├── rag_runtime/                # RAG execution sub-pipeline (retrieval + generation phases)
+│   └── handlers/                   # Query handlers (metadata, rag, simple)
 └── api/
-    ├── schemas.py            # Request/response Pydantic models
-    ├── operation_state.py    # Long-running operation flags (scan, reset)
-    ├── setup_state.py        # First-run setup state management
-    ├── chat_orchestrator.py  # Chat request orchestration entry point
-    ├── chat_continuation.py  # Continuation/duplicate detection helpers
-    ├── chat_sse.py           # SSE event formatting for chat streams
-    ├── chat_closeout.py      # Post-generation chat record finalization
-    ├── chat_stream_registry.py  # Active stream registry (cancel support)
-    ├── routes_scan.py        # POST /api/scan, GET /api/scan/status, GET /api/files
-    ├── routes_index.py       # POST /api/index/rebuild, GET /api/index/status, POST /api/index/reset
-    │                         # GET|POST /api/index/term-dictionary/status|rebuild|purge
-    ├── routes_search.py      # POST /api/search
-    ├── routes_chat.py        # POST /api/chat (SSE), GET/PUT/DELETE conversations
-    ├── routes_settings.py    # GET/PUT /api/settings, POST /api/settings/reset, env-vars, file-types
-    ├── routes_system.py      # GET /api/diagnostics, GET /api/diagnostics/summary, POST /api/shutdown
-    └── env_vars_metadata.py  # INFORMITY_* env var groups for Configuration page
-src/informity/diagnostics/    # Diagnostics package
-├── issue_types.py            # IssueType enum
-├── observer.py               # EvalMetrics dataclass, detect_issues(), populate_signals()
-└── resource_snapshot.py      # System resource snapshot at trace time
+    ├── schemas.py                  # Request/response Pydantic models
+    ├── operation_state.py          # Long-running operation flags (scan, reset)
+    ├── setup_state.py              # First-run setup state management
+    ├── chat_orchestrator.py        # Chat request orchestration entry point
+    ├── chat_continuation.py        # Continuation/duplicate detection helpers
+    ├── chat_sse.py                 # SSE event formatting for chat streams
+    ├── chat_closeout.py            # Post-generation chat record finalization
+    ├── chat_stream_registry.py     # Active stream registry (cancel support)
+    ├── routes_scan.py              # POST /api/scan, GET /api/scan/status, GET /api/files
+    ├── routes_index.py             # POST /api/index/rebuild, GET /api/index/status, POST /api/index/reset
+    │                               # GET|POST /api/index/term-dictionary/status|rebuild|purge
+    ├── routes_search.py            # POST /api/search
+    ├── routes_chat.py              # POST /api/chat (SSE), GET/PUT/DELETE conversations
+    ├── routes_settings.py          # GET/PUT /api/settings, POST /api/settings/reset, env-vars, file-types
+    ├── routes_system.py            # GET /api/diagnostics, GET /api/diagnostics/summary, POST /api/shutdown
+    └── env_vars_metadata.py        # INFORMITY_* env var groups for Configuration page
+src/informity/diagnostics/          # Diagnostics package
+├── issue_types.py                  # IssueType enum
+├── observer.py                     # EvalMetrics dataclass, detect_issues(), populate_signals()
+└── resource_snapshot.py            # System resource snapshot at trace time
 ```
 
 ## Release Scripts
