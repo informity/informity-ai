@@ -852,7 +852,7 @@ export function SettingsView({
               Tavily API key
               <span className="settings-checkbox-row-info ui-tooltip-trigger">
                 <i className="ri-information-line" aria-hidden="true" />
-                <span className="settings-tooltip ui-tooltip">
+                <span className="settings-tooltip ui-tooltip ui-tooltip--up-right">
                   1000 free queries per month. Pricing subject to change.
                 </span>
               </span>
@@ -905,7 +905,7 @@ export function SettingsView({
               Linkup API key
               <span className="settings-checkbox-row-info ui-tooltip-trigger">
                 <i className="ri-information-line" aria-hidden="true" />
-                <span className="settings-tooltip ui-tooltip">
+                <span className="settings-tooltip ui-tooltip ui-tooltip--up-right">
                   1000 standard or 100 deep free queries per month. Pricing subject to change.
                 </span>
               </span>

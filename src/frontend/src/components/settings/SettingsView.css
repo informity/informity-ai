@@ -428,6 +428,18 @@
   color: var(--color-text);
 }
 
+.settings-tooltip {
+  left: 0;
+  right: auto;
+  transform: none;
+}
+
+.settings-tooltip::after {
+  left: 0.5rem;
+  right: auto;
+  transform: none;
+}
+
 /* -----------------------------------------------------------------------------
    Inputs
    ----------------------------------------------------------------------------- */
