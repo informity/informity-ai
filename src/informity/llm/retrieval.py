@@ -35,6 +35,20 @@ def _coerce_reranker_score(value: object) -> float | None:
     return None
 
 
+def _resolve_within_file_location_key(chunk: dict) -> str:
+    section_path = str(chunk.get('section_path') or '').strip().casefold()
+    if section_path:
+        return f'section:{section_path}'
+    start_page = chunk.get('start_page')
+    end_page = chunk.get('end_page')
+    if isinstance(start_page, int) and isinstance(end_page, int):
+        return f'pages:{start_page}-{end_page}'
+    page_number = chunk.get('page_number')
+    if isinstance(page_number, int):
+        return f'page:{page_number}'
+    return f"chunk:{chunk.get('chunk_id')}"
+
+
 def _select_top_children(
     *,
     reranked_children: list[dict],
@@ -49,8 +63,14 @@ def _select_top_children(
     selected: list[dict] = []
     seen_chunk_ids: set[int] = set()
     file_counts: dict[int, int] = {}
+    seen_file_locations: set[tuple[int, str]] = set()
 
-    def _try_add(chunk: dict, *, per_file_cap: int | None) -> None:
+    def _try_add(
+        chunk: dict,
+        *,
+        per_file_cap: int | None,
+        enforce_within_file_diversity: bool,
+    ) -> None:
         if len(selected) >= top_k:
             return
         try:
@@ -74,19 +94,31 @@ def _select_top_children(
             and file_counts.get(file_id, 0) >= per_file_cap
         ):
             return
+        if enforce_within_file_diversity and file_id is not None:
+            location_key = _resolve_within_file_location_key(chunk)
+            file_location = (file_id, location_key)
+            if file_location in seen_file_locations:
+                return
 
         selected.append(chunk)
         seen_chunk_ids.add(chunk_id)
         if file_id is not None:
             file_counts[file_id] = file_counts.get(file_id, 0) + 1
+            if enforce_within_file_diversity:
+                seen_file_locations.add((file_id, _resolve_within_file_location_key(chunk)))
 
-    for per_file_cap in (
-        _COVERAGE_DIVERSITY_PRIMARY_FILE_CAP,
-        _COVERAGE_DIVERSITY_SECONDARY_FILE_CAP,
-        None,
+    for per_file_cap, enforce_within_file_diversity in (
+        (_COVERAGE_DIVERSITY_PRIMARY_FILE_CAP, True),
+        (_COVERAGE_DIVERSITY_SECONDARY_FILE_CAP, True),
+        (_COVERAGE_DIVERSITY_SECONDARY_FILE_CAP, False),
+        (None, False),
     ):
         for chunk in reranked_children:
-            _try_add(chunk, per_file_cap=per_file_cap)
+            _try_add(
+                chunk,
+                per_file_cap=per_file_cap,
+                enforce_within_file_diversity=enforce_within_file_diversity,
+            )
             if len(selected) >= top_k:
                 break
         if len(selected) >= top_k:
@@ -105,6 +137,7 @@ async def retrieve_chunks(
     filename_filter: str | None = None,
     filename_exclude: list[str] | None = None,
     block_type_filter: str | None = None,
+    block_type_exclude: list[str] | None = None,
     section_filter: str | None = None,
     query_type: QueryType = QueryType.FOCUSED,
     db: aiosqlite.Connection | None = None,
@@ -172,9 +205,39 @@ async def retrieve_chunks(
                     value=normalized_excluded_name,
                 )
             )
+    safe_block_type_filter = (
+        block_type_filter
+        if block_type_filter in {BlockType.TABLE, BlockType.FORM, BlockType.NARRATIVE}
+        else None
+    )
+    if safe_block_type_filter:
+        filters.append(
+            MetadataFilter(
+                field='block_type',
+                operator=FilterOperator.EQ,
+                value=safe_block_type_filter,
+            )
+        )
+    safe_block_type_exclude = [
+        block_type
+        for block_type in (block_type_exclude or [])
+        if block_type in {BlockType.TABLE, BlockType.FORM, BlockType.NARRATIVE}
+    ]
+    for excluded_block_type in safe_block_type_exclude:
+        filters.append(
+            MetadataFilter(
+                field='block_type',
+                operator=FilterOperator.NE,
+                value=excluded_block_type,
+            )
+        )
 
     active_filters = list(filters)
-    where_clause, where_params = build_where_clause_and_params(active_filters)
+    # Vector search operates on vec_chunks columns only. Structural chunk-level
+    # filters (for example block_type) are enforced after fetching chunks from
+    # the chunks table, where those fields are authoritative.
+    vector_filters = [f for f in active_filters if f.field != 'block_type']
+    where_clause, where_params = build_where_clause_and_params(vector_filters)
     applied_filters_for_trace = [
         {
             'field': metadata_filter.field,
@@ -183,11 +246,6 @@ async def retrieve_chunks(
         }
         for metadata_filter in active_filters
     ]
-    safe_block_type_filter = (
-        block_type_filter
-        if block_type_filter in {BlockType.TABLE, BlockType.FORM, BlockType.NARRATIVE}
-        else None
-    )
     safe_section_filter = section_filter.strip().casefold() if isinstance(section_filter, str) and section_filter.strip() else None
 
     fts5_augmented_count: int = 0  # Net-new candidates added by FTS5 augmentation (focused only)
@@ -275,6 +333,7 @@ async def retrieve_chunks(
                 'filename_filter':     filename_filter,
                 'filename_exclude':    list(filename_exclude or []),
                 'block_type_filter':   safe_block_type_filter,
+                'block_type_exclude':  list(safe_block_type_exclude),
                 'section_filter':      safe_section_filter,
                 'max_score':           max_score,
             })
@@ -358,6 +417,12 @@ async def retrieve_chunks(
         block_filtered = [chunk for chunk in filtered_child_chunks if chunk.get('block_type') == safe_block_type_filter]
         if block_filtered:
             filtered_child_chunks = block_filtered
+    if safe_block_type_exclude:
+        filtered_child_chunks = [
+            chunk
+            for chunk in filtered_child_chunks
+            if chunk.get('block_type') not in safe_block_type_exclude
+        ]
     if safe_section_filter is not None:
         section_filtered = [
             chunk
@@ -476,10 +541,11 @@ async def retrieve_chunks(
             'filename_filter':     filename_filter,
             'filename_exclude':    list(filename_exclude or []),
             'block_type_filter':   safe_block_type_filter,
+            'block_type_exclude':  list(safe_block_type_exclude),
             'section_filter':      safe_section_filter,
             'max_score':           max_score,
             'children_reranked':   len(reranked_children),
-            'children_after_structural_filter': len(filtered_child_chunks),
+        'children_after_structural_filter': len(filtered_child_chunks),
             'parents_fetched':     len(parent_chunks),
             'fts5_augmented_count': fts5_augmented_count,
         }

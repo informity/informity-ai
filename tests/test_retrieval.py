@@ -253,6 +253,36 @@ async def test_retrieve_chunks_applies_block_type_filter(mock_db):
 
 
 @pytest.mark.asyncio
+async def test_retrieve_chunks_applies_block_type_exclude_filters(mock_db):
+    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
+         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch('informity.llm.retrieval.build_where_clause_and_params') as mock_build_where:
+        mock_embedder.embed_query.return_value = [0.1] * 768
+        mock_vector_store.search_similar.return_value = [
+            {'chunk_id': 1, 'chunk_text': 'chunk 1', 'score': 0.2},
+            {'chunk_id': 2, 'chunk_text': 'chunk 2', 'score': 0.1},
+        ]
+        mock_vector_store.fts5_augment_candidates.return_value = []
+        mock_reranker.rerank.side_effect = lambda _q, chunks: chunks
+        mock_build_where.return_value = (None, [])
+
+        await retrieve_chunks(
+            'summarize the corpus',
+            top_k=5,
+            block_type_exclude=['table', 'form'],
+            db=mock_db,
+        )
+
+        sql_filters = mock_build_where.call_args_list[0][0][0]
+        assert all(filter_item.field != 'block_type' for filter_item in sql_filters)
+
+        rerank_chunks = mock_reranker.rerank.call_args[0][1]
+        assert len(rerank_chunks) == 1
+        assert rerank_chunks[0]['block_type'] == 'narrative'
+
+
+@pytest.mark.asyncio
 async def test_retrieve_chunks_applies_section_filter(mock_db):
     with patch('informity.llm.retrieval.embedder') as mock_embedder, \
          patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
@@ -270,6 +300,63 @@ async def test_retrieve_chunks_applies_section_filter(mock_db):
         rerank_chunks = mock_reranker.rerank.call_args[0][1]
         assert len(rerank_chunks) == 1
         assert rerank_chunks[0]['section_path'] == 'Conclusion'
+
+
+@pytest.mark.asyncio
+async def test_retrieve_chunks_coverage_prefers_within_file_section_spread(mock_db):
+    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
+         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch('informity.llm.retrieval.get_chunks_by_parent_ids', new_callable=AsyncMock) as mock_get_parents:
+        mock_embedder.embed_query.return_value = [0.1] * 768
+        mock_vector_store.search_similar.return_value = [
+            {'chunk_id': 1, 'file_id': 10, 'score': 0.99},
+            {'chunk_id': 2, 'file_id': 10, 'score': 0.98},
+            {'chunk_id': 3, 'file_id': 10, 'score': 0.97},
+        ]
+        mock_vector_store.fts5_augment_candidates.return_value = []
+        mock_reranker.rerank.return_value = [
+            {'chunk_id': 1, 'file_id': 10, 'score': 0.99, 'section_path': 'Chapter 1'},
+            {'chunk_id': 2, 'file_id': 10, 'score': 0.98, 'section_path': 'Chapter 1'},
+            {'chunk_id': 3, 'file_id': 10, 'score': 0.97, 'section_path': 'Chapter 2'},
+        ]
+
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[
+            {
+                'chunk_id': 1, 'file_id': 10, 'file_path': '/f10', 'filename': 'f10.txt',
+                'chunk_text': 'chunk 1', 'page_number': 1, 'start_page': 1, 'end_page': 1,
+                'section_path': 'Chapter 1', 'block_type': 'narrative', 'parent_id': 101,
+            },
+            {
+                'chunk_id': 2, 'file_id': 10, 'file_path': '/f10', 'filename': 'f10.txt',
+                'chunk_text': 'chunk 2', 'page_number': 2, 'start_page': 2, 'end_page': 2,
+                'section_path': 'Chapter 1', 'block_type': 'narrative', 'parent_id': 102,
+            },
+            {
+                'chunk_id': 3, 'file_id': 10, 'file_path': '/f10', 'filename': 'f10.txt',
+                'chunk_text': 'chunk 3', 'page_number': 3, 'start_page': 3, 'end_page': 3,
+                'section_path': 'Chapter 2', 'block_type': 'narrative', 'parent_id': 103,
+            },
+        ])
+        mock_db.execute = AsyncMock(return_value=mock_cursor)
+        mock_get_parents.return_value = [
+            {'chunk_id': 101, 'file_id': 10, 'file_path': '/f10', 'filename': 'f10.txt', 'chunk_text': 'p1', 'section_path': 'Chapter 1'},
+            {'chunk_id': 102, 'file_id': 10, 'file_path': '/f10', 'filename': 'f10.txt', 'chunk_text': 'p2', 'section_path': 'Chapter 1'},
+            {'chunk_id': 103, 'file_id': 10, 'file_path': '/f10', 'filename': 'f10.txt', 'chunk_text': 'p3', 'section_path': 'Chapter 2'},
+        ]
+
+        results = await retrieve_chunks(
+            'summarize this long document',
+            top_k=2,
+            query_type='coverage',
+            db=mock_db,
+        )
+
+    assert len(results) == 2
+    sections = [str(item.get('section_path') or '') for item in results]
+    assert 'Chapter 1' in sections
+    assert 'Chapter 2' in sections
 
 
 @pytest.mark.asyncio
