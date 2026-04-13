@@ -408,7 +408,8 @@ async def retrieve_chunks(
 
         chunk_id_to_dict[row['chunk_id']] = chunk_dict
 
-    # Preserve order from vector search results
+    # Preserve order from vector search results; retain vector scores for rerank-bypass path
+    vector_score_map: dict[int, float] = {r['chunk_id']: float(r['score']) for r in results if 'score' in r}
     child_chunks: list[dict] = [chunk_id_to_dict[cid] for cid in child_chunk_ids if cid in chunk_id_to_dict]
 
     # Apply structure-aware filters on fetched chunks (same unified retrieval path).
@@ -432,7 +433,7 @@ async def retrieve_chunks(
         if section_filtered:
             filtered_child_chunks = section_filtered
 
-    # 5. Rerank child chunks (mandatory for all queries)
+    # 5. Rerank child chunks (controlled by rag_rerank / rag_rerank_coverage settings)
     # CPU-bound cross-encoder, run in thread pool to avoid blocking event loop
     # NOTE(2.1): We intentionally do NOT mutate reranker scores after this point.
     # Historical behavior (removed): add +0.15 for block_type match and +0.10 for
@@ -440,9 +441,18 @@ async def retrieve_chunks(
     # Rationale: keep ranking semantics model-consistent and avoid heuristic
     # post-processing bandaids. To re-evaluate, restore the old boost block right
     # below reranker.rerank(...) and compare structure-constrained query quality.
-    rerank_start = time.perf_counter()
-    reranked_children = await asyncio.to_thread(reranker.rerank, query, filtered_child_chunks)
+    is_coverage_query  = query_type == QueryType.COVERAGE
+    rerank_enabled     = settings.rag_rerank and (not is_coverage_query or settings.rag_rerank_coverage)
+    rerank_start       = time.perf_counter()
     pre_rerank_top_ids = [chunk.get('chunk_id') for chunk in filtered_child_chunks[:top_k]]
+    if rerank_enabled:
+        reranked_children = await asyncio.to_thread(reranker.rerank, query, filtered_child_chunks)
+    else:
+        # Annotate chunks with vector-search scores so downstream consumers always have a score field
+        reranked_children = [
+            {**chunk, 'score': vector_score_map.get(chunk['chunk_id'], 0.0)}
+            for chunk in filtered_child_chunks
+        ]
     rerank_elapsed_ms = (time.perf_counter() - rerank_start) * 1000
     top_children = _select_top_children(
         reranked_children=reranked_children,
@@ -551,7 +561,7 @@ async def retrieve_chunks(
         }
         trace.record('retrieval', trace_data)
         trace.record('rerank', {
-            'applied':     True,
+            'applied':     rerank_enabled,
             'input':       len(child_chunks),
             'output':      len(reranked_children),
             'children_returned': len(top_children),
