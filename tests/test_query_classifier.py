@@ -489,6 +489,23 @@ def test_comparative_year_query_routes_to_metadata() -> None:
     result = classify_query('Which year has the fewest files?')
     assert result.intent == 'metadata'
     assert result.subtype == 'comparative'
+    assert result.route_candidate == 'metadata_inventory'
+    assert any(
+        code in result.reason_codes
+        for code in (
+            'deterministic_comparative_metadata_group_detected',
+            'deterministic_inventory_metadata_promoted',
+        )
+    )
+
+
+def test_comparative_category_query_routes_to_metadata() -> None:
+    result = classify_query('Which category has the most documents?')
+    assert result.intent == 'metadata'
+    assert result.subtype == 'comparative'
+    assert result.route_candidate == 'metadata_inventory'
+    assert result.group_by == 'category'
+    assert 'deterministic_comparative_metadata_group_detected' in result.reason_codes
 
 
 def test_comparative_file_mentions_routes_to_focused_comparative_path() -> None:
@@ -514,3 +531,17 @@ def test_describe_the_files_i_have_routes_to_metadata_via_inventory_capability()
     result = classify_query('Describe the files I have')
     assert result.intent == 'metadata'
     assert result.route_candidate == 'metadata_inventory'
+
+
+@pytest.mark.parametrize(
+    ('query', 'expected_intent', 'expected_route'),
+    [
+        ('Summarize the key findings from 2022 records only.', 'coverage', 'cross_document_synthesis'),
+        ('Which year has the fewest files?', 'metadata', 'metadata_inventory'),
+        ('Which file has the most mentions of escrow?', 'focused', 'comparative_analysis'),
+    ],
+)
+def test_phase_regression_matrix_queries(query: str, expected_intent: str, expected_route: str) -> None:
+    result = classify_query(query)
+    assert result.intent == expected_intent
+    assert result.route_candidate == expected_route

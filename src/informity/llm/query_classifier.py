@@ -542,6 +542,10 @@ def classify_query(query: str) -> QueryClassification:
         subtype = QuerySubtype.COMPARATIVE
         if comparative_group_by in {GroupBy.YEAR, GroupBy.CATEGORY} and intent != IntentLabel.METADATA:
             intent = IntentLabel.METADATA
+            route_candidate, response_shape = _resolve_base_route(
+                intent=intent,
+                has_structured_schema=signals.has_structured_schema,
+            )
             reason_codes.append('deterministic_comparative_metadata_group_detected')
         elif intent != IntentLabel.METADATA:
             route_candidate = IntentProfileId.COMPARATIVE_ANALYSIS

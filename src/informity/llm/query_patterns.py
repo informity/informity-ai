@@ -48,12 +48,6 @@ COUNT_PATTERN: str = (
     r')\b'
 )
 
-# Greeting patterns
-GREETING_PATTERN: str = r'\b(hello|hi|hey|greetings|thanks|thank\s+you|thank\s+you\s+very\s+much)\b'
-
-# Clarification patterns
-CLARIFICATION_PATTERN: str = r'\b(can\s+you\s+clarify|what\s+do\s+you\s+mean|what\s+does\s+that\s+mean|explain\s+that)\b'
-
 # Meta query patterns
 META_QUERY_PATTERN: str = r'\b(what\s+can\s+you\s+do|how\s+does\s+this\s+work|what\s+are\s+your\s+capabilities|help)\b'
 
@@ -106,25 +100,6 @@ AGGREGATION_KEYWORDS: str = (
     r'to\s+when'
     r')\b'
 )
-
-# Aggregation semantics for routing override in classification (Phase 1)
-AGGREGATION_SEMANTICS_KEYWORDS: str = (
-    r'\b(by[\s-]*year|per[\s-]*year|year[\s-]*by[\s-]*year|aggregate|aggregated|total\s+by|grouped\s+by)\b'
-)
-
-# Extraction/task verbs for document-derived outputs (generic, data-agnostic)
-EXTRACTION_TASK_VERBS: str = r'\b(create|produce|extract|calculate|sum|total|compare|compile|build)\b'
-
-# Grouping semantics
-GROUP_BY_YEAR_KEYWORDS: str = r'\b(by\s+year|per\s+year|group(?:ed)?\s+by\s+year)\b'
-GROUP_BY_CATEGORY_KEYWORDS: str = r'\b(by\s+category|per\s+category|group(?:ed)?\s+by\s+category)\b'
-GROUP_BY_FILE_KEYWORDS: str = r'\b(by\s+file|per\s+file|group(?:ed)?\s+by\s+file)\b'
-
-# Field extraction hints (generic): "Field 1", "Line 2a", "Row 10"
-STRUCTURED_FIELD_HINT_KEYWORDS: str = r'\b(box\s+\d+[a-z]?|line\s+\d+[a-z]?|field\s+\d+[a-z]?)\b'
-
-# Section hints for structured retrieval targeting
-SECTION_HINT_KEYWORDS: str = r'\b(section|part|schedule)\s+([a-z0-9][a-z0-9 _-]{0,30})\b'
 
 # Conflict-on-amount semantics (for structured financial contradiction extraction routing).
 CONFLICT_AMOUNT_KEYWORDS: str = (
@@ -233,7 +208,29 @@ CONTENT_ANALYSIS_KEYWORDS: str = (
     r'what does'
     r')\b'
 )
-PLURAL_CORPUS_SCOPE_KEYWORDS: str = r'\b(documents|files|records|data|content)\b'
+PLURAL_CORPUS_SCOPE_KEYWORDS: str = (
+    r'\b('
+    r'all\s+(?:indexed\s+)?(?:documents?|files?|records?)'
+    r'|'
+    r'across\s+(?:all\s+)?(?:indexed\s+)?(?:documents?|files?|records?)'
+    r'|'
+    r'(?:documents?|files?|records?)\s+across'
+    r'|'
+    r'from\s+each\s+(?:document|file|record|year)'
+    r'|'
+    r'multiple\s+(?:documents?|files?|records?)'
+    r'|'
+    r'(?:the|these|those)\s+(?:documents?|files?|records?)'
+    r'|'
+    r'indexed\s+(?:documents?|files?|records?)'
+    r'|'
+    r'(?:documents?|files?|records?)\s+only'
+    r'|'
+    r'entire\s+corpus'
+    r'|'
+    r'whole\s+corpus'
+    r')\b'
+)
 SINGLE_TARGET_KEYWORDS: str = (
     r'\b(?:any|one|single|this|that|the)\s+'
     r'(?:[a-z0-9][a-z0-9\s-]{0,40}\s+)?'
