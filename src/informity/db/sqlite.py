@@ -1035,59 +1035,6 @@ async def get_files(
     return files, total_count
 
 
-async def get_file_ids_matching_filters(
-    db: aiosqlite.Connection,
-    year_filter:      int | None = None,
-    category_filter:  str | None = None,
-    extension_filter: str | None = None,
-) -> list[int]:
-    """
-    Get file IDs matching metadata filters.
-
-    Used for file-anchored retrieval in coverage queries to ensure
-    all matching files are represented (one chunk per file).
-
-    Args:
-        db: Database connection
-        year_filter: Filter by year (exact match)
-        category_filter: Filter by category (exact match)
-        extension_filter: Filter by extension (exact match, should include dot prefix)
-
-    Returns:
-        List of file IDs matching the filters
-    """
-    conditions: list[str] = []
-    params:     list[int | str] = []
-
-    if year_filter is not None:
-        conditions.append('year = ?')
-        params.append(year_filter)
-
-    if category_filter is not None:
-        # Sanitize category filter (only alphanumeric, underscore, hyphen)
-        safe_category = ''.join(c for c in category_filter if c.isalnum() or c in '_-')
-        if safe_category:
-            conditions.append('category = ?')
-            params.append(safe_category)
-
-    if extension_filter is not None:
-        # Ensure extension has dot prefix
-        safe_extension = extension_filter if extension_filter.startswith('.') else f'.{extension_filter}'
-        conditions.append('extension = ?')
-        params.append(safe_extension)
-
-    where_clause = ''
-    if conditions:
-        where_clause = 'WHERE ' + ' AND '.join(conditions)
-
-    cursor = await db.execute(
-        f'SELECT id FROM files {where_clause}',
-        params,
-    )
-    rows = await cursor.fetchall()
-    return [row['id'] for row in rows]
-
-
 async def update_file(db: aiosqlite.Connection, file: IndexedFile) -> IndexedFile:
     # Update an existing file record by id.
     await db.execute(

@@ -329,7 +329,7 @@ _UPDATABLE_FIELDS: set[str] = {
     'cpu_priority_nice',
 }
 # NOTE: Profile-controlled fields removed from _UPDATABLE_FIELDS:
-#   llm_max_tokens, rag_coverage_top_k,
+#   llm_max_tokens, coverage_top_k,
 #   llm_context_length,
 #   llm_temperature, rag_top_k,
 #   rag_max_score, rag_context_ratio
