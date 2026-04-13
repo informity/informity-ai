@@ -88,7 +88,6 @@ def _ensure_dirs(app_data: Path) -> None:
 
     cache_root = _get_cache_dir()
     (app_data / DirNames.MODELS / DirNames.LLM).mkdir(parents=True, exist_ok=True)
-    (_get_repo_root() / DirNames.TOOLS / DirNames.DIAGNOSTICS / DirNames.DIAGNOSTICS_MODELS).mkdir(parents=True, exist_ok=True)
     (cache_root / DirNames.HUGGINGFACE / DirNames.HUB).mkdir(parents=True, exist_ok=True)
     (cache_root / DirNames.DOCLING).mkdir(parents=True, exist_ok=True)
     (app_data / DirNames.LOGS).mkdir(parents=True, exist_ok=True)

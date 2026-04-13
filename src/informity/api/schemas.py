@@ -290,7 +290,7 @@ class SettingsResponse(BaseModel):
 class SettingsUpdateRequest(BaseModel):
     # Partial update of application settings. Only include fields to change.
     # NOTE: Profile-controlled fields are NOT updatable — they are determined
-    # by the selected model's profile: llm_max_tokens, rag_coverage_top_k,
+    # by the selected model's profile: llm_max_tokens, coverage_top_k,
     # llm_context_length,
     # llm_temperature, rag_top_k.
     watched_directories:       list[str] | None = None

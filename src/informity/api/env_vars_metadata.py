@@ -150,7 +150,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('llm_max_tokens', 'Maximum tokens to generate per response.'),
             ('llm_model_filename', 'GGUF filename in models_dir.'),
             ('llm_temperature', 'Sampling temperature (0 = deterministic; higher = more varied).'),
-            # NOTE: rag_context_ratio, rag_max_score, rag_top_k, rag_coverage_top_k are model-specific (ModelProfile, not configurable via env)
+            # NOTE: rag_context_ratio, rag_max_score, rag_top_k, coverage_top_k are model-specific (ModelProfile, not configurable via env)
             ('adaptive_rag_tuning', 'When true, adapt retrieval top-k based on corpus size (file count, parent chunk count). Default true.'),
             ('rag_query_rewrite_enabled', 'Enable researcher follow-up retrieval query rewriting for referential questions.'),
             ('rag_query_rewrite_max_history_messages', 'Maximum recent history messages considered when building retrieval rewrite context.'),
@@ -167,7 +167,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'Application logging and debugging options.',
         [
             ('log_level', 'Application log level: debug, info, warning, error. Default info to reduce noise.'),
-            ('chat_trace_logging', 'When true, write a per-chat trace log (chat_{chat_id}.json) for each chat message. Used for troubleshooting and diagnostics analysis.'),
+            ('chat_trace_logging', 'When true, write a per-message trace log (chats/{chat_id}/{message_id}.json) for each chat message. Used for troubleshooting and diagnostics analysis.'),
         ],
     ),
     (

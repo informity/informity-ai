@@ -379,9 +379,10 @@ class Settings(BaseSettings):
     # When False, always use model profile base values. See .internal/features/adaptive-tuning.md.
     adaptive_rag_tuning:  bool  = True
     # When True, re-rank vector search candidates with a cross-encoder (query, chunk) before taking top_k.
+    # Disable to trade result quality for speed (skips 100–300ms cross-encoder pass).
     rag_rerank:          bool  = True
     # When True, also apply reranking to coverage queries (comprehensive lists/tables).
-    # Enabled: the 100-300ms cost is trivial vs total query time, and reranking
+    # Only evaluated when rag_rerank is True. Enabled by default: reranking
     # prevents irrelevant files from polluting coverage answers.
     rag_rerank_coverage: bool  = True
     # sentence-transformers model ID for the cross-encoder reranker (default: cross-encoder/ms-marco-MiniLM-L-6-v2).
@@ -520,7 +521,7 @@ class Settings(BaseSettings):
     # Application log level: debug, info, warning, error. Default info to reduce noise.
     # Third-party loggers (e.g. aiosqlite) are always set to WARNING in logging_config.
     log_level: str = _DEFAULT_LOG_LEVEL
-    # When True, write a per-chat trace log (chat_{chat_id}.json) for each
+    # When True, write a per-message trace log (chats/{chat_id}/{message_id}.json) for each
     # chat message. Used for troubleshooting and diagnostics analysis of relevance/accuracy.
     chat_trace_logging: bool = False
     # Trace payload redaction level:

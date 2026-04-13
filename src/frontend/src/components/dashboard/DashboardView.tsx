@@ -322,6 +322,13 @@ export function DashboardView() {
     } catch {
       // ignore storage errors
     }
+    return () => {
+      try {
+        sessionStorage.removeItem(MENU_SCAN_NOW_PENDING_KEY)
+      } catch {
+        // ignore storage errors
+      }
+    }
   }, [handleScanNow, isScanRunning, scanning, rebuilding, cancelling, offline])
 
   useEffect(() => {

@@ -110,10 +110,12 @@ async def test_retrieve_chunks_applies_filename_exclude_filters(mock_db):
 
 @pytest.mark.asyncio
 async def test_retrieve_chunks_calls_reranker(mock_db):
-    # Should call reranker after vector search
+    # Should call reranker after vector search when rag_rerank is enabled
+    from informity.config import settings as real_settings
     with patch('informity.llm.retrieval.embedder') as mock_embedder, \
          patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
-         patch('informity.llm.retrieval.reranker') as mock_reranker:
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch.object(real_settings, 'rag_rerank', True):
 
         mock_embedder.embed_query.return_value = [0.1] * 768
         mock_chunks = [
@@ -234,9 +236,11 @@ async def test_retrieve_chunks_coverage_prefers_file_diversity(mock_db):
 
 @pytest.mark.asyncio
 async def test_retrieve_chunks_applies_block_type_filter(mock_db):
+    from informity.config import settings as real_settings
     with patch('informity.llm.retrieval.embedder') as mock_embedder, \
          patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
-         patch('informity.llm.retrieval.reranker') as mock_reranker:
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch.object(real_settings, 'rag_rerank', True):
         mock_embedder.embed_query.return_value = [0.1] * 768
         mock_vector_store.search_similar.return_value = [
             {'chunk_id': 1, 'chunk_text': 'chunk 1', 'score': 0.2},
@@ -254,10 +258,12 @@ async def test_retrieve_chunks_applies_block_type_filter(mock_db):
 
 @pytest.mark.asyncio
 async def test_retrieve_chunks_applies_block_type_exclude_filters(mock_db):
+    from informity.config import settings as real_settings
     with patch('informity.llm.retrieval.embedder') as mock_embedder, \
          patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
          patch('informity.llm.retrieval.reranker') as mock_reranker, \
-         patch('informity.llm.retrieval.build_where_clause_and_params') as mock_build_where:
+         patch('informity.llm.retrieval.build_where_clause_and_params') as mock_build_where, \
+         patch.object(real_settings, 'rag_rerank', True):
         mock_embedder.embed_query.return_value = [0.1] * 768
         mock_vector_store.search_similar.return_value = [
             {'chunk_id': 1, 'chunk_text': 'chunk 1', 'score': 0.2},
@@ -284,9 +290,11 @@ async def test_retrieve_chunks_applies_block_type_exclude_filters(mock_db):
 
 @pytest.mark.asyncio
 async def test_retrieve_chunks_applies_section_filter(mock_db):
+    from informity.config import settings as real_settings
     with patch('informity.llm.retrieval.embedder') as mock_embedder, \
          patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
-         patch('informity.llm.retrieval.reranker') as mock_reranker:
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch.object(real_settings, 'rag_rerank', True):
         mock_embedder.embed_query.return_value = [0.1] * 768
         mock_vector_store.search_similar.return_value = [
             {'chunk_id': 1, 'chunk_text': 'chunk 1', 'score': 0.2},
@@ -385,7 +393,10 @@ async def test_retrieve_chunks_preserves_filename_constraint_when_no_candidates(
 
 
 @pytest.mark.asyncio
-async def test_retrieve_chunks_parent_fallback_does_not_inject_zero_score_when_missing(mock_db):
+async def test_retrieve_chunks_parent_propagates_child_score(mock_db):
+    # When reranker returns a child without a score, parent should not get a score.
+    # When rerank is disabled, vector score is propagated to parent instead.
+    from informity.config import settings as real_settings
     mock_cursor = MagicMock()
     mock_cursor.fetchall = AsyncMock(return_value=[
         {
@@ -407,7 +418,8 @@ async def test_retrieve_chunks_parent_fallback_does_not_inject_zero_score_when_m
     with patch('informity.llm.retrieval.embedder') as mock_embedder, \
          patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
          patch('informity.llm.retrieval.reranker') as mock_reranker, \
-         patch('informity.llm.retrieval.get_chunks_by_parent_ids', new_callable=AsyncMock) as mock_get_parents:
+         patch('informity.llm.retrieval.get_chunks_by_parent_ids', new_callable=AsyncMock) as mock_get_parents, \
+         patch.object(real_settings, 'rag_rerank', True):
         mock_embedder.embed_query.return_value = [0.1] * 768
         mock_vector_store.search_similar.return_value = [{'chunk_id': 10, 'score': 0.1}]
         mock_vector_store.fts5_augment_candidates.return_value = []
@@ -426,6 +438,7 @@ async def test_retrieve_chunks_parent_fallback_does_not_inject_zero_score_when_m
 
     assert len(results) == 1
     assert results[0]['chunk_id'] == 100
+    # Reranker returned child without score — parent should not inherit a phantom score
     assert 'score' not in results[0]
 
 
