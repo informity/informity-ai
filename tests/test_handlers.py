@@ -14,8 +14,8 @@ from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.query_handler import QueryHandler
 from informity.llm.handlers.rag import (
     RAGHandler,
-    _apply_output_format_preferences,
     _apply_negation_preferences,
+    _apply_output_format_preferences,
     _build_history_aware_retrieval_query,
     _resolve_exhaustive_inventory_term_type,
     _should_boost_coverage_top_k,
