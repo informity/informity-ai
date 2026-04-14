@@ -232,8 +232,9 @@ class SettingsResponse(BaseModel):
     embedding_batch_size:    int
     embedding_max_threads:   int   = 6
     llm_cpu_threads:         int   = 8
-    enable_ocr_for_images:   bool  = True  # Enable OCR fallback for image-only PDFs by default
-    scan_file_timeout_seconds: int = 600
+    enable_ocr_for_images:        bool  = True  # Enable OCR fallback for image-only PDFs by default
+    max_indexable_file_size_mb:   int   = 100
+    scan_file_timeout_seconds:    int   = 600
     scan_hash_pool:          Literal['thread', 'process'] = 'thread'
     scan_hash_workers:       int = 0  # 0 = auto
     full_privacy:            bool  = True
@@ -309,8 +310,9 @@ class SettingsUpdateRequest(BaseModel):
     embedding_batch_size:   int | None = None
     embedding_max_threads:  int | None = None
     llm_cpu_threads:        int | None = None
-    enable_ocr_for_images:  bool | None = None  # Enable OCR for image-only PDFs when regular extraction fails
-    scan_file_timeout_seconds: int | None = None
+    enable_ocr_for_images:        bool | None = None  # Enable OCR for image-only PDFs when regular extraction fails
+    max_indexable_file_size_mb:   int | None  = None
+    scan_file_timeout_seconds:    int | None  = None
     scan_hash_pool:         Literal['thread', 'process'] | None = None
     scan_hash_workers:      int | None = None
     full_privacy:           bool | None = None

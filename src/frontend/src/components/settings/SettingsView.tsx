@@ -153,6 +153,7 @@ interface SettingsData {
   embedding_max_threads?: number
   llm_cpu_threads?: number
   enable_ocr_for_images?: boolean
+  max_indexable_file_size_mb?: number
   scan_file_timeout_seconds?: number
   full_privacy?: boolean
   tavily_api_key_set?: boolean
@@ -198,6 +199,7 @@ interface FormState {
   embedding_max_threads: number
   llm_cpu_threads: number
   enable_ocr_for_images: boolean
+  max_indexable_file_size_mb: number
   scan_file_timeout_seconds: number
   full_privacy: boolean
   tavily_api_key: string
@@ -251,6 +253,7 @@ function buildFormState(settings: SettingsData): FormState {
     embedding_max_threads: settings.embedding_max_threads ?? 6,
     llm_cpu_threads: settings.llm_cpu_threads ?? 4,
     enable_ocr_for_images: settings.enable_ocr_for_images ?? true,
+    max_indexable_file_size_mb: settings.max_indexable_file_size_mb ?? 100,
     scan_file_timeout_seconds: settings.scan_file_timeout_seconds ?? 600,
     full_privacy: settings.full_privacy ?? true,
     tavily_api_key: settings.tavily_api_key_set ? MASKED_TAVILY_KEY : '',
@@ -1198,6 +1201,25 @@ export function SettingsView({
             />
             <div><span className="settings-checkbox-row-label">Enable OCR for scanned documents</span></div>
           </label>
+          <div className="settings-subsection-field">
+            <label htmlFor="max-indexable-file-size" className="settings-subsection-field-label">
+              Max Indexable File Size <span className="settings-subsection-field-unit">(MB)</span>
+              <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                <i className="ri-information-line" aria-hidden="true" />
+                <span className="settings-tooltip ui-tooltip">Files exceeding this limit are skipped during indexing and data extraction. Maximum allowed: 500 MB.</span>
+              </span>
+            </label>
+            <input
+              id="max-indexable-file-size"
+              type="number"
+              className="settings-input settings-input--number"
+              min={1}
+              max={500}
+              step={10}
+              value={form.max_indexable_file_size_mb ?? 100}
+              onChange={(e) => update('max_indexable_file_size_mb', clamp(parseInteger(e.target.value, 100), 1, 500))}
+            />
+          </div>
         </div>
 
         <div className="settings-subsection">
@@ -1207,7 +1229,7 @@ export function SettingsView({
               Entity Extraction
             </div>
             <p className="settings-subsection-description ui-subsection-description">
-              Control which entity types are extracted into the term dictionary during indexing.
+              Control which entity types are identified and indexed alongside your documents.
             </p>
           </div>
           <label className="settings-checkbox-row">
@@ -1216,7 +1238,7 @@ export function SettingsView({
               checked={form.entity_extract_acronym ?? true}
               onChange={(e) => update('entity_extract_acronym', e.target.checked)}
             />
-            <div><span className="settings-checkbox-row-label">Acronyms</span></div>
+            <div><span className="settings-checkbox-row-label">Enable extraction of acronyms</span></div>
           </label>
           <label className="settings-checkbox-row">
             <input
@@ -1224,7 +1246,7 @@ export function SettingsView({
               checked={form.entity_extract_person_name ?? false}
               onChange={(e) => update('entity_extract_person_name', e.target.checked)}
             />
-            <div><span className="settings-checkbox-row-label">Person names</span></div>
+            <div><span className="settings-checkbox-row-label">Enable extraction of person names</span></div>
           </label>
         </div>
 
@@ -1252,27 +1274,24 @@ export function SettingsView({
             value={speedVal}
             onChange={handleSpeedChange}
           />
-        </div>
-
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-timer-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              File Processing Timeout
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">
-              Timeout cap for single-file processing. Dynamic scoped timeout policy is applied internally; this value controls the hard cap.
-            </p>
+          <div className="settings-subsection-field">
+            <label htmlFor="scan-file-timeout" className="settings-subsection-field-label">
+              File Processing Timeout <span className="settings-subsection-field-unit">(seconds)</span>
+              <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                <i className="ri-information-line" aria-hidden="true" />
+                <span className="settings-tooltip ui-tooltip">Per-file time limit for extraction. Increase if you have large or complex documents. Maximum allowed: 600 seconds.</span>
+              </span>
+            </label>
+            <input
+              id="scan-file-timeout"
+              type="number"
+              className="settings-input settings-input--number"
+              min={1}
+              max={600}
+              value={form.scan_file_timeout_seconds ?? 600}
+              onChange={(e) => update('scan_file_timeout_seconds', clamp(parseInteger(e.target.value, 600), 1, 600))}
+            />
           </div>
-          <input
-            id="scan-file-timeout"
-            type="number"
-            className="settings-input settings-input--number"
-            min={1}
-            max={600}
-            value={form.scan_file_timeout_seconds ?? 600}
-            onChange={(e) => update('scan_file_timeout_seconds', clamp(parseInteger(e.target.value, 600), 1, 600))}
-          />
         </div>
 
         </section>

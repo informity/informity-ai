@@ -348,6 +348,9 @@ class Settings(BaseSettings):
     # scanned documents, photographed pages, and PDFs with embedded images.
     # Default: True so scanned/image PDFs work out of the box via fallback OCR.
     enable_ocr_for_images: bool = True
+    # Maximum file size (MB) eligible for indexing. Files larger than this are ignored.
+    # Hard ceiling: 500 MB. Increase if you have large documents and sufficient RAM.
+    max_indexable_file_size_mb: int = 100
 
     # -- Privacy ------------------------------------------------------------------
     # When True, no network access: embedding and LLM use cache/local only (fully local).

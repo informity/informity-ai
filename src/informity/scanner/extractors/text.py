@@ -10,7 +10,11 @@ from pathlib import Path
 import structlog
 
 from informity.scanner.extractors.base import MAX_EXTRACTED_TEXT_PREVIEW, ExtractedDocument
-from informity.scanner.extractors.text_utils import MAX_FILE_SIZE_BYTES, decode_bytes, elapsed_ms
+from informity.scanner.extractors.text_utils import (
+    decode_bytes,
+    elapsed_ms,
+    get_max_file_size_bytes,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -44,7 +48,7 @@ class TextExtractor:
                     error='File is empty',
                 )
 
-            if file_size > MAX_FILE_SIZE_BYTES:
+            if file_size > get_max_file_size_bytes():
                 return ExtractedDocument(
                     text='',
                     source_path=path,
