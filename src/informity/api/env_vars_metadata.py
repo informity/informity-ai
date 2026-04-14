@@ -63,19 +63,18 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         [
             ('host', 'Bind address for the API server.'),
             ('port', 'Port for the API server.'),
-            ('dev_reload', 'When true, uvicorn runs with --reload (dev only). Leave false for production.'),
-            ('api_docs_enabled', 'Override API docs exposure. If unset, docs are enabled only when dev_reload is true; set true/false to force behavior.'),
-            ('cpu_priority_nice', 'Lower process priority at startup (0 = off; 1-19 on POSIX, higher means lower priority).'),
+            ('dev_reload', 'Enable auto-reload on code changes. Development only — leave off in production.'),
+            ('api_docs_enabled', 'Show interactive API docs at /docs. Defaults to enabled only when dev_reload is on.'),
         ],
     ),
     (
         'Paths and Storage',
         'Where the application stores database, model files, cache, and logs. Default: ~/.informity. Override via INFORMITY_APP_DATA_DIR.',
         [
-            ('app_data_dir', 'Root directory for all app data (DB, models, cache, logs, config). Default: ~/.informity.'),
-            ('cache_dir', f'Unified cache root for Hugging Face/docling artifacts. Default: app_data_dir/{DirNames.CACHE}.'),
-            ('db_path', f'SQLite database file path (default: app_data_dir/{DirNames.DB}/{APP_SLUG}.db).'),
-            ('logs_dir', 'Directory for log files.'),
+            ('app_data_dir', 'Root directory for all application data — database, models, cache, logs, and config.'),
+            ('cache_dir', f'Cache directory for downloaded models and document processing artifacts. Default: app_data_dir/{DirNames.CACHE}.'),
+            ('db_path', f'SQLite database file path. Default: app_data_dir/{DirNames.DB}/{APP_SLUG}.db.'),
+            ('logs_dir', 'Directory where application log files are written.'),
             (
                 'models_dir',
                 f'Directory for GGUF LLM model files. Default: app_data_dir/{DirNames.MODELS}/{DirNames.LLM}.',
@@ -95,7 +94,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'Appearance',
         'Frontend UI customization settings.',
         [
-            ('ui_theme', 'Color theme for the app UI: gray, purple, blue, green, orange, mono. Applied via data-theme on <html>.'),
+            ('ui_theme', 'Color theme for the app UI. Options: gray, purple, blue, green, orange, mono.'),
             ('enable_menu_bar_icon', 'When true, show the menu bar icon while the app is running (macOS desktop runtime).'),
         ],
     ),
@@ -103,11 +102,10 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'Data Sources',
         'What to scan and what to skip. List options (ignore_patterns, watched_directories) are JSON arrays in env vars.',
         [
-            ('follow_symlinks', 'Whether to follow symbolic links when scanning directories.'),
+            ('follow_symlinks', 'When true, follow symbolic links when scanning directories.'),
             ('exclude_macos_system', 'When true, exclude common macOS system and application data (.DS_Store, Library/Caches, etc.).'),
             ('exclude_developer_data', 'When true, exclude common developer data (.git, node_modules, __pycache__, etc.).'),
             ('ignore_patterns', 'Additional glob patterns for files and directories to skip (JSON array in env).'),
-            ('source_scopes_enabled', 'Per-source-scope enable flags (JSON object). Controls which data sources (filesystem, mail) are active.'),
             ('supported_extensions', 'File extensions to index (JSON array in env).'),
             ('watched_directories', 'Directories to scan and index (JSON array of paths in env).'),
         ],
@@ -116,15 +114,9 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'Indexing',
         'How document text is split into chunks before embedding, and indexing performance settings. Affects quality and retrieval.',
         [
-            ('chunk_child_size_tokens', 'Child chunk size in tokens (for precise search matching, typically 1-2 sentences). Smaller chunks improve retrieval precision.'),
-            ('chunk_filter_header_only', 'When true, filter out chunks that contain only headers/separators without meaningful content. Quality heuristic to avoid indexing empty table headers.'),
-            ('chunk_filter_header_ratio', 'Threshold ratio (0.0-1.0) for header-only detection. Chunks with header/separator lines exceeding this ratio are filtered.'),
-            ('chunk_filter_min_content_chars', 'Minimum content length (characters) to avoid filtering. Chunks shorter than this are never filtered regardless of header ratio.'),
-            ('chunk_filter_min_content_lines', 'Minimum content lines to avoid filtering. Chunks with fewer lines than this are never filtered regardless of header ratio.'),
+            ('chunk_child_size_tokens', 'Child chunk size in tokens used for precise search matching (typically 1–2 sentences).'),
             ('chunk_overlap_tokens', 'Token overlap between consecutive chunks for context continuity.'),
-            ('chunk_size_tokens', 'Parent chunk size in tokens (for context windows). Larger chunks provide more context for LLM generation.'),
-            ('embedding_batch_size', 'Number of texts to embed in one batch; higher uses more memory. Trade off indexing speed against keeping your Mac responsive.'),
-            ('embedding_max_threads', 'Max CPU threads for embedding model (0 = auto; set lower to keep system responsive).'),
+            ('chunk_size_tokens', 'Parent chunk size in tokens. Larger values give the LLM more surrounding context per retrieved passage.'),
             ('enable_ocr_for_images', 'When true, enable OCR fallback for image-only PDFs when regular text extraction fails.'),
             ('entity_extract_acronym', 'When true, extract acronyms into the term dictionary during indexing.'),
             ('entity_extract_location', 'When true, extract location names into the term dictionary during indexing.'),
@@ -133,17 +125,14 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('entity_extract_person_name', 'When true, extract person names into the term dictionary during indexing.'),
             ('max_indexable_file_size_mb', 'Maximum file size in MB to index. Files larger than this are ignored. Hard ceiling: 500 MB.'),
             ('scan_file_timeout_seconds', 'Per-file time limit for extraction in seconds. Hard ceiling: 600 seconds.'),
-            ('scan_hash_max_file_size_bytes', 'Maximum file size (bytes) eligible for scan-time SHA-256 hashing. Oversized files are skipped.'),
-            ('scan_hash_pool', 'Hash executor for scan crawling: thread (default) or process.'),
-            ('scan_hash_workers', 'Hash worker count for scan crawling (0 = auto).'),
         ],
     ),
     (
         'Web Search',
         'Third-party web search provider configuration. Used by the assistant when web search is enabled.',
         [
-            ('linkup_api_key', 'Linkup API key for web search. Set to enable Linkup as a web search provider.'),
-            ('tavily_api_key', 'Tavily API key for web search. Set to enable Tavily as a web search provider.'),
+            ('linkup_api_key', 'API key for the Linkup web search provider.'),
+            ('tavily_api_key', 'API key for the Tavily web search provider.'),
             ('web_search_max_results', 'Maximum number of web search results to include in the assistant context.'),
             ('web_search_primary_provider', 'Primary web search provider: tavily or linkup.'),
             ('web_search_timeout_seconds', 'Timeout in seconds for web search requests.'),
@@ -160,29 +149,24 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'LLM and RAG',
         'Local LLM model, context length, and retrieval-augmented generation tuning.',
         [
-            ('adaptive_rag_tuning', 'When true, adapt retrieval top-k based on corpus size (file count, parent chunk count). Default true.'),
+            ('adaptive_rag_tuning', 'When true, adapt the number of retrieved chunks based on index size for better answer quality.'),
             ('chat_auto_continue_enabled', 'When true, automatically continue long responses that hit the token limit.'),
-            ('chat_auto_continue_default_max_rounds', 'Default maximum continuation rounds for auto-continue responses.'),
+            ('chat_auto_continue_default_max_rounds', 'Maximum continuation rounds per response when auto-continue is enabled.'),
             ('chat_auto_continue_hard_cap', 'Hard cap on continuation rounds regardless of other settings.'),
-            ('chat_auto_continue_prompt', 'Prompt injected to continue a truncated response.'),
             ('chat_history_messages', 'Number of previous chat messages to include in prompt context. Lower values free up tokens for more document context.'),
             ('chat_history_messages_assistant', 'Assistant-mode history window. Higher values improve conversational continuity in assistant mode.'),
             ('chat_history_messages_researcher', 'Researcher-mode history window. Keep lower to preserve token budget for retrieved document context.'),
-            ('continuation_artifact_retention_days', 'Retention window in days for continuation pass artifacts. Set to 0 to disable pruning.'),
             ('default_chat_mode', 'Default chat mode shown in the Chat UI: assistant or researcher.'),
-            ('fts5_candidate_limit', 'Maximum net-new chunk candidates FTS5 keyword search may add to the vector search pool before reranking. Set to 0 to disable.'),
+            ('fts5_candidate_limit', 'Maximum extra candidates keyword search (FTS5) can contribute on top of vector search results. Set to 0 to disable keyword search augmentation.'),
             ('llm_context_length', 'Context window size in tokens for the LLM.'),
-            ('llm_cpu_threads', 'Max CPU threads for llama-cpp generation (0 = auto; set lower to keep system responsive during chat).'),
+            ('llm_cpu_threads', 'Max CPU threads for LLM generation (0 = auto; set lower to keep system responsive during chat).'),
             ('llm_hf_repo', 'Hugging Face repository for automatic LLM model downloads (e.g., "Qwen/Qwen3.5-35B-A3B-GGUF").'),
             ('llm_max_tokens', 'Maximum tokens to generate per response.'),
-            ('llm_model_filename', 'GGUF filename in models_dir.'),
+            ('llm_model_filename', 'Filename of the GGUF model file inside the models directory.'),
             ('llm_temperature', 'Sampling temperature (0 = deterministic; higher = more varied).'),
             # NOTE: rag_context_ratio, rag_max_score, rag_top_k, coverage_top_k are model-specific (ModelProfile, not configurable via env)
-            ('rag_minimal_mode', 'When true, bypasses route/profile fallback lattice and uses one retrieval call with answerability decision.'),
-            ('rag_query_rewrite_enabled', 'Enable researcher follow-up retrieval query rewriting for referential questions.'),
-            ('rag_query_rewrite_max_chars_per_turn', 'Maximum characters taken from each history turn for retrieval rewrite context.'),
-            ('rag_query_rewrite_max_history_messages', 'Maximum recent history messages considered when building retrieval rewrite context.'),
-            ('rag_query_rewrite_max_query_chars', 'Maximum characters allowed in the final rewritten retrieval query.'),
+            ('rag_minimal_mode', 'When true, use a simplified one-pass retrieval flow instead of the full multi-route pipeline. Faster but less adaptive.'),
+            ('rag_query_rewrite_enabled', 'When true, rephrase follow-up questions into self-contained search queries for better retrieval in multi-turn conversations.'),
             ('rag_rerank', 'When true, re-rank vector candidates with a cross-encoder before taking top_k.'),
             ('rag_rerank_candidates', 'Number of candidates to fetch for re-ranking when rag_rerank is true.'),
             ('rag_rerank_coverage', 'When true, also apply reranking to coverage queries (comprehensive lists/tables).'),
@@ -193,37 +177,23 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'Logging',
         'Application logging and debugging options.',
         [
-            ('chat_trace_logging', 'When true, write a per-message trace log (chats/{chat_id}/{message_id}.json) for each chat message. Used for troubleshooting and diagnostics analysis.'),
-            ('chat_trace_evaluation_retention_days', 'Retention window in days for diagnostics evaluation trace files. Set to 0 to disable pruning.'),
+            ('chat_trace_logging', 'When true, write a detailed trace file for each chat message. Useful for troubleshooting and diagnostics analysis.'),
             ('chat_trace_redaction_mode', 'Trace payload redaction level: off (full payload), minimal (truncate sensitive fields), strict (redact with metadata only).'),
-            ('chat_trace_user_retention_days', 'Retention window in days for user chat trace files. Set to 0 to disable pruning.'),
             ('diagnostics_profile', 'Diagnostics profile preset: standard (low overhead), troubleshooting (richer diagnostics), custom (manual override).'),
-            ('enable_raw_output_control', 'When true, show a control to fetch and display raw model output (with <think> blocks) for each assistant message. For debugging.'),
-            ('log_level', 'Application log level: debug, info, warning, error. Default info to reduce noise.'),
+            ('enable_raw_output_control', 'When true, show a toggle to view the raw unprocessed model output for each response. Useful for debugging reasoning models.'),
+            ('log_level', 'Application log verbosity: debug, info, warning, or error.'),
         ],
     ),
     (
         'Diagnostics',
         'Diagnostics evaluation pipeline settings for quality analysis and self-improvement.',
         [
-            ('diagnostics_alert_analysis_max_elapsed_seconds', 'Budget (seconds) for analysis-phase elapsed time in diagnostics run artifacts.'),
-            ('diagnostics_alert_max_elapsed_seconds', 'Budget (seconds) for total elapsed time in diagnostics run artifacts.'),
-            ('diagnostics_alert_max_first_token_seconds', 'Budget (seconds) for time-to-first-token in diagnostics run artifacts.'),
-            ('diagnostics_alert_max_rss_delta_mb', 'Budget (MB) for RSS memory delta in diagnostics run artifacts.'),
             ('diagnostics_dir', 'Directory for diagnostics data (quality evaluation runs, traces, reports).'),
         ],
     ),
 ]
 
 _RUNTIME_ENV_VARS: list[tuple[str, str]] = [
-    (
-        'INFORMITY_REPO_ROOT',
-        'Repository root override for local tooling resolution.',
-    ),
-    (
-        'INFORMITY_SUPPRESS_CONSOLE_LOGS',
-        'When set to 1, suppress startup/config console logs in CLI contexts.',
-    ),
     (
         'INFORMITY_TAURI_SESSION_TOKEN',
         'Desktop runtime session token for local API authorization (managed by the desktop shell).',
@@ -236,10 +206,7 @@ _SENSITIVE_ENV_NAME_HINTS = ('TOKEN', 'SECRET', 'PASSWORD', 'KEY')
 def _describe_unmapped_field(field: str) -> str:
     # Fallback description for Settings fields not explicitly documented in _GROUPS.
     label = field.replace('_', ' ').strip()
-    return (
-        f'Advanced setting: {label}. '
-        f'Configurable via {_env_name(field)}.'
-    )
+    return f'Advanced setting: {label}.'
 
 
 def _format_runtime_env_default(name: str) -> str:
@@ -266,10 +233,10 @@ def get_env_vars_response(settings: object) -> EnvVarsResponse:
             documented_fields.add(field)
             try:
                 value = getattr(settings, field)
-                default_display = _format_value(value, app_dir)
+                current_value = _format_value(value, app_dir)
             except (AttributeError, TypeError):
-                default_display = '(unset)'
-            items.append(EnvVarItem(name=_env_name(field), default=default_display, description=desc))
+                current_value = '(unset)'
+            items.append(EnvVarItem(name=_env_name(field), current_value=current_value, description=desc))
         groups.append(EnvVarGroup(title=title, description=description, variables=items))
 
     # Fields not in _GROUPS are split into three focused advanced groups
@@ -304,9 +271,9 @@ def get_env_vars_response(settings: object) -> EnvVarsResponse:
         except (AttributeError, TypeError):
             current_display = '(unset)'
         item = EnvVarItem(
-            name        = _env_name(field),
-            default     = current_display,
-            description = _describe_unmapped_field(field),
+            name          = _env_name(field),
+            current_value = current_display,
+            description   = _describe_unmapped_field(field),
         )
         if any(field.startswith(p) for p in _RETRIEVAL_TUNING_PREFIXES):
             retrieval_items.append(item)
@@ -347,9 +314,9 @@ def get_env_vars_response(settings: object) -> EnvVarsResponse:
 
     runtime_items = [
         EnvVarItem(
-            name=name,
-            default=_format_runtime_env_default(name),
-            description=desc,
+            name          = name,
+            current_value = _format_runtime_env_default(name),
+            description   = desc,
         )
         for name, desc in sorted(_RUNTIME_ENV_VARS, key=lambda x: x[0])
     ]

@@ -435,12 +435,7 @@ async def retrieve_chunks(
 
     # 5. Rerank child chunks (controlled by rag_rerank / rag_rerank_coverage settings)
     # CPU-bound cross-encoder, run in thread pool to avoid blocking event loop
-    # NOTE(2.1): We intentionally do NOT mutate reranker scores after this point.
-    # Historical behavior (removed): add +0.15 for block_type match and +0.10 for
-    # section_path match, then resort by boosted score.
-    # Rationale: keep ranking semantics model-consistent and avoid heuristic
-    # post-processing bandaids. To re-evaluate, restore the old boost block right
-    # below reranker.rerank(...) and compare structure-constrained query quality.
+    # Reranker scores are not mutated after this point — no post-rerank heuristic boosts by policy.
     is_coverage_query  = query_type == QueryType.COVERAGE
     rerank_enabled     = settings.rag_rerank and (not is_coverage_query or settings.rag_rerank_coverage)
     rerank_start       = time.perf_counter()

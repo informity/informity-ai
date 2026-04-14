@@ -255,7 +255,7 @@ class SettingsResponse(BaseModel):
     rag_minimal_min_chunks_coverage: int = 1
     adaptive_rag_tuning:    bool        = True   # Adapt retrieval top-k based on corpus size
     rag_rerank:            bool        = True
-    rag_rerank_coverage:   bool        = False
+    rag_rerank_coverage:   bool        = True
     rag_reranker_model:    str         = DEFAULT_RERANKER_MODEL
     rag_rerank_candidates: int        = 25
     rag_query_rewrite_enabled: bool = True
@@ -441,10 +441,10 @@ class DiagnosticsMetricsSummaryResponse(BaseModel):
 # ==============================================================================
 
 class EnvVarItem(BaseModel):
-    # Single environment variable: name, default value string, description.
-    name:        str   # e.g. INFORMITY_APP_DATA_DIR
-    default:     str   # Display string for default value
-    description: str
+    # Single environment variable: name, current runtime value string, description.
+    name:          str   # e.g. INFORMITY_APP_DATA_DIR
+    current_value: str   # Display string for current active value
+    description:   str
 
 
 class EnvVarGroup(BaseModel):

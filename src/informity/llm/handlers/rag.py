@@ -455,7 +455,6 @@ class RAGHandler:
         max_tokens = profile.get_max_tokens(effective_query_type)
         timeout_seconds = profile.get_timeout_seconds(effective_query_type)
         reasoning_enabled = profile.get_reasoning_enabled(effective_query_type)
-        stop_sequences = profile.get_stop_sequences(reasoning_enabled)
         format_requirements: list[str] = []
         output_constraints: dict[str, int] = {}
 

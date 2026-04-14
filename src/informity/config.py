@@ -379,7 +379,7 @@ class Settings(BaseSettings):
     # fallback lattice and uses one retrieval call + answerability decision.
     rag_minimal_mode: bool = True
     # When True, adapt retrieval top-k based on corpus size (file count, parent chunk count).
-    # When False, always use model profile base values. See .internal/features/adaptive-tuning.md.
+    # When False, always use model profile base values.
     adaptive_rag_tuning:  bool  = True
     # When True, re-rank vector search candidates with a cross-encoder (query, chunk) before taking top_k.
     # Disable to trade result quality for speed (skips 100–300ms cross-encoder pass).
@@ -411,25 +411,18 @@ class Settings(BaseSettings):
     classification_confidence_high_threshold: float = 0.80
     classification_confidence_medium_threshold: float = 0.55
     # Retrieval quality gates (runtime policy; avoid hardcoded thresholds in handlers).
-    retrieval_relevance_threshold_focused:    float = 0.03
-    retrieval_relevance_threshold_coverage:   float = 0.02
-    retrieval_relevance_threshold_structured: float = 0.02
+    retrieval_relevance_threshold_focused:  float = 0.03
+    retrieval_relevance_threshold_coverage: float = 0.02
     # Minimal RAG answerability thresholds. Applied only when rag_minimal_mode=true.
     rag_minimal_answerability_threshold_focused: float = 0.0
     rag_minimal_answerability_threshold_coverage: float = 0.0
     rag_minimal_min_chunks_focused: int = 1
     rag_minimal_min_chunks_coverage: int = 1
-    # Coverage fallback hard floor (EH-11 rollback control):
-    # - When enabled, evidence-floor override may only bypass relevance gate
-    #   when score clears `retrieval_coverage_evidence_floor_min_score`.
+    # Coverage fallback hard floor (controls whether evidence-floor override
+    # requires score to clear `retrieval_coverage_evidence_floor_min_score`):
     # - Disabled by default until thresholds are calibrated.
     retrieval_coverage_evidence_floor_hard_floor_enabled: bool = False
     retrieval_coverage_evidence_floor_min_score: float = 0.05
-    retrieval_precloseout_min_relevance_score: float = 0.62
-    # Deterministic retrieval widening before terminal unresolved closeout.
-    retrieval_widening_retry_multiplier: float = 1.5
-    retrieval_widening_retry_extra_k: int = 4
-    retrieval_widening_retry_cap: int = 40
     # Researcher follow-up retrieval query rewrite controls.
     # When enabled, referential follow-up questions are expanded with recent
     # chat context before vector retrieval so retrieval remains self-contained.

@@ -22,11 +22,6 @@ def _has_remaining_scope(
     return bool(timeout_reason is not None or stream_recovery_reason is not None or generation_skipped)
 
 
-def _should_apply_soft_stream_closeout(format_requirements: list[str]) -> bool:
-    joined = ' '.join(str(item or '').casefold() for item in format_requirements)
-    return 'required headings exactly' not in joined
-
-
 def _apply_strict_format_prompt_controls(
     *,
     question: str,

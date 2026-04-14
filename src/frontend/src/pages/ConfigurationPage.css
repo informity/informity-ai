@@ -48,10 +48,22 @@
 }
 
 .config__var-default {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-xs);
+  margin-bottom: 0;
+}
+
+.config__var-default-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+.config__var-default-value {
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
-  color: var(--color-accent);
-  margin-bottom: 0;
+  color: var(--color-text-secondary);
 }
 
 .config__var-desc {

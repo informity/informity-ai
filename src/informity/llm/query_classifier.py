@@ -17,9 +17,7 @@ from informity.llm.query_patterns import (
     build_aggregate_listing_scope_pattern,
     build_analysis_action_pattern,
     build_anchor_document_term_pattern,
-    build_broad_scope_extra_pattern,
     build_comparative_pattern,
-    build_content_analysis_pattern,
     build_continuation_pattern,
     build_corpus_document_scope_pattern,
     build_count_pattern,
@@ -80,11 +78,9 @@ _STRUCTURED_OUTPUT_SCHEMA_PATTERN = build_structured_output_schema_pattern()
 _ANALYSIS_ACTION_PATTERN = build_analysis_action_pattern()
 _INVENTORY_CAPABILITY_PATTERN = build_inventory_capability_pattern()
 _META_QUERY_PATTERN = build_meta_query_pattern()
-_CONTENT_ANALYSIS_PATTERN = build_content_analysis_pattern()
 _PLURAL_CORPUS_SCOPE_PATTERN = build_plural_corpus_scope_pattern()
 _SINGLE_TARGET_PATTERN = build_single_target_pattern()
 _YEAR_AGGREGATE_CUE_PATTERN = build_year_aggregate_cue_pattern()
-_BROAD_SCOPE_EXTRA_PATTERN = build_broad_scope_extra_pattern()
 _MULTI_DOC_LISTING_PATTERN = build_multi_document_listing_pattern()
 _GLOBAL_ENTITY_LISTING_PATTERN = build_global_entity_listing_pattern()
 _GENERIC_CAPABILITY_PATTERN = build_generic_capability_pattern()
@@ -139,12 +135,6 @@ def _is_inventory_metadata_request(text: str) -> bool:
     )
 
 
-def _looks_broad_scope(text: str) -> bool:
-    if _COVERAGE_PATTERN.search(text):
-        return True
-    return bool(_BROAD_SCOPE_EXTRA_PATTERN.search(text))
-
-
 def _has_evidence_value_extraction_request(text: str) -> bool:
     return bool(_EVIDENCE_VALUE_EXTRACTION_PATTERN.search(text))
 
@@ -159,10 +149,6 @@ def _looks_multi_document_listing_request(text: str) -> bool:
 
 def _has_global_entity_listing_request(text: str) -> bool:
     return bool(_GLOBAL_ENTITY_LISTING_PATTERN.search(text))
-
-
-def _has_content_analysis_request(text: str) -> bool:
-    return bool(_CONTENT_ANALYSIS_PATTERN.search(text))
 
 
 def _looks_plural_corpus_scope_request(text: str) -> bool:

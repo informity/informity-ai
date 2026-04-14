@@ -9,7 +9,6 @@ import time
 from charset_normalizer import from_bytes
 
 _MAX_FILE_SIZE_HARD_CEILING_MB = 500
-MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB legacy default; runtime uses settings.max_indexable_file_size_mb
 
 
 def get_max_file_size_bytes() -> int:
