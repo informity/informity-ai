@@ -11,7 +11,6 @@ from informity.config import (
     EXCLUDE_MACOS_SYSTEM_PATTERNS,
     settings,
 )
-from informity.scanner.extractors.text_utils import MAX_FILE_SIZE_BYTES
 from informity.scanner.watcher import DEBOUNCE_SECONDS
 
 # Local constants for Configuration page reference (RAG coverage retrieval parameters).
@@ -46,9 +45,9 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str, str]]]] = [
         'Maximum file sizes enforced during scanning and extraction. These prevent memory exhaustion on very large files.',
         [
             (
-                'MAX_FILE_SIZE_BYTES',
-                f'{MAX_FILE_SIZE_BYTES // (1024 * 1024)} MB',
-                'Maximum file size for text, PDF, and HTML files. Files larger than this are skipped during scanning.',
+                'SCAN_HASH_MAX_FILE_SIZE_BYTES',
+                f'{settings.scan_hash_max_file_size_bytes // (1024 * 1024)} MB',
+                'Maximum file size (bytes) eligible for scan-time SHA-256 hashing. Oversized files skip hashing but are still indexed if within the indexing size limit.',
             ),
         ],
     ),
