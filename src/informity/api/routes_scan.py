@@ -68,6 +68,7 @@ from informity.scanner.crawler import (
     scanned_file_for_path,
 )
 from informity.scanner.extractors.base import register_extractors
+from informity.scanner.extractors.docling import DoclingExtractor
 from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE
 from informity.sources.orchestrator import build_default_orchestrator
 from informity.timeout_policy import normalize_scope_key, resolve_timeout_seconds
@@ -750,8 +751,13 @@ async def _run_scan_task(
                     error=result.error,
                 )
         except _ScanCancelledInFlightError:
+            # Reset converter in case cancellation fired mid-extraction.
+            DoclingExtractor.reset_converter()
             raise
         except TimeoutError:
+            # Reset docling converter singleton — it may be in a mid-run state
+            # from the cancelled thread. Next file must get a clean instance.
+            DoclingExtractor.reset_converter()
             errors += 1
             errors_by_extension[sf.extension] += 1
             timeout_message = (
