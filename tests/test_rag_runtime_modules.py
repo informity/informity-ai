@@ -11,12 +11,7 @@ from informity.llm.rag_runtime.retrieval_validation import (
     _extract_prior_has_remaining_scope,
 )
 from informity.llm.rag_runtime.structured_numeric import (
-    _build_finance_conflict_placeholder_bullet,
     _derive_format_requirements,
-    _evidence_overlap_tokens,
-    _parse_numeric_token,
-    _render_finance_conflict_bullets,
-    _render_structured_rows_bullets_answer,
 )
 
 
@@ -33,57 +28,12 @@ def test_retrieval_validation_source_diversity_coverage_gate() -> None:
     assert distinct == 2
 
 
-def test_structured_numeric_parse_currency_and_ignore_year() -> None:
-    parsed = _parse_numeric_token('$3,187.30')
-    assert parsed is not None
-    assert parsed[0] == 3187.30
-    assert _parse_numeric_token('2024') is None
-
-
 def test_structured_numeric_derives_heading_order_requirement() -> None:
     requirements = _derive_format_requirements(
         'Create a brief with sections in order: 1) Scope, 2) Method, 3) Findings.'
     )
     assert any('requested order' in requirement for requirement in requirements)
     assert any('include heading: Scope' in requirement for requirement in requirements)
-
-
-def test_structured_numeric_finance_conflict_bullets_truncates_excess() -> None:
-    conflicts = [
-        {'statement': 'A', 'docs': 'A1', 'values': '1', 'reason': 'x', 'rows': []},
-        {'statement': 'B', 'docs': 'B1', 'values': '2', 'reason': 'y', 'rows': []},
-        {'statement': 'C', 'docs': 'C1', 'values': '3', 'reason': 'z', 'rows': []},
-        {'statement': 'D', 'docs': 'D1', 'values': '4', 'reason': 'q', 'rows': []},
-        {'statement': 'E', 'docs': 'E1', 'values': '5', 'reason': 'r', 'rows': []},
-    ]
-    answer = _render_finance_conflict_bullets(selected_conflicts=conflicts, bullet_limit=4)
-    assert answer.count('\n- ') == 3
-    assert answer.startswith('- Conflict Statement: A;')
-    assert 'Conflict Statement: E;' not in answer
-
-
-def test_structured_numeric_finance_conflict_bullets_pads_missing() -> None:
-    conflicts = [{'statement': 'A', 'docs': 'A1', 'values': '1', 'reason': 'x', 'rows': []}]
-    answer = _render_finance_conflict_bullets(selected_conflicts=conflicts, bullet_limit=4)
-    assert answer.count('\n- ') == 3
-    placeholder = _build_finance_conflict_placeholder_bullet()
-    assert answer.splitlines()[-1] == placeholder
-
-
-def test_structured_numeric_evidence_overlap_tokens_counts_shared_terms() -> None:
-    overlap = _evidence_overlap_tokens(
-        'Mortgage interest total reported on Schedule A line 8a.',
-        'Schedule A interest total differs from mortgage statement.',
-    )
-    assert overlap >= 2
-
-
-def test_structured_numeric_evidence_overlap_tokens_ignores_noise_words() -> None:
-    overlap = _evidence_overlap_tokens(
-        'the and for this values were found in document',
-        'this and the values were found for documents',
-    )
-    assert overlap == 0
 
 
 def test_structured_numeric_derives_numbered_headings_with_parenthetical_commas() -> None:
@@ -314,26 +264,6 @@ def test_generation_runtime_has_remaining_scope_false_for_terminal_timeout() -> 
         generation_skipped=False,
         applied_degradations=[],
     ) is False
-
-
-def test_structured_numeric_bullet_renderer_outputs_exact_count() -> None:
-    answer = _render_structured_rows_bullets_answer(
-        [
-            {'field_label': 'line item', 'raw_value': '$100', 'evidence_span': 'row one'},
-            {'field_label': 'line item', 'raw_value': '$200', 'evidence_span': 'row two'},
-        ],
-        3,
-    )
-    assert answer.count('\n- ') == 3
-    assert 'Missing Evidence' in answer
-
-
-def test_structured_numeric_bullet_renderer_includes_source_snippet_label() -> None:
-    answer = _render_structured_rows_bullets_answer(
-        [{'field_label': 'tax withheld', 'raw_value': '$100', 'evidence_span': 'line excerpt'}],
-        1,
-    )
-    assert 'Source Snippet:' in answer
 
 
 def test_generation_closeout_source_references_filter_to_used_chunks() -> None:

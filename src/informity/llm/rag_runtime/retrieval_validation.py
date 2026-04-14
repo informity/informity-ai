@@ -1,12 +1,7 @@
 import math
-from typing import Literal
-
-import aiosqlite
 
 from informity.config import settings
 from informity.db.models import ChatMessage
-from informity.llm.query_classifier import QueryClassification
-from informity.llm.retrieval import retrieve_chunks
 from informity.llm.types import (
     ChatRole,
     FallbackReason,
@@ -69,26 +64,6 @@ def _evaluate_source_diversity_gate(
     }
     return len(distinct_sources) >= 2, len(distinct_sources)
 
-
-def _extract_prior_source_anchors(history: list[ChatMessage] | None) -> set[str]:
-    if not history:
-        return set()
-    anchors: set[str] = set()
-    for message in reversed(history):
-        if message.role != ChatRole.ASSISTANT or not message.sources:
-            continue
-        for source in message.sources:
-            if not isinstance(source, dict):
-                continue
-            path = str(source.get('path') or '').strip().casefold()
-            filename = str(source.get('filename') or '').strip().casefold()
-            if path:
-                anchors.add(path)
-            if filename:
-                anchors.add(filename)
-        if anchors:
-            break
-    return anchors
 
 
 def _extract_prior_has_remaining_scope(history: list[ChatMessage] | None) -> bool:
@@ -174,17 +149,6 @@ def _derive_continuation_source_terms(
                 return terms
     return terms
 
-
-def _extract_current_source_keys(chunks: list[dict]) -> set[str]:
-    keys: set[str] = set()
-    for chunk in chunks:
-        file_path = str(chunk.get('file_path') or '').strip().casefold()
-        filename = str(chunk.get('filename') or '').strip().casefold()
-        if file_path:
-            keys.add(file_path)
-        if filename:
-            keys.add(filename)
-    return keys
 
 
 def _apply_coverage_evidence_floor_override(
@@ -283,110 +247,3 @@ def _evaluate_continuation_anchor_gate(
             continuation_anchor_passed = anchor_overlap_count > 0
     return continuation_anchor_passed, anchor_overlap_count
 
-
-async def _retrieve_with_staged_structural_constraints(
-    *,
-    question: str,
-    effective_top_k: int,
-    profile_max_score: float | None,
-    classification: QueryClassification,
-    effective_query_type: RetrievalMode,
-    route_profile_id: IntentProfileId,
-    db: aiosqlite.Connection,
-    trace: object | None,
-    retrieve_fn=retrieve_chunks,
-    timing_output: dict | None = None,
-) -> tuple[list[dict], Literal['none', 'section', 'both', 'block']]:
-    """
-    Retrieve with baseline-first strategy for structural constraints.
-
-    Contract-aligned behavior:
-    1) Retrieve baseline (no block/section constraints).
-    2) If baseline quality passes and constraints were requested, try constrained retrieval.
-    3) If constrained quality fails, relax section first, then block filter.
-    """
-    has_structural_constraints = bool(classification.block_type_filter or classification.section_filter)
-
-    baseline_chunks = await retrieve_fn(
-        query=question,
-        top_k=effective_top_k,
-        max_score=profile_max_score,
-        year_filter=classification.year_filter,
-        category_filter=classification.category_filter,
-        extension_filter=classification.file_type_filter,
-        filename_filter=classification.filename_filter,
-        block_type_filter=None,
-        section_filter=None,
-        query_type=effective_query_type,
-        db=db,
-        trace=trace,
-        timing_output=timing_output,
-    )
-    if not baseline_chunks or not has_structural_constraints:
-        return baseline_chunks, 'none'
-
-    baseline_passed, _ = _evaluate_retrieval_relevance_gate(
-        chunks=baseline_chunks,
-        query_type=effective_query_type,
-        route_candidate=route_profile_id,
-        has_strong_anchor=bool(classification.filename_filter),
-    )
-    if not baseline_passed:
-        return baseline_chunks, 'none'
-
-    constrained_chunks = await retrieve_fn(
-        query=question,
-        top_k=effective_top_k,
-        max_score=profile_max_score,
-        year_filter=classification.year_filter,
-        category_filter=classification.category_filter,
-        extension_filter=classification.file_type_filter,
-        filename_filter=classification.filename_filter,
-        block_type_filter=classification.block_type_filter,
-        section_filter=classification.section_filter,
-        query_type=effective_query_type,
-        db=db,
-        trace=trace,
-        timing_output=timing_output,
-    )
-    if not constrained_chunks:
-        return baseline_chunks, 'both'
-
-    constrained_passed, _ = _evaluate_retrieval_relevance_gate(
-        chunks=constrained_chunks,
-        query_type=effective_query_type,
-        route_candidate=route_profile_id,
-        has_strong_anchor=bool(classification.filename_filter),
-    )
-    if constrained_passed:
-        return constrained_chunks, 'none'
-
-    # First relaxation: remove section hint, keep block filter.
-    if classification.section_filter:
-        section_relaxed_chunks = await retrieve_fn(
-            query=question,
-            top_k=effective_top_k,
-            max_score=profile_max_score,
-            year_filter=classification.year_filter,
-            category_filter=classification.category_filter,
-            extension_filter=classification.file_type_filter,
-            filename_filter=classification.filename_filter,
-            block_type_filter=classification.block_type_filter,
-            section_filter=None,
-            query_type=effective_query_type,
-            db=db,
-            trace=trace,
-            timing_output=timing_output,
-        )
-        if section_relaxed_chunks:
-            section_relaxed_passed, _ = _evaluate_retrieval_relevance_gate(
-                chunks=section_relaxed_chunks,
-                query_type=effective_query_type,
-                route_candidate=route_profile_id,
-                has_strong_anchor=bool(classification.filename_filter),
-            )
-            if section_relaxed_passed:
-                return section_relaxed_chunks, 'section'
-
-    # Second relaxation: drop both structural constraints.
-    return baseline_chunks, 'both' if classification.section_filter else 'block'

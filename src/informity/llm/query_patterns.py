@@ -101,10 +101,6 @@ AGGREGATION_KEYWORDS: str = (
     r')\b'
 )
 
-# Conflict-on-amount semantics (for structured financial contradiction extraction routing).
-CONFLICT_AMOUNT_KEYWORDS: str = (
-    r'\bfinance[-\s]*related\b.*\bconflict\b.*\b(?:totals?|balances?)\b'
-)
 
 # Continuation cues for follow-up generation on prior context.
 CONTINUATION_KEYWORDS: str = (
@@ -398,14 +394,6 @@ def build_aggregation_pattern() -> Pattern[str]:
     """
     return re.compile(AGGREGATION_KEYWORDS, re.IGNORECASE)
 
-
-def build_conflict_amount_pattern() -> Pattern[str]:
-    """
-    Build regex pattern for conflict-on-amount tasks.
-
-    Matches prompts asking for finance-related conflicts on totals/balances.
-    """
-    return re.compile(CONFLICT_AMOUNT_KEYWORDS, re.IGNORECASE | re.DOTALL)
 
 
 def build_continuation_pattern() -> Pattern[str]:
