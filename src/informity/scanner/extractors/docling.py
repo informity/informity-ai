@@ -81,6 +81,17 @@ class DoclingExtractor:
         return path.suffix.lower() in self.supported_extensions
 
     @classmethod
+    @classmethod
+    def reset_converter(cls) -> None:
+        # Force-reset the converter singleton. Called after a timeout or cancellation
+        # so the next file gets a fresh converter rather than one in a corrupted mid-run state.
+        if cls._converter is not None:
+            del cls._converter
+            cls._converter = None
+            gc.collect()
+        cls._conversion_count = 0
+
+    @classmethod
     def _get_converter(cls) -> DocumentConverter:
         # Lazy initialization: create converter on first use
         # Reset periodically to avoid memory leaks
