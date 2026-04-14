@@ -467,13 +467,6 @@ class Settings(BaseSettings):
     term_dictionary_quality_gate_enabled: bool = True
     term_dictionary_quality_noise_rate_threshold: float = 0.55
     term_dictionary_quality_min_candidates_for_gate: int = 20
-    # Structured numeric extraction plausibility guards (runtime policy; avoid hardcoded thresholds).
-    extraction_numeric_max_abs_value: float = 100000000.0
-    extraction_numeric_max_unformatted_digits: int = 9
-    extraction_numeric_noise_small_value_threshold: float = 2.0
-    extraction_numeric_noise_large_value_threshold: float = 100.0
-    extraction_finance_conflict_require_same_category: bool = True
-    extraction_finance_conflict_min_evidence_overlap_tokens: int = 2
     # Number of previous messages to include in prompt context.
     # Lower values free up tokens for more document context, improving answer quality.
     # Higher values maintain better conversation continuity for follow-up questions.
