@@ -16,8 +16,10 @@ from fastapi import APIRouter, HTTPException, Query
 
 from informity import config
 from informity.api.config_reference_metadata import get_config_reference_response
+from informity.api.config_reference_metadata import get_config_reference_response
 from informity.api.env_vars_metadata import get_env_vars_response
 from informity.api.schemas import (
+    ConfigReferenceResponse,
     ConfigReferenceResponse,
     CurrentChatResponse,
     CurrentChatUpdateRequest,
@@ -144,6 +146,11 @@ _SETTINGS_RANGE_RULES: dict[str, tuple[float, float, str]] = {
         'embedding_max_threads must be between 0 and 32 (0 = automatic)',
     ),
     'llm_cpu_threads': (0, 32, 'llm_cpu_threads must be between 0 and 32 (0 = automatic)'),
+    'max_indexable_file_size_mb': (
+        1,
+        500,
+        'max_indexable_file_size_mb must be between 1 and 500',
+    ),
     'scan_file_timeout_seconds': (
         1,
         600,
@@ -281,6 +288,7 @@ _UPDATABLE_FIELDS: set[str] = {
     'embedding_max_threads',
     'llm_cpu_threads',
     'enable_ocr_for_images',
+    'max_indexable_file_size_mb',
     'scan_file_timeout_seconds',
     'scan_hash_pool',
     'scan_hash_workers',
@@ -386,8 +394,9 @@ async def get_settings() -> SettingsResponse:
         embedding_batch_size    = s.embedding_batch_size,
         embedding_max_threads   = s.embedding_max_threads,
         llm_cpu_threads         = s.llm_cpu_threads,
-        enable_ocr_for_images   = s.enable_ocr_for_images,
-        scan_file_timeout_seconds = s.scan_file_timeout_seconds,
+        enable_ocr_for_images        = s.enable_ocr_for_images,
+        max_indexable_file_size_mb   = s.max_indexable_file_size_mb,
+        scan_file_timeout_seconds    = s.scan_file_timeout_seconds,
         scan_hash_pool          = s.scan_hash_pool,
         scan_hash_workers       = s.scan_hash_workers,
         full_privacy            = s.full_privacy,

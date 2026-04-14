@@ -3,56 +3,17 @@
    ============================================================================== */
 
 .config__content {
+  --page-content-width: 58rem;
   max-width: var(--page-content-width);
+  width: 100%;
 }
 
-.config__main-section {
-  margin-top: var(--space-2xl);
-  padding-top: var(--space-lg);
-}
-
-.config__main-section:first-child {
-  margin-top: 0;
-  padding-top: 0;
-}
-
-.config__main-section:first-child::before {
-  display: none;
-}
-
-.config__main-section:last-of-type {
-  margin-bottom: 0;
-  padding-bottom: 0;
-}
-
-.config__main-section-title {
-  font-size: var(--font-size-xl);
-  font-weight: var(--font-weight-heading);
-  margin: 0 0 var(--space-sm) 0;
-  color: var(--color-text);
-}
-
-.config__main-section-description {
-  font-size: var(--font-size-description);
-  color: var(--color-text-muted);
-  margin: 0 0 var(--space-lg) 0;
-  line-height: 1.6;
-  max-width: var(--page-content-width);
-}
-
-.config__main-section-description code {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-sm);
-  background: var(--color-bg-elevated);
-  padding: 0.125rem 0.375rem;
-  border-radius: var(--border-radius-sm);
-  color: var(--color-text);
-}
 
 .config__section {
   margin-top: var(--space-xl);
   margin-bottom: var(--space-step);
 }
+
 
 .config__section:last-of-type {
   margin-bottom: 0;
@@ -75,14 +36,14 @@
 
 .config__var {
   padding: var(--space-md);
-  max-width: var(--page-content-width);
+  width: 100%;
 }
 
 .config__var-name {
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   font-weight: 600;
-  color: var(--color-primary);
+  color: var(--color-text-secondary);
   margin-bottom: var(--space-xs);
 }
 

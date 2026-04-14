@@ -408,6 +408,28 @@
 }
 
 /* -----------------------------------------------------------------------------
+   Subsection inline fields (label + input + description, within a subsection)
+   ----------------------------------------------------------------------------- */
+
+.settings-subsection-field {
+    margin-top: var(--space-md);
+}
+
+.settings-subsection-field-label {
+    display: block;
+    font-size: var(--font-size-form-label);
+    color: var(--color-text);
+    font-weight: 400;
+    margin-bottom: calc(var(--space-xs) + 2px);
+    user-select: none;
+}
+
+.settings-subsection-field-unit {
+    color: var(--color-text-muted);
+    font-weight: 400;
+}
+
+/* -----------------------------------------------------------------------------
    Tooltips (info icons)
    ----------------------------------------------------------------------------- */
 

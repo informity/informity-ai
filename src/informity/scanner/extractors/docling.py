@@ -16,7 +16,7 @@ import structlog
 
 from informity.config import DirNames, configure_hf_environment, settings
 from informity.scanner.extractors.base import MAX_EXTRACTED_TEXT_PREVIEW, ExtractedDocument
-from informity.scanner.extractors.text_utils import MAX_FILE_SIZE_BYTES, elapsed_ms
+from informity.scanner.extractors.text_utils import elapsed_ms, get_max_file_size_bytes
 from informity.utils.directory_utils import ensure_directory
 
 log = structlog.get_logger(__name__)
@@ -189,7 +189,7 @@ class DoclingExtractor:
         start_time = time.perf_counter()
         try:
             file_size = path.stat().st_size
-            if file_size > MAX_FILE_SIZE_BYTES:
+            if file_size > get_max_file_size_bytes():
                 return ExtractedDocument(
                     text='',
                     source_path=path,

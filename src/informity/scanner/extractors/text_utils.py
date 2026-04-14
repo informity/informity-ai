@@ -8,7 +8,16 @@ import time
 
 from charset_normalizer import from_bytes
 
-MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB
+_MAX_FILE_SIZE_HARD_CEILING_MB = 500
+MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB legacy default; runtime uses settings.max_indexable_file_size_mb
+
+
+def get_max_file_size_bytes() -> int:
+    # Read from settings at call time so changes take effect without restart.
+    # Hard ceiling: 500 MB regardless of config value.
+    from informity.config import settings
+    configured_mb = min(int(settings.max_indexable_file_size_mb or 100), _MAX_FILE_SIZE_HARD_CEILING_MB)
+    return configured_mb * 1024 * 1024
 GLYPH_DOMINANCE_RATIO = 0.7
 
 

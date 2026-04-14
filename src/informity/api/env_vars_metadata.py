@@ -107,6 +107,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('exclude_macos_system', 'When true, exclude common macOS system and application data (.DS_Store, Library/Caches, etc.).'),
             ('exclude_developer_data', 'When true, exclude common developer data (.git, node_modules, __pycache__, etc.).'),
             ('ignore_patterns', 'Additional glob patterns for files and directories to skip (JSON array in env).'),
+            ('source_scopes_enabled', 'Per-source-scope enable flags (JSON object). Controls which data sources (filesystem, mail) are active.'),
             ('supported_extensions', 'File extensions to index (JSON array in env).'),
             ('watched_directories', 'Directories to scan and index (JSON array of paths in env).'),
         ],
@@ -124,9 +125,28 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('chunk_size_tokens', 'Parent chunk size in tokens (for context windows). Larger chunks provide more context for LLM generation.'),
             ('embedding_batch_size', 'Number of texts to embed in one batch; higher uses more memory. Trade off indexing speed against keeping your Mac responsive.'),
             ('embedding_max_threads', 'Max CPU threads for embedding model (0 = auto; set lower to keep system responsive).'),
+            ('enable_ocr_for_images', 'When true, enable OCR fallback for image-only PDFs when regular text extraction fails.'),
+            ('entity_extract_acronym', 'When true, extract acronyms into the term dictionary during indexing.'),
+            ('entity_extract_location', 'When true, extract location names into the term dictionary during indexing.'),
+            ('entity_extract_numeric_id', 'When true, extract numeric identifiers (IDs, codes) into the term dictionary during indexing.'),
+            ('entity_extract_organization', 'When true, extract organization names into the term dictionary during indexing.'),
+            ('entity_extract_person_name', 'When true, extract person names into the term dictionary during indexing.'),
+            ('max_indexable_file_size_mb', 'Maximum file size in MB to index. Files larger than this are ignored. Hard ceiling: 500 MB.'),
+            ('scan_file_timeout_seconds', 'Per-file time limit for extraction in seconds. Hard ceiling: 600 seconds.'),
+            ('scan_hash_max_file_size_bytes', 'Maximum file size (bytes) eligible for scan-time SHA-256 hashing. Oversized files are skipped.'),
             ('scan_hash_pool', 'Hash executor for scan crawling: thread (default) or process.'),
             ('scan_hash_workers', 'Hash worker count for scan crawling (0 = auto).'),
-            ('scan_hash_max_file_size_bytes', 'Maximum file size (bytes) eligible for scan-time SHA-256 hashing. Oversized files are skipped.'),
+        ],
+    ),
+    (
+        'Web Search',
+        'Third-party web search provider configuration. Used by the assistant when web search is enabled.',
+        [
+            ('linkup_api_key', 'Linkup API key for web search. Set to enable Linkup as a web search provider.'),
+            ('tavily_api_key', 'Tavily API key for web search. Set to enable Tavily as a web search provider.'),
+            ('web_search_max_results', 'Maximum number of web search results to include in the assistant context.'),
+            ('web_search_primary_provider', 'Primary web search provider: tavily or linkup.'),
+            ('web_search_timeout_seconds', 'Timeout in seconds for web search requests.'),
         ],
     ),
     (
@@ -140,10 +160,17 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'LLM and RAG',
         'Local LLM model, context length, and retrieval-augmented generation tuning.',
         [
+            ('adaptive_rag_tuning', 'When true, adapt retrieval top-k based on corpus size (file count, parent chunk count). Default true.'),
+            ('chat_auto_continue_enabled', 'When true, automatically continue long responses that hit the token limit.'),
+            ('chat_auto_continue_default_max_rounds', 'Default maximum continuation rounds for auto-continue responses.'),
+            ('chat_auto_continue_hard_cap', 'Hard cap on continuation rounds regardless of other settings.'),
+            ('chat_auto_continue_prompt', 'Prompt injected to continue a truncated response.'),
             ('chat_history_messages', 'Number of previous chat messages to include in prompt context. Lower values free up tokens for more document context.'),
             ('chat_history_messages_assistant', 'Assistant-mode history window. Higher values improve conversational continuity in assistant mode.'),
             ('chat_history_messages_researcher', 'Researcher-mode history window. Keep lower to preserve token budget for retrieved document context.'),
+            ('continuation_artifact_retention_days', 'Retention window in days for continuation pass artifacts. Set to 0 to disable pruning.'),
             ('default_chat_mode', 'Default chat mode shown in the Chat UI: assistant or researcher.'),
+            ('fts5_candidate_limit', 'Maximum net-new chunk candidates FTS5 keyword search may add to the vector search pool before reranking. Set to 0 to disable.'),
             ('llm_context_length', 'Context window size in tokens for the LLM.'),
             ('llm_cpu_threads', 'Max CPU threads for llama-cpp generation (0 = auto; set lower to keep system responsive during chat).'),
             ('llm_hf_repo', 'Hugging Face repository for automatic LLM model downloads (e.g., "Qwen/Qwen3.5-35B-A3B-GGUF").'),
@@ -151,29 +178,38 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('llm_model_filename', 'GGUF filename in models_dir.'),
             ('llm_temperature', 'Sampling temperature (0 = deterministic; higher = more varied).'),
             # NOTE: rag_context_ratio, rag_max_score, rag_top_k, coverage_top_k are model-specific (ModelProfile, not configurable via env)
-            ('adaptive_rag_tuning', 'When true, adapt retrieval top-k based on corpus size (file count, parent chunk count). Default true.'),
+            ('rag_minimal_mode', 'When true, bypasses route/profile fallback lattice and uses one retrieval call with answerability decision.'),
             ('rag_query_rewrite_enabled', 'Enable researcher follow-up retrieval query rewriting for referential questions.'),
-            ('rag_query_rewrite_max_history_messages', 'Maximum recent history messages considered when building retrieval rewrite context.'),
             ('rag_query_rewrite_max_chars_per_turn', 'Maximum characters taken from each history turn for retrieval rewrite context.'),
+            ('rag_query_rewrite_max_history_messages', 'Maximum recent history messages considered when building retrieval rewrite context.'),
             ('rag_query_rewrite_max_query_chars', 'Maximum characters allowed in the final rewritten retrieval query.'),
             ('rag_rerank', 'When true, re-rank vector candidates with a cross-encoder before taking top_k.'),
+            ('rag_rerank_candidates', 'Number of candidates to fetch for re-ranking when rag_rerank is true.'),
             ('rag_rerank_coverage', 'When true, also apply reranking to coverage queries (comprehensive lists/tables).'),
             ('rag_reranker_model', 'Hugging Face model ID for the cross-encoder reranker.'),
-            ('rag_rerank_candidates', 'Number of candidates to fetch for re-ranking when rag_rerank is true.'),
         ],
     ),
     (
         'Logging',
         'Application logging and debugging options.',
         [
-            ('log_level', 'Application log level: debug, info, warning, error. Default info to reduce noise.'),
             ('chat_trace_logging', 'When true, write a per-message trace log (chats/{chat_id}/{message_id}.json) for each chat message. Used for troubleshooting and diagnostics analysis.'),
+            ('chat_trace_evaluation_retention_days', 'Retention window in days for diagnostics evaluation trace files. Set to 0 to disable pruning.'),
+            ('chat_trace_redaction_mode', 'Trace payload redaction level: off (full payload), minimal (truncate sensitive fields), strict (redact with metadata only).'),
+            ('chat_trace_user_retention_days', 'Retention window in days for user chat trace files. Set to 0 to disable pruning.'),
+            ('diagnostics_profile', 'Diagnostics profile preset: standard (low overhead), troubleshooting (richer diagnostics), custom (manual override).'),
+            ('enable_raw_output_control', 'When true, show a control to fetch and display raw model output (with <think> blocks) for each assistant message. For debugging.'),
+            ('log_level', 'Application log level: debug, info, warning, error. Default info to reduce noise.'),
         ],
     ),
     (
         'Diagnostics',
         'Diagnostics evaluation pipeline settings for quality analysis and self-improvement.',
         [
+            ('diagnostics_alert_analysis_max_elapsed_seconds', 'Budget (seconds) for analysis-phase elapsed time in diagnostics run artifacts.'),
+            ('diagnostics_alert_max_elapsed_seconds', 'Budget (seconds) for total elapsed time in diagnostics run artifacts.'),
+            ('diagnostics_alert_max_first_token_seconds', 'Budget (seconds) for time-to-first-token in diagnostics run artifacts.'),
+            ('diagnostics_alert_max_rss_delta_mb', 'Budget (MB) for RSS memory delta in diagnostics run artifacts.'),
             ('diagnostics_dir', 'Directory for diagnostics data (quality evaluation runs, traces, reports).'),
         ],
     ),
@@ -236,33 +272,78 @@ def get_env_vars_response(settings: object) -> EnvVarsResponse:
             items.append(EnvVarItem(name=_env_name(field), default=default_display, description=desc))
         groups.append(EnvVarGroup(title=title, description=description, variables=items))
 
-    # Ensure env-vars metadata stays in sync with Settings by auto-including any
-    # Settings fields not explicitly curated above.
+    # Fields not in _GROUPS are split into three focused advanced groups
+    # rather than one catch-all bucket.
+    _RETRIEVAL_TUNING_PREFIXES = (
+        'adaptive_top_k_',
+        'classification_confidence_',
+        'retrieval_',
+        'rag_minimal_',
+    )
+    _TERM_DICTIONARY_PREFIX = 'term_dictionary_'
+    _INTERNAL_CONSTANTS_PREFIXES = (
+        'extraction_',
+        'fit_to_budget_',
+        'scan_stale_',
+        'scan_timeout_policy',
+    )
+
     model_fields = getattr(Settings, 'model_fields', {})
     all_settings_fields = set(model_fields.keys())
     missing_fields = sorted(all_settings_fields - documented_fields)
-    if missing_fields:
-        advanced_items: list[EnvVarItem] = []
-        for field in missing_fields:
-            try:
-                value = getattr(settings, field)
-                current_display = _format_value(value, app_dir)
-            except (AttributeError, TypeError):
-                current_display = '(unset)'
-            advanced_items.append(
-                EnvVarItem(
-                    name=_env_name(field),
-                    default=current_display,
-                    description=_describe_unmapped_field(field),
-                ),
-            )
-        groups.append(
-            EnvVarGroup(
-                title='Advanced and Internal',
-                description='Additional Settings fields that are env-configurable but not shown in primary categories.',
-                variables=advanced_items,
-            ),
+
+    retrieval_items:   list[EnvVarItem] = []
+    term_dict_items:   list[EnvVarItem] = []
+    internal_items:    list[EnvVarItem] = []
+    leftover_items:    list[EnvVarItem] = []
+
+    for field in missing_fields:
+        try:
+            value        = getattr(settings, field)
+            current_display = _format_value(value, app_dir)
+        except (AttributeError, TypeError):
+            current_display = '(unset)'
+        item = EnvVarItem(
+            name        = _env_name(field),
+            default     = current_display,
+            description = _describe_unmapped_field(field),
         )
+        if any(field.startswith(p) for p in _RETRIEVAL_TUNING_PREFIXES):
+            retrieval_items.append(item)
+        elif field.startswith(_TERM_DICTIONARY_PREFIX):
+            term_dict_items.append(item)
+        elif any(field.startswith(p) for p in _INTERNAL_CONSTANTS_PREFIXES):
+            internal_items.append(item)
+        else:
+            leftover_items.append(item)
+
+    if retrieval_items:
+        groups.append(EnvVarGroup(
+            title       = 'Retrieval Tuning',
+            description = (
+                'Advanced constants for retrieval quality, classification confidence, '
+                'adaptive top-k, and relevance thresholds. Leave at defaults unless tuning RAG behavior.'
+            ),
+            variables   = retrieval_items,
+        ))
+    if term_dict_items:
+        groups.append(EnvVarGroup(
+            title       = 'Term Dictionary',
+            description = (
+                'Controls for the term dictionary builder: entity extraction confidence, '
+                'expansion limits, quality gates, and routing flags.'
+            ),
+            variables   = term_dict_items,
+        ))
+    if internal_items or leftover_items:
+        groups.append(EnvVarGroup(
+            title       = 'Internal Constants',
+            description = (
+                'Internal runtime defaults for numeric extraction guards, fit-to-budget rollout, '
+                'and scan policy internals. Not intended for regular configuration.'
+            ),
+            variables   = internal_items + leftover_items,
+        ))
 
     runtime_items = [
         EnvVarItem(
