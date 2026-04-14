@@ -21,7 +21,13 @@ from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.rag import RAGHandler
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification, classify_query
-from informity.llm.types import IntentProfileId, OutputShape, QuerySubtype, QueryType, StreamSignalTag
+from informity.llm.types import (
+    IntentProfileId,
+    OutputShape,
+    QuerySubtype,
+    QueryType,
+    StreamSignalTag,
+)
 from informity.llm.user_messages import EMPTY_KNOWLEDGE_BASE_RESEARCHER_MESSAGE
 
 log = structlog.get_logger(__name__)
