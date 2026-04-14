@@ -491,7 +491,6 @@ async def init_db() -> None:
             log.debug('sqlite_vec_extension_not_loaded', msg='Extension loading not available or already loaded')
 
         await conn.executescript(_SCHEMA_SQL)
-        await _ensure_chat_messages_model_filename_column(conn)
 
         # Term dictionary uniqueness is typed by design:
         # allow same normalized term across different entity types.
@@ -529,18 +528,6 @@ async def init_db() -> None:
     finally:
         await conn.close()
 
-
-async def _ensure_chat_messages_model_filename_column(conn: aiosqlite.Connection) -> None:
-    """
-    Non-destructive migration: add chat_messages.model_filename when missing.
-    """
-    cursor = await conn.execute('PRAGMA table_info(chat_messages)')
-    rows = await cursor.fetchall()
-    column_names = {str(row['name']) for row in rows}
-    if 'model_filename' in column_names:
-        return
-    await conn.execute('ALTER TABLE chat_messages ADD COLUMN model_filename TEXT')
-    log.info('database_migration_applied', migration='add_chat_messages_model_filename')
 
 
 async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:

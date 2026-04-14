@@ -41,8 +41,6 @@ def _evaluate_retrieval_relevance_gate(
     mean_score = sum(top_scores) / max(1, len(top_scores))
     if query_type == RetrievalMode.COVERAGE:
         return mean_score >= float(settings.retrieval_relevance_threshold_coverage), mean_score
-    if route_candidate == IntentProfileId.STRUCTURED_FIELD_EXTRACTION:
-        return mean_score >= float(settings.retrieval_relevance_threshold_structured), mean_score
     if query_type == RetrievalMode.FOCUSED and has_strong_anchor:
         # Strong metadata anchors (especially filename constraints) should not fail hard
         # when reranker scores are near-zero but retrieval returned concrete chunks.
@@ -203,28 +201,6 @@ def _apply_coverage_evidence_floor_override(
             'subtype': subtype,
         })
 
-    focused_structured_evidence_floor_eligible = (
-        query_type == RetrievalMode.FOCUSED
-        and route_profile_id == IntentProfileId.STRUCTURED_FIELD_EXTRACTION
-        and response_shape == OutputShape.STRUCTURED_EXTRACT
-    )
-    if (
-        not retrieval_relevance_passed
-        and focused_structured_evidence_floor_eligible
-        and distinct_sources_count >= 3
-        and chunk_count >= 8
-    ):
-        retrieval_relevance_passed = True
-        fallback_events.append({
-            'fallback_from': route_profile_id,
-            'fallback_to': route_profile_id,
-            'fallback_reason': FallbackReason.FOCUSED_STRUCTURED_EVIDENCE_FLOOR_OVERRIDE,
-            'retrieval_relevance_score': round(retrieval_relevance_score, 3),
-            'distinct_sources_count': distinct_sources_count,
-            'chunk_count': chunk_count,
-            'response_shape': response_shape,
-            'subtype': subtype,
-        })
     return retrieval_relevance_passed, fallback_events
 
 

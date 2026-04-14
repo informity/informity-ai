@@ -16,10 +16,8 @@ from fastapi import APIRouter, HTTPException, Query
 
 from informity import config
 from informity.api.config_reference_metadata import get_config_reference_response
-from informity.api.config_reference_metadata import get_config_reference_response
 from informity.api.env_vars_metadata import get_env_vars_response
 from informity.api.schemas import (
-    ConfigReferenceResponse,
     ConfigReferenceResponse,
     CurrentChatResponse,
     CurrentChatUpdateRequest,
