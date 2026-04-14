@@ -311,15 +311,6 @@ class TestRAGHandler:
         assert passed is True
         assert mean_score > 0.0
 
-    def test_soft_stream_closeout_disabled_for_strict_heading_requirements(self) -> None:
-        from informity.llm.rag_runtime.generation_runtime import _should_apply_soft_stream_closeout
-
-        assert _should_apply_soft_stream_closeout(
-            ['use the required headings exactly and in the requested order']
-        ) is False
-        assert _should_apply_soft_stream_closeout(['include heading: Scope']) is True
-
-
     def test_resolve_sampling_params_reduces_temperature_for_strict_contracts(self) -> None:
         from informity.llm.handlers.rag import _resolve_sampling_params
 

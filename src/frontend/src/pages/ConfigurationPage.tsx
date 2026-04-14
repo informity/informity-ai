@@ -55,7 +55,7 @@ const GROUP_ORDER_INDEX = new Map<string, number>(
 
 interface EnvVarItem {
   name: string
-  default: string
+  current_value: string
   description: string
 }
 
@@ -157,7 +157,10 @@ export function ConfigurationPage() {
                   <div key={v.name} className="config__var ui-card">
                     <div className="config__var-name">{v.name}</div>
                     <div className="config__var-desc">{v.description}</div>
-                    <div className="config__var-default">{`Current value: ${v.default || '(unset)'}`}</div>
+                    <div className="config__var-default">
+                      <span className="config__var-default-label">Current value:</span>
+                      <span className="config__var-default-value">{v.current_value || '(unset)'}</span>
+                    </div>
                   </div>
                 ))}
               </div>

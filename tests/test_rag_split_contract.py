@@ -4,7 +4,6 @@ from typing import Any
 
 import pytest
 
-from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_stream as _generation_stream
 
 
@@ -100,40 +99,4 @@ async def test_generation_stream_does_not_enforce_contract_shape_in_stream_path(
     assert '| Group | Years Covered |' not in merged
     assert 'Missing Evidence:' not in merged
 
-
-def test_generation_closeout_metrics_payload_contract_shape() -> None:
-    payload = _generation_closeout.build_generation_metrics_payload(
-        query_type='focused',
-        timeout_seconds=120,
-        retrieval_elapsed_ms=42.34,
-        prompt_elapsed_ms=11.11,
-        first_token_ms=123.45,
-        llm_elapsed_ms=456.78,
-        timeout_reason=None,
-        checkpoints_hit=[60, 80],
-        completion_mode='complete',
-        preflight_projected_seconds=8.9,
-        preflight_ratio=0.21,
-        post_retrieval_projected_seconds=9.8,
-        post_retrieval_ratio=0.33,
-        fit_to_budget_rollout_stage='stage1',
-        fit_to_budget_enabled=True,
-        fit_to_budget_sample_count=100,
-        fit_to_budget_timeout_rate=0.02,
-        fit_to_budget_first_token_p95_ms=900.0,
-        fit_to_budget_completion_p95_seconds=12.5,
-        applied_degradations=[],
-        fallback_events=[],
-        has_remaining_scope=False,
-        stream_recovery_reason=None,
-    )
-    assert payload['generation_skipped'] is False
-    assert payload['query_type'] == 'focused'
-    assert payload['first_token_latency_ms'] == 123.5
-    assert payload['soft_budget_checkpoints_hit'] == [60, 80]
-    assert payload['embed_ms'] is None
-    assert payload['vector_search_ms'] is None
-    assert payload['rerank_ms'] is None
-    assert payload['prompt_build_ms'] is None
-    assert payload['ttft_ms'] is None
 

@@ -51,9 +51,6 @@ COUNT_PATTERN: str = (
 # Meta query patterns
 META_QUERY_PATTERN: str = r'\b(what\s+can\s+you\s+do|how\s+does\s+this\s+work|what\s+are\s+your\s+capabilities|help)\b'
 
-# Document-related keywords
-DOCUMENT_KEYWORDS: str = r'\b(files?|documents?|reports?|search|find|index|indexed|content|data|information)\b'
-
 # Aggregation keywords: date range, min/max, earliest/latest, per year
 # Note: Using 'minimum'/'maximum' instead of standalone 'min'/'max' to avoid false positives
 # in content queries like "what is the minimum salary" (should be focused, not metadata)
@@ -197,13 +194,6 @@ AGGREGATE_LISTING_SCOPE_KEYWORDS: str = (
     r'(names?|dates?|amounts?|figures?|values?)\s+mentioned\s+across\b'
     r')'
 )
-CONTENT_ANALYSIS_KEYWORDS: str = (
-    r'\b('
-    r'summarize|summary|compare|contrast|contradictions?|conflicts?|overview|'
-    r'main subject|describe|analy[sz]e|findings?|mentioned|tell me about|key fields?|'
-    r'what does'
-    r')\b'
-)
 PLURAL_CORPUS_SCOPE_KEYWORDS: str = (
     r'\b('
     r'all\s+(?:indexed\s+)?(?:documents?|files?|records?)'
@@ -239,7 +229,6 @@ YEAR_AGGREGATE_CUE_KEYWORDS: str = (
     r'deltas?|per indexed year|years covered'
     r')\b'
 )
-BROAD_SCOPE_EXTRA_KEYWORDS: str = r'\b(across|all|cross[\s-]*document|year[\s-]*by[\s-]*year)\b'
 MULTI_DOCUMENT_LISTING_KEYWORDS: str = r'\b(which|list|show)\b.*\b(files?|documents?)\b'
 GLOBAL_ENTITY_LISTING_KEYWORDS: str = (
     r'\b('
@@ -485,11 +474,6 @@ def build_aggregate_listing_scope_pattern() -> Pattern[str]:
     return re.compile(AGGREGATE_LISTING_SCOPE_KEYWORDS, re.IGNORECASE)
 
 
-def build_content_analysis_pattern() -> Pattern[str]:
-    """Build regex pattern for content-analysis style requests."""
-    return re.compile(CONTENT_ANALYSIS_KEYWORDS, re.IGNORECASE)
-
-
 def build_plural_corpus_scope_pattern() -> Pattern[str]:
     """Build regex pattern for plural corpus scope cues."""
     return re.compile(PLURAL_CORPUS_SCOPE_KEYWORDS, re.IGNORECASE)
@@ -503,11 +487,6 @@ def build_single_target_pattern() -> Pattern[str]:
 def build_year_aggregate_cue_pattern() -> Pattern[str]:
     """Build regex pattern for year-aggregate intent cues."""
     return re.compile(YEAR_AGGREGATE_CUE_KEYWORDS, re.IGNORECASE)
-
-
-def build_broad_scope_extra_pattern() -> Pattern[str]:
-    """Build regex pattern for broad-scope lexical cues."""
-    return re.compile(BROAD_SCOPE_EXTRA_KEYWORDS, re.IGNORECASE)
 
 
 def build_multi_document_listing_pattern() -> Pattern[str]:

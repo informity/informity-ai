@@ -14,7 +14,6 @@ IntentLabel = QueryType
 class IntentProfileId(StrEnum):
     METADATA_INVENTORY = 'metadata_inventory'
     TARGETED_FACT_LOOKUP = 'targeted_fact_lookup'
-    STRUCTURED_FIELD_EXTRACTION = 'structured_field_extraction'
     CROSS_DOCUMENT_SYNTHESIS = 'cross_document_synthesis'
     COMPARATIVE_ANALYSIS = 'comparative_analysis'
     AUDIT_OR_COMPLIANCE_BRIEF = 'audit_or_compliance_brief'
@@ -51,7 +50,6 @@ class ConfidenceBand(StrEnum):
 class QuerySubtype(StrEnum):
     EXTRACT_STRUCTURED_VALUES = 'extract_structured_values'
     AGGREGATE_BY_PERIOD = 'aggregate_by_period'
-    FILE_INVENTORY = 'file_inventory'
     COMPARATIVE = 'comparative'
 
 
@@ -89,22 +87,7 @@ class TimeoutReason(StrEnum):
 
 
 class FallbackReason(StrEnum):
-    RESPONSE_SHAPE_NOT_ALLOWED_FOR_PROFILE = 'response_shape_not_allowed_for_profile'
-    LOW_CONFIDENCE_ROUTE_GUARD = 'low_confidence_route_guard'
-    CONTINUATION_ANCHOR_BIAS_APPLIED = 'continuation_anchor_bias_applied'
-    RETRY_WITHOUT_MAX_SCORE = 'retry_without_max_score'
-    VALIDATION_GATE_FAILED = 'validation_gate_failed'
-    PRESERVE_COVERAGE_QUERY_TYPE_AFTER_FALLBACK = 'preserve_coverage_query_type_after_fallback'
-    EMPTY_RETRIEVAL_RESULT = 'empty_retrieval_result'
-    SCHEMA_CONTRACT_EMPTY_RETRIEVAL_RECOVERY = 'schema_contract_empty_retrieval_recovery'
-    FOCUSED_ANCHOR_EMPTY_RETRIEVAL_RECOVERY = 'focused_anchor_empty_retrieval_recovery'
-    FOCUSED_YEAR_SCOPE_EMPTY_RETRIEVAL_RECOVERY = 'focused_year_scope_empty_retrieval_recovery'
     COVERAGE_EVIDENCE_FLOOR_OVERRIDE = 'coverage_evidence_floor_override'
-    FOCUSED_STRUCTURED_EVIDENCE_FLOOR_OVERRIDE = 'focused_structured_evidence_floor_override'
-    SCHEMA_DRIVEN_GATE_BYPASS = 'schema_driven_gate_bypass'
-    CONTINUATION_ANCHOR_GATE_BYPASS = 'continuation_anchor_gate_bypass'
-    STRUCTURED_EXTRACTION_INSUFFICIENT = 'structured_extraction_insufficient'
-    PRE_CLOSEOUT_QUALITY_CHECK_FAILED = 'insufficient_relevance_under_budget_pressure'
 
 
 class FilterOperator(StrEnum):
