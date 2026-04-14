@@ -220,6 +220,22 @@ def _format_runtime_env_default(name: str) -> str:
     return raw
 
 
+# Prefixes used to bucket undocumented Settings fields into focused advanced groups.
+_RETRIEVAL_TUNING_PREFIXES = (
+    'adaptive_top_k_',
+    'classification_confidence_',
+    'retrieval_',
+    'rag_minimal_',
+)
+_TERM_DICTIONARY_PREFIX    = 'term_dictionary_'
+_INTERNAL_CONSTANTS_PREFIXES = (
+    'extraction_',
+    'fit_to_budget_',
+    'scan_stale_',
+    'scan_timeout_policy',
+)
+
+
 def get_env_vars_response(settings: object) -> EnvVarsResponse:
     # Build the env vars response with actual current values from settings.
     # Paths are shown relative to the application directory (cwd).
@@ -241,19 +257,6 @@ def get_env_vars_response(settings: object) -> EnvVarsResponse:
 
     # Fields not in _GROUPS are split into three focused advanced groups
     # rather than one catch-all bucket.
-    _RETRIEVAL_TUNING_PREFIXES = (
-        'adaptive_top_k_',
-        'classification_confidence_',
-        'retrieval_',
-        'rag_minimal_',
-    )
-    _TERM_DICTIONARY_PREFIX = 'term_dictionary_'
-    _INTERNAL_CONSTANTS_PREFIXES = (
-        'extraction_',
-        'fit_to_budget_',
-        'scan_stale_',
-        'scan_timeout_policy',
-    )
 
     model_fields = getattr(Settings, 'model_fields', {})
     all_settings_fields = set(model_fields.keys())
