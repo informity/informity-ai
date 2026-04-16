@@ -530,7 +530,7 @@ class HealthResponse(BaseModel):
 
 ### `llm/retrieval.py`
 - Unified retrieval pipeline (v2): embed query → vector search with WHERE clauses (year, category, extension filters) → rerank (when enabled by settings) → top-k. For coverage queries, uses file-anchored retrieval (one chunk per file, exhaustive).
-- Records metrics in trace writer: `raw_chunks_count`, `children_reranked`, `parents_returned`.
+- Records metrics in trace writer: `raw_chunks_count`, `children_reranked`, `children_after_structural_filter`, `children_returned`, `parents_returned`.
 - **Imports:** embedder, reranker, db.vectors, db.sqlite (get_chunks_by_parent_ids, get_file_ids_matching_filters), metadata_filters, chat_trace (TraceWriter)
 - **Imported by:** llm.handlers.rag
 
