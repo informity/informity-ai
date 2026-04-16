@@ -439,21 +439,6 @@ def get_profile_for_filename(filename: str) -> ModelProfile:
     return DEFAULT_PROFILE
 
 
-def get_profile_tokens_per_second(profile_name: str) -> float:
-    """
-    Resolve deterministic throughput estimate from profile metadata by profile name.
-    Falls back to default profile baseline if profile name is unknown.
-    """
-    normalized = str(profile_name or '').strip().casefold()
-    for profile in _PROFILE_REGISTRY:
-        if profile.name.casefold() == normalized:
-            return max(1.0, float(profile.generation_tokens_per_second))
-    if DEFAULT_PROFILE.name.casefold() == normalized:
-        return max(1.0, float(DEFAULT_PROFILE.generation_tokens_per_second))
-    profile = get_profile_for_filename(str(profile_name or ''))
-    return max(1.0, float(profile.generation_tokens_per_second))
-
-
 def get_profile() -> ModelProfile:
     """Return the ModelProfile for the currently configured LLM model."""
     return get_profile_for_filename(settings.llm_model_filename)
@@ -512,64 +497,3 @@ def get_model_display_name(filename: str) -> str:
     # Fallback: use filename stem (without .gguf)
     return Path(filename).stem
 
-
-def extract_model_name_from_chat_id(chat_id: str, available_models: list[str] | None = None) -> str | None:
-    """
-    Extract model name from a chat_id that follows the pattern: eval-{query_id}-{model_name}
-
-    Tooling note:
-        Kept for diagnostics/evaluation tooling that parses evaluation chat IDs.
-        It may not be imported by primary runtime request paths.
-
-    Args:
-        chat_id: Chat ID string (e.g., 'eval-eval-1-doc-totals-Meta-Llama-3.1-8B-Instruct-Q5_K_M')
-        available_models: Optional list of known model filenames for matching. If None, discovers models.
-
-    Returns:
-        Model filename (with .gguf) if found, or None if not found
-    """
-    from informity.config import DiagnosticsConstants
-
-    if not chat_id.startswith(DiagnosticsConstants.EVAL_CHAT_ID_PREFIX):
-        return None
-
-    # Remove prefix
-    prefix = DiagnosticsConstants.EVAL_CHAT_ID_PREFIX
-    rest = chat_id[len(prefix):]
-
-    # If available_models not provided, discover them
-    if available_models is None:
-        available_models = discover_available_models()
-
-    # Try to match against known models (longest match first for specificity)
-    # Sort by length descending to match longer model names first
-    sorted_models = sorted(available_models, key=len, reverse=True)
-
-    for model_filename in sorted_models:
-        model_name = Path(model_filename).stem  # Remove .gguf
-        # Check if chat_id ends with this model name
-        if rest.endswith(model_name):
-            return model_filename
-
-    return None
-
-
-def get_model_display_name_from_chat_id(chat_id: str, available_models: list[str] | None = None) -> str | None:
-    """
-    Get the display name for a model from a chat_id.
-
-    Tooling note:
-        Companion helper for diagnostics/evaluation tooling that derives model
-        display labels from evaluation chat IDs.
-
-    Args:
-        chat_id: Chat ID string (e.g., 'eval-eval-1-doc-totals-Meta-Llama-3.1-8B-Instruct-Q5_K_M')
-        available_models: Optional list of known model filenames for matching. If None, discovers models.
-
-    Returns:
-        Display name from profile (e.g., 'Llama 3.1 8B') or None if model not found
-    """
-    model_filename = extract_model_name_from_chat_id(chat_id, available_models)
-    if model_filename:
-        return get_model_display_name(model_filename)
-    return None

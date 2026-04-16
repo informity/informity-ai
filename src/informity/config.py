@@ -39,30 +39,6 @@ APP_DISPLAY_NAME = 'Informity AI'  # User-facing product name (UI, prompts, API 
 APP_DATA_DIRNAME = '.informity'    # Default app data directory name under user home
 
 # ==============================================================================
-# Repo root detection
-# ==============================================================================
-
-def _get_repo_root() -> Path:
-    """
-    Find project root (directory containing pyproject.toml).
-    Starts from config.py location and walks up to find pyproject.toml.
-    Falls back to current working directory if not found.
-    """
-    env_repo_root = os.environ.get('INFORMITY_REPO_ROOT', '').strip()
-    if env_repo_root:
-        return normalize_path(Path(env_repo_root), expand_user=True)
-
-    # config.py is at: src/informity/config.py
-    # So repo root is: config.py -> informity -> src -> repo_root
-    current = Path(__file__).resolve().parent.parent.parent
-    while current != current.parent:
-        if (current / 'pyproject.toml').exists():
-            return current
-        current = current.parent
-    # Fallback: use current working directory
-    return Path.cwd()
-
-# ==============================================================================
 # Defaults
 # ==============================================================================
 
@@ -477,15 +453,6 @@ class Settings(BaseSettings):
     chat_auto_continue_default_max_rounds: int = 2
     chat_auto_continue_hard_cap: int = 3
     chat_auto_continue_prompt: str = _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT
-    # Fit-to-budget rollout controls (Phase 5):
-    # - dev: enabled only in dev_reload sessions
-    # - power_users: deterministic subset rollout (~35%)
-    # - default_on: enabled for everyone
-    fit_to_budget_enabled: bool = True
-    fit_to_budget_rollout_stage: Literal['dev', 'power_users', 'default_on'] = 'default_on'
-    fit_to_budget_tuning_days: int = 14
-    fit_to_budget_tuning_min_samples: int = 20
-
     # -- Server ---------------------------------------------------------------
     host: str = '127.0.0.1'
     port: int = 8420

@@ -170,7 +170,6 @@ src/informity/
 │   ├── term_dictionary.py          # Runtime query expansion via corpus term dictionary
 │   ├── intent_router.py            # Promptcue-backed intent classification router
 │   ├── classification_policy.py    # Intent routing policy and normalization
-│   ├── fit_to_budget_tuning.py     # Adaptive context-window budget policies
 │   ├── promptcue_adapter.py        # Adapter for promptcue intent classification
 │   ├── chat_mode.py                # Assistant vs Researcher mode routing policy
 │   ├── contract_gate.py            # Final closeout contract validation/repair

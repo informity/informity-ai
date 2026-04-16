@@ -156,6 +156,12 @@ class MetadataHandler:
             return None
         return year
 
+    def _normalize_extension(self, extension: str) -> str:
+        normalized = str(extension or '').strip()
+        if not normalized:
+            return normalized
+        return normalized if normalized.startswith('.') else f'.{normalized}'
+
     async def _get_count(
         self,
         db: aiosqlite.Connection,
@@ -175,10 +181,7 @@ class MetadataHandler:
             params.append(classification.category_filter)
 
         if classification.file_type_filter:
-            # Normalize extension (ensure it starts with dot)
-            extension = classification.file_type_filter
-            if not extension.startswith('.'):
-                extension = f'.{extension}'
+            extension = self._normalize_extension(classification.file_type_filter)
             conditions.append('extension = ?')
             params.append(extension)
 
@@ -233,9 +236,7 @@ class MetadataHandler:
                 params.append(classification.category_filter)
 
             if classification.file_type_filter:
-                extension = classification.file_type_filter
-                if not extension.startswith('.'):
-                    extension = f'.{extension}'
+                extension = self._normalize_extension(classification.file_type_filter)
                 conditions.append('extension = ?')
                 params.append(extension)
 
@@ -290,9 +291,7 @@ class MetadataHandler:
             conditions.append('category = ?')
             params.append(classification.category_filter)
         if classification.file_type_filter:
-            extension = classification.file_type_filter
-            if not extension.startswith('.'):
-                extension = f'.{extension}'
+            extension = self._normalize_extension(classification.file_type_filter)
             conditions.append('extension = ?')
             params.append(extension)
         if classification.filename_filter:
@@ -548,10 +547,7 @@ class MetadataHandler:
             params.append(classification.category_filter)
 
         if classification.file_type_filter:
-            # Normalize extension (ensure it starts with dot)
-            extension = classification.file_type_filter
-            if not extension.startswith('.'):
-                extension = f'.{extension}'
+            extension = self._normalize_extension(classification.file_type_filter)
             conditions.append('extension = ?')
             params.append(extension)
 
