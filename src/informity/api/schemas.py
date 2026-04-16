@@ -122,12 +122,10 @@ class ChatStopRequest(BaseModel):
 
 class ChatSourceReference(BaseModel):
     # A source document cited in a chat response.
-    filename:          str
-    path:              str
-    chunk_preview:     str      # The chunk text that was used
-    relevance_score:   float
-    extraction_quality: str | None = None  # 'high', 'medium', 'low' (derived from confidence)
-    extraction_note:    str | None = None  # e.g. "Text extracted from PDF" or "OCR used"
+    filename:        str
+    path:            str
+    chunk_preview:   str      # The chunk text that was used
+    relevance_score: float
 
 
 # ==============================================================================
