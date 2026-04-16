@@ -2,7 +2,7 @@
 
 This file is the **single source of truth** for types, interfaces, and module responsibilities. When generating code for any module, consult this file first.
 
-**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, security, chat_completion_policy, chat_out_of_corpus, chat_sources, error_messages, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils); `scanner/` (crawler, watcher, extractors — docling unified extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, model_adapter, rag QueryRouter, query_classifier, query_patterns, nlp_heuristics, types, retrieval, prompt_builder, streaming, metadata_filters, intent_router, classification_policy, fit_to_budget_tuning, promptcue_adapter, term_dictionary, chat_mode, contract_gate, contract_prompt_parser, metrics_payload, system_prompts, timeout_policy, user_messages, web_search, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics runtime modules: `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
+**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, security, chat_completion_policy, chat_out_of_corpus, chat_sources, error_messages, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils); `sources/` (base, filesystem_adapter, registry, orchestrator); `scanner/` (crawler, watcher, extractors — docling unified extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, model_adapter, rag QueryRouter, query_classifier, query_patterns, nlp_heuristics, types, retrieval, prompt_builder, streaming, metadata_filters, intent_router, classification_policy, promptcue_adapter, term_dictionary, chat_mode, contract_gate, contract_prompt_parser, metrics_payload, system_prompts, timeout_policy, user_messages, web_search, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics runtime modules: `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
 
 ---
 
@@ -80,9 +80,8 @@ class Settings(BaseSettings):
     llm_max_tokens:      int   = 2048
     llm_temperature:      float = 0.2
     # NOTE: rag_top_k and rag_coverage_top_k are NOT in config — retrieval top-k is model-profile-only.
-    # Use model_adapter.get_retrieval_top_k(query_type); future adaptive tuning may override there.
-    rag_max_score:        float = 0.8   # Max L2 distance for relevant chunk (lower = stricter)
-    rag_context_ratio:     float = 0.75  # Share of prompt budget for context (rest for chat history)
+    # NOTE: rag_max_score and rag_context_ratio are model-profile-owned (not global settings).
+    # Use model_adapter profile defaults/overrides for retrieval thresholds and context budgeting.
     rag_rerank:           bool  = True
     rag_reranker_model:    str   = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
     rag_rerank_candidates: int  = 25    # Reduced from 35 for speed (reranker most effective on top 20-30)
@@ -639,7 +638,7 @@ class HealthResponse(BaseModel):
 
 ### `file_patterns.py`
 - Standardized patterns for file metadata extraction and matching: extension lists, filename patterns, year extraction.
-- Provides: `get_all_supported_extensions()`, `get_extensions_without_dot()`, `YEAR_PATTERN`, `extract_year_from_text()`, `build_filename_pattern()`, `build_filename_detection_patterns()`, `build_extension_query_patterns()`, etc.
+- Provides: `get_all_supported_extensions()`, `get_extensions_without_dot()`, `YEAR_PATTERN`, `extract_year_from_text()`, `build_filename_detection_patterns()`, `build_extension_query_patterns()`, etc.
 - Single source of truth for file-related regex patterns used across the codebase.
 - **Imports:** re, file_types
 - **Imported by:** llm.metadata_filters, indexer.classifier

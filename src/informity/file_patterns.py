@@ -83,57 +83,6 @@ def build_extension_regex_pattern(extensions: list[str] | None = None) -> str:
     return '|'.join(ext_names)
 
 
-def build_extension_pattern_regex(extensions: list[str] | None = None) -> Pattern[str]:
-    """
-    Build compiled regex pattern for matching extensions in text.
-
-    Pattern matches: ".pdf", ".docx", etc. (with word boundaries)
-
-    Args:
-        extensions: Optional list of extensions (with dots). If None, uses all supported.
-
-    Returns:
-        Compiled regex pattern
-    """
-    ext_pattern = build_extension_regex_pattern(extensions)
-    pattern = rf'\.({ext_pattern})\b'
-    return re.compile(pattern, re.IGNORECASE)
-
-
-# ==============================================================================
-# Filename Pattern Builders
-# ==============================================================================
-
-def build_filename_pattern(extensions: list[str] | None = None) -> Pattern[str]:
-    """
-    Build compiled regex pattern for matching filenames with extensions.
-
-    Pattern matches filenames with spaces, hyphens, dots, ending with extension.
-    Example: "2025 Informity - San Diego Business Tax Certificate.pdf"
-
-    The pattern matches filenames that start with a digit or uppercase letter,
-    preventing matches from question words like "What" (which start with lowercase).
-    For queries like "What does 2025 file.pdf", it correctly matches "2025 file.pdf"
-    because it starts with a digit.
-
-    Args:
-        extensions: Optional list of extensions (with dots). If None, uses all supported.
-
-    Returns:
-        Compiled regex pattern (captures full filename including extension)
-    """
-    ext_pattern = build_extension_regex_pattern(extensions)
-    # Pattern: filename starting with digit (common: "2025 file.pdf") or uppercase letter,
-    # containing word chars/spaces/dots/hyphens, ending with extension.
-    # To prevent false matches from question words, we require the match to either:
-    # 1. Start with a digit (most common case)
-    # 2. Be preceded by whitespace/punctuation (not mid-word)
-    # Captures: full filename including extension
-    # Note: Using negative lookbehind to ensure we don't match from middle of words
-    pattern = rf'(?<!\w)([\dA-Z][\w .-]*\.({ext_pattern}))'
-    return re.compile(pattern, re.IGNORECASE)
-
-
 def build_filename_detection_patterns(extensions: list[str] | None = None) -> list[Pattern[str]]:
     """
     Build list of regex patterns for detecting filename references in queries.
