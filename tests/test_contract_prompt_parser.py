@@ -75,3 +75,18 @@ def test_extract_required_labels_supports_columns_and_format_cues() -> None:
     assert 'Value' in labels
     assert 'Source Snippet' in labels
     assert 'Year' in labels
+
+
+def test_extract_required_labels_supports_include_list_cue() -> None:
+    question = (
+        'Compare records from different years and explain where totals or balances disagree. '
+        'Include conflict statement, involved documents, conflicting values, and likely reason grounded in evidence.'
+    )
+    labels = parser.extract_required_labels(question)
+    assert 'conflict statement' in [label.casefold() for label in labels]
+    assert 'involved documents' in [label.casefold() for label in labels]
+    assert 'conflicting values' in [label.casefold() for label in labels]
+
+
+def test_has_year_subsection_cue_does_not_trigger_on_generic_by_year_phrase() -> None:
+    assert parser.has_year_subsection_cue('Provide a concise synthesis of trends by year.') is False
