@@ -230,7 +230,6 @@ _RETRIEVAL_TUNING_PREFIXES = (
 _TERM_DICTIONARY_PREFIX    = 'term_dictionary_'
 _INTERNAL_CONSTANTS_PREFIXES = (
     'extraction_',
-    'fit_to_budget_',
     'scan_stale_',
     'scan_timeout_policy',
 )
