@@ -22,7 +22,7 @@ YEAR_SUBSECTION_CUES = (
     r'one\s+subsection\s+per\s+(?:indexed|available|requested)?\s*year',
     r'for\s+each\s+year',
     r'findings\s+by\s+year',
-    r'\b(?:by|per)\s+year\b',
+    r'year-based\s+subsections?',
 )
 
 
@@ -121,6 +121,9 @@ def extract_required_labels(question: str) -> list[str]:
     anchor_patterns = (
         r'\bcolumns?\s*:\s*',
         r'\bformat\s*:\s*',
+        r'\binclude\s*:\s*',
+        r'\binclude\s+',
+        r'\bincluding\s+',
     )
     for anchor in anchor_patterns:
         for match in re.finditer(anchor, text, flags=re.IGNORECASE):
