@@ -354,7 +354,7 @@
 
 .chat-message__typing-progress {
   margin-top: 0.15rem;
-  color: var(--color-text-muted);
+  color: var(--color-text-dimmed);
   font-size: var(--font-size-description);
 }
 
@@ -362,7 +362,7 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--color-text-muted);
+  background: var(--color-text-dimmed);
   animation: chat-message-typing-bounce 1.2s infinite;
 }
 
@@ -557,7 +557,7 @@
   display: flex;
   align-items: center;
   gap: var(--chat-meta-group-gap);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-description);
   color: var(--color-text-dimmed);
 }
 
@@ -568,7 +568,8 @@
 }
 
 .chat-message__meta-icon {
-  font-size: 0.875rem;
+  font-size: 1em;
+  color: inherit;
 }
 
 .chat-message__meta-sep {
@@ -627,7 +628,8 @@
 }
 
 .chat-message__sources-chevron {
-  font-size: 0.875rem;
+  font-size: 1em;
+  color: inherit;
   transition: transform var(--transition-fast);
 }
 
@@ -643,7 +645,7 @@
 }
 
 .chat-message__time {
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-description);
   color: var(--color-text-dimmed);
 }
 
@@ -659,6 +661,7 @@
   border-radius: 4px;
   background: transparent;
   color: var(--color-text-dimmed);
+  font-size: var(--font-size-description);
   cursor: pointer;
   opacity: 0.6;
 }
