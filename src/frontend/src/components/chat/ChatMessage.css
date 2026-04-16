@@ -349,13 +349,13 @@
   flex-direction: column;
   margin-left: 0.4rem;
   color: var(--color-text-dimmed);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-description);
 }
 
 .chat-message__typing-progress {
   margin-top: 0.15rem;
   color: var(--color-text-muted);
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-description);
 }
 
 .chat-message__typing-dot {
