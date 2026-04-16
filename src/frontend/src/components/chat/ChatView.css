@@ -519,7 +519,7 @@
 }
 
 .chat-view__disclaimer {
-  font-size: var(--font-size-caption);
+  font-size: var(--font-size-description);
   color: var(--color-text-dimmed);
   text-align: center;
   margin: var(--space-sm) 0 0;
