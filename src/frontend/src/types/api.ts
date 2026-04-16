@@ -8,8 +8,6 @@ export interface ChatSourceReference {
   path: string
   chunk_preview: string
   relevance_score: number
-  extraction_quality?: string | null
-  extraction_note?: string | null
 }
 
 export interface DisplayTextBlock {
