@@ -76,7 +76,7 @@ _DIAGNOSTICS_PROFILE_PRESETS: dict[str, dict[str, object]] = {
 _SUPPORTED_MAIN_MODEL_PROFILES: set[str] = {
     'Qwen3.5 9B',
     'Qwen3 14B',
-    'Qwen3.5 35B A3B',
+    'Qwen3.6 35B A3B',
 }
 
 

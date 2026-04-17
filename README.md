@@ -66,7 +66,7 @@ For first-run setup testing (install app/runtime dependencies only, no models pr
 INFORMITY_INSTALL_PROFILE=dev INFORMITY_INSTALL_SKIP_MODELS=1 ./scripts/install_app.sh
 ```
 
-- Uses `scripts/install.conf.json` for model IDs: `embedding_model`, `reranker_model` (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`), and optional LLM (default: **Qwen3.5 35B A3B** Q4_K_M via `repo_id` / `filename`).
+- Uses `scripts/install.conf.json` for model IDs: `embedding_model`, `reranker_model` (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`), and optional LLM (default: **Qwen3.6 35B A3B** Q4_K_M via `repo_id` / `filename`).
 - Downloads all models to `~/.informity/` by default (override with `INFORMITY_APP_DATA_DIR`) and writes `config.json` with `full_privacy=true` (no network after install).
 - After this, the app will **never** auto-download; it only uses what’s already in app data. With those settings enabled, the app makes **no network requests after install** (no Hugging Face or internet contact).
 
@@ -74,7 +74,7 @@ INFORMITY_INSTALL_PROFILE=dev INFORMITY_INSTALL_SKIP_MODELS=1 ./scripts/install_
 To remove all user data and downloaded content and return to a fresh distribution state (as after cloning), run from repo root: `./scripts/install_uninstall_app.sh` or `make uninstall`. This removes the app data directory (config, database, embedding cache, LLM models, vectors, logs), the virtualenv (`.venv`), and local caches. Run `./scripts/install_app.sh` again to reinstall.
 
 **Reset (in-app)**  
-Settings → Reset restores all settings to factory defaults (including default LLM: Qwen3.5 35B A3B). Index → Reset deletes all indexed data and chat history and also resets settings to the same defaults. For a full local cleanup and reset, run `./scripts/install_uninstall_app.sh` (or `make uninstall`). Then run `./scripts/install_app.sh` to reinstall.
+Settings → Reset restores all settings to factory defaults (including default LLM: Qwen3.6 35B A3B). Index → Reset deletes all indexed data and chat history and also resets settings to the same defaults. For a full local cleanup and reset, run `./scripts/install_uninstall_app.sh` (or `make uninstall`). Then run `./scripts/install_app.sh` to reinstall.
 
 **Option B — First-run auto-download**  
 Just run the app. On first search/index/chat it may download the embedding model, reranker, and LLM if not already present. In Settings → Full Privacy Mode you can turn **“Enable”** on so future runs are fully offline.
@@ -122,8 +122,8 @@ The app is **offline-first by default**. With **Full Privacy Mode** on (Settings
 
 - **Two models in the Hugging Face cache** (`cache/huggingface/hub/` under app data): (1) **Embedding model** (`nomic-ai/nomic-embed-text-v1.5`) for document and query vectors; (2) **Reranker** (`cross-encoder/ms-marco-MiniLM-L-6-v2`) for re-ranking search results. Settings → System shows both for transparency.
 - With `full_privacy=true` (default after install), embedding and reranker are loaded only from this cache. Set `INFORMITY_FULL_PRIVACY=false` (or turn off in Settings) once to allow downloads, then turn Full Privacy Mode back on for offline use.
-- **LLM (GGUF):** App default model is **Qwen3.5 35B A3B** (`Qwen3.5-35B-A3B-Q4_K_M.gguf`), stored in `models/llm/` under the app data directory. With `llm_local_only=true` (default), the app only loads from this directory and never downloads. Place your `.gguf` file there, or set `INFORMITY_LLM_LOCAL_ONLY=false` once to allow a one-time download, then set it back to true.  
-  Note: the optional installer seed in `scripts/install.conf.json` points to Qwen3.5 35B A3B.
+- **LLM (GGUF):** App default model is **Qwen3.6 35B A3B** (`Qwen3.6-35B-A3B-Q4_K_M.gguf`), stored in `models/llm/` under the app data directory. With `llm_local_only=true` (default), the app only loads from this directory and never downloads. Place your `.gguf` file there, or set `INFORMITY_LLM_LOCAL_ONLY=false` once to allow a one-time download, then set it back to true.  
+  Note: the optional installer seed in `scripts/install.conf.json` points to Qwen3.6 35B A3B.
 
 After models are in place, the app runs fully offline with no internet required.
 
@@ -135,7 +135,7 @@ After models are in place, the app runs fully offline with no internet required.
 - **SQLite** via aiosqlite — metadata, config, chat history, vector storage (via sqlite-vec extension)
 - **sqlite-vec** — vector storage extension for SQLite (embeddings stored in `vec_chunks` table)
 - **sentence-transformers** (nomic-embed-text-v1.5) — embedding generation; (ms-marco-MiniLM-L-6-v2) — optional cross-encoder re-ranking
-- **xllamacpp** (with Metal/GPU) — local LLM inference (app default: Qwen3.5 35B A3B Q4_K_M)
+- **xllamacpp** (with Metal/GPU) — local LLM inference (app default: Qwen3.6 35B A3B Q4_K_M)
 
 ## Project Structure
 
@@ -163,7 +163,7 @@ src/informity/
 │   └── pipeline.py                 # index_file, reindex_file, remove_file — orchestration
 ├── llm/
 │   ├── engine.py                   # LLM inference (xllamacpp, Metal)
-│   ├── model_adapter.py            # Per-model profiles (Qwen3 14B, Qwen3.5 9B, Qwen3.5 35B A3B)
+│   ├── model_adapter.py            # Per-model profiles (Qwen3 14B, Qwen3.5 9B, Qwen3.6 35B A3B)
 │   ├── rag.py                      # QueryRouter — dispatches to handlers based on intent
 │   ├── query_classifier.py         # Deterministic slot extraction + NLP/promptcue intent routing
 │   ├── retrieval.py                # Unified retrieval pipeline (vector search → rerank)

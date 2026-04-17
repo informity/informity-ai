@@ -73,7 +73,7 @@ _DECIMAL_GB = 1_000_000_000
 _MODEL_SIZE_BYTES = {
     'Qwen_Qwen3.5-9B-Q4_K_M.gguf': 5_889_811_552,
     'Qwen3-14B-Q5_K_M.gguf': 10_514_569_568,
-    'Qwen3.5-35B-A3B-Q4_K_M.gguf': 22_016_023_168,
+    'Qwen3.6-35B-A3B-Q4_K_M.gguf': 22_134_528_992,
 }
 _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
     SetupTierOption(
@@ -103,10 +103,10 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
     SetupTierOption(
         tier='quality',
         title='Quality',
-        display_name=get_model_display_name('Qwen3.5-35B-A3B-Q4_K_M.gguf'),
-        model_filename='Qwen3.5-35B-A3B-Q4_K_M.gguf',
-        model_size_bytes=_MODEL_SIZE_BYTES['Qwen3.5-35B-A3B-Q4_K_M.gguf'],
-        approx_size_gb=round(_MODEL_SIZE_BYTES['Qwen3.5-35B-A3B-Q4_K_M.gguf'] / _DECIMAL_GB, 2),
+        display_name=get_model_display_name('Qwen3.6-35B-A3B-Q4_K_M.gguf'),
+        model_filename='Qwen3.6-35B-A3B-Q4_K_M.gguf',
+        model_size_bytes=_MODEL_SIZE_BYTES['Qwen3.6-35B-A3B-Q4_K_M.gguf'],
+        approx_size_gb=round(_MODEL_SIZE_BYTES['Qwen3.6-35B-A3B-Q4_K_M.gguf'] / _DECIMAL_GB, 2),
         quality='Highest',
         speed='Slower',
         ram_profile='Higher RAM',
@@ -116,17 +116,16 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
 _SETUP_TIER_REPOS: dict[str, str] = {
     'small': 'bartowski/Qwen_Qwen3.5-9B-GGUF',
     'balanced': 'Qwen/Qwen3-14B-GGUF',
-    'quality': 'unsloth/Qwen3.5-35B-A3B-GGUF',
+    'quality': 'unsloth/Qwen3.6-35B-A3B-GGUF',
 }
 _SETUP_TIER_REVISIONS: dict[str, str] = {
     'small': 'ff13963796ee209598509a81340172bb1c3869fe',
     'balanced': '530227a7d994db8eca5ab5ced2fb692b614357fd',
-    'quality': 'bc014a17be43adabd7066b7a86075ff935c6a4e2',
 }
 _SETUP_MODEL_SHA256: dict[str, str] = {
     'Qwen_Qwen3.5-9B-Q4_K_M.gguf': '9437f5bf0dd0c97800caaf902f41e6a6aa00223ab232f159eda41dcbbb492645',
     'Qwen3-14B-Q5_K_M.gguf': 'e7c9aba1129ca2936be9eca01419d9f86af40e08caa01230d5574b34d08e3e31',
-    'Qwen3.5-35B-A3B-Q4_K_M.gguf': '3b46d1066bc91cc2d613e3bc22ce691dd77e6f0d33c9060690d24ce6de494375',
+    'Qwen3.6-35B-A3B-Q4_K_M.gguf': 'ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61',
 }
 _setup_runtime: dict[str, object] = {
     'state': SetupState.REQUIRED.value,
