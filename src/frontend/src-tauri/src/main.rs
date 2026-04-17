@@ -1030,6 +1030,7 @@ fn set_menu_bar_icon_enabled(app: AppHandle, enabled: bool) -> Result<(), String
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
         .enable_macos_default_menu(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             MENU_APP_PREFERENCES_ID => emit_menu_action(app, "preferences"),
