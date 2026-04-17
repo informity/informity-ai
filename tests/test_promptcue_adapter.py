@@ -7,3 +7,7 @@ def test_map_intent_keeps_coverage_for_analysis_in_focused_scope() -> None:
 
 def test_map_intent_promotes_lookup_to_coverage_in_broad_scope() -> None:
     assert _map_intent('lookup', 'broad') == 'coverage'
+
+
+def test_map_intent_routes_chat_summary_to_simple() -> None:
+    assert _map_intent('chat_summary', 'focused') == 'simple'

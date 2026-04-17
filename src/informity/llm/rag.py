@@ -173,6 +173,7 @@ async def answer_question(
                 db=db,
                 trace=trace,
                 diagnostics_context=diagnostics_context,
+                chat_id=chat_id,
                 chat_mode='assistant',
                 chat_web_search_enabled=chat_web_search_enabled,
                 chat_web_search_privacy_override=chat_web_search_privacy_override,
@@ -293,6 +294,7 @@ async def answer_question(
                     db=db,
                     trace=trace,
                     diagnostics_context=diagnostics_context,
+                    chat_id=chat_id,
                 ):
                     yield item
                 return
@@ -322,6 +324,7 @@ async def answer_question(
                     db=db,
                     trace=trace,
                     diagnostics_context=diagnostics_context,
+                    chat_id=chat_id,
                 ):
                     if isinstance(item, list):
                         for source in item:

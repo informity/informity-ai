@@ -6,6 +6,7 @@ from informity.llm.intent_router import (
     get_intent_router,
     set_intent_router_for_testing,
 )
+from informity.llm.promptcue_adapter import PromptCueIntentAdapter
 from informity.llm.query_classifier import QueryClassification, classify_query
 
 
@@ -104,6 +105,68 @@ def test_non_promptcue_router_does_not_synthesize_freshness_signals() -> None:
     result = classify_query('What is the weather in Escondido, CA today and tomorrow?')
     assert result.needs_current_info is False
     assert result.mentions_time is False
+    assert result.needs_chat_history is False
+
+
+def test_deterministic_chat_summary_fallback_sets_simple_and_chat_history() -> None:
+    class _CoverageRouter:
+        def classify_intent(self, _query: str) -> IntentPrediction:
+            return IntentPrediction('coverage', 0.8, [('coverage', 0.8)], ['forced_coverage'])
+
+    original = get_intent_router()
+    set_intent_router_for_testing(_CoverageRouter())
+    try:
+        result = classify_query('What have we been chatting about?')
+    finally:
+        set_intent_router_for_testing(original)
+
+    assert result.intent == 'simple'
+    assert result.needs_chat_history is True
+    assert 'deterministic_chat_summary_to_simple' in result.reason_codes
+
+
+def test_promptcue_router_passes_through_needs_chat_history() -> None:
+    class _FakeSemanticHints:
+        requests_structure = False
+        requests_comparison = False
+        requires_multi_period_analysis = False
+        mentions_time = False
+
+    class _FakePromptCue:
+        scope = 'focused'
+        primary_query_type = 'chat_summary'
+        confidence = 0.97
+        classification_basis = 'trigger_match'
+        candidate_query_types: list[object] = []
+        routing_hints = {
+            'needs_retrieval': False,
+            'needs_current_info': False,
+            'needs_reasoning': False,
+            'needs_structure': False,
+            'needs_chat_history': True,
+        }
+        action_hints = {}
+        is_continuation = False
+        semantic_hints = _FakeSemanticHints()
+
+    adapter = PromptCueIntentAdapter()
+
+    def _classify(_query: str) -> tuple[IntentPrediction, object]:
+        return (
+            IntentPrediction('simple', 0.97, [('simple', 0.97)], ['promptcue_adapter', 'basis:trigger_match']),
+            _FakePromptCue(),
+        )
+
+    original = get_intent_router()
+    adapter.classify = _classify  # type: ignore[method-assign]
+    set_intent_router_for_testing(adapter)
+    try:
+        result = classify_query('What have we been chatting about?')
+    finally:
+        set_intent_router_for_testing(original)
+
+    assert result.intent == 'simple'
+    assert result.needs_chat_history is True
 
 
 def test_filename_slot_extraction() -> None:

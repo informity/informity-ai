@@ -696,6 +696,7 @@ class RAGHandler:
         db:             aiosqlite.Connection,
         trace:          object | None,
         diagnostics_context: dict[str, object] | None = None,
+        chat_id: str | None = None,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         """
         Handle RAG query using the single minimal runtime path.
