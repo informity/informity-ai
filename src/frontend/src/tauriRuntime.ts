@@ -117,6 +117,23 @@ export async function nativePickDirectoryDialog(title = 'Choose Folder'): Promis
   }
 }
 
+export async function openExternalUrl(rawUrl: string): Promise<boolean> {
+  const url = String(rawUrl || '').trim()
+  if (!url) return false
+
+  if (isDesktopRuntime()) {
+    try {
+      await invokeTauri<void>('plugin:shell|open', { path: url })
+      return true
+    } catch {
+      // Fall through to browser fallback.
+    }
+  }
+
+  const opened = window.open(url, '_blank', 'noopener,noreferrer')
+  return opened !== null
+}
+
 export async function bootstrapDesktopBackend(onStatus?: StartupStatusCallback): Promise<void> {
   if (!isDesktopRuntime()) {
     window.__INFORMITY_DESKTOP__ = false

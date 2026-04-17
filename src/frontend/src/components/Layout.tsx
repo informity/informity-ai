@@ -5,7 +5,7 @@ import { KeyboardShortcutsModal } from './KeyboardShortcutsModal'
 import { NetworkBanner } from './NetworkBanner'
 import { PageFooter } from './PageFooter'
 import { useBackendStatus } from '../context/useBackendStatus'
-import { listenDesktopMenuActions } from '../tauriRuntime'
+import { listenDesktopMenuActions, openExternalUrl } from '../tauriRuntime'
 import {
   MENU_NEW_CHAT_PENDING_KEY,
   MENU_SCAN_NOW_PENDING_KEY,
@@ -82,6 +82,34 @@ export function Layout() {
     window.addEventListener('keydown', handleKeyDown)
     return () => window.removeEventListener('keydown', handleKeyDown)
   }, [navigate, requestNewChat])
+
+  useEffect(() => {
+    const isExternalHref = (href: string): boolean => {
+      const normalized = href.trim().toLowerCase()
+      return (
+        normalized.startsWith('http://')
+        || normalized.startsWith('https://')
+        || normalized.startsWith('mailto:')
+        || normalized.startsWith('tel:')
+      )
+    }
+
+    const handleDocumentClick = (event: MouseEvent) => {
+      if (event.defaultPrevented) return
+      const target = event.target as HTMLElement | null
+      const anchor = target?.closest('a[href]') as HTMLAnchorElement | null
+      if (!anchor) return
+      const href = anchor.getAttribute('href') || ''
+      if (!isExternalHref(href)) return
+      event.preventDefault()
+      void openExternalUrl(href)
+    }
+
+    document.addEventListener('click', handleDocumentClick)
+    return () => {
+      document.removeEventListener('click', handleDocumentClick)
+    }
+  }, [])
 
   useEffect(() => {
     if (pathname !== '/chat') return
