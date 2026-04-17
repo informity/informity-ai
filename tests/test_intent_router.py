@@ -50,11 +50,11 @@ class TestMapIntent:
     def test_unknown_type_defaults_to_focused(self) -> None:
         assert _map_intent('unknown_type', 'broad') == 'focused'
 
-    def test_all_twelve_types_are_mapped(self) -> None:
+    def test_all_query_types_are_mapped(self) -> None:
         expected_types = {
             'chitchat', 'lookup', 'procedure', 'troubleshooting',
             'recommendation', 'validation', 'update',
-            'analysis', 'comparison', 'summarization', 'coverage', 'generation',
+            'analysis', 'comparison', 'summarization', 'chat_summary', 'coverage', 'generation',
         }
         assert set(_DEFAULT_INTENT.keys()) == expected_types
 
