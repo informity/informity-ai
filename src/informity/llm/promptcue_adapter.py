@@ -40,6 +40,7 @@ _DEFAULT_INTENT: dict[str, IntentLabel] = {
     'analysis':        IntentLabel.COVERAGE,
     'comparison':      IntentLabel.COVERAGE,
     'summarization':   IntentLabel.COVERAGE,
+    'chat_summary':    IntentLabel.SIMPLE,
     'coverage':        IntentLabel.COVERAGE,
     'generation':      IntentLabel.COVERAGE,
 }

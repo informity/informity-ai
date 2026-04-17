@@ -273,6 +273,19 @@ ANCHOR_DOCUMENT_TERM_KEYWORDS: str = (
 )
 QUOTED_PHRASE_KEYWORDS: str = r'["\']([^"\']{3,80})["\']'
 CORPUS_DOCUMENT_SCOPE_KEYWORDS: str = r'\b(indexed\s+)?(files?|documents?|records?)\b'
+CHAT_SUMMARY_KEYWORDS: str = (
+    r'\b('
+    r'summar(?:ize|ise)\s+(?:our|this)\s+(?:chat|conversation|discussion)'
+    r'|'
+    r'recap\s+(?:our|this)\s+(?:chat|conversation|discussion)'
+    r'|'
+    r'what\s+have\s+we\s+been\s+(?:chatting|discussing)\s+about'
+    r'|'
+    r'(?:show|list)\s+(?:me\s+)?(?:our\s+)?(?:chat|conversation|discussion)\s+topics'
+    r'|'
+    r'topics?\s+(?:in|from)\s+(?:our|this)\s+(?:chat|conversation|discussion)'
+    r')\b'
+)
 
 
 # ==============================================================================
@@ -537,3 +550,8 @@ def build_quoted_phrase_pattern() -> Pattern[str]:
 def build_corpus_document_scope_pattern() -> Pattern[str]:
     """Build regex pattern for corpus document-scope references."""
     return re.compile(CORPUS_DOCUMENT_SCOPE_KEYWORDS, re.IGNORECASE)
+
+
+def build_chat_summary_pattern() -> Pattern[str]:
+    """Build regex pattern for chat recap / conversation-summary requests."""
+    return re.compile(CHAT_SUMMARY_KEYWORDS, re.IGNORECASE)

@@ -446,6 +446,13 @@ class Settings(BaseSettings):
     # Researcher mode should remain conservative to preserve retrieval context budget.
     chat_history_messages_assistant: int = 12
     chat_history_messages_researcher: int = 5
+    # Chat-summary mode controls (chat-history recap intent).
+    # Direct mode includes all turns when chat length is within this message count.
+    # Above the threshold, runtime switches to hierarchical summarize-then-merge.
+    chat_summary_direct_max_messages: int = 40
+    chat_summary_chunk_messages: int = 20
+    chat_summary_max_chunks: int = 12
+    chat_summary_max_chars_per_message: int = 900
     # Default chat mode shown in the Chat UI.
     default_chat_mode: Literal['assistant', 'researcher'] = 'researcher'
     # Chat auto-continuation policy for long/strict outputs.

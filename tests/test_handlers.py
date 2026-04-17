@@ -914,3 +914,108 @@ class TestSimpleHandler:
         assert 'without document retrieval' in lowered
         assert 'if asked about document search' not in lowered
         assert 'you can:' not in lowered
+
+    @pytest.mark.asyncio
+    async def test_handle_chat_summary_mode_disables_web_search_and_uses_chat_prompt(self) -> None:
+        handler = SimpleHandler()
+        classification = QueryClassification(intent='simple', needs_chat_history=True)
+        mock_db = MagicMock()
+        captured_messages: list[dict[str, str]] = []
+        history = [
+            ChatMessage(chat_id='c1', role='user', content='We discussed Plato and Aristotle.'),
+            ChatMessage(chat_id='c1', role='assistant', content='Yes, and their views on forms and causality.'),
+        ]
+
+        async def _fake_stream_llm(messages, *_args, **_kwargs):
+            captured_messages.extend(messages)
+            yield 'summary'
+
+        with (
+            patch('informity.llm.handlers.simple.stream_llm', _fake_stream_llm),
+            patch('informity.llm.handlers.simple.has_any_provider_api_key', return_value=True),
+            patch('informity.llm.handlers.simple.search_web') as mock_search_web,
+        ):
+            async for _item in handler.handle(
+                'What have we been chatting about?',
+                classification,
+                history,
+                mock_db,
+                None,
+                chat_mode='assistant',
+                chat_web_search_enabled=True,
+            ):
+                pass
+
+        assert mock_search_web.called is False
+        assert captured_messages
+        system_message = captured_messages[0]['content'].lower()
+        assert 'summarize this chat conversation only' in system_message
+
+    @pytest.mark.asyncio
+    async def test_handle_chat_summary_mode_loads_chat_id_history_and_excludes_internal(self) -> None:
+        handler = SimpleHandler()
+        classification = QueryClassification(intent='simple', needs_chat_history=True)
+        mock_db = MagicMock()
+        captured_messages: list[dict[str, str]] = []
+        db_messages = [
+            ChatMessage(chat_id='c77', role='user', content='Topic A'),
+            ChatMessage(chat_id='c77', role='assistant', content='Reply A'),
+            ChatMessage(chat_id='c77', role='user', content='internal continuation prompt', is_internal=True),
+            ChatMessage(chat_id='c77', role='user', content='What have we been chatting about?'),
+        ]
+
+        async def _fake_stream_llm(messages, *_args, **_kwargs):
+            captured_messages.extend(messages)
+            yield 'summary'
+
+        with (
+            patch('informity.llm.handlers.simple.stream_llm', _fake_stream_llm),
+            patch('informity.llm.handlers.simple.get_chat', new_callable=AsyncMock) as mock_get_chat,
+        ):
+            mock_get_chat.return_value = db_messages
+            async for _item in handler.handle(
+                'What have we been chatting about?',
+                classification,
+                [],
+                mock_db,
+                None,
+                chat_id='c77',
+            ):
+                pass
+
+        assert captured_messages
+        user_prompt = captured_messages[1]['content']
+        assert 'internal continuation prompt' not in user_prompt
+        assert user_prompt.count('What have we been chatting about?') == 1
+        assert 'Topic A' in user_prompt
+        assert 'Reply A' in user_prompt
+
+    @pytest.mark.asyncio
+    async def test_handle_chat_summary_mode_hierarchical_for_long_history(self) -> None:
+        handler = SimpleHandler()
+        classification = QueryClassification(intent='simple', needs_chat_history=True)
+        mock_db = MagicMock()
+        call_count = 0
+
+        async def _fake_stream_llm(*_args, **_kwargs):
+            nonlocal call_count
+            call_count += 1
+            yield f's{call_count}'
+
+        long_history: list[ChatMessage] = []
+        for idx in range(60):
+            role = 'user' if idx % 2 == 0 else 'assistant'
+            long_history.append(ChatMessage(chat_id='c2', role=role, content=f'message {idx}'))
+
+        with patch('informity.llm.handlers.simple.stream_llm', _fake_stream_llm):
+            async for _item in handler.handle(
+                'Summarize our chat',
+                classification,
+                long_history,
+                mock_db,
+                None,
+            ):
+                pass
+
+        # hierarchical mode: multiple internal chunk summary calls + one final streamed response
+        assert call_count > 1

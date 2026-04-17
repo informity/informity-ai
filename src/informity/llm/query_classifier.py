@@ -17,6 +17,7 @@ from informity.llm.query_patterns import (
     build_aggregate_listing_scope_pattern,
     build_analysis_action_pattern,
     build_anchor_document_term_pattern,
+    build_chat_summary_pattern,
     build_comparative_pattern,
     build_continuation_pattern,
     build_corpus_document_scope_pattern,
@@ -98,6 +99,7 @@ _OUTPUT_FORMAT_NARRATIVE_PATTERN = build_output_format_narrative_pattern()
 _NEGATION_PATTERN = build_negation_pattern()
 _FILENAME_EXCLUSION_PATTERN = build_filename_exclusion_pattern()
 _COMPARATIVE_FILE_CONTENT_CUE_PATTERN = re.compile(r'\b(mention|mentions|contain|contains|include|includes)\b')
+_CHAT_SUMMARY_PATTERN = build_chat_summary_pattern()
 
 
 def _has_structured_schema_request(text: str) -> bool:
@@ -176,6 +178,10 @@ def _looks_fact_lookup_query(text: str) -> bool:
 
 def _has_aggregate_listing_scope_request(text: str) -> bool:
     return bool(_AGGREGATE_LISTING_SCOPE_PATTERN.search(text))
+
+
+def _looks_chat_summary_request(text: str) -> bool:
+    return bool(_CHAT_SUMMARY_PATTERN.search(text))
 
 
 def _resolve_comparative_group_by(text: str) -> GroupBy | None:
@@ -410,6 +416,9 @@ class QueryClassification:
     # mentions_time: forwarded from PromptCue semantic_hints when available.
     # Captures explicit temporal wording (for example, today/now/tomorrow/latest).
     mentions_time: bool = False
+    # needs_chat_history: forwarded from PromptCue routing_hints when available.
+    # Indicates intent is chat-history scoped (for example, recap of this chat).
+    needs_chat_history: bool = False
     # action_hints: forwarded from PromptCueQueryObject when the promptcue adapter is active.
     # Empty dict when a non-promptcue router is used (e.g. test fakes).
     action_hints: dict[str, bool] = field(default_factory=dict)
@@ -517,6 +526,14 @@ def classify_query(query: str) -> QueryClassification:
     ):
         intent = IntentLabel.SIMPLE
         reason_codes.append('deterministic_general_capability_to_simple')
+
+    recap_intent_requested = _looks_chat_summary_request(lowered)
+    needs_chat_history = bool(pcue and pcue.routing_hints.get('needs_chat_history'))
+    if recap_intent_requested:
+        needs_chat_history = True
+        if intent != IntentLabel.SIMPLE:
+            intent = IntentLabel.SIMPLE
+            reason_codes.append('deterministic_chat_summary_to_simple')
 
     deterministic_override = False
     route_candidate, response_shape = _resolve_base_route(
@@ -655,6 +672,7 @@ def classify_query(query: str) -> QueryClassification:
         is_continuation=is_continuation,
         needs_current_info=bool(pcue and pcue.routing_hints.get('needs_current_info')),
         mentions_time=bool(getattr(getattr(pcue, 'semantic_hints', None), 'mentions_time', False)),
+        needs_chat_history=needs_chat_history,
         action_hints=(pcue.action_hints if pcue is not None else {}),
         deterministic_override=deterministic_override,
         llm_confidence=0.0,
