@@ -184,7 +184,7 @@ class FileTypeOption(BaseModel):
 class ModelProfileInfo(BaseModel):
     # Read-only model profile information for the Settings UI.
     # All values are determined by the model profile — not user-editable.
-    name:                    str       # "Qwen3.5 35B A3B", "Qwen3 14B", etc.
+    name:                    str       # "Qwen3.6 35B A3B", "Qwen3 14B", etc.
     family:                  str       # "chatml", "llama", etc.
     supports_reasoning:      bool      # Can use <think> blocks
     reasoning_mode:          str       # "Focused queries only", "Off", etc.

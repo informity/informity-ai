@@ -160,7 +160,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('fts5_candidate_limit', 'Maximum extra candidates keyword search (FTS5) can contribute on top of vector search results. Set to 0 to disable keyword search augmentation.'),
             ('llm_context_length', 'Context window size in tokens for the LLM.'),
             ('llm_cpu_threads', 'Max CPU threads for LLM generation (0 = auto; set lower to keep system responsive during chat).'),
-            ('llm_hf_repo', 'Hugging Face repository for automatic LLM model downloads (e.g., "Qwen/Qwen3.5-35B-A3B-GGUF").'),
+            ('llm_hf_repo', 'Hugging Face repository for automatic LLM model downloads (e.g., "unsloth/Qwen3.6-35B-A3B-GGUF").'),
             ('llm_max_tokens', 'Maximum tokens to generate per response.'),
             ('llm_model_filename', 'Filename of the GGUF model file inside the models directory.'),
             ('llm_temperature', 'Sampling temperature (0 = deterministic; higher = more varied).'),
