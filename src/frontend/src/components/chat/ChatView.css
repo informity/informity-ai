@@ -184,12 +184,10 @@
     0 24px 56px rgba(0, 0, 0, 0.22);
 }
 
-/* Input area — gradient at top fades from messages into input */
+/* Input area — keep in normal flow for WebView scroll stability. */
 .chat-view__input-area {
   flex-shrink: 0;
-  position: sticky;
-  bottom: 0;
-  z-index: 1;
+  position: static;
   display: flex;
   flex-direction: column;
   gap: var(--space-xs);
@@ -226,20 +224,7 @@
 }
 
 .chat-view__input-area::before {
-  content: '';
-  position: absolute;
-  top: -9rem;
-  left: 0;
-  right: 0;
-  height: 9rem;
-  background: linear-gradient(
-    to bottom,
-    transparent 0%,
-    color-mix(in srgb, var(--color-bg) 22%, transparent) 45%,
-    color-mix(in srgb, var(--color-bg) 62%, transparent) 78%,
-    var(--color-bg) 100%
-  );
-  pointer-events: none;
+  display: none;
 }
 
 .chat-view__error {
