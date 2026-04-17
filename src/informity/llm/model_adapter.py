@@ -338,48 +338,55 @@ QWEN3_5_9B_PROFILE = ModelProfile(
 )
 
 
-# -- Qwen3.5 35B A3B ----------------------------------------------------------
-# Conservative large-model profile tuned for local reliability and lower timeout risk.
-QWEN3_5_35B_A3B_PROFILE = ModelProfile(
-    name              = 'Qwen3.5 35B A3B',
-    family            = ModelFamily.CHATML,
-    filename_patterns = ('qwen3.5-35b-a3b', 'qwen-3.5-35b-a3b', 'qwen3-5-35b-a3b'),
+def _build_qwen_35b_a3b_profile(*, name: str, filename_patterns: tuple[str, ...]) -> ModelProfile:
+    """Shared tuning for Qwen 35B A3B family variants (3.5/3.6)."""
+    return ModelProfile(
+        name=name,
+        family=ModelFamily.CHATML,
+        filename_patterns=filename_patterns,
 
-    # Qwen3.5 GGUF variants use template-level thinking control.
-    # Keep thinking disabled to avoid empty-stream failures when the model
-    # consumes generation budget inside hidden reasoning.
-    supports_think_blocks = True,
-    reasoning_mode        = ReasoningMode.NEVER,
-    no_think_token        = None,
+        # Qwen 35B A3B GGUF variants use template-level thinking control.
+        # Keep thinking disabled to avoid empty-stream failures when the model
+        # consumes generation budget inside hidden reasoning.
+        supports_think_blocks=True,
+        reasoning_mode=ReasoningMode.NEVER,
+        no_think_token=None,
 
-    prompt_format          = PromptFormat.NATIVE_GGUF,
-    coverage_prompt_format = PromptFormat.NATIVE_GGUF,
+        prompt_format=PromptFormat.NATIVE_GGUF,
+        coverage_prompt_format=PromptFormat.NATIVE_GGUF,
 
-    max_tokens         = 3072,
-    coverage_top_k      = 18,
-    min_tokens_coverage = 200,
+        max_tokens=3072,
+        coverage_top_k=18,
+        min_tokens_coverage=200,
 
-    timeout_seconds = 900,
+        timeout_seconds=900,
 
-    context_length = 24576,
-    generation_tokens_per_second = 5.0,
-    temperature    = 0.2,
-    top_p          = 0.9,
-    rag_top_k      = 10,
+        context_length=24576,
+        generation_tokens_per_second=5.0,
+        temperature=0.2,
+        top_p=0.9,
+        rag_top_k=10,
 
-    rag_max_score            = 0.90,
-    rag_context_ratio        = 0.65,
+        rag_max_score=0.90,
+        rag_context_ratio=0.65,
 
-    retrieval_top_k_final = 12,
-    rag_top_k_simple   = 6,
-    rag_top_k_focused  = 12,
-    rag_top_k_coverage = 0,   # Use coverage_top_k (18)
+        retrieval_top_k_final=12,
+        rag_top_k_simple=6,
+        rag_top_k_focused=12,
+        rag_top_k_coverage=0,   # Use coverage_top_k (18)
 
-    stop_sequences  = _CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
+        stop_sequences=_CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
 
-    strip_meta_commentary = False,
-    strip_citations       = True,
-    chat_template_kwargs  = {'enable_thinking': False},
+        strip_meta_commentary=False,
+        strip_citations=True,
+        chat_template_kwargs={'enable_thinking': False},
+    )
+
+
+# -- Qwen3.6 35B A3B ----------------------------------------------------------
+QWEN3_6_35B_A3B_PROFILE = _build_qwen_35b_a3b_profile(
+    name='Qwen3.6 35B A3B',
+    filename_patterns=('qwen3.6-35b-a3b', 'qwen-3.6-35b-a3b', 'qwen3-6-35b-a3b'),
 )
 
 
@@ -424,7 +431,7 @@ DEFAULT_PROFILE = ModelProfile(
 
 # Order matters: more specific patterns first.
 _PROFILE_REGISTRY: list[ModelProfile] = [
-    QWEN3_5_35B_A3B_PROFILE,       # Qwen3.5-35B-A3B-Q4_K_M
+    QWEN3_6_35B_A3B_PROFILE,       # Qwen3.6-35B-A3B-Q4_K_M
     QWEN3_5_9B_PROFILE,            # Qwen3.5-9B-Q4_K_M (analysis RAG)
     QWEN3_14B_PROFILE,             # Qwen3-14B-Q5_K_M (analysis RAG profile)
 ]
@@ -496,4 +503,3 @@ def get_model_display_name(filename: str) -> str:
         return profile.name
     # Fallback: use filename stem (without .gguf)
     return Path(filename).stem
-

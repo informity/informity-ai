@@ -74,8 +74,8 @@ class Settings(BaseSettings):
     llm_local_only: bool = True   # Synced from full_privacy when set via UI
 
     # LLM — model configurable via env / config.json
-    # Current default: Qwen3.5 35B A3B (Q4_K_M quantization)
-    llm_model_filename:   str   = 'Qwen3.5-35B-A3B-Q4_K_M.gguf'
+    # Current default: Qwen3.6 35B A3B (Q4_K_M quantization)
+    llm_model_filename:   str   = 'Qwen3.6-35B-A3B-Q4_K_M.gguf'
     llm_context_length:   int   = 16384  # 16K is ample; profile may override for other models
     llm_max_tokens:      int   = 2048
     llm_temperature:      float = 0.2
@@ -286,7 +286,7 @@ class FileTypeOption(BaseModel):
 class ModelProfileInfo(BaseModel):
     # Read-only model profile information for the Settings UI.
     # All values are determined by the model profile — not user-editable.
-    name:                    str       # e.g. "Qwen3.5 35B A3B"
+    name:                    str       # e.g. "Qwen3.6 35B A3B"
     family:                  str       # "chatml", "llama", etc.
     supports_reasoning:      bool      # Can use <think> blocks
     reasoning_mode:          str       # "Focused queries only", "Off", etc.
@@ -493,7 +493,7 @@ class HealthResponse(BaseModel):
 - **Imported by:** main (lifespan), api.routes_scan, api.routes_index, llm.model_adapter (get_retrieval_top_k)
 
 ### `llm/engine.py`
-- Loads GGUF via xllamacpp (CommonParams + Server, in-process); default `llm_model_filename` = `Qwen3.5-35B-A3B-Q4_K_M.gguf`; Apple Metal by default.
+- Loads GGUF via xllamacpp (CommonParams + Server, in-process); default `llm_model_filename` = `Qwen3.6-35B-A3B-Q4_K_M.gguf`; Apple Metal by default.
 - Chat template extracted from GGUF metadata via `gguf.GGUFReader` at load time. Token counting via tiktoken cl100k_base (±15% approximation).
 - Provides `generate_stream`; `count_tokens(text)` for RAG prompt budget. Handles model download when not local-only.
 - Uses `utils.directory_utils.ensure_file_directory()` for model directory creation.
@@ -818,7 +818,7 @@ main.py ← logging_config (configure_logging before loggers)
 | `DELETE` | `/api/chat/chats/{chat_id}` | Delete chat and messages | No |
 | `GET` | `/api/settings` | Get current settings | No |
 | `PUT` | `/api/settings` | Update settings (partial) | No |
-| `POST` | `/api/settings/reset` | Reset all settings to factory defaults (Qwen3.5 35B A3B) | No |
+| `POST` | `/api/settings/reset` | Reset all settings to factory defaults (Qwen3.6 35B A3B) | No |
 | `GET` | `/api/config/env-vars` | Env variable groups for Configuration page | No |
 | `GET` | `/api/file-types` | Canonical file type options | No |
 | `GET` | `/api/health` | Health check (HealthResponse) | No |

@@ -45,8 +45,8 @@ APP_DATA_DIRNAME = '.informity'    # Default app data directory name under user 
 # All platforms default to ~/.informity.
 _DEFAULT_APP_DATA_DIR = Path.home() / APP_DATA_DIRNAME
 
-# Default model for reset-to-factory and first load: Qwen3.5 35B A3B.
-_DEFAULT_LLM_MODEL_FILENAME = 'Qwen3.5-35B-A3B-Q4_K_M.gguf'
+# Default model for reset-to-factory and first load: Qwen3.6 35B A3B.
+_DEFAULT_LLM_MODEL_FILENAME = 'Qwen3.6-35B-A3B-Q4_K_M.gguf'
 
 # Default embedding model (sentence-transformers)
 _DEFAULT_EMBEDDING_MODEL = 'nomic-ai/nomic-embed-text-v1.5'
@@ -57,7 +57,7 @@ _DEFAULT_RERANKER_MODEL = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
 DEFAULT_RERANKER_MODEL = _DEFAULT_RERANKER_MODEL
 
 # Default Hugging Face repository for LLM model downloads
-_DEFAULT_LLM_HF_REPO = 'Qwen/Qwen3.5-35B-A3B-GGUF'
+_DEFAULT_LLM_HF_REPO = 'unsloth/Qwen3.6-35B-A3B-GGUF'
 
 # Default auto-continuation policy for long responses.
 _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT = (
@@ -342,7 +342,7 @@ class Settings(BaseSettings):
     # When True, load LLM only from models_dir; never download from the network.
     # Synced from full_privacy when that setting is updated via the UI.
     llm_local_only:       bool = True
-    llm_model_filename:   str  = _DEFAULT_LLM_MODEL_FILENAME  # Default: Qwen3.5 35B A3B
+    llm_model_filename:   str  = _DEFAULT_LLM_MODEL_FILENAME  # Default: Qwen3.6 35B A3B
     llm_hf_repo:          str  = _DEFAULT_LLM_HF_REPO  # Hugging Face repo for automatic model downloads
     llm_context_length:   int  = 16384  # 16K is ample (10K chunks + 4K prompt/history + 2K gen); prevents over-assembly
     llm_max_tokens:     int   = 2048
@@ -696,7 +696,7 @@ settings = _build_settings()
 
 def reset_to_factory_defaults() -> Settings:
     # Reset settings to factory defaults by deleting config.json and rebuilding.
-    # Writes a minimal config with Qwen3.5 35B A3B model so reset always returns
+    # Writes a minimal config with Qwen3.6 35B A3B model so reset always returns
     # to the default large profile.
     # Returns the new Settings instance with factory defaults.
     config_path = _config_path_for_loader()

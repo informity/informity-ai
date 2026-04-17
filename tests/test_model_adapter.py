@@ -1,7 +1,7 @@
 # ==============================================================================
 # Informity AI — Model Profile Tests
 # Tests profile detection, selection, stop sequences, reasoning mode, prompt
-# format, max tokens, and model-specific behavior for Qwen3.5 35B A3B,
+# format, max tokens, and model-specific behavior for Qwen3.6 35B A3B,
 # Qwen3.5 9B, Qwen3 14B, and the default profile.
 # ==============================================================================
 
@@ -10,7 +10,7 @@ import pytest
 from informity.llm.model_adapter import (
     DEFAULT_PROFILE,
     QWEN3_5_9B_PROFILE,
-    QWEN3_5_35B_A3B_PROFILE,
+    QWEN3_6_35B_A3B_PROFILE,
     QWEN3_14B_PROFILE,
     ModelFamily,
     ModelProfile,
@@ -27,13 +27,13 @@ from informity.llm.model_adapter import (
 
 class TestGetProfileForFilename:
     def test_qwen3_5_35b_a3b_detected(self) -> None:
-        profile = get_profile_for_filename('Qwen3.5-35B-A3B-Q4_K_M.gguf')
-        assert profile is QWEN3_5_35B_A3B_PROFILE
-        assert profile.name == 'Qwen3.5 35B A3B'
+        profile = get_profile_for_filename('Qwen3.6-35B-A3B-Q4_K_M.gguf')
+        assert profile is QWEN3_6_35B_A3B_PROFILE
+        assert profile.name == 'Qwen3.6 35B A3B'
 
     def test_qwen3_5_35b_a3b_lowercase(self) -> None:
-        profile = get_profile_for_filename('qwen3.5-35b-a3b-q4_k_m.gguf')
-        assert profile is QWEN3_5_35B_A3B_PROFILE
+        profile = get_profile_for_filename('qwen3.6-35b-a3b-q4_k_m.gguf')
+        assert profile is QWEN3_6_35B_A3B_PROFILE
 
     def test_qwen2_5_3b_returns_default(self) -> None:
         # No dedicated Qwen2.5-3B profile; falls through to default
@@ -74,17 +74,17 @@ class TestGetProfileForFilename:
 
 
 # ==============================================================================
-# Qwen3.5 35B A3B Profile (primary large model)
+# Qwen3.6 35B A3B Profile (primary large model)
 # ==============================================================================
 
 
 class TestQwen3535BA3BProfile:
     @pytest.fixture
     def profile(self) -> ModelProfile:
-        return QWEN3_5_35B_A3B_PROFILE
+        return QWEN3_6_35B_A3B_PROFILE
 
     def test_identity(self, profile: ModelProfile) -> None:
-        assert profile.name == 'Qwen3.5 35B A3B'
+        assert profile.name == 'Qwen3.6 35B A3B'
         assert profile.family == ModelFamily.CHATML
         assert profile.supports_think_blocks is True
 
@@ -204,20 +204,20 @@ class TestDefaultProfile:
 
 class TestModelProfileMethods:
     def test_get_max_tokens_unknown_type_returns_focused(self) -> None:
-        profile = QWEN3_5_35B_A3B_PROFILE
+        profile = QWEN3_6_35B_A3B_PROFILE
         assert profile.get_max_tokens('unknown') == profile.max_tokens
 
     def test_get_prompt_format_unknown_type_returns_default(self) -> None:
-        profile = QWEN3_5_35B_A3B_PROFILE
+        profile = QWEN3_6_35B_A3B_PROFILE
         assert profile.get_prompt_format('unknown') == profile.prompt_format
 
     def test_prepare_messages_no_mutation(self) -> None:
         messages = [{'role': 'user', 'content': 'Test'}]
-        _ = QWEN3_5_35B_A3B_PROFILE.prepare_messages(messages, 'simple')
+        _ = QWEN3_6_35B_A3B_PROFILE.prepare_messages(messages, 'simple')
         assert messages[0]['content'] == 'Test'  # Original not mutated
 
     def test_to_display_dict_contains_all_keys(self) -> None:
-        display = QWEN3_5_35B_A3B_PROFILE.to_display_dict()
+        display = QWEN3_6_35B_A3B_PROFILE.to_display_dict()
         expected_keys = {
             'name', 'family', 'supports_reasoning', 'reasoning_mode',
             'max_tokens', 'coverage_top_k', 'min_tokens_coverage',
@@ -229,10 +229,10 @@ class TestModelProfileMethods:
         assert expected_keys == set(display.keys())
 
     def test_default_model_uses_qwen3_5_35b_profile(self) -> None:
-        # Default config points at Qwen3.5 35B A3B
+        # Default config points at Qwen3.6 35B A3B
         from informity.config import _DEFAULT_LLM_MODEL_FILENAME
         profile = get_profile_for_filename(_DEFAULT_LLM_MODEL_FILENAME)
-        assert profile is QWEN3_5_35B_A3B_PROFILE
+        assert profile is QWEN3_6_35B_A3B_PROFILE
 
 
 # ==============================================================================
