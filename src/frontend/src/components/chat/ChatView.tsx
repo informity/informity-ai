@@ -14,7 +14,6 @@ import { isChatMode, type ChatMessageDisplay, type ChatMode } from '../../types/
 import { logApiError } from '../../utils/logApiError'
 import { CHAT_MODE_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
 import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
-import { proxyWheelToContainer } from '../../utils/wheelProxy'
 import './ChatView.css'
 
 const CHAT_INPUT_MIN_HEIGHT = 104
@@ -457,10 +456,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     })
   }, [webSearchToggleLocked, chatWebSearchEnabled, fullPrivacyMode, setChatWebSearchPreferences])
 
-  const handleMessagesWrapperWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    proxyWheelToContainer(e, messagesContainerRef.current, { excludeSelector: '.chat-view__input-area' })
-  }, [])
-
   return (
     <div className="chat-view">
       <PageHeader
@@ -487,9 +482,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
         }
       />
 
-      <div className="chat-view__body" onWheel={handleMessagesWrapperWheel}>
+      <div className="chat-view__body">
         <div className="chat-view__content">
-          <div className="chat-view__messages-wrapper" onWheel={handleMessagesWrapperWheel}>
+          <div className="chat-view__messages-wrapper">
             <div className={`chat-view__messages${isCenteredComposer ? ' chat-view__messages--centered-composer' : ''}`}>
               <div
                 ref={messagesContainerRef}

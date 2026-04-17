@@ -167,21 +167,14 @@
   background: var(--color-bg-elevated);
   color: var(--color-text-dimmed);
   cursor: pointer;
-  box-shadow:
-    0 2px 8px rgba(0, 0, 0, 0.18),
-    0 8px 24px rgba(0, 0, 0, 0.28),
-    0 16px 48px rgba(0, 0, 0, 0.2);
-  transition: background var(--transition-fast), transform var(--transition-fast), box-shadow var(--transition-fast);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
+  transition: background var(--transition-fast), box-shadow var(--transition-fast);
   user-select: none;
 }
 
 .chat-view__scroll-to-bottom:hover {
   background: var(--color-bg-hover);
-  transform: translateX(-50%) scale(1.05);
-  box-shadow:
-    0 4px 12px rgba(0, 0, 0, 0.22),
-    0 12px 32px rgba(0, 0, 0, 0.32),
-    0 24px 56px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
 }
 
 /* Input area — keep in normal flow for WebView scroll stability. */
