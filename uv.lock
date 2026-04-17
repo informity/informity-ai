@@ -615,7 +615,7 @@ requires-dist = [
     { name = "nltk", specifier = ">=3.9.2" },
     { name = "pathspec", specifier = "==1.0.4" },
     { name = "pillow", specifier = ">=12.1.1" },
-    { name = "promptcue", specifier = "==0.3.6" },
+    { name = "promptcue", specifier = "==0.3.7" },
     { name = "psutil", specifier = ">=6.1.0" },
     { name = "pydantic", specifier = ">=2.12.5" },
     { name = "pydantic-settings", specifier = ">=2.13.0" },
@@ -1379,16 +1379,16 @@ wheels = [
 
 [[package]]
 name = "promptcue"
-version = "0.3.6"
+version = "0.3.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "numpy" },
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/47/99/a64a924fbf1e032972af513177c4659d0caa7978767170bebc84ac9962f3/promptcue-0.3.6.tar.gz", hash = "sha256:4602cae6a2ac5da64514498c7ab4972a7d284e1a8a03dfcb384217e8183bf429", size = 62796, upload-time = "2026-04-08T18:47:07.498Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/29/d3/fa072fe443f12b7e95bd20f2e024e3f158560367804ddd8285753add4e1b/promptcue-0.3.7.tar.gz", hash = "sha256:32399978a2782dc2f06e94d621e1524cd0c40ab4f995378f2e4952a0bab244f6", size = 63635, upload-time = "2026-04-17T19:51:52.626Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d9/1f/4e5a68b0b74267d99b9b0f4fe463ffa985cf1c6276c48a537bc976d29edb/promptcue-0.3.6-py3-none-any.whl", hash = "sha256:fe18baf11115e6a8f76a1b4111088fb8c20b546dcae772b7d65427126c0f6098", size = 50458, upload-time = "2026-04-08T18:47:05.567Z" },
+    { url = "https://files.pythonhosted.org/packages/c9/f3/c165b16d4b6857376fb2d407bd2b4d2d9a58487b1b1f5732e2c99f11b48f/promptcue-0.3.7-py3-none-any.whl", hash = "sha256:c572ae14ef8866e1aa0354d576ee4bed9c8aae1c498c6d0df5c755b13ce186a9", size = 50983, upload-time = "2026-04-17T19:51:51.068Z" },
 ]
 
 [[package]]
