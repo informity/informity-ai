@@ -2,7 +2,7 @@
 
 This file is the **single source of truth** for types, interfaces, and module responsibilities. When generating code for any module, consult this file first.
 
-**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, security, chat_completion_policy, chat_out_of_corpus, chat_sources, error_messages, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils); `sources/` (base, filesystem_adapter, registry, orchestrator); `scanner/` (crawler, watcher, extractors — docling unified extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, model_adapter, rag QueryRouter, query_classifier, query_patterns, nlp_heuristics, types, retrieval, prompt_builder, streaming, metadata_filters, intent_router, classification_policy, promptcue_adapter, term_dictionary, chat_mode, contract_gate, contract_prompt_parser, metrics_payload, system_prompts, timeout_policy, user_messages, web_search, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics runtime modules: `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
+**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `upload_policy.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, security, chat_completion_policy, chat_out_of_corpus, chat_sources, error_messages, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils); `sources/` (base, filesystem_adapter, registry, orchestrator); `scanner/` (crawler, watcher, extractors — docling unified extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, model_adapter, rag QueryRouter, query_classifier, query_patterns, nlp_heuristics, types, retrieval, prompt_builder, streaming, metadata_filters, intent_router, classification_policy, promptcue_adapter, term_dictionary, chat_mode, contract_gate, contract_prompt_parser, metrics_payload, system_prompts, timeout_policy, user_messages, web_search, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics runtime modules: `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
 
 ---
 
@@ -524,7 +524,7 @@ class HealthResponse(BaseModel):
 - **Imported by:** llm.rag, llm.handlers.rag, api.routes_chat
 
 ### `llm/rag.py`
-- QueryRouter (v2): classifies query via `query_classifier.classify_query()` → dispatches to handler (MetadataHandler, SimpleHandler, or RAGHandler) based on intent.
+- `_resolve_handler_for_classification` (v2): classifies query via `query_classifier.classify_query()` → dispatches to handler (MetadataHandler, SimpleHandler, or RAGHandler) based on intent.
 - **Imports:** query_classifier, handlers (metadata, simple, rag), db.models (ChatMessage), chat_trace (TraceWriter)
 - **Imported by:** api.routes_chat
 
@@ -657,6 +657,14 @@ class HealthResponse(BaseModel):
 - **Imports:** re, file_types
 - **Imported by:** llm.metadata_filters, indexer.classifier
 
+### `upload_policy.py`
+- Upload-scope ingestion policy and limits for chat attachments.
+- Provides scope IDs: `UPLOAD_PROVIDER`, `UPLOAD_ENTITY_TYPE`.
+- Provides limits: `MAX_UPLOAD_FILE_SIZE_MB`, `MAX_UPLOAD_FILES_PER_CHAT`, `MAX_UPLOAD_TOTAL_SIZE_MB`.
+- Provides helpers: `upload_root_dir()`, `max_upload_file_size_bytes()`, `max_upload_total_size_bytes()`, `is_allowed_extension(filename)`, `is_allowed_mime(content_type)`.
+- **Imports:** pathlib, config
+- **Imported by:** api.routes_chat, api.routes_index, api.routes_scan
+
 ### `utils/path_utils.py`
 - Standardized path resolution and normalization utilities.
 - Provides: `normalize_path()` (resolves and expands user home), `normalize_paths()` (batch normalization), `resolve_and_check_path()` (validates path existence).
@@ -711,9 +719,9 @@ Core types live in `src/informity/diagnostics/` (issue_types, observer, resource
 ### `main.py`
 - FastAPI app; health `GET /api/health` (HealthResponse); mounts static frontend from `src/frontend/dist/` when built (Vite output). Vanilla backup archived at `.archive/frontend-bak/`.
 - Sets HF env (HF_HOME, HF_HUB_CACHE, HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE from full_privacy/embedding_offline) before importing embedder/reranker.
-- Lifespan: ensure_directories, _remove_models_dir_cache, init_db, clear_stale_running_scans, start_watcher; shutdown: stop_watcher, _cleanup_models (embedder.unload, reranker.unload), _kill_child_processes.
+- Lifespan: ensure_directories, remove_models_dir_cache, init_db, clear_stale_running_scans, start_watcher; shutdown: stop_watcher, _cleanup_models (embedder.unload, reranker.unload), _kill_child_processes.
 - Signal/atexit: _cleanup_models; SIGTERM/SIGINT (when not dev_reload) call _signal_cleanup then _exit.
-- **Imports:** routers (scan, index, chat, search, settings), config, db.sqlite (init_db, clear_stale_running_scans), embedder, reranker, watcher, logging_config, llm.engine (_remove_models_dir_cache)
+- **Imports:** routers (scan, index, chat, search, settings), config, db.sqlite (init_db, clear_stale_running_scans), embedder, reranker, watcher, logging_config, llm.engine (remove_models_dir_cache)
 
 ---
 

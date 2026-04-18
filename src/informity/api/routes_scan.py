@@ -72,6 +72,7 @@ from informity.scanner.extractors.docling import DoclingExtractor
 from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE
 from informity.sources.orchestrator import build_default_orchestrator
 from informity.timeout_policy import normalize_scope_key, resolve_timeout_seconds
+from informity.upload_policy import UPLOAD_PROVIDER
 from informity.utils.path_utils import normalize_path
 
 # ==============================================================================
@@ -270,6 +271,7 @@ async def list_files(
         extensions=extensions,
         search=search,
         tag=tag,
+        excluded_source_providers=[UPLOAD_PROVIDER],
         sort_by=sort,
         order=order,
         offset=offset,
