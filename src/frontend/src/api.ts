@@ -237,10 +237,14 @@ export async function streamChat(
   const streamState = { seenSources: false, seenCleaned: false, seenDone: false }
   const url = `${getApiBase()}/api/chat`
   const sessionToken = getSessionToken()
+  const scopedFileId = Number(options?.fileId)
+  const scopedFileIds = Number.isFinite(scopedFileId) && scopedFileId > 0
+    ? [Math.trunc(scopedFileId)]
+    : null
   const body = JSON.stringify({
     message: message.trim(),
     chat_id: chatId || null,
-    file_id: options?.fileId ?? null,
+    scoped_file_ids: scopedFileIds,
     mode: options?.mode ?? 'researcher',
     request_id: options?.requestId ?? null,
     chat_web_search_enabled: options?.chatWebSearchEnabled ?? false,
