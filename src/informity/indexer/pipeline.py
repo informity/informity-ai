@@ -37,6 +37,7 @@ from informity.scanner.extractors.base import (
 )
 from informity.scanner.extractors.text_utils import get_max_file_size_bytes
 from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE, IngestionItem
+from informity.utils.file_utils import normalize_extension
 from informity.utils.path_utils import normalize_path
 
 if TYPE_CHECKING:
@@ -419,9 +420,7 @@ async def index_file(
             pseudo_path = str(item.metadata.get('path') or f'source://{source_provider}/{entity_type}/{item.source_item_id}')
             file_path = Path(pseudo_path)
             filename = str(item.metadata.get('filename') or item.title or item.source_item_id or 'source-item')
-            extension = str(item.metadata.get('extension') or '.txt')
-            if extension and not extension.startswith('.'):
-                extension = f'.{extension}'
+            extension = normalize_extension(str(item.metadata.get('extension') or '.txt'))
             modified_at = item.modified_at or datetime.now(UTC)
             content_hash = item.content_hash or hashlib.sha256(item.content_text.encode('utf-8')).hexdigest()
             size_bytes = int(item.size_bytes or item.metadata.get('size_bytes') or len((item.content_text or '').encode('utf-8')))
@@ -460,7 +459,7 @@ async def index_file(
             extension = scanned.extension
             content_hash = scanned.content_hash  # Already computed by crawler
             doc_text = ''
-            file_metadata: dict[str, object]
+            file_metadata: dict[str, object] = {}
         else:
             # It's a Path
             file_path = file_path_or_scanned

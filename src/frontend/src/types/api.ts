@@ -150,6 +150,7 @@ export interface ChatMessageDisplay {
   continueLabel?: 'Continue' | 'Continue Again'
   webSearchUsed?: boolean
   streamPlanSteps?: Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>
+  scopedFileName?: string | null
 }
 
 export interface StreamChatCallbacks {
@@ -164,6 +165,11 @@ export interface StreamChatCallbacks {
   onDone?: (data?: StreamDonePayload) => void
   onError?: (err: Error) => void
   signal?: AbortSignal
+}
+
+export interface ChatFileScope {
+  fileId: number
+  filename: string
 }
 
 export interface IndexedFile {

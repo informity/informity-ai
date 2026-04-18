@@ -38,6 +38,7 @@ class QueryHandler(Protocol):
         trace:          object | None,
         diagnostics_context: dict[str, object] | None = None,
         chat_id: str | None = None,
+        file_id: int | None = None,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         """
         Process the query and yield tokens/sources.

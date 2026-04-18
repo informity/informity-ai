@@ -15,6 +15,9 @@
   --chat-view-inline-inset: 0.875rem;
   --chat-view-controls-left-inset: calc(var(--chat-view-inline-inset) + 4px);
   --chat-view-mode-emphasis: color-mix(in srgb, var(--color-text-secondary) 78%, white);
+  --chat-view-scoped-top-padding: 3.7rem;
+  --chat-view-scroll-clip-top-default: 0.95rem;
+  --chat-view-scroll-clip-bottom: 3.3rem;
 }
 
 .chat-view__header {
@@ -159,22 +162,32 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 34px;
+  height: 34px;
   padding: 0;
-  border: 1px solid var(--chat-view-border, rgba(255, 255, 255, 0.08));
+  border: none;
   border-radius: 50%;
-  background: var(--color-bg-elevated);
-  color: var(--color-text-dimmed);
+  background: var(--color-bg-surface);
+  color: var(--color-text);
   cursor: pointer;
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.24);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.36),
+    0 0 14px rgba(0, 0, 0, 0.34),
+    0 14px 34px rgba(0, 0, 0, 0.56);
   transition: background var(--transition-fast), box-shadow var(--transition-fast);
   user-select: none;
 }
 
+.chat-view__scroll-to-bottom--scoped {
+  bottom: calc(9.5rem + 3.25rem);
+}
+
 .chat-view__scroll-to-bottom:hover {
   background: var(--color-bg-hover);
-  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.3);
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.44),
+    0 0 16px rgba(0, 0, 0, 0.4),
+    0 16px 38px rgba(0, 0, 0, 0.62);
 }
 
 /* Input area — keep in normal flow for WebView scroll stability. */
@@ -252,6 +265,63 @@
   to { transform: rotate(360deg); }
 }
 
+.chat-view__scope-chip {
+  position: absolute;
+  top: calc(var(--chat-view-inline-inset) + 4px);
+  left: calc(var(--chat-view-inline-inset) + 4px);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: min(72vw, 36rem);
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--border-radius);
+  background: var(--color-bg-surface);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-description);
+  line-height: 1;
+}
+
+.chat-view__scope-chip i {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.chat-view__scope-chip span {
+  flex: 1;
+  min-width: 0;
+  max-width: min(72vw, 31rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.chat-view__scope-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-left: 0.15rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  background: transparent;
+  color: var(--color-text-dimmed);
+  cursor: pointer;
+}
+
+.chat-view__scope-clear:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.chat-view__scope-clear:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .chat-view__input-wrapper {
   position: relative;
   display: flex;
@@ -259,6 +329,35 @@
   width: 100%;
   min-width: 0;
   overflow: visible;
+}
+
+.chat-view__input-wrapper--scrollable::before,
+.chat-view__input-wrapper--scrollable::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  background: var(--color-bg-surface);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.chat-view__input-wrapper--scrollable::before {
+  top: 1px;
+  height: var(--chat-view-scroll-clip-top-default);
+  border-top-left-radius: calc(var(--border-radius) - 1px);
+  border-top-right-radius: calc(var(--border-radius) - 1px);
+}
+
+.chat-view__input-wrapper--scrollable::after {
+  bottom: 1px;
+  height: var(--chat-view-scroll-clip-bottom);
+  border-bottom-left-radius: calc(var(--border-radius) - 1px);
+  border-bottom-right-radius: calc(var(--border-radius) - 1px);
+}
+
+.chat-view__input-wrapper--top-scrolled.chat-view__input-wrapper--scoped::before {
+  height: var(--chat-view-scoped-top-padding);
 }
 
 .chat-view__textarea {
@@ -279,6 +378,10 @@
   overflow-y: hidden;
   transition: border-color var(--transition-fast);
   scrollbar-gutter: stable;
+}
+
+.chat-view__textarea--scoped {
+  padding-top: var(--chat-view-scoped-top-padding);
 }
 
 .chat-view__textarea:focus,

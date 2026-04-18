@@ -27,6 +27,7 @@ interface FileTableProps {
   onSortChange?: (col: SortColumn, order: SortOrder) => void
   onPageChange?: (offset: number) => void
   onSelectFile?: (file: IndexedFile) => void
+  onChatAboutFile?: (file: IndexedFile) => void
   onReindex?: (file: IndexedFile) => void
   onRemove?: (file: IndexedFile, e: React.MouseEvent) => void
   selectedFileId?: number | null
@@ -44,6 +45,7 @@ export function FileTable({
   onSortChange,
   onPageChange,
   onSelectFile,
+  onChatAboutFile,
   onReindex,
   onRemove,
   selectedFileId = null,
@@ -211,13 +213,13 @@ export function FileTable({
                         <button
                           type="button"
                           className="file-table__action-btn data-table__action-btn"
-                          onClick={() => onSelectFile?.(file)}
+                          onClick={() => onChatAboutFile?.(file)}
                           disabled={offline}
-                          title="View details"
+                          title="Chat with this file"
                         >
-                          <i className="ri-eye-line" aria-hidden style={{ fontSize: '0.875rem' }} />
+                          <i className="ri-chat-ai-4-line" aria-hidden style={{ fontSize: '0.875rem' }} />
                         </button>
-                        <span className="data-table__action-tooltip ui-tooltip ui-tooltip--nowrap">View details</span>
+                        <span className="data-table__action-tooltip ui-tooltip ui-tooltip--nowrap">Chat with this file</span>
                       </span>
                       <span className="data-table__action-wrap ui-tooltip-trigger">
                         <button

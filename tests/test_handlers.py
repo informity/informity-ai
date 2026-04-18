@@ -496,6 +496,26 @@ class TestRAGHandler:
             assert mock_retrieve.await_count == 1
 
     @pytest.mark.asyncio
+    async def test_handle_passes_file_scope_to_retrieve_chunks(self) -> None:
+        handler = RAGHandler()
+        classification = QueryClassification(intent='focused')
+        mock_db = MagicMock()
+
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
+            mock_retrieve.return_value = []
+            async for _item in handler.handle(
+                'test question',
+                classification,
+                None,
+                mock_db,
+                None,
+                file_id=7,
+            ):
+                pass
+            assert mock_retrieve.await_count == 1
+            assert mock_retrieve.await_args.kwargs.get('file_id_filter') == 7
+
+    @pytest.mark.asyncio
     async def test_handle_rewrites_referential_query_for_retrieval(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(intent='focused')
