@@ -9,6 +9,10 @@
 Privacy-first local document intelligence for macOS.
 Informity scans and indexes local files, then answers questions with a local RAG pipeline backed by local embeddings and local LLM inference. Your documents and vectors stay on your machine.
 
+<p align="center">
+  <img src="./assets/screenshots/screenshot-chat-active.png" alt="Informity AI chat screenshot" width="1100" />
+</p>
+
 ## Contents
 
 - [Highlights](#highlights)
