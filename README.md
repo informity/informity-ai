@@ -17,6 +17,7 @@ Informity scans and indexes local files, then answers questions with a local RAG
 - [Data Location](#data-location)
 - [PDF Processing](#pdf-processing)
 - [Offline Mode](#offline-mode)
+- [Chat Scope Contract](#chat-scope-contract)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [Release Scripts](#release-scripts)
@@ -126,6 +127,18 @@ The app is **offline-first by default**. With **Full Privacy Mode** on (Settings
   Note: the optional installer seed in `scripts/install.conf.json` points to Qwen3.6 35B A3B.
 
 After models are in place, the app runs fully offline with no internet required.
+
+## Chat Scope Contract
+
+`POST /api/chat` supports optional scoped researcher retrieval with:
+
+- `scoped_file_ids`: one-or-more indexed file IDs
+
+Notes:
+
+- Legacy `file_id` is no longer accepted.
+- When `scoped_file_ids` is provided, researcher retrieval is constrained to that file set.
+- Assistant mode remains retrieval-free.
 
 ## Tech Stack
 

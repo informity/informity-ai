@@ -229,7 +229,7 @@ class ChatMessage(BaseModel):
 ```python
 # src/informity/api/schemas.py
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
 
 # --- Scan ---
@@ -269,6 +269,19 @@ class SearchResponse(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     chat_id: str | None = None  # None = new chat
+    scoped_file_ids: list[int] | None = Field(default=None, min_length=1)  # Optional one-or-more file scope
+    request_id: str | None = None
+    run_id: str | None = None
+    mode: str | None = None
+    chat_web_search_enabled: bool | None = None
+    chat_web_search_privacy_override: bool | None = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def _reject_legacy_file_id(cls, values):
+        if isinstance(values, dict) and values.get('file_id') is not None:
+            raise ValueError('file_id is no longer supported. Use scoped_file_ids.')
+        return values
 
 class ChatSourceReference(BaseModel):
     filename: str
@@ -603,6 +616,7 @@ class HealthResponse(BaseModel):
 
 ### `api/routes_chat.py`
 - `POST /api/chat` — send message, stream response (SSE); returns chat_id in first event
+- Request supports optional scoped retrieval via `scoped_file_ids` (one or more indexed file IDs)
 - `GET /api/chat/chats` — list chats (chat_id, last_message_preview, title, etc.)
 - `GET /api/chat/chats/{chat_id}` — chat messages for one chat
 - `PUT /api/chat/chats/{chat_id}/title` — set chat title
@@ -849,7 +863,11 @@ from sse_starlette.sse import EventSourceResponse
 @router.post("/api/chat")
 async def chat(request: ChatRequest):
     async def event_generator():
-        async for token in rag.answer_question(request.message, request.chat_id):
+        async for token in rag.answer_question(
+            request.message,
+            request.chat_id,
+            file_ids=request.scoped_file_ids,
+        ):
             yield {"event": "token", "data": token}
         yield {"event": "done", "data": ""}
     return EventSourceResponse(event_generator())

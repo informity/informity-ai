@@ -496,7 +496,7 @@ class TestRAGHandler:
             assert mock_retrieve.await_count == 1
 
     @pytest.mark.asyncio
-    async def test_handle_passes_file_scope_to_retrieve_chunks(self) -> None:
+    async def test_handle_passes_file_scopes_to_retrieve_chunks(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(intent='focused')
         mock_db = MagicMock()
@@ -509,11 +509,11 @@ class TestRAGHandler:
                 None,
                 mock_db,
                 None,
-                file_id=7,
+                file_ids=[7],
             ):
                 pass
             assert mock_retrieve.await_count == 1
-            assert mock_retrieve.await_args.kwargs.get('file_id_filter') == 7
+            assert mock_retrieve.await_args.kwargs.get('file_ids_filter') == [7]
 
     @pytest.mark.asyncio
     async def test_handle_rewrites_referential_query_for_retrieval(self) -> None:
