@@ -108,7 +108,7 @@ def _should_execute_secondary_path(
 async def answer_question(
     question: str,
     chat_id: str | None = None,
-    file_id: int | None = None,
+    file_ids: list[int] | None = None,
     history: list[ChatMessage] | None = None,
     db: aiosqlite.Connection | None = None,
     trace: object | None = None,  # TraceWriter protocol - optional, for chat trace logging
@@ -175,7 +175,7 @@ async def answer_question(
                 trace=trace,
                 diagnostics_context=diagnostics_context,
                 chat_id=chat_id,
-                file_id=file_id,
+                file_ids=file_ids,
                 chat_mode='assistant',
                 chat_web_search_enabled=chat_web_search_enabled,
                 chat_web_search_privacy_override=chat_web_search_privacy_override,
@@ -297,7 +297,7 @@ async def answer_question(
                     trace=trace,
                     diagnostics_context=diagnostics_context,
                     chat_id=chat_id,
-                    file_id=file_id,
+                    file_ids=file_ids,
                 ):
                     yield item
                 return
@@ -328,7 +328,7 @@ async def answer_question(
                     trace=trace,
                     diagnostics_context=diagnostics_context,
                     chat_id=chat_id,
-                    file_id=file_id,
+                    file_ids=file_ids,
                 ):
                     if isinstance(item, list):
                         for source in item:
