@@ -49,7 +49,7 @@ def build_done_payload(
         'message_persisted': message_persisted,
         'display_blocks': build_display_blocks(cleaned_answer),
         'budget_metrics': budget_metrics,
-        'web_search_used': budget_metrics.get('web_search_used') is True,
+        'web_search_used': bool(budget_metrics.get('web_search_used')),
         'budget_checkpoints': budget_checkpoints,
         'continuation_passes': continuation_passes,
         'continuation_resolution_reason': continuation_resolution_reason,

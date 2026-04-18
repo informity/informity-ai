@@ -3,7 +3,7 @@
  * Shared context instance for ChatProvider and useChatContext.
  */
 import { createContext } from 'react'
-import type { ChatFileScope, ChatMessageDisplay, ChatMode } from '../types/api'
+import type { ChatFileScope, ChatMessageDisplay, ChatMode, ChatUploadAttachment } from '../types/api'
 
 export interface ChatContextValue {
   currentChatId: string | null
@@ -19,9 +19,15 @@ export interface ChatContextValue {
   chatWebSearchEnabled: boolean
   chatWebSearchPrivacyOverride: boolean
   chatFileScope: ChatFileScope | null
+  chatUploads: ChatUploadAttachment[]
+  selectedUploadIds: string[]
   setChatWebSearchPreferences: (prefs: { enabled: boolean; privacyOverride: boolean; persist?: boolean }) => Promise<void>
   startScopedChat: (scope: ChatFileScope) => Promise<void>
   clearChatFileScope: () => void
+  uploadFiles: (files: File[]) => Promise<void>
+  removeUploadedFile: (uploadId: string) => Promise<void>
+  toggleUploadSelection: (uploadId: string) => void
+  clearUploadSelection: () => void
   selectChat: (chatId: string) => Promise<void>
   goToGeneratingChat: () => Promise<void>
   sendMessage: (
@@ -30,6 +36,7 @@ export interface ChatContextValue {
       isInternal?: boolean
       mode?: ChatMode
       fileScope?: ChatFileScope | null
+      scopedUploadIds?: string[] | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
     },
@@ -39,6 +46,7 @@ export interface ChatContextValue {
     options?: {
       mode?: ChatMode
       fileScope?: ChatFileScope | null
+      scopedUploadIds?: string[] | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
     },

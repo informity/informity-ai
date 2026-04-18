@@ -51,7 +51,7 @@ class EvalMetrics:
     chat_id: str
     question: str
     model_filename: str
-    query_type: QueryType  # 'focused', 'coverage', 'metadata', or 'simple' (from QueryRouter)
+    query_type: QueryType  # 'focused', 'coverage', 'metadata', or 'simple' (from _resolve_handler_for_classification in llm/rag.py)
     raw_chunks_count: int  # Candidates from vector search (0 for metadata/simple queries)
     sources_count: int  # Parent chunks used (0 for metadata queries)
     generation_seconds: float

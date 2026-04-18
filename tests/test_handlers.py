@@ -371,6 +371,7 @@ class TestRAGHandler:
         mock_sources_cursor.fetchall = AsyncMock(
             return_value=[
                 {
+                    'file_id': 42,
                     'filename': 'retirement-plan.pdf',
                     'path': '/docs/retirement-plan.pdf',
                     'chunk_preview': 'Benjamin Bjork reviewed projected retirement distributions.',
