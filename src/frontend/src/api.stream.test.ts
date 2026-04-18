@@ -106,6 +106,32 @@ describe('streamChat SSE contract', () => {
     const secondBody = JSON.parse(String(calls[1]?.[1]?.body || '{}'))
     expect(firstBody.mode).toBe('researcher')
     expect(secondBody.mode).toBe('assistant')
+    expect(firstBody.scoped_file_ids).toBeNull()
+    expect(secondBody.scoped_file_ids).toBeNull()
+
+    vi.unstubAllGlobals()
+  })
+
+  it('maps file scope to scoped_file_ids payload', async () => {
+    const payload = makeSsePayload([
+      { event: 'chat', data: JSON.stringify({ chat_id: 'chat-3' }) },
+      { event: 'done', data: JSON.stringify({ elapsed_seconds: 0.1 }) },
+    ])
+
+    const fetchMock = vi.fn(async () => {
+      const body = new TextEncoder().encode(payload)
+      return new Response(body, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await streamChat('hello', null, {}, { fileId: 42 })
+    const calls = fetchMock.mock.calls as unknown as Array<[string, RequestInit | undefined]>
+    const body = JSON.parse(String(calls[0]?.[1]?.body || '{}'))
+    expect(body.scoped_file_ids).toEqual([42])
+    expect(body.file_id).toBeUndefined()
 
     vi.unstubAllGlobals()
   })
