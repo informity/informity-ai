@@ -21,6 +21,7 @@ from informity.llm.metadata_filters import (
 from informity.llm.model_adapter import get_profile
 from informity.llm.term_dictionary import expand_query_for_retrieval
 from informity.llm.types import BlockType, FilterOperator, QueryType
+from informity.utils.file_utils import normalize_extension
 
 log = structlog.get_logger(__name__)
 _COVERAGE_DIVERSITY_PRIMARY_FILE_CAP = 1
@@ -139,6 +140,7 @@ async def retrieve_chunks(
     block_type_filter: str | None = None,
     block_type_exclude: list[str] | None = None,
     section_filter: str | None = None,
+    file_id_filter: int | None = None,
     query_type: QueryType = QueryType.FOCUSED,
     db: aiosqlite.Connection | None = None,
     trace: object | None = None,
@@ -181,7 +183,7 @@ async def retrieve_chunks(
             filters.append(MetadataFilter(field='category', operator=FilterOperator.EQ, value=safe_category))
     if extension_filter:
         # Sanitize extension filter (ensure it starts with dot)
-        safe_extension = extension_filter if extension_filter.startswith('.') else f'.{extension_filter}'
+        safe_extension = normalize_extension(extension_filter)
         filters.append(MetadataFilter(field='extension', operator=FilterOperator.EQ, value=safe_extension))
     if filename_filter:
         normalized_filename_filter = filename_filter.strip()
@@ -205,6 +207,8 @@ async def retrieve_chunks(
                     value=normalized_excluded_name,
                 )
             )
+    if file_id_filter is not None:
+        filters.append(MetadataFilter(field='file_id', operator=FilterOperator.EQ, value=int(file_id_filter)))
     safe_block_type_filter = (
         block_type_filter
         if block_type_filter in {BlockType.TABLE, BlockType.FORM, BlockType.NARRATIVE}
@@ -336,6 +340,7 @@ async def retrieve_chunks(
                 'block_type_exclude':  list(safe_block_type_exclude),
                 'section_filter':      safe_section_filter,
                 'max_score':           max_score,
+                'file_id_filter':      file_id_filter,
             })
         return []
 
@@ -549,6 +554,7 @@ async def retrieve_chunks(
             'block_type_exclude':  list(safe_block_type_exclude),
             'section_filter':      safe_section_filter,
             'max_score':           max_score,
+            'file_id_filter':      file_id_filter,
             'children_reranked':   len(reranked_children),
         'children_after_structural_filter': len(filtered_child_chunks),
             'parents_fetched':     len(parent_chunks),

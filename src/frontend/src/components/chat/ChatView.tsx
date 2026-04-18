@@ -10,19 +10,22 @@ import { ServiceUnavailableState } from '../ServiceUnavailableState'
 import { useChatContext } from '../../context/useChatContext'
 import { useBackendStatus } from '../../context/useBackendStatus'
 import { getCurrentChat, getSettings } from '../../api'
-import { isChatMode, type ChatMessageDisplay, type ChatMode } from '../../types/api'
+import { isChatMode, type ChatFileScope, type ChatMessageDisplay, type ChatMode } from '../../types/api'
 import { logApiError } from '../../utils/logApiError'
 import { CHAT_MODE_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
 import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
+import { getFileIcon } from '../../utils/fileFormatting'
 import './ChatView.css'
 
 const CHAT_INPUT_MIN_HEIGHT = 104
 const CHAT_INPUT_MAX_HEIGHT = 304
+const CHAT_INPUT_SCOPED_EXTRA_HEIGHT = 52
 const ALL_CHAT_MODES: ChatMode[] = ['assistant', 'researcher']
 
 interface ChatViewProps {
   prefillMessage?: string
   initialChatId?: string | null
+  initialScopedFile?: ChatFileScope | null
 }
 
 interface GetCurrentChatResponse {
@@ -38,6 +41,15 @@ interface SettingsUpdatedEvent extends Event {
   detail?: ChatSettingsResponse
 }
 
+function resolveFileIconFromFilename(filename: string): string {
+  const normalized = String(filename || '').trim()
+  const dotIndex = normalized.lastIndexOf('.')
+  if (dotIndex <= 0 || dotIndex >= normalized.length - 1) {
+    return getFileIcon(undefined)
+  }
+  return getFileIcon(normalized.slice(dotIndex + 1))
+}
+
 function resolveChatModeFromHistory(history: ChatMessageDisplay[]): ChatMode | null {
   for (let i = history.length - 1; i >= 0; i -= 1) {
     const candidate = history[i]?.chatMode
@@ -48,7 +60,7 @@ function resolveChatModeFromHistory(history: ChatMessageDisplay[]): ChatMode | n
   return null
 }
 
-export function ChatView({ prefillMessage = '', initialChatId = null }: ChatViewProps) {
+export function ChatView({ prefillMessage = '', initialChatId = null, initialScopedFile = null }: ChatViewProps) {
   const { offline } = useBackendStatus()
   const {
     currentChatId: contextChatId,
@@ -59,7 +71,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     enableRawOutputControl,
     chatWebSearchEnabled,
     chatWebSearchPrivacyOverride,
+    chatFileScope,
     setChatWebSearchPreferences,
+    startScopedChat,
+    clearChatFileScope,
     selectChat,
     sendMessage,
     continueLastScope,
@@ -75,6 +90,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [animateToDocked, setAnimateToDocked] = useState(false)
+  const [textareaCanScroll, setTextareaCanScroll] = useState(false)
+  const [textareaHasTopScroll, setTextareaHasTopScroll] = useState(false)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const newChatRequestedRef = useRef(false)
@@ -86,6 +103,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   const showScrollRef = useRef(false)
   const isNearBottomRef = useRef(true)
   const modeMenuRef = useRef<HTMLDivElement>(null)
+  const consumedInitialScopeRef = useRef<string | null>(null)
 
   const isForceNewChatRequested = useCallback((): boolean => {
     try {
@@ -211,6 +229,32 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     }
   }, [initialChatId, contextChatId, selectChat, isForceNewChatRequested])
 
+  useEffect(() => {
+    if (!initialScopedFile) return
+    const scopeKey = `${initialScopedFile.fileId}:${initialScopedFile.filename}`
+    if (consumedInitialScopeRef.current === scopeKey) return
+    consumedInitialScopeRef.current = scopeKey
+    setChatMode('researcher')
+    try {
+      window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'researcher')
+    } catch {
+      // ignore storage errors
+    }
+    clearError()
+    void startScopedChat(initialScopedFile)
+  }, [clearError, initialScopedFile, startScopedChat])
+
+  useEffect(() => {
+    if (!chatFileScope) return
+    if (chatMode === 'researcher') return
+    setChatMode('researcher')
+    try {
+      window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'researcher')
+    } catch {
+      // ignore storage errors
+    }
+  }, [chatFileScope, chatMode])
+
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const el = messagesContainerRef.current
     if (!el) return
@@ -331,10 +375,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     if (offline) return
     void continueLastScope(anchorMessageId, {
       mode: chatMode,
+      fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, continueLastScope, chatMode, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, continueLastScope, chatMode, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleRegenerate = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -346,10 +391,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     if (!previousUser) return
     void sendMessage(previousUser.content, {
       mode: chatMode,
+      fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, isStreaming, messages, sendMessage, chatMode, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, isStreaming, messages, sendMessage, chatMode, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleAskInAssistant = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -367,10 +413,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     }
     void sendMessage(previousUser.content, {
       mode: 'assistant',
+      fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, isStreaming, messages, sendMessage, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, isStreaming, messages, sendMessage, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleNewChat = useCallback(() => {
     if (offline) return
@@ -401,10 +448,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     setInputValue('')
     await sendMessage(text, {
       mode: chatMode,
+      fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, inputValue, sendMessage, chatMode, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, inputValue, sendMessage, chatMode, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleStop = useCallback(() => {
     if (offline) return
@@ -420,22 +468,35 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   }
 
   const resizeTextarea = useCallback((ta: HTMLTextAreaElement) => {
+    const scopedExtra = chatFileScope ? CHAT_INPUT_SCOPED_EXTRA_HEIGHT : 0
+    const minHeight = CHAT_INPUT_MIN_HEIGHT + scopedExtra
+    const maxHeight = CHAT_INPUT_MAX_HEIGHT + scopedExtra
     ta.style.height = 'auto'
-    const nextHeight = Math.min(Math.max(ta.scrollHeight, CHAT_INPUT_MIN_HEIGHT), CHAT_INPUT_MAX_HEIGHT)
+    const nextHeight = Math.min(Math.max(ta.scrollHeight, minHeight), maxHeight)
     ta.style.height = `${nextHeight}px`
-    ta.style.overflowY = ta.scrollHeight > CHAT_INPUT_MAX_HEIGHT ? 'auto' : 'hidden'
-  }, [])
+    const canScroll = ta.scrollHeight > maxHeight
+    ta.style.overflowY = canScroll ? 'auto' : 'hidden'
+    setTextareaCanScroll(canScroll)
+    if (!canScroll && ta.scrollTop !== 0) {
+      ta.scrollTop = 0
+    }
+    setTextareaHasTopScroll(ta.scrollTop > 0)
+  }, [chatFileScope])
 
   useEffect(() => {
     const ta = textareaRef.current
     if (!ta) return
     resizeTextarea(ta)
-  }, [inputValue, resizeTextarea])
+  }, [inputValue, resizeTextarea, chatFileScope])
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (offline) return
     setInputValue(e.target.value)
   }
+
+  const handleTextareaScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
+    setTextareaHasTopScroll(e.currentTarget.scrollTop > 0)
+  }, [])
 
   const webSearchToggleLocked = offline || isStreaming
   const webSearchToggleTitle = fullPrivacyMode
@@ -515,6 +576,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                       streamStatusText={msg.streamStatusText}
                       streamSectionProgress={msg.streamSectionProgress}
                       streamPlanSteps={msg.streamPlanSteps}
+                      scopedFileName={msg.scopedFileName}
                       isPartial={msg.isPartial}
                       hasRemainingScope={msg.hasRemainingScope}
                       completionMode={msg.completionMode}
@@ -543,10 +605,30 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                 }
               >
                 {error && <div className="chat-view__error">{error}</div>}
-                <div className="chat-view__input-wrapper">
+                <div
+                  className={
+                    `chat-view__input-wrapper${textareaCanScroll ? ' chat-view__input-wrapper--scrollable' : ''}${textareaHasTopScroll ? ' chat-view__input-wrapper--top-scrolled' : ''}${chatFileScope ? ' chat-view__input-wrapper--scoped' : ''}`
+                  }
+                >
+                  {chatFileScope && (
+                    <span className="chat-view__scope-chip" title={chatFileScope.filename}>
+                      <i className={resolveFileIconFromFilename(chatFileScope.filename)} aria-hidden />
+                      <span>{chatFileScope.filename}</span>
+                      <button
+                        type="button"
+                        className="chat-view__scope-clear"
+                        onClick={clearChatFileScope}
+                        disabled={offline || isStreaming}
+                        aria-label="Clear file scope"
+                        title="Clear file scope"
+                      >
+                        <i className="ri-close-line" aria-hidden />
+                      </button>
+                    </span>
+                  )}
                   <textarea
                     ref={textareaRef}
-                    className="chat-view__textarea"
+                    className={`chat-view__textarea${chatFileScope ? ' chat-view__textarea--scoped' : ''}`}
                     placeholder={
                       offline
                         ? 'Service unavailable'
@@ -558,6 +640,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                     }
                     value={inputValue}
                     onChange={handleTextareaChange}
+                    onScroll={handleTextareaScroll}
                     onKeyDown={handleKeyDown}
                     aria-label="Chat message input"
                     rows={1}
@@ -597,15 +680,18 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                         </button>
                         {modeMenuOpen && (
                           <div className="chat-view__mode-menu" role="menu">
-                            {ALL_CHAT_MODES.map((mode) => (
-                              <span key={mode} className="chat-view__mode-option-wrap">
+                            {ALL_CHAT_MODES.map((mode) => {
+                              const scopedModeLocked = !!chatFileScope && mode !== 'researcher'
+                              return (
+                                <span key={mode} className="chat-view__mode-option-wrap">
                                 <button
                                   type="button"
                                   className={`chat-view__mode-option${chatMode === mode ? ' chat-view__mode-option--active' : ''}`}
                                   role="menuitemradio"
                                   aria-checked={chatMode === mode}
-                                  disabled={offline || isStreaming}
+                                  disabled={offline || isStreaming || scopedModeLocked}
                                   onClick={() => {
+                                    if (scopedModeLocked) return
                                     setChatMode(mode)
                                     setModeMenuOpen(false)
                                     try {
@@ -619,7 +705,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                                   <span>{CHAT_MODE_LABELS[mode]}</span>
                                 </button>
                               </span>
-                            ))}
+                              )
+                            })}
                           </div>
                         )}
                       </div>
@@ -656,7 +743,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
             {messages.length > 0 && showScrollToBottom && !isInitialThinkingPhase && !offline && (
               <button
                 type="button"
-                className="chat-view__scroll-to-bottom"
+                className={`chat-view__scroll-to-bottom${chatFileScope ? ' chat-view__scroll-to-bottom--scoped' : ''}`}
                 onClick={() => scrollToBottom()}
                 title="Scroll to bottom"
                 aria-label="Scroll to bottom"

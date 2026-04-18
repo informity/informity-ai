@@ -544,17 +544,6 @@ class Settings(BaseSettings):
             self.db_path = self.app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
         else:
             self.db_path = normalize_path(self.db_path, expand_user=True)
-        # Guardrail: canonical DB location is app_data_dir/db/{APP_SLUG}.db.
-        # If a legacy root-level path is configured, force canonical path.
-        legacy_db_path = self.app_data_dir / f'{APP_SLUG}.db'
-        canonical_db_path = self.app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
-        if self.db_path == legacy_db_path:
-            log.warning(
-                'legacy_db_path_override_ignored',
-                configured_db_path=str(self.db_path),
-                canonical_db_path=str(canonical_db_path),
-            )
-            self.db_path = canonical_db_path
 
         if self.logs_dir is None:
             self.logs_dir = self.app_data_dir / DirNames.LOGS
@@ -609,15 +598,6 @@ class Settings(BaseSettings):
         ensure_directories(directories_to_create)
         for directory in directories_to_create:
             log.info('created_directory', path=str(directory))
-        # Clean up historical root-level DB artifact if it is an empty file.
-        # Keep non-empty files untouched for manual inspection/migration.
-        legacy_db = self.app_data_dir / f'{APP_SLUG}.db'
-        try:
-            if legacy_db.exists() and legacy_db.is_file() and legacy_db.stat().st_size == 0:
-                legacy_db.unlink()
-                log.info('removed_empty_legacy_db_file', path=str(legacy_db))
-        except OSError as exc:
-            log.warning('failed_to_remove_empty_legacy_db_file', path=str(legacy_db), error=str(exc))
 
 def get_chat_trace_logging() -> bool:
     """

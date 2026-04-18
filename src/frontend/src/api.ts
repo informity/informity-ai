@@ -227,6 +227,7 @@ export async function streamChat(
   options?: {
     mode?: ChatMode
     requestId?: string
+    fileId?: number | null
     chatWebSearchEnabled?: boolean
     chatWebSearchPrivacyOverride?: boolean
   },
@@ -239,6 +240,7 @@ export async function streamChat(
   const body = JSON.stringify({
     message: message.trim(),
     chat_id: chatId || null,
+    file_id: options?.fileId ?? null,
     mode: options?.mode ?? 'researcher',
     request_id: options?.requestId ?? null,
     chat_web_search_enabled: options?.chatWebSearchEnabled ?? false,

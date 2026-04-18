@@ -25,6 +25,7 @@ from informity.llm.query_patterns import (
     build_file_list_pattern,
 )
 from informity.llm.types import OutputFormat, OutputShape, QuerySubtype, QueryType, StreamSignalTag
+from informity.utils.file_utils import normalize_extension
 
 log = structlog.get_logger(__name__)
 
@@ -62,6 +63,7 @@ class MetadataHandler:
         trace:          object | None,
         diagnostics_context: dict[str, object] | None = None,
         chat_id: str | None = None,
+        file_id: int | None = None,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         """
         Handle metadata query by routing to appropriate SQLite query.
@@ -158,10 +160,7 @@ class MetadataHandler:
         return year
 
     def _normalize_extension(self, extension: str) -> str:
-        normalized = str(extension or '').strip()
-        if not normalized:
-            return normalized
-        return normalized if normalized.startswith('.') else f'.{normalized}'
+        return normalize_extension(extension)
 
     async def _get_count(
         self,

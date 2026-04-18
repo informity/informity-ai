@@ -4,12 +4,13 @@
  */
 import { useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
 import { ChatContext } from './chatContext'
-import { ApiError, getChat, getSettings, stopChatStream, streamChat, updateChatPreferences, updateCurrentChat } from '../api'
+import { ApiError, getChat, getFiles, getSettings, stopChatStream, streamChat, updateChatPreferences, updateCurrentChat } from '../api'
 import { showToast } from './useToast'
 import { logApiError } from '../utils/logApiError'
 import { extractErrorMessage } from '../utils/errorMessages'
-import { FORCE_NEW_CHAT_KEY, MESSAGE_MODE_MAP_STORAGE_KEY } from '../utils/storageKeys'
+import { CHAT_FILE_SCOPE_MAP_STORAGE_KEY, FORCE_NEW_CHAT_KEY, MESSAGE_MODE_MAP_STORAGE_KEY } from '../utils/storageKeys'
 import type {
+  ChatFileScope,
   ChatMode,
   ChatMessageApi,
   ChatMessageDisplay,
@@ -147,11 +148,126 @@ function storeMessageMode(messageId: number, mode: ChatMode): void {
   }
 }
 
+function readStoredChatFileScopes(): Record<string, ChatFileScope> {
+  try {
+    const raw = window.localStorage.getItem(CHAT_FILE_SCOPE_MAP_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const normalized: Record<string, ChatFileScope> = {}
+    for (const [chatId, scopeRaw] of Object.entries(parsed || {})) {
+      if (!chatId || chatId === '__draft__') continue
+      if (!scopeRaw || typeof scopeRaw !== 'object') continue
+      const scopeObj = scopeRaw as { fileId?: unknown; filename?: unknown }
+      const fileId = Number(scopeObj.fileId)
+      if (!Number.isFinite(fileId) || fileId <= 0) continue
+      const normalizedName = String(scopeObj.filename || '').trim()
+      normalized[chatId] = {
+        fileId: Math.trunc(fileId),
+        filename: normalizedName || `File ${Math.trunc(fileId)}`,
+      }
+    }
+    return normalized
+  } catch {
+    return {}
+  }
+}
+
+function persistStoredChatFileScopes(scopes: Record<string, ChatFileScope>): void {
+  try {
+    const persisted: Record<string, ChatFileScope> = {}
+    for (const [chatId, scope] of Object.entries(scopes || {})) {
+      if (!chatId || chatId === '__draft__') continue
+      const fileId = Number(scope?.fileId)
+      if (!Number.isFinite(fileId) || fileId <= 0) continue
+      const normalizedName = String(scope?.filename || '').trim()
+      persisted[chatId] = {
+        fileId: Math.trunc(fileId),
+        filename: normalizedName || `File ${Math.trunc(fileId)}`,
+      }
+    }
+    window.localStorage.setItem(CHAT_FILE_SCOPE_MAP_STORAGE_KEY, JSON.stringify(persisted))
+  } catch {
+    // ignore storage failures
+  }
+}
+
 function createChatRequestId(): string {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID()
   }
   return `req-${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function inferSingleFileScopeCandidateFromHistory(messages: ChatMessageApi[]): { path: string; filename: string } | null {
+  const assistantMessages = messages.filter(
+    (m) => m.role === 'assistant' && Array.isArray(m.sources) && m.sources.length > 0,
+  )
+  if (assistantMessages.length === 0) return null
+
+  let candidatePath: string | null = null
+  let candidateFilename: string | null = null
+
+  for (const message of assistantMessages) {
+    const paths = new Set(
+      (message.sources || [])
+        .map((s) => String(s?.path || '').trim())
+        .filter((v) => v.length > 0),
+    )
+    const filenames = new Set(
+      (message.sources || [])
+        .map((s) => String(s?.filename || '').trim())
+        .filter((v) => v.length > 0),
+    )
+    if (paths.size !== 1 || filenames.size !== 1) {
+      return null
+    }
+    const [messagePath] = [...paths]
+    const [messageFilename] = [...filenames]
+    if (!messagePath || !messageFilename) return null
+    if (candidatePath == null) {
+      candidatePath = messagePath
+      candidateFilename = messageFilename
+      continue
+    }
+    if (candidatePath !== messagePath || candidateFilename !== messageFilename) {
+      return null
+    }
+  }
+
+  if (!candidatePath || !candidateFilename) return null
+  return { path: candidatePath, filename: candidateFilename }
+}
+
+async function resolveFileScopeFromHistory(messages: ChatMessageApi[]): Promise<ChatFileScope | null> {
+  const candidate = inferSingleFileScopeCandidateFromHistory(messages)
+  if (!candidate) return null
+  try {
+    const response = (await getFiles({
+      search: candidate.path,
+      limit: 25,
+      offset: 0,
+      sort: 'indexed_at',
+      order: 'desc',
+    })) as { files?: Array<{ id?: number; path?: string; filename?: string }> }
+    const files = Array.isArray(response?.files) ? response.files : []
+    const exactPathMatch = files.find((file) => String(file?.path || '').trim() === candidate.path)
+    if (exactPathMatch && Number.isFinite(exactPathMatch.id) && Number(exactPathMatch.id) > 0) {
+      const fileId = Math.trunc(Number(exactPathMatch.id))
+      const filename = String(exactPathMatch.filename || candidate.filename || '').trim() || `File ${fileId}`
+      return { fileId, filename }
+    }
+    const exactFilenameMatches = files.filter(
+      (file) => String(file?.filename || '').trim() === candidate.filename && Number.isFinite(file?.id),
+    )
+    if (exactFilenameMatches.length === 1) {
+      const fileId = Math.trunc(Number(exactFilenameMatches[0].id))
+      const filename = String(exactFilenameMatches[0].filename || candidate.filename || '').trim() || `File ${fileId}`
+      return { fileId, filename }
+    }
+  } catch {
+    // best-effort recovery only; keep null on lookup failure
+  }
+  return null
 }
 
 export function ChatProvider({ children }: ChatProviderProps) {
@@ -165,6 +281,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const [enableRawOutputControl, setEnableRawOutputControl] = useState(false)
   const [chatWebSearchEnabled, setChatWebSearchEnabled] = useState(false)
   const [chatWebSearchPrivacyOverride, setChatWebSearchPrivacyOverride] = useState(false)
+  const [chatFileScope, setChatFileScope] = useState<ChatFileScope | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamContentRef = useRef('')
   const streamThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -189,6 +306,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const messagesCountRef = useRef(0)
   const lastAutoContinuedMessageIdRef = useRef<number | null>(null)
   const chatPrefsRef = useRef<Record<string, { enabled: boolean; privacyOverride: boolean }>>({})
+  const chatFileScopesRef = useRef<Record<string, ChatFileScope>>(readStoredChatFileScopes())
 
   useEffect(() => {
     currentChatIdRef.current = currentChatId
@@ -250,6 +368,30 @@ export function ChatProvider({ children }: ChatProviderProps) {
 
   const clearError = useCallback(() => setError(null), [])
 
+  const resolveDraftOrChatFileScope = useCallback((chatId: string | null): ChatFileScope | null => {
+    const scope = chatId
+      ? chatFileScopesRef.current[chatId]
+      : chatFileScopesRef.current.__draft__
+    if (!scope) return null
+    if (!Number.isFinite(scope.fileId) || scope.fileId <= 0) return null
+    const normalizedName = String(scope.filename || '').trim()
+    return {
+      fileId: Math.trunc(scope.fileId),
+      filename: normalizedName || `File ${Math.trunc(scope.fileId)}`,
+    }
+  }, [])
+
+  const clearChatFileScope = useCallback(() => {
+    const activeChatId = currentChatIdRef.current
+    if (activeChatId) {
+      delete chatFileScopesRef.current[activeChatId]
+      persistStoredChatFileScopes(chatFileScopesRef.current)
+    } else {
+      delete chatFileScopesRef.current.__draft__
+    }
+    setChatFileScope(null)
+  }, [])
+
   const setChatWebSearchPreferences = useCallback(async (
     prefs: { enabled: boolean; privacyOverride: boolean; persist?: boolean },
   ) => {
@@ -287,6 +429,17 @@ export function ChatProvider({ children }: ChatProviderProps) {
       chatPrefsRef.current[selectedChatId] = resolvedPrefs
       setChatWebSearchEnabled(resolvedPrefs.enabled)
       setChatWebSearchPrivacyOverride(resolvedPrefs.privacyOverride)
+      let resolvedFileScope = resolveDraftOrChatFileScope(selectedChatId)
+      if (!resolvedFileScope) {
+        const inferredScope = await resolveFileScopeFromHistory(historyMessages)
+        if (chatLoadSessionRef.current !== sessionId) return
+        if (inferredScope) {
+          chatFileScopesRef.current[selectedChatId] = inferredScope
+          persistStoredChatFileScopes(chatFileScopesRef.current)
+          resolvedFileScope = inferredScope
+        }
+      }
+      setChatFileScope(resolvedFileScope)
       const storedModes = readStoredMessageModes()
       const mapped: ChatMessageDisplay[] = historyMessages.map((m, index) => {
         const completionMode = normalizeCompletionMode(m.completion_mode)
@@ -334,6 +487,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           createdAt: m.created_at,
           generationSeconds: m.generation_seconds,
           chatMode: inferredAssistantMode,
+          scopedFileName: m.role === 'assistant' ? resolvedFileScope?.filename ?? null : null,
         }
       })
       currentChatIdRef.current = selectedChatId
@@ -350,10 +504,13 @@ export function ChatProvider({ children }: ChatProviderProps) {
       if (chatLoadSessionRef.current !== sessionId) return
       const is404 = err instanceof ApiError && err.status === 404
       if (is404) {
+        delete chatFileScopesRef.current[selectedChatId]
+        persistStoredChatFileScopes(chatFileScopesRef.current)
         currentChatIdRef.current = null
         setCurrentChatIdState(null)
         setChatWebSearchEnabled(false)
         setChatWebSearchPrivacyOverride(false)
+        setChatFileScope(null)
         setMessages([])
         setError(null)
         updateCurrentChat(null).catch((e) => logApiError(e, 'ChatProvider.selectChat.clearCurrentChat'))
@@ -367,7 +524,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         setLoadingChat(false)
       }
     }
-  }, [currentChatId])
+  }, [currentChatId, resolveDraftOrChatFileScope])
 
   const goToGeneratingChat = useCallback(async () => {
     const generatingChatId = streamChatIdRef.current ?? activeGenerationChatId
@@ -427,6 +584,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     options?: {
       isInternal?: boolean
       mode?: ChatMode
+      fileScope?: ChatFileScope | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
     },
@@ -434,6 +592,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const message = text.trim()
     const isInternalMessage = !!options?.isInternal
     const chatMode: ChatMode = options?.mode ?? 'researcher'
+    const providedScope = options?.fileScope ?? null
     const chatWebSearchEnabled = !!options?.chatWebSearchEnabled
     const chatWebSearchPrivacyOverride = !!options?.chatWebSearchPrivacyOverride
     if (!message || sendInFlightRef.current) return
@@ -449,6 +608,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
       lastAutoContinuedMessageIdRef.current = null
     }
     sendInFlightRef.current = true
+    const requestChatId = currentChatIdRef.current
+    const effectiveFileScope = providedScope ?? resolveDraftOrChatFileScope(requestChatId)
 
     setError(null)
     const now = new Date().toISOString()
@@ -466,6 +627,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       content: '',
       sources: [],
       chatMode,
+      scopedFileName: effectiveFileScope?.filename ?? null,
       isStreaming: true,
       isContinuation: isInternalMessage,
       streamStatusText: isInternalMessage
@@ -494,7 +656,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const requestId = createChatRequestId()
     streamRequestIdRef.current = requestId
     streamStopRequestedRef.current = false
-    const requestChatId = currentChatIdRef.current
     if (!requestChatId) {
       chatPrefsRef.current.__draft__ = {
         enabled: chatWebSearchEnabled,
@@ -505,6 +666,15 @@ export function ChatProvider({ children }: ChatProviderProps) {
         enabled: chatWebSearchEnabled,
         privacyOverride: chatWebSearchPrivacyOverride,
       }
+    }
+    if (effectiveFileScope) {
+      if (requestChatId) {
+        chatFileScopesRef.current[requestChatId] = effectiveFileScope
+        persistStoredChatFileScopes(chatFileScopesRef.current)
+      } else {
+        chatFileScopesRef.current.__draft__ = effectiveFileScope
+      }
+      setChatFileScope(effectiveFileScope)
     }
     setChatWebSearchEnabled(chatWebSearchEnabled)
     setChatWebSearchPrivacyOverride(chatWebSearchPrivacyOverride)
@@ -576,6 +746,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           id: messageId,
           content: streamContentRef.current,
           displayBlocks: nextDisplayBlocks,
+          scopedFileName: effectiveFileScope?.filename ?? null,
           isStreaming: false,
           streamStatusText: undefined,
           streamSectionProgress: undefined,
@@ -612,6 +783,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 stoppedByUser,
                 generationSeconds: elapsed ?? last.generationSeconds,
                 chatMode: chatMode ?? last.chatMode,
+                scopedFileName: effectiveFileScope?.filename ?? last.scopedFileName ?? null,
                 nextAction,
                 nextActionReason,
                 continuationPasses,
@@ -689,7 +861,13 @@ export function ChatProvider({ children }: ChatProviderProps) {
           if (chatPrefsRef.current[id] == null && chatPrefsRef.current.__draft__) {
             chatPrefsRef.current[id] = chatPrefsRef.current.__draft__
           }
+          if (chatFileScopesRef.current[id] == null && chatFileScopesRef.current.__draft__) {
+            chatFileScopesRef.current[id] = chatFileScopesRef.current.__draft__
+            setChatFileScope(chatFileScopesRef.current[id])
+            persistStoredChatFileScopes(chatFileScopesRef.current)
+          }
           delete chatPrefsRef.current.__draft__
+          delete chatFileScopesRef.current.__draft__
           updateCurrentChat(id).catch((err) => logApiError(err, 'ChatProvider.sendMessage.onChatId'))
         },
         onStreamId: (id) => {
@@ -933,6 +1111,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       }, {
         mode: chatMode,
         requestId,
+        fileId: effectiveFileScope?.fileId ?? null,
         chatWebSearchEnabled,
         chatWebSearchPrivacyOverride,
       })
@@ -940,12 +1119,13 @@ export function ChatProvider({ children }: ChatProviderProps) {
       clearStreamWatchdog()
       sendInFlightRef.current = false
     }
-  }, [applyStreamDraftToVisibleMessages, clearRevealTimer, clearStreamWatchdog, isViewingGeneratingChat])
+  }, [applyStreamDraftToVisibleMessages, clearRevealTimer, clearStreamWatchdog, isViewingGeneratingChat, resolveDraftOrChatFileScope])
 
   const continueLastScope = useCallback(async (
     anchorMessageId?: number,
     options?: {
       mode?: ChatMode
+      fileScope?: ChatFileScope | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
     },
@@ -958,6 +1138,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       {
         isInternal: true,
         mode: options?.mode ?? 'researcher',
+        fileScope: options?.fileScope ?? null,
         chatWebSearchEnabled: options?.chatWebSearchEnabled ?? false,
         chatWebSearchPrivacyOverride: options?.chatWebSearchPrivacyOverride ?? false,
       },
@@ -976,12 +1157,25 @@ export function ChatProvider({ children }: ChatProviderProps) {
     setCurrentChatIdState(null)
     setChatWebSearchEnabled(false)
     setChatWebSearchPrivacyOverride(false)
+    setChatFileScope(null)
     chatPrefsRef.current.__draft__ = { enabled: false, privacyOverride: false }
+    delete chatFileScopesRef.current.__draft__
     lastAutoContinuedMessageIdRef.current = null
     setMessages([])
     setError(null)
     await updateCurrentChat(null).catch((err) => logApiError(err, 'ChatProvider.newChat'))
   }, [])
+
+  const startScopedChat = useCallback(async (scope: ChatFileScope) => {
+    const normalizedScope: ChatFileScope = {
+      fileId: Math.trunc(Number(scope.fileId)),
+      filename: String(scope.filename || '').trim() || `File ${Math.trunc(Number(scope.fileId))}`,
+    }
+    if (!Number.isFinite(normalizedScope.fileId) || normalizedScope.fileId <= 0) return
+    await newChat()
+    chatFileScopesRef.current.__draft__ = normalizedScope
+    setChatFileScope(normalizedScope)
+  }, [newChat])
 
   useEffect(() => {
     return () => {
@@ -1013,7 +1207,10 @@ export function ChatProvider({ children }: ChatProviderProps) {
         enableRawOutputControl,
         chatWebSearchEnabled,
         chatWebSearchPrivacyOverride,
+        chatFileScope,
         setChatWebSearchPreferences,
+        startScopedChat,
+        clearChatFileScope,
         selectChat,
         goToGeneratingChat,
         sendMessage,
