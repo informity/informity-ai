@@ -199,7 +199,7 @@ src/informity/
 │   ├── system_prompts.py           # Centralized system prompt templates
 │   ├── timeout_policy.py           # Request timeout policy mapping by mode/intent
 │   ├── user_messages.py            # Centralized user-facing message strings
-│   ├── web_search.py               # Tavily-backed web search adapter and status handling
+│   ├── web_search.py               # Tavily/Linkup-backed web search adapter and status handling
 │   ├── rag_runtime/                # RAG execution sub-pipeline (retrieval + generation phases)
 │   └── handlers/                   # Query handlers (metadata, rag, simple)
 └── api/
