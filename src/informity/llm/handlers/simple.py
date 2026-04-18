@@ -140,7 +140,7 @@ class SimpleHandler:
         trace:          object | None,
         diagnostics_context: dict[str, object] | None = None,
         chat_id: str | None = None,
-        file_id: int | None = None,
+        file_ids: list[int] | None = None,
         chat_mode: str | None = None,
         chat_web_search_enabled: bool = False,
         chat_web_search_privacy_override: bool = False,

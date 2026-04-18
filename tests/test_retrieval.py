@@ -109,7 +109,7 @@ async def test_retrieve_chunks_applies_filename_exclude_filters(mock_db):
 
 
 @pytest.mark.asyncio
-async def test_retrieve_chunks_applies_file_id_filter(mock_db):
+async def test_retrieve_chunks_applies_file_ids_filter(mock_db):
     with patch('informity.llm.retrieval.embedder') as mock_embedder, \
          patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
          patch('informity.llm.retrieval.reranker') as mock_reranker, \
@@ -118,19 +118,19 @@ async def test_retrieve_chunks_applies_file_id_filter(mock_db):
         mock_embedder.embed_query.return_value = [0.1] * 768
         mock_vector_store.search_similar.return_value = []
         mock_reranker.rerank.return_value = []
-        mock_build_where.return_value = ('file_id = ?', [42])
+        mock_build_where.return_value = ('file_id IN (?)', [42])
 
         await retrieve_chunks(
             'test query',
             top_k=5,
-            file_id_filter=42,
+            file_ids_filter=[42],
             db=mock_db,
         )
 
         filters = mock_build_where.call_args_list[0][0][0]
         file_id_filters = [
             f for f in filters
-            if f.field == 'file_id' and f.operator == 'eq' and f.value == 42
+            if f.field == 'file_id' and f.operator == 'in' and f.value == [42]
         ]
         assert len(file_id_filters) == 1
 

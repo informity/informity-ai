@@ -140,7 +140,7 @@ async def retrieve_chunks(
     block_type_filter: str | None = None,
     block_type_exclude: list[str] | None = None,
     section_filter: str | None = None,
-    file_id_filter: int | None = None,
+    file_ids_filter: list[int] | None = None,
     query_type: QueryType = QueryType.FOCUSED,
     db: aiosqlite.Connection | None = None,
     trace: object | None = None,
@@ -207,8 +207,16 @@ async def retrieve_chunks(
                     value=normalized_excluded_name,
                 )
             )
-    if file_id_filter is not None:
-        filters.append(MetadataFilter(field='file_id', operator=FilterOperator.EQ, value=int(file_id_filter)))
+    if file_ids_filter:
+        normalized_file_ids = sorted({int(file_id) for file_id in file_ids_filter if int(file_id) > 0})
+        if normalized_file_ids:
+            filters.append(
+                MetadataFilter(
+                    field='file_id',
+                    operator=FilterOperator.IN,
+                    value=normalized_file_ids,
+                )
+            )
     safe_block_type_filter = (
         block_type_filter
         if block_type_filter in {BlockType.TABLE, BlockType.FORM, BlockType.NARRATIVE}
@@ -340,7 +348,7 @@ async def retrieve_chunks(
                 'block_type_exclude':  list(safe_block_type_exclude),
                 'section_filter':      safe_section_filter,
                 'max_score':           max_score,
-                'file_id_filter':      file_id_filter,
+                'file_ids_filter':     file_ids_filter,
             })
         return []
 
@@ -554,7 +562,7 @@ async def retrieve_chunks(
             'block_type_exclude':  list(safe_block_type_exclude),
             'section_filter':      safe_section_filter,
             'max_score':           max_score,
-            'file_id_filter':      file_id_filter,
+            'file_ids_filter':     file_ids_filter,
             'children_reranked':   len(reranked_children),
         'children_after_structural_filter': len(filtered_child_chunks),
             'parents_fetched':     len(parent_chunks),

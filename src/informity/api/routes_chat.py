@@ -71,7 +71,7 @@ from informity.db.sqlite import (
     get_chats,
     get_connection,
     get_db,
-    get_file_by_id,
+    get_files_by_ids,
     insert_chat_message,
     insert_continuation_pass_artifact,
     insert_diagnostics_metrics,
@@ -296,13 +296,15 @@ async def chat(
             status_code=413,
             detail=f'Message too large (max {MAX_CHAT_MESSAGE_CHARS} characters).',
         )
-    scoped_file_id: int | None = None
-    if request.file_id is not None:
-        candidate_file_id = int(request.file_id)
-        scoped_file = await get_file_by_id(db, candidate_file_id)
-        if scoped_file is None:
-            raise HTTPException(status_code=404, detail=f'File {candidate_file_id} not found in index.')
-        scoped_file_id = candidate_file_id
+    scoped_file_ids: list[int] | None = None
+    if request.scoped_file_ids is not None:
+        candidate_file_ids = [int(file_id) for file_id in request.scoped_file_ids]
+        files_by_id = await get_files_by_ids(db, candidate_file_ids)
+        missing_file_ids = [file_id for file_id in candidate_file_ids if file_id not in files_by_id]
+        if missing_file_ids:
+            missing_ids_text = ', '.join(str(file_id) for file_id in missing_file_ids)
+            raise HTTPException(status_code=404, detail=f'Files not found in index: {missing_ids_text}.')
+        scoped_file_ids = candidate_file_ids
     await CHAT_GUARD.check_rate_limit()
     requested_run_id = str(request.run_id or '').strip() or None
     resolved_chat_mode = resolve_chat_mode(request.mode)
@@ -497,7 +499,7 @@ async def chat(
                     try:
                         locked_classification, pre_classification_elapsed_ms = await classify_query_with_timing(
                             continuation_anchor_question,
-                            scoped_file_active=(scoped_file_id is not None),
+                            scoped_file_active=bool(scoped_file_ids),
                         )
                         log.info(
                             'query_pre_classified',
@@ -589,7 +591,7 @@ async def chat(
                     async for item in answer_question(
                         question=pass_question,
                         chat_id=chat_id,
-                        file_id=scoped_file_id,
+                        file_ids=scoped_file_ids,
                         history=pass_history,
                         db=db,
                         trace=trace_writer,

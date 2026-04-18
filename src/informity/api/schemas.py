@@ -5,7 +5,7 @@
 # ==============================================================================
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -88,12 +88,38 @@ class ChatRequest(BaseModel):
     # Request to send a message in a chat.
     message:  str
     chat_id:  str | None = None   # None = start new chat
-    file_id: int | None = Field(default=None, ge=1)  # Optional file scope for researcher retrieval
+    scoped_file_ids: list[int] | None = Field(default=None, min_length=1)  # Optional one-or-more file scope for researcher retrieval
     request_id: str | None = None  # Optional client-generated request ID for deterministic stop
     run_id: str | None = None      # Optional diagnostics run correlation ID
     mode: str | None = None        # Optional chat mode: assistant | researcher (invalid -> researcher)
     chat_web_search_enabled: bool | None = None  # Optional chat-scoped assistant web-search toggle
     chat_web_search_privacy_override: bool | None = None  # Optional chat-scoped privacy override for web search
+
+    @model_validator(mode='before')
+    @classmethod
+    def _reject_legacy_file_id(cls, values: Any) -> Any:
+        if isinstance(values, dict) and values.get('file_id') is not None:
+            raise ValueError('file_id is no longer supported. Use scoped_file_ids (one or more file IDs).')
+        return values
+
+    @model_validator(mode='after')
+    def _normalize_scoped_file_ids(self) -> 'ChatRequest':
+        if self.scoped_file_ids is None:
+            return self
+        normalized: list[int] = []
+        seen: set[int] = set()
+        for raw_file_id in self.scoped_file_ids:
+            file_id = int(raw_file_id)
+            if file_id < 1:
+                raise ValueError('scoped_file_ids must contain positive integer IDs')
+            if file_id in seen:
+                continue
+            seen.add(file_id)
+            normalized.append(file_id)
+        if not normalized:
+            raise ValueError('scoped_file_ids must contain at least one file ID')
+        self.scoped_file_ids = normalized
+        return self
 
 
 class ChatPreferencesUpdateRequest(BaseModel):
