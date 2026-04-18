@@ -305,6 +305,7 @@ async def _fetch_term_inventory_sources(
     cursor = await db.execute(
         '''
         SELECT
+            f.id AS file_id,
             f.filename AS filename,
             f.path AS path,
             MAX(COALESCE(tei.evidence_snippet, '')) AS chunk_preview,
@@ -337,6 +338,7 @@ async def _fetch_term_inventory_sources(
                 path=path,
                 chunk_preview=chunk_preview,
                 relevance_score=relevance_score,
+                file_id=int(row['file_id']) if row['file_id'] is not None else None,
             )
         )
     return sources

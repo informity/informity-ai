@@ -46,6 +46,7 @@ from informity.indexer.term_dictionary_builder import (
 from informity.scanner.crawler import scanned_file_for_path
 from informity.scanner.extractors.base import register_extractors
 from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE
+from informity.upload_policy import upload_root_dir
 
 # ==============================================================================
 # Logger
@@ -135,6 +136,16 @@ def _compute_disk_sizes() -> tuple[int, int]:
                 model_size_bytes += f.stat().st_size
 
     return db_size_bytes, model_size_bytes
+
+
+def _count_files_under(path: Path) -> int:
+    if not path.exists():
+        return 0
+    total = 0
+    for child in path.rglob('*'):
+        if child.is_file():
+            total += 1
+    return total
 
 
 @router.get('/api/index/status', response_model=IndexStatusResponse)
@@ -337,6 +348,8 @@ async def _run_reset_task(
         chat_traces_deleted = False
         diagnostics_deleted = False
         logs_deleted = False
+        uploads_deleted = False
+        upload_storage_files_deleted = 0
 
         if not scoped_reset:
             chat_traces_dir = settings.app_data_dir / DirNames.CHAT_LOGS
@@ -363,6 +376,16 @@ async def _run_reset_task(
                     log.info('logs_deleted', path=str(settings.logs_dir))
                 except _INDEX_CLEANUP_EXCEPTIONS as exc:
                     log.error('reset_logs_failed', error=str(exc), exc_info=True)
+
+            uploads_dir = upload_root_dir()
+            if uploads_dir.exists():
+                try:
+                    upload_storage_files_deleted = await asyncio.to_thread(_count_files_under, uploads_dir)
+                    await asyncio.to_thread(shutil.rmtree, uploads_dir)
+                    uploads_deleted = True
+                    log.info('uploads_deleted', path=str(uploads_dir))
+                except _INDEX_CLEANUP_EXCEPTIONS as exc:
+                    log.error('reset_uploads_failed', error=str(exc), exc_info=True)
 
             # Phase 4: Reset settings/configuration to factory defaults.
             await asyncio.to_thread(reset_to_factory_defaults)
@@ -397,6 +420,12 @@ async def _run_reset_task(
                 'chat_traces_deleted': chat_traces_deleted,
                 'diagnostics_deleted': diagnostics_deleted,
                 'logs_deleted': logs_deleted,
+                'uploads_deleted': uploads_deleted,
+                'upload_attachments_deleted': db_counts.get('upload_attachments', 0),
+                'upload_files_deleted': db_counts.get('upload_files', 0),
+                'upload_chunks_deleted': db_counts.get('upload_chunks', 0),
+                'upload_vectors_deleted': db_counts.get('upload_vectors', 0),
+                'upload_storage_files_deleted': upload_storage_files_deleted,
             }
 
         log.info(

@@ -4,7 +4,19 @@
  */
 import { useState, useCallback, useEffect, useRef, type ReactNode } from 'react'
 import { ChatContext } from './chatContext'
-import { ApiError, getChat, getFiles, getSettings, stopChatStream, streamChat, updateChatPreferences, updateCurrentChat } from '../api'
+import {
+  ApiError,
+  deleteChatUpload,
+  getChat,
+  getFiles,
+  getSettings,
+  listChatUploads,
+  stopChatStream,
+  streamChat,
+  updateChatPreferences,
+  updateCurrentChat,
+  uploadChatFile,
+} from '../api'
 import { showToast } from './useToast'
 import { logApiError } from '../utils/logApiError'
 import { extractErrorMessage } from '../utils/errorMessages'
@@ -14,6 +26,7 @@ import type {
   ChatMode,
   ChatMessageApi,
   ChatMessageDisplay,
+  ChatUploadAttachment,
   DisplayBlock,
   NextAction,
   NextActionReason,
@@ -282,6 +295,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const [chatWebSearchEnabled, setChatWebSearchEnabled] = useState(false)
   const [chatWebSearchPrivacyOverride, setChatWebSearchPrivacyOverride] = useState(false)
   const [chatFileScope, setChatFileScope] = useState<ChatFileScope | null>(null)
+  const [chatUploads, setChatUploads] = useState<ChatUploadAttachment[]>([])
+  const [selectedUploadIds, setSelectedUploadIds] = useState<string[]>([])
   const abortControllerRef = useRef<AbortController | null>(null)
   const streamContentRef = useRef('')
   const streamThrottleRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -392,6 +407,101 @@ export function ChatProvider({ children }: ChatProviderProps) {
     setChatFileScope(null)
   }, [])
 
+  const normalizeChatUploads = useCallback((attachments: ChatUploadAttachment[]): ChatUploadAttachment[] => {
+    const sorted = [...(attachments || [])]
+    sorted.sort((a, b) => {
+      const aTime = String(a?.uploaded_at || a?.updated_at || '')
+      const bTime = String(b?.uploaded_at || b?.updated_at || '')
+      if (aTime === bTime) return 0
+      return aTime < bTime ? -1 : 1
+    })
+    return sorted
+  }, [])
+
+  const refreshChatUploads = useCallback(async (chatId: string | null) => {
+    if (!chatId) {
+      setChatUploads([])
+      setSelectedUploadIds([])
+      return
+    }
+    try {
+      const data = await listChatUploads(chatId)
+      const nextAttachments = normalizeChatUploads(Array.isArray(data?.attachments) ? data.attachments : [])
+      setChatUploads(nextAttachments)
+      const readyIds = new Set(
+        nextAttachments
+          .filter((item) => item.state === 'ready')
+          .map((item) => String(item.upload_id)),
+      )
+      setSelectedUploadIds((prev) => prev.filter((uploadId) => readyIds.has(String(uploadId))))
+    } catch (err) {
+      logApiError(err, 'ChatProvider.refreshChatUploads')
+      setChatUploads([])
+      setSelectedUploadIds([])
+    }
+  }, [normalizeChatUploads])
+
+  const uploadFiles = useCallback(async (files: File[]) => {
+    const validFiles = files.filter((item) => item instanceof File)
+    if (validFiles.length === 0) return
+    try {
+      let targetChatId = currentChatIdRef.current
+      for (const file of validFiles) {
+        const response = await uploadChatFile(file, targetChatId)
+        const responseChatId = String(response?.chat_id || '').trim()
+        if (responseChatId && responseChatId !== currentChatIdRef.current) {
+          currentChatIdRef.current = responseChatId
+          setCurrentChatIdState(responseChatId)
+          await updateCurrentChat(responseChatId).catch((err) => logApiError(err, 'ChatProvider.uploadFiles.updateCurrentChat'))
+        }
+        targetChatId = responseChatId || targetChatId
+      }
+      await refreshChatUploads(targetChatId || currentChatIdRef.current)
+    } catch (err) {
+      const msg = extractErrorMessage(err, 'Upload failed')
+      setError(msg)
+      showToast('error', msg)
+      throw err
+    }
+  }, [refreshChatUploads])
+
+  const removeUploadedFile = useCallback(async (uploadId: string) => {
+    const chatId = currentChatIdRef.current
+    if (!chatId) return
+    try {
+      const result = await deleteChatUpload(uploadId, chatId)
+      if (typeof result?.toast_message === 'string' && result.toast_message.trim().length > 0) {
+        showToast('info', result.toast_message)
+        setSelectedUploadIds([])
+      } else {
+        setSelectedUploadIds((prev) => prev.filter((id) => id !== uploadId))
+      }
+      await refreshChatUploads(chatId)
+    } catch (err) {
+      const msg = extractErrorMessage(err, 'Failed to remove uploaded file')
+      setError(msg)
+      showToast('error', msg)
+      throw err
+    }
+  }, [refreshChatUploads])
+
+  const toggleUploadSelection = useCallback((uploadId: string) => {
+    const normalizedId = String(uploadId || '').trim()
+    if (!normalizedId) return
+    const attachment = chatUploads.find((item) => String(item.upload_id) === normalizedId)
+    if (!attachment || attachment.state !== 'ready') return
+    setSelectedUploadIds((prev) => {
+      if (prev.includes(normalizedId)) {
+        return prev.filter((id) => id !== normalizedId)
+      }
+      return [...prev, normalizedId]
+    })
+  }, [chatUploads])
+
+  const clearUploadSelection = useCallback(() => {
+    setSelectedUploadIds([])
+  }, [])
+
   const setChatWebSearchPreferences = useCallback(async (
     prefs: { enabled: boolean; privacyOverride: boolean; persist?: boolean },
   ) => {
@@ -440,6 +550,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         }
       }
       setChatFileScope(resolvedFileScope)
+      await refreshChatUploads(selectedChatId)
       const storedModes = readStoredMessageModes()
       const mapped: ChatMessageDisplay[] = historyMessages.map((m, index) => {
         const completionMode = normalizeCompletionMode(m.completion_mode)
@@ -511,6 +622,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
         setChatWebSearchEnabled(false)
         setChatWebSearchPrivacyOverride(false)
         setChatFileScope(null)
+        setChatUploads([])
+        setSelectedUploadIds([])
         setMessages([])
         setError(null)
         updateCurrentChat(null).catch((e) => logApiError(e, 'ChatProvider.selectChat.clearCurrentChat'))
@@ -524,7 +637,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         setLoadingChat(false)
       }
     }
-  }, [currentChatId, resolveDraftOrChatFileScope])
+  }, [currentChatId, refreshChatUploads, resolveDraftOrChatFileScope])
 
   const goToGeneratingChat = useCallback(async () => {
     const generatingChatId = streamChatIdRef.current ?? activeGenerationChatId
@@ -585,6 +698,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       isInternal?: boolean
       mode?: ChatMode
       fileScope?: ChatFileScope | null
+      scopedUploadIds?: string[] | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
     },
@@ -593,6 +707,9 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const isInternalMessage = !!options?.isInternal
     const chatMode: ChatMode = options?.mode ?? 'researcher'
     const providedScope = options?.fileScope ?? null
+    const providedScopedUploadIds = Array.isArray(options?.scopedUploadIds)
+      ? options?.scopedUploadIds
+      : null
     const chatWebSearchEnabled = !!options?.chatWebSearchEnabled
     const chatWebSearchPrivacyOverride = !!options?.chatWebSearchPrivacyOverride
     if (!message || sendInFlightRef.current) return
@@ -603,6 +720,13 @@ export function ChatProvider({ children }: ChatProviderProps) {
       }
       return
     }
+    const hasActiveUploads = chatUploads.some((item) => ['uploading', 'indexing', 'ready'].includes(String(item.state)))
+    if (chatMode !== 'researcher' && hasActiveUploads) {
+      const modeError = 'Uploaded files are available only in Researcher mode.'
+      setError(modeError)
+      showToast('warning', modeError)
+      return
+    }
     if (!isInternalMessage) {
       setForceNewChatFlag(false)
       lastAutoContinuedMessageIdRef.current = null
@@ -610,6 +734,21 @@ export function ChatProvider({ children }: ChatProviderProps) {
     sendInFlightRef.current = true
     const requestChatId = currentChatIdRef.current
     const effectiveFileScope = providedScope ?? resolveDraftOrChatFileScope(requestChatId)
+    const readyUploadIdSet = new Set(
+      chatUploads
+        .filter((item) => item.state === 'ready')
+        .map((item) => String(item.upload_id)),
+    )
+    const candidateUploadIds = (
+      providedScopedUploadIds && providedScopedUploadIds.length > 0
+        ? providedScopedUploadIds
+        : selectedUploadIds
+    )
+      .map((uploadId) => String(uploadId || '').trim())
+      .filter((uploadId) => uploadId.length > 0 && readyUploadIdSet.has(uploadId))
+    const effectiveScopedUploadIds = effectiveFileScope
+      ? []
+      : [...new Set(candidateUploadIds)]
 
     setError(null)
     const now = new Date().toISOString()
@@ -1112,6 +1251,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         mode: chatMode,
         requestId,
         fileId: effectiveFileScope?.fileId ?? null,
+        scopedUploadIds: effectiveScopedUploadIds.length > 0 ? effectiveScopedUploadIds : null,
         chatWebSearchEnabled,
         chatWebSearchPrivacyOverride,
       })
@@ -1119,13 +1259,22 @@ export function ChatProvider({ children }: ChatProviderProps) {
       clearStreamWatchdog()
       sendInFlightRef.current = false
     }
-  }, [applyStreamDraftToVisibleMessages, clearRevealTimer, clearStreamWatchdog, isViewingGeneratingChat, resolveDraftOrChatFileScope])
+  }, [
+    applyStreamDraftToVisibleMessages,
+    chatUploads,
+    clearRevealTimer,
+    clearStreamWatchdog,
+    isViewingGeneratingChat,
+    resolveDraftOrChatFileScope,
+    selectedUploadIds,
+  ])
 
   const continueLastScope = useCallback(async (
     anchorMessageId?: number,
     options?: {
       mode?: ChatMode
       fileScope?: ChatFileScope | null
+      scopedUploadIds?: string[] | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
     },
@@ -1139,6 +1288,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         isInternal: true,
         mode: options?.mode ?? 'researcher',
         fileScope: options?.fileScope ?? null,
+        scopedUploadIds: options?.scopedUploadIds ?? null,
         chatWebSearchEnabled: options?.chatWebSearchEnabled ?? false,
         chatWebSearchPrivacyOverride: options?.chatWebSearchPrivacyOverride ?? false,
       },
@@ -1158,6 +1308,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
     setChatWebSearchEnabled(false)
     setChatWebSearchPrivacyOverride(false)
     setChatFileScope(null)
+    setChatUploads([])
+    setSelectedUploadIds([])
     chatPrefsRef.current.__draft__ = { enabled: false, privacyOverride: false }
     delete chatFileScopesRef.current.__draft__
     lastAutoContinuedMessageIdRef.current = null
@@ -1208,9 +1360,15 @@ export function ChatProvider({ children }: ChatProviderProps) {
         chatWebSearchEnabled,
         chatWebSearchPrivacyOverride,
         chatFileScope,
+        chatUploads,
+        selectedUploadIds,
         setChatWebSearchPreferences,
         startScopedChat,
         clearChatFileScope,
+        uploadFiles,
+        removeUploadedFile,
+        toggleUploadSelection,
+        clearUploadSelection,
         selectChat,
         goToGeneratingChat,
         sendMessage,

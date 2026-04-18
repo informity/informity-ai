@@ -5,14 +5,18 @@
 # ==============================================================================
 
 import asyncio
+import os
 import re
+import shutil
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
+from pathlib import Path
 
 import aiosqlite
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sse_starlette.sse import EventSourceResponse
 from structlog.contextvars import get_contextvars
 
@@ -61,25 +65,34 @@ from informity.api.schemas import (
 from informity.api.security import EndpointGuard
 from informity.chat_trace import get_trace_writer
 from informity.config import settings
-from informity.db.models import ChatMessage, ContinuationPassArtifact
+from informity.db.models import ChatMessage, ChatUploadAttachment, ContinuationPassArtifact
 from informity.db.sqlite import (
+    append_chat_upload_reference_message,
     delete_chat,
     get_chat,
     get_chat_count,
     get_chat_message_by_id,
     get_chat_preferences,
+    get_chat_upload_attachment_by_upload_id,
+    get_chat_upload_attachments,
+    get_chat_upload_size_bytes,
     get_chats,
     get_connection,
     get_db,
+    get_file_by_id,
+    get_file_by_path,
     get_files_by_ids,
     insert_chat_message,
+    insert_chat_upload_attachment,
     insert_continuation_pass_artifact,
     insert_diagnostics_metrics,
     set_chat_title,
+    update_chat_upload_attachment_state,
     upsert_chat_preferences,
 )
 from informity.diagnostics.observer import EvalMetrics, detect_issues, estimate_evidence_metrics
 from informity.diagnostics.resource_snapshot import build_resource_delta, capture_resource_snapshot
+from informity.indexer.pipeline import index_file, remove_file
 from informity.llm.chat_mode import resolve_chat_mode
 from informity.llm.classification_policy import classify_query_with_timing
 from informity.llm.contract_gate import (
@@ -100,6 +113,17 @@ from informity.llm.types import (
     StructuralGapReason,
     TimeoutReason,
 )
+from informity.scanner.crawler import scanned_file_for_path
+from informity.upload_policy import (
+    MAX_UPLOAD_FILES_PER_CHAT,
+    UPLOAD_ENTITY_TYPE,
+    UPLOAD_PROVIDER,
+    is_allowed_extension,
+    is_allowed_mime,
+    max_upload_file_size_bytes,
+    max_upload_total_size_bytes,
+    upload_root_dir,
+)
 from informity.utils.json_utils import serialize_api_response
 from informity.utils.number_utils import safe_float, safe_int
 
@@ -117,6 +141,13 @@ _STREAM_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, Conn
 _STOP_FINALIZE_GRACE_SECONDS = 2.5
 _STOP_FINALIZATION_TASKS: dict[str, asyncio.Task[None]] = {}
 _CONTINUING_STATUS_MESSAGE = 'Continuing response...'
+_ACTIVE_UPLOAD_STATES = {'uploading', 'indexing', 'ready'}
+_UPLOAD_DELETE_RETRY_ATTEMPTS = 3
+_SCOPE_SIGNAL_PATTERN = re.compile(r'(?i)\b(compare|vs|versus|only|just|between)\b')
+_FILENAME_CANDIDATE_PATTERN = re.compile(
+    r'(?i)\b([a-z0-9][a-z0-9_\-\(\)\[\]\.]{0,140}\.[a-z0-9]{1,10})\b'
+)
+_QUOTED_TEXT_PATTERN = re.compile(r'["\']([^"\']{1,180})["\']')
 _OUT_OF_CORPUS_RESPONSE_PATTERN = re.compile(
     r'(?is)\b(?:provided|indexed|these)?\s*(?:documents?|records?|context)\b.{0,120}\b'
     r'(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b'
@@ -134,6 +165,180 @@ def _normalize_diagnostics_query_type(value: object) -> str:
 
 def _answer_signals_out_of_corpus(text: str) -> bool:
     return bool(_OUT_OF_CORPUS_RESPONSE_PATTERN.search(str(text or '')))
+
+
+def _sanitize_upload_filename(filename: str) -> str:
+    name = Path(str(filename or '')).name.strip()
+    if not name:
+        return 'upload.txt'
+    return ''.join(ch for ch in name if ch.isprintable())[:255] or 'upload.txt'
+
+
+def _upload_chat_dir(chat_id: str) -> Path:
+    return upload_root_dir() / str(chat_id).strip()
+
+
+def _upload_file_dir(chat_id: str, upload_id: str) -> Path:
+    return _upload_chat_dir(chat_id) / str(upload_id).strip()
+
+
+def _normalize_filename_token(value: str) -> str:
+    token = ' '.join(str(value or '').strip().split())
+    token = token.strip('.,;:()[]{}')
+    token = re.sub(r'(?i)^(?:compare|vs|versus|and|with|between)\s+', '', token).strip()
+    token = token.strip('.,;:()[]{}')
+    return token
+
+
+def _extract_filename_candidates(text: str) -> list[str]:
+    message = str(text or '')
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for match in _FILENAME_CANDIDATE_PATTERN.finditer(message):
+        token = _normalize_filename_token(match.group(1))
+        lowered = token.lower()
+        if token and lowered not in seen:
+            seen.add(lowered)
+            candidates.append(token)
+    for match in _QUOTED_TEXT_PATTERN.finditer(message):
+        token = _normalize_filename_token(match.group(1))
+        if '.' not in token:
+            continue
+        lowered = token.lower()
+        if token and lowered not in seen:
+            seen.add(lowered)
+            candidates.append(token)
+    return candidates
+
+
+def _resolve_upload_scope_from_filename_candidates(
+    *,
+    candidates: list[str],
+    attachments: list[ChatUploadAttachment],
+) -> tuple[list[ChatUploadAttachment], str | None]:
+    if not candidates:
+        return [], None
+    selected_by_upload_id: dict[str, ChatUploadAttachment] = {}
+    for raw_candidate in candidates:
+        candidate = _normalize_filename_token(raw_candidate).lower()
+        exact_matches = [
+            attachment
+            for attachment in attachments
+            if _normalize_filename_token(attachment.filename_at_upload).lower() == candidate
+        ]
+        if len(exact_matches) == 1:
+            selected_by_upload_id[exact_matches[0].upload_id] = exact_matches[0]
+            continue
+        if len(exact_matches) > 1:
+            return [], f'Ambiguous upload reference "{raw_candidate}". Select files explicitly in the attachment pills.'
+        partial_matches = [
+            attachment
+            for attachment in attachments
+            if candidate in _normalize_filename_token(attachment.filename_at_upload).lower()
+        ]
+        if len(partial_matches) == 1:
+            selected_by_upload_id[partial_matches[0].upload_id] = partial_matches[0]
+            continue
+        if len(partial_matches) > 1:
+            return [], f'Ambiguous upload reference "{raw_candidate}". Select files explicitly in the attachment pills.'
+        return [], f'No uploaded file matched "{raw_candidate}".'
+    return list(selected_by_upload_id.values()), None
+
+
+def _resolve_removed_upload_reference(
+    *,
+    message_text: str,
+    active_attachments: list[ChatUploadAttachment],
+    deleted_attachments: list[ChatUploadAttachment],
+) -> str | None:
+    candidates = _extract_filename_candidates(message_text)
+    if not candidates:
+        return None
+    active_names = {
+        _normalize_filename_token(item.filename_at_upload).lower()
+        for item in active_attachments
+    }
+    for raw_candidate in candidates:
+        candidate = _normalize_filename_token(raw_candidate).lower()
+        if candidate in active_names:
+            continue
+        exact_deleted = [
+            item
+            for item in deleted_attachments
+            if _normalize_filename_token(item.filename_at_upload).lower() == candidate
+        ]
+        if exact_deleted:
+            return raw_candidate
+        partial_deleted = [
+            item
+            for item in deleted_attachments
+            if candidate in _normalize_filename_token(item.filename_at_upload).lower()
+        ]
+        if len(partial_deleted) == 1:
+            return raw_candidate
+    return None
+
+
+async def _sweep_chat_upload_orphans(
+    *,
+    db: aiosqlite.Connection,
+    chat_id: str,
+) -> dict[str, int]:
+    removed_orphan_dirs = 0
+    removed_deleted_dirs = 0
+    repaired_failed_states = 0
+    attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=True)
+    attachments_by_id = {str(item.upload_id): item for item in attachments}
+    chat_dir = _upload_chat_dir(chat_id)
+    if chat_dir.exists():
+        for child in chat_dir.iterdir():
+            if not child.is_dir():
+                continue
+            upload_id = str(child.name).strip()
+            attachment = attachments_by_id.get(upload_id)
+            if attachment is None:
+                try:
+                    shutil.rmtree(child)
+                    removed_orphan_dirs += 1
+                except (OSError, RuntimeError) as exc:
+                    log.warning(
+                        'chat_upload_orphan_dir_remove_failed',
+                        chat_id=chat_id,
+                        upload_id=upload_id,
+                        error=str(exc),
+                    )
+                continue
+            if attachment.state == 'deleted':
+                try:
+                    shutil.rmtree(child)
+                    removed_deleted_dirs += 1
+                except (OSError, RuntimeError) as exc:
+                    log.warning(
+                        'chat_upload_deleted_dir_remove_failed',
+                        chat_id=chat_id,
+                        upload_id=upload_id,
+                        error=str(exc),
+                    )
+    for attachment in attachments:
+        if attachment.state not in {'uploading', 'indexing'}:
+            continue
+        attachment_dir = _upload_file_dir(chat_id, attachment.upload_id)
+        if attachment_dir.exists():
+            continue
+        await update_chat_upload_attachment_state(
+            db,
+            upload_id=attachment.upload_id,
+            chat_id=chat_id,
+            state='failed',
+        )
+        repaired_failed_states += 1
+    return {
+        'removed_orphan_dirs': removed_orphan_dirs,
+        'removed_deleted_dirs': removed_deleted_dirs,
+        'repaired_failed_states': repaired_failed_states,
+    }
+
+
 # ==============================================================================
 # Logger
 # ==============================================================================
@@ -277,6 +482,228 @@ async def _persist_terminal_assistant_message(
         return None, False
 
 
+@router.get('/api/chat/chats/{chat_id}/uploads')
+async def list_chat_uploads(
+    chat_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    sweep_summary = await _sweep_chat_upload_orphans(db=db, chat_id=chat_id)
+    attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
+    return {
+        'chat_id': chat_id,
+        'sweep_summary': sweep_summary,
+        'attachments': [attachment.model_dump(mode='json') for attachment in attachments],
+    }
+
+
+@router.post('/api/chat/uploads')
+async def upload_chat_file(
+    chat_id: str | None = Form(default=None),
+    file: UploadFile = File(...),
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    resolved_chat_id = str(chat_id or '').strip() or str(uuid.uuid4())
+    filename = _sanitize_upload_filename(file.filename or '')
+    if not is_allowed_extension(filename):
+        raise HTTPException(status_code=400, detail='Unsupported file type for chat upload.')
+    if not is_allowed_mime(file.content_type):
+        raise HTTPException(status_code=400, detail='Unsupported upload MIME type.')
+
+    existing_attachments = await get_chat_upload_attachments(db, chat_id=resolved_chat_id, include_deleted=False)
+    active_attachments = [a for a in existing_attachments if a.state in {'uploading', 'indexing', 'ready'}]
+    if len(active_attachments) >= MAX_UPLOAD_FILES_PER_CHAT:
+        raise HTTPException(
+            status_code=413,
+            detail=f'Maximum uploads per chat reached ({MAX_UPLOAD_FILES_PER_CHAT}).',
+        )
+
+    raw_bytes = await file.read()
+    size_bytes = len(raw_bytes)
+    if size_bytes <= 0:
+        raise HTTPException(status_code=400, detail='Uploaded file is empty.')
+    if size_bytes > max_upload_file_size_bytes():
+        raise HTTPException(
+            status_code=413,
+            detail=f'File exceeds max upload size ({max_upload_file_size_bytes() // (1024 * 1024)} MB).',
+        )
+    current_chat_upload_size = await get_chat_upload_size_bytes(db, chat_id=resolved_chat_id)
+    if current_chat_upload_size + size_bytes > max_upload_total_size_bytes():
+        raise HTTPException(
+            status_code=413,
+            detail=f'Chat upload total size limit exceeded ({max_upload_total_size_bytes() // (1024 * 1024)} MB).',
+        )
+
+    upload_id = str(uuid.uuid4())
+    attachment = await insert_chat_upload_attachment(
+        db,
+        upload_id=upload_id,
+        chat_id=resolved_chat_id,
+        filename_at_upload=filename,
+        size_bytes=size_bytes,
+        state='uploading',
+    )
+    file_dir = _upload_file_dir(resolved_chat_id, upload_id)
+    file_path = file_dir / filename
+    try:
+        os.makedirs(file_dir, exist_ok=True)
+        file_path.write_bytes(raw_bytes)
+        await update_chat_upload_attachment_state(
+            db,
+            upload_id=upload_id,
+            chat_id=resolved_chat_id,
+            state='indexing',
+        )
+        scanned = scanned_file_for_path(file_path)
+        if scanned is None:
+            raise HTTPException(status_code=422, detail='Unable to process uploaded file for indexing.')
+        index_result = await index_file(
+            db,
+            scanned,
+            source_provider=UPLOAD_PROVIDER,
+            entity_type=UPLOAD_ENTITY_TYPE,
+        )
+        if not index_result.success:
+            await update_chat_upload_attachment_state(
+                db,
+                upload_id=upload_id,
+                chat_id=resolved_chat_id,
+                state='failed',
+            )
+            raise HTTPException(status_code=422, detail=f'Failed to index upload: {index_result.error or "unknown error"}')
+        file_record = await get_file_by_path(db, str(file_path))
+        if file_record is None or file_record.id is None:
+            await update_chat_upload_attachment_state(
+                db,
+                upload_id=upload_id,
+                chat_id=resolved_chat_id,
+                state='failed',
+            )
+            raise HTTPException(status_code=500, detail='Upload indexed but file record was not found.')
+        await update_chat_upload_attachment_state(
+            db,
+            upload_id=upload_id,
+            chat_id=resolved_chat_id,
+            state='ready',
+            file_id=file_record.id,
+            content_hash=file_record.content_hash,
+        )
+        latest_attachment = await get_chat_upload_attachment_by_upload_id(
+            db,
+            upload_id=upload_id,
+            chat_id=resolved_chat_id,
+        )
+        return {
+            'chat_id': resolved_chat_id,
+            'upload_id': upload_id,
+            'attachment': (latest_attachment.model_dump(mode='json') if latest_attachment else attachment.model_dump(mode='json')),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        await update_chat_upload_attachment_state(
+            db,
+            upload_id=upload_id,
+            chat_id=resolved_chat_id,
+            state='failed',
+        )
+        log.error(
+            'chat_upload_failed',
+            chat_id=resolved_chat_id,
+            upload_id=upload_id,
+            filename=filename,
+            error=str(exc),
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail='Upload failed during processing.') from exc
+
+
+async def _delete_chat_upload_artifacts(
+    *,
+    db: aiosqlite.Connection,
+    attachment: ChatUploadAttachment,
+) -> None:
+    upload_id = str(attachment.upload_id)
+    chat_id = str(attachment.chat_id)
+    file_id = attachment.file_id
+    await update_chat_upload_attachment_state(
+        db,
+        upload_id=upload_id,
+        chat_id=chat_id,
+        state='deleting',
+    )
+
+    if file_id is not None:
+        file_record = await get_file_by_id(db, int(file_id))
+        if file_record is not None:
+            removed = False
+            for attempt in range(1, _UPLOAD_DELETE_RETRY_ATTEMPTS + 1):
+                removed = await remove_file(db, file_record)
+                if removed:
+                    break
+                await asyncio.sleep(0.05 * attempt)
+            if not removed:
+                log.warning('chat_upload_file_remove_failed', chat_id=chat_id, upload_id=upload_id, file_id=file_id)
+
+    file_dir = _upload_file_dir(chat_id, upload_id)
+    if file_dir.exists():
+        deleted_from_disk = False
+        for attempt in range(1, _UPLOAD_DELETE_RETRY_ATTEMPTS + 1):
+            try:
+                shutil.rmtree(file_dir)
+                deleted_from_disk = True
+                break
+            except (OSError, RuntimeError) as exc:
+                if attempt >= _UPLOAD_DELETE_RETRY_ATTEMPTS:
+                    log.warning('chat_upload_storage_remove_failed', chat_id=chat_id, upload_id=upload_id, error=str(exc))
+                    break
+                await asyncio.sleep(0.05 * attempt)
+        if not deleted_from_disk and file_dir.exists():
+            log.warning('chat_upload_storage_delete_incomplete', chat_id=chat_id, upload_id=upload_id)
+
+    await update_chat_upload_attachment_state(
+        db,
+        upload_id=upload_id,
+        chat_id=chat_id,
+        state='deleted',
+        removed_at=datetime.now(UTC),
+    )
+
+
+@router.delete('/api/chat/uploads/{upload_id}')
+async def delete_chat_upload(
+    upload_id: str,
+    chat_id: str = Query(..., min_length=1),
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    attachment = await get_chat_upload_attachment_by_upload_id(
+        db,
+        upload_id=upload_id,
+        chat_id=chat_id,
+    )
+    if attachment is None:
+        raise HTTPException(status_code=404, detail='Upload not found.')
+
+    if attachment.state == 'deleted':
+        return {'chat_id': chat_id, 'upload_id': upload_id, 'deleted': True, 'fallback_to_scanned_documents': False}
+    await _delete_chat_upload_artifacts(db=db, attachment=attachment)
+    sweep_summary = await _sweep_chat_upload_orphans(db=db, chat_id=chat_id)
+    remaining = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
+    active_remaining = [item for item in remaining if item.state in {'uploading', 'indexing', 'ready'}]
+    fallback_to_scanned_documents = len(active_remaining) == 0
+    return {
+        'chat_id': chat_id,
+        'upload_id': upload_id,
+        'deleted': True,
+        'fallback_to_scanned_documents': fallback_to_scanned_documents,
+        'toast_message': (
+            'You are now using your scanned documents.'
+            if fallback_to_scanned_documents
+            else None
+        ),
+        'sweep_summary': sweep_summary,
+    }
+
+
 
 # ==============================================================================
 # POST /api/chat — send a message and stream the response via SSE
@@ -296,7 +723,7 @@ async def chat(
             status_code=413,
             detail=f'Message too large (max {MAX_CHAT_MESSAGE_CHARS} characters).',
         )
-    scoped_file_ids: list[int] | None = None
+    requested_scoped_file_ids: list[int] | None = None
     if request.scoped_file_ids is not None:
         candidate_file_ids = [int(file_id) for file_id in request.scoped_file_ids]
         files_by_id = await get_files_by_ids(db, candidate_file_ids)
@@ -304,7 +731,14 @@ async def chat(
         if missing_file_ids:
             missing_ids_text = ', '.join(str(file_id) for file_id in missing_file_ids)
             raise HTTPException(status_code=404, detail=f'Files not found in index: {missing_ids_text}.')
-        scoped_file_ids = candidate_file_ids
+        requested_scoped_file_ids = candidate_file_ids
+    requested_scoped_upload_ids: list[str] | None = None
+    if request.scoped_upload_ids is not None:
+        requested_scoped_upload_ids = [
+            str(upload_id).strip()
+            for upload_id in request.scoped_upload_ids
+            if str(upload_id).strip()
+        ]
     await CHAT_GUARD.check_rate_limit()
     requested_run_id = str(request.run_id or '').strip() or None
     resolved_chat_mode = resolve_chat_mode(request.mode)
@@ -321,16 +755,152 @@ async def chat(
     )
     artifact_request_id = request_id
 
+    upload_attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
+    await _sweep_chat_upload_orphans(db=db, chat_id=chat_id)
+    upload_attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
+    deleted_upload_attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=True)
+    deleted_upload_attachments = [item for item in deleted_upload_attachments if item.state == 'deleted']
+    uploads_by_id = {str(item.upload_id): item for item in upload_attachments}
+    upload_ready_file_ids = sorted({
+        int(item.file_id)
+        for item in upload_attachments
+        if item.state == 'ready' and item.file_id is not None
+    })
+    upload_indexing_ids = [
+        item.upload_id
+        for item in upload_attachments
+        if item.state in {'uploading', 'indexing'}
+    ]
+    upload_active_ids = [
+        item.upload_id
+        for item in upload_attachments
+        if item.state in _ACTIVE_UPLOAD_STATES
+    ]
+    if requested_scoped_file_ids is not None and requested_scoped_upload_ids is not None:
+        raise HTTPException(
+            status_code=409,
+            detail='Provide either scoped_file_ids or scoped_upload_ids, not both.',
+        )
+    if resolved_chat_mode != 'researcher' and (upload_active_ids or requested_scoped_upload_ids):
+        raise HTTPException(
+            status_code=409,
+            detail='Uploaded files are available only in Researcher mode.',
+        )
+    if requested_scoped_file_ids is not None and upload_active_ids:
+        raise HTTPException(
+            status_code=409,
+            detail='Mixed library scope and chat uploads are not supported in one turn.',
+        )
+    scoped_file_ids: list[int] | None = requested_scoped_file_ids
+    upload_scope_omitted_ids: list[str] = []
+    upload_scope_selected_ids: list[str] = []
+    upload_scope_resolution_mode = 'default'
+    message_filename_candidates = _extract_filename_candidates(message_text)
+    message_scope_signal = bool(_SCOPE_SIGNAL_PATTERN.search(message_text))
+    if requested_scoped_upload_ids is not None:
+        upload_scope_resolution_mode = 'explicit_upload_ids'
+        if not upload_attachments:
+            raise HTTPException(status_code=404, detail='No uploaded files found for this chat.')
+        selected_uploads: list[ChatUploadAttachment] = []
+        missing_upload_ids: list[str] = []
+        for upload_id in requested_scoped_upload_ids:
+            attachment = uploads_by_id.get(upload_id)
+            if attachment is None or attachment.state not in _ACTIVE_UPLOAD_STATES:
+                missing_upload_ids.append(upload_id)
+                continue
+            selected_uploads.append(attachment)
+        if missing_upload_ids:
+            raise HTTPException(
+                status_code=404,
+                detail=f'Upload not found or inactive: {", ".join(missing_upload_ids)}.',
+            )
+        indexing_selected = [item.upload_id for item in selected_uploads if item.state in {'uploading', 'indexing'}]
+        if indexing_selected:
+            raise HTTPException(
+                status_code=409,
+                detail='Selected uploaded file is still indexing. Please retry in a moment.',
+            )
+        selected_ready_file_ids = sorted({
+            int(item.file_id)
+            for item in selected_uploads
+            if item.state == 'ready' and item.file_id is not None
+        })
+        if not selected_ready_file_ids:
+            raise HTTPException(
+                status_code=409,
+                detail='Selected uploaded files are not ready yet. Please retry in a moment.',
+            )
+        scoped_file_ids = selected_ready_file_ids
+        upload_scope_selected_ids = [item.upload_id for item in selected_uploads]
+    elif scoped_file_ids is None and upload_active_ids:
+        resolved_selected_uploads: list[ChatUploadAttachment] = []
+        if message_filename_candidates or message_scope_signal:
+            resolved_selected_uploads, resolution_error = _resolve_upload_scope_from_filename_candidates(
+                candidates=message_filename_candidates,
+                attachments=[item for item in upload_attachments if item.state in _ACTIVE_UPLOAD_STATES],
+            )
+            if resolution_error:
+                raise HTTPException(status_code=409, detail=resolution_error)
+            if resolved_selected_uploads:
+                upload_scope_resolution_mode = 'nlp_filename_scope'
+                selected_indexing = [
+                    item.upload_id for item in resolved_selected_uploads if item.state in {'uploading', 'indexing'}
+                ]
+                if selected_indexing:
+                    raise HTTPException(
+                        status_code=409,
+                        detail='Selected uploaded file is still indexing. Please retry in a moment.',
+                    )
+                selected_ready_ids = sorted({
+                    int(item.file_id)
+                    for item in resolved_selected_uploads
+                    if item.file_id is not None and item.state == 'ready'
+                })
+                if not selected_ready_ids:
+                    raise HTTPException(
+                        status_code=409,
+                        detail='Selected uploaded files are not ready yet. Please retry in a moment.',
+                    )
+                scoped_file_ids = selected_ready_ids
+                upload_scope_selected_ids = [item.upload_id for item in resolved_selected_uploads]
+            elif message_scope_signal and not message_filename_candidates:
+                upload_scope_resolution_mode = 'nlp_scope_all_uploads'
+        if upload_ready_file_ids:
+            if not scoped_file_ids:
+                scoped_file_ids = upload_ready_file_ids
+                upload_scope_omitted_ids = list(upload_indexing_ids)
+                upload_scope_selected_ids = list(upload_active_ids)
+                upload_scope_resolution_mode = 'default_all_uploads'
+        else:
+            raise HTTPException(
+                status_code=409,
+                detail='Uploaded files are still indexing. Please retry in a moment.',
+            )
+    elif resolved_chat_mode == 'researcher' and scoped_file_ids is None and deleted_upload_attachments:
+        removed_reference = _resolve_removed_upload_reference(
+            message_text=message_text,
+            active_attachments=upload_attachments,
+            deleted_attachments=deleted_upload_attachments,
+        )
+        if removed_reference is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f'"{removed_reference}" was removed from this chat. '
+                    'Re-upload the file to continue using it in answers.'
+                ),
+            )
+
     # Fetch chat history (excluding the current message we're about to add)
     history = await get_chat(db, chat_id)
     existing_chat_preferences = await get_chat_preferences(db, chat_id)
     resolved_chat_web_search_enabled = (
-        existing_chat_preferences.get('chat_web_search_enabled') is True
+        bool(existing_chat_preferences.get('chat_web_search_enabled'))
         if request.chat_web_search_enabled is None
         else bool(request.chat_web_search_enabled)
     )
     resolved_chat_web_search_privacy_override = (
-        existing_chat_preferences.get('chat_web_search_privacy_override') is True
+        bool(existing_chat_preferences.get('chat_web_search_privacy_override'))
         if request.chat_web_search_privacy_override is None
         else bool(request.chat_web_search_privacy_override)
     )
@@ -697,8 +1267,8 @@ async def chat(
                             if (
                                 resolved_chat_mode == 'researcher'
                                 and metrics_query_type in {DiagnosticsQueryType.FOCUSED.value, DiagnosticsQueryType.COVERAGE.value}
-                                and bool(metrics_payload.get('generation_skipped')) is True
-                                and bool(metrics_payload.get('answerability_passed')) is False
+                                and bool(metrics_payload.get('generation_skipped'))
+                                and not bool(metrics_payload.get('answerability_passed'))
                                 and not bool(getattr(locked_classification, 'is_metadata_query', False))
                             ):
                                 researcher_out_of_corpus = True
@@ -984,6 +1554,26 @@ async def chat(
                     message_persisted = assistant_message_id is not None
                 finally:
                     await persist_db.close()
+
+                if assistant_message_id is not None:
+                    seen_source_file_ids: set[int] = set()
+                    for source in source_dicts:
+                        file_id_raw = source.get('file_id')
+                        try:
+                            file_id = int(file_id_raw) if file_id_raw is not None else None
+                        except (TypeError, ValueError):
+                            file_id = None
+                        if file_id is None or file_id <= 0:
+                            continue
+                        if file_id in seen_source_file_ids:
+                            continue
+                        seen_source_file_ids.add(file_id)
+                        await append_chat_upload_reference_message(
+                            db,
+                            chat_id=chat_id,
+                            file_id=file_id,
+                            message_id=int(assistant_message_id),
+                        )
 
                 if trace_writer is not None:
                     resource_end_snapshot = capture_resource_snapshot()
@@ -1310,6 +1900,14 @@ async def chat(
                 resource_metrics=resource_metrics,
                 message_id=assistant_message_id,
             )
+            done_data['upload_scope'] = {
+                'active_upload_ids': upload_active_ids,
+                'selected_upload_ids': upload_scope_selected_ids,
+                'ready_file_ids': upload_ready_file_ids,
+                'indexing_upload_ids': upload_indexing_ids,
+                'omitted_upload_ids': upload_scope_omitted_ids,
+                'resolution_mode': upload_scope_resolution_mode,
+            }
             log.info(
                 'chat_response_completed',
                 chat_id=chat_id,
@@ -1515,13 +2113,27 @@ async def delete_chat_endpoint(
     chat_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=True)
+    uploads_deleted = 0
+    for attachment in attachments:
+        if attachment.state != 'deleted':
+            await _delete_chat_upload_artifacts(db=db, attachment=attachment)
+        uploads_deleted += 1
+    chat_upload_dir = _upload_chat_dir(chat_id)
+    if chat_upload_dir.exists():
+        try:
+            shutil.rmtree(chat_upload_dir)
+        except (OSError, RuntimeError) as exc:
+            log.warning('chat_upload_chat_dir_remove_failed', chat_id=chat_id, error=str(exc))
+
     deleted = await delete_chat(db, chat_id)
     if not deleted:
         raise HTTPException(status_code=404, detail='Chat not found')
 
-    log.info('chat_deleted', chat_id=chat_id)
+    log.info('chat_deleted', chat_id=chat_id, uploads_deleted=uploads_deleted)
 
     return {
         'chat_id':  chat_id,
         'deleted':  True,
+        'uploads_deleted': uploads_deleted,
     }
