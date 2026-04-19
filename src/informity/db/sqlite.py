@@ -7,6 +7,7 @@
 import asyncio
 import hashlib
 import json
+import re
 from collections.abc import AsyncGenerator
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -54,6 +55,12 @@ _CHAT_PREVIEW_TRUNCATE_LENGTH = 100
 _RESET_SCHEMA_RETRY_ATTEMPTS = 15
 _RESET_SCHEMA_RETRY_BASE_DELAY_SECONDS = 0.2
 _RESET_COMPACTION_RETRY_ATTEMPTS = 10
+_CHAT_TITLE_MAX_LENGTH = 50
+_CHAT_TITLE_MARKDOWN_HEADING_RE = re.compile(r'^\s{0,3}#{1,6}\s+')
+_CHAT_TITLE_MARKDOWN_LINK_RE = re.compile(r'\[([^\]]+)\]\([^)]+\)')
+_CHAT_TITLE_MARKDOWN_DECORATOR_RE = re.compile(r'[*_`~]+')
+_CHAT_TITLE_MARKDOWN_LEADING_LIST_RE = re.compile(r'^\s*[-+*>\s]+')
+_CHAT_TITLE_WHITESPACE_RE = re.compile(r'\s+')
 
 # ==============================================================================
 # Schema — DDL statements for all tables
@@ -1435,10 +1442,19 @@ async def ensure_chat_exists(db: aiosqlite.Connection, chat_id: str, first_user_
 
     title = None
     if first_user_message:
-        # Simple title: first 50 chars of message
-        title = first_user_message[:50].strip()
-        if len(first_user_message) > 50:
-            title += '...'
+        # Simple title from first line with light markdown stripping.
+        raw_title_candidate = first_user_message.splitlines()[0].strip()
+        normalized_title = _CHAT_TITLE_MARKDOWN_HEADING_RE.sub('', raw_title_candidate)
+        normalized_title = _CHAT_TITLE_MARKDOWN_LINK_RE.sub(r'\1', normalized_title)
+        normalized_title = _CHAT_TITLE_MARKDOWN_DECORATOR_RE.sub('', normalized_title)
+        normalized_title = _CHAT_TITLE_MARKDOWN_LEADING_LIST_RE.sub('', normalized_title)
+        normalized_title = _CHAT_TITLE_WHITESPACE_RE.sub(' ', normalized_title).strip()
+
+        title_source = normalized_title or raw_title_candidate
+        if title_source:
+            title = title_source[:_CHAT_TITLE_MAX_LENGTH].strip()
+            if len(title_source) > _CHAT_TITLE_MAX_LENGTH:
+                title += '...'
 
     await db.execute(
         'INSERT INTO chats (chat_id, title) VALUES (?, ?)',
