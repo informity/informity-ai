@@ -308,6 +308,7 @@
   overflow-y: hidden;
   padding-bottom: 0.15rem;
   scrollbar-width: thin;
+  transition: opacity 120ms ease;
 }
 
 .chat-view__upload-chip {
