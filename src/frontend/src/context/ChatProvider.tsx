@@ -441,27 +441,45 @@ export function ChatProvider({ children }: ChatProviderProps) {
     }
   }, [normalizeChatUploads])
 
-  const uploadFiles = useCallback(async (files: File[]) => {
+  const uploadFiles = useCallback(async (
+    files: File[],
+    options?: { onChatResolved?: (chatId: string) => void },
+  ) => {
     const validFiles = files.filter((item) => item instanceof File)
     if (validFiles.length === 0) return
+    let targetChatId = currentChatIdRef.current
+    let refreshTargetChatId = targetChatId
+    let uploadError: unknown = null
     try {
-      let targetChatId = currentChatIdRef.current
       for (const file of validFiles) {
-        const response = await uploadChatFile(file, targetChatId)
-        const responseChatId = String(response?.chat_id || '').trim()
-        if (responseChatId && responseChatId !== currentChatIdRef.current) {
-          currentChatIdRef.current = responseChatId
-          setCurrentChatIdState(responseChatId)
-          await updateCurrentChat(responseChatId).catch((err) => logApiError(err, 'ChatProvider.uploadFiles.updateCurrentChat'))
+        try {
+          const response = await uploadChatFile(file, targetChatId)
+          const responseChatId = String(response?.chat_id || '').trim()
+          if (responseChatId && responseChatId !== currentChatIdRef.current) {
+            currentChatIdRef.current = responseChatId
+            setCurrentChatIdState(responseChatId)
+            await updateCurrentChat(responseChatId).catch((err) => logApiError(err, 'ChatProvider.uploadFiles.updateCurrentChat'))
+          }
+          if (responseChatId) {
+            refreshTargetChatId = responseChatId
+            options?.onChatResolved?.(responseChatId)
+          }
+          targetChatId = responseChatId || targetChatId
+        } catch (err) {
+          uploadError = err
+          break
         }
-        targetChatId = responseChatId || targetChatId
       }
-      await refreshChatUploads(targetChatId || currentChatIdRef.current)
     } catch (err) {
-      const msg = extractErrorMessage(err, 'Upload failed')
+      uploadError = err
+    } finally {
+      await refreshChatUploads(refreshTargetChatId || currentChatIdRef.current)
+    }
+    if (uploadError != null) {
+      const msg = extractErrorMessage(uploadError, 'Upload failed')
       setError(msg)
       showToast('error', msg)
-      throw err
+      throw uploadError
     }
   }, [refreshChatUploads])
 

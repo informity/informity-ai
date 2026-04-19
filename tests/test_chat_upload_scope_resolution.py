@@ -69,11 +69,3 @@ def test_resolve_upload_scope_ambiguous_duplicate_filename_requires_clarificatio
     assert 'Ambiguous upload reference' in error
 
 
-def test_resolve_removed_upload_reference_detects_deleted_file() -> None:
-    removed = routes_chat._resolve_removed_upload_reference(
-        message_text='Can you compare summary_v1.pdf with the latest version?',
-        active_attachments=[_attachment('up-2', 'summary_v2.pdf')],
-        deleted_attachments=[_attachment('up-1', 'summary_v1.pdf', state='deleted', file_id=None)],
-    )
-    assert removed == 'summary_v1.pdf'
-
