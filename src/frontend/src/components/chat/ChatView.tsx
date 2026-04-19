@@ -114,6 +114,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const isNearBottomRef = useRef(true)
   const modeMenuRef = useRef<HTMLDivElement>(null)
   const consumedInitialScopeRef = useRef<string | null>(null)
+  const skipNextSelectChatIdRef = useRef<string | null>(null)
+  const draftPendingAliasChatIdRef = useRef<string | null>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
   const uploadChipsContainerRef = useRef<HTMLDivElement>(null)
   const uploadChipMeasureRefs = useRef<Record<string, HTMLSpanElement | null>>({})
@@ -122,8 +124,16 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const uploadClearMeasureRef = useRef<HTMLButtonElement>(null)
   const [visibleUploadCount, setVisibleUploadCount] = useState(chatUploads.length)
   const [pendingUploadCountsByChat, setPendingUploadCountsByChat] = useState<Record<string, number>>({})
-  const pendingUploadScopeKey = contextChatId || '__draft__'
-  const pendingUploadCount = pendingUploadCountsByChat[pendingUploadScopeKey] ?? 0
+  const pendingUploadCount = (() => {
+    if (!contextChatId) return pendingUploadCountsByChat.__draft__ ?? 0
+    const scopedCount = pendingUploadCountsByChat[contextChatId] ?? 0
+    const draftAliasCount = (
+      draftPendingAliasChatIdRef.current === contextChatId
+        ? (pendingUploadCountsByChat.__draft__ ?? 0)
+        : 0
+    )
+    return Math.max(scopedCount, draftAliasCount)
+  })()
 
   const isForceNewChatRequested = useCallback((): boolean => {
     try {
@@ -226,6 +236,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       return
     }
     if (contextChatId) {
+      if (skipNextSelectChatIdRef.current === contextChatId) {
+        skipNextSelectChatIdRef.current = null
+        return
+      }
       selectChat(contextChatId)
       return
     }
@@ -263,17 +277,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     clearError()
     void startScopedChat(initialScopedFile)
   }, [clearError, initialScopedFile, startScopedChat])
-
-  useEffect(() => {
-    if (!contextChatId) return
-    setPendingUploadCountsByChat((prev) => {
-      const draftCount = prev.__draft__ ?? 0
-      if (draftCount <= 0) return prev
-      const next = { ...prev, [contextChatId]: (prev[contextChatId] ?? 0) + draftCount }
-      delete next.__draft__
-      return next
-    })
-  }, [contextChatId])
 
   const hasUploadAttachments = chatUploads.length > 0
   const hasActiveUploadAttachments = chatUploads.some((item) => ['uploading', 'indexing', 'ready'].includes(String(item.state)))
@@ -646,6 +649,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     const selectedCount = selectedFiles.length
     const uploadScopeKeyAtStart = contextChatId || '__draft__'
     let uploadScopeKeyToSettle = uploadScopeKeyAtStart
+    if (uploadScopeKeyAtStart === '__draft__') {
+      draftPendingAliasChatIdRef.current = null
+    }
     event.target.value = ''
     setPendingUploadCountsByChat((prev) => ({
       ...prev,
@@ -657,22 +663,16 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
           if (uploadScopeKeyAtStart !== '__draft__') return
           const normalizedChatId = String(resolvedChatId || '').trim()
           if (!normalizedChatId) return
-          uploadScopeKeyToSettle = normalizedChatId
-          setPendingUploadCountsByChat((prev) => {
-            const draftCount = prev.__draft__ ?? 0
-            if (draftCount <= 0) return prev
-            const next = {
-              ...prev,
-              [normalizedChatId]: (prev[normalizedChatId] ?? 0) + draftCount,
-            }
-            delete next.__draft__
-            return next
-          })
+          skipNextSelectChatIdRef.current = normalizedChatId
+          draftPendingAliasChatIdRef.current = normalizedChatId
         },
       })
     } catch (err) {
       logApiError(err, 'ChatView.handleUploadInputChange')
     } finally {
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => resolve())
+      })
       setPendingUploadCountsByChat((prev) => {
         const current = prev[uploadScopeKeyToSettle] ?? 0
         const remaining = Math.max(0, current - selectedCount)
@@ -685,6 +685,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         }
         return next
       })
+      if (uploadScopeKeyAtStart === '__draft__') {
+        draftPendingAliasChatIdRef.current = null
+      }
     }
   }, [contextChatId, uploadFiles])
 
