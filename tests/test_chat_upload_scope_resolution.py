@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+
 from informity.api import routes_chat
-from informity.db.models import ChatUploadAttachment
+from informity.db.models import ChatMessage, ChatUploadAttachment
 
 
 def _attachment(
@@ -10,6 +12,7 @@ def _attachment(
     *,
     state: str = 'ready',
     file_id: int | None = 1,
+    uploaded_at: datetime | None = None,
 ) -> ChatUploadAttachment:
     return ChatUploadAttachment(
         upload_id=upload_id,
@@ -18,6 +21,7 @@ def _attachment(
         filename_at_upload=filename,
         size_bytes=100,
         state=state,
+        uploaded_at=uploaded_at,
     )
 
 
@@ -69,3 +73,121 @@ def test_resolve_upload_scope_ambiguous_duplicate_filename_requires_clarificatio
     assert 'Ambiguous upload reference' in error
 
 
+def test_build_retrieval_scope_uses_earliest_active_upload_anchor() -> None:
+    scope_kind, scope_key = routes_chat._build_retrieval_scope(
+        chat_mode='researcher',
+        scoped_file_ids=[101, 202],
+        upload_attachments=[
+            _attachment('up-2', 'b.pdf', uploaded_at=datetime(2026, 4, 19, 4, 13, 20, tzinfo=UTC)),
+            _attachment('up-1', 'a.pdf', uploaded_at=datetime(2026, 4, 19, 4, 12, 20, tzinfo=UTC)),
+        ],
+    )
+    assert scope_kind == 'chat_uploads'
+    assert scope_key == 'chat_uploads:up-1'
+
+
+def test_build_retrieval_scope_keeps_session_anchor_when_original_anchor_deleted() -> None:
+    scope_kind, scope_key = routes_chat._build_retrieval_scope(
+        chat_mode='researcher',
+        scoped_file_ids=None,
+        upload_attachments=[
+            _attachment('up-2', 'b.pdf', uploaded_at=datetime(2026, 4, 19, 4, 13, 20, tzinfo=UTC)),
+            _attachment('up-3', 'c.pdf', uploaded_at=datetime(2026, 4, 19, 4, 14, 20, tzinfo=UTC)),
+        ],
+        upload_attachments_all=[
+            _attachment(
+                'up-1',
+                'a.pdf',
+                state='deleted',
+                uploaded_at=datetime(2026, 4, 19, 4, 12, 20, tzinfo=UTC),
+            ).model_copy(update={'removed_at': datetime(2026, 4, 19, 4, 15, 20, tzinfo=UTC)}),
+            _attachment('up-2', 'b.pdf', uploaded_at=datetime(2026, 4, 19, 4, 13, 20, tzinfo=UTC)),
+            _attachment('up-3', 'c.pdf', uploaded_at=datetime(2026, 4, 19, 4, 14, 20, tzinfo=UTC)),
+        ],
+    )
+    assert scope_kind == 'chat_uploads'
+    assert scope_key == 'chat_uploads:up-1'
+
+
+def test_build_retrieval_scope_resets_anchor_after_full_depletion() -> None:
+    scope_kind, scope_key = routes_chat._build_retrieval_scope(
+        chat_mode='researcher',
+        scoped_file_ids=None,
+        upload_attachments=[
+            _attachment('up-4', 'new.pdf', uploaded_at=datetime(2026, 4, 19, 4, 20, 20, tzinfo=UTC)),
+        ],
+        upload_attachments_all=[
+            _attachment(
+                'up-1',
+                'a.pdf',
+                state='deleted',
+                uploaded_at=datetime(2026, 4, 19, 4, 12, 20, tzinfo=UTC),
+            ).model_copy(update={'removed_at': datetime(2026, 4, 19, 4, 15, 20, tzinfo=UTC)}),
+            _attachment(
+                'up-2',
+                'b.pdf',
+                state='deleted',
+                uploaded_at=datetime(2026, 4, 19, 4, 13, 20, tzinfo=UTC),
+            ).model_copy(update={'removed_at': datetime(2026, 4, 19, 4, 16, 20, tzinfo=UTC)}),
+            _attachment('up-4', 'new.pdf', uploaded_at=datetime(2026, 4, 19, 4, 20, 20, tzinfo=UTC)),
+        ],
+    )
+    assert scope_kind == 'chat_uploads'
+    assert scope_key == 'chat_uploads:up-4'
+
+
+def test_build_retrieval_scope_adds_subset_suffix_for_selected_uploads() -> None:
+    scope_kind, scope_key = routes_chat._build_retrieval_scope(
+        chat_mode='researcher',
+        scoped_file_ids=None,
+        upload_attachments=[
+            _attachment('up-1', 'a.pdf', uploaded_at=datetime(2026, 4, 19, 4, 12, 20, tzinfo=UTC)),
+            _attachment('up-2', 'b.pdf', uploaded_at=datetime(2026, 4, 19, 4, 13, 20, tzinfo=UTC)),
+            _attachment('up-3', 'c.pdf', uploaded_at=datetime(2026, 4, 19, 4, 14, 20, tzinfo=UTC)),
+        ],
+        upload_attachments_all=[
+            _attachment('up-1', 'a.pdf', uploaded_at=datetime(2026, 4, 19, 4, 12, 20, tzinfo=UTC)),
+            _attachment('up-2', 'b.pdf', uploaded_at=datetime(2026, 4, 19, 4, 13, 20, tzinfo=UTC)),
+            _attachment('up-3', 'c.pdf', uploaded_at=datetime(2026, 4, 19, 4, 14, 20, tzinfo=UTC)),
+        ],
+        selected_upload_ids=['up-2'],
+    )
+    assert scope_kind == 'chat_uploads'
+    assert scope_key == 'chat_uploads:up-1|sel:up-2'
+
+
+def test_filter_history_for_scope_isolates_upload_from_indexed_context() -> None:
+    history = [
+        ChatMessage(
+            chat_id='chat-1',
+            role='user',
+            content='Tell me about uploaded files',
+            chat_mode='researcher',
+            retrieval_scope_kind='chat_uploads',
+            retrieval_scope_key='chat_uploads:up-1',
+        ),
+        ChatMessage(
+            chat_id='chat-1',
+            role='assistant',
+            content='Upload answer',
+            chat_mode='researcher',
+            retrieval_scope_kind='chat_uploads',
+            retrieval_scope_key='chat_uploads:up-1',
+        ),
+        ChatMessage(
+            chat_id='chat-1',
+            role='user',
+            content='Now use scanned docs',
+            chat_mode='researcher',
+            retrieval_scope_kind='indexed_corpus',
+            retrieval_scope_key='indexed_corpus',
+        ),
+    ]
+    filtered = routes_chat._filter_history_for_scope(
+        history=history,
+        chat_mode='researcher',
+        retrieval_scope_kind='indexed_corpus',
+        retrieval_scope_key='indexed_corpus',
+    )
+    assert len(filtered) == 1
+    assert filtered[0].content == 'Now use scanned docs'

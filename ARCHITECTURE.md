@@ -221,7 +221,32 @@ class ChatMessage(BaseModel):
     content:            str
     sources:           list[dict] = Field(default_factory=list)  # Full source reference objects
     generation_seconds: float | None = None   # Time to generate answer (assistant only)
+    completion_mode:    str | None = None
+    stopped_by_user:    bool = False
+    has_remaining_scope: bool = False
+    next_action:        str | None = None
+    next_action_reason: str | None = None
+    chat_mode:          str | None = None
+    retrieval_scope_kind: str | None = None   # assistant_mode | indexed_corpus | indexed_files | chat_uploads
+    retrieval_scope_key:  str | None = None   # scope-specific key used for history partitioning
+    model_filename:     str | None = None
+    is_internal:        bool = False
     created_at:        datetime | None = None
+
+class ChatUploadAttachment(BaseModel):
+    """Chat-scoped uploaded file attachment lifecycle state."""
+    id:                    int | None = None
+    upload_id:             str
+    chat_id:               str
+    file_id:               int | None = None
+    filename_at_upload:    str
+    size_bytes:            int = 0
+    content_hash:          str | None = None
+    state:                 str = 'uploading'  # uploading | indexing | ready | deleting | deleted | failed
+    referenced_message_ids: list[int] = Field(default_factory=list)
+    uploaded_at:           datetime | None = None
+    updated_at:            datetime | None = None
+    removed_at:            datetime | None = None
 ```
 
 ### API Schemas (Request/Response)
@@ -270,6 +295,7 @@ class ChatRequest(BaseModel):
     message: str
     chat_id: str | None = None  # None = new chat
     scoped_file_ids: list[int] | None = Field(default=None, min_length=1)  # Optional one-or-more file scope
+    scoped_upload_ids: list[str] | None = Field(default=None, min_length=1)  # Optional one-or-more upload_id scope
     request_id: str | None = None
     run_id: str | None = None
     mode: str | None = None
@@ -280,7 +306,7 @@ class ChatRequest(BaseModel):
     @classmethod
     def _reject_legacy_file_id(cls, values):
         if isinstance(values, dict) and values.get('file_id') is not None:
-            raise ValueError('file_id is no longer supported. Use scoped_file_ids.')
+            raise ValueError('file_id is no longer supported. Use scoped_file_ids (or scoped_upload_ids).')
         return values
 
 class ChatSourceReference(BaseModel):
@@ -616,7 +642,14 @@ class HealthResponse(BaseModel):
 
 ### `api/routes_chat.py`
 - `POST /api/chat` — send message, stream response (SSE); returns chat_id in first event
-- Request supports optional scoped retrieval via `scoped_file_ids` (one or more indexed file IDs)
+- Request supports optional scoped retrieval via:
+  - `scoped_file_ids` (one or more indexed file IDs)
+  - `scoped_upload_ids` (one or more chat upload IDs; Researcher mode only)
+- Upload lifecycle endpoints:
+  - `GET /api/chat/chats/{chat_id}/uploads` — list chat-scoped uploads
+  - `POST /api/chat/uploads` — upload + index a temporary chat attachment
+  - `DELETE /api/chat/uploads/{upload_id}` — delete one chat attachment (bytes + index artifacts)
+- `POST /api/chat/stop` — stop active stream by stream/request/chat identifiers
 - `GET /api/chat/chats` — list chats (chat_id, last_message_preview, title, etc.)
 - `GET /api/chat/chats/{chat_id}` — chat messages for one chat
 - `PUT /api/chat/chats/{chat_id}/title` — set chat title
@@ -846,8 +879,12 @@ main.py ← logging_config (configure_logging before loggers)
 | `POST` | `/api/index/term-dictionary/rebuild` | Trigger term dictionary rebuild | Yes |
 | `POST` | `/api/index/term-dictionary/purge` | Delete all term dictionary data | No |
 | `POST` | `/api/chat` | Send message, stream response (SSE) | No (streaming) |
+| `POST` | `/api/chat/stop` | Stop active chat stream | No |
 | `GET` | `/api/chat/chats` | List chats | No |
 | `GET` | `/api/chat/chats/{chat_id}` | Get chat messages | No |
+| `GET` | `/api/chat/chats/{chat_id}/uploads` | List chat-scoped uploaded attachments | No |
+| `POST` | `/api/chat/uploads` | Upload + index temporary chat attachment | No |
+| `DELETE` | `/api/chat/uploads/{upload_id}` | Delete one chat-scoped uploaded attachment | No |
 | `PUT` | `/api/chat/chats/{chat_id}/title` | Set chat title | No |
 | `DELETE` | `/api/chat/chats/{chat_id}` | Delete chat and messages | No |
 | `GET` | `/api/settings` | Get current settings | No |

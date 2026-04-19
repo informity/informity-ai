@@ -32,6 +32,7 @@ Informity scans and indexes local files, then answers questions with a local RAG
 
 - Local-first RAG over local files
 - Offline-first runtime (full privacy mode)
+- Temporary per-chat uploaded files in Researcher mode (`+` attach, `x` remove)
 - SQLite + sqlite-vec for metadata + embeddings
 - Local LLM inference via `xllamacpp` (Metal/GPU on macOS)
 
@@ -100,6 +101,8 @@ Directory layout:
   config.json              # Saved settings
   db/                      # SQLite DB and WAL files
     informity.db
+  storage/
+    uploads/               # Temporary chat-scoped uploaded files
   logs/                    # Runtime log files
   models/
     llm/                   # LLM models (*.gguf files)
@@ -137,11 +140,15 @@ After models are in place, the app runs fully offline with no internet required.
 `POST /api/chat` supports optional scoped researcher retrieval with:
 
 - `scoped_file_ids`: one-or-more indexed file IDs
+- `scoped_upload_ids`: one-or-more chat-scoped upload IDs (Researcher mode only)
 
 Notes:
 
 - Legacy `file_id` is no longer accepted.
 - When `scoped_file_ids` is provided, researcher retrieval is constrained to that file set.
+- Uploaded files are temporary and chat-scoped (`POST /api/chat/uploads`, `GET /api/chat/chats/{chat_id}/uploads`, `DELETE /api/chat/uploads/{upload_id}`).
+- When uploads are present and no explicit subset is chosen, retrieval defaults to all ready uploaded files in that chat.
+- Removing the last upload auto-falls back to scanned-documents retrieval for subsequent turns.
 - Assistant mode remains retrieval-free.
 
 ## Tech Stack

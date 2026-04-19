@@ -207,6 +207,8 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     next_action        TEXT,
     next_action_reason TEXT,
     chat_mode          TEXT,
+    retrieval_scope_kind TEXT,
+    retrieval_scope_key  TEXT,
     model_filename     TEXT,
     is_internal        INTEGER DEFAULT 0,
     created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -518,6 +520,14 @@ async def init_db() -> None:
             existing_columns = {str(row['name']) for row in columns}
             if 'content_hash' not in existing_columns:
                 await conn.execute('ALTER TABLE chat_upload_attachments ADD COLUMN content_hash TEXT')
+        with suppress(aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError):
+            columns_cursor = await conn.execute('PRAGMA table_info(chat_messages)')
+            columns = await columns_cursor.fetchall()
+            existing_columns = {str(row['name']) for row in columns}
+            if 'retrieval_scope_kind' not in existing_columns:
+                await conn.execute('ALTER TABLE chat_messages ADD COLUMN retrieval_scope_kind TEXT')
+            if 'retrieval_scope_key' not in existing_columns:
+                await conn.execute('ALTER TABLE chat_messages ADD COLUMN retrieval_scope_key TEXT')
 
         # Term dictionary uniqueness is typed by design:
         # allow same normalized term across different entity types.
@@ -753,6 +763,8 @@ def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
         next_action        = row['next_action'],
         next_action_reason = row['next_action_reason'],
         chat_mode          = row['chat_mode'],
+        retrieval_scope_kind = row['retrieval_scope_kind'],
+        retrieval_scope_key = row['retrieval_scope_key'],
         model_filename     = row['model_filename'],
         is_internal        = bool(row['is_internal']),
         created_at         = parse_timestamp(row['created_at']),
@@ -1445,9 +1457,9 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
         INSERT INTO chat_messages (
             chat_id, role, content, sources, generation_seconds,
             completion_mode, stopped_by_user, has_remaining_scope, next_action, next_action_reason,
-            chat_mode, model_filename, is_internal
+            chat_mode, retrieval_scope_kind, retrieval_scope_key, model_filename, is_internal
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             message.chat_id,
@@ -1461,6 +1473,8 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
             message.next_action,
             message.next_action_reason,
             message.chat_mode,
+            message.retrieval_scope_kind,
+            message.retrieval_scope_key,
             message.model_filename,
             1 if message.is_internal else 0,
         ),
