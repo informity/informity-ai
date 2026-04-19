@@ -648,7 +648,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     const selectedFiles = Array.from(fileList)
     const selectedCount = selectedFiles.length
     const uploadScopeKeyAtStart = contextChatId || '__draft__'
-    let uploadScopeKeyToSettle = uploadScopeKeyAtStart
+    const uploadScopeKeyToSettle = uploadScopeKeyAtStart
     if (uploadScopeKeyAtStart === '__draft__') {
       draftPendingAliasChatIdRef.current = null
     }
