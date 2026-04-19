@@ -18,6 +18,21 @@ OUT_DIR="$ROOT_DIR/src/frontend/src-tauri/backend"
 
 mkdir -p "$DIST_DIR" "$WORK_DIR" "$SPEC_DIR" "$OUT_DIR"
 
+CHARSET_MYPYC_MODULE="$(uv run python - <<'PY'
+from __future__ import annotations
+from pathlib import Path
+
+site_packages = Path('.venv/lib/python3.13/site-packages')
+matches = sorted(site_packages.glob('*__mypyc.cpython-*.so'))
+print(matches[0].stem.split('.cpython-')[0] if matches else '')
+PY
+)"
+if [[ -n "$CHARSET_MYPYC_MODULE" ]]; then
+  echo "Detected charset-normalizer mypyc module: $CHARSET_MYPYC_MODULE"
+else
+  echo "WARN: charset-normalizer mypyc helper module was not detected; continuing without explicit hidden import."
+fi
+
 verify_sidecar_contents() {
   local sidecar_dir="$1"
   local listing_file
@@ -50,6 +65,9 @@ verify_sidecar_contents() {
     "promptcue/__init__\\.py"
     "thinkstrip-[0-9].*\\.dist-info/METADATA"
     "thinkstrip/__init__\\.py"
+    ".*__mypyc\\.cpython-.*\\.(so|dylib|pyd)"
+    "charset_normalizer/md\\.cpython-.*\\.(so|dylib|pyd)"
+    "PIL/_imagingmorph\\.cpython-.*\\.(so|dylib|pyd)"
   )
 
   for pattern in "${required_patterns[@]}"; do
@@ -111,6 +129,8 @@ uv run --with pyinstaller pyinstaller \
   --collect-all promptcue \
   --collect-all thinkstrip \
   --collect-binaries xllamacpp \
+  --collect-all charset_normalizer \
+  --collect-all PIL \
   --copy-metadata docling \
   --copy-metadata docling-core \
   --copy-metadata docling-parse \
@@ -121,6 +141,8 @@ uv run --with pyinstaller pyinstaller \
   --collect-all sqlite_vec \
   --hidden-import tiktoken_ext \
   --hidden-import tiktoken_ext.openai_public \
+  --hidden-import PIL._imagingmorph \
+  ${CHARSET_MYPYC_MODULE:+--hidden-import "$CHARSET_MYPYC_MODULE"} \
   --paths "$ROOT_DIR/src" \
   --distpath "$DIST_DIR" \
   --workpath "$WORK_DIR" \
