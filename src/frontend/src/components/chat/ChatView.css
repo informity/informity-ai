@@ -531,6 +531,11 @@
   height: var(--chat-view-scoped-top-padding);
 }
 
+.chat-view__input-wrapper--drag-active .chat-view__textarea {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-bg-surface) 90%, var(--color-accent));
+}
+
 .chat-view__textarea {
   flex: 1;
   min-width: 0;
