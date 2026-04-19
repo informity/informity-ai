@@ -5,6 +5,7 @@
 # ==============================================================================
 
 import asyncio
+import contextlib
 import os
 import re
 import shutil
@@ -141,6 +142,7 @@ _STREAM_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, Conn
 _STOP_FINALIZE_GRACE_SECONDS = 2.5
 _STOP_FINALIZATION_TASKS: dict[str, asyncio.Task[None]] = {}
 _CONTINUING_STATUS_MESSAGE = 'Continuing response...'
+_ANSWER_STREAM_HEARTBEAT_SECONDS = 12.0
 _ACTIVE_UPLOAD_STATES = {'uploading', 'indexing', 'ready'}
 _UPLOAD_DELETE_RETRY_ATTEMPTS = 3
 _SCOPE_SIGNAL_PATTERN = re.compile(r'(?i)\b(compare|vs|versus|only|just|between)\b')
@@ -245,40 +247,6 @@ def _resolve_upload_scope_from_filename_candidates(
     return list(selected_by_upload_id.values()), None
 
 
-def _resolve_removed_upload_reference(
-    *,
-    message_text: str,
-    active_attachments: list[ChatUploadAttachment],
-    deleted_attachments: list[ChatUploadAttachment],
-) -> str | None:
-    candidates = _extract_filename_candidates(message_text)
-    if not candidates:
-        return None
-    active_names = {
-        _normalize_filename_token(item.filename_at_upload).lower()
-        for item in active_attachments
-    }
-    for raw_candidate in candidates:
-        candidate = _normalize_filename_token(raw_candidate).lower()
-        if candidate in active_names:
-            continue
-        exact_deleted = [
-            item
-            for item in deleted_attachments
-            if _normalize_filename_token(item.filename_at_upload).lower() == candidate
-        ]
-        if exact_deleted:
-            return raw_candidate
-        partial_deleted = [
-            item
-            for item in deleted_attachments
-            if candidate in _normalize_filename_token(item.filename_at_upload).lower()
-        ]
-        if len(partial_deleted) == 1:
-            return raw_candidate
-    return None
-
-
 async def _sweep_chat_upload_orphans(
     *,
     db: aiosqlite.Connection,
@@ -287,6 +255,7 @@ async def _sweep_chat_upload_orphans(
     removed_orphan_dirs = 0
     removed_deleted_dirs = 0
     repaired_failed_states = 0
+    removed_empty_chat_dirs = 0
     attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=True)
     attachments_by_id = {str(item.upload_id): item for item in attachments}
     chat_dir = _upload_chat_dir(chat_id)
@@ -332,10 +301,19 @@ async def _sweep_chat_upload_orphans(
             state='failed',
         )
         repaired_failed_states += 1
+    if chat_dir.exists():
+        try:
+            if not any(chat_dir.iterdir()):
+                chat_dir.rmdir()
+                removed_empty_chat_dirs += 1
+        except (OSError, RuntimeError):
+            # Best-effort cleanup only; stale empty dirs are harmless.
+            pass
     return {
         'removed_orphan_dirs': removed_orphan_dirs,
         'removed_deleted_dirs': removed_deleted_dirs,
         'repaired_failed_states': repaired_failed_states,
+        'removed_empty_chat_dirs': removed_empty_chat_dirs,
     }
 
 
@@ -621,7 +599,7 @@ async def _delete_chat_upload_artifacts(
     *,
     db: aiosqlite.Connection,
     attachment: ChatUploadAttachment,
-) -> None:
+) -> bool:
     upload_id = str(attachment.upload_id)
     chat_id = str(attachment.chat_id)
     file_id = attachment.file_id
@@ -632,6 +610,7 @@ async def _delete_chat_upload_artifacts(
         state='deleting',
     )
 
+    deletion_succeeded = True
     if file_id is not None:
         file_record = await get_file_by_id(db, int(file_id))
         if file_record is not None:
@@ -643,6 +622,7 @@ async def _delete_chat_upload_artifacts(
                 await asyncio.sleep(0.05 * attempt)
             if not removed:
                 log.warning('chat_upload_file_remove_failed', chat_id=chat_id, upload_id=upload_id, file_id=file_id)
+                deletion_succeeded = False
 
     file_dir = _upload_file_dir(chat_id, upload_id)
     if file_dir.exists():
@@ -659,14 +639,16 @@ async def _delete_chat_upload_artifacts(
                 await asyncio.sleep(0.05 * attempt)
         if not deleted_from_disk and file_dir.exists():
             log.warning('chat_upload_storage_delete_incomplete', chat_id=chat_id, upload_id=upload_id)
+            deletion_succeeded = False
 
     await update_chat_upload_attachment_state(
         db,
         upload_id=upload_id,
         chat_id=chat_id,
-        state='deleted',
-        removed_at=datetime.now(UTC),
+        state='deleted' if deletion_succeeded else 'failed',
+        removed_at=datetime.now(UTC) if deletion_succeeded else None,
     )
+    return deletion_succeeded
 
 
 @router.delete('/api/chat/uploads/{upload_id}')
@@ -685,7 +667,12 @@ async def delete_chat_upload(
 
     if attachment.state == 'deleted':
         return {'chat_id': chat_id, 'upload_id': upload_id, 'deleted': True, 'fallback_to_scanned_documents': False}
-    await _delete_chat_upload_artifacts(db=db, attachment=attachment)
+    deletion_succeeded = await _delete_chat_upload_artifacts(db=db, attachment=attachment)
+    if not deletion_succeeded:
+        raise HTTPException(
+            status_code=500,
+            detail='Failed to fully delete uploaded file artifacts. Please retry.',
+        )
     sweep_summary = await _sweep_chat_upload_orphans(db=db, chat_id=chat_id)
     remaining = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
     active_remaining = [item for item in remaining if item.state in {'uploading', 'indexing', 'ready'}]
@@ -696,7 +683,7 @@ async def delete_chat_upload(
         'deleted': True,
         'fallback_to_scanned_documents': fallback_to_scanned_documents,
         'toast_message': (
-            'You are now using your scanned documents.'
+            'No uploaded files. Using your scanned documents.'
             if fallback_to_scanned_documents
             else None
         ),
@@ -758,8 +745,6 @@ async def chat(
     upload_attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
     await _sweep_chat_upload_orphans(db=db, chat_id=chat_id)
     upload_attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
-    deleted_upload_attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=True)
-    deleted_upload_attachments = [item for item in deleted_upload_attachments if item.state == 'deleted']
     uploads_by_id = {str(item.upload_id): item for item in upload_attachments}
     upload_ready_file_ids = sorted({
         int(item.file_id)
@@ -876,21 +861,6 @@ async def chat(
                 status_code=409,
                 detail='Uploaded files are still indexing. Please retry in a moment.',
             )
-    elif resolved_chat_mode == 'researcher' and scoped_file_ids is None and deleted_upload_attachments:
-        removed_reference = _resolve_removed_upload_reference(
-            message_text=message_text,
-            active_attachments=upload_attachments,
-            deleted_attachments=deleted_upload_attachments,
-        )
-        if removed_reference is not None:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f'"{removed_reference}" was removed from this chat. '
-                    'Re-upload the file to continue using it in answers.'
-                ),
-            )
-
     # Fetch chat history (excluding the current message we're about to add)
     history = await get_chat(db, chat_id)
     existing_chat_preferences = await get_chat_preferences(db, chat_id)
@@ -1158,7 +1128,21 @@ async def chat(
                         if retrieving_status is not None:
                             yield retrieving_status
 
-                    async for item in answer_question(
+                    log.info(
+                        'chat_answer_stream_begin',
+                        chat_id=chat_id,
+                        request_id=request_id,
+                        pass_index=pass_index,
+                        chat_mode=resolved_chat_mode,
+                        question_length=len(pass_question),
+                        history_messages=len(pass_history) if pass_history else 0,
+                    )
+                    answer_stream_started_at = time.perf_counter()
+                    answer_items_seen = 0
+                    answer_tokens_seen = 0
+                    answer_list_events = 0
+                    answer_next_task: asyncio.Task[object] | None = None
+                    answer_iter = answer_question(
                         question=pass_question,
                         chat_id=chat_id,
                         file_ids=scoped_file_ids,
@@ -1169,126 +1153,190 @@ async def chat(
                         chat_mode=resolved_chat_mode,
                         chat_web_search_enabled=resolved_chat_web_search_enabled,
                         chat_web_search_privacy_override=resolved_chat_web_search_privacy_override,
-                    ):
-                        _raise_if_user_stopped()
-
-                        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.CLASSIFICATION:
-                            locked_classification = item[1]
-                            _classification = item[1]
-                            if resolved_chat_mode != 'assistant':
-                                _retrieval_message = (
-                                    'Checking document index...'
-                                    if _classification.is_metadata_query
-                                    else 'Searching for relevant information...'
-                                )
-                                retrieving_status = status_emitter.build_event(
-                                    'retrieving',
-                                    message=_retrieval_message,
-                                )
-                                if retrieving_status is not None:
-                                    yield retrieving_status
-                            continue
-
-                        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.SEARCHING_STATUS:
-                            searching_payload = item[1] if isinstance(item[1], dict) else {}
-                            searching_status = status_emitter.build_event(
-                                'searching',
-                                message=str(searching_payload.get('message') or 'Searching the web...'),
+                    ).__aiter__()
+                    try:
+                        while True:
+                            _raise_if_user_stopped()
+                            if answer_next_task is None:
+                                answer_next_task = asyncio.create_task(answer_iter.__anext__())
+                            done, _ = await asyncio.wait(
+                                {answer_next_task},
+                                timeout=_ANSWER_STREAM_HEARTBEAT_SECONDS,
                             )
-                            if searching_status is not None:
-                                yield searching_status
-                            continue
-
-                        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.TIMEOUT:
-                            timeout_occurred = True
-                            timeout_payload = item[1] if isinstance(item[1], dict) else {}
-                            timeout_seconds = float(timeout_payload.get('timeout_seconds') or 0.0)
-                            timeout_reason = normalize_timeout_reason(timeout_payload.get('reason'))
-                            timeout_allows_continuation = not is_terminal_timeout_reason(timeout_reason)
-                            pass_has_remaining_scope = timeout_allows_continuation
-                            if timeout_allows_continuation:
-                                has_remaining_scope = True
-                            if continuation_resolution_reason is None:
-                                continuation_resolution_reason = timeout_reason
-                            _update_sse_phase('timeout')
-                            yield {
-                                'event': 'timeout',
-                                'data': serialize_api_response({
-                                    'message': f'Response truncated: generation time limit ({int(timeout_seconds) if timeout_seconds else "unknown"}s) reached',
-                                    'elapsed_seconds': round(time.time() - start_time, 1),
-                                    'timeout_seconds': timeout_seconds if timeout_seconds else None,
-                                    'timeout_reason': timeout_reason,
-                                }),
-                            }
-                            continue
-
-                        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.BUDGET_CHECKPOINT:
-                            checkpoint_payload = item[1] if isinstance(item[1], dict) else {}
-                            budget_checkpoints.append(checkpoint_payload)
-                            _update_sse_phase('budget')
-                            yield {
-                                'event': 'budget',
-                                'data': serialize_api_response(checkpoint_payload),
-                            }
-                            continue
-
-                        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.PLAN_STEP:
-                            step_payload = item[1] if isinstance(item[1], dict) else {}
-                            _update_sse_phase('plan_step')
-                            yield {
-                                'event': 'plan_step',
-                                'data': serialize_api_response(step_payload),
-                            }
-                            continue
-
-                        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.METRICS:
-                            metrics_payload = item[1] if isinstance(item[1], dict) else {}
-                            budget_metrics = metrics_payload
-                            metrics_query_value = metrics_payload.get('query_type')
-                            if isinstance(metrics_query_value, str) and metrics_query_value.strip():
-                                metrics_query_type = _normalize_diagnostics_query_type(metrics_query_value)
-                            metrics_raw_chunks_count = safe_int(
-                                metrics_payload.get('raw_chunks_count'),
-                                default=metrics_raw_chunks_count,
-                            )
-                            remaining_scope_value = metrics_payload.get('has_remaining_scope')
-                            if isinstance(remaining_scope_value, bool):
-                                pass_has_remaining_scope = remaining_scope_value
-                                has_remaining_scope = remaining_scope_value
-                            suggested_mode = metrics_payload.get('suggested_completion_mode')
-                            if isinstance(suggested_mode, str):
-                                try:
-                                    normalized_mode = CompletionMode(suggested_mode.strip().lower())
-                                except ValueError:
-                                    normalized_mode = None
-                                if normalized_mode is not None:
-                                    pass_completion_mode_override = normalized_mode
-                                    completion_mode_override = normalized_mode
-                            if (
-                                resolved_chat_mode == 'researcher'
-                                and metrics_query_type in {DiagnosticsQueryType.FOCUSED.value, DiagnosticsQueryType.COVERAGE.value}
-                                and bool(metrics_payload.get('generation_skipped'))
-                                and not bool(metrics_payload.get('answerability_passed'))
-                                and not bool(getattr(locked_classification, 'is_metadata_query', False))
-                            ):
-                                researcher_out_of_corpus = True
-                            continue
-
-                        if isinstance(item, str):
-                            if not generation_started:
-                                generation_started = True
-                                generating_status = status_emitter.build_event(
-                                    'generating',
-                                    message='Generating response...',
+                            if not done:
+                                log.warning(
+                                    'chat_answer_stream_heartbeat_waiting',
+                                    chat_id=chat_id,
+                                    request_id=request_id,
+                                    pass_index=pass_index,
+                                    wait_seconds=_ANSWER_STREAM_HEARTBEAT_SECONDS,
+                                    elapsed_seconds=round(time.perf_counter() - answer_stream_started_at, 1),
+                                    items_seen=answer_items_seen,
+                                    tokens_seen=answer_tokens_seen,
+                                    list_events_seen=answer_list_events,
+                                    sse_phase=sse_tracker.current_phase,
                                 )
-                                if generating_status is not None:
-                                    yield generating_status
-                            answer_parts.append(item)
-                            pass_answer_parts.append(item)
-                            _update_sse_phase('token')
-                            yield {'event': 'token', 'data': item}
-                        elif isinstance(item, list):
-                            pass_sources = item
+                                continue
+                            try:
+                                item = answer_next_task.result()
+                            except StopAsyncIteration:
+                                answer_next_task = None
+                                break
+                            finally:
+                                answer_next_task = None
+                            answer_items_seen += 1
+
+                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.CLASSIFICATION:
+                                locked_classification = item[1]
+                                _classification = item[1]
+                                if resolved_chat_mode != 'assistant':
+                                    _retrieval_message = (
+                                        'Checking document index...'
+                                        if _classification.is_metadata_query
+                                        else 'Searching for relevant information...'
+                                    )
+                                    retrieving_status = status_emitter.build_event(
+                                        'retrieving',
+                                        message=_retrieval_message,
+                                    )
+                                    if retrieving_status is not None:
+                                        yield retrieving_status
+                                continue
+
+                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.SEARCHING_STATUS:
+                                searching_payload = item[1] if isinstance(item[1], dict) else {}
+                                searching_status = status_emitter.build_event(
+                                    'searching',
+                                    message=str(searching_payload.get('message') or 'Searching the web...'),
+                                )
+                                if searching_status is not None:
+                                    yield searching_status
+                                continue
+
+                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.TIMEOUT:
+                                timeout_occurred = True
+                                timeout_payload = item[1] if isinstance(item[1], dict) else {}
+                                timeout_seconds = float(timeout_payload.get('timeout_seconds') or 0.0)
+                                timeout_reason = normalize_timeout_reason(timeout_payload.get('reason'))
+                                timeout_allows_continuation = not is_terminal_timeout_reason(timeout_reason)
+                                pass_has_remaining_scope = timeout_allows_continuation
+                                if timeout_allows_continuation:
+                                    has_remaining_scope = True
+                                if continuation_resolution_reason is None:
+                                    continuation_resolution_reason = timeout_reason
+                                _update_sse_phase('timeout')
+                                yield {
+                                    'event': 'timeout',
+                                    'data': serialize_api_response({
+                                        'message': f'Response truncated: generation time limit ({int(timeout_seconds) if timeout_seconds else "unknown"}s) reached',
+                                        'elapsed_seconds': round(time.time() - start_time, 1),
+                                        'timeout_seconds': timeout_seconds if timeout_seconds else None,
+                                        'timeout_reason': timeout_reason,
+                                    }),
+                                }
+                                continue
+
+                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.BUDGET_CHECKPOINT:
+                                checkpoint_payload = item[1] if isinstance(item[1], dict) else {}
+                                budget_checkpoints.append(checkpoint_payload)
+                                _update_sse_phase('budget')
+                                yield {
+                                    'event': 'budget',
+                                    'data': serialize_api_response(checkpoint_payload),
+                                }
+                                continue
+
+                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.PLAN_STEP:
+                                step_payload = item[1] if isinstance(item[1], dict) else {}
+                                _update_sse_phase('plan_step')
+                                yield {
+                                    'event': 'plan_step',
+                                    'data': serialize_api_response(step_payload),
+                                }
+                                continue
+
+                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.METRICS:
+                                metrics_payload = item[1] if isinstance(item[1], dict) else {}
+                                budget_metrics = metrics_payload
+                                metrics_query_value = metrics_payload.get('query_type')
+                                if isinstance(metrics_query_value, str) and metrics_query_value.strip():
+                                    metrics_query_type = _normalize_diagnostics_query_type(metrics_query_value)
+                                metrics_raw_chunks_count = safe_int(
+                                    metrics_payload.get('raw_chunks_count'),
+                                    default=metrics_raw_chunks_count,
+                                )
+                                remaining_scope_value = metrics_payload.get('has_remaining_scope')
+                                if isinstance(remaining_scope_value, bool):
+                                    pass_has_remaining_scope = remaining_scope_value
+                                    has_remaining_scope = remaining_scope_value
+                                suggested_mode = metrics_payload.get('suggested_completion_mode')
+                                if isinstance(suggested_mode, str):
+                                    try:
+                                        normalized_mode = CompletionMode(suggested_mode.strip().lower())
+                                    except ValueError:
+                                        normalized_mode = None
+                                    if normalized_mode is not None:
+                                        pass_completion_mode_override = normalized_mode
+                                        completion_mode_override = normalized_mode
+                                if (
+                                    resolved_chat_mode == 'researcher'
+                                    and metrics_query_type in {DiagnosticsQueryType.FOCUSED.value, DiagnosticsQueryType.COVERAGE.value}
+                                    and bool(metrics_payload.get('generation_skipped'))
+                                    and not bool(metrics_payload.get('answerability_passed'))
+                                    and not bool(getattr(locked_classification, 'is_metadata_query', False))
+                                ):
+                                    researcher_out_of_corpus = True
+                                log.info(
+                                    'chat_answer_stream_metrics_received',
+                                    chat_id=chat_id,
+                                    request_id=request_id,
+                                    pass_index=pass_index,
+                                    raw_chunks_count=metrics_raw_chunks_count,
+                                    answerability_passed=metrics_payload.get('answerability_passed'),
+                                    generation_skipped=metrics_payload.get('generation_skipped'),
+                                    elapsed_seconds=round(time.perf_counter() - answer_stream_started_at, 2),
+                                )
+                                continue
+
+                            if isinstance(item, str):
+                                answer_tokens_seen += 1
+                                if not generation_started:
+                                    generation_started = True
+                                    log.info(
+                                        'chat_answer_stream_first_token',
+                                        chat_id=chat_id,
+                                        request_id=request_id,
+                                        pass_index=pass_index,
+                                        elapsed_seconds=round(time.perf_counter() - answer_stream_started_at, 2),
+                                    )
+                                    generating_status = status_emitter.build_event(
+                                        'generating',
+                                        message='Generating response...',
+                                    )
+                                    if generating_status is not None:
+                                        yield generating_status
+                                answer_parts.append(item)
+                                pass_answer_parts.append(item)
+                                _update_sse_phase('token')
+                                yield {'event': 'token', 'data': item}
+                            elif isinstance(item, list):
+                                answer_list_events += 1
+                                pass_sources = item
+                    finally:
+                        if answer_next_task is not None and not answer_next_task.done():
+                            answer_next_task.cancel()
+                            with contextlib.suppress(asyncio.CancelledError):
+                                await answer_next_task
+                    log.info(
+                        'chat_answer_stream_end',
+                        chat_id=chat_id,
+                        request_id=request_id,
+                        pass_index=pass_index,
+                        elapsed_seconds=round(time.perf_counter() - answer_stream_started_at, 2),
+                        items_seen=answer_items_seen,
+                        tokens_seen=answer_tokens_seen,
+                        list_events_seen=answer_list_events,
+                    )
 
                     merge_sources(source_map, pass_sources)
 
@@ -2115,10 +2163,18 @@ async def delete_chat_endpoint(
 ) -> dict:
     attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=True)
     uploads_deleted = 0
+    upload_delete_failures = 0
     for attachment in attachments:
         if attachment.state != 'deleted':
-            await _delete_chat_upload_artifacts(db=db, attachment=attachment)
+            deleted = await _delete_chat_upload_artifacts(db=db, attachment=attachment)
+            if not deleted:
+                upload_delete_failures += 1
         uploads_deleted += 1
+    if upload_delete_failures > 0:
+        raise HTTPException(
+            status_code=500,
+            detail='Failed to fully delete one or more uploaded file artifacts. Retry chat deletion.',
+        )
     chat_upload_dir = _upload_chat_dir(chat_id)
     if chat_upload_dir.exists():
         try:

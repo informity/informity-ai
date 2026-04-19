@@ -2,7 +2,7 @@
  * Informity AI — Chat view
  * Full-height message list, input, SSE streaming.
  */
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react'
 import { ChatMessage } from './ChatMessage'
 import { ChatMessageSkeleton } from './ChatMessageSkeleton'
 import { PageHeader } from '../PageHeader'
@@ -20,6 +20,10 @@ import './ChatView.css'
 const CHAT_INPUT_MIN_HEIGHT = 104
 const CHAT_INPUT_MAX_HEIGHT = 304
 const CHAT_INPUT_SCOPED_EXTRA_HEIGHT = 52
+const UPLOAD_CHIP_FALLBACK_WIDTH = 180
+const UPLOAD_OVERFLOW_CHIP_FALLBACK_WIDTH = 52
+const UPLOAD_PENDING_CHIP_FALLBACK_WIDTH = 116
+const UPLOAD_CLEAR_CHIP_FALLBACK_WIDTH = 108
 const ALL_CHAT_MODES: ChatMode[] = ['assistant', 'researcher']
 
 interface ChatViewProps {
@@ -111,6 +115,15 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const modeMenuRef = useRef<HTMLDivElement>(null)
   const consumedInitialScopeRef = useRef<string | null>(null)
   const uploadInputRef = useRef<HTMLInputElement>(null)
+  const uploadChipsContainerRef = useRef<HTMLDivElement>(null)
+  const uploadChipMeasureRefs = useRef<Record<string, HTMLSpanElement | null>>({})
+  const uploadOverflowMeasureRef = useRef<HTMLSpanElement>(null)
+  const uploadPendingMeasureRef = useRef<HTMLSpanElement>(null)
+  const uploadClearMeasureRef = useRef<HTMLButtonElement>(null)
+  const [visibleUploadCount, setVisibleUploadCount] = useState(chatUploads.length)
+  const [pendingUploadCountsByChat, setPendingUploadCountsByChat] = useState<Record<string, number>>({})
+  const pendingUploadScopeKey = contextChatId || '__draft__'
+  const pendingUploadCount = pendingUploadCountsByChat[pendingUploadScopeKey] ?? 0
 
   const isForceNewChatRequested = useCallback((): boolean => {
     try {
@@ -251,15 +264,101 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     void startScopedChat(initialScopedFile)
   }, [clearError, initialScopedFile, startScopedChat])
 
+  useEffect(() => {
+    if (!contextChatId) return
+    setPendingUploadCountsByChat((prev) => {
+      const draftCount = prev.__draft__ ?? 0
+      if (draftCount <= 0) return prev
+      const next = { ...prev, [contextChatId]: (prev[contextChatId] ?? 0) + draftCount }
+      delete next.__draft__
+      return next
+    })
+  }, [contextChatId])
+
   const hasUploadAttachments = chatUploads.length > 0
-  const hasScopedInputPill = !!chatFileScope || hasUploadAttachments
+  const hasActiveUploadAttachments = chatUploads.some((item) => ['uploading', 'indexing', 'ready'].includes(String(item.state)))
+  const hasPendingUploads = pendingUploadCount > 0
+  const hasUploadChipRow = hasUploadAttachments || hasPendingUploads
+  const hasScopedInputPill = !!chatFileScope || hasUploadChipRow
+  const hideAssistantSwitch = hasActiveUploadAttachments || hasPendingUploads
+  const hiddenUploadCount = Math.max(0, chatUploads.length - visibleUploadCount)
+  const visibleUploads = hiddenUploadCount > 0 ? chatUploads.slice(0, visibleUploadCount) : chatUploads
   const selectedReadyUploadIds = selectedUploadIds.filter((uploadId) => {
     const attachment = chatUploads.find((item) => String(item.upload_id) === String(uploadId))
     return attachment?.state === 'ready'
   })
 
+  const recomputeVisibleUploadCount = useCallback(() => {
+    if (chatFileScope || !hasUploadChipRow) {
+      setVisibleUploadCount(chatUploads.length)
+      return
+    }
+    const container = uploadChipsContainerRef.current
+    if (!container) {
+      setVisibleUploadCount(chatUploads.length)
+      return
+    }
+    const availableWidth = container.clientWidth
+    if (!Number.isFinite(availableWidth) || availableWidth <= 0) {
+      setVisibleUploadCount(chatUploads.length)
+      return
+    }
+    const styles = window.getComputedStyle(container)
+    const gapPx = Number.parseFloat(styles.columnGap || styles.gap || '0') || 0
+    const widths = chatUploads.map((upload) => {
+      const uploadId = String(upload.upload_id)
+      const measured = uploadChipMeasureRefs.current[uploadId]?.offsetWidth
+      return Number.isFinite(measured) && measured && measured > 0 ? measured : UPLOAD_CHIP_FALLBACK_WIDTH
+    })
+    const overflowWidth = (() => {
+      const measured = uploadOverflowMeasureRef.current?.offsetWidth
+      return Number.isFinite(measured) && measured && measured > 0 ? measured : UPLOAD_OVERFLOW_CHIP_FALLBACK_WIDTH
+    })()
+    const pendingWidth = hasPendingUploads
+      ? (() => {
+        const measured = uploadPendingMeasureRef.current?.offsetWidth
+        return Number.isFinite(measured) && measured && measured > 0 ? measured : UPLOAD_PENDING_CHIP_FALLBACK_WIDTH
+      })()
+      : 0
+    const clearWidth = selectedUploadIds.length > 0
+      ? (() => {
+        const measured = uploadClearMeasureRef.current?.offsetWidth
+        return Number.isFinite(measured) && measured && measured > 0 ? measured : UPLOAD_CLEAR_CHIP_FALLBACK_WIDTH
+      })()
+      : 0
+    const prefixSums: number[] = [0]
+    for (const width of widths) {
+      prefixSums.push(prefixSums[prefixSums.length - 1] + width)
+    }
+    let bestVisible = chatUploads.length
+    for (let visible = chatUploads.length; visible >= 0; visible -= 1) {
+      const hidden = chatUploads.length - visible
+      const trailingWidth = (hidden > 0 ? overflowWidth : 0) + (hasPendingUploads ? pendingWidth : 0) + (selectedUploadIds.length > 0 ? clearWidth : 0)
+      const elementCount = visible + (hidden > 0 ? 1 : 0) + (hasPendingUploads ? 1 : 0) + (selectedUploadIds.length > 0 ? 1 : 0)
+      const gapsTotal = elementCount > 0 ? gapPx * Math.max(0, elementCount - 1) : 0
+      const requiredWidth = prefixSums[visible] + trailingWidth + gapsTotal
+      if (requiredWidth <= availableWidth) {
+        bestVisible = visible
+        break
+      }
+    }
+    setVisibleUploadCount((prev) => (prev === bestVisible ? prev : bestVisible))
+  }, [chatFileScope, hasUploadChipRow, chatUploads, hasPendingUploads, selectedUploadIds.length])
+
+  useLayoutEffect(() => {
+    recomputeVisibleUploadCount()
+  }, [recomputeVisibleUploadCount])
+
   useEffect(() => {
-    if (!chatFileScope && !hasUploadAttachments) return
+    const container = uploadChipsContainerRef.current
+    if (!container || chatFileScope || !hasUploadChipRow) return
+    const observer = new ResizeObserver(() => recomputeVisibleUploadCount())
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [chatFileScope, hasUploadChipRow, recomputeVisibleUploadCount])
+
+  useEffect(() => {
+    if (!chatFileScope && !hasActiveUploadAttachments && !hasPendingUploads) return
     if (chatMode === 'researcher') return
     setChatMode('researcher')
     try {
@@ -267,7 +366,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     } catch {
       // ignore storage errors
     }
-  }, [chatFileScope, chatMode, hasUploadAttachments])
+  }, [chatFileScope, chatMode, hasActiveUploadAttachments, hasPendingUploads])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const el = messagesContainerRef.current
@@ -544,13 +643,50 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     const fileList = event.target.files
     if (!fileList || fileList.length === 0) return
     const selectedFiles = Array.from(fileList)
+    const selectedCount = selectedFiles.length
+    const uploadScopeKeyAtStart = contextChatId || '__draft__'
+    let uploadScopeKeyToSettle = uploadScopeKeyAtStart
     event.target.value = ''
+    setPendingUploadCountsByChat((prev) => ({
+      ...prev,
+      [uploadScopeKeyAtStart]: (prev[uploadScopeKeyAtStart] ?? 0) + selectedCount,
+    }))
     try {
-      await uploadFiles(selectedFiles)
+      await uploadFiles(selectedFiles, {
+        onChatResolved: (resolvedChatId: string) => {
+          if (uploadScopeKeyAtStart !== '__draft__') return
+          const normalizedChatId = String(resolvedChatId || '').trim()
+          if (!normalizedChatId) return
+          uploadScopeKeyToSettle = normalizedChatId
+          setPendingUploadCountsByChat((prev) => {
+            const draftCount = prev.__draft__ ?? 0
+            if (draftCount <= 0) return prev
+            const next = {
+              ...prev,
+              [normalizedChatId]: (prev[normalizedChatId] ?? 0) + draftCount,
+            }
+            delete next.__draft__
+            return next
+          })
+        },
+      })
     } catch (err) {
       logApiError(err, 'ChatView.handleUploadInputChange')
+    } finally {
+      setPendingUploadCountsByChat((prev) => {
+        const current = prev[uploadScopeKeyToSettle] ?? 0
+        const remaining = Math.max(0, current - selectedCount)
+        if (remaining === current) return prev
+        const next = { ...prev }
+        if (remaining === 0) {
+          delete next[uploadScopeKeyToSettle]
+        } else {
+          next[uploadScopeKeyToSettle] = remaining
+        }
+        return next
+      })
     }
-  }, [uploadFiles])
+  }, [contextChatId, uploadFiles])
 
   const handleRemoveUpload = useCallback(async (uploadId: string) => {
     try {
@@ -632,10 +768,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       enableRawOutputControl={enableRawOutputControl}
                       onContinue={handleContinue}
                       onRegenerate={() => handleRegenerate(i)}
-                      onAssistantSwitch={() => handleAskInAssistant(i)}
+                      onAssistantSwitch={hideAssistantSwitch ? undefined : (() => handleAskInAssistant(i))}
                       canContinue={!offline && !isStreaming}
                       canRegenerate={!offline && !isStreaming}
-                      canAssistantSwitch={!offline && !isStreaming}
+                      canAssistantSwitch={!offline && !isStreaming && !hideAssistantSwitch}
                       actionsDisabled={offline}
                     />
                   ))}
@@ -678,9 +814,14 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       </button>
                     </span>
                   )}
-                  {!chatFileScope && hasUploadAttachments && (
-                    <div className="chat-view__upload-chips" role="list" aria-label="Uploaded files">
-                      {chatUploads.map((upload) => {
+                  {!chatFileScope && hasUploadChipRow && (
+                    <div
+                      ref={uploadChipsContainerRef}
+                      className="chat-view__upload-chips"
+                      role="list"
+                      aria-label="Uploaded files"
+                    >
+                      {visibleUploads.map((upload) => {
                         const uploadId = String(upload.upload_id)
                         const isReady = upload.state === 'ready'
                         const isSelected = selectedUploadIds.includes(uploadId)
@@ -715,12 +856,77 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                           </span>
                         )
                       })}
+                      {hiddenUploadCount > 0 && (
+                        <span
+                          className="chat-view__upload-chip chat-view__upload-overflow-chip"
+                          title={`${hiddenUploadCount} more file${hiddenUploadCount === 1 ? '' : 's'} not shown`}
+                          role="listitem"
+                          aria-label={`${hiddenUploadCount} more uploaded files`}
+                        >
+                          <span className="chat-view__upload-chip-label">+{hiddenUploadCount}</span>
+                        </span>
+                      )}
+                      {hasPendingUploads && (
+                        <span
+                          className="chat-view__upload-chip chat-view__upload-overflow-chip chat-view__upload-overflow-chip--pending"
+                          title={pendingUploadCount === 1 ? 'Uploading 1 file...' : `Uploading ${pendingUploadCount} files...`}
+                          role="listitem"
+                          aria-label={pendingUploadCount === 1 ? 'Uploading 1 file' : `Uploading ${pendingUploadCount} files`}
+                        >
+                          <span className="chat-view__upload-chip-label">
+                            <i className="ri-loader-4-line chat-view__upload-chip-spinner" aria-hidden />
+                          </span>
+                        </span>
+                      )}
                       {selectedUploadIds.length > 0 && (
                         <button
                           type="button"
                           className="chat-view__upload-selection-clear"
                           onClick={clearUploadSelection}
                           disabled={offline || isStreaming}
+                        >
+                          Clear Selection
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {!chatFileScope && hasUploadChipRow && (
+                    <div className="chat-view__upload-measure" aria-hidden>
+                      {chatUploads.map((upload) => {
+                        const uploadId = String(upload.upload_id)
+                        const isReady = upload.state === 'ready'
+                        const isSelected = selectedUploadIds.includes(uploadId)
+                        return (
+                          <span
+                            key={`measure-${uploadId}`}
+                            ref={(el) => { uploadChipMeasureRefs.current[uploadId] = el }}
+                            className={`chat-view__upload-chip${isReady ? ' chat-view__upload-chip--ready' : ''}${isSelected ? ' chat-view__upload-chip--selected' : ''}`}
+                          >
+                            <span className="chat-view__upload-chip-label">
+                              <i className={resolveFileIconFromFilename(upload.filename_at_upload)} aria-hidden />
+                              <span>{upload.filename_at_upload}</span>
+                              {!isReady && <em>{upload.state === 'failed' ? 'Failed' : 'Indexing'}</em>}
+                            </span>
+                            <span className="chat-view__upload-chip-remove" aria-hidden>
+                              <i className="ri-close-line" aria-hidden />
+                            </span>
+                          </span>
+                        )
+                      })}
+                      <span ref={uploadOverflowMeasureRef} className="chat-view__upload-chip chat-view__upload-overflow-chip">
+                        <span className="chat-view__upload-chip-label">+999</span>
+                      </span>
+                      <span ref={uploadPendingMeasureRef} className="chat-view__upload-chip chat-view__upload-overflow-chip chat-view__upload-overflow-chip--pending">
+                        <span className="chat-view__upload-chip-label">
+                          <i className="ri-loader-4-line chat-view__upload-chip-spinner" aria-hidden />
+                        </span>
+                      </span>
+                      {selectedUploadIds.length > 0 && (
+                        <button
+                          ref={uploadClearMeasureRef}
+                          type="button"
+                          className="chat-view__upload-selection-clear"
+                          tabIndex={-1}
                         >
                           Clear Selection
                         </button>
@@ -755,7 +961,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                           className="chat-view__upload-toggle"
                           onClick={handleUploadControl}
                           disabled={offline || isStreaming}
-                          title="Upload files to this chat"
                           aria-label="Upload files"
                         >
                           <i className="ri-add-line" aria-hidden />

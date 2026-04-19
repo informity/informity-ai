@@ -24,7 +24,10 @@ export interface ChatContextValue {
   setChatWebSearchPreferences: (prefs: { enabled: boolean; privacyOverride: boolean; persist?: boolean }) => Promise<void>
   startScopedChat: (scope: ChatFileScope) => Promise<void>
   clearChatFileScope: () => void
-  uploadFiles: (files: File[]) => Promise<void>
+  uploadFiles: (
+    files: File[],
+    options?: { onChatResolved?: (chatId: string) => void },
+  ) => Promise<void>
   removeUploadedFile: (uploadId: string) => Promise<void>
   toggleUploadSelection: (uploadId: string) => void
   clearUploadSelection: () => void
