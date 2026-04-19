@@ -124,6 +124,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const uploadClearMeasureRef = useRef<HTMLButtonElement>(null)
   const [visibleUploadCount, setVisibleUploadCount] = useState(chatUploads.length)
   const [pendingUploadCountsByChat, setPendingUploadCountsByChat] = useState<Record<string, number>>({})
+  const [isDragOverComposer, setIsDragOverComposer] = useState(false)
+  const uploadDragDepthRef = useRef(0)
   const pendingUploadCount = (() => {
     if (!contextChatId) return pendingUploadCountsByChat.__draft__ ?? 0
     const scopedCount = pendingUploadCountsByChat[contextChatId] ?? 0
@@ -149,6 +151,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   useEffect(() => {
     if (prefillMessage) setInputValue(prefillMessage)
   }, [prefillMessage])
+
+  useEffect(() => {
+    if (!offline && !isStreaming && chatMode === 'researcher') return
+    uploadDragDepthRef.current = 0
+    setIsDragOverComposer(false)
+  }, [chatMode, isStreaming, offline])
 
   useEffect(() => {
     let cancelled = false
@@ -642,17 +650,15 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     uploadInputRef.current?.click()
   }, [offline, isStreaming, chatMode])
 
-  const handleUploadInputChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const fileList = event.target.files
-    if (!fileList || fileList.length === 0) return
-    const selectedFiles = Array.from(fileList)
+  const uploadSelectedFiles = useCallback(async (selectedFiles: File[]) => {
+    if (selectedFiles.length === 0) return
+    if (offline || isStreaming || chatMode !== 'researcher') return
     const selectedCount = selectedFiles.length
     const uploadScopeKeyAtStart = contextChatId || '__draft__'
     const uploadScopeKeyToSettle = uploadScopeKeyAtStart
     if (uploadScopeKeyAtStart === '__draft__') {
       draftPendingAliasChatIdRef.current = null
     }
-    event.target.value = ''
     setPendingUploadCountsByChat((prev) => ({
       ...prev,
       [uploadScopeKeyAtStart]: (prev[uploadScopeKeyAtStart] ?? 0) + selectedCount,
@@ -689,7 +695,63 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         draftPendingAliasChatIdRef.current = null
       }
     }
-  }, [contextChatId, uploadFiles])
+  }, [chatMode, contextChatId, isStreaming, offline, uploadFiles])
+
+  const isFileDragEvent = useCallback((event: { dataTransfer: DataTransfer | null }): boolean => {
+    const types = event.dataTransfer?.types
+    if (!types) return false
+    return Array.from(types).includes('Files')
+  }, [])
+
+  const handleUploadInputChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = event.target.files
+    if (!fileList || fileList.length === 0) return
+    const selectedFiles = Array.from(fileList)
+    event.target.value = ''
+    await uploadSelectedFiles(selectedFiles)
+  }, [uploadSelectedFiles])
+
+  const handleComposerDragEnter = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!isFileDragEvent(event)) return
+    if (offline || isStreaming || chatMode !== 'researcher') return
+    event.preventDefault()
+    event.stopPropagation()
+    uploadDragDepthRef.current += 1
+    setIsDragOverComposer(true)
+  }, [chatMode, isFileDragEvent, isStreaming, offline])
+
+  const handleComposerDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!isFileDragEvent(event)) return
+    if (offline || isStreaming || chatMode !== 'researcher') return
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'copy'
+    if (!isDragOverComposer) {
+      setIsDragOverComposer(true)
+    }
+  }, [chatMode, isDragOverComposer, isFileDragEvent, isStreaming, offline])
+
+  const handleComposerDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!isFileDragEvent(event)) return
+    if (offline || isStreaming || chatMode !== 'researcher') return
+    event.preventDefault()
+    event.stopPropagation()
+    uploadDragDepthRef.current = Math.max(0, uploadDragDepthRef.current - 1)
+    if (uploadDragDepthRef.current === 0) {
+      setIsDragOverComposer(false)
+    }
+  }, [chatMode, isFileDragEvent, isStreaming, offline])
+
+  const handleComposerDrop = useCallback(async (event: React.DragEvent<HTMLDivElement>) => {
+    if (!isFileDragEvent(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    uploadDragDepthRef.current = 0
+    setIsDragOverComposer(false)
+    if (offline || isStreaming || chatMode !== 'researcher') return
+    const selectedFiles = Array.from(event.dataTransfer.files || [])
+    await uploadSelectedFiles(selectedFiles)
+  }, [chatMode, isFileDragEvent, isStreaming, offline, uploadSelectedFiles])
 
   const handleRemoveUpload = useCallback(async (uploadId: string) => {
     try {
@@ -789,8 +851,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                 {error && <div className="chat-view__error">{error}</div>}
                 <div
                   className={
-                    `chat-view__input-wrapper${textareaCanScroll ? ' chat-view__input-wrapper--scrollable' : ''}${textareaHasTopScroll ? ' chat-view__input-wrapper--top-scrolled' : ''}${hasScopedInputPill ? ' chat-view__input-wrapper--scoped' : ''}`
+                    `chat-view__input-wrapper${textareaCanScroll ? ' chat-view__input-wrapper--scrollable' : ''}${textareaHasTopScroll ? ' chat-view__input-wrapper--top-scrolled' : ''}${hasScopedInputPill ? ' chat-view__input-wrapper--scoped' : ''}${isDragOverComposer ? ' chat-view__input-wrapper--drag-active' : ''}`
                   }
+                  onDragEnter={handleComposerDragEnter}
+                  onDragOver={handleComposerDragOver}
+                  onDragLeave={handleComposerDragLeave}
+                  onDrop={handleComposerDrop}
                 >
                   <input
                     ref={uploadInputRef}
