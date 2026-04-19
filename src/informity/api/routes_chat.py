@@ -247,6 +247,107 @@ def _resolve_upload_scope_from_filename_candidates(
     return list(selected_by_upload_id.values()), None
 
 
+_RETRIEVAL_SCOPE_ASSISTANT = 'assistant_mode'
+_RETRIEVAL_SCOPE_INDEXED_CORPUS = 'indexed_corpus'
+_RETRIEVAL_SCOPE_INDEXED_FILES = 'indexed_files'
+_RETRIEVAL_SCOPE_CHAT_UPLOADS = 'chat_uploads'
+
+
+def _build_retrieval_scope(
+    *,
+    chat_mode: str,
+    scoped_file_ids: list[int] | None,
+    upload_attachments: list[ChatUploadAttachment] | None = None,
+    upload_attachments_all: list[ChatUploadAttachment] | None = None,
+    selected_upload_ids: list[str] | None = None,
+) -> tuple[str, str]:
+    if chat_mode != 'researcher':
+        return _RETRIEVAL_SCOPE_ASSISTANT, _RETRIEVAL_SCOPE_ASSISTANT
+    active_uploads = [
+        attachment
+        for attachment in (upload_attachments or [])
+        if attachment.state in _ACTIVE_UPLOAD_STATES and str(attachment.upload_id or '').strip()
+    ]
+    if active_uploads:
+        # Reconstruct active-count transitions from upload/remove timestamps so
+        # we can keep one stable key for the current contiguous upload session.
+        events: list[tuple[str, int, str]] = []
+        for attachment in (upload_attachments_all or upload_attachments or []):
+            upload_id = str(attachment.upload_id or '').strip()
+            if not upload_id:
+                continue
+            if attachment.uploaded_at is not None:
+                events.append((attachment.uploaded_at.isoformat(), 1, upload_id))  # upload (+1)
+            if attachment.removed_at is not None:
+                events.append((attachment.removed_at.isoformat(), 0, upload_id))  # remove (-1), process first on tie
+        events.sort(key=lambda item: (item[0], item[1], item[2]))
+
+        active_count = 0
+        session_anchor_upload_id: str | None = None
+        for _, event_type, upload_id in events:
+            if event_type == 0:
+                active_count = max(0, active_count - 1)
+                continue
+            if active_count == 0:
+                session_anchor_upload_id = upload_id
+            active_count += 1
+        if not session_anchor_upload_id:
+            # Fallback for malformed/legacy rows missing uploaded_at.
+            fallback_sorted = sorted(
+                active_uploads,
+                key=lambda item: (
+                    item.uploaded_at.isoformat() if item.uploaded_at is not None else '',
+                    str(item.upload_id or ''),
+                ),
+            )
+            session_anchor_upload_id = str(fallback_sorted[0].upload_id or '').strip()
+
+        scope_key = f'{_RETRIEVAL_SCOPE_CHAT_UPLOADS}:{session_anchor_upload_id}'
+        active_upload_ids = {
+            str(item.upload_id or '').strip()
+            for item in active_uploads
+            if str(item.upload_id or '').strip()
+        }
+        normalized_selected_ids = sorted({
+            str(upload_id).strip()
+            for upload_id in (selected_upload_ids or [])
+            if str(upload_id).strip() in active_upload_ids
+        })
+        if normalized_selected_ids and set(normalized_selected_ids) != active_upload_ids:
+            scope_key = f'{scope_key}|sel:{",".join(normalized_selected_ids)}'
+        return _RETRIEVAL_SCOPE_CHAT_UPLOADS, scope_key
+    normalized_file_ids = sorted({int(file_id) for file_id in (scoped_file_ids or []) if int(file_id) > 0})
+    if normalized_file_ids:
+        return _RETRIEVAL_SCOPE_INDEXED_FILES, ','.join(str(file_id) for file_id in normalized_file_ids)
+    return _RETRIEVAL_SCOPE_INDEXED_CORPUS, _RETRIEVAL_SCOPE_INDEXED_CORPUS
+
+
+def _filter_history_for_scope(
+    *,
+    history: list[ChatMessage],
+    chat_mode: str,
+    retrieval_scope_kind: str,
+    retrieval_scope_key: str,
+) -> list[ChatMessage]:
+    if chat_mode != 'researcher':
+        return list(history)
+    scoped: list[ChatMessage] = []
+    for message in history:
+        message_chat_mode = str(message.chat_mode or '').strip()
+        if message_chat_mode and message_chat_mode != chat_mode:
+            continue
+        message_scope_kind = str(message.retrieval_scope_kind or '').strip()
+        message_scope_key = str(message.retrieval_scope_key or '').strip()
+        if message_scope_kind and message_scope_key:
+            if message_scope_kind == retrieval_scope_kind and message_scope_key == retrieval_scope_key:
+                scoped.append(message)
+            continue
+        # Legacy pre-scope rows remain available only for indexed corpus turns.
+        if retrieval_scope_kind == _RETRIEVAL_SCOPE_INDEXED_CORPUS:
+            scoped.append(message)
+    return scoped
+
+
 async def _sweep_chat_upload_orphans(
     *,
     db: aiosqlite.Connection,
@@ -378,6 +479,13 @@ async def _finalize_stopped_stream_if_active(
                                 has_remaining_scope=True,
                                 next_action=NextAction.REGENERATE,
                                 next_action_reason='stopped',
+                                chat_mode=latest_assistant.chat_mode if latest_assistant is not None else None,
+                                retrieval_scope_kind=(
+                                    latest_assistant.retrieval_scope_kind if latest_assistant is not None else None
+                                ),
+                                retrieval_scope_key=(
+                                    latest_assistant.retrieval_scope_key if latest_assistant is not None else None
+                                ),
                                 is_internal=False,
                             ),
                         )
@@ -429,6 +537,8 @@ async def _persist_terminal_assistant_message(
     next_action: NextAction,
     next_action_reason: str | None,
     chat_mode: str,
+    retrieval_scope_kind: str | None = None,
+    retrieval_scope_key: str | None = None,
 ) -> tuple[ChatMessage | None, bool]:
     """
     Persist terminal assistant messages (stopped/cancelled/partial) via one path.
@@ -446,6 +556,8 @@ async def _persist_terminal_assistant_message(
         next_action=next_action,
         next_action_reason=next_action_reason,
         chat_mode=chat_mode,
+        retrieval_scope_kind=retrieval_scope_kind,
+        retrieval_scope_key=retrieval_scope_key,
         is_internal=False,
     )
     try:
@@ -745,6 +857,7 @@ async def chat(
     upload_attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
     await _sweep_chat_upload_orphans(db=db, chat_id=chat_id)
     upload_attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
+    upload_attachments_all = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=True)
     uploads_by_id = {str(item.upload_id): item for item in upload_attachments}
     upload_ready_file_ids = sorted({
         int(item.file_id)
@@ -861,8 +974,20 @@ async def chat(
                 status_code=409,
                 detail='Uploaded files are still indexing. Please retry in a moment.',
             )
+    retrieval_scope_kind, retrieval_scope_key = _build_retrieval_scope(
+        chat_mode=resolved_chat_mode,
+        scoped_file_ids=scoped_file_ids,
+        upload_attachments=upload_attachments,
+        upload_attachments_all=upload_attachments_all,
+        selected_upload_ids=upload_scope_selected_ids,
+    )
     # Fetch chat history (excluding the current message we're about to add)
-    history = await get_chat(db, chat_id)
+    history = _filter_history_for_scope(
+        history=await get_chat(db, chat_id),
+        chat_mode=resolved_chat_mode,
+        retrieval_scope_kind=retrieval_scope_kind,
+        retrieval_scope_key=retrieval_scope_key,
+    )
     existing_chat_preferences = await get_chat_preferences(db, chat_id)
     resolved_chat_web_search_enabled = (
         bool(existing_chat_preferences.get('chat_web_search_enabled'))
@@ -881,6 +1006,9 @@ async def chat(
         chat_id = chat_id,
         role    = 'user',
         content = message_text,
+        chat_mode = resolved_chat_mode,
+        retrieval_scope_kind = retrieval_scope_kind,
+        retrieval_scope_key = retrieval_scope_key,
         model_filename = settings.llm_model_filename,
         is_internal = user_message_is_internal,
     )
@@ -1096,6 +1224,9 @@ async def chat(
                                 model_filename=settings.llm_model_filename,
                                 completion_mode=CompletionMode.SCOPED_COMPLETE,
                                 has_remaining_scope=True,
+                                chat_mode=resolved_chat_mode,
+                                retrieval_scope_kind=retrieval_scope_kind,
+                                retrieval_scope_key=retrieval_scope_key,
                             ),
                         ]
                         continuing_status = status_emitter.build_event(
@@ -1586,6 +1717,8 @@ async def chat(
                     next_action=message_next_action,
                     next_action_reason=message_next_action_reason,
                     chat_mode=resolved_chat_mode,
+                    retrieval_scope_kind=retrieval_scope_kind,
+                    retrieval_scope_key=retrieval_scope_key,
                     is_internal=False,
                 )
                 persist_db = await get_connection()
@@ -1716,6 +1849,8 @@ async def chat(
                     next_action=NextAction.REGENERATE,
                     next_action_reason='stopped',
                     chat_mode=resolved_chat_mode,
+                    retrieval_scope_kind=retrieval_scope_kind,
+                    retrieval_scope_key=retrieval_scope_key,
                 )
                 if persisted_message is not None:
                     assistant_message_record = persisted_message
@@ -1771,6 +1906,8 @@ async def chat(
                         next_action=cancelled_next_action,
                         next_action_reason=cancelled_next_action_reason,
                         chat_mode=resolved_chat_mode,
+                        retrieval_scope_kind=retrieval_scope_kind,
+                        retrieval_scope_key=retrieval_scope_key,
                     )
                 if trace_writer is not None:
                     resource_end_snapshot = capture_resource_snapshot()
