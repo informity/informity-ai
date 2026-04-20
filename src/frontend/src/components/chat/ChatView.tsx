@@ -698,9 +698,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   }, [chatMode, contextChatId, isStreaming, offline, uploadFiles])
 
   const isFileDragEvent = useCallback((event: { dataTransfer: DataTransfer | null }): boolean => {
-    const types = event.dataTransfer?.types
-    if (!types) return false
-    return Array.from(types).includes('Files')
+    const transfer = event.dataTransfer
+    if (!transfer) return false
+    if ((transfer.files?.length ?? 0) > 0) return true
+    if (transfer.items && Array.from(transfer.items).some((item) => item.kind === 'file')) return true
+    const types = Array.from(transfer.types ?? []).map((value) => value.toLowerCase())
+    return types.some((value) => value === 'files' || value.includes('file') || value.includes('public.file-url'))
   }, [])
 
   const handleUploadInputChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -743,13 +746,13 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   }, [chatMode, isFileDragEvent, isStreaming, offline])
 
   const handleComposerDrop = useCallback(async (event: React.DragEvent<HTMLDivElement>) => {
-    if (!isFileDragEvent(event)) return
+    const selectedFiles = Array.from(event.dataTransfer.files || [])
+    if (selectedFiles.length === 0 && !isFileDragEvent(event)) return
     event.preventDefault()
     event.stopPropagation()
     uploadDragDepthRef.current = 0
     setIsDragOverComposer(false)
     if (offline || isStreaming || chatMode !== 'researcher') return
-    const selectedFiles = Array.from(event.dataTransfer.files || [])
     await uploadSelectedFiles(selectedFiles)
   }, [chatMode, isFileDragEvent, isStreaming, offline, uploadSelectedFiles])
 

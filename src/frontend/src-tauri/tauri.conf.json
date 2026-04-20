@@ -16,6 +16,7 @@
       {
         "title": "Informity AI",
         "label": "main",
+        "dragDropEnabled": false,
         "width": 1440,
         "height": 920,
         "minWidth": 1280,
