@@ -10,6 +10,7 @@ import pytest
 
 from informity.llm.metadata_filters import extract_metadata_filters
 from informity.llm.retrieval import retrieve_chunks
+from informity.upload_policy import UPLOAD_ENTITY_TYPE, UPLOAD_PROVIDER
 
 
 def _make_async_mock_db():
@@ -133,6 +134,33 @@ async def test_retrieve_chunks_applies_file_ids_filter(mock_db):
             if f.field == 'file_id' and f.operator == 'in' and f.value == [42]
         ]
         assert len(file_id_filters) == 1
+
+
+@pytest.mark.asyncio
+async def test_retrieve_chunks_can_exclude_upload_sources(mock_db):
+    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
+         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch('informity.llm.retrieval.build_where_clause_and_params') as mock_build_where:
+
+        mock_embedder.embed_query.return_value = [0.1] * 768
+        mock_vector_store.search_similar.return_value = []
+        mock_reranker.rerank.return_value = []
+        mock_build_where.return_value = (None, [])
+
+        await retrieve_chunks(
+            'test query',
+            top_k=5,
+            exclude_upload_sources=True,
+            db=mock_db,
+        )
+
+        search_args = mock_vector_store.search_similar.call_args[0]
+        where_clause = search_args[2]
+        where_params = search_args[3]
+        assert 'source_provider = ?' in where_clause
+        assert 'entity_type = ?' in where_clause
+        assert where_params[-2:] == [UPLOAD_PROVIDER, UPLOAD_ENTITY_TYPE]
 
 
 @pytest.mark.asyncio
