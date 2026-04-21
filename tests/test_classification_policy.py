@@ -27,7 +27,7 @@ def test_scoped_file_precedence_promotes_document_deictic_summary_request_to_foc
         reason_codes=['promptcue_adapter'],
     )
     updated = apply_scoped_file_chat_summary_precedence(
-        question='What are top 5 topics from this book?',
+        question='What are top 5 topics from this document?',
         classification=classification,
         scoped_file_active=True,
     )
@@ -63,7 +63,7 @@ def test_scoped_file_precedence_noop_without_active_scope() -> None:
         reason_codes=['promptcue_adapter'],
     )
     updated = apply_scoped_file_chat_summary_precedence(
-        question='What are top 5 topics from this book?',
+        question='What are top 5 topics from this document?',
         classification=classification,
         scoped_file_active=False,
     )

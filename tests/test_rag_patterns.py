@@ -2,9 +2,11 @@ from informity.db.models import ChatMessage
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.rag_patterns import (
     evaluate_substantive_evidence,
+    has_topic_overlap_with_previous_user,
     is_plot_or_chapter_request,
     is_summary_style_request,
     resolve_followup_scope_anchor_filename,
+    should_prefer_title_alignment,
     should_block_summary_generation_for_structural_only_evidence,
 )
 
@@ -16,6 +18,11 @@ def test_is_summary_style_request_allows_coverage_and_focused_intents() -> None:
     assert is_summary_style_request('Summarize this document', coverage) is True
     assert is_summary_style_request('Summarize this document', focused) is True
     assert is_summary_style_request('Summarize this document', metadata) is False
+
+
+def test_is_summary_style_request_detects_document_about_prompt() -> None:
+    focused = QueryClassification(intent='focused')
+    assert is_summary_style_request('What is this document about?', focused) is True
 
 
 def test_is_plot_or_chapter_request_detects_plot_and_chapter() -> None:
@@ -76,8 +83,35 @@ def test_resolve_followup_scope_anchor_filename_from_history() -> None:
         )
     ]
     resolved = resolve_followup_scope_anchor_filename(
-        question='Summarize this book',
+        question='Summarize this document',
         history=history,
         classification=classification,
     )
     assert resolved == 'anchored.pdf'
+
+
+def test_has_topic_overlap_with_previous_user_detects_shared_terms() -> None:
+    history = [
+        ChatMessage(chat_id='chat', role='user', content='List characters in The Three Musketeers'),
+        ChatMessage(chat_id='chat', role='assistant', content='Done'),
+    ]
+    assert has_topic_overlap_with_previous_user(
+        question='give character description for each character',
+        history=history,
+    ) is True
+
+
+def test_should_prefer_title_alignment_for_compare_prompt() -> None:
+    classification = QueryClassification(intent='focused')
+    assert should_prefer_title_alignment(
+        question="Compare D'Artagnan in The Three Musketeers and Twenty Years After",
+        classification=classification,
+    ) is True
+
+
+def test_should_not_prefer_title_alignment_for_generic_prompt() -> None:
+    classification = QueryClassification(intent='focused')
+    assert should_prefer_title_alignment(
+        question='What is the weather today?',
+        classification=classification,
+    ) is False

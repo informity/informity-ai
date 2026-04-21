@@ -29,9 +29,9 @@ _CHAT_SUMMARY_EXPLICIT_PATTERN = re.compile(
 
 _SCOPED_DOCUMENT_REFERENCE_PATTERN = re.compile(
     r'\b('
-    r'(?:this|that)\s+(?:book|file|document|text|source|paper|chapter)'
+    r'(?:this|that)\s+(?:file|document|text|record|entry|item|source|material|attachment|note|paper)'
     r'|'
-    r'(?:from|in|about)\s+this\s+(?:book|file|document|text|source|paper|chapter)'
+    r'(?:from|in|about)\s+this\s+(?:file|document|text|record|entry|item|source|material|attachment|note|paper)'
     r')\b',
     re.IGNORECASE,
 )
@@ -64,7 +64,7 @@ def apply_scoped_file_chat_summary_precedence(
 ) -> QueryClassification:
     """
     Preserve chat-summary intent generally, but when a file scope is active and
-    the query clearly references "this document/book/file" content, prioritize
+    the query clearly references "this document/file/text" content, prioritize
     scoped researcher retrieval for this turn.
     """
     if not scoped_file_active or not classification.needs_chat_history:

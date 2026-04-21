@@ -256,7 +256,7 @@ def test_coverage_narrow_scope_overrides_to_focused() -> None:
     original = get_intent_router()
     set_intent_router_for_testing(_CoverageOnlyRouter())
     try:
-        result = classify_query('What does the 2020 property tax receipt contain? Summarize the key fields.')
+        result = classify_query('What does the 2020 property tax record contain? Summarize the key fields.')
     finally:
         set_intent_router_for_testing(original)
 
@@ -274,7 +274,7 @@ def test_coverage_single_target_scope_overrides_to_focused() -> None:
     original = get_intent_router()
     set_intent_router_for_testing(_CoverageOnlyRouter())
     try:
-        result = classify_query('What does the 2020 property tax receipt contain?')
+        result = classify_query('What does the 2020 property tax record contain?')
     finally:
         set_intent_router_for_testing(original)
 
@@ -298,7 +298,7 @@ def test_coverage_year_anchored_target_overrides_to_focused() -> None:
     original = get_intent_router()
     set_intent_router_for_testing(_CoverageOnlyRouter())
     try:
-        result = classify_query('What does the 2020 property tax receipt contain? Summarize the key fields.')
+        result = classify_query('What does the 2020 property tax record contain? Summarize the key fields.')
     finally:
         set_intent_router_for_testing(original)
 
@@ -462,8 +462,8 @@ def test_focused_aggregate_listing_scope_overrides_to_coverage() -> None:
 
 
 def test_source_terms_extract_anchor_phrase() -> None:
-    result = classify_query('What does the 2020 property tax receipt contain? Summarize the key fields.')
-    assert any('2020 property tax receipt' in term.casefold() for term in result.source_terms)
+    result = classify_query('What does the 2020 property tax record contain? Summarize the key fields.')
+    assert any('2020 property tax record' in term.casefold() for term in result.source_terms)
 
 
 def test_metadata_route_for_conversational_enumeration() -> None:
