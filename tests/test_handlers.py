@@ -590,9 +590,35 @@ class TestRAGHandler:
                 results.append(item)
             assert results[-1] == []
             assert mock_retrieve.await_count == 1
+            assert mock_retrieve.await_args.kwargs.get('query') == 'What is the general plot of The Three Musketeers book?'
             assert mock_retrieve.await_args.kwargs.get('enable_term_expansion') is True
             assert mock_retrieve.await_args.kwargs.get('prefer_within_file_diversity') is True
             assert mock_retrieve.await_args.kwargs.get('strict_title_alignment') is True
+
+    @pytest.mark.asyncio
+    async def test_handle_uses_decomposed_retrieval_content_query(self) -> None:
+        handler = RAGHandler()
+        classification = QueryClassification(
+            intent='focused',
+            retrieval_content_query='What is the general plot of The Count of Monte Cristo?',
+            retrieval_content_confidence=0.8,
+            retrieval_content_reasons=['question_mark', 'question_word'],
+        )
+        mock_db = MagicMock()
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
+            mock_retrieve.return_value = []
+            results: list[object] = []
+            async for item in handler.handle(
+                'OK, new topic. What is the general plot of The Count of Monte Cristo?',
+                classification,
+                [],
+                mock_db,
+                None,
+            ):
+                results.append(item)
+            assert results[-1] == []
+            assert mock_retrieve.await_count == 1
+            assert mock_retrieve.await_args.kwargs.get('query') == 'What is the general plot of The Count of Monte Cristo?'
 
     @pytest.mark.asyncio
     async def test_continuation_without_overlap_keeps_scope_without_clarification(self) -> None:
