@@ -109,3 +109,23 @@ def test_build_display_answer_applies_identity_guard_before_cleaning() -> None:
     cleaned, reasoning_only = build_display_answer(raw)
     assert reasoning_only is False
     assert cleaned == "I’m Informity AI, your local assistant."
+
+
+def test_sanitize_display_answer_removes_overcautious_opening_without_meta_replacement() -> None:
+    raw = (
+        "Based on the provided text, a complete summary is not available. "
+        "However, the following plot elements can be synthesized from context:\n\n"
+        "- D'Artagnan travels to Paris."
+    )
+    assert sanitize_display_answer(raw) == "- D'Artagnan travels to Paris."
+
+
+def test_sanitize_display_answer_strips_limitations_and_scope_meta_sections() -> None:
+    raw = (
+        "Character summary here.\n\n"
+        "Limitations of the Provided Text\n"
+        "The provided documents do not contain all early chapters.\n\n"
+        "Note on Scope: The provided text contains excerpts from two works.\n\n"
+        "Final grounded point."
+    )
+    assert sanitize_display_answer(raw) == "Character summary here.\n\nFinal grounded point."
