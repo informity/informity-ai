@@ -8,30 +8,53 @@ import re
 
 from informity.db.models import ChatMessage
 from informity.llm.query_classifier import QueryClassification
+from informity.llm.query_patterns import build_referential_followup_pattern
 from informity.llm.types import QueryType
 
 SUMMARY_STYLE_REQUEST_PATTERN = re.compile(
-    r'\b(summar(?:y|ize|ized)|overview|key\s+points?|main\s+points?|chapter|plot|story)\b',
+    r'\b('
+    r'summar(?:y|ize|ized)|overview|key\s+points?|main\s+points?|chapter|plot|story'
+    r'|what\s+(?:is|does)\s+(?:this|the)\s+'
+    r'(?:document|file|text|record|entry|item|source|material|attachment|note|paper)\s+'
+    r'(?:about|cover)'
+    r')\b',
     re.IGNORECASE,
 )
 PLOT_CHAPTER_REQUEST_PATTERN = re.compile(r'\b(plot|chapter)\b', re.IGNORECASE)
 ANAPHORIC_SCOPE_PATTERN = re.compile(
-    r'\b(this|that|it|this\s+(?:book|document|file)|that\s+(?:book|document|file))\b',
+    r'\b(this|that|it|'
+    r'this\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)|'
+    r'that\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)'
+    r')\b',
     re.IGNORECASE,
 )
 EXPLICIT_SCOPE_RESET_PATTERN = re.compile(
     r'\b('
     r'all\s+(?:documents?|files?|records?)'
     r'|across\s+all'
-    r'|another\s+(?:document|file|book)'
-    r'|different\s+(?:document|file|book)'
-    r'|other\s+(?:document|file|book)'
+    r'|another\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)'
+    r'|different\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)'
+    r'|other\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)'
     r'|[a-z0-9][a-z0-9._-]*\.(?:pdf|txt|md|csv|json|docx?|xlsx?)'
     r')\b',
     re.IGNORECASE,
 )
+TITLE_ALIGNMENT_CUE_PATTERN = re.compile(
+    r'\b(compare|between|versus|vs)\b'
+    r'|'
+    r'\b(?:in|from)\s+.{0,120}\b(document|file|text|record|entry|item|source|material|attachment|note|paper)\b',
+    re.IGNORECASE,
+)
 STRUCTURAL_BLOCK_TYPES = {'table', 'form'}
 SUMMARY_BLOCK_TYPE_EXCLUDE = ['table', 'form']
+REFERENTIAL_FOLLOWUP_PATTERN = build_referential_followup_pattern()
+EXTRACTION_CUE_PATTERN = re.compile(r'\bextract\b', re.IGNORECASE)
+REWRITE_STOPWORDS = {
+    'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'do', 'for', 'from', 'give', 'has', 'have',
+    'how', 'i', 'in', 'is', 'it', 'its', 'list', 'me', 'of', 'on', 'or', 'our', 'please', 'show',
+    'that', 'the', 'their', 'them', 'there', 'these', 'they', 'this', 'to', 'us', 'what', 'when',
+    'where', 'which', 'who', 'why', 'with', 'you', 'your',
+}
 
 
 def is_summary_style_request(
@@ -45,6 +68,64 @@ def is_summary_style_request(
 
 def is_plot_or_chapter_request(question: str) -> bool:
     return bool(PLOT_CHAPTER_REQUEST_PATTERN.search(str(question or '')))
+
+
+def has_extraction_cue(question: str) -> bool:
+    return bool(EXTRACTION_CUE_PATTERN.search(str(question or '')))
+
+
+def normalize_query_text(text: str) -> str:
+    return ' '.join(str(text or '').strip().split())
+
+
+def has_referential_followup_language(question: str) -> bool:
+    normalized = normalize_query_text(question).lower()
+    if not normalized:
+        return False
+    return bool(REFERENTIAL_FOLLOWUP_PATTERN.search(normalized))
+
+
+def tokenize_query_terms(text: str) -> set[str]:
+    lowered = normalize_query_text(text).lower()
+    if not lowered:
+        return set()
+    raw_terms = set(re.findall(r"[a-z0-9][a-z0-9'_-]{2,}", lowered))
+    terms: set[str] = set()
+    for term in raw_terms:
+        if term in REWRITE_STOPWORDS:
+            continue
+        terms.add(term)
+        if term.endswith('s') and len(term) > 4:
+            terms.add(term[:-1])
+    return terms
+
+
+def has_topic_overlap_with_previous_user(
+    *,
+    question: str,
+    history: list[ChatMessage],
+) -> bool:
+    current_terms = tokenize_query_terms(question)
+    if not current_terms:
+        return False
+    for message in reversed(history):
+        if message.role != 'user':
+            continue
+        previous_terms = tokenize_query_terms(message.content or '')
+        if not previous_terms:
+            continue
+        return bool(current_terms & previous_terms)
+    return False
+
+
+def should_prefer_title_alignment(
+    *,
+    question: str,
+    classification: QueryClassification,
+) -> bool:
+    if classification.intent not in {QueryType.FOCUSED, QueryType.COVERAGE}:
+        return False
+    return bool(TITLE_ALIGNMENT_CUE_PATTERN.search(str(question or '')))
 
 
 def evaluate_substantive_evidence(chunks: list[dict]) -> dict[str, float | int]:

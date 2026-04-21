@@ -2203,9 +2203,24 @@ async def get_diagnostics_metrics_since(
 # Utility Functions
 # ==============================================================================
 
-async def get_file_count(db: aiosqlite.Connection) -> int:
-    # Total count of indexed files.
-    cursor = await db.execute('SELECT COUNT(*) as count FROM files')
+async def get_file_count(
+    db: aiosqlite.Connection,
+    *,
+    source_provider: str | None = None,
+    entity_type: str | None = None,
+) -> int:
+    # Total count of indexed files, optionally scoped by source/entity.
+    if source_provider is not None and entity_type is not None:
+        cursor = await db.execute(
+            '''
+            SELECT COUNT(*) as count
+            FROM files
+            WHERE source_provider = ? AND entity_type = ?
+            ''',
+            (source_provider, entity_type),
+        )
+    else:
+        cursor = await db.execute('SELECT COUNT(*) as count FROM files')
     row = await cursor.fetchone()
     return int(row['count']) if row else 0
 
