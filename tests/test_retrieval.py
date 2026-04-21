@@ -366,6 +366,112 @@ async def test_retrieve_chunks_applies_section_filter(mock_db):
 
 
 @pytest.mark.asyncio
+async def test_retrieve_chunks_prefers_substantive_sections_for_synthesis_requests(mock_db):
+    from informity.config import settings as real_settings
+    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
+         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch.object(real_settings, 'rag_rerank', True):
+        mock_embedder.embed_query.return_value = [0.1] * 768
+        mock_vector_store.search_similar.return_value = [
+            {'chunk_id': 1, 'chunk_text': 'chunk 1', 'score': 0.21},
+            {'chunk_id': 2, 'chunk_text': 'chunk 2', 'score': 0.19},
+        ]
+        mock_vector_store.fts5_augment_candidates.return_value = []
+        mock_reranker.rerank.return_value = [
+            {'chunk_id': 1, 'score': 0.81, 'section_path': 'Appendix'},
+            {'chunk_id': 2, 'score': 0.79, 'section_path': 'Executive Summary'},
+        ]
+
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[
+            {
+                'chunk_id': 1, 'file_id': 10, 'file_path': '/f10', 'filename': 'f10.txt',
+                'chunk_text': 'Appendix-only heading', 'page_number': 1, 'start_page': 1, 'end_page': 1,
+                'section_path': 'Appendix', 'block_type': 'narrative', 'parent_id': None,
+            },
+            {
+                'chunk_id': 2, 'file_id': 10, 'file_path': '/f10', 'filename': 'f10.txt',
+                'chunk_text': 'Executive summary with substantive details about obligations and timelines.',
+                'page_number': 2, 'start_page': 2, 'end_page': 2,
+                'section_path': 'Executive Summary', 'block_type': 'narrative', 'parent_id': None,
+            },
+        ])
+        mock_db.execute = AsyncMock(return_value=mock_cursor)
+
+        results = await retrieve_chunks(
+            'What is this document about?',
+            top_k=1,
+            prefer_substantive_sections=True,
+            db=mock_db,
+        )
+
+    assert len(results) == 1
+    assert results[0]['chunk_id'] == 2
+
+
+@pytest.mark.asyncio
+async def test_retrieve_chunks_prefers_filename_alignment_when_enabled(mock_db):
+    from informity.config import settings as real_settings
+    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
+         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch.object(real_settings, 'rag_rerank', True):
+        mock_embedder.embed_query.return_value = [0.1] * 768
+        mock_vector_store.search_similar.return_value = [
+            {'chunk_id': 1, 'chunk_text': 'chunk 1', 'score': 0.21},
+            {'chunk_id': 2, 'chunk_text': 'chunk 2', 'score': 0.19},
+        ]
+        mock_vector_store.fts5_augment_candidates.return_value = []
+        mock_reranker.rerank.return_value = [
+            {
+                'chunk_id': 1,
+                'score': 0.80,
+                'file_id': 10,
+                'filename': 'The three musketeers.txt',
+                'chunk_text': 'DArtagnan in first book',
+                'section_path': 'Chapter 1',
+                'block_type': 'narrative',
+            },
+            {
+                'chunk_id': 2,
+                'score': 0.79,
+                'file_id': 11,
+                'filename': 'Twenty years after.txt',
+                'chunk_text': 'DArtagnan twenty years later',
+                'section_path': 'Chapter 1',
+                'block_type': 'narrative',
+            },
+        ]
+
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[
+            {
+                'chunk_id': 1, 'file_id': 10, 'file_path': '/f10', 'filename': 'The three musketeers.txt',
+                'chunk_text': 'DArtagnan in first book', 'page_number': 1, 'start_page': 1, 'end_page': 1,
+                'section_path': 'Chapter 1', 'block_type': 'narrative', 'parent_id': None,
+            },
+            {
+                'chunk_id': 2, 'file_id': 11, 'file_path': '/f11', 'filename': 'Twenty years after.txt',
+                'chunk_text': 'DArtagnan twenty years later', 'page_number': 2, 'start_page': 2, 'end_page': 2,
+                'section_path': 'Chapter 1', 'block_type': 'narrative', 'parent_id': None,
+            },
+        ])
+        mock_db.execute = AsyncMock(return_value=mock_cursor)
+
+        results = await retrieve_chunks(
+            'Compare DArtagnan in The Three Musketeers and Twenty Years After',
+            top_k=1,
+            prefer_title_alignment=True,
+            title_alignment_query='Compare DArtagnan in The Three Musketeers and Twenty Years After',
+            db=mock_db,
+        )
+
+    assert len(results) == 1
+    assert results[0]['filename'] == 'Twenty years after.txt'
+
+
+@pytest.mark.asyncio
 async def test_retrieve_chunks_coverage_prefers_within_file_section_spread(mock_db):
     with patch('informity.llm.retrieval.embedder') as mock_embedder, \
          patch('informity.llm.retrieval.vector_store') as mock_vector_store, \

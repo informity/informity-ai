@@ -5,9 +5,9 @@
 # ==============================================================================
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from informity.api.setup_state import SetupState
 from informity.config import (
@@ -86,6 +86,8 @@ class SearchResponse(BaseModel):
 
 class ChatRequest(BaseModel):
     # Request to send a message in a chat.
+    model_config = ConfigDict(extra='forbid')
+
     message:  str
     chat_id:  str | None = None   # None = start new chat
     scoped_file_ids: list[int] | None = Field(default=None, min_length=1)  # Optional one-or-more file scope for researcher retrieval
@@ -95,13 +97,6 @@ class ChatRequest(BaseModel):
     mode: str | None = None        # Optional chat mode: assistant | researcher (invalid -> researcher)
     chat_web_search_enabled: bool | None = None  # Optional chat-scoped assistant web-search toggle
     chat_web_search_privacy_override: bool | None = None  # Optional chat-scoped privacy override for web search
-
-    @model_validator(mode='before')
-    @classmethod
-    def _reject_legacy_file_id(cls, values: Any) -> Any:
-        if isinstance(values, dict) and values.get('file_id') is not None:
-            raise ValueError('file_id is no longer supported. Use scoped_file_ids (one or more file IDs).')
-        return values
 
     @model_validator(mode='after')
     def _normalize_scoped_file_ids(self) -> 'ChatRequest':

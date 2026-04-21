@@ -175,7 +175,12 @@ async def get_index_status(
             source_scope_stats         = [],
         )
 
-    total_files  = await get_file_count(db)
+    # Dashboard total_files should represent indexed source corpus only.
+    total_files  = await get_file_count(
+        db,
+        source_provider=FILESYSTEM_PROVIDER,
+        entity_type=SOURCE_ENTITY_FILE,
+    )
     total_chunks = await get_chunk_count(db)
 
     # Get vector store stats

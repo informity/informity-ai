@@ -26,7 +26,15 @@ from informity.llm.query_patterns import (
     build_exhaustive_entity_inventory_scope_pattern,
     build_global_entity_listing_pattern,
     build_person_entity_listing_pattern,
-    build_referential_followup_pattern,
+)
+from informity.llm.rag_patterns import (
+    SUMMARY_BLOCK_TYPE_EXCLUDE,
+    has_extraction_cue,
+    has_referential_followup_language,
+    has_topic_overlap_with_previous_user,
+    is_summary_style_request,
+    normalize_query_text,
+    should_prefer_title_alignment,
 )
 from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
@@ -51,9 +59,7 @@ _HANDLER_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, asy
 
 _INSUFFICIENT_CONTEXT_RESPONSE = INSUFFICIENT_CONTEXT_RESEARCHER_MESSAGE
 _CHUNK_PREVIEW_MAX_LENGTH = 200
-_REFERENTIAL_FOLLOWUP_PATTERN = build_referential_followup_pattern()
 _DETERMINISTIC_EXTRACTION_HEADING = '### Deterministic Numeric Extraction\n\n'
-_EXTRACTION_CUE_PATTERN = re.compile(r'\bextract\b', re.IGNORECASE)
 _STRICT_CONTRACT_MAX_TEMPERATURE = 0.2
 _STRICT_CONTRACT_MAX_TOP_P = 0.8
 _COVERAGE_ENTITY_LISTING_TOP_K_BOOST = 8
@@ -145,17 +151,6 @@ def _truncate_preview(text: str, max_length: int = _CHUNK_PREVIEW_MAX_LENGTH) ->
     return text[:max_length]
 
 
-def _normalize_query_text(text: str) -> str:
-    return ' '.join(str(text or '').strip().split())
-
-
-def _has_referential_language(question: str) -> bool:
-    normalized = _normalize_query_text(question).lower()
-    if not normalized:
-        return False
-    return bool(_REFERENTIAL_FOLLOWUP_PATTERN.search(normalized))
-
-
 def _should_prepend_deterministic_extraction_heading(
     *,
     question: str,
@@ -165,20 +160,45 @@ def _should_prepend_deterministic_extraction_heading(
         return False
     if classification.subtype != QuerySubtype.AGGREGATE_BY_PERIOD:
         return False
-    if not _EXTRACTION_CUE_PATTERN.search(question):
+    if not has_extraction_cue(question):
         return False
     return BY_PER_YEAR_PATTERN.search(question)
 
 
 def _build_history_aware_retrieval_query(question: str, history: list[ChatMessage] | None) -> tuple[str, bool]:
-    normalized_question = _normalize_query_text(question)
+    return _build_history_aware_retrieval_query_with_classification(
+        question=question,
+        history=history,
+        classification=None,
+    )
+
+
+def _build_history_aware_retrieval_query_with_classification(
+    *,
+    question: str,
+    history: list[ChatMessage] | None,
+    classification: QueryClassification | None,
+) -> tuple[str, bool]:
+    normalized_question = normalize_query_text(question)
     if not normalized_question:
         return '', False
     if not bool(settings.rag_query_rewrite_enabled):
         return normalized_question, False
-    if not _has_referential_language(normalized_question):
-        return normalized_question, False
     if not history:
+        return normalized_question, False
+    has_referential_language = has_referential_followup_language(normalized_question)
+    has_topical_overlap = has_topic_overlap_with_previous_user(
+        question=normalized_question,
+        history=history,
+    )
+    if classification is not None:
+        if bool(classification.is_scope_reset):
+            return normalized_question, False
+        if classification.filename_filter is not None:
+            return normalized_question, False
+        if classification.intent not in {QueryType.FOCUSED, QueryType.COVERAGE}:
+            return normalized_question, False
+    if not has_referential_language and not has_topical_overlap:
         return normalized_question, False
 
     previous_user = ''
@@ -190,7 +210,7 @@ def _build_history_aware_retrieval_query(question: str, history: list[ChatMessag
     max_query_chars = max(64, int(settings.rag_query_rewrite_max_query_chars))
 
     for message in reversed(history[-history_limit:]):
-        content = _normalize_query_text(message.content or '')
+        content = normalize_query_text(message.content or '')
         if not content:
             continue
         if not previous_user and message.role == 'user':
@@ -474,12 +494,28 @@ class RAGHandler:
             })
 
         retrieval_timing: dict[str, float] = {}
-        retrieval_query, query_rewritten = _build_history_aware_retrieval_query(question, history)
+        retrieval_query, query_rewritten = _build_history_aware_retrieval_query_with_classification(
+            question=question,
+            history=history,
+            classification=classification,
+        )
+        prefer_title_alignment = should_prefer_title_alignment(
+            question=question,
+            classification=classification,
+        )
+        summary_style_request = is_summary_style_request(question, classification)
+        effective_block_type_exclude = list(getattr(classification, 'block_type_exclude', None) or [])
+        if summary_style_request and not classification.block_type_filter:
+            for excluded_type in SUMMARY_BLOCK_TYPE_EXCLUDE:
+                if excluded_type not in effective_block_type_exclude:
+                    effective_block_type_exclude.append(excluded_type)
         if trace is not None:
             trace.record('retrieval.query_rewrite', {
                 'query_rewrite': query_rewritten,
                 'original_query': question,
                 'rewritten_query': retrieval_query if query_rewritten else None,
+                'summary_style_request': summary_style_request,
+                'prefer_title_alignment': prefer_title_alignment,
             })
         retrieval_start = time.perf_counter()
         chunks = await retrieve_chunks(
@@ -495,9 +531,13 @@ class RAGHandler:
             filename_filter=classification.filename_filter,
             filename_exclude=classification.filename_exclude,
             block_type_filter=classification.block_type_filter,
+            block_type_exclude=effective_block_type_exclude or None,
             section_filter=classification.section_filter,
             file_ids_filter=file_ids,
             exclude_upload_sources=not bool(file_ids),
+            prefer_substantive_sections=summary_style_request,
+            prefer_title_alignment=prefer_title_alignment,
+            title_alignment_query=question if prefer_title_alignment else None,
             query_type=effective_query_type,
             db=db,
             trace=trace,

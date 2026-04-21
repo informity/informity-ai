@@ -17,6 +17,7 @@ from informity.llm.handlers.rag import (
     _apply_negation_preferences,
     _apply_output_format_preferences,
     _build_history_aware_retrieval_query,
+    _build_history_aware_retrieval_query_with_classification,
     _resolve_exhaustive_inventory_term_type,
     _should_boost_coverage_top_k,
 )
@@ -257,6 +258,31 @@ class TestRAGHandler:
             assert rewritten == 'What about that one?'
         finally:
             settings.rag_query_rewrite_enabled = original_enabled
+
+    def test_query_rewrite_adds_context_for_topical_followups_without_pronouns(self) -> None:
+        rewritten, applied = _build_history_aware_retrieval_query_with_classification(
+            question='give basic character description for each character',
+            history=[
+                ChatMessage(chat_id='chat', role='user', content='List all the main characters in The Three Musketeers'),
+                ChatMessage(chat_id='chat', role='assistant', content='Here are the main characters.'),
+            ],
+            classification=QueryClassification(intent='focused'),
+        )
+        assert applied is True
+        assert 'Follow-up context:' in rewritten
+        assert 'Three Musketeers' in rewritten
+
+    def test_query_rewrite_skips_when_scope_reset_is_explicit(self) -> None:
+        rewritten, applied = _build_history_aware_retrieval_query_with_classification(
+            question='Summarize this contract',
+            history=[
+                ChatMessage(chat_id='chat', role='user', content='List all the main characters in The Three Musketeers'),
+                ChatMessage(chat_id='chat', role='assistant', content='Here are the main characters.'),
+            ],
+            classification=QueryClassification(intent='focused', is_scope_reset=True),
+        )
+        assert applied is False
+        assert rewritten == 'Summarize this contract'
     @pytest.fixture(autouse=True)
     def _force_minimal_mode_for_rag_tests(self) -> None:
         # RAG handler tests validate the minimal one-path runtime directly.
