@@ -2,6 +2,7 @@ from informity.db.models import ChatMessage
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.rag_patterns import (
     evaluate_substantive_evidence,
+    has_explicit_title_reference,
     has_topic_overlap_with_previous_user,
     is_plot_or_chapter_request,
     is_summary_style_request,
@@ -115,3 +116,23 @@ def test_should_not_prefer_title_alignment_for_generic_prompt() -> None:
         question='What is the weather today?',
         classification=classification,
     ) is False
+
+
+def test_should_prefer_title_alignment_when_source_terms_include_title_phrase() -> None:
+    classification = QueryClassification(intent='focused', source_terms=['the three musketeers'])
+    assert should_prefer_title_alignment(
+        question='List all characters in this document',
+        classification=classification,
+    ) is True
+
+
+def test_has_explicit_title_reference_detects_prepositional_title_phrase() -> None:
+    assert has_explicit_title_reference('What is the general plot of The Three Musketeers book?') is True
+
+
+def test_has_explicit_title_reference_detects_quoted_title_phrase() -> None:
+    assert has_explicit_title_reference('Summarize "The Three Musketeers" with key themes.') is True
+
+
+def test_has_explicit_title_reference_ignores_generic_question() -> None:
+    assert has_explicit_title_reference('What is this file about?') is False

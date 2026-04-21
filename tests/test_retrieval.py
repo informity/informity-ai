@@ -379,16 +379,27 @@ async def test_retrieve_chunks_prefers_substantive_sections_for_synthesis_reques
         ]
         mock_vector_store.fts5_augment_candidates.return_value = []
         mock_reranker.rerank.return_value = [
-            {'chunk_id': 1, 'score': 0.81, 'section_path': 'Appendix'},
-            {'chunk_id': 2, 'score': 0.79, 'section_path': 'Executive Summary'},
+            {
+                'chunk_id': 1,
+                'score': 0.81,
+                'section_path': None,
+                'chunk_text': '*** START OF THE PROJECT GUTENBERG EBOOK THE THREE MUSKETEERS *** CONTENTS AUTHOR’S PREFACE',
+            },
+            {
+                'chunk_id': 2,
+                'score': 0.79,
+                'section_path': 'Executive Summary',
+                'chunk_text': 'Executive summary with substantive details about obligations and timelines.',
+            },
         ]
 
         mock_cursor = MagicMock()
         mock_cursor.fetchall = AsyncMock(return_value=[
             {
                 'chunk_id': 1, 'file_id': 10, 'file_path': '/f10', 'filename': 'f10.txt',
-                'chunk_text': 'Appendix-only heading', 'page_number': 1, 'start_page': 1, 'end_page': 1,
-                'section_path': 'Appendix', 'block_type': 'narrative', 'parent_id': None,
+                'chunk_text': '*** START OF THE PROJECT GUTENBERG EBOOK THE THREE MUSKETEERS *** CONTENTS AUTHOR’S PREFACE',
+                'page_number': 1, 'start_page': 1, 'end_page': 1,
+                'section_path': None, 'block_type': 'narrative', 'parent_id': None,
             },
             {
                 'chunk_id': 2, 'file_id': 10, 'file_path': '/f10', 'filename': 'f10.txt',
