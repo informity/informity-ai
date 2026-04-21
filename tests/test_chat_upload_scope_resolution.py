@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from informity.api.context_scope_manager import resolve_retrieval_context_scope_key
 from informity.api import routes_chat
 from informity.db.models import ChatMessage, ChatUploadAttachment
 
@@ -180,14 +181,102 @@ def test_filter_history_for_scope_isolates_upload_from_indexed_context() -> None
             content='Now use scanned docs',
             chat_mode='researcher',
             retrieval_scope_kind='indexed_corpus',
-            retrieval_scope_key='indexed_corpus',
+            retrieval_scope_key='indexed_corpus|g:0',
         ),
     ]
     filtered = routes_chat._filter_history_for_scope(
         history=history,
         chat_mode='researcher',
         retrieval_scope_kind='indexed_corpus',
-        retrieval_scope_key='indexed_corpus',
+        retrieval_scope_key='indexed_corpus|g:0',
     )
     assert len(filtered) == 1
     assert filtered[0].content == 'Now use scanned docs'
+
+
+def test_filter_history_for_scope_respects_indexed_generation_boundaries() -> None:
+    history = [
+        ChatMessage(
+            chat_id='chat-1',
+            role='user',
+            content='Topic A question',
+            chat_mode='researcher',
+            retrieval_scope_kind='indexed_corpus',
+            retrieval_scope_key='indexed_corpus|g:0',
+        ),
+        ChatMessage(
+            chat_id='chat-1',
+            role='assistant',
+            content='Topic A answer',
+            chat_mode='researcher',
+            retrieval_scope_kind='indexed_corpus',
+            retrieval_scope_key='indexed_corpus|g:0',
+        ),
+        ChatMessage(
+            chat_id='chat-1',
+            role='user',
+            content='Topic B question',
+            chat_mode='researcher',
+            retrieval_scope_kind='indexed_corpus',
+            retrieval_scope_key='indexed_corpus|g:1',
+        ),
+    ]
+    filtered = routes_chat._filter_history_for_scope(
+        history=history,
+        chat_mode='researcher',
+        retrieval_scope_kind='indexed_corpus',
+        retrieval_scope_key='indexed_corpus|g:1',
+    )
+    assert [item.content for item in filtered] == ['Topic B question']
+
+
+def test_resolve_retrieval_context_scope_key_resets_on_topic_shift() -> None:
+    history = [
+        ChatMessage(
+            chat_id='chat-1',
+            role='assistant',
+            content='Prior answer',
+            chat_mode='researcher',
+            retrieval_scope_kind='indexed_corpus',
+            retrieval_scope_key='indexed_corpus|g:2',
+        )
+    ]
+    resolved_key, meta = resolve_retrieval_context_scope_key(
+        chat_mode='researcher',
+        retrieval_scope_kind='indexed_corpus',
+        retrieval_scope_key='indexed_corpus',
+        message_text='OK, new topic: summarize this document',
+        history=history,
+    )
+    assert resolved_key == 'indexed_corpus|g:3'
+    assert meta['topic_shift_reset'] is True
+
+
+def test_resolve_retrieval_context_scope_key_resets_on_upload_to_indexed_transition() -> None:
+    history = [
+        ChatMessage(
+            chat_id='chat-1',
+            role='assistant',
+            content='Upload answer',
+            chat_mode='researcher',
+            retrieval_scope_kind='chat_uploads',
+            retrieval_scope_key='chat_uploads:up-1',
+        ),
+        ChatMessage(
+            chat_id='chat-1',
+            role='assistant',
+            content='Prior indexed answer',
+            chat_mode='researcher',
+            retrieval_scope_kind='indexed_corpus',
+            retrieval_scope_key='indexed_corpus|g:1',
+        ),
+    ]
+    resolved_key, meta = resolve_retrieval_context_scope_key(
+        chat_mode='researcher',
+        retrieval_scope_kind='indexed_corpus',
+        retrieval_scope_key='indexed_corpus',
+        message_text='What can you tell me about these documents now?',
+        history=history[:1],
+    )
+    assert resolved_key == 'indexed_corpus|g:1'
+    assert meta['scope_transition_reset'] is True

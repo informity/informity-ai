@@ -45,6 +45,24 @@ TITLE_ALIGNMENT_CUE_PATTERN = re.compile(
     r'\b(?:in|from)\s+.{0,120}\b(document|file|text|record|entry|item|source|material|attachment|note|paper)\b',
     re.IGNORECASE,
 )
+TOPIC_SHIFT_CUE_PATTERN = re.compile(
+    r'\b('
+    r'new\s+topic'
+    r'|change\s+(?:the\s+)?topic'
+    r'|switch\s+(?:topics?|context)'
+    r'|different\s+topic'
+    r'|instead'
+    r'|unrelated'
+    r'|now\s+(?:about|switch(?:ing)?)'
+    r')\b',
+    re.IGNORECASE,
+)
+_TITLE_IN_PREPOSITION_PATTERN = re.compile(
+    r'\b(?:of|in|about|from)\s+'
+    r'((?:[A-Z][A-Za-z0-9\'_-]*)(?:\s+[A-Z][A-Za-z0-9\'_-]*){1,8})'
+    r'(?:\s+(?:file|document|text|record|entry|item|source|material|attachment|note|paper))?\b'
+)
+_QUOTED_TITLE_PATTERN = re.compile(r'["“](.{3,120}?)[”"]')
 STRUCTURAL_BLOCK_TYPES = {'table', 'form'}
 SUMMARY_BLOCK_TYPE_EXCLUDE = ['table', 'form']
 REFERENTIAL_FOLLOWUP_PATTERN = build_referential_followup_pattern()
@@ -83,6 +101,22 @@ def has_referential_followup_language(question: str) -> bool:
     if not normalized:
         return False
     return bool(REFERENTIAL_FOLLOWUP_PATTERN.search(normalized))
+
+
+def has_topic_shift_cue(question: str) -> bool:
+    normalized = normalize_query_text(question)
+    if not normalized:
+        return False
+    return bool(TOPIC_SHIFT_CUE_PATTERN.search(normalized))
+
+
+def has_explicit_title_reference(question: str) -> bool:
+    text = str(question or '').strip()
+    if not text:
+        return False
+    if _QUOTED_TITLE_PATTERN.search(text):
+        return True
+    return bool(_TITLE_IN_PREPOSITION_PATTERN.search(text))
 
 
 def tokenize_query_terms(text: str) -> set[str]:
@@ -125,7 +159,12 @@ def should_prefer_title_alignment(
 ) -> bool:
     if classification.intent not in {QueryType.FOCUSED, QueryType.COVERAGE}:
         return False
-    return bool(TITLE_ALIGNMENT_CUE_PATTERN.search(str(question or '')))
+    if has_explicit_title_reference(question):
+        return True
+    if TITLE_ALIGNMENT_CUE_PATTERN.search(str(question or '')):
+        return True
+    source_terms = [str(term or '').strip() for term in (classification.source_terms or [])]
+    return any(len(term) >= 6 and ' ' in term for term in source_terms)
 
 
 def evaluate_substantive_evidence(chunks: list[dict]) -> dict[str, float | int]:

@@ -25,6 +25,11 @@ from informity import answer_sanitization
 from informity.answer_sanitization import build_display_answer, sanitize_display_answer
 from informity.api.chat_closeout import build_display_blocks, build_done_payload
 from informity.api.chat_completion_policy import resolve_completion_and_action
+from informity.api.context_scope_manager import (
+    INDEXED_CORPUS_SCOPE_KIND,
+    normalize_indexed_corpus_scope_key,
+    resolve_retrieval_context_scope_key,
+)
 from informity.api.chat_continuation import (
     build_auto_continue_pass_prompt as _build_auto_continue_pass_prompt,
 )
@@ -331,6 +336,17 @@ def _filter_history_for_scope(
 ) -> list[ChatMessage]:
     if chat_mode != 'researcher':
         return list(history)
+    target_scope_key = str(retrieval_scope_key or '').strip()
+    target_scope_key_normalized = (
+        normalize_indexed_corpus_scope_key(target_scope_key)
+        if retrieval_scope_kind == INDEXED_CORPUS_SCOPE_KIND
+        else target_scope_key
+    )
+    include_legacy_indexed_rows = (
+        retrieval_scope_kind == INDEXED_CORPUS_SCOPE_KIND
+        and target_scope_key_normalized == f'{INDEXED_CORPUS_SCOPE_KIND}|g:0'
+    )
+
     scoped: list[ChatMessage] = []
     for message in history:
         message_chat_mode = str(message.chat_mode or '').strip()
@@ -339,11 +355,19 @@ def _filter_history_for_scope(
         message_scope_kind = str(message.retrieval_scope_kind or '').strip()
         message_scope_key = str(message.retrieval_scope_key or '').strip()
         if message_scope_kind and message_scope_key:
-            if message_scope_kind == retrieval_scope_kind and message_scope_key == retrieval_scope_key:
+            message_scope_key_normalized = (
+                normalize_indexed_corpus_scope_key(message_scope_key)
+                if message_scope_kind == INDEXED_CORPUS_SCOPE_KIND
+                else message_scope_key
+            )
+            if (
+                message_scope_kind == retrieval_scope_kind
+                and message_scope_key_normalized == target_scope_key_normalized
+            ):
                 scoped.append(message)
             continue
         # Legacy pre-scope rows remain available only for indexed corpus turns.
-        if retrieval_scope_kind == _RETRIEVAL_SCOPE_INDEXED_CORPUS:
+        if include_legacy_indexed_rows:
             scoped.append(message)
     return scoped
 
@@ -981,9 +1005,17 @@ async def chat(
         upload_attachments_all=upload_attachments_all,
         selected_upload_ids=upload_scope_selected_ids,
     )
+    full_history = await get_chat(db, chat_id)
+    retrieval_scope_key, context_scope_resolution = resolve_retrieval_context_scope_key(
+        chat_mode=resolved_chat_mode,
+        retrieval_scope_kind=retrieval_scope_kind,
+        retrieval_scope_key=retrieval_scope_key,
+        message_text=message_text,
+        history=full_history,
+    )
     # Fetch chat history (excluding the current message we're about to add)
     history = _filter_history_for_scope(
-        history=await get_chat(db, chat_id),
+        history=full_history,
         chat_mode=resolved_chat_mode,
         retrieval_scope_kind=retrieval_scope_kind,
         retrieval_scope_key=retrieval_scope_key,
@@ -1027,6 +1059,9 @@ async def chat(
         stream_request_id = request_id,
         run_id           = requested_run_id,
         chat_mode        = resolved_chat_mode,
+        topic_shift_reset = bool(context_scope_resolution.get('topic_shift_reset')),
+        scope_transition_reset = bool(context_scope_resolution.get('scope_transition_reset')),
+        context_generation = context_scope_resolution.get('generation'),
         message_length   = len(message_text),
         history_messages = len(history),
     )

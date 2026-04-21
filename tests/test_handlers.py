@@ -241,7 +241,7 @@ class TestRAGHandler:
         assert applied is True
         assert 'Follow-up context:' in rewritten
         assert 'Previous user question:' in rewritten
-        assert 'Previous assistant answer:' in rewritten
+        assert 'Previous assistant answer:' not in rewritten
 
     def test_query_rewrite_can_be_disabled_via_settings(self) -> None:
         original_enabled = settings.rag_query_rewrite_enabled
@@ -283,6 +283,18 @@ class TestRAGHandler:
         )
         assert applied is False
         assert rewritten == 'Summarize this contract'
+
+    def test_query_rewrite_skips_when_explicit_topic_shift_cue_present(self) -> None:
+        rewritten, applied = _build_history_aware_retrieval_query_with_classification(
+            question='Instead, new topic: summarize 2025 planning notes',
+            history=[
+                ChatMessage(chat_id='chat', role='user', content='List all the main characters in The Three Musketeers'),
+                ChatMessage(chat_id='chat', role='assistant', content='Here are the main characters.'),
+            ],
+            classification=QueryClassification(intent='focused'),
+        )
+        assert applied is False
+        assert rewritten == 'Instead, new topic: summarize 2025 planning notes'
     @pytest.fixture(autouse=True)
     def _force_minimal_mode_for_rag_tests(self) -> None:
         # RAG handler tests validate the minimal one-path runtime directly.
@@ -559,6 +571,27 @@ class TestRAGHandler:
             assert results[-1] == []
             assert mock_retrieve.await_count == 1
             assert 'Follow-up context:' in mock_retrieve.await_args.kwargs['query']
+
+    @pytest.mark.asyncio
+    async def test_handle_disables_term_expansion_for_focused_explicit_title_query(self) -> None:
+        handler = RAGHandler()
+        classification = QueryClassification(intent='focused')
+        mock_db = MagicMock()
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
+            mock_retrieve.return_value = []
+            results: list[object] = []
+            async for item in handler.handle(
+                'What is the general plot of The Three Musketeers book?',
+                classification,
+                [],
+                mock_db,
+                None,
+            ):
+                results.append(item)
+            assert results[-1] == []
+            assert mock_retrieve.await_count == 1
+            assert mock_retrieve.await_args.kwargs.get('enable_term_expansion') is False
+            assert mock_retrieve.await_args.kwargs.get('strict_title_alignment') is True
 
     @pytest.mark.asyncio
     async def test_continuation_without_overlap_keeps_scope_without_clarification(self) -> None:
