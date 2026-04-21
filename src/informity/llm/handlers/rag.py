@@ -513,7 +513,7 @@ class RAGHandler:
 
         retrieval_timing: dict[str, float] = {}
         retrieval_query, query_rewritten = _build_history_aware_retrieval_query_with_classification(
-            question=question,
+            question=(classification.retrieval_content_query or question),
             history=history,
             classification=classification,
         )
@@ -537,6 +537,9 @@ class RAGHandler:
             trace.record('retrieval.query_rewrite', {
                 'query_rewrite': query_rewritten,
                 'original_query': question,
+                'retrieval_content_query': classification.retrieval_content_query,
+                'retrieval_content_confidence': round(float(classification.retrieval_content_confidence or 0.0), 4),
+                'retrieval_content_reasons': list(classification.retrieval_content_reasons or []),
                 'rewritten_query': retrieval_query if query_rewritten else None,
                 'summary_style_request': summary_style_request,
                 'prefer_title_alignment': prefer_title_alignment,
