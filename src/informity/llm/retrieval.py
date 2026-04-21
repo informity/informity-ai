@@ -21,6 +21,7 @@ from informity.llm.metadata_filters import (
 from informity.llm.model_adapter import get_profile
 from informity.llm.term_dictionary import expand_query_for_retrieval
 from informity.llm.types import BlockType, FilterOperator, QueryType
+from informity.upload_policy import UPLOAD_ENTITY_TYPE, UPLOAD_PROVIDER
 from informity.utils.file_utils import normalize_extension
 
 log = structlog.get_logger(__name__)
@@ -141,6 +142,7 @@ async def retrieve_chunks(
     block_type_exclude: list[str] | None = None,
     section_filter: str | None = None,
     file_ids_filter: list[int] | None = None,
+    exclude_upload_sources: bool = False,
     query_type: QueryType = QueryType.FOCUSED,
     db: aiosqlite.Connection | None = None,
     trace: object | None = None,
@@ -250,6 +252,15 @@ async def retrieve_chunks(
     # the chunks table, where those fields are authoritative.
     vector_filters = [f for f in active_filters if f.field != 'block_type']
     where_clause, where_params = build_where_clause_and_params(vector_filters)
+    if exclude_upload_sources:
+        upload_exclusion_clause = 'file_id NOT IN (SELECT id FROM files WHERE source_provider = ? AND entity_type = ?)'
+        upload_exclusion_params: list[int | str] = [UPLOAD_PROVIDER, UPLOAD_ENTITY_TYPE]
+        if where_clause:
+            where_clause = f'({where_clause}) AND {upload_exclusion_clause}'
+            where_params = [*where_params, *upload_exclusion_params]
+        else:
+            where_clause = upload_exclusion_clause
+            where_params = upload_exclusion_params
     applied_filters_for_trace = [
         {
             'field': metadata_filter.field,
@@ -349,6 +360,7 @@ async def retrieve_chunks(
                 'section_filter':      safe_section_filter,
                 'max_score':           max_score,
                 'file_ids_filter':     file_ids_filter,
+                'exclude_upload_sources': exclude_upload_sources,
             })
         return []
 
@@ -563,6 +575,7 @@ async def retrieve_chunks(
             'section_filter':      safe_section_filter,
             'max_score':           max_score,
             'file_ids_filter':     file_ids_filter,
+            'exclude_upload_sources': exclude_upload_sources,
             'children_reranked':   len(reranked_children),
         'children_after_structural_filter': len(filtered_child_chunks),
             'parents_fetched':     len(parent_chunks),
