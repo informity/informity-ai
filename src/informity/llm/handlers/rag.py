@@ -497,6 +497,7 @@ class RAGHandler:
             block_type_filter=classification.block_type_filter,
             section_filter=classification.section_filter,
             file_ids_filter=file_ids,
+            exclude_upload_sources=not bool(file_ids),
             query_type=effective_query_type,
             db=db,
             trace=trace,
