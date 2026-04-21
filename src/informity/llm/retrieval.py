@@ -20,7 +20,7 @@ from informity.llm.metadata_filters import (
     build_where_clause_and_params,
 )
 from informity.llm.model_adapter import get_profile
-from informity.llm.term_dictionary import expand_query_for_retrieval
+from informity.llm.term_dictionary import TermExpansion, expand_query_for_retrieval
 from informity.llm.types import BlockType, FilterOperator, QueryType
 from informity.upload_policy import UPLOAD_ENTITY_TYPE, UPLOAD_PROVIDER
 from informity.utils.file_utils import normalize_extension
@@ -39,16 +39,28 @@ _STRUCTURAL_SECTION_PATTERNS = (
 )
 _SECTION_STRUCTURAL_PENALTY = 0.15
 _BLOCK_TYPE_STRUCTURAL_PENALTY = 0.08
+_TEXT_STRUCTURAL_PENALTY = 0.35
 _SHORT_TEXT_PENALTY = 0.04
 _SHORT_TEXT_CHAR_THRESHOLD = 180
 _SHORT_TEXT_LINE_THRESHOLD = 3
 _TITLE_ALIGNMENT_BONUS_PER_MATCH = 0.05
 _TITLE_ALIGNMENT_BONUS_MAX = 0.20
+_TITLE_ALIGNMENT_STRICT_NO_MATCH_PENALTY = 0.30
+_TITLE_ALIGNMENT_STRICT_BONUS_PER_MATCH = 0.12
+_TITLE_ALIGNMENT_STRICT_BONUS_MAX = 0.50
 _TITLE_ALIGNMENT_STOPWORDS = {
     'a', 'an', 'and', 'as', 'at', 'attachment', 'by', 'compare', 'description', 'describe', 'document',
     'entry', 'file', 'for', 'from', 'give', 'in', 'is', 'it', 'item', 'later', 'material', 'note', 'of',
     'on', 'or', 'paper', 'record', 'source', 'text', 'the', 'to', 'vs', 'versus', 'what', 'with',
 }
+_STRUCTURAL_TEXT_PATTERNS = (
+    re.compile(r'\*\*\*\s*start\s+of\s+the\s+project\s+gutenberg\s+ebook', re.IGNORECASE),
+    re.compile(r'\bproject\s+gutenberg\s+ebook\b', re.IGNORECASE),
+    re.compile(r'\bthis\s+ebook\s+is\s+for\s+the\s+use\s+of\s+anyone\b', re.IGNORECASE),
+    re.compile(r'\bother\s+information\s+and\s+formats?\b', re.IGNORECASE),
+    re.compile(r'\bcredits?:\b', re.IGNORECASE),
+    re.compile(r'\blanguage:\s*[A-Za-z]', re.IGNORECASE),
+)
 
 
 def _coerce_reranker_score(value: object) -> float | None:
@@ -101,6 +113,10 @@ def _apply_substantive_section_bias(
             penalty += _SECTION_STRUCTURAL_PENALTY
 
         text = str(chunk.get('chunk_text') or '').strip()
+        if text and any(pattern.search(text[:1200]) for pattern in _STRUCTURAL_TEXT_PATTERNS):
+            penalty += _TEXT_STRUCTURAL_PENALTY
+        if text and len(re.findall(r'\bchapter\s+[ivxlcdm0-9]+\b', text[:1200], re.IGNORECASE)) >= 4:
+            penalty += _TEXT_STRUCTURAL_PENALTY
         if text:
             line_count = text.count('\n') + 1
             if len(text) < _SHORT_TEXT_CHAR_THRESHOLD and line_count <= _SHORT_TEXT_LINE_THRESHOLD:
@@ -132,6 +148,7 @@ def _apply_title_alignment_bias(
     chunks: list[dict],
     query: str | None,
     prefer_title_alignment: bool,
+    strict_title_alignment: bool = False,
 ) -> list[dict]:
     if not prefer_title_alignment or len(chunks) <= 1:
         return chunks
@@ -139,16 +156,27 @@ def _apply_title_alignment_bias(
     if not query_terms:
         return chunks
 
-    rescored: list[dict] = []
+    chunk_overlaps: list[tuple[dict, int]] = []
+    has_overlap_match = False
     for chunk in chunks:
-        score = _coerce_reranker_score(chunk.get('score')) or 0.0
         filename = str(chunk.get('filename') or '')
         filename_terms = _tokenize_title_alignment_terms(filename)
         overlap_count = len(query_terms & filename_terms)
+        if overlap_count > 0:
+            has_overlap_match = True
+        chunk_overlaps.append((chunk, overlap_count))
+
+    rescored: list[dict] = []
+    for chunk, overlap_count in chunk_overlaps:
+        score = _coerce_reranker_score(chunk.get('score')) or 0.0
         if overlap_count <= 0:
-            rescored.append({**chunk, 'score': score})
+            penalty = _TITLE_ALIGNMENT_STRICT_NO_MATCH_PENALTY if strict_title_alignment and has_overlap_match else 0.0
+            rescored.append({**chunk, 'score': score - penalty})
             continue
-        bonus = min(_TITLE_ALIGNMENT_BONUS_MAX, overlap_count * _TITLE_ALIGNMENT_BONUS_PER_MATCH)
+        if strict_title_alignment:
+            bonus = min(_TITLE_ALIGNMENT_STRICT_BONUS_MAX, overlap_count * _TITLE_ALIGNMENT_STRICT_BONUS_PER_MATCH)
+        else:
+            bonus = min(_TITLE_ALIGNMENT_BONUS_MAX, overlap_count * _TITLE_ALIGNMENT_BONUS_PER_MATCH)
         rescored.append({**chunk, 'score': score + bonus})
 
     rescored.sort(key=lambda item: _coerce_reranker_score(item.get('score')) or 0.0, reverse=True)
@@ -250,6 +278,8 @@ async def retrieve_chunks(
     prefer_substantive_sections: bool = False,
     prefer_title_alignment: bool = False,
     title_alignment_query: str | None = None,
+    strict_title_alignment: bool = False,
+    enable_term_expansion: bool = True,
     query_type: QueryType = QueryType.FOCUSED,
     db: aiosqlite.Connection | None = None,
     trace: object | None = None,
@@ -261,7 +291,14 @@ async def retrieve_chunks(
     If trace is provided (TraceWriter protocol), records 'retrieval' and 'rerank' steps.
     """
     # 1. Embed query (CPU-bound, run in thread pool to avoid blocking event loop)
-    term_expansion = await expand_query_for_retrieval(db=db, query=query)
+    if enable_term_expansion:
+        term_expansion = await expand_query_for_retrieval(db=db, query=query)
+    else:
+        term_expansion = TermExpansion(
+            dictionary_version=0,
+            embedding_query=query,
+            fts_query=query,
+        )
     query_for_embedding = term_expansion.embedding_query or query
     query_for_fts = term_expansion.fts_query or query
 
@@ -470,6 +507,8 @@ async def retrieve_chunks(
                 'exclude_upload_sources': exclude_upload_sources,
                 'prefer_substantive_sections': prefer_substantive_sections,
                 'prefer_title_alignment': prefer_title_alignment,
+                'strict_title_alignment': strict_title_alignment,
+                'term_expansion_enabled': enable_term_expansion,
             })
         return []
 
@@ -590,6 +629,7 @@ async def retrieve_chunks(
         chunks=reranked_children,
         query=title_alignment_query or query,
         prefer_title_alignment=prefer_title_alignment,
+        strict_title_alignment=strict_title_alignment,
     )
     rerank_elapsed_ms = (time.perf_counter() - rerank_start) * 1000
     top_children = _select_top_children(
@@ -696,6 +736,8 @@ async def retrieve_chunks(
             'exclude_upload_sources': exclude_upload_sources,
             'prefer_substantive_sections': prefer_substantive_sections,
             'prefer_title_alignment': prefer_title_alignment,
+            'strict_title_alignment': strict_title_alignment,
+            'term_expansion_enabled': enable_term_expansion,
             'children_reranked':   len(reranked_children),
             'children_after_structural_filter': len(filtered_child_chunks),
             'parents_fetched':     len(parent_chunks),

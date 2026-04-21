@@ -29,8 +29,11 @@ from informity.llm.query_patterns import (
 )
 from informity.llm.rag_patterns import (
     SUMMARY_BLOCK_TYPE_EXCLUDE,
+    evaluate_substantive_evidence,
+    has_explicit_title_reference,
     has_extraction_cue,
     has_referential_followup_language,
+    has_topic_shift_cue,
     has_topic_overlap_with_previous_user,
     is_summary_style_request,
     normalize_query_text,
@@ -71,6 +74,22 @@ _ACRONYM_INVENTORY_PATTERN = build_acronym_entity_listing_pattern()
 _ENTITY_INVENTORY_MAX_ROWS = 300
 _ENTITY_INVENTORY_SOURCE_LIMIT = 12
 _ENTITY_INVENTORY_DEFAULT_PREVIEW = 'Indexed term evidence match.'
+_WEAK_SUMMARY_SUBSTANTIVE_RATIO_THRESHOLD = 0.55
+_WEAK_SUMMARY_DOMINANT_FILE_RATIO_THRESHOLD = 0.6
+
+
+def _dominant_file_ratio(chunks: list[dict]) -> float:
+    if not chunks:
+        return 0.0
+    counts: dict[int, int] = {}
+    for chunk in chunks:
+        file_id = chunk.get('file_id')
+        if not isinstance(file_id, int):
+            continue
+        counts[file_id] = counts.get(file_id, 0) + 1
+    if not counts:
+        return 0.0
+    return max(counts.values()) / max(1, len(chunks))
 
 
 def _collapse_duplicate_insufficient_context_message(
@@ -186,6 +205,8 @@ def _build_history_aware_retrieval_query_with_classification(
         return normalized_question, False
     if not history:
         return normalized_question, False
+    if has_topic_shift_cue(normalized_question):
+        return normalized_question, False
     has_referential_language = has_referential_followup_language(normalized_question)
     has_topical_overlap = has_topic_overlap_with_previous_user(
         question=normalized_question,
@@ -202,7 +223,6 @@ def _build_history_aware_retrieval_query_with_classification(
         return normalized_question, False
 
     previous_user = ''
-    previous_assistant = ''
     history_limit = max(0, int(settings.rag_query_rewrite_max_history_messages))
     if history_limit == 0:
         return normalized_question, False
@@ -215,19 +235,15 @@ def _build_history_aware_retrieval_query_with_classification(
             continue
         if not previous_user and message.role == 'user':
             previous_user = content
-        elif not previous_assistant and message.role == 'assistant':
-            previous_assistant = content
-        if previous_user and previous_assistant:
+        if previous_user:
             break
 
-    if not previous_user and not previous_assistant:
+    if not previous_user:
         return normalized_question, False
 
     context_lines: list[str] = []
     if previous_user:
         context_lines.append(f'Previous user question: {previous_user[:max_chars_per_turn]}')
-    if previous_assistant:
-        context_lines.append(f'Previous assistant answer: {previous_assistant[:max_chars_per_turn]}')
     rewritten_query = normalized_question
     if context_lines:
         rewritten_query = f"{normalized_question}\n\nFollow-up context:\n" + '\n'.join(f'- {line}' for line in context_lines)
@@ -499,9 +515,17 @@ class RAGHandler:
             history=history,
             classification=classification,
         )
+        explicit_title_reference = has_explicit_title_reference(question)
         prefer_title_alignment = should_prefer_title_alignment(
             question=question,
             classification=classification,
+        )
+        strict_title_alignment = bool(
+            explicit_title_reference
+            and not re.search(r'\b(compare|between|versus|vs)\b', str(question or ''), re.IGNORECASE)
+        )
+        disable_term_expansion_for_focused_title = (
+            effective_query_type == QueryType.FOCUSED and (prefer_title_alignment or explicit_title_reference)
         )
         summary_style_request = is_summary_style_request(question, classification)
         effective_block_type_exclude = list(getattr(classification, 'block_type_exclude', None) or [])
@@ -516,6 +540,9 @@ class RAGHandler:
                 'rewritten_query': retrieval_query if query_rewritten else None,
                 'summary_style_request': summary_style_request,
                 'prefer_title_alignment': prefer_title_alignment,
+                'strict_title_alignment': strict_title_alignment,
+                'explicit_title_reference': explicit_title_reference,
+                'term_expansion_enabled': not disable_term_expansion_for_focused_title,
             })
         retrieval_start = time.perf_counter()
         chunks = await retrieve_chunks(
@@ -538,11 +565,63 @@ class RAGHandler:
             prefer_substantive_sections=summary_style_request,
             prefer_title_alignment=prefer_title_alignment,
             title_alignment_query=question if prefer_title_alignment else None,
+            strict_title_alignment=strict_title_alignment,
+            enable_term_expansion=not disable_term_expansion_for_focused_title,
             query_type=effective_query_type,
             db=db,
             trace=trace,
             timing_output=retrieval_timing,
         )
+        if summary_style_request and explicit_title_reference:
+            evidence_profile = evaluate_substantive_evidence(chunks)
+            dominant_ratio = _dominant_file_ratio(chunks)
+            weak_summary_evidence = (
+                float(evidence_profile.get('substantive_ratio') or 0.0) < _WEAK_SUMMARY_SUBSTANTIVE_RATIO_THRESHOLD
+                and dominant_ratio >= _WEAK_SUMMARY_DOMINANT_FILE_RATIO_THRESHOLD
+            )
+            if weak_summary_evidence:
+                retry_timing: dict[str, float] = {}
+                retry_chunks = await retrieve_chunks(
+                    query=question,
+                    top_k=effective_top_k,
+                    max_score=None,
+                    year_filter=classification.year_filter,
+                    category_filter=classification.category_filter,
+                    extension_filter=classification.file_type_filter,
+                    filename_filter=classification.filename_filter,
+                    filename_exclude=classification.filename_exclude,
+                    block_type_filter=classification.block_type_filter,
+                    block_type_exclude=effective_block_type_exclude or None,
+                    section_filter=classification.section_filter,
+                    file_ids_filter=file_ids,
+                    exclude_upload_sources=not bool(file_ids),
+                    prefer_substantive_sections=True,
+                    prefer_title_alignment=True,
+                    title_alignment_query=question,
+                    strict_title_alignment=True,
+                    enable_term_expansion=False,
+                    query_type=effective_query_type,
+                    db=db,
+                    trace=None,
+                    timing_output=retry_timing,
+                )
+                retry_evidence_profile = evaluate_substantive_evidence(retry_chunks)
+                if (
+                    retry_chunks
+                    and float(retry_evidence_profile.get('substantive_ratio') or 0.0)
+                    >= float(evidence_profile.get('substantive_ratio') or 0.0)
+                ):
+                    chunks = retry_chunks
+                    retrieval_timing = retry_timing
+                if trace is not None:
+                    trace.record('retrieval.summary_retry', {
+                        'triggered': True,
+                        'weak_summary_evidence': weak_summary_evidence,
+                        'initial_substantive_ratio': round(float(evidence_profile.get('substantive_ratio') or 0.0), 4),
+                        'retry_substantive_ratio': round(float(retry_evidence_profile.get('substantive_ratio') or 0.0), 4),
+                        'initial_dominant_file_ratio': round(dominant_ratio, 4),
+                        'retry_used': bool(chunks is retry_chunks and retry_chunks),
+                    })
         retrieval_elapsed_ms = (time.perf_counter() - retrieval_start) * 1000
 
         answerability_passed, answerability_score, answerability_threshold, min_chunks = _evaluate_minimal_answerability(
