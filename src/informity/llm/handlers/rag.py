@@ -76,6 +76,8 @@ _ENTITY_INVENTORY_SOURCE_LIMIT = 12
 _ENTITY_INVENTORY_DEFAULT_PREVIEW = 'Indexed term evidence match.'
 _WEAK_SUMMARY_SUBSTANTIVE_RATIO_THRESHOLD = 0.55
 _WEAK_SUMMARY_DOMINANT_FILE_RATIO_THRESHOLD = 0.6
+_SUMMARY_TITLE_MAX_TEMPERATURE = 0.3
+_SUMMARY_TITLE_MAX_TOP_P = 0.9
 
 
 def _dominant_file_ratio(chunks: list[dict]) -> float:
@@ -524,9 +526,7 @@ class RAGHandler:
             explicit_title_reference
             and not re.search(r'\b(compare|between|versus|vs)\b', str(question or ''), re.IGNORECASE)
         )
-        disable_term_expansion_for_focused_title = (
-            effective_query_type == QueryType.FOCUSED and (prefer_title_alignment or explicit_title_reference)
-        )
+        disable_term_expansion_for_focused_title = False
         summary_style_request = is_summary_style_request(question, classification)
         effective_block_type_exclude = list(getattr(classification, 'block_type_exclude', None) or [])
         if summary_style_request and not classification.block_type_filter:
@@ -567,6 +567,7 @@ class RAGHandler:
             title_alignment_query=question if prefer_title_alignment else None,
             strict_title_alignment=strict_title_alignment,
             enable_term_expansion=not disable_term_expansion_for_focused_title,
+            prefer_within_file_diversity=summary_style_request,
             query_type=effective_query_type,
             db=db,
             trace=trace,
@@ -600,6 +601,7 @@ class RAGHandler:
                     title_alignment_query=question,
                     strict_title_alignment=True,
                     enable_term_expansion=False,
+                    prefer_within_file_diversity=True,
                     query_type=effective_query_type,
                     db=db,
                     trace=None,
@@ -698,6 +700,9 @@ class RAGHandler:
             profile_top_p=profile.top_p,
             format_requirements=format_requirements,
         )
+        if summary_style_request and explicit_title_reference:
+            generation_temperature = min(generation_temperature, _SUMMARY_TITLE_MAX_TEMPERATURE)
+            generation_top_p = min(generation_top_p, _SUMMARY_TITLE_MAX_TOP_P)
 
         messages = build_messages(
             question=question,

@@ -40,7 +40,7 @@ export function FileFilters({ filters, onChange, disabled = false }: FileFilters
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (disabled) return
     const value = e.target.value
-    onChange?.({ ...filters, search: value.trim() || undefined })
+    onChange?.({ ...filters, search: value.length > 0 ? value : undefined })
   }
 
   const handleFileTypeChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
