@@ -80,10 +80,15 @@ def _evaluate_topic_shift_signal(
     score = 0.0
     reasons: list[str] = []
 
-    if has_topic_shift_cue(normalized):
+    explicit_shift_cue = has_topic_shift_cue(normalized)
+    has_referential_language = has_referential_followup_language(normalized)
+    if explicit_shift_cue and not has_referential_language:
+        return True, 1.0, ['explicit_shift_cue_override']
+
+    if explicit_shift_cue:
         score += 0.45
         reasons.append('explicit_shift_cue')
-    if has_referential_followup_language(normalized):
+    if has_referential_language:
         score -= 0.35
         reasons.append('referential_followup_language')
 
