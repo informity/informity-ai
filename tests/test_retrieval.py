@@ -9,7 +9,11 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from informity.llm.metadata_filters import extract_metadata_filters
-from informity.llm.retrieval import retrieve_chunks
+from informity.llm.retrieval import (
+    _apply_strict_title_file_focus,
+    _filter_structural_chunks_when_possible,
+    retrieve_chunks,
+)
 from informity.upload_policy import UPLOAD_ENTITY_TYPE, UPLOAD_PROVIDER
 
 
@@ -52,6 +56,39 @@ async def test_retrieve_chunks_embeds_query(mock_db):
         await retrieve_chunks('test query', top_k=5, db=mock_db)
 
         mock_embedder.embed_query.assert_called_once_with('test query')
+
+
+def test_apply_strict_title_file_focus_keeps_best_overlap_file_only() -> None:
+    chunks = [
+        {'chunk_id': 1, 'file_id': 381, 'filename': 'The three musketeers.txt', 'score': 0.6},
+        {'chunk_id': 2, 'file_id': 381, 'filename': 'The three musketeers.txt', 'score': 0.5},
+        {'chunk_id': 3, 'file_id': 427, 'filename': 'Twenty years after.txt', 'score': 0.99},
+    ]
+    focused = _apply_strict_title_file_focus(
+        chunks=chunks,
+        query='general plot of The Three Musketeers',
+        strict_title_alignment=True,
+    )
+    assert len(focused) == 2
+    assert {int(chunk['file_id']) for chunk in focused} == {381}
+
+
+def test_filter_structural_chunks_when_possible_prefers_substantive_chunks() -> None:
+    structural = {
+        'chunk_id': 1,
+        'chunk_text': '*** START OF THE PROJECT GUTENBERG EBOOK THE THREE MUSKETEERS ***\nCONTENTS\nChapter I.',
+    }
+    substantive_chunks = [
+        {'chunk_id': idx, 'chunk_text': f'Dramatic narrative scene {idx} with character action and plot details.'}
+        for idx in range(2, 16)
+    ]
+    filtered = _filter_structural_chunks_when_possible(
+        chunks=[structural, *substantive_chunks],
+        prefer_substantive_sections=True,
+        top_k=12,
+    )
+    assert len(filtered) == len(substantive_chunks)
+    assert all(chunk['chunk_id'] != 1 for chunk in filtered)
 
 
 @pytest.mark.asyncio

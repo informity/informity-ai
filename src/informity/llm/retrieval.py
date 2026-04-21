@@ -43,6 +43,7 @@ _TEXT_STRUCTURAL_PENALTY = 0.35
 _SHORT_TEXT_PENALTY = 0.04
 _SHORT_TEXT_CHAR_THRESHOLD = 180
 _SHORT_TEXT_LINE_THRESHOLD = 3
+_SUBSTANTIVE_FILTER_MIN_CANDIDATES = 8
 _TITLE_ALIGNMENT_BONUS_PER_MATCH = 0.05
 _TITLE_ALIGNMENT_BONUS_MAX = 0.20
 _TITLE_ALIGNMENT_STRICT_NO_MATCH_PENALTY = 0.30
@@ -128,6 +129,35 @@ def _apply_substantive_section_bias(
     return rescored
 
 
+def _is_structural_text_snippet(text: str) -> bool:
+    snippet = str(text or '')[:1200]
+    if not snippet:
+        return False
+    if any(pattern.search(snippet) for pattern in _STRUCTURAL_TEXT_PATTERNS):
+        return True
+    if len(re.findall(r'\bchapter\s+[ivxlcdm0-9]+\b', snippet, re.IGNORECASE)) >= 4:
+        return True
+    return False
+
+
+def _filter_structural_chunks_when_possible(
+    *,
+    chunks: list[dict],
+    prefer_substantive_sections: bool,
+    top_k: int,
+) -> list[dict]:
+    if not prefer_substantive_sections or len(chunks) <= 1:
+        return chunks
+    non_structural = [
+        chunk for chunk in chunks
+        if not _is_structural_text_snippet(str(chunk.get('chunk_text') or ''))
+    ]
+    minimum_keep = max(top_k, _SUBSTANTIVE_FILTER_MIN_CANDIDATES)
+    if len(non_structural) >= minimum_keep:
+        return non_structural
+    return chunks
+
+
 def _tokenize_title_alignment_terms(text: str) -> set[str]:
     lowered = str(text or '').strip().lower()
     if not lowered:
@@ -183,16 +213,94 @@ def _apply_title_alignment_bias(
     return rescored
 
 
+def _apply_strict_title_file_focus(
+    *,
+    chunks: list[dict],
+    query: str | None,
+    strict_title_alignment: bool,
+) -> list[dict]:
+    if not strict_title_alignment or len(chunks) <= 1:
+        return chunks
+    query_terms = _tokenize_title_alignment_terms(query or '')
+    if not query_terms:
+        return chunks
+
+    overlap_by_file: dict[int, int] = {}
+    for chunk in chunks:
+        file_id = chunk.get('file_id')
+        try:
+            normalized_file_id = int(file_id)
+        except (TypeError, ValueError):
+            continue
+        filename_terms = _tokenize_title_alignment_terms(str(chunk.get('filename') or ''))
+        overlap = len(query_terms & filename_terms)
+        if overlap <= 0:
+            continue
+        overlap_by_file[normalized_file_id] = max(overlap_by_file.get(normalized_file_id, 0), overlap)
+
+    if not overlap_by_file:
+        return chunks
+    best_overlap = max(overlap_by_file.values())
+    focused_file_ids = {file_id for file_id, overlap in overlap_by_file.items() if overlap == best_overlap}
+    focused_chunks: list[dict] = []
+    for chunk in chunks:
+        try:
+            normalized_file_id = int(chunk.get('file_id'))
+        except (TypeError, ValueError):
+            continue
+        if normalized_file_id in focused_file_ids:
+            focused_chunks.append(chunk)
+    return focused_chunks or chunks
+
+
 def _select_top_children(
     *,
     reranked_children: list[dict],
     top_k: int,
     query_type: QueryType,
+    prefer_within_file_diversity: bool = False,
 ) -> list[dict]:
     if top_k <= 0:
         return []
     if query_type != QueryType.COVERAGE:
-        return reranked_children[:top_k]
+        if not prefer_within_file_diversity:
+            return reranked_children[:top_k]
+        selected: list[dict] = []
+        seen_chunk_ids: set[int] = set()
+        seen_file_locations: set[tuple[int, str]] = set()
+        for chunk in reranked_children:
+            try:
+                chunk_id = int(chunk.get('chunk_id'))
+            except (TypeError, ValueError):
+                continue
+            if chunk_id in seen_chunk_ids:
+                continue
+            file_id_raw = chunk.get('file_id')
+            try:
+                file_id = int(file_id_raw) if file_id_raw is not None else -1
+            except (TypeError, ValueError):
+                file_id = -1
+            file_location = (file_id, _resolve_within_file_location_key(chunk))
+            if file_location in seen_file_locations:
+                continue
+            selected.append(chunk)
+            seen_chunk_ids.add(chunk_id)
+            seen_file_locations.add(file_location)
+            if len(selected) >= top_k:
+                return selected
+        if len(selected) < top_k:
+            for chunk in reranked_children:
+                try:
+                    chunk_id = int(chunk.get('chunk_id'))
+                except (TypeError, ValueError):
+                    continue
+                if chunk_id in seen_chunk_ids:
+                    continue
+                selected.append(chunk)
+                seen_chunk_ids.add(chunk_id)
+                if len(selected) >= top_k:
+                    break
+        return selected
 
     selected: list[dict] = []
     seen_chunk_ids: set[int] = set()
@@ -280,6 +388,7 @@ async def retrieve_chunks(
     title_alignment_query: str | None = None,
     strict_title_alignment: bool = False,
     enable_term_expansion: bool = True,
+    prefer_within_file_diversity: bool = False,
     query_type: QueryType = QueryType.FOCUSED,
     db: aiosqlite.Connection | None = None,
     trace: object | None = None,
@@ -509,6 +618,7 @@ async def retrieve_chunks(
                 'prefer_title_alignment': prefer_title_alignment,
                 'strict_title_alignment': strict_title_alignment,
                 'term_expansion_enabled': enable_term_expansion,
+                'prefer_within_file_diversity': prefer_within_file_diversity,
             })
         return []
 
@@ -605,6 +715,11 @@ async def retrieve_chunks(
         ]
         if section_filtered:
             filtered_child_chunks = section_filtered
+    filtered_child_chunks = _filter_structural_chunks_when_possible(
+        chunks=filtered_child_chunks,
+        prefer_substantive_sections=prefer_substantive_sections,
+        top_k=top_k,
+    )
 
     # 5. Rerank child chunks (controlled by rag_rerank / rag_rerank_coverage settings)
     # CPU-bound cross-encoder, run in thread pool to avoid blocking event loop
@@ -631,11 +746,17 @@ async def retrieve_chunks(
         prefer_title_alignment=prefer_title_alignment,
         strict_title_alignment=strict_title_alignment,
     )
+    reranked_children = _apply_strict_title_file_focus(
+        chunks=reranked_children,
+        query=title_alignment_query or query,
+        strict_title_alignment=strict_title_alignment,
+    )
     rerank_elapsed_ms = (time.perf_counter() - rerank_start) * 1000
     top_children = _select_top_children(
         reranked_children=reranked_children,
         top_k=top_k,
         query_type=query_type,
+        prefer_within_file_diversity=prefer_within_file_diversity,
     )
     post_rerank_top_ids = [chunk.get('chunk_id') for chunk in top_children]
     rerank_top_k_overlap = len(set(pre_rerank_top_ids) & set(post_rerank_top_ids))
@@ -738,6 +859,7 @@ async def retrieve_chunks(
             'prefer_title_alignment': prefer_title_alignment,
             'strict_title_alignment': strict_title_alignment,
             'term_expansion_enabled': enable_term_expansion,
+            'prefer_within_file_diversity': prefer_within_file_diversity,
             'children_reranked':   len(reranked_children),
             'children_after_structural_filter': len(filtered_child_chunks),
             'parents_fetched':     len(parent_chunks),

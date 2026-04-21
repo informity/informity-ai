@@ -573,7 +573,7 @@ class TestRAGHandler:
             assert 'Follow-up context:' in mock_retrieve.await_args.kwargs['query']
 
     @pytest.mark.asyncio
-    async def test_handle_disables_term_expansion_for_focused_explicit_title_query(self) -> None:
+    async def test_handle_enables_term_expansion_and_diversity_for_focused_explicit_title_query(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(intent='focused')
         mock_db = MagicMock()
@@ -590,7 +590,8 @@ class TestRAGHandler:
                 results.append(item)
             assert results[-1] == []
             assert mock_retrieve.await_count == 1
-            assert mock_retrieve.await_args.kwargs.get('enable_term_expansion') is False
+            assert mock_retrieve.await_args.kwargs.get('enable_term_expansion') is True
+            assert mock_retrieve.await_args.kwargs.get('prefer_within_file_diversity') is True
             assert mock_retrieve.await_args.kwargs.get('strict_title_alignment') is True
 
     @pytest.mark.asyncio
