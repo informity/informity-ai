@@ -100,6 +100,72 @@ _NEGATION_PATTERN = build_negation_pattern()
 _FILENAME_EXCLUSION_PATTERN = build_filename_exclusion_pattern()
 _COMPARATIVE_FILE_CONTENT_CUE_PATTERN = re.compile(r'\b(mention|mentions|contain|contains|include|includes)\b')
 _CHAT_SUMMARY_PATTERN = build_chat_summary_pattern()
+_DISCOURSE_PREFIX_PATTERN = re.compile(
+    r'^\s*(?:'
+    r'ok(?:ay)?|alright|well|so|anyway|now|'
+    r'new\s+(?:topic|subject)|different\s+(?:topic|subject)|'
+    r'on\s+another\s+subject|switch(?:ing)?\s+(?:topic|topics|subject|subjects|context)'
+    r')\b',
+    re.IGNORECASE,
+)
+_QUESTION_WORD_PATTERN = re.compile(r'\b(what|who|when|where|why|how|which)\b', re.IGNORECASE)
+
+
+def _normalize_text(text: str) -> str:
+    return ' '.join(str(text or '').strip().split())
+
+
+def _decompose_content_query(text: str) -> tuple[str, float, list[str]]:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return '', 0.0, []
+
+    segments = [segment.strip() for segment in re.split(r'(?<=[.!?])\s+', normalized) if segment.strip()]
+    if not segments:
+        return normalized, 0.0, ['fallback_original']
+    if len(segments) == 1:
+        single = segments[0]
+        if _DISCOURSE_PREFIX_PATTERN.match(single):
+            trimmed = _DISCOURSE_PREFIX_PATTERN.sub('', single).strip(' ,:;-')
+            if trimmed:
+                return trimmed, 0.65, ['trimmed_discourse_prefix']
+        return single, 0.95, ['single_clause']
+
+    best_text = segments[-1]
+    best_score = -1.0
+    best_reasons: list[str] = []
+    for segment in segments:
+        score = 0.0
+        reasons: list[str] = []
+        segment_lower = segment.casefold()
+        word_count = len(segment_lower.split())
+        if _DISCOURSE_PREFIX_PATTERN.match(segment):
+            score -= 0.7
+            reasons.append('discourse_prefix')
+        if '?' in segment:
+            score += 1.0
+            reasons.append('question_mark')
+        if _QUESTION_WORD_PATTERN.search(segment):
+            score += 0.7
+            reasons.append('question_word')
+        if word_count >= 5:
+            score += 0.2
+            reasons.append('sufficient_length')
+        if score > best_score:
+            best_score = score
+            best_text = segment
+            best_reasons = reasons
+
+    extracted = _normalize_text(best_text)
+    if not extracted:
+        return normalized, 0.0, ['fallback_original']
+    if _DISCOURSE_PREFIX_PATTERN.match(extracted):
+        trimmed = _DISCOURSE_PREFIX_PATTERN.sub('', extracted).strip(' ,:;-')
+        if trimmed:
+            extracted = trimmed
+            best_reasons.append('trimmed_discourse_prefix')
+    confidence = 0.75 if best_score >= 0.7 else 0.55
+    return extracted, confidence, best_reasons or ['selected_best_clause']
 
 
 def _has_structured_schema_request(text: str) -> bool:
@@ -422,6 +488,11 @@ class QueryClassification:
     # action_hints: forwarded from PromptCueQueryObject when the promptcue adapter is active.
     # Empty dict when a non-promptcue router is used (e.g. test fakes).
     action_hints: dict[str, bool] = field(default_factory=dict)
+    # retrieval_content_query: decomposition-derived semantic query used by retrieval
+    # when conversational control language is present in the utterance.
+    retrieval_content_query: str | None = None
+    retrieval_content_confidence: float = 0.0
+    retrieval_content_reasons: list[str] = field(default_factory=list)
     # Provenance flags — describe how route_candidate was selected.
     # deterministic_override: True when a hard aggregate rule fired (e.g. policy_aggregate_route_enforced).
     # llm_confidence: raw confidence reported by the LLM (0.0 when LLM did not emit a confidence field).
@@ -441,6 +512,7 @@ def classify_query(query: str) -> QueryClassification:
     """Classify query via pluggable intent router + deterministic slot extraction."""
     text = str(query or '').strip()
     lowered = text.casefold()
+    retrieval_content_query, retrieval_content_confidence, retrieval_content_reasons = _decompose_content_query(text)
     year_filter: int | None = None
 
     year_candidates = [match.group(0) for match in EXPLICIT_YEAR_PATTERN.finditer(lowered)]
@@ -674,6 +746,9 @@ def classify_query(query: str) -> QueryClassification:
         mentions_time=bool(getattr(getattr(pcue, 'semantic_hints', None), 'mentions_time', False)),
         needs_chat_history=needs_chat_history,
         action_hints=(pcue.action_hints if pcue is not None else {}),
+        retrieval_content_query=retrieval_content_query or text,
+        retrieval_content_confidence=float(retrieval_content_confidence),
+        retrieval_content_reasons=retrieval_content_reasons,
         deterministic_override=deterministic_override,
         llm_confidence=0.0,
     )

@@ -42,12 +42,20 @@ def test_metadata_route_for_count_query() -> None:
     assert result.year_filter == 2023
     assert result.file_type_filter == '.pdf'
     assert result.is_metadata_query is True
+    assert result.retrieval_content_query is not None
 
 
 def test_simple_route_for_greeting() -> None:
     result = classify_query('hello')
     assert result.intent == 'simple'
     assert result.route_candidate == 'clarification_or_disambiguation'
+
+
+def test_retrieval_content_query_decomposes_discourse_prefix_clause() -> None:
+    result = classify_query('OK, new topic. What is the general plot of The Count of Monte Cristo?')
+    assert result.retrieval_content_query == 'What is the general plot of The Count of Monte Cristo?'
+    assert result.retrieval_content_confidence > 0.5
+    assert result.retrieval_content_reasons
 
 
 def test_rag_route_for_domain_question() -> None:

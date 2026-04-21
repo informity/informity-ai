@@ -6,10 +6,16 @@
 from __future__ import annotations
 
 from informity.db.models import ChatMessage
-from informity.llm.rag_patterns import has_topic_shift_cue
+from informity.llm.rag_patterns import (
+    has_explicit_title_reference,
+    has_referential_followup_language,
+    has_topic_overlap_with_previous_user,
+    has_topic_shift_cue,
+)
 
 INDEXED_CORPUS_SCOPE_KIND = 'indexed_corpus'
 INDEXED_CORPUS_GENERATION_PREFIX = f'{INDEXED_CORPUS_SCOPE_KIND}|g:'
+_TOPIC_SHIFT_THRESHOLD = 0.45
 
 
 def _extract_indexed_generation(scope_key: str | None) -> int | None:
@@ -60,6 +66,43 @@ def _max_indexed_generation(history: list[ChatMessage], *, chat_mode: str) -> in
     return max_generation
 
 
+def _evaluate_topic_shift_signal(
+    *,
+    message_text: str,
+    history: list[ChatMessage],
+) -> tuple[bool, float, list[str]]:
+    normalized = str(message_text or '').strip()
+    if not normalized:
+        return False, 0.0, ['empty_message']
+    if not history:
+        return False, 0.0, ['no_history']
+
+    score = 0.0
+    reasons: list[str] = []
+
+    if has_topic_shift_cue(normalized):
+        score += 0.45
+        reasons.append('explicit_shift_cue')
+    if has_referential_followup_language(normalized):
+        score -= 0.35
+        reasons.append('referential_followup_language')
+
+    overlap = has_topic_overlap_with_previous_user(question=normalized, history=history)
+    if overlap:
+        score -= 0.25
+        reasons.append('topic_overlap_with_previous_user')
+    else:
+        score += 0.25
+        reasons.append('no_topic_overlap_with_previous_user')
+
+    if has_explicit_title_reference(normalized) and not overlap:
+        score += 0.2
+        reasons.append('explicit_title_reference_with_no_overlap')
+
+    bounded_score = max(0.0, min(1.0, score))
+    return bounded_score >= _TOPIC_SHIFT_THRESHOLD, bounded_score, reasons
+
+
 def resolve_retrieval_context_scope_key(
     *,
     chat_mode: str,
@@ -94,7 +137,10 @@ def resolve_retrieval_context_scope_key(
         if latest_scope_kind and latest_scope_kind != INDEXED_CORPUS_SCOPE_KIND:
             scope_transition_reset = True
 
-    topic_shift_reset = has_topic_shift_cue(message_text)
+    topic_shift_reset, topic_shift_score, topic_shift_reasons = _evaluate_topic_shift_signal(
+        message_text=message_text,
+        history=history,
+    )
     max_generation = _max_indexed_generation(history, chat_mode=chat_mode)
 
     if topic_shift_reset or scope_transition_reset:
@@ -107,6 +153,8 @@ def resolve_retrieval_context_scope_key(
     resolved_key = indexed_corpus_scope_key_for_generation(resolved_generation)
     return resolved_key, {
         'topic_shift_reset': topic_shift_reset,
+        'topic_shift_score': round(topic_shift_score, 4),
+        'topic_shift_reasons': topic_shift_reasons,
         'scope_transition_reset': scope_transition_reset,
         'generation': resolved_generation,
     }
