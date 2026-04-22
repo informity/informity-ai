@@ -685,7 +685,7 @@ requires-dist = [
     { name = "nltk", specifier = ">=3.9.4" },
     { name = "pathspec", specifier = "==1.0.4" },
     { name = "pillow", specifier = ">=12.2.0" },
-    { name = "promptcue", specifier = "==0.3.7" },
+    { name = "promptcue", editable = "../promptcue" },
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "pydantic", specifier = ">=2.13.2" },
     { name = "pydantic-settings", specifier = ">=2.13.1" },
@@ -1466,16 +1466,35 @@ wheels = [
 [[package]]
 name = "promptcue"
 version = "0.3.7"
-source = { registry = "https://pypi.org/simple" }
+source = { editable = "../promptcue" }
 dependencies = [
     { name = "numpy" },
     { name = "pydantic" },
     { name = "pyyaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/29/d3/fa072fe443f12b7e95bd20f2e024e3f158560367804ddd8285753add4e1b/promptcue-0.3.7.tar.gz", hash = "sha256:32399978a2782dc2f06e94d621e1524cd0c40ab4f995378f2e4952a0bab244f6", size = 63635, upload-time = "2026-04-17T19:51:52.626Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c9/f3/c165b16d4b6857376fb2d407bd2b4d2d9a58487b1b1f5732e2c99f11b48f/promptcue-0.3.7-py3-none-any.whl", hash = "sha256:c572ae14ef8866e1aa0354d576ee4bed9c8aae1c498c6d0df5c755b13ce186a9", size = 50983, upload-time = "2026-04-17T19:51:51.068Z" },
+
+[package.metadata]
+requires-dist = [
+    { name = "build", marker = "extra == 'dev'", specifier = ">=1.0,<2" },
+    { name = "keybert", marker = "extra == 'all'", specifier = ">=0.7,<1" },
+    { name = "keybert", marker = "extra == 'keywords'", specifier = ">=0.7,<1" },
+    { name = "langdetect", marker = "extra == 'all'", specifier = ">=1.0.9,<2" },
+    { name = "langdetect", marker = "extra == 'detection'", specifier = ">=1.0.9,<2" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.0,<2" },
+    { name = "numpy", specifier = ">=1.24,<3" },
+    { name = "pydantic", specifier = ">=2.0,<3" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.0,<10" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.23,<2" },
+    { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.0,<8" },
+    { name = "pyyaml", specifier = ">=6.0,<7" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.1,<1" },
+    { name = "sentence-transformers", marker = "extra == 'all'", specifier = ">=2.2,<6" },
+    { name = "sentence-transformers", marker = "extra == 'semantic'", specifier = ">=2.2,<6" },
+    { name = "spacy", marker = "extra == 'all'", specifier = ">=3.7,<4" },
+    { name = "spacy", marker = "extra == 'linguistic'", specifier = ">=3.7,<4" },
+    { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0,<7" },
 ]
+provides-extras = ["semantic", "detection", "linguistic", "keywords", "dev", "all"]
 
 [[package]]
 name = "protobuf"
