@@ -4,11 +4,12 @@ from informity.llm.rag_patterns import (
     evaluate_substantive_evidence,
     has_explicit_title_reference,
     has_topic_overlap_with_previous_user,
+    has_topic_shift_cue,
     is_plot_or_chapter_request,
     is_summary_style_request,
     resolve_followup_scope_anchor_filename,
-    should_prefer_title_alignment,
     should_block_summary_generation_for_structural_only_evidence,
+    should_prefer_title_alignment,
 )
 
 
@@ -136,3 +137,7 @@ def test_has_explicit_title_reference_detects_quoted_title_phrase() -> None:
 
 def test_has_explicit_title_reference_ignores_generic_question() -> None:
     assert has_explicit_title_reference('What is this file about?') is False
+
+
+def test_has_topic_shift_cue_excludes_ambiguous_on_another_note_phrase() -> None:
+    assert has_topic_shift_cue('On another note, summarize this file.') is False

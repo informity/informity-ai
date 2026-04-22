@@ -13,6 +13,7 @@ import structlog
 from informity.config import settings
 from informity.llm.contract_prompt_parser import EXPLICIT_YEAR_PATTERN
 from informity.llm.intent_router import get_intent_router
+from informity.llm.promptcue_signals import extract_prompt_signals
 from informity.llm.query_patterns import (
     build_aggregate_listing_scope_pattern,
     build_analysis_action_pattern,
@@ -100,14 +101,17 @@ _NEGATION_PATTERN = build_negation_pattern()
 _FILENAME_EXCLUSION_PATTERN = build_filename_exclusion_pattern()
 _COMPARATIVE_FILE_CONTENT_CUE_PATTERN = re.compile(r'\b(mention|mentions|contain|contains|include|includes)\b')
 _CHAT_SUMMARY_PATTERN = build_chat_summary_pattern()
-_DISCOURSE_PREFIX_PATTERN = re.compile(
-    r'^\s*(?:'
-    r'ok(?:ay)?|alright|well|so|anyway|now|'
-    r'new\s+(?:topic|subject)|different\s+(?:topic|subject)|'
-    r'on\s+another\s+subject|switch(?:ing)?\s+(?:topic|topics|subject|subjects|context)'
-    r')\b',
-    re.IGNORECASE,
-)
+try:
+    from promptcue.patterns import DISCOURSE_PREFIX_PATTERN as _DISCOURSE_PREFIX_PATTERN
+except Exception:  # noqa: BLE001 - keep deterministic fallback when promptcue internals are unavailable
+    _DISCOURSE_PREFIX_PATTERN = re.compile(
+        r'^\s*(?:'
+        r'ok(?:ay)?|alright|well|so|anyway|now|'
+        r'new\s+(?:topic|subject)|different\s+(?:topic|subject)|'
+        r'on\s+another\s+subject|switch(?:ing)?\s+(?:topic|topics|subject|subjects|context)'
+        r')\b',
+        re.IGNORECASE,
+    )
 _QUESTION_WORD_PATTERN = re.compile(r'\b(what|who|when|where|why|how|which)\b', re.IGNORECASE)
 
 
@@ -274,6 +278,24 @@ def _detect_output_format(text: str) -> OutputFormat | None:
     if _OUTPUT_FORMAT_LIST_PATTERN.search(text):
         return OutputFormat.LIST
     if _OUTPUT_FORMAT_NARRATIVE_PATTERN.search(text):
+        return OutputFormat.NARRATIVE
+    return None
+
+
+def _resolve_output_format_from_promptcue(
+    *,
+    requested_output_formats: tuple[str, ...],
+) -> OutputFormat | None:
+    formats = set(requested_output_formats)
+    if 'csv' in formats:
+        return OutputFormat.CSV
+    if 'table' in formats:
+        return OutputFormat.TABLE
+    if 'bullets' in formats:
+        return OutputFormat.BULLETS
+    if 'list' in formats:
+        return OutputFormat.LIST
+    if 'narrative' in formats:
         return OutputFormat.NARRATIVE
     return None
 
@@ -575,7 +597,11 @@ def classify_query(query: str) -> QueryClassification:
         pcue=pcue,
     )
     if pcue is not None:
-        is_continuation = pcue.is_continuation
+        prompt_signals = extract_prompt_signals(text, pcue=pcue)
+        is_continuation = bool(prompt_signals.is_continuation)
+        output_format = _resolve_output_format_from_promptcue(
+            requested_output_formats=prompt_signals.requested_output_formats,
+        ) or output_format
 
     # --- Corpus metadata promotion ----------------------------------------
     # Inventory queries (count, enumeration, file listing, capability) are

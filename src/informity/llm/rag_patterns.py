@@ -7,8 +7,8 @@ Deterministic pattern and helper utilities used by the RAG runtime.
 import re
 
 from informity.db.models import ChatMessage
+from informity.llm.promptcue_signals import extract_prompt_signals
 from informity.llm.query_classifier import QueryClassification
-from informity.llm.query_patterns import build_referential_followup_pattern
 from informity.llm.types import QueryType
 
 SUMMARY_STYLE_REQUEST_PATTERN = re.compile(
@@ -45,18 +45,6 @@ TITLE_ALIGNMENT_CUE_PATTERN = re.compile(
     r'\b(?:in|from)\s+.{0,120}\b(document|file|text|record|entry|item|source|material|attachment|note|paper)\b',
     re.IGNORECASE,
 )
-TOPIC_SHIFT_CUE_PATTERN = re.compile(
-    r'\b('
-    r'new\s+topic'
-    r'|change\s+(?:the\s+)?topic'
-    r'|switch\s+(?:topics?|context)'
-    r'|different\s+topic'
-    r'|instead'
-    r'|unrelated'
-    r'|now\s+(?:about|switch(?:ing)?)'
-    r')\b',
-    re.IGNORECASE,
-)
 _TITLE_IN_PREPOSITION_PATTERN = re.compile(
     r'\b(?:of|in|about|from)\s+'
     r'((?:[A-Z][A-Za-z0-9\'_-]*)(?:\s+[A-Z][A-Za-z0-9\'_-]*){1,8})'
@@ -65,7 +53,6 @@ _TITLE_IN_PREPOSITION_PATTERN = re.compile(
 _QUOTED_TITLE_PATTERN = re.compile(r'["“](.{3,120}?)[”"]')
 STRUCTURAL_BLOCK_TYPES = {'table', 'form'}
 SUMMARY_BLOCK_TYPE_EXCLUDE = ['table', 'form']
-REFERENTIAL_FOLLOWUP_PATTERN = build_referential_followup_pattern()
 EXTRACTION_CUE_PATTERN = re.compile(r'\bextract\b', re.IGNORECASE)
 REWRITE_STOPWORDS = {
     'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'do', 'for', 'from', 'give', 'has', 'have',
@@ -97,17 +84,17 @@ def normalize_query_text(text: str) -> str:
 
 
 def has_referential_followup_language(question: str) -> bool:
-    normalized = normalize_query_text(question).lower()
+    normalized = normalize_query_text(question)
     if not normalized:
         return False
-    return bool(REFERENTIAL_FOLLOWUP_PATTERN.search(normalized))
+    return extract_prompt_signals(normalized).has_referential_followup
 
 
 def has_topic_shift_cue(question: str) -> bool:
     normalized = normalize_query_text(question)
     if not normalized:
         return False
-    return bool(TOPIC_SHIFT_CUE_PATTERN.search(normalized))
+    return extract_prompt_signals(normalized).has_topic_shift_cue
 
 
 def has_explicit_title_reference(question: str) -> bool:

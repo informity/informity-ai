@@ -556,8 +556,9 @@ class HealthResponse(BaseModel):
 
 ### `llm/query_classifier.py`
 - Deterministic slot extraction and intent routing (v2). Classifies query using NLP heuristics + promptcue intent router (no separate LLM call). Extracts year, category, file_type, filename filters; detects intent and assigns IntentProfileId. Applies term dictionary expansion via `term_dictionary.expand_query_for_routing()`.
+- Consumes PromptCue `prompt_signals` (when available) for continuation and requested output-format handling, while keeping app-specific routing policy local.
 - Returns `QueryClassification` dataclass with intent, filters, intent profile, output shape, group-by, block type, and routing reason codes.
-- **Imports:** structlog, query_patterns, intent_router, term_dictionary, llm.types
+- **Imports:** structlog, query_patterns, promptcue_signals, intent_router, term_dictionary, llm.types
 - **Imported by:** llm.rag, llm.handlers.*
 
 ### `llm/query_patterns.py`
@@ -566,6 +567,13 @@ class HealthResponse(BaseModel):
 - Single source of truth for query pattern regexes used across the codebase.
 - **Imports:** re
 - **Imported by:** llm.query_classifier
+
+### `llm/promptcue_signals.py`
+- App-side adapter for prompt-shape cues. Uses precomputed PromptCue outputs when available, otherwise evaluates centralized PromptCue pattern constants directly (no extra model/classification pass).
+- Exposes `extract_prompt_signals()` returning normalized cue snapshot (`has_topic_shift_cue`, `has_referential_followup`, `requests_continuation`, output-format cues, etc.).
+- Keeps policy decisions in app modules (`context_scope_manager`, `query_classifier`, handlers) while avoiding duplicated generic cue regex ownership.
+- **Imports:** re (+ optional `promptcue.patterns`)
+- **Imported by:** llm.query_classifier, llm.rag_patterns, api.context_scope_manager
 
 ### `llm/retrieval.py`
 - Unified retrieval pipeline (v2): embed query → vector search with WHERE clauses (year, category, extension filters, upload-source exclusion for unscoped corpus turns) → rerank (when enabled by settings) → top-k. For coverage queries, uses file-anchored retrieval (one chunk per file, exhaustive). Supports summary-oriented substantive-section preference to de-prioritize structural sections (appendix/contents/etc.) when synthesis intent is detected.

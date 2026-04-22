@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from informity.api.context_scope_manager import resolve_retrieval_context_scope_key
 from informity.api import routes_chat
+from informity.api.context_scope_manager import resolve_retrieval_context_scope_key
 from informity.db.models import ChatMessage, ChatUploadAttachment
 
 
@@ -246,6 +246,50 @@ def test_resolve_retrieval_context_scope_key_resets_on_topic_shift() -> None:
         retrieval_scope_kind='indexed_corpus',
         retrieval_scope_key='indexed_corpus',
         message_text='OK, new topic: summarize this document',
+        history=history,
+    )
+    assert resolved_key == 'indexed_corpus|g:3'
+    assert meta['topic_shift_reset'] is True
+
+
+def test_resolve_retrieval_context_scope_key_does_not_reset_without_explicit_shift_cue() -> None:
+    history = [
+        ChatMessage(
+            chat_id='chat-1',
+            role='assistant',
+            content='Prior answer',
+            chat_mode='researcher',
+            retrieval_scope_kind='indexed_corpus',
+            retrieval_scope_key='indexed_corpus|g:2',
+        )
+    ]
+    resolved_key, meta = resolve_retrieval_context_scope_key(
+        chat_mode='researcher',
+        retrieval_scope_kind='indexed_corpus',
+        retrieval_scope_key='indexed_corpus',
+        message_text='Who is Edmond Dantes and what motivates him?',
+        history=history,
+    )
+    assert resolved_key == 'indexed_corpus|g:2'
+    assert meta['topic_shift_reset'] is False
+
+
+def test_resolve_retrieval_context_scope_key_resets_on_back_to_cue() -> None:
+    history = [
+        ChatMessage(
+            chat_id='chat-1',
+            role='assistant',
+            content='Prior answer',
+            chat_mode='researcher',
+            retrieval_scope_kind='indexed_corpus',
+            retrieval_scope_key='indexed_corpus|g:2',
+        )
+    ]
+    resolved_key, meta = resolve_retrieval_context_scope_key(
+        chat_mode='researcher',
+        retrieval_scope_kind='indexed_corpus',
+        retrieval_scope_key='indexed_corpus',
+        message_text='Back to The Three Musketeers: what are its major themes?',
         history=history,
     )
     assert resolved_key == 'indexed_corpus|g:3'
