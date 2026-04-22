@@ -6,16 +6,10 @@
 from __future__ import annotations
 
 from informity.db.models import ChatMessage
-from informity.llm.rag_patterns import (
-    has_explicit_title_reference,
-    has_referential_followup_language,
-    has_topic_overlap_with_previous_user,
-    has_topic_shift_cue,
-)
+from informity.llm.promptcue_signals import extract_prompt_signals
 
 INDEXED_CORPUS_SCOPE_KIND = 'indexed_corpus'
 INDEXED_CORPUS_GENERATION_PREFIX = f'{INDEXED_CORPUS_SCOPE_KIND}|g:'
-_TOPIC_SHIFT_THRESHOLD = 0.45
 
 
 def _extract_indexed_generation(scope_key: str | None) -> int | None:
@@ -77,35 +71,16 @@ def _evaluate_topic_shift_signal(
     if not history:
         return False, 0.0, ['no_history']
 
-    score = 0.0
-    reasons: list[str] = []
-
-    explicit_shift_cue = has_topic_shift_cue(normalized)
-    has_referential_language = has_referential_followup_language(normalized)
+    prompt_signals = extract_prompt_signals(normalized)
+    explicit_shift_cue = bool(prompt_signals.has_topic_shift_cue)
+    has_referential_language = bool(prompt_signals.has_referential_followup)
     if explicit_shift_cue and not has_referential_language:
         return True, 1.0, ['explicit_shift_cue_override']
-
-    if explicit_shift_cue:
-        score += 0.45
-        reasons.append('explicit_shift_cue')
     if has_referential_language:
-        score -= 0.35
-        reasons.append('referential_followup_language')
-
-    overlap = has_topic_overlap_with_previous_user(question=normalized, history=history)
-    if overlap:
-        score -= 0.25
-        reasons.append('topic_overlap_with_previous_user')
-    else:
-        score += 0.25
-        reasons.append('no_topic_overlap_with_previous_user')
-
-    if has_explicit_title_reference(normalized) and not overlap:
-        score += 0.2
-        reasons.append('explicit_title_reference_with_no_overlap')
-
-    bounded_score = max(0.0, min(1.0, score))
-    return bounded_score >= _TOPIC_SHIFT_THRESHOLD, bounded_score, reasons
+        return False, 0.0, ['referential_followup_language']
+    if explicit_shift_cue:
+        return True, 1.0, ['explicit_shift_cue']
+    return False, 0.0, ['no_explicit_shift_cue']
 
 
 def resolve_retrieval_context_scope_key(
