@@ -25,11 +25,6 @@ from informity import answer_sanitization
 from informity.answer_sanitization import build_display_answer, sanitize_display_answer
 from informity.api.chat_closeout import build_display_blocks, build_done_payload
 from informity.api.chat_completion_policy import resolve_completion_and_action
-from informity.api.context_scope_manager import (
-    INDEXED_CORPUS_SCOPE_KIND,
-    normalize_indexed_corpus_scope_key,
-    resolve_retrieval_context_scope_key,
-)
 from informity.api.chat_continuation import (
     build_auto_continue_pass_prompt as _build_auto_continue_pass_prompt,
 )
@@ -61,6 +56,11 @@ from informity.api.chat_orchestrator import ChatOrchestrator
 from informity.api.chat_sources import merge_sources, serialize_sources
 from informity.api.chat_sse import SSE_PHASE_ORDER, SseContractTracker, SseStatusEmitter
 from informity.api.chat_stream_registry import CHAT_STREAM_REGISTRY
+from informity.api.context_scope_manager import (
+    INDEXED_CORPUS_SCOPE_KIND,
+    normalize_indexed_corpus_scope_key,
+    resolve_retrieval_context_scope_key,
+)
 from informity.api.error_messages import to_client_error_message
 from informity.api.schemas import (
     ChatPreferencesUpdateRequest,
