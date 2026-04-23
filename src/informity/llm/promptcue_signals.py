@@ -29,13 +29,17 @@ try:
     )
 except Exception:  # noqa: BLE001 - keep deterministic local fallback if promptcue internals move
     _TOPIC_SHIFT_CUE_PATTERN = re.compile(
-        r"\b(?:new|different)\s+(?:topic|subject)s?\b"
+        r"\bnew\s+topic\b"
         r"|"
-        r"\bchange\s+(?:the\s+)?(?:topic|subject)s?\b"
+        r"\bchange\s+(?:the\s+)?(?:topic|subject)\b"
         r"|"
-        r"\bswitch(?:ing)?\s+(?:(?:topic|subject)s?|context)\b"
+        r"\bswitch(?:ing)?\s+(?:topic|topics|context)\b"
         r"|"
-        r"\b(?:back|return(?:ing)?)\s+to\b"
+        r"\bdifferent\s+topic\b"
+        r"|"
+        r"\binstead\b"
+        r"|"
+        r"\bunrelated\b"
         r"|"
         r"\bnow\s+(?:about|switch(?:ing)?)\b",
         re.IGNORECASE,
@@ -51,7 +55,7 @@ except Exception:  # noqa: BLE001 - keep deterministic local fallback if promptc
         r"^\s*(?:"
         r"ok(?:ay)?|alright|well|so|anyway|now|"
         r"(?:new|different)\s+(?:topic|subject)s?|"
-        r"on\s+another\s+subject|switch(?:ing)?\s+(?:(?:topic|subject)s?|context)|"
+        r"on\s+another\s+subject|switch(?:ing)?\s+(?:topic|topics|subject|subjects|context)|"
         r"(?:back|return(?:ing)?)\s+to"
         r")\b",
         re.IGNORECASE,

@@ -274,7 +274,7 @@ def test_resolve_retrieval_context_scope_key_does_not_reset_without_explicit_shi
     assert meta['topic_shift_reset'] is False
 
 
-def test_resolve_retrieval_context_scope_key_resets_on_back_to_cue() -> None:
+def test_resolve_retrieval_context_scope_key_does_not_reset_on_back_to_cue() -> None:
     history = [
         ChatMessage(
             chat_id='chat-1',
@@ -292,8 +292,8 @@ def test_resolve_retrieval_context_scope_key_resets_on_back_to_cue() -> None:
         message_text='Back to The Three Musketeers: what are its major themes?',
         history=history,
     )
-    assert resolved_key == 'indexed_corpus|g:3'
-    assert meta['topic_shift_reset'] is True
+    assert resolved_key == 'indexed_corpus|g:2'
+    assert meta['topic_shift_reset'] is False
 
 
 def test_resolve_retrieval_context_scope_key_resets_on_upload_to_indexed_transition() -> None:
