@@ -1,6 +1,7 @@
 import pytest
 
 import informity.llm.query_classifier as query_classifier_module
+from informity.db.models import ChatMessage
 from informity.llm.intent_router import (
     IntentPrediction,
     get_intent_router,
@@ -292,10 +293,61 @@ def test_coverage_single_target_scope_overrides_to_focused() -> None:
     assert any(
         code in result.reason_codes
         for code in (
+            'deterministic_override_referential_single_target_to_focused',
             'deterministic_override_single_target_to_focused',
             'deterministic_override_narrow_scope_to_focused',
         )
     )
+
+
+def test_coverage_referential_single_target_scope_uses_referential_override_reason() -> None:
+    class _CoverageOnlyRouter:
+        def classify_intent(self, _query: str) -> IntentPrediction:
+            return IntentPrediction('coverage', 0.9, [('coverage', 0.9)], ['forced_coverage'])
+
+    original = get_intent_router()
+    set_intent_router_for_testing(_CoverageOnlyRouter())
+    try:
+        result = classify_query('What does that document contain?')
+    finally:
+        set_intent_router_for_testing(original)
+
+    assert result.intent == 'focused'
+    assert result.route_candidate == 'targeted_fact_lookup'
+    assert result.deterministic_override is True
+    assert 'deterministic_override_referential_single_target_to_focused' in result.reason_codes
+
+
+def test_focus_state_anchors_from_previous_explicit_title_history() -> None:
+    history = [
+        ChatMessage(chat_id='chat', role='user', content='What is The Three Musketeers book about?'),
+        ChatMessage(chat_id='chat', role='assistant', content='Prior answer'),
+    ]
+    result = classify_query(
+        'List the main characters and add a short description for each',
+        history=history,
+    )
+    assert result.focus_referential_title_anchor == 'The Three Musketeers'
+    assert result.focus_prefer_title_alignment is True
+    assert result.focus_disable_term_expansion is True
+    assert result.focus_title_alignment_query is not None
+    assert 'Document title anchor: The Three Musketeers' in result.focus_title_alignment_query
+    assert 'focus_title_anchor_from_history' in result.reason_codes
+
+
+def test_focus_state_rewrite_uses_previous_user_question_when_followup_detected() -> None:
+    history = [
+        ChatMessage(chat_id='chat', role='user', content='What is The Three Musketeers book about?'),
+        ChatMessage(chat_id='chat', role='assistant', content='Prior answer'),
+    ]
+    result = classify_query(
+        'List the main characters in this book and add a short description for each.',
+        history=history,
+    )
+    assert result.focus_query_rewritten is True
+    assert result.focus_rewritten_query is not None
+    assert 'Follow-up context:' in result.focus_rewritten_query
+    assert 'Previous user question: What is The Three Musketeers book about?' in result.focus_rewritten_query
 
 
 def test_coverage_year_anchored_target_overrides_to_focused() -> None:

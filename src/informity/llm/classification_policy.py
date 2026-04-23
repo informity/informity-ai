@@ -9,6 +9,7 @@ import asyncio
 import re
 import time
 
+from informity.db.models import ChatMessage
 from informity.llm.query_classifier import QueryClassification, classify_query
 from informity.llm.types import IntentProfileId, QueryType
 
@@ -96,12 +97,13 @@ async def classify_query_with_timing(
     question: str,
     *,
     scoped_file_active: bool = False,
+    history: list[ChatMessage] | None = None,
 ) -> tuple[QueryClassification, float]:
     """
     Classify a query off-thread and return classification + elapsed milliseconds.
     """
     classify_start = time.perf_counter()
-    classification = await asyncio.to_thread(classify_query, question)
+    classification = await asyncio.to_thread(classify_query, question, history=history)
     classification = apply_scoped_file_chat_summary_precedence(
         question=question,
         classification=classification,

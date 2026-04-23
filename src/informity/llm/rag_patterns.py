@@ -50,6 +50,13 @@ _TITLE_IN_PREPOSITION_PATTERN = re.compile(
     r'((?:[A-Z][A-Za-z0-9\'_-]*)(?:\s+[A-Z][A-Za-z0-9\'_-]*){1,8})'
     r'(?:\s+(?:file|document|text|record|entry|item|source|material|attachment|note|paper))?\b'
 )
+_TITLE_BEFORE_DOCUMENT_NOUN_PATTERN = re.compile(
+    r'\b('
+    r'(?!(?:What|Who|When|Where|Why|How|Which|Tell|List)\b)'
+    r'(?:[A-Z][A-Za-z0-9\'_-]*)(?:\s+[A-Z][A-Za-z0-9\'_-]*){1,8}'
+    r')\s+'
+    r'(?:book|document|file|text|record|entry|item|source|material|attachment|note|paper)\b'
+)
 _QUOTED_TITLE_PATTERN = re.compile(r'["“](.{3,120}?)[”"]')
 STRUCTURAL_BLOCK_TYPES = {'table', 'form'}
 SUMMARY_BLOCK_TYPE_EXCLUDE = ['table', 'form']
@@ -98,12 +105,23 @@ def has_topic_shift_cue(question: str) -> bool:
 
 
 def has_explicit_title_reference(question: str) -> bool:
+    return extract_explicit_title_reference(question) is not None
+
+
+def extract_explicit_title_reference(question: str) -> str | None:
     text = str(question or '').strip()
     if not text:
-        return False
-    if _QUOTED_TITLE_PATTERN.search(text):
-        return True
-    return bool(_TITLE_IN_PREPOSITION_PATTERN.search(text))
+        return None
+    quoted_match = _QUOTED_TITLE_PATTERN.search(text)
+    if quoted_match:
+        return normalize_query_text(quoted_match.group(1))
+    preposition_match = _TITLE_IN_PREPOSITION_PATTERN.search(text)
+    if preposition_match:
+        return normalize_query_text(preposition_match.group(1))
+    noun_match = _TITLE_BEFORE_DOCUMENT_NOUN_PATTERN.search(text)
+    if noun_match:
+        return normalize_query_text(noun_match.group(1))
+    return None
 
 
 def tokenize_query_terms(text: str) -> set[str]:

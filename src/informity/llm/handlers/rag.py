@@ -203,6 +203,18 @@ def _build_history_aware_retrieval_query_with_classification(
     normalized_question = normalize_query_text(question)
     if not normalized_question:
         return '', False
+    if classification is not None:
+        if bool(classification.focus_resolved):
+            rewritten_query = normalize_query_text(classification.focus_rewritten_query or '')
+            if rewritten_query and bool(classification.focus_query_rewritten):
+                return rewritten_query, True
+            return normalized_question, False
+        if bool(classification.is_scope_reset):
+            return normalized_question, False
+        if classification.filename_filter is not None:
+            return normalized_question, False
+        if classification.intent not in {QueryType.FOCUSED, QueryType.COVERAGE}:
+            return normalized_question, False
     if not bool(settings.rag_query_rewrite_enabled):
         return normalized_question, False
     if not history:
@@ -214,13 +226,6 @@ def _build_history_aware_retrieval_query_with_classification(
         question=normalized_question,
         history=history,
     )
-    if classification is not None:
-        if bool(classification.is_scope_reset):
-            return normalized_question, False
-        if classification.filename_filter is not None:
-            return normalized_question, False
-        if classification.intent not in {QueryType.FOCUSED, QueryType.COVERAGE}:
-            return normalized_question, False
     if not has_referential_language and not has_topical_overlap:
         return normalized_question, False
 
@@ -243,13 +248,10 @@ def _build_history_aware_retrieval_query_with_classification(
     if not previous_user:
         return normalized_question, False
 
-    context_lines: list[str] = []
-    if previous_user:
-        context_lines.append(f'Previous user question: {previous_user[:max_chars_per_turn]}')
-    rewritten_query = normalized_question
-    if context_lines:
-        rewritten_query = f"{normalized_question}\n\nFollow-up context:\n" + '\n'.join(f'- {line}' for line in context_lines)
-
+    rewritten_query = (
+        f"{normalized_question}\n\nFollow-up context:\n"
+        f"- Previous user question: {previous_user[:max_chars_per_turn]}"
+    )
     return rewritten_query[:max_query_chars], True
 
 
@@ -517,16 +519,26 @@ class RAGHandler:
             history=history,
             classification=classification,
         )
-        explicit_title_reference = has_explicit_title_reference(question)
-        prefer_title_alignment = should_prefer_title_alignment(
-            question=question,
-            classification=classification,
-        )
-        strict_title_alignment = bool(
-            explicit_title_reference
-            and not re.search(r'\b(compare|between|versus|vs)\b', str(question or ''), re.IGNORECASE)
-        )
-        disable_term_expansion_for_focused_title = False
+        if classification.focus_resolved:
+            explicit_title_reference = bool(classification.focus_explicit_title_reference)
+            referential_title_anchor = classification.focus_referential_title_anchor
+            title_alignment_query = classification.focus_title_alignment_query or question
+            prefer_title_alignment = bool(classification.focus_prefer_title_alignment)
+            strict_title_alignment = bool(classification.focus_strict_title_alignment)
+            disable_term_expansion_for_focused_title = bool(classification.focus_disable_term_expansion)
+        else:
+            explicit_title_reference = has_explicit_title_reference(question)
+            referential_title_anchor = None
+            title_alignment_query = question
+            prefer_title_alignment = should_prefer_title_alignment(
+                question=question,
+                classification=classification,
+            )
+            strict_title_alignment = bool(
+                explicit_title_reference
+                and not re.search(r'\b(compare|between|versus|vs)\b', str(question or ''), re.IGNORECASE)
+            )
+            disable_term_expansion_for_focused_title = False
         summary_style_request = is_summary_style_request(question, classification)
         effective_block_type_exclude = list(getattr(classification, 'block_type_exclude', None) or [])
         if summary_style_request and not classification.block_type_filter:
@@ -545,6 +557,8 @@ class RAGHandler:
                 'prefer_title_alignment': prefer_title_alignment,
                 'strict_title_alignment': strict_title_alignment,
                 'explicit_title_reference': explicit_title_reference,
+                'referential_title_anchor': referential_title_anchor,
+                'focus_query_rewritten': classification.focus_query_rewritten,
                 'term_expansion_enabled': not disable_term_expansion_for_focused_title,
             })
         retrieval_start = time.perf_counter()
@@ -567,7 +581,7 @@ class RAGHandler:
             exclude_upload_sources=not bool(file_ids),
             prefer_substantive_sections=summary_style_request,
             prefer_title_alignment=prefer_title_alignment,
-            title_alignment_query=question if prefer_title_alignment else None,
+            title_alignment_query=title_alignment_query if prefer_title_alignment else None,
             strict_title_alignment=strict_title_alignment,
             enable_term_expansion=not disable_term_expansion_for_focused_title,
             prefer_within_file_diversity=summary_style_request,

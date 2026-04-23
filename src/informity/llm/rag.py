@@ -134,7 +134,7 @@ async def answer_question(
             base_classification = classification
             if base_classification is None:
                 classify_start = asyncio.get_running_loop().time()
-                base_classification = await asyncio.to_thread(classify_query, question)
+                base_classification = await asyncio.to_thread(classify_query, question, history=history)
                 classify_elapsed_ms = (asyncio.get_running_loop().time() - classify_start) * 1000.0
 
             # Assistant always routes to SimpleHandler, but we preserve PromptCue
@@ -186,7 +186,7 @@ async def answer_question(
         # 1. Classify query (extract filters and intent)
         if classification is None:
             classify_start = asyncio.get_running_loop().time()
-            classification = await asyncio.to_thread(classify_query, question)
+            classification = await asyncio.to_thread(classify_query, question, history=history)
             classify_elapsed_ms = (asyncio.get_running_loop().time() - classify_start) * 1000.0
             if trace is not None:
                 trace.record('classification', {

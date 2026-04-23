@@ -1203,6 +1203,7 @@ async def chat(
                         locked_classification, pre_classification_elapsed_ms = await classify_query_with_timing(
                             continuation_anchor_question,
                             scoped_file_active=bool(scoped_file_ids),
+                            history=history,
                         )
                         log.info(
                             'query_pre_classified',
