@@ -107,7 +107,7 @@ except Exception:  # noqa: BLE001 - keep deterministic fallback when promptcue i
     _DISCOURSE_PREFIX_PATTERN = re.compile(
         r'^\s*(?:'
         r'ok(?:ay)?|alright|well|so|anyway|now|'
-        r'new\s+(?:topic|subject)|different\s+(?:topic|subject)|'
+        r'(?:new|different)\s+(?:topic|subject)s?|'
         r'on\s+another\s+subject|switch(?:ing)?\s+(?:topic|topics|subject|subjects|context)'
         r')\b',
         re.IGNORECASE,

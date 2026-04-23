@@ -9,6 +9,7 @@ import { CHAT_FILE_SCOPE_MAP_STORAGE_KEY } from '../../utils/storageKeys'
     getFilesMock,
     getChatMock,
     getCurrentChatMock,
+    listChatUploadsMock,
     getMessageRawMock,
   getSettingsMock,
   streamChatMock,
@@ -18,6 +19,7 @@ import { CHAT_FILE_SCOPE_MAP_STORAGE_KEY } from '../../utils/storageKeys'
   getFilesMock: vi.fn(),
   getChatMock: vi.fn(),
   getCurrentChatMock: vi.fn(),
+  listChatUploadsMock: vi.fn(),
   getMessageRawMock: vi.fn(),
   getSettingsMock: vi.fn(),
   streamChatMock: vi.fn(),
@@ -43,6 +45,7 @@ vi.mock('../../api', () => {
     getFiles: getFilesMock,
     getChat: getChatMock,
     getCurrentChat: getCurrentChatMock,
+    listChatUploads: listChatUploadsMock,
     getMessageRaw: getMessageRawMock,
     getSettings: getSettingsMock,
     streamChat: streamChatMock,
@@ -62,6 +65,7 @@ describe('ChatView new chat behavior', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     getFilesMock.mockResolvedValue({ files: [] })
+    listChatUploadsMock.mockResolvedValue({ chat_id: 'test-chat', attachments: [] })
   })
 
   afterEach(() => {
