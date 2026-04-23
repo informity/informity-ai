@@ -2,6 +2,7 @@ from informity.db.models import ChatMessage
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.rag_patterns import (
     evaluate_substantive_evidence,
+    extract_explicit_title_reference,
     has_explicit_title_reference,
     has_topic_overlap_with_previous_user,
     has_topic_shift_cue,
@@ -131,12 +132,21 @@ def test_has_explicit_title_reference_detects_prepositional_title_phrase() -> No
     assert has_explicit_title_reference('What is the general plot of The Three Musketeers book?') is True
 
 
+def test_has_explicit_title_reference_detects_title_before_document_noun() -> None:
+    assert has_explicit_title_reference('What is The Three Musketeers book about?') is True
+
+
 def test_has_explicit_title_reference_detects_quoted_title_phrase() -> None:
     assert has_explicit_title_reference('Summarize "The Three Musketeers" with key themes.') is True
 
 
 def test_has_explicit_title_reference_ignores_generic_question() -> None:
     assert has_explicit_title_reference('What is this file about?') is False
+
+
+def test_extract_explicit_title_reference_returns_normalized_title() -> None:
+    title = extract_explicit_title_reference('What is The Three Musketeers book about?')
+    assert title == 'The Three Musketeers'
 
 
 def test_has_topic_shift_cue_excludes_on_another_note_phrase() -> None:
