@@ -139,5 +139,5 @@ def test_has_explicit_title_reference_ignores_generic_question() -> None:
     assert has_explicit_title_reference('What is this file about?') is False
 
 
-def test_has_topic_shift_cue_excludes_ambiguous_on_another_note_phrase() -> None:
+def test_has_topic_shift_cue_excludes_on_another_note_phrase() -> None:
     assert has_topic_shift_cue('On another note, summarize this file.') is False
