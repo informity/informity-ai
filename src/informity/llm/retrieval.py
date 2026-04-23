@@ -135,9 +135,7 @@ def _is_structural_text_snippet(text: str) -> bool:
         return False
     if any(pattern.search(snippet) for pattern in _STRUCTURAL_TEXT_PATTERNS):
         return True
-    if len(re.findall(r'\bchapter\s+[ivxlcdm0-9]+\b', snippet, re.IGNORECASE)) >= 4:
-        return True
-    return False
+    return len(re.findall(r'\bchapter\s+[ivxlcdm0-9]+\b', snippet, re.IGNORECASE)) >= 4
 
 
 def _filter_structural_chunks_when_possible(
