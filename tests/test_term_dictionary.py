@@ -205,6 +205,55 @@ async def test_expand_query_for_retrieval_fuzzy_cap_sets_flag(monkeypatch: pytes
 
 
 @pytest.mark.asyncio
+async def test_expand_query_for_retrieval_skips_generic_alias_noise(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(settings, 'term_dictionary_enabled', True)
+
+    async def _fake_version(_db: aiosqlite.Connection) -> int:
+        return 9
+
+    async def _fake_rows(_db: aiosqlite.Connection) -> list[dict]:
+        return [
+            {
+                'alias': 'book',
+                'normalized_alias': 'book',
+                'alias_type': 'observed',
+                'alias_confidence': 0.95,
+                'canonical_term': 'see domesday',
+                'normalized_term': 'see domesday',
+                'term_type': 'domain_term',
+                'term_confidence': 0.95,
+            },
+            {
+                'alias': 'roi',
+                'normalized_alias': 'roi',
+                'alias_type': 'observed',
+                'alias_confidence': 0.95,
+                'canonical_term': 'return on investment',
+                'normalized_term': 'return on investment',
+                'term_type': 'acronym',
+                'term_confidence': 0.95,
+            },
+        ]
+
+    monkeypatch.setattr(term_dictionary, 'get_term_dictionary_current_version', _fake_version)
+    monkeypatch.setattr(term_dictionary, 'get_active_term_alias_rows', _fake_rows)
+
+    db = await aiosqlite.connect(':memory:')
+    try:
+        expansion = await term_dictionary.expand_query_for_retrieval(
+            db=db,
+            query='What is this book about ROI?',
+        )
+    finally:
+        await db.close()
+
+    assert expansion.dictionary_version == 9
+    assert 'see domesday' not in expansion.embedding_terms
+    assert 'see domesday' not in expansion.fts_terms
+    assert any(match.alias == 'roi' for match in expansion.matches)
+
+
+@pytest.mark.asyncio
 async def test_expand_query_for_retrieval_disabled_is_noop(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, 'term_dictionary_enabled', False)
     db = await aiosqlite.connect(':memory:')
