@@ -86,7 +86,7 @@ async def test_answer_question_calls_classify(mock_db):
                 results.append(item)
 
         # Should have called classify_query
-        mock_classify.assert_called_once_with('test question')
+        mock_classify.assert_called_once_with('test question', history=None)
 
 
 @pytest.mark.asyncio
@@ -330,7 +330,7 @@ async def test_answer_question_assistant_mode_forces_simple_handler(mock_db):
         async for item in answer_question('hello there', db=mock_db, chat_mode='assistant'):
             results.append(item)
 
-        mock_classify.assert_called_once_with('hello there')
+        mock_classify.assert_called_once_with('hello there', history=None)
         mock_simple_handler.assert_called_once()
         mock_rag_handler.assert_not_called()
         assert results[0] == 'Assistant reply'
@@ -354,7 +354,7 @@ async def test_answer_question_invalid_chat_mode_falls_back_to_researcher(mock_d
         async for item in answer_question('test question', db=mock_db, chat_mode='invalid-mode'):
             results.append(item)
 
-        mock_classify.assert_called_once_with('test question')
+        mock_classify.assert_called_once_with('test question', history=None)
         mock_rag_handler.assert_called_once()
         assert results[-1] == []
 
