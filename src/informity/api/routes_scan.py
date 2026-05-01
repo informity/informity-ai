@@ -80,7 +80,7 @@ from informity.utils.path_utils import normalize_path
 # ==============================================================================
 
 log = structlog.get_logger(__name__)
-_SCAN_RUNTIME_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError)
+_SCAN_RUNTIME_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError, MemoryError)
 _SCAN_UNHANDLED_GUARD_EXCEPTIONS = (AssertionError, AttributeError, ImportError, LookupError, UnicodeError)
 SCAN_CANCEL_POLL_INTERVAL_SECONDS = 0.25
 SCAN_PROGRESS_DB_BUSY_TIMEOUT_MS = 250
@@ -88,6 +88,8 @@ SCAN_PROGRESS_UPDATE_TIMEOUT_SECONDS = 1.0
 SCAN_TERMINAL_UPDATE_RETRIES = 3
 SCAN_TERMINAL_UPDATE_RETRY_DELAY_SECONDS = 0.2
 SCAN_ORCHESTRATOR = build_default_orchestrator()
+_PLAINTEXT_EXTENSIONS = frozenset({'.txt', '.md', '.rst', '.log', '.json', '.yaml', '.yml', '.toml'})
+_PLAINTEXT_TIMEOUT_CAP_SECONDS = 120
 
 
 class _ScanCancelledInFlightError(Exception):
@@ -125,11 +127,14 @@ def _clamp_scan_file_timeout_seconds(timeout_seconds: int) -> int:
 def _resolve_scan_timeout_seconds_for_file(sf: ScannedFile) -> int:
     # Resolve timeout using scope-aware policy + item size.
     scope_key = normalize_scope_key(FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE)
-    return resolve_timeout_seconds(
+    resolved = resolve_timeout_seconds(
         settings.scan_timeout_policy,
         scope_key=scope_key,
         size_bytes=max(0, int(sf.size_bytes)),
     )
+    if sf.extension.lower() in _PLAINTEXT_EXTENSIONS:
+        return max(SCAN_FILE_TIMEOUT_MIN_SECONDS, min(resolved, _PLAINTEXT_TIMEOUT_CAP_SECONDS))
+    return resolved
 
 @router.post('/api/scan')
 async def trigger_scan(
