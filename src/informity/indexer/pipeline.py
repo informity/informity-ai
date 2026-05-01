@@ -44,8 +44,10 @@ if TYPE_CHECKING:
     from informity.scanner.crawler import ScannedFile
 
 log = structlog.get_logger(__name__)
-_INDEXER_RUNTIME_EXCEPTIONS = (aiosqlite.Error, sqlite3.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError)
+_INDEXER_RUNTIME_EXCEPTIONS = (aiosqlite.Error, sqlite3.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError, MemoryError)
 _EMBEDDING_MODEL_MAX_TOKENS = 8192
+_PLAINTEXT_EXTENSIONS = frozenset({'.txt', '.md', '.rst', '.log', '.json', '.yaml', '.yml', '.toml'})
+_PLAINTEXT_MAX_LINE_CHARS = 200_000
 
 @dataclass
 class IndexResult:
@@ -85,6 +87,18 @@ def _build_file_metadata(path: Path, doc_metadata: dict[str, str]) -> dict[str, 
         'pictures_count': _parse_int_metadata(doc_metadata, 'pictures_count'),
         'document_hash': doc_metadata.get('document_hash'),
     }
+
+
+def _max_line_length(path: Path) -> int:
+    # Return maximum line length (in characters) for a UTF-8-decodable text file.
+    # Uses replacement decoding to avoid hard failures on mixed encodings.
+    max_len = 0
+    with path.open('r', encoding='utf-8', errors='replace') as handle:
+        for line in handle:
+            line_len = len(line)
+            if line_len > max_len:
+                max_len = line_len
+    return max_len
 
 
 async def _cleanup_partial_file_data(
@@ -444,6 +458,18 @@ async def index_file(
             scanned = file_path_or_scanned
             scanned_file = scanned
             file_path = scanned.path
+            max_bytes = get_max_file_size_bytes()
+            if int(scanned.size_bytes) > max_bytes:
+                return IndexResult(
+                    success=False,
+                    chunks_created=0,
+                    error=(
+                        f'File too large to index ({scanned.size_bytes / (1024 * 1024):.1f} MB). '
+                        f'Max allowed: {max_bytes // (1024 * 1024)} MB.'
+                    ),
+                    error_code='file_too_large',
+                    retryable=False,
+                )
             if extractor is None:
                 extractor = get_extractor(file_path)
                 if extractor is None:
@@ -502,6 +528,28 @@ async def index_file(
         )
 
         if not isinstance(file_path_or_scanned, IngestionItem):
+            if extension.lower() in _PLAINTEXT_EXTENSIONS:
+                max_line_chars = await asyncio.to_thread(_max_line_length, file_path)
+                if max_line_chars > _PLAINTEXT_MAX_LINE_CHARS:
+                    message = (
+                        f'Pathological text shape detected: max line length {max_line_chars} chars '
+                        f'exceeds {_PLAINTEXT_MAX_LINE_CHARS}.'
+                    )
+                    log.warning(
+                        'pathological_text_shape_skipped',
+                        path=str(file_path),
+                        filename=filename,
+                        extension=extension,
+                        max_line_chars=max_line_chars,
+                        threshold=_PLAINTEXT_MAX_LINE_CHARS,
+                    )
+                    return IndexResult(
+                        success=False,
+                        chunks_created=0,
+                        error=message,
+                        error_code='text_pathological_line_length',
+                        retryable=False,
+                    )
             # 1. Extract (run in thread pool to avoid blocking and help with memory)
             doc = await asyncio.to_thread(extractor.extract, file_path)
             if doc.error:
