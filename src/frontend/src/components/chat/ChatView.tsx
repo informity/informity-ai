@@ -23,7 +23,6 @@ const CHAT_INPUT_SCOPED_EXTRA_HEIGHT = 52
 const UPLOAD_CHIP_FALLBACK_WIDTH = 180
 const UPLOAD_OVERFLOW_CHIP_FALLBACK_WIDTH = 52
 const UPLOAD_PENDING_CHIP_FALLBACK_WIDTH = 116
-const UPLOAD_CLEAR_CHIP_FALLBACK_WIDTH = 108
 const ALL_CHAT_MODES: ChatMode[] = ['assistant', 'researcher']
 
 interface ChatViewProps {
@@ -77,14 +76,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     chatWebSearchPrivacyOverride,
     chatFileScope,
     chatUploads,
-    selectedUploadIds,
     setChatWebSearchPreferences,
     startScopedChat,
     clearChatFileScope,
     uploadFiles,
     removeUploadedFile,
-    toggleUploadSelection,
-    clearUploadSelection,
     selectChat,
     sendMessage,
     continueLastScope,
@@ -121,7 +117,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const uploadChipMeasureRefs = useRef<Record<string, HTMLSpanElement | null>>({})
   const uploadOverflowMeasureRef = useRef<HTMLSpanElement>(null)
   const uploadPendingMeasureRef = useRef<HTMLSpanElement>(null)
-  const uploadClearMeasureRef = useRef<HTMLButtonElement>(null)
   const [visibleUploadCount, setVisibleUploadCount] = useState(chatUploads.length)
   const [pendingUploadCountsByChat, setPendingUploadCountsByChat] = useState<Record<string, number>>({})
   const [isDragOverComposer, setIsDragOverComposer] = useState(false)
@@ -294,11 +289,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const hideAssistantSwitch = hasActiveUploadAttachments || hasPendingUploads
   const hiddenUploadCount = Math.max(0, chatUploads.length - visibleUploadCount)
   const visibleUploads = hiddenUploadCount > 0 ? chatUploads.slice(0, visibleUploadCount) : chatUploads
-  const selectedReadyUploadIds = selectedUploadIds.filter((uploadId) => {
-    const attachment = chatUploads.find((item) => String(item.upload_id) === String(uploadId))
-    return attachment?.state === 'ready'
-  })
-
   const recomputeVisibleUploadCount = useCallback(() => {
     if (chatFileScope || !hasUploadChipRow) {
       setVisibleUploadCount(chatUploads.length)
@@ -331,12 +321,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         return Number.isFinite(measured) && measured && measured > 0 ? measured : UPLOAD_PENDING_CHIP_FALLBACK_WIDTH
       })()
       : 0
-    const clearWidth = selectedUploadIds.length > 0
-      ? (() => {
-        const measured = uploadClearMeasureRef.current?.offsetWidth
-        return Number.isFinite(measured) && measured && measured > 0 ? measured : UPLOAD_CLEAR_CHIP_FALLBACK_WIDTH
-      })()
-      : 0
     const prefixSums: number[] = [0]
     for (const width of widths) {
       prefixSums.push(prefixSums[prefixSums.length - 1] + width)
@@ -344,8 +328,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     let bestVisible = chatUploads.length
     for (let visible = chatUploads.length; visible >= 0; visible -= 1) {
       const hidden = chatUploads.length - visible
-      const trailingWidth = (hidden > 0 ? overflowWidth : 0) + (hasPendingUploads ? pendingWidth : 0) + (selectedUploadIds.length > 0 ? clearWidth : 0)
-      const elementCount = visible + (hidden > 0 ? 1 : 0) + (hasPendingUploads ? 1 : 0) + (selectedUploadIds.length > 0 ? 1 : 0)
+      const trailingWidth = (hidden > 0 ? overflowWidth : 0) + (hasPendingUploads ? pendingWidth : 0)
+      const elementCount = visible + (hidden > 0 ? 1 : 0) + (hasPendingUploads ? 1 : 0)
       const gapsTotal = elementCount > 0 ? gapPx * Math.max(0, elementCount - 1) : 0
       const requiredWidth = prefixSums[visible] + trailingWidth + gapsTotal
       if (requiredWidth <= availableWidth) {
@@ -354,7 +338,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       }
     }
     setVisibleUploadCount((prev) => (prev === bestVisible ? prev : bestVisible))
-  }, [chatFileScope, hasUploadChipRow, chatUploads, hasPendingUploads, selectedUploadIds.length])
+  }, [chatFileScope, hasUploadChipRow, chatUploads, hasPendingUploads])
 
   useLayoutEffect(() => {
     recomputeVisibleUploadCount()
@@ -500,11 +484,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     void continueLastScope(anchorMessageId, {
       mode: chatMode,
       fileScope: chatFileScope,
-      scopedUploadIds: selectedReadyUploadIds.length > 0 ? selectedReadyUploadIds : null,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, continueLastScope, chatMode, chatFileScope, selectedReadyUploadIds, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, continueLastScope, chatMode, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleRegenerate = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -517,11 +500,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     void sendMessage(previousUser.content, {
       mode: chatMode,
       fileScope: chatFileScope,
-      scopedUploadIds: selectedReadyUploadIds.length > 0 ? selectedReadyUploadIds : null,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, isStreaming, messages, sendMessage, chatMode, chatFileScope, selectedReadyUploadIds, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, isStreaming, messages, sendMessage, chatMode, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleAskInAssistant = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -540,11 +522,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     void sendMessage(previousUser.content, {
       mode: 'assistant',
       fileScope: chatFileScope,
-      scopedUploadIds: selectedReadyUploadIds.length > 0 ? selectedReadyUploadIds : null,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, isStreaming, messages, sendMessage, chatFileScope, selectedReadyUploadIds, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, isStreaming, messages, sendMessage, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleNewChat = useCallback(() => {
     if (offline) return
@@ -576,11 +557,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     await sendMessage(text, {
       mode: chatMode,
       fileScope: chatFileScope,
-      scopedUploadIds: selectedReadyUploadIds.length > 0 ? selectedReadyUploadIds : null,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, inputValue, sendMessage, chatMode, chatFileScope, selectedReadyUploadIds, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, inputValue, sendMessage, chatMode, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleStop = useCallback(() => {
     if (offline) return
@@ -896,25 +876,18 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       {visibleUploads.map((upload) => {
                         const uploadId = String(upload.upload_id)
                         const isReady = upload.state === 'ready'
-                        const isSelected = selectedUploadIds.includes(uploadId)
                         return (
                           <span
                             key={uploadId}
-                            className={`chat-view__upload-chip${isReady ? ' chat-view__upload-chip--ready' : ''}${isSelected ? ' chat-view__upload-chip--selected' : ''}`}
+                            className={`chat-view__upload-chip${isReady ? ' chat-view__upload-chip--ready' : ''}`}
                             title={upload.filename_at_upload}
                             role="listitem"
                           >
-                            <button
-                              type="button"
-                              className="chat-view__upload-chip-label"
-                              onClick={() => toggleUploadSelection(uploadId)}
-                              disabled={offline || isStreaming || !isReady}
-                              aria-label={`Use ${upload.filename_at_upload} in next message`}
-                            >
+                            <span className="chat-view__upload-chip-label">
                               <i className={resolveFileIconFromFilename(upload.filename_at_upload)} aria-hidden />
                               <span>{upload.filename_at_upload}</span>
                               {!isReady && <em>{upload.state === 'failed' ? 'Failed' : 'Indexing'}</em>}
-                            </button>
+                            </span>
                             <button
                               type="button"
                               className="chat-view__upload-chip-remove"
@@ -950,16 +923,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                           </span>
                         </span>
                       )}
-                      {selectedUploadIds.length > 0 && (
-                        <button
-                          type="button"
-                          className="chat-view__upload-selection-clear"
-                          onClick={clearUploadSelection}
-                          disabled={offline || isStreaming}
-                        >
-                          Clear Selection
-                        </button>
-                      )}
                     </div>
                   )}
                   {!chatFileScope && hasUploadChipRow && (
@@ -967,12 +930,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       {chatUploads.map((upload) => {
                         const uploadId = String(upload.upload_id)
                         const isReady = upload.state === 'ready'
-                        const isSelected = selectedUploadIds.includes(uploadId)
                         return (
                           <span
                             key={`measure-${uploadId}`}
                             ref={(el) => { uploadChipMeasureRefs.current[uploadId] = el }}
-                            className={`chat-view__upload-chip${isReady ? ' chat-view__upload-chip--ready' : ''}${isSelected ? ' chat-view__upload-chip--selected' : ''}`}
+                            className={`chat-view__upload-chip${isReady ? ' chat-view__upload-chip--ready' : ''}`}
                           >
                             <span className="chat-view__upload-chip-label">
                               <i className={resolveFileIconFromFilename(upload.filename_at_upload)} aria-hidden />
@@ -993,16 +955,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                           <i className="ri-loader-4-line chat-view__upload-chip-spinner" aria-hidden />
                         </span>
                       </span>
-                      {selectedUploadIds.length > 0 && (
-                        <button
-                          ref={uploadClearMeasureRef}
-                          type="button"
-                          className="chat-view__upload-selection-clear"
-                          tabIndex={-1}
-                        >
-                          Clear Selection
-                        </button>
-                      )}
                     </div>
                   )}
                   <textarea
