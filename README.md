@@ -218,7 +218,7 @@ src/informity/
     ├── chat_sse.py                 # SSE event formatting for chat streams
     ├── chat_closeout.py            # Post-generation chat record finalization
     ├── chat_stream_registry.py     # Active stream registry (cancel support)
-    ├── routes_scan.py              # POST /api/scan, GET /api/scan/status, GET /api/files
+    ├── routes_scan.py              # POST /api/scan, GET /api/scan/status, GET /api/scan/errors, GET /api/files
     ├── routes_index.py             # POST /api/index/rebuild, GET /api/index/status, POST /api/index/reset
     │                               # GET|POST /api/index/term-dictionary/status|rebuild|purge
     ├── routes_search.py            # POST /api/search

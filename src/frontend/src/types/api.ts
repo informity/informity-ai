@@ -248,6 +248,25 @@ export interface ScanStatus {
   elapsed_seconds?: number
 }
 
+export interface ScanErrorListItem {
+  path?: string
+  filename?: string
+  extension?: string
+  operation?: string
+  error_code?: string | null
+  error_message?: string
+  is_timeout?: boolean
+  created_at?: string | null
+}
+
+export interface ScanErrorsResponse {
+  scan_id: number
+  total: number
+  offset: number
+  limit: number
+  errors: ScanErrorListItem[]
+}
+
 export type FileReindexOperationStatus = 'running' | 'completed' | 'failed'
 
 export interface FileReindexOperation {

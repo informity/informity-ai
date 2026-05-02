@@ -297,15 +297,8 @@ def _build_retrieval_scope(
                 session_anchor_upload_id = upload_id
             active_count += 1
         if not session_anchor_upload_id:
-            # Fallback for malformed/legacy rows missing uploaded_at.
-            fallback_sorted = sorted(
-                active_uploads,
-                key=lambda item: (
-                    item.uploaded_at.isoformat() if item.uploaded_at is not None else '',
-                    str(item.upload_id or ''),
-                ),
-            )
-            session_anchor_upload_id = str(fallback_sorted[0].upload_id or '').strip()
+            # All uploads are expected to carry uploaded_at; this path should not occur.
+            session_anchor_upload_id = str(active_uploads[0].upload_id or '').strip()
 
         scope_key = f'{_RETRIEVAL_SCOPE_CHAT_UPLOADS}:{session_anchor_upload_id}'
         active_upload_ids = {
@@ -342,11 +335,6 @@ def _filter_history_for_scope(
         if retrieval_scope_kind == INDEXED_CORPUS_SCOPE_KIND
         else target_scope_key
     )
-    include_legacy_indexed_rows = (
-        retrieval_scope_kind == INDEXED_CORPUS_SCOPE_KIND
-        and target_scope_key_normalized == f'{INDEXED_CORPUS_SCOPE_KIND}|g:0'
-    )
-
     scoped: list[ChatMessage] = []
     for message in history:
         message_chat_mode = str(message.chat_mode or '').strip()
@@ -365,10 +353,6 @@ def _filter_history_for_scope(
                 and message_scope_key_normalized == target_scope_key_normalized
             ):
                 scoped.append(message)
-            continue
-        # Legacy pre-scope rows remain available only for indexed corpus turns.
-        if include_legacy_indexed_rows:
-            scoped.append(message)
     return scoped
 
 

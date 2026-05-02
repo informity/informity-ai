@@ -26,6 +26,7 @@ from informity.api.operation_state import resolve_running_scan
 from informity.api.schemas import (
     FileListResponse,
     OpenFileRequest,
+    ScanErrorsResponse,
     ScanErrorItem,
     ScanRequest,
     ScanStatusResponse,
@@ -48,6 +49,7 @@ from informity.db.sqlite import (
     get_index_integrity_issues,
     get_latest_scan,
     get_scan_error_records,
+    get_scan_error_records_page,
     get_scan_timeout_error_count,
     insert_scan_error_record,
     insert_scan_record,
@@ -234,6 +236,43 @@ async def get_scan_status(
         ],
         started_at=latest.started_at,
         elapsed_seconds=elapsed.total_seconds(),
+    )
+
+
+@router.get('/api/scan/errors', response_model=ScanErrorsResponse)
+async def get_scan_errors(
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    db: aiosqlite.Connection = Depends(get_db),
+) -> ScanErrorsResponse:
+    latest = await get_latest_scan(db)
+    if latest is None or latest.id is None:
+        raise HTTPException(status_code=404, detail='No scan has been run yet')
+
+    errors = await get_scan_error_records_page(
+        db,
+        latest.id,
+        limit=limit,
+        offset=offset,
+    )
+    return ScanErrorsResponse(
+        scan_id=latest.id,
+        total=latest.errors,
+        offset=offset,
+        limit=limit,
+        errors=[
+            ScanErrorItem(
+                path=item.path,
+                filename=item.filename,
+                extension=item.extension,
+                operation=item.operation,
+                error_code=item.error_code,
+                error_message=item.error_message,
+                is_timeout=item.is_timeout,
+                created_at=item.created_at,
+            )
+            for item in errors
+        ],
     )
 
 
