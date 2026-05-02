@@ -25,6 +25,8 @@
   border-radius: var(--border-radius-lg);
   max-width: var(--modal-width-md);
   width: 100%;
+  min-height: 320px;
+  height: min(320px, var(--modal-max-height));
   max-height: var(--modal-max-height);
   overflow: hidden;
   display: flex;
@@ -94,6 +96,7 @@
   margin: 0 auto;
   padding: var(--space-lg);
   padding-bottom: var(--space-xl);
+  flex: 1 1 auto;
   overflow-y: auto;
 }
 

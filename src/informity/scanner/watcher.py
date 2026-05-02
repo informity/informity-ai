@@ -16,7 +16,7 @@ import structlog
 from watchdog.events import FileMovedEvent, FileSystemEvent, FileSystemEventHandler
 from watchdog.observers import Observer
 
-from informity.config import get_effective_ignore_patterns, settings
+from informity.config import get_effective_ignore_patterns, get_supported_extensions_for_scan, settings
 from informity.scanner.crawler import should_ignore
 from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE
 from informity.utils.path_utils import normalize_path, resolve_and_check_path
@@ -55,7 +55,14 @@ def _get_cached_supported_extensions_set() -> frozenset[str]:
     """Get supported extensions as a set for O(1) lookup."""
     global _cached_supported_extensions_set
     if _cached_supported_extensions_set is None:
-        _cached_supported_extensions_set = frozenset(settings.supported_extensions)
+        try:
+            supported_extensions = get_supported_extensions_for_scan()
+        except (OSError, ValueError, TypeError):
+            # Fallback to in-memory singleton if persisted config cannot be read.
+            supported_extensions = list(settings.supported_extensions)
+        _cached_supported_extensions_set = frozenset(
+            str(ext).strip().lower() for ext in supported_extensions if str(ext).strip()
+        )
     return _cached_supported_extensions_set
 
 

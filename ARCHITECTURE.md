@@ -628,6 +628,7 @@ class HealthResponse(BaseModel):
 ### `api/routes_scan.py`
 - `POST /api/scan` — trigger scan (background); supports force=true to cancel running/stale scan (uses operation_state.resolve_running_scan)
 - `GET /api/scan/status` — current scan status
+- `GET /api/scan/errors` — list scan errors for the latest scan
 - `GET /api/files` — list indexed files (paginated, filterable)
 - `GET /api/files/{id}` — single file details + extracted text preview
 - `POST /api/files/{id}/reindex` — re-index a single file
@@ -874,6 +875,7 @@ main.py ← logging_config (configure_logging before loggers)
 |--------|------|-------------|-------------|
 | `POST` | `/api/scan` | Trigger file scan + index (force=true to cancel running) | Yes |
 | `GET` | `/api/scan/status` | Current scan progress | No |
+| `GET` | `/api/scan/errors` | Scan errors for the latest scan | No |
 | `GET` | `/api/files` | List indexed files (paginated, filterable) | No |
 | `GET` | `/api/files/{id}` | Single file detail | No |
 | `POST` | `/api/files/{id}/reindex` | Re-index a single file | No |

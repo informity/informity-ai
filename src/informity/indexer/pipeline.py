@@ -60,6 +60,16 @@ class IndexResult:
     retryable: bool = True
 
 
+def _no_extractor_result(extension: str) -> IndexResult:
+    return IndexResult(
+        success=False,
+        chunks_created=0,
+        error=f'No extractor for extension: {extension}',
+        error_code='no_extractor_for_extension',
+        retryable=False,
+    )
+
+
 def _parse_int_metadata(metadata: dict[str, str], key: str) -> int | None:
     # Parse an integer metadata value safely.
     raw_value = metadata.get(key)
@@ -473,11 +483,7 @@ async def index_file(
             if extractor is None:
                 extractor = get_extractor(file_path)
                 if extractor is None:
-                    return IndexResult(
-                        success=False,
-                        chunks_created=0,
-                        error=f'No extractor for extension: {scanned.extension}',
-                    )
+                    return _no_extractor_result(scanned.extension)
             # Use scanned metadata (including pre-computed content_hash)
             size_bytes = scanned.size_bytes
             modified_at = scanned.modified_at
@@ -821,11 +827,7 @@ async def reindex_file(
             log.debug('reindex_as_new', path=str(path))
             extractor = get_extractor(path)
             if extractor is None:
-                return IndexResult(
-                    success=False,
-                    chunks_created=0,
-                    error=f'No extractor for extension: {scanned.extension}',
-                )
+                return _no_extractor_result(scanned.extension)
             return await index_file(
                 db,
                 path,
@@ -854,11 +856,7 @@ async def reindex_file(
                 filename=scanned.filename,
                 extension=scanned.extension
             )
-            return IndexResult(
-                success=False,
-                chunks_created=0,
-                error=f'No extractor for extension: {scanned.extension}',
-            )
+            return _no_extractor_result(scanned.extension)
 
         doc = await asyncio.to_thread(extractor.extract, path)
         if doc.error:

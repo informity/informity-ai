@@ -51,6 +51,14 @@ class ScanStatusResponse(BaseModel):
     elapsed_seconds: float
 
 
+class ScanErrorsResponse(BaseModel):
+    scan_id: int
+    total: int
+    offset: int
+    limit: int
+    errors: list[ScanErrorItem] = Field(default_factory=list)
+
+
 # ==============================================================================
 # Search
 # ==============================================================================

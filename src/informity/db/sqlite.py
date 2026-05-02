@@ -519,22 +519,6 @@ async def init_db() -> None:
             log.debug('sqlite_vec_extension_not_loaded', msg='Extension loading not available or already loaded')
 
         await conn.executescript(_SCHEMA_SQL)
-        # Backward-compatible schema healing for older local DBs.
-        # `schema_version` intentionally remains stable for additive columns.
-        with suppress(aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError):
-            columns_cursor = await conn.execute('PRAGMA table_info(chat_upload_attachments)')
-            columns = await columns_cursor.fetchall()
-            existing_columns = {str(row['name']) for row in columns}
-            if 'content_hash' not in existing_columns:
-                await conn.execute('ALTER TABLE chat_upload_attachments ADD COLUMN content_hash TEXT')
-        with suppress(aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError):
-            columns_cursor = await conn.execute('PRAGMA table_info(chat_messages)')
-            columns = await columns_cursor.fetchall()
-            existing_columns = {str(row['name']) for row in columns}
-            if 'retrieval_scope_kind' not in existing_columns:
-                await conn.execute('ALTER TABLE chat_messages ADD COLUMN retrieval_scope_kind TEXT')
-            if 'retrieval_scope_key' not in existing_columns:
-                await conn.execute('ALTER TABLE chat_messages ADD COLUMN retrieval_scope_key TEXT')
 
         # Term dictionary uniqueness is typed by design:
         # allow same normalized term across different entity types.
@@ -653,6 +637,31 @@ async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
         )
     except (aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError) as exc:
         log.warning('startup_database_compaction_skipped', error=str(exc))
+
+
+async def compact_database_if_empty_with_retries() -> dict[str, object]:
+    # Best-effort compaction pass intended for post-reset execution while the app
+    # is still running. Uses a fresh connection and retries to ride out brief locks.
+    compacted = False
+    error: str | None = None
+    for attempt in range(1, _RESET_COMPACTION_RETRY_ATTEMPTS + 1):
+        conn = await get_connection()
+        try:
+            await _compact_empty_db_if_bloated(conn)
+            compacted = True
+            error = None
+            break
+        except (aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError) as exc:
+            error = str(exc)
+            if attempt < _RESET_COMPACTION_RETRY_ATTEMPTS:
+                await asyncio.sleep(0.2 * attempt)
+        finally:
+            await conn.close()
+
+    return {
+        'storage_compacted': compacted,
+        'compaction_error': error,
+    }
 
 
 async def get_db() -> AsyncGenerator[aiosqlite.Connection]:
@@ -1371,6 +1380,30 @@ async def get_scan_error_records(
         LIMIT ?
         """,
         (scan_id, safe_limit),
+    )
+    rows = await cursor.fetchall()
+    return [_row_to_scan_error_record(row) for row in rows]
+
+
+async def get_scan_error_records_page(
+    db: aiosqlite.Connection,
+    scan_id: int,
+    *,
+    limit: int = 200,
+    offset: int = 0,
+) -> list[ScanErrorRecord]:
+    # Return paginated per-file scan errors for a scan, newest first.
+    safe_limit = max(1, min(int(limit), 1000))
+    safe_offset = max(0, int(offset))
+    cursor = await db.execute(
+        """
+        SELECT *
+        FROM scan_errors
+        WHERE scan_id = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT ? OFFSET ?
+        """,
+        (scan_id, safe_limit, safe_offset),
     )
     rows = await cursor.fetchall()
     return [_row_to_scan_error_record(row) for row in rows]
