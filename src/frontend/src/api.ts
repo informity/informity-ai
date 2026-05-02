@@ -136,6 +136,15 @@ export async function cancelScan(): Promise<unknown> {
   return request('POST', '/api/scan/cancel')
 }
 
+export async function getScanErrors(
+  params: { limit?: number; offset?: number } = {},
+): Promise<unknown> {
+  const { limit = 500, offset = 0 } = params
+  return request('GET', '/api/scan/errors', {
+    params: { limit, offset },
+  })
+}
+
 // -----------------------------------------------------------------------------
 // Files
 // -----------------------------------------------------------------------------

@@ -22,6 +22,8 @@ from informity.api.security import EndpointGuard
 from informity.config import DirNames, reset_to_factory_defaults, settings
 from informity.db.models import ScanRecord, ScanStatus
 from informity.db.sqlite import (
+    compact_database_if_empty_with_retries,
+    get_connection,
     get_chat_count,
     get_chunk_count,
     get_db,
@@ -232,7 +234,6 @@ async def reset_index(
     force: bool = False,
     source_provider: str | None = None,
     entity_type: str | None = None,
-    db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
     # Delete ALL user data: files, chunks, vectors, scan history,
     # chat messages, quality metrics, diagnostics (chat traces, evaluations, reports),
@@ -242,15 +243,18 @@ async def reset_index(
     # Runs in background so the request returns immediately.
 
     async with op_state.get_scan_operation_lock():
+        db = await get_connection()
         source_provider = (source_provider or '').strip().lower() or None
         entity_type = (entity_type or '').strip().lower() or None
         if (source_provider is None) != (entity_type is None):
+            await db.close()
             raise HTTPException(
                 status_code=400,
                 detail='source_provider and entity_type must be provided together for scoped reset.',
             )
 
         if not await op_state.try_begin_reset():
+            await db.close()
             raise HTTPException(
                 status_code=409,
                 detail='A reset is already in progress. Please wait for it to complete.',
@@ -261,11 +265,15 @@ async def reset_index(
         try:
             await op_state.resolve_running_scan(db, force=force, operation='reset')
         except HTTPException:
+            await db.close()
             await op_state.finish_reset(result=None)
             raise
         except _INDEX_RUNTIME_EXCEPTIONS:
+            await db.close()
             await op_state.finish_reset(result=None)
             raise
+        finally:
+            await db.close()
 
     background_tasks.add_task(
         _run_reset_task,
@@ -398,6 +406,16 @@ async def _run_reset_task(
 
             # Keep runtime directories present after config reset.
             settings.ensure_directories()
+
+            # Final compaction pass with a fresh connection while reset_in_progress
+            # is still true, reducing poll-related contention and reclaiming space.
+            post_compaction = await compact_database_if_empty_with_retries()
+            if not bool(db_counts.get('storage_compacted', False)):
+                db_counts['storage_compacted'] = bool(post_compaction.get('storage_compacted', False))
+            if db_counts.get('compaction_error') and post_compaction.get('storage_compacted'):
+                db_counts['compaction_error'] = None
+            elif post_compaction.get('compaction_error'):
+                db_counts['compaction_error'] = post_compaction.get('compaction_error')
 
         # Invalidate adaptive top-k cache (corpus is empty)
         invalidate_tuning_cache()
