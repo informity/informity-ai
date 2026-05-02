@@ -26,8 +26,8 @@ from informity.api.operation_state import resolve_running_scan
 from informity.api.schemas import (
     FileListResponse,
     OpenFileRequest,
-    ScanErrorsResponse,
     ScanErrorItem,
+    ScanErrorsResponse,
     ScanRequest,
     ScanStatusResponse,
 )
