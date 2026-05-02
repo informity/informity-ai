@@ -23,9 +23,9 @@ from informity.config import DirNames, reset_to_factory_defaults, settings
 from informity.db.models import ScanRecord, ScanStatus
 from informity.db.sqlite import (
     compact_database_if_empty_with_retries,
-    get_connection,
     get_chat_count,
     get_chunk_count,
+    get_connection,
     get_db,
     get_file_count,
     get_index_integrity_issues,
