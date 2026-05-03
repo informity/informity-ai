@@ -705,8 +705,10 @@ export function ChatProvider({ children }: ChatProviderProps) {
       return
     }
     const hasActiveUploads = chatUploads.some((item) => ['uploading', 'indexing', 'ready'].includes(String(item.state)))
-    if (chatMode !== 'researcher' && hasActiveUploads) {
-      const modeError = 'Uploaded files are available only in Researcher mode.'
+    const requestChatId = currentChatIdRef.current
+    const effectiveFileScope = providedScope ?? resolveDraftOrChatFileScope(requestChatId)
+    if (chatMode !== 'researcher' && (hasActiveUploads || effectiveFileScope)) {
+      const modeError = 'Document-scoped chat is available only in Researcher mode.'
       setError(modeError)
       showToast('warning', modeError)
       return
@@ -716,8 +718,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
       lastAutoContinuedMessageIdRef.current = null
     }
     sendInFlightRef.current = true
-    const requestChatId = currentChatIdRef.current
-    const effectiveFileScope = providedScope ?? resolveDraftOrChatFileScope(requestChatId)
     const readyUploadIdSet = new Set(
       chatUploads
         .filter((item) => item.state === 'ready')
