@@ -4,7 +4,7 @@
 # ==============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help run dev test lint format reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build tauri-build-signed app qa-quick qa-full qa-security qa-lint qa-typecheck
+.PHONY: help run dev test lint format reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build tauri-build-signed tauri-build-appstore app qa-quick qa-full qa-security qa-lint qa-typecheck
 
 # ==============================================================================
 # Configuration
@@ -79,6 +79,9 @@ tauri-build: ## Build desktop bundle artifacts (requires Rust toolchain + Tauri 
 
 tauri-build-signed: ## Maintainers: build/sign/notarize/staple/verify macOS release artifacts (requires .env.codesign)
 	./scripts/build_tauri_signed_release.sh
+
+tauri-build-appstore: ## Maintainers: build/sign/package/upload macOS App Store artifacts (requires .env.appstore)
+	./scripts/build_tauri_appstore_release.sh
 
 app: frontend-build run ## Build frontend and run app on http://127.0.0.1:8420 (single command for testing)
 
