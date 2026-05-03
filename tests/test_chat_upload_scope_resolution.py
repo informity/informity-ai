@@ -34,6 +34,27 @@ def test_extract_filename_candidates_reads_dot_tokens_and_quotes() -> None:
     assert 'budget_v2.xlsx' in candidates
 
 
+def test_looks_per_file_separate_request_detects_each_document_prompt() -> None:
+    assert routes_chat._looks_per_file_separate_request('Summarize each document separately') is True
+
+
+def test_looks_per_file_separate_request_noop_for_generic_prompt() -> None:
+    assert routes_chat._looks_per_file_separate_request('What are these documents about?') is False
+
+
+def test_build_per_file_separate_guidance_requires_multi_file_scope() -> None:
+    guidance = routes_chat._build_per_file_separate_guidance(['single.md'])
+    assert guidance is None
+
+
+def test_build_per_file_separate_guidance_builds_exact_count_contract() -> None:
+    guidance = routes_chat._build_per_file_separate_guidance(['a.md', 'b.md'])
+    assert guidance is not None
+    assert 'exactly 2 top-level sections' in guidance
+    assert '- a.md' in guidance
+    assert '- b.md' in guidance
+
+
 def test_resolve_upload_scope_exact_case_insensitive_match() -> None:
     attachments = [
         _attachment('up-1', 'Annual Report 2024.pdf'),

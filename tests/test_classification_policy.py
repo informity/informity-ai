@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from informity.llm.classification_policy import (
+    apply_multi_file_plural_scope_precedence,
     apply_scoped_file_chat_summary_precedence,
     resolve_assistant_forced_classification,
 )
@@ -70,3 +71,65 @@ def test_scoped_file_precedence_noop_without_active_scope() -> None:
     assert updated.intent == QueryType.SIMPLE
     assert updated.route_candidate == IntentProfileId.CLARIFICATION_OR_DISAMBIGUATION
     assert updated.needs_chat_history is True
+
+
+def test_multi_file_plural_scope_precedence_promotes_to_coverage() -> None:
+    classification = QueryClassification(
+        intent=QueryType.FOCUSED,
+        route_candidate=IntentProfileId.TARGETED_FACT_LOOKUP,
+        reason_codes=['promptcue_adapter'],
+    )
+    updated = apply_multi_file_plural_scope_precedence(
+        question='What are these documents about?',
+        classification=classification,
+        scoped_file_count=2,
+    )
+    assert updated.intent == QueryType.COVERAGE
+    assert updated.route_candidate == IntentProfileId.CROSS_DOCUMENT_SYNTHESIS
+    assert updated.deterministic_override is True
+    assert 'policy_multi_file_plural_scope_to_coverage' in updated.reason_codes
+
+
+def test_multi_file_plural_scope_precedence_noop_for_single_file_scope() -> None:
+    classification = QueryClassification(
+        intent=QueryType.FOCUSED,
+        route_candidate=IntentProfileId.TARGETED_FACT_LOOKUP,
+    )
+    updated = apply_multi_file_plural_scope_precedence(
+        question='What are these documents about?',
+        classification=classification,
+        scoped_file_count=1,
+    )
+    assert updated.intent == QueryType.FOCUSED
+    assert updated.route_candidate == IntentProfileId.TARGETED_FACT_LOOKUP
+    assert 'policy_multi_file_plural_scope_to_coverage' not in updated.reason_codes
+
+
+def test_multi_file_plural_scope_precedence_noop_without_plural_scope_cue() -> None:
+    classification = QueryClassification(
+        intent=QueryType.FOCUSED,
+        route_candidate=IntentProfileId.TARGETED_FACT_LOOKUP,
+    )
+    updated = apply_multi_file_plural_scope_precedence(
+        question='What is this document about?',
+        classification=classification,
+        scoped_file_count=2,
+    )
+    assert updated.intent == QueryType.FOCUSED
+    assert updated.route_candidate == IntentProfileId.TARGETED_FACT_LOOKUP
+    assert 'policy_multi_file_plural_scope_to_coverage' not in updated.reason_codes
+
+
+def test_multi_file_plural_scope_precedence_promotes_each_document_separately() -> None:
+    classification = QueryClassification(
+        intent=QueryType.FOCUSED,
+        route_candidate=IntentProfileId.TARGETED_FACT_LOOKUP,
+    )
+    updated = apply_multi_file_plural_scope_precedence(
+        question='Summarize each document separately',
+        classification=classification,
+        scoped_file_count=2,
+    )
+    assert updated.intent == QueryType.COVERAGE
+    assert updated.route_candidate == IntentProfileId.CROSS_DOCUMENT_SYNTHESIS
+    assert 'policy_multi_file_plural_scope_to_coverage' in updated.reason_codes
