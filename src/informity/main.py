@@ -154,8 +154,7 @@ def _signal_cleanup(signum: int, _frame: types.FrameType | None) -> None:
     # SystemExit into asyncio/uvicorn (which would produce a traceback).
     _remove_managed_pid_file()
     _cleanup_models()
-    # Signal numbers on POSIX are always < 32, so the else branch is unreachable
-    # but kept for defensive programming
+    # Return conventional signal exit status (128 + signal number).
     code = 128 + signum
     _os._exit(code)
 

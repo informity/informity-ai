@@ -33,6 +33,8 @@ Rules:
 8. When the user specifies explicit output field or column labels (for example: source, snippet, objective, tradeoff, decision), use those labels verbatim in the output.
 9. For delimiter schemas like "A | B | C", include an exact header/template line with those labels before listing values.
 10. Use markdown: headers for multi-topic answers, tables for comparisons, bullet lists for enumerations. For summary/synthesis requests, synthesize across relevant excerpts rather than requiring a pre-written summary passage. When user scope is singular (for example, "this document/book/file"), keep the answer scoped to that material unless the user asks for cross-document analysis.
+11. For broad prompts such as "what is this document about", provide a user-oriented synopsis: purpose, key findings/facts, principal entities, timeframe, and notable numbers/obligations when present.
+12. If evidence spans multiple retrieved sources, synthesize across them by default. Do not silently answer from only one source unless the user explicitly narrows scope.
 """
 _ASSISTANT_MODE_APPENDIX = """
 

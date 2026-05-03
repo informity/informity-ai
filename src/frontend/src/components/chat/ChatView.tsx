@@ -2,7 +2,7 @@
  * Informity AI — Chat view
  * Full-height message list, input, SSE streaming.
  */
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react'
 import { ChatMessage } from './ChatMessage'
 import { ChatMessageSkeleton } from './ChatMessageSkeleton'
 import { PageHeader } from '../PageHeader'
@@ -10,19 +10,25 @@ import { ServiceUnavailableState } from '../ServiceUnavailableState'
 import { useChatContext } from '../../context/useChatContext'
 import { useBackendStatus } from '../../context/useBackendStatus'
 import { getCurrentChat, getSettings } from '../../api'
-import { isChatMode, type ChatMessageDisplay, type ChatMode } from '../../types/api'
+import { isChatMode, type ChatFileScope, type ChatMessageDisplay, type ChatMode } from '../../types/api'
 import { logApiError } from '../../utils/logApiError'
 import { CHAT_MODE_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
 import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
+import { getFileIcon } from '../../utils/fileFormatting'
 import './ChatView.css'
 
 const CHAT_INPUT_MIN_HEIGHT = 104
 const CHAT_INPUT_MAX_HEIGHT = 304
+const CHAT_INPUT_SCOPED_EXTRA_HEIGHT = 52
+const UPLOAD_CHIP_FALLBACK_WIDTH = 180
+const UPLOAD_OVERFLOW_CHIP_FALLBACK_WIDTH = 52
+const UPLOAD_PENDING_CHIP_FALLBACK_WIDTH = 116
 const ALL_CHAT_MODES: ChatMode[] = ['assistant', 'researcher']
 
 interface ChatViewProps {
   prefillMessage?: string
   initialChatId?: string | null
+  initialScopedFile?: ChatFileScope | null
 }
 
 interface GetCurrentChatResponse {
@@ -38,6 +44,15 @@ interface SettingsUpdatedEvent extends Event {
   detail?: ChatSettingsResponse
 }
 
+function resolveFileIconFromFilename(filename: string): string {
+  const normalized = String(filename || '').trim()
+  const dotIndex = normalized.lastIndexOf('.')
+  if (dotIndex <= 0 || dotIndex >= normalized.length - 1) {
+    return getFileIcon(undefined)
+  }
+  return getFileIcon(normalized.slice(dotIndex + 1))
+}
+
 function resolveChatModeFromHistory(history: ChatMessageDisplay[]): ChatMode | null {
   for (let i = history.length - 1; i >= 0; i -= 1) {
     const candidate = history[i]?.chatMode
@@ -48,7 +63,7 @@ function resolveChatModeFromHistory(history: ChatMessageDisplay[]): ChatMode | n
   return null
 }
 
-export function ChatView({ prefillMessage = '', initialChatId = null }: ChatViewProps) {
+export function ChatView({ prefillMessage = '', initialChatId = null, initialScopedFile = null }: ChatViewProps) {
   const { offline } = useBackendStatus()
   const {
     currentChatId: contextChatId,
@@ -59,7 +74,13 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     enableRawOutputControl,
     chatWebSearchEnabled,
     chatWebSearchPrivacyOverride,
+    chatFileScope,
+    chatUploads,
     setChatWebSearchPreferences,
+    startScopedChat,
+    clearChatFileScope,
+    uploadFiles,
+    removeUploadedFile,
     selectChat,
     sendMessage,
     continueLastScope,
@@ -75,6 +96,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [animateToDocked, setAnimateToDocked] = useState(false)
+  const [textareaCanScroll, setTextareaCanScroll] = useState(false)
+  const [textareaHasTopScroll, setTextareaHasTopScroll] = useState(false)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const newChatRequestedRef = useRef(false)
@@ -86,6 +109,28 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   const showScrollRef = useRef(false)
   const isNearBottomRef = useRef(true)
   const modeMenuRef = useRef<HTMLDivElement>(null)
+  const consumedInitialScopeRef = useRef<string | null>(null)
+  const skipNextSelectChatIdRef = useRef<string | null>(null)
+  const draftPendingAliasChatIdRef = useRef<string | null>(null)
+  const uploadInputRef = useRef<HTMLInputElement>(null)
+  const uploadChipsContainerRef = useRef<HTMLDivElement>(null)
+  const uploadChipMeasureRefs = useRef<Record<string, HTMLSpanElement | null>>({})
+  const uploadOverflowMeasureRef = useRef<HTMLSpanElement>(null)
+  const uploadPendingMeasureRef = useRef<HTMLSpanElement>(null)
+  const [visibleUploadCount, setVisibleUploadCount] = useState(chatUploads.length)
+  const [pendingUploadCountsByChat, setPendingUploadCountsByChat] = useState<Record<string, number>>({})
+  const [isDragOverComposer, setIsDragOverComposer] = useState(false)
+  const uploadDragDepthRef = useRef(0)
+  const pendingUploadCount = (() => {
+    if (!contextChatId) return pendingUploadCountsByChat.__draft__ ?? 0
+    const scopedCount = pendingUploadCountsByChat[contextChatId] ?? 0
+    const draftAliasCount = (
+      draftPendingAliasChatIdRef.current === contextChatId
+        ? (pendingUploadCountsByChat.__draft__ ?? 0)
+        : 0
+    )
+    return Math.max(scopedCount, draftAliasCount)
+  })()
 
   const isForceNewChatRequested = useCallback((): boolean => {
     try {
@@ -101,6 +146,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   useEffect(() => {
     if (prefillMessage) setInputValue(prefillMessage)
   }, [prefillMessage])
+
+  useEffect(() => {
+    if (!offline && !isStreaming && chatMode === 'researcher') return
+    uploadDragDepthRef.current = 0
+    setIsDragOverComposer(false)
+  }, [chatMode, isStreaming, offline])
 
   useEffect(() => {
     let cancelled = false
@@ -188,6 +239,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
       return
     }
     if (contextChatId) {
+      if (skipNextSelectChatIdRef.current === contextChatId) {
+        skipNextSelectChatIdRef.current = null
+        return
+      }
       selectChat(contextChatId)
       return
     }
@@ -210,6 +265,103 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
       cancelled = true
     }
   }, [initialChatId, contextChatId, selectChat, isForceNewChatRequested])
+
+  useEffect(() => {
+    if (!initialScopedFile) return
+    const scopeKey = `${initialScopedFile.fileId}:${initialScopedFile.filename}`
+    if (consumedInitialScopeRef.current === scopeKey) return
+    consumedInitialScopeRef.current = scopeKey
+    setChatMode('researcher')
+    try {
+      window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'researcher')
+    } catch {
+      // ignore storage errors
+    }
+    clearError()
+    void startScopedChat(initialScopedFile)
+  }, [clearError, initialScopedFile, startScopedChat])
+
+  const hasUploadAttachments = chatUploads.length > 0
+  const hasActiveUploadAttachments = chatUploads.some((item) => ['uploading', 'indexing', 'ready'].includes(String(item.state)))
+  const hasPendingUploads = pendingUploadCount > 0
+  const hasUploadChipRow = hasUploadAttachments || hasPendingUploads
+  const hasScopedInputPill = !!chatFileScope || hasUploadChipRow
+  const hideAssistantSwitch = hasScopedInputPill
+  const hiddenUploadCount = Math.max(0, chatUploads.length - visibleUploadCount)
+  const visibleUploads = hiddenUploadCount > 0 ? chatUploads.slice(0, visibleUploadCount) : chatUploads
+  const recomputeVisibleUploadCount = useCallback(() => {
+    if (chatFileScope || !hasUploadChipRow) {
+      setVisibleUploadCount(chatUploads.length)
+      return
+    }
+    const container = uploadChipsContainerRef.current
+    if (!container) {
+      setVisibleUploadCount(chatUploads.length)
+      return
+    }
+    const availableWidth = container.clientWidth
+    if (!Number.isFinite(availableWidth) || availableWidth <= 0) {
+      setVisibleUploadCount(chatUploads.length)
+      return
+    }
+    const styles = window.getComputedStyle(container)
+    const gapPx = Number.parseFloat(styles.columnGap || styles.gap || '0') || 0
+    const widths = chatUploads.map((upload) => {
+      const uploadId = String(upload.upload_id)
+      const measured = uploadChipMeasureRefs.current[uploadId]?.offsetWidth
+      return Number.isFinite(measured) && measured && measured > 0 ? measured : UPLOAD_CHIP_FALLBACK_WIDTH
+    })
+    const overflowWidth = (() => {
+      const measured = uploadOverflowMeasureRef.current?.offsetWidth
+      return Number.isFinite(measured) && measured && measured > 0 ? measured : UPLOAD_OVERFLOW_CHIP_FALLBACK_WIDTH
+    })()
+    const pendingWidth = hasPendingUploads
+      ? (() => {
+        const measured = uploadPendingMeasureRef.current?.offsetWidth
+        return Number.isFinite(measured) && measured && measured > 0 ? measured : UPLOAD_PENDING_CHIP_FALLBACK_WIDTH
+      })()
+      : 0
+    const prefixSums: number[] = [0]
+    for (const width of widths) {
+      prefixSums.push(prefixSums[prefixSums.length - 1] + width)
+    }
+    let bestVisible = chatUploads.length
+    for (let visible = chatUploads.length; visible >= 0; visible -= 1) {
+      const hidden = chatUploads.length - visible
+      const trailingWidth = (hidden > 0 ? overflowWidth : 0) + (hasPendingUploads ? pendingWidth : 0)
+      const elementCount = visible + (hidden > 0 ? 1 : 0) + (hasPendingUploads ? 1 : 0)
+      const gapsTotal = elementCount > 0 ? gapPx * Math.max(0, elementCount - 1) : 0
+      const requiredWidth = prefixSums[visible] + trailingWidth + gapsTotal
+      if (requiredWidth <= availableWidth) {
+        bestVisible = visible
+        break
+      }
+    }
+    setVisibleUploadCount((prev) => (prev === bestVisible ? prev : bestVisible))
+  }, [chatFileScope, hasUploadChipRow, chatUploads, hasPendingUploads])
+
+  useLayoutEffect(() => {
+    recomputeVisibleUploadCount()
+  }, [recomputeVisibleUploadCount])
+
+  useEffect(() => {
+    const container = uploadChipsContainerRef.current
+    if (!container || chatFileScope || !hasUploadChipRow) return
+    const observer = new ResizeObserver(() => recomputeVisibleUploadCount())
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [chatFileScope, hasUploadChipRow, recomputeVisibleUploadCount])
+
+  useEffect(() => {
+    if (!chatFileScope && !hasActiveUploadAttachments && !hasPendingUploads) return
+    if (chatMode === 'researcher') return
+    setChatMode('researcher')
+    try {
+      window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'researcher')
+    } catch {
+      // ignore storage errors
+    }
+  }, [chatFileScope, chatMode, hasActiveUploadAttachments, hasPendingUploads])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const el = messagesContainerRef.current
@@ -331,10 +483,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     if (offline) return
     void continueLastScope(anchorMessageId, {
       mode: chatMode,
+      fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, continueLastScope, chatMode, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, continueLastScope, chatMode, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleRegenerate = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -346,14 +499,16 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     if (!previousUser) return
     void sendMessage(previousUser.content, {
       mode: chatMode,
+      fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, isStreaming, messages, sendMessage, chatMode, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, isStreaming, messages, sendMessage, chatMode, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleAskInAssistant = useCallback((assistantMessageIndex: number) => {
     if (offline) return
     if (isStreaming) return
+    if (hasScopedInputPill) return
     const previousUser = [...messages]
       .slice(0, assistantMessageIndex)
       .reverse()
@@ -367,10 +522,20 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     }
     void sendMessage(previousUser.content, {
       mode: 'assistant',
+      fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, isStreaming, messages, sendMessage, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [
+    offline,
+    isStreaming,
+    hasScopedInputPill,
+    messages,
+    sendMessage,
+    chatFileScope,
+    chatWebSearchPrivacyOverride,
+    chatWebSearchEnabled,
+  ])
 
   const handleNewChat = useCallback(() => {
     if (offline) return
@@ -401,10 +566,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
     setInputValue('')
     await sendMessage(text, {
       mode: chatMode,
+      fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, inputValue, sendMessage, chatMode, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, inputValue, sendMessage, chatMode, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleStop = useCallback(() => {
     if (offline) return
@@ -420,22 +586,35 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
   }
 
   const resizeTextarea = useCallback((ta: HTMLTextAreaElement) => {
+    const scopedExtra = hasScopedInputPill ? CHAT_INPUT_SCOPED_EXTRA_HEIGHT : 0
+    const minHeight = CHAT_INPUT_MIN_HEIGHT + scopedExtra
+    const maxHeight = CHAT_INPUT_MAX_HEIGHT + scopedExtra
     ta.style.height = 'auto'
-    const nextHeight = Math.min(Math.max(ta.scrollHeight, CHAT_INPUT_MIN_HEIGHT), CHAT_INPUT_MAX_HEIGHT)
+    const nextHeight = Math.min(Math.max(ta.scrollHeight, minHeight), maxHeight)
     ta.style.height = `${nextHeight}px`
-    ta.style.overflowY = ta.scrollHeight > CHAT_INPUT_MAX_HEIGHT ? 'auto' : 'hidden'
-  }, [])
+    const canScroll = ta.scrollHeight > maxHeight
+    ta.style.overflowY = canScroll ? 'auto' : 'hidden'
+    setTextareaCanScroll(canScroll)
+    if (!canScroll && ta.scrollTop !== 0) {
+      ta.scrollTop = 0
+    }
+    setTextareaHasTopScroll(ta.scrollTop > 0)
+  }, [hasScopedInputPill])
 
   useEffect(() => {
     const ta = textareaRef.current
     if (!ta) return
     resizeTextarea(ta)
-  }, [inputValue, resizeTextarea])
+  }, [inputValue, resizeTextarea, hasScopedInputPill])
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (offline) return
     setInputValue(e.target.value)
   }
+
+  const handleTextareaScroll = useCallback((e: React.UIEvent<HTMLTextAreaElement>) => {
+    setTextareaHasTopScroll(e.currentTarget.scrollTop > 0)
+  }, [])
 
   const webSearchToggleLocked = offline || isStreaming
   const webSearchToggleTitle = fullPrivacyMode
@@ -455,6 +634,125 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
       privacyOverride: nextPrivacyOverride,
     })
   }, [webSearchToggleLocked, chatWebSearchEnabled, fullPrivacyMode, setChatWebSearchPreferences])
+
+  const handleUploadControl = useCallback(() => {
+    if (offline || isStreaming || chatMode !== 'researcher') return
+    uploadInputRef.current?.click()
+  }, [offline, isStreaming, chatMode])
+
+  const uploadSelectedFiles = useCallback(async (selectedFiles: File[]) => {
+    if (selectedFiles.length === 0) return
+    if (offline || isStreaming || chatMode !== 'researcher') return
+    const selectedCount = selectedFiles.length
+    const uploadScopeKeyAtStart = contextChatId || '__draft__'
+    const uploadScopeKeyToSettle = uploadScopeKeyAtStart
+    if (uploadScopeKeyAtStart === '__draft__') {
+      draftPendingAliasChatIdRef.current = null
+    }
+    setPendingUploadCountsByChat((prev) => ({
+      ...prev,
+      [uploadScopeKeyAtStart]: (prev[uploadScopeKeyAtStart] ?? 0) + selectedCount,
+    }))
+    try {
+      await uploadFiles(selectedFiles, {
+        onChatResolved: (resolvedChatId: string) => {
+          if (uploadScopeKeyAtStart !== '__draft__') return
+          const normalizedChatId = String(resolvedChatId || '').trim()
+          if (!normalizedChatId) return
+          skipNextSelectChatIdRef.current = normalizedChatId
+          draftPendingAliasChatIdRef.current = normalizedChatId
+        },
+      })
+    } catch (err) {
+      logApiError(err, 'ChatView.handleUploadInputChange')
+    } finally {
+      await new Promise<void>((resolve) => {
+        window.requestAnimationFrame(() => resolve())
+      })
+      setPendingUploadCountsByChat((prev) => {
+        const current = prev[uploadScopeKeyToSettle] ?? 0
+        const remaining = Math.max(0, current - selectedCount)
+        if (remaining === current) return prev
+        const next = { ...prev }
+        if (remaining === 0) {
+          delete next[uploadScopeKeyToSettle]
+        } else {
+          next[uploadScopeKeyToSettle] = remaining
+        }
+        return next
+      })
+      if (uploadScopeKeyAtStart === '__draft__') {
+        draftPendingAliasChatIdRef.current = null
+      }
+    }
+  }, [chatMode, contextChatId, isStreaming, offline, uploadFiles])
+
+  const isFileDragEvent = useCallback((event: { dataTransfer: DataTransfer | null }): boolean => {
+    const transfer = event.dataTransfer
+    if (!transfer) return false
+    if ((transfer.files?.length ?? 0) > 0) return true
+    if (transfer.items && Array.from(transfer.items).some((item) => item.kind === 'file')) return true
+    const types = Array.from(transfer.types ?? []).map((value) => value.toLowerCase())
+    return types.some((value) => value === 'files' || value.includes('file') || value.includes('public.file-url'))
+  }, [])
+
+  const handleUploadInputChange = useCallback(async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const fileList = event.target.files
+    if (!fileList || fileList.length === 0) return
+    const selectedFiles = Array.from(fileList)
+    event.target.value = ''
+    await uploadSelectedFiles(selectedFiles)
+  }, [uploadSelectedFiles])
+
+  const handleComposerDragEnter = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!isFileDragEvent(event)) return
+    if (offline || isStreaming || chatMode !== 'researcher') return
+    event.preventDefault()
+    event.stopPropagation()
+    uploadDragDepthRef.current += 1
+    setIsDragOverComposer(true)
+  }, [chatMode, isFileDragEvent, isStreaming, offline])
+
+  const handleComposerDragOver = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!isFileDragEvent(event)) return
+    if (offline || isStreaming || chatMode !== 'researcher') return
+    event.preventDefault()
+    event.stopPropagation()
+    event.dataTransfer.dropEffect = 'copy'
+    if (!isDragOverComposer) {
+      setIsDragOverComposer(true)
+    }
+  }, [chatMode, isDragOverComposer, isFileDragEvent, isStreaming, offline])
+
+  const handleComposerDragLeave = useCallback((event: React.DragEvent<HTMLDivElement>) => {
+    if (!isFileDragEvent(event)) return
+    if (offline || isStreaming || chatMode !== 'researcher') return
+    event.preventDefault()
+    event.stopPropagation()
+    uploadDragDepthRef.current = Math.max(0, uploadDragDepthRef.current - 1)
+    if (uploadDragDepthRef.current === 0) {
+      setIsDragOverComposer(false)
+    }
+  }, [chatMode, isFileDragEvent, isStreaming, offline])
+
+  const handleComposerDrop = useCallback(async (event: React.DragEvent<HTMLDivElement>) => {
+    const selectedFiles = Array.from(event.dataTransfer.files || [])
+    if (selectedFiles.length === 0 && !isFileDragEvent(event)) return
+    event.preventDefault()
+    event.stopPropagation()
+    uploadDragDepthRef.current = 0
+    setIsDragOverComposer(false)
+    if (offline || isStreaming || chatMode !== 'researcher') return
+    await uploadSelectedFiles(selectedFiles)
+  }, [chatMode, isFileDragEvent, isStreaming, offline, uploadSelectedFiles])
+
+  const handleRemoveUpload = useCallback(async (uploadId: string) => {
+    try {
+      await removeUploadedFile(uploadId)
+    } catch (err) {
+      logApiError(err, 'ChatView.handleRemoveUpload')
+    }
+  }, [removeUploadedFile])
 
   return (
     <div className="chat-view">
@@ -515,6 +813,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                       streamStatusText={msg.streamStatusText}
                       streamSectionProgress={msg.streamSectionProgress}
                       streamPlanSteps={msg.streamPlanSteps}
+                      scopedFileName={msg.scopedFileName}
                       isPartial={msg.isPartial}
                       hasRemainingScope={msg.hasRemainingScope}
                       completionMode={msg.completionMode}
@@ -527,10 +826,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                       enableRawOutputControl={enableRawOutputControl}
                       onContinue={handleContinue}
                       onRegenerate={() => handleRegenerate(i)}
-                      onAssistantSwitch={() => handleAskInAssistant(i)}
+                      onAssistantSwitch={hideAssistantSwitch ? undefined : (() => handleAskInAssistant(i))}
                       canContinue={!offline && !isStreaming}
                       canRegenerate={!offline && !isStreaming}
-                      canAssistantSwitch={!offline && !isStreaming}
+                      canAssistantSwitch={!offline && !isStreaming && !hideAssistantSwitch}
                       actionsDisabled={offline}
                     />
                   ))}
@@ -543,10 +842,134 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                 }
               >
                 {error && <div className="chat-view__error">{error}</div>}
-                <div className="chat-view__input-wrapper">
+                <div
+                  className={
+                    `chat-view__input-wrapper${textareaCanScroll ? ' chat-view__input-wrapper--scrollable' : ''}${textareaHasTopScroll ? ' chat-view__input-wrapper--top-scrolled' : ''}${hasScopedInputPill ? ' chat-view__input-wrapper--scoped' : ''}${isDragOverComposer ? ' chat-view__input-wrapper--drag-active' : ''}`
+                  }
+                  onDragEnter={handleComposerDragEnter}
+                  onDragOver={handleComposerDragOver}
+                  onDragLeave={handleComposerDragLeave}
+                  onDrop={handleComposerDrop}
+                >
+                  <input
+                    ref={uploadInputRef}
+                    type="file"
+                    className="chat-view__upload-input"
+                    multiple
+                    onChange={handleUploadInputChange}
+                    tabIndex={-1}
+                    aria-hidden
+                  />
+                  {chatFileScope && (
+                    <span className="chat-view__scope-chip" title={chatFileScope.filename}>
+                      <i className={resolveFileIconFromFilename(chatFileScope.filename)} aria-hidden />
+                      <span>{chatFileScope.filename}</span>
+                      <button
+                        type="button"
+                        className="chat-view__scope-clear"
+                        onClick={clearChatFileScope}
+                        disabled={offline || isStreaming}
+                        aria-label="Clear file scope"
+                        title="Clear file scope"
+                      >
+                        <i className="ri-close-line" aria-hidden />
+                      </button>
+                    </span>
+                  )}
+                  {!chatFileScope && hasUploadChipRow && (
+                    <div
+                      ref={uploadChipsContainerRef}
+                      className="chat-view__upload-chips"
+                      role="list"
+                      aria-label="Uploaded files"
+                    >
+                      {visibleUploads.map((upload) => {
+                        const uploadId = String(upload.upload_id)
+                        const isReady = upload.state === 'ready'
+                        return (
+                          <span
+                            key={uploadId}
+                            className={`chat-view__upload-chip${isReady ? ' chat-view__upload-chip--ready' : ''}`}
+                            title={upload.filename_at_upload}
+                            role="listitem"
+                          >
+                            <span className="chat-view__upload-chip-label">
+                              <i className={resolveFileIconFromFilename(upload.filename_at_upload)} aria-hidden />
+                              <span>{upload.filename_at_upload}</span>
+                              {!isReady && <em>{upload.state === 'failed' ? 'Failed' : 'Indexing'}</em>}
+                            </span>
+                            <button
+                              type="button"
+                              className="chat-view__upload-chip-remove"
+                              onClick={() => void handleRemoveUpload(uploadId)}
+                              disabled={offline || isStreaming}
+                              aria-label={`Remove ${upload.filename_at_upload}`}
+                              title={`Remove ${upload.filename_at_upload}`}
+                            >
+                              <i className="ri-close-line" aria-hidden />
+                            </button>
+                          </span>
+                        )
+                      })}
+                      {hiddenUploadCount > 0 && (
+                        <span
+                          className="chat-view__upload-chip chat-view__upload-overflow-chip"
+                          title={`${hiddenUploadCount} more file${hiddenUploadCount === 1 ? '' : 's'} not shown`}
+                          role="listitem"
+                          aria-label={`${hiddenUploadCount} more uploaded files`}
+                        >
+                          <span className="chat-view__upload-chip-label">+{hiddenUploadCount}</span>
+                        </span>
+                      )}
+                      {hasPendingUploads && (
+                        <span
+                          className="chat-view__upload-chip chat-view__upload-overflow-chip chat-view__upload-overflow-chip--pending"
+                          title={pendingUploadCount === 1 ? 'Uploading 1 file...' : `Uploading ${pendingUploadCount} files...`}
+                          role="listitem"
+                          aria-label={pendingUploadCount === 1 ? 'Uploading 1 file' : `Uploading ${pendingUploadCount} files`}
+                        >
+                          <span className="chat-view__upload-chip-label">
+                            <i className="ri-loader-4-line chat-view__upload-chip-spinner" aria-hidden />
+                          </span>
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  {!chatFileScope && hasUploadChipRow && (
+                    <div className="chat-view__upload-measure" aria-hidden>
+                      {chatUploads.map((upload) => {
+                        const uploadId = String(upload.upload_id)
+                        const isReady = upload.state === 'ready'
+                        return (
+                          <span
+                            key={`measure-${uploadId}`}
+                            ref={(el) => { uploadChipMeasureRefs.current[uploadId] = el }}
+                            className={`chat-view__upload-chip${isReady ? ' chat-view__upload-chip--ready' : ''}`}
+                          >
+                            <span className="chat-view__upload-chip-label">
+                              <i className={resolveFileIconFromFilename(upload.filename_at_upload)} aria-hidden />
+                              <span>{upload.filename_at_upload}</span>
+                              {!isReady && <em>{upload.state === 'failed' ? 'Failed' : 'Indexing'}</em>}
+                            </span>
+                            <span className="chat-view__upload-chip-remove" aria-hidden>
+                              <i className="ri-close-line" aria-hidden />
+                            </span>
+                          </span>
+                        )
+                      })}
+                      <span ref={uploadOverflowMeasureRef} className="chat-view__upload-chip chat-view__upload-overflow-chip">
+                        <span className="chat-view__upload-chip-label">+999</span>
+                      </span>
+                      <span ref={uploadPendingMeasureRef} className="chat-view__upload-chip chat-view__upload-overflow-chip chat-view__upload-overflow-chip--pending">
+                        <span className="chat-view__upload-chip-label">
+                          <i className="ri-loader-4-line chat-view__upload-chip-spinner" aria-hidden />
+                        </span>
+                      </span>
+                    </div>
+                  )}
                   <textarea
                     ref={textareaRef}
-                    className="chat-view__textarea"
+                    className={`chat-view__textarea${hasScopedInputPill ? ' chat-view__textarea--scoped' : ''}`}
                     placeholder={
                       offline
                         ? 'Service unavailable'
@@ -558,6 +981,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                     }
                     value={inputValue}
                     onChange={handleTextareaChange}
+                    onScroll={handleTextareaScroll}
                     onKeyDown={handleKeyDown}
                     aria-label="Chat message input"
                     rows={1}
@@ -565,6 +989,17 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                   />
                   <div className="chat-view__controls-row">
                     <div className="chat-view__controls-left">
+                      {chatMode === 'researcher' && !chatFileScope && (
+                        <button
+                          type="button"
+                          className="chat-view__upload-toggle"
+                          onClick={handleUploadControl}
+                          disabled={offline || isStreaming}
+                          aria-label="Upload files"
+                        >
+                          <i className="ri-add-line" aria-hidden />
+                        </button>
+                      )}
                       {chatMode === 'assistant' && webSearchConfigured && (
                         <button
                           type="button"
@@ -597,15 +1032,18 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                         </button>
                         {modeMenuOpen && (
                           <div className="chat-view__mode-menu" role="menu">
-                            {ALL_CHAT_MODES.map((mode) => (
-                              <span key={mode} className="chat-view__mode-option-wrap">
+                            {ALL_CHAT_MODES.map((mode) => {
+                              const scopedModeLocked = (hasScopedInputPill && mode !== 'researcher')
+                              return (
+                                <span key={mode} className="chat-view__mode-option-wrap">
                                 <button
                                   type="button"
                                   className={`chat-view__mode-option${chatMode === mode ? ' chat-view__mode-option--active' : ''}`}
                                   role="menuitemradio"
                                   aria-checked={chatMode === mode}
-                                  disabled={offline || isStreaming}
+                                  disabled={offline || isStreaming || scopedModeLocked}
                                   onClick={() => {
+                                    if (scopedModeLocked) return
                                     setChatMode(mode)
                                     setModeMenuOpen(false)
                                     try {
@@ -619,7 +1057,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
                                   <span>{CHAT_MODE_LABELS[mode]}</span>
                                 </button>
                               </span>
-                            ))}
+                              )
+                            })}
                           </div>
                         )}
                       </div>
@@ -656,7 +1095,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null }: ChatView
             {messages.length > 0 && showScrollToBottom && !isInitialThinkingPhase && !offline && (
               <button
                 type="button"
-                className="chat-view__scroll-to-bottom"
+                className={`chat-view__scroll-to-bottom${hasScopedInputPill ? ' chat-view__scroll-to-bottom--scoped' : ''}`}
                 onClick={() => scrollToBottom()}
                 title="Scroll to bottom"
                 aria-label="Scroll to bottom"

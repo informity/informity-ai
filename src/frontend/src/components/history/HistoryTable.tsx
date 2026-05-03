@@ -21,13 +21,24 @@ const SORT_COLUMNS = ['title', 'date']
 type SortColumn = (typeof SORT_COLUMNS)[number]
 type SortOrder = 'asc' | 'desc'
 
+function normalizeHistoryTitle(value: string | null | undefined): string {
+  if (!value) return ''
+  return value
+    .replace(/^\s{0,3}#{1,6}\s+/, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/[*_`~]+/g, '')
+    .replace(/^\s*[-+*>\s]+/, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
 function sortChats(chats: ChatListItem[], field: string, order: string): ChatListItem[] {
   return [...chats].sort((a, b) => {
     let valA: string
     let valB: string
     if (field === 'title') {
-      valA = (a.title || a.last_message_preview || '').toLowerCase()
-      valB = (b.title || b.last_message_preview || '').toLowerCase()
+      valA = normalizeHistoryTitle(a.title || a.last_message_preview || '').toLowerCase()
+      valB = normalizeHistoryTitle(b.title || b.last_message_preview || '').toLowerCase()
     } else {
       valA = a.last_message_at || a.updated_at || ''
       valB = b.last_message_at || b.updated_at || ''
@@ -111,7 +122,7 @@ export function HistoryTable({
   const handleStartRename = useCallback((chat: ChatListItem, e?: React.MouseEvent) => {
     if (offline) return
     e?.stopPropagation()
-    const title = chat.title || chat.last_message_preview?.substring(0, 60) || 'Untitled'
+    const title = normalizeHistoryTitle(chat.title || chat.last_message_preview?.substring(0, 60) || '') || 'Untitled'
     setEditingChatId(chat.chat_id)
     setEditValue(title)
     setTimeout(() => editInputRef.current?.focus(), 0)
@@ -122,7 +133,7 @@ export function HistoryTable({
       if (offline) return
       const newTitle = editValue.trim()
       const chat = chats.find((c) => c.chat_id === chatId)
-      const currentTitle = chat?.title || chat?.last_message_preview?.substring(0, 60) || 'Untitled'
+      const currentTitle = normalizeHistoryTitle(chat?.title || chat?.last_message_preview?.substring(0, 60) || '') || 'Untitled'
 
       if (!newTitle || newTitle === currentTitle) {
         setEditingChatId(null)
@@ -259,8 +270,10 @@ export function HistoryTable({
           <tbody>
             {sorted.map((chat) => {
               const preview = chat.last_message_preview?.trim() || ''
+              const normalizedStoredTitle = normalizeHistoryTitle(chat.title || '')
+              const normalizedPreviewTitle = normalizeHistoryTitle(preview)
               const title =
-                chat.title || (preview.length > 60 ? preview.substring(0, 60) + '…' : preview) || 'Untitled'
+                normalizedStoredTitle || (normalizedPreviewTitle.length > 60 ? normalizedPreviewTitle.substring(0, 60) + '…' : normalizedPreviewTitle) || 'Untitled'
               const isEditing = editingChatId === chat.chat_id
 
               return (

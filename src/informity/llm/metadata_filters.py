@@ -67,7 +67,7 @@ class MetadataFilter:
     operator: FilterOperator
     value: int | str | list[int] | list[str]
 
-_ALLOWED_FILTER_FIELDS = {'year', 'category', 'extension', 'filename', 'block_type'}
+_ALLOWED_FILTER_FIELDS = {'year', 'category', 'extension', 'filename', 'block_type', 'file_id'}
 
 
 def _build_filter_sql(

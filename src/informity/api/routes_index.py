@@ -22,8 +22,10 @@ from informity.api.security import EndpointGuard
 from informity.config import DirNames, reset_to_factory_defaults, settings
 from informity.db.models import ScanRecord, ScanStatus
 from informity.db.sqlite import (
+    compact_database_if_empty_with_retries,
     get_chat_count,
     get_chunk_count,
+    get_connection,
     get_db,
     get_file_count,
     get_index_integrity_issues,
@@ -46,6 +48,7 @@ from informity.indexer.term_dictionary_builder import (
 from informity.scanner.crawler import scanned_file_for_path
 from informity.scanner.extractors.base import register_extractors
 from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE
+from informity.upload_policy import upload_root_dir
 
 # ==============================================================================
 # Logger
@@ -137,6 +140,16 @@ def _compute_disk_sizes() -> tuple[int, int]:
     return db_size_bytes, model_size_bytes
 
 
+def _count_files_under(path: Path) -> int:
+    if not path.exists():
+        return 0
+    total = 0
+    for child in path.rglob('*'):
+        if child.is_file():
+            total += 1
+    return total
+
+
 @router.get('/api/index/status', response_model=IndexStatusResponse)
 async def get_index_status(
     db: aiosqlite.Connection = Depends(get_db),
@@ -164,7 +177,12 @@ async def get_index_status(
             source_scope_stats         = [],
         )
 
-    total_files  = await get_file_count(db)
+    # Dashboard total_files should represent indexed source corpus only.
+    total_files  = await get_file_count(
+        db,
+        source_provider=FILESYSTEM_PROVIDER,
+        entity_type=SOURCE_ENTITY_FILE,
+    )
     total_chunks = await get_chunk_count(db)
 
     # Get vector store stats
@@ -216,7 +234,6 @@ async def reset_index(
     force: bool = False,
     source_provider: str | None = None,
     entity_type: str | None = None,
-    db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
     # Delete ALL user data: files, chunks, vectors, scan history,
     # chat messages, quality metrics, diagnostics (chat traces, evaluations, reports),
@@ -226,15 +243,18 @@ async def reset_index(
     # Runs in background so the request returns immediately.
 
     async with op_state.get_scan_operation_lock():
+        db = await get_connection()
         source_provider = (source_provider or '').strip().lower() or None
         entity_type = (entity_type or '').strip().lower() or None
         if (source_provider is None) != (entity_type is None):
+            await db.close()
             raise HTTPException(
                 status_code=400,
                 detail='source_provider and entity_type must be provided together for scoped reset.',
             )
 
         if not await op_state.try_begin_reset():
+            await db.close()
             raise HTTPException(
                 status_code=409,
                 detail='A reset is already in progress. Please wait for it to complete.',
@@ -245,11 +265,15 @@ async def reset_index(
         try:
             await op_state.resolve_running_scan(db, force=force, operation='reset')
         except HTTPException:
+            await db.close()
             await op_state.finish_reset(result=None)
             raise
         except _INDEX_RUNTIME_EXCEPTIONS:
+            await db.close()
             await op_state.finish_reset(result=None)
             raise
+        finally:
+            await db.close()
 
     background_tasks.add_task(
         _run_reset_task,
@@ -337,6 +361,8 @@ async def _run_reset_task(
         chat_traces_deleted = False
         diagnostics_deleted = False
         logs_deleted = False
+        uploads_deleted = False
+        upload_storage_files_deleted = 0
 
         if not scoped_reset:
             chat_traces_dir = settings.app_data_dir / DirNames.CHAT_LOGS
@@ -364,12 +390,32 @@ async def _run_reset_task(
                 except _INDEX_CLEANUP_EXCEPTIONS as exc:
                     log.error('reset_logs_failed', error=str(exc), exc_info=True)
 
+            uploads_dir = upload_root_dir()
+            if uploads_dir.exists():
+                try:
+                    upload_storage_files_deleted = await asyncio.to_thread(_count_files_under, uploads_dir)
+                    await asyncio.to_thread(shutil.rmtree, uploads_dir)
+                    uploads_deleted = True
+                    log.info('uploads_deleted', path=str(uploads_dir))
+                except _INDEX_CLEANUP_EXCEPTIONS as exc:
+                    log.error('reset_uploads_failed', error=str(exc), exc_info=True)
+
             # Phase 4: Reset settings/configuration to factory defaults.
             await asyncio.to_thread(reset_to_factory_defaults)
             log.info('settings_reset_to_factory_defaults_during_data_reset')
 
             # Keep runtime directories present after config reset.
             settings.ensure_directories()
+
+            # Final compaction pass with a fresh connection while reset_in_progress
+            # is still true, reducing poll-related contention and reclaiming space.
+            post_compaction = await compact_database_if_empty_with_retries()
+            if not bool(db_counts.get('storage_compacted', False)):
+                db_counts['storage_compacted'] = bool(post_compaction.get('storage_compacted', False))
+            if db_counts.get('compaction_error') and post_compaction.get('storage_compacted'):
+                db_counts['compaction_error'] = None
+            elif post_compaction.get('compaction_error'):
+                db_counts['compaction_error'] = post_compaction.get('compaction_error')
 
         # Invalidate adaptive top-k cache (corpus is empty)
         invalidate_tuning_cache()
@@ -397,6 +443,12 @@ async def _run_reset_task(
                 'chat_traces_deleted': chat_traces_deleted,
                 'diagnostics_deleted': diagnostics_deleted,
                 'logs_deleted': logs_deleted,
+                'uploads_deleted': uploads_deleted,
+                'upload_attachments_deleted': db_counts.get('upload_attachments', 0),
+                'upload_files_deleted': db_counts.get('upload_files', 0),
+                'upload_chunks_deleted': db_counts.get('upload_chunks', 0),
+                'upload_vectors_deleted': db_counts.get('upload_vectors', 0),
+                'upload_storage_files_deleted': upload_storage_files_deleted,
             }
 
         log.info(

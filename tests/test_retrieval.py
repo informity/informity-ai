@@ -9,7 +9,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from informity.llm.metadata_filters import extract_metadata_filters
-from informity.llm.retrieval import retrieve_chunks
+from informity.llm.retrieval import (
+    _apply_strict_title_file_focus,
+    _filter_structural_chunks_when_possible,
+    retrieve_chunks,
+)
+from informity.upload_policy import UPLOAD_ENTITY_TYPE, UPLOAD_PROVIDER
 
 
 def _make_async_mock_db():
@@ -51,6 +56,39 @@ async def test_retrieve_chunks_embeds_query(mock_db):
         await retrieve_chunks('test query', top_k=5, db=mock_db)
 
         mock_embedder.embed_query.assert_called_once_with('test query')
+
+
+def test_apply_strict_title_file_focus_keeps_best_overlap_file_only() -> None:
+    chunks = [
+        {'chunk_id': 1, 'file_id': 381, 'filename': 'The three musketeers.txt', 'score': 0.6},
+        {'chunk_id': 2, 'file_id': 381, 'filename': 'The three musketeers.txt', 'score': 0.5},
+        {'chunk_id': 3, 'file_id': 427, 'filename': 'Twenty years after.txt', 'score': 0.99},
+    ]
+    focused = _apply_strict_title_file_focus(
+        chunks=chunks,
+        query='general plot of The Three Musketeers',
+        strict_title_alignment=True,
+    )
+    assert len(focused) == 2
+    assert {int(chunk['file_id']) for chunk in focused} == {381}
+
+
+def test_filter_structural_chunks_when_possible_prefers_substantive_chunks() -> None:
+    structural = {
+        'chunk_id': 1,
+        'chunk_text': '*** START OF THE PROJECT GUTENBERG EBOOK THE THREE MUSKETEERS ***\nCONTENTS\nChapter I.',
+    }
+    substantive_chunks = [
+        {'chunk_id': idx, 'chunk_text': f'Dramatic narrative scene {idx} with character action and plot details.'}
+        for idx in range(2, 16)
+    ]
+    filtered = _filter_structural_chunks_when_possible(
+        chunks=[structural, *substantive_chunks],
+        prefer_substantive_sections=True,
+        top_k=12,
+    )
+    assert len(filtered) == len(substantive_chunks)
+    assert all(chunk['chunk_id'] != 1 for chunk in filtered)
 
 
 @pytest.mark.asyncio
@@ -106,6 +144,60 @@ async def test_retrieve_chunks_applies_filename_exclude_filters(mock_db):
             if f.field == 'filename' and f.operator == 'ne'
         ]
         assert len(filename_ne_filters) == 2
+
+
+@pytest.mark.asyncio
+async def test_retrieve_chunks_applies_file_ids_filter(mock_db):
+    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
+         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch('informity.llm.retrieval.build_where_clause_and_params') as mock_build_where:
+
+        mock_embedder.embed_query.return_value = [0.1] * 768
+        mock_vector_store.search_similar.return_value = []
+        mock_reranker.rerank.return_value = []
+        mock_build_where.return_value = ('file_id IN (?)', [42])
+
+        await retrieve_chunks(
+            'test query',
+            top_k=5,
+            file_ids_filter=[42],
+            db=mock_db,
+        )
+
+        filters = mock_build_where.call_args_list[0][0][0]
+        file_id_filters = [
+            f for f in filters
+            if f.field == 'file_id' and f.operator == 'in' and f.value == [42]
+        ]
+        assert len(file_id_filters) == 1
+
+
+@pytest.mark.asyncio
+async def test_retrieve_chunks_can_exclude_upload_sources(mock_db):
+    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
+         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch('informity.llm.retrieval.build_where_clause_and_params') as mock_build_where:
+
+        mock_embedder.embed_query.return_value = [0.1] * 768
+        mock_vector_store.search_similar.return_value = []
+        mock_reranker.rerank.return_value = []
+        mock_build_where.return_value = (None, [])
+
+        await retrieve_chunks(
+            'test query',
+            top_k=5,
+            exclude_upload_sources=True,
+            db=mock_db,
+        )
+
+        search_args = mock_vector_store.search_similar.call_args[0]
+        where_clause = search_args[2]
+        where_params = search_args[3]
+        assert 'source_provider = ?' in where_clause
+        assert 'entity_type = ?' in where_clause
+        assert where_params[-2:] == [UPLOAD_PROVIDER, UPLOAD_ENTITY_TYPE]
 
 
 @pytest.mark.asyncio
@@ -308,6 +400,123 @@ async def test_retrieve_chunks_applies_section_filter(mock_db):
         rerank_chunks = mock_reranker.rerank.call_args[0][1]
         assert len(rerank_chunks) == 1
         assert rerank_chunks[0]['section_path'] == 'Conclusion'
+
+
+@pytest.mark.asyncio
+async def test_retrieve_chunks_prefers_substantive_sections_for_synthesis_requests(mock_db):
+    from informity.config import settings as real_settings
+    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
+         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch.object(real_settings, 'rag_rerank', True):
+        mock_embedder.embed_query.return_value = [0.1] * 768
+        mock_vector_store.search_similar.return_value = [
+            {'chunk_id': 1, 'chunk_text': 'chunk 1', 'score': 0.21},
+            {'chunk_id': 2, 'chunk_text': 'chunk 2', 'score': 0.19},
+        ]
+        mock_vector_store.fts5_augment_candidates.return_value = []
+        mock_reranker.rerank.return_value = [
+            {
+                'chunk_id': 1,
+                'score': 0.81,
+                'section_path': None,
+                'chunk_text': '*** START OF THE PROJECT GUTENBERG EBOOK THE THREE MUSKETEERS *** CONTENTS AUTHOR’S PREFACE',
+            },
+            {
+                'chunk_id': 2,
+                'score': 0.79,
+                'section_path': 'Executive Summary',
+                'chunk_text': 'Executive summary with substantive details about obligations and timelines.',
+            },
+        ]
+
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[
+            {
+                'chunk_id': 1, 'file_id': 10, 'file_path': '/f10', 'filename': 'f10.txt',
+                'chunk_text': '*** START OF THE PROJECT GUTENBERG EBOOK THE THREE MUSKETEERS *** CONTENTS AUTHOR’S PREFACE',
+                'page_number': 1, 'start_page': 1, 'end_page': 1,
+                'section_path': None, 'block_type': 'narrative', 'parent_id': None,
+            },
+            {
+                'chunk_id': 2, 'file_id': 10, 'file_path': '/f10', 'filename': 'f10.txt',
+                'chunk_text': 'Executive summary with substantive details about obligations and timelines.',
+                'page_number': 2, 'start_page': 2, 'end_page': 2,
+                'section_path': 'Executive Summary', 'block_type': 'narrative', 'parent_id': None,
+            },
+        ])
+        mock_db.execute = AsyncMock(return_value=mock_cursor)
+
+        results = await retrieve_chunks(
+            'What is this document about?',
+            top_k=1,
+            prefer_substantive_sections=True,
+            db=mock_db,
+        )
+
+    assert len(results) == 1
+    assert results[0]['chunk_id'] == 2
+
+
+@pytest.mark.asyncio
+async def test_retrieve_chunks_prefers_filename_alignment_when_enabled(mock_db):
+    from informity.config import settings as real_settings
+    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
+         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch.object(real_settings, 'rag_rerank', True):
+        mock_embedder.embed_query.return_value = [0.1] * 768
+        mock_vector_store.search_similar.return_value = [
+            {'chunk_id': 1, 'chunk_text': 'chunk 1', 'score': 0.21},
+            {'chunk_id': 2, 'chunk_text': 'chunk 2', 'score': 0.19},
+        ]
+        mock_vector_store.fts5_augment_candidates.return_value = []
+        mock_reranker.rerank.return_value = [
+            {
+                'chunk_id': 1,
+                'score': 0.80,
+                'file_id': 10,
+                'filename': 'The three musketeers.txt',
+                'chunk_text': 'DArtagnan in first book',
+                'section_path': 'Chapter 1',
+                'block_type': 'narrative',
+            },
+            {
+                'chunk_id': 2,
+                'score': 0.79,
+                'file_id': 11,
+                'filename': 'Twenty years after.txt',
+                'chunk_text': 'DArtagnan twenty years later',
+                'section_path': 'Chapter 1',
+                'block_type': 'narrative',
+            },
+        ]
+
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[
+            {
+                'chunk_id': 1, 'file_id': 10, 'file_path': '/f10', 'filename': 'The three musketeers.txt',
+                'chunk_text': 'DArtagnan in first book', 'page_number': 1, 'start_page': 1, 'end_page': 1,
+                'section_path': 'Chapter 1', 'block_type': 'narrative', 'parent_id': None,
+            },
+            {
+                'chunk_id': 2, 'file_id': 11, 'file_path': '/f11', 'filename': 'Twenty years after.txt',
+                'chunk_text': 'DArtagnan twenty years later', 'page_number': 2, 'start_page': 2, 'end_page': 2,
+                'section_path': 'Chapter 1', 'block_type': 'narrative', 'parent_id': None,
+            },
+        ])
+        mock_db.execute = AsyncMock(return_value=mock_cursor)
+
+        results = await retrieve_chunks(
+            'Compare DArtagnan in The Three Musketeers and Twenty Years After',
+            top_k=1,
+            prefer_title_alignment=True,
+            title_alignment_query='Compare DArtagnan in The Three Musketeers and Twenty Years After',
+            db=mock_db,
+        )
+
+    assert len(results) == 1
+    assert results[0]['filename'] == 'Twenty years after.txt'
 
 
 @pytest.mark.asyncio

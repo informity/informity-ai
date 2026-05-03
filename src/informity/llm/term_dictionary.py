@@ -36,6 +36,34 @@ _PERSON_INTENT_HINTS: tuple[str, ...] = (
     'identify',
     'identified',
 )
+_RETRIEVAL_EXPANSION_BLOCKED_ALIASES: frozenset[str] = frozenset(
+    {
+        'a',
+        'about',
+        'an',
+        'and',
+        'book',
+        'document',
+        'entry',
+        'file',
+        'for',
+        'in',
+        'is',
+        'item',
+        'material',
+        'note',
+        'of',
+        'on',
+        'or',
+        'paper',
+        'record',
+        'source',
+        'text',
+        'the',
+        'this',
+        'up',
+    }
+)
 
 
 def _clamp_int(value: int, *, minimum: int, maximum: int, fallback: int) -> int:
@@ -132,6 +160,15 @@ def _allow_person_name_expansion_for_query(query: str) -> bool:
     has_scope_hint = any(hint in tokens for hint in _PERSON_SCOPE_HINTS)
     has_intent_hint = any(hint in tokens for hint in _PERSON_INTENT_HINTS)
     return has_scope_hint and has_intent_hint
+
+
+def _is_retrieval_alias_allowed(alias_norm: str) -> bool:
+    normalized = normalize_term_text(alias_norm)
+    if not normalized:
+        return False
+    if normalized in _RETRIEVAL_EXPANSION_BLOCKED_ALIASES:
+        return False
+    return len(normalized) >= 3
 
 
 @dataclass(slots=True)
@@ -235,6 +272,8 @@ async def expand_query_for_retrieval(
         alias_norm = str(row.get('normalized_alias') or '').strip()
         if not alias_norm or ' ' not in alias_norm:
             continue
+        if not _is_retrieval_alias_allowed(alias_norm):
+            continue
         if str(row.get('term_type') or '').strip() == 'person_name' and not person_name_expansion_allowed:
             continue
         if alias_norm in matched_aliases:
@@ -261,6 +300,8 @@ async def expand_query_for_retrieval(
         alias_norm = str(row.get('normalized_alias') or '').strip()
         if not alias_norm or ' ' in alias_norm:
             continue
+        if not _is_retrieval_alias_allowed(alias_norm):
+            continue
         if str(row.get('term_type') or '').strip() == 'person_name' and not person_name_expansion_allowed:
             continue
         if alias_norm in matched_aliases:
@@ -286,6 +327,8 @@ async def expand_query_for_retrieval(
         for row in alias_rows:
             alias_norm = str(row.get('normalized_alias') or '').strip()
             if not alias_norm or ' ' in alias_norm or alias_norm in matched_aliases:
+                continue
+            if not _is_retrieval_alias_allowed(alias_norm):
                 continue
             if str(row.get('term_type') or '').strip() == 'person_name' and not person_name_expansion_allowed:
                 continue

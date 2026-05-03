@@ -2,7 +2,7 @@
 
 This file is the **single source of truth** for types, interfaces, and module responsibilities. When generating code for any module, consult this file first.
 
-**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, security, chat_completion_policy, chat_out_of_corpus, chat_sources, error_messages, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils); `sources/` (base, filesystem_adapter, registry, orchestrator); `scanner/` (crawler, watcher, extractors — docling unified extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, model_adapter, rag QueryRouter, query_classifier, query_patterns, nlp_heuristics, types, retrieval, prompt_builder, streaming, metadata_filters, intent_router, classification_policy, promptcue_adapter, term_dictionary, chat_mode, contract_gate, contract_prompt_parser, metrics_payload, system_prompts, timeout_policy, user_messages, web_search, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics runtime modules: `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
+**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `upload_policy.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, security, chat_completion_policy, chat_out_of_corpus, chat_sources, error_messages, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils, file_utils, number_utils); `sources/` (base, filesystem_adapter, registry, orchestrator); `scanner/` (crawler, watcher, extractors — docling unified extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, model_adapter, rag, query_classifier, query_patterns, nlp_heuristics, types, retrieval, prompt_builder, streaming, metadata_filters, intent_router, classification_policy, promptcue_adapter, term_dictionary, chat_mode, contract_gate, contract_prompt_parser, metrics_payload, system_prompts, timeout_policy, user_messages, web_search, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics runtime modules: `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
 
 ---
 
@@ -221,7 +221,32 @@ class ChatMessage(BaseModel):
     content:            str
     sources:           list[dict] = Field(default_factory=list)  # Full source reference objects
     generation_seconds: float | None = None   # Time to generate answer (assistant only)
+    completion_mode:    str | None = None
+    stopped_by_user:    bool = False
+    has_remaining_scope: bool = False
+    next_action:        str | None = None
+    next_action_reason: str | None = None
+    chat_mode:          str | None = None
+    retrieval_scope_kind: str | None = None   # assistant_mode | indexed_corpus | indexed_files | chat_uploads
+    retrieval_scope_key:  str | None = None   # scope-specific key used for history partitioning
+    model_filename:     str | None = None
+    is_internal:        bool = False
     created_at:        datetime | None = None
+
+class ChatUploadAttachment(BaseModel):
+    """Chat-scoped uploaded file attachment lifecycle state."""
+    id:                    int | None = None
+    upload_id:             str
+    chat_id:               str
+    file_id:               int | None = None
+    filename_at_upload:    str
+    size_bytes:            int = 0
+    content_hash:          str | None = None
+    state:                 str = 'uploading'  # uploading | indexing | ready | deleting | deleted | failed
+    referenced_message_ids: list[int] = Field(default_factory=list)
+    uploaded_at:           datetime | None = None
+    updated_at:            datetime | None = None
+    removed_at:            datetime | None = None
 ```
 
 ### API Schemas (Request/Response)
@@ -229,7 +254,7 @@ class ChatMessage(BaseModel):
 ```python
 # src/informity/api/schemas.py
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from datetime import datetime
 
 # --- Scan ---
@@ -269,6 +294,20 @@ class SearchResponse(BaseModel):
 class ChatRequest(BaseModel):
     message: str
     chat_id: str | None = None  # None = new chat
+    scoped_file_ids: list[int] | None = Field(default=None, min_length=1)  # Optional one-or-more file scope
+    scoped_upload_ids: list[str] | None = Field(default=None, min_length=1)  # Optional one-or-more upload_id scope
+    request_id: str | None = None
+    run_id: str | None = None
+    mode: str | None = None
+    chat_web_search_enabled: bool | None = None
+    chat_web_search_privacy_override: bool | None = None
+
+    @model_validator(mode='before')
+    @classmethod
+    def _reject_legacy_file_id(cls, values):
+        if isinstance(values, dict) and values.get('file_id') is not None:
+            raise ValueError('file_id is no longer supported. Use scoped_file_ids (or scoped_upload_ids).')
+        return values
 
 class ChatSourceReference(BaseModel):
     filename: str
@@ -408,7 +447,7 @@ class HealthResponse(BaseModel):
 ### `db/sqlite.py`
 - Manages async SQLite via aiosqlite; `init_db()` creates complete schema (SCHEMA_VERSION=1). No migration framework — schema is recreated from DDL on fresh DBs; startup repairs recreate indexes and FTS triggers to fix stale definitions; `_ensure_schema_version` fails closed on version mismatch.
 - Tables: `files`, `chunks` (with `parent_id`, `page_number`, `section_path`, `block_type`), `config`, `scan_history`, `chat_messages` (chat_id, role, content, sources, generation_seconds), `chats` (chat_id, title, created_at, updated_at), `response_diagnostics_metrics` (diagnostics metrics for evaluation runs and user chats when enabled).
-- Provides: `get_connection` (opens new async connection), `get_db` (FastAPI `Depends` helper), `init_db`; `insert_file`, `get_file_by_path`, `get_file_by_id`, `update_file`, `delete_file`, `get_files`, `get_files_by_ids`, `get_all_files_for_scan`, `get_distinct_years`, `get_distinct_categories`, `get_distinct_extensions`, `get_distinct_tags`, `get_file_ids_matching_filters`, `get_file_ids_ordered_for_coverage`; `insert_chunks_batch`, `get_chunks_by_parent_ids`, `delete_chunks_for_file`; `insert_scan_record`, `update_scan_record`, `get_latest_scan`, `get_latest_completed_scan`, `clear_stale_running_scans`; `insert_chat_message`, `get_chat`, `get_chats`, `get_chat_count`, `set_chat_title`, `ensure_chat_exists`, `delete_chat`; `insert_diagnostics_metrics`, `get_diagnostics_metrics_since`; `reset_all_data`, `get_file_count`, `get_chunk_count`, `get_corpus_stats`, `get_indexed_content_size_bytes`.
+- Provides: `get_connection` (opens new async connection), `get_db` (FastAPI `Depends` helper), `init_db`; `insert_file`, `get_file_by_path`, `get_file_by_source_identity`, `get_file_by_id`, `update_file`, `delete_file`, `get_files`, `get_files_by_ids`, `get_all_files_for_scan`, `get_distinct_years`, `get_distinct_categories`, `get_distinct_extensions`, `get_distinct_tags`, `get_file_ids_matching_filters`, `get_file_ids_ordered_for_coverage`; `insert_chunks_batch`, `get_chunks_by_parent_ids`, `delete_chunks_for_file`; `insert_scan_record`, `update_scan_record`, `get_latest_scan`, `get_latest_completed_scan`, `clear_stale_running_scans`; `insert_chat_message`, `get_chat`, `get_chats`, `get_chat_count`, `set_chat_title`, `ensure_chat_exists`, `delete_chat`; `insert_diagnostics_metrics`, `get_diagnostics_metrics_since`; `reset_all_data`, `get_file_count`, `get_chunk_count`, `get_corpus_stats`, `get_indexed_content_size_bytes`.
 - **Imports:** aiosqlite, config, db.models
 - **Imported by:** api routes, indexer pipeline, llm.rag, llm.retrieval, llm.handlers.*, diagnostics modules
 
@@ -511,14 +550,15 @@ class HealthResponse(BaseModel):
 - **Imported by:** llm.rag, llm.handlers.rag, api.routes_chat
 
 ### `llm/rag.py`
-- QueryRouter (v2): classifies query via `query_classifier.classify_query()` → dispatches to handler (MetadataHandler, SimpleHandler, or RAGHandler) based on intent.
+- `_resolve_handler_for_classification` (v2): classifies query via `query_classifier.classify_query()` → dispatches to handler (MetadataHandler, SimpleHandler, or RAGHandler) based on intent.
 - **Imports:** query_classifier, handlers (metadata, simple, rag), db.models (ChatMessage), chat_trace (TraceWriter)
 - **Imported by:** api.routes_chat
 
 ### `llm/query_classifier.py`
 - Deterministic slot extraction and intent routing (v2). Classifies query using NLP heuristics + promptcue intent router (no separate LLM call). Extracts year, category, file_type, filename filters; detects intent and assigns IntentProfileId. Applies term dictionary expansion via `term_dictionary.expand_query_for_routing()`.
+- Consumes PromptCue `prompt_signals` (when available) for continuation and requested output-format handling, while keeping app-specific routing policy local.
 - Returns `QueryClassification` dataclass with intent, filters, intent profile, output shape, group-by, block type, and routing reason codes.
-- **Imports:** structlog, query_patterns, intent_router, term_dictionary, llm.types
+- **Imports:** structlog, query_patterns, promptcue_signals, intent_router, term_dictionary, llm.types
 - **Imported by:** llm.rag, llm.handlers.*
 
 ### `llm/query_patterns.py`
@@ -528,10 +568,17 @@ class HealthResponse(BaseModel):
 - **Imports:** re
 - **Imported by:** llm.query_classifier
 
+### `llm/promptcue_signals.py`
+- App-side adapter for prompt-shape cues. Uses precomputed PromptCue outputs when available, otherwise evaluates centralized PromptCue pattern constants directly (no extra model/classification pass).
+- Exposes `extract_prompt_signals()` returning normalized cue snapshot (`has_topic_shift_cue`, `has_referential_followup`, `requests_continuation`, output-format cues, etc.).
+- Keeps policy decisions in app modules (`context_scope_manager`, `query_classifier`, handlers) while avoiding duplicated generic cue regex ownership.
+- **Imports:** re (+ optional `promptcue.patterns`)
+- **Imported by:** llm.query_classifier, llm.rag_patterns, api.context_scope_manager
+
 ### `llm/retrieval.py`
-- Unified retrieval pipeline (v2): embed query → vector search with WHERE clauses (year, category, extension filters) → rerank (when enabled by settings) → top-k. For coverage queries, uses file-anchored retrieval (one chunk per file, exhaustive).
+- Unified retrieval pipeline (v2): embed query → vector search with WHERE clauses (year, category, extension filters, upload-source exclusion for unscoped corpus turns) → rerank (when enabled by settings) → top-k. For coverage queries, uses file-anchored retrieval (one chunk per file, exhaustive). Supports summary-oriented substantive-section preference to de-prioritize structural sections (appendix/contents/etc.) when synthesis intent is detected.
 - Records metrics in trace writer: `raw_chunks_count`, `children_reranked`, `children_after_structural_filter`, `children_returned`, `parents_returned`.
-- **Imports:** embedder, reranker, db.vectors, db.sqlite (get_chunks_by_parent_ids, get_file_ids_matching_filters), metadata_filters, chat_trace (TraceWriter)
+- **Imports:** embedder, reranker, db.vectors, db.sqlite (get_chunks_by_parent_ids, get_file_ids_matching_filters), metadata_filters, upload_policy (`UPLOAD_PROVIDER`, `UPLOAD_ENTITY_TYPE`), chat_trace (TraceWriter)
 - **Imported by:** llm.handlers.rag
 
 ### `llm/prompt_builder.py`
@@ -581,6 +628,7 @@ class HealthResponse(BaseModel):
 ### `api/routes_scan.py`
 - `POST /api/scan` — trigger scan (background); supports force=true to cancel running/stale scan (uses operation_state.resolve_running_scan)
 - `GET /api/scan/status` — current scan status
+- `GET /api/scan/errors` — list scan errors for the latest scan
 - `GET /api/files` — list indexed files (paginated, filterable)
 - `GET /api/files/{id}` — single file details + extracted text preview
 - `POST /api/files/{id}/reindex` — re-index a single file
@@ -603,6 +651,14 @@ class HealthResponse(BaseModel):
 
 ### `api/routes_chat.py`
 - `POST /api/chat` — send message, stream response (SSE); returns chat_id in first event
+- Request supports optional scoped retrieval via:
+  - `scoped_file_ids` (one or more indexed file IDs)
+  - `scoped_upload_ids` (one or more chat upload IDs; Researcher mode only)
+- Upload lifecycle endpoints:
+  - `GET /api/chat/chats/{chat_id}/uploads` — list chat-scoped uploads
+  - `POST /api/chat/uploads` — upload + index a temporary chat attachment
+  - `DELETE /api/chat/uploads/{upload_id}` — delete one chat attachment (bytes + index artifacts)
+- `POST /api/chat/stop` — stop active stream by stream/request/chat identifiers
 - `GET /api/chat/chats` — list chats (chat_id, last_message_preview, title, etc.)
 - `GET /api/chat/chats/{chat_id}` — chat messages for one chat
 - `PUT /api/chat/chats/{chat_id}/title` — set chat title
@@ -643,6 +699,14 @@ class HealthResponse(BaseModel):
 - **Imports:** re, file_types
 - **Imported by:** llm.metadata_filters, indexer.classifier
 
+### `upload_policy.py`
+- Upload-scope ingestion policy and limits for chat attachments.
+- Provides scope IDs: `UPLOAD_PROVIDER`, `UPLOAD_ENTITY_TYPE`.
+- Provides limits: `MAX_UPLOAD_FILE_SIZE_MB`, `MAX_UPLOAD_FILES_PER_CHAT`, `MAX_UPLOAD_TOTAL_SIZE_MB`.
+- Provides helpers: `upload_root_dir()`, `max_upload_file_size_bytes()`, `max_upload_total_size_bytes()`, `is_allowed_extension(filename)`, `is_allowed_mime(content_type)`.
+- **Imports:** pathlib, config
+- **Imported by:** api.routes_chat, api.routes_index, api.routes_scan
+
 ### `utils/path_utils.py`
 - Standardized path resolution and normalization utilities.
 - Provides: `normalize_path()` (resolves and expands user home), `normalize_paths()` (batch normalization), `resolve_and_check_path()` (validates path existence).
@@ -660,6 +724,18 @@ class HealthResponse(BaseModel):
 - Provides: `ensure_directory()` (creates directory if missing), `ensure_directories()` (batch creation), `ensure_file_directory()` (ensures parent directory of file path).
 - **Imports:** pathlib
 - **Imported by:** config, logging_config, chat_trace, llm.engine, api.routes_settings
+
+### `utils/file_utils.py`
+- File-name/extension normalization helpers shared across indexing and retrieval.
+- Provides: `normalize_extension(extension: str | None) -> str` (canonical lowercase extension with leading `.` or empty string).
+- **Imports:** none
+- **Imported by:** llm.retrieval, llm.handlers.metadata, indexer.pipeline
+
+### `utils/number_utils.py`
+- Safe numeric coercion helpers for API/runtime payload parsing.
+- Provides: `safe_int(value, default=0) -> int`, `safe_float(value, default=0.0) -> float`.
+- **Imports:** none
+- **Imported by:** api.routes_chat
 
 ### `logging_config.py`
 - Configures structlog: console + general.log (app log_level) + errors.log (ERROR only); daily rotation, 7-day retention; third-party loggers set to WARNING.
@@ -697,9 +773,9 @@ Core types live in `src/informity/diagnostics/` (issue_types, observer, resource
 ### `main.py`
 - FastAPI app; health `GET /api/health` (HealthResponse); mounts static frontend from `src/frontend/dist/` when built (Vite output). Vanilla backup archived at `.archive/frontend-bak/`.
 - Sets HF env (HF_HOME, HF_HUB_CACHE, HF_HUB_OFFLINE/TRANSFORMERS_OFFLINE from full_privacy/embedding_offline) before importing embedder/reranker.
-- Lifespan: ensure_directories, _remove_models_dir_cache, init_db, clear_stale_running_scans, start_watcher; shutdown: stop_watcher, _cleanup_models (embedder.unload, reranker.unload), _kill_child_processes.
+- Lifespan: ensure_directories, remove_models_dir_cache, init_db, clear_stale_running_scans, start_watcher; shutdown: stop_watcher, _cleanup_models (embedder.unload, reranker.unload), _kill_child_processes.
 - Signal/atexit: _cleanup_models; SIGTERM/SIGINT (when not dev_reload) call _signal_cleanup then _exit.
-- **Imports:** routers (scan, index, chat, search, settings), config, db.sqlite (init_db, clear_stale_running_scans), embedder, reranker, watcher, logging_config, llm.engine (_remove_models_dir_cache)
+- **Imports:** routers (scan, index, chat, search, settings), config, db.sqlite (init_db, clear_stale_running_scans), embedder, reranker, watcher, logging_config, llm.engine (remove_models_dir_cache)
 
 ---
 
@@ -799,6 +875,7 @@ main.py ← logging_config (configure_logging before loggers)
 |--------|------|-------------|-------------|
 | `POST` | `/api/scan` | Trigger file scan + index (force=true to cancel running) | Yes |
 | `GET` | `/api/scan/status` | Current scan progress | No |
+| `GET` | `/api/scan/errors` | Scan errors for the latest scan | No |
 | `GET` | `/api/files` | List indexed files (paginated, filterable) | No |
 | `GET` | `/api/files/{id}` | Single file detail | No |
 | `POST` | `/api/files/{id}/reindex` | Re-index a single file | No |
@@ -812,8 +889,12 @@ main.py ← logging_config (configure_logging before loggers)
 | `POST` | `/api/index/term-dictionary/rebuild` | Trigger term dictionary rebuild | Yes |
 | `POST` | `/api/index/term-dictionary/purge` | Delete all term dictionary data | No |
 | `POST` | `/api/chat` | Send message, stream response (SSE) | No (streaming) |
+| `POST` | `/api/chat/stop` | Stop active chat stream | No |
 | `GET` | `/api/chat/chats` | List chats | No |
 | `GET` | `/api/chat/chats/{chat_id}` | Get chat messages | No |
+| `GET` | `/api/chat/chats/{chat_id}/uploads` | List chat-scoped uploaded attachments | No |
+| `POST` | `/api/chat/uploads` | Upload + index temporary chat attachment | No |
+| `DELETE` | `/api/chat/uploads/{upload_id}` | Delete one chat-scoped uploaded attachment | No |
 | `PUT` | `/api/chat/chats/{chat_id}/title` | Set chat title | No |
 | `DELETE` | `/api/chat/chats/{chat_id}` | Delete chat and messages | No |
 | `GET` | `/api/settings` | Get current settings | No |
@@ -849,7 +930,11 @@ from sse_starlette.sse import EventSourceResponse
 @router.post("/api/chat")
 async def chat(request: ChatRequest):
     async def event_generator():
-        async for token in rag.answer_question(request.message, request.chat_id):
+        async for token in rag.answer_question(
+            request.message,
+            request.chat_id,
+            file_ids=request.scoped_file_ids,
+        ):
             yield {"event": "token", "data": token}
         yield {"event": "done", "data": ""}
     return EventSourceResponse(event_generator())

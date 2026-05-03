@@ -3,18 +3,23 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { ChatView } from './ChatView'
 import { ChatProvider } from '../../context/ChatProvider'
 import { ConfirmProvider } from '../../context/ConfirmProvider'
+import { CHAT_FILE_SCOPE_MAP_STORAGE_KEY } from '../../utils/storageKeys'
 
-const {
-  getChatMock,
-  getCurrentChatMock,
-  getMessageRawMock,
+  const {
+    getFilesMock,
+    getChatMock,
+    getCurrentChatMock,
+    listChatUploadsMock,
+    getMessageRawMock,
   getSettingsMock,
   streamChatMock,
   updateSettingsMock,
   updateCurrentChatMock,
 } = vi.hoisted(() => ({
+  getFilesMock: vi.fn(),
   getChatMock: vi.fn(),
   getCurrentChatMock: vi.fn(),
+  listChatUploadsMock: vi.fn(),
   getMessageRawMock: vi.fn(),
   getSettingsMock: vi.fn(),
   streamChatMock: vi.fn(),
@@ -37,8 +42,10 @@ vi.mock('../../api', () => {
 
   return {
     ApiError: MockApiError,
+    getFiles: getFilesMock,
     getChat: getChatMock,
     getCurrentChat: getCurrentChatMock,
+    listChatUploads: listChatUploadsMock,
     getMessageRaw: getMessageRawMock,
     getSettings: getSettingsMock,
     streamChat: streamChatMock,
@@ -57,10 +64,13 @@ describe('ChatView new chat behavior', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    getFilesMock.mockResolvedValue({ files: [] })
+    listChatUploadsMock.mockResolvedValue({ chat_id: 'test-chat', attachments: [] })
   })
 
   afterEach(() => {
     cleanup()
+    window.localStorage.removeItem(CHAT_FILE_SCOPE_MAP_STORAGE_KEY)
   })
 
   it('does not reselect initial history chat after New Chat', async () => {
@@ -160,5 +170,221 @@ describe('ChatView new chat behavior', () => {
     await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
     expect(streamChatMock.mock.calls[0][3]).toMatchObject({ mode: 'assistant' })
     expect(streamChatMock.mock.calls[0][3]).toMatchObject({ requestId: expect.any(String) })
+  })
+
+  it('retains file scope when opening a scoped chat from history and uses it on send', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockImplementation(async (_message, _chatId, callbacks) => {
+      callbacks.onDone?.({ elapsed_seconds: 0.2, message_id: 5001 })
+    })
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({
+      messages: [
+        {
+          id: 102,
+          role: 'assistant',
+          content: 'History response',
+          sources: [],
+          created_at: '2026-02-23T12:00:00.000Z',
+        },
+      ],
+    })
+    window.localStorage.setItem(CHAT_FILE_SCOPE_MAP_STORAGE_KEY, JSON.stringify({
+      'chat-history-file-1': { fileId: 77, filename: 'The Ethics of Aristotle.txt' },
+    }))
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialChatId="chat-history-file-1" />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-history-file-1'))
+    expect(await screen.findByRole('button', { name: 'Clear file scope' })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'Summarize this file' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ fileId: 77 })
+  })
+
+  it('clears file scope with x-out and sends next message against full corpus', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockImplementation(async (_message, _chatId, callbacks) => {
+      callbacks.onDone?.({ elapsed_seconds: 0.2, message_id: 5002 })
+    })
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({ messages: [] })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialScopedFile={{ fileId: 42, filename: 'focused-file.txt' }} />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    expect(await screen.findByTitle('focused-file.txt')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'Scoped question' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(1))
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ fileId: 42 })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear file scope' }))
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Clear file scope' })).not.toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'Now use full corpus' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(2))
+    expect(streamChatMock.mock.calls[1][3]).toMatchObject({ fileId: null })
+  })
+
+  it('keeps per-chat scope independent when clearing one chat and opening another', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockResolvedValue(undefined)
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockImplementation(async (chatId: string) => ({
+      messages: [
+        {
+          id: chatId === 'chat-a' ? 301 : 302,
+          role: 'assistant',
+          content: chatId === 'chat-a' ? 'A response' : 'B response',
+          sources: [],
+          created_at: '2026-02-23T12:00:00.000Z',
+        },
+      ],
+    }))
+
+    window.localStorage.setItem(CHAT_FILE_SCOPE_MAP_STORAGE_KEY, JSON.stringify({
+      'chat-a': { fileId: 11, filename: 'File-A.txt' },
+      'chat-b': { fileId: 22, filename: 'File-B.txt' },
+    }))
+
+    const view = render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialChatId="chat-a" />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-a'))
+    expect(screen.getByRole('button', { name: 'Clear file scope' })).toBeInTheDocument()
+    expect(screen.getByText('File-A.txt')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear file scope' }))
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Clear file scope' })).not.toBeInTheDocument()
+    })
+
+    view.rerender(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialChatId="chat-b" />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+    await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-b'))
+    expect(screen.getByRole('button', { name: 'Clear file scope' })).toBeInTheDocument()
+    expect(screen.getByText('File-B.txt')).toBeInTheDocument()
+  })
+
+  it('recovers scope for legacy chats from single-file source history when map is missing', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockResolvedValue(undefined)
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({
+      messages: [
+        {
+          id: 410,
+          role: 'assistant',
+          content: 'Legacy scoped response',
+          sources: [
+            {
+              filename: 'LegacyFile.txt',
+              path: '/corpus/LegacyFile.txt',
+              chunk_preview: '...',
+              relevance_score: 0.9,
+            },
+            {
+              filename: 'LegacyFile.txt',
+              path: '/corpus/LegacyFile.txt',
+              chunk_preview: '...',
+              relevance_score: 0.8,
+            },
+          ],
+          created_at: '2026-02-23T12:00:00.000Z',
+        },
+      ],
+    })
+    getFilesMock.mockResolvedValue({
+      files: [
+        {
+          id: 91,
+          path: '/corpus/LegacyFile.txt',
+          filename: 'LegacyFile.txt',
+        },
+      ],
+    })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialChatId="legacy-chat-1" />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('legacy-chat-1'))
+    await waitFor(() => expect(getFilesMock).toHaveBeenCalled())
+    expect(screen.getByRole('button', { name: 'Clear file scope' })).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'Continue on legacy file' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ fileId: 91 })
+  })
+
+  it('locks mode to Researcher when file scope is active', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockResolvedValue(undefined)
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({ messages: [] })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialScopedFile={{ fileId: 13, filename: 'Scoped Doc.txt' }} />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    expect(await screen.findByRole('button', { name: 'Clear file scope' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Select chat mode' })).toHaveTextContent('Researcher')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select chat mode' }))
+    const assistantOption = screen.getByRole('menuitemradio', { name: 'Assistant' })
+    expect(assistantOption).toBeDisabled()
   })
 })

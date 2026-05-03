@@ -8,6 +8,7 @@ export interface ChatSourceReference {
   path: string
   chunk_preview: string
   relevance_score: number
+  file_id?: number | null
 }
 
 export interface DisplayTextBlock {
@@ -101,6 +102,28 @@ export interface StreamDonePayload {
   next_action_reason?: NextActionReason | null
   pass_details?: Array<Record<string, unknown>>
   status_transitions?: Array<Record<string, unknown>>
+  upload_scope?: {
+    active_upload_ids?: string[]
+    selected_upload_ids?: string[]
+    ready_file_ids?: number[]
+    indexing_upload_ids?: string[]
+    omitted_upload_ids?: string[]
+  }
+}
+
+export interface ChatUploadAttachment {
+  id?: number
+  upload_id: string
+  chat_id: string
+  file_id?: number | null
+  filename_at_upload: string
+  size_bytes: number
+  content_hash?: string | null
+  state: 'uploading' | 'indexing' | 'ready' | 'deleting' | 'deleted' | 'failed' | string
+  referenced_message_ids?: number[]
+  uploaded_at?: string | null
+  updated_at?: string | null
+  removed_at?: string | null
 }
 
 export interface ChatMessageApi {
@@ -150,6 +173,7 @@ export interface ChatMessageDisplay {
   continueLabel?: 'Continue' | 'Continue Again'
   webSearchUsed?: boolean
   streamPlanSteps?: Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>
+  scopedFileName?: string | null
 }
 
 export interface StreamChatCallbacks {
@@ -164,6 +188,11 @@ export interface StreamChatCallbacks {
   onDone?: (data?: StreamDonePayload) => void
   onError?: (err: Error) => void
   signal?: AbortSignal
+}
+
+export interface ChatFileScope {
+  fileId: number
+  filename: string
 }
 
 export interface IndexedFile {
@@ -217,6 +246,25 @@ export interface ScanStatus {
   timeout_errors?: number
   recent_errors?: ScanRecentError[]
   elapsed_seconds?: number
+}
+
+export interface ScanErrorListItem {
+  path?: string
+  filename?: string
+  extension?: string
+  operation?: string
+  error_code?: string | null
+  error_message?: string
+  is_timeout?: boolean
+  created_at?: string | null
+}
+
+export interface ScanErrorsResponse {
+  scan_id: number
+  total: number
+  offset: number
+  limit: number
+  errors: ScanErrorListItem[]
 }
 
 export type FileReindexOperationStatus = 'running' | 'completed' | 'failed'

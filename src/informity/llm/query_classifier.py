@@ -13,6 +13,7 @@ import structlog
 from informity.config import settings
 from informity.llm.contract_prompt_parser import EXPLICIT_YEAR_PATTERN
 from informity.llm.intent_router import get_intent_router
+from informity.llm.promptcue_signals import extract_prompt_signals
 from informity.llm.query_patterns import (
     build_aggregate_listing_scope_pattern,
     build_analysis_action_pattern,
@@ -59,6 +60,8 @@ from informity.llm.types import (
 
 if TYPE_CHECKING:
     from promptcue import PromptCueQueryObject
+
+    from informity.db.models import ChatMessage
 else:
     PromptCueQueryObject = object
 
@@ -100,6 +103,218 @@ _NEGATION_PATTERN = build_negation_pattern()
 _FILENAME_EXCLUSION_PATTERN = build_filename_exclusion_pattern()
 _COMPARATIVE_FILE_CONTENT_CUE_PATTERN = re.compile(r'\b(mention|mentions|contain|contains|include|includes)\b')
 _CHAT_SUMMARY_PATTERN = build_chat_summary_pattern()
+try:
+    from promptcue.patterns import DISCOURSE_PREFIX_PATTERN as _DISCOURSE_PREFIX_PATTERN
+except Exception:  # noqa: BLE001 - keep deterministic fallback when promptcue internals are unavailable
+    _DISCOURSE_PREFIX_PATTERN = re.compile(
+        r'^\s*(?:'
+        r'ok(?:ay)?|alright|well|so|anyway|now|'
+        r'(?:new|different)\s+(?:topic|subject)s?|'
+        r'on\s+another\s+subject|switch(?:ing)?\s+(?:topic|topics|subject|subjects|context)'
+        r')\b',
+        re.IGNORECASE,
+    )
+_QUESTION_WORD_PATTERN = re.compile(r'\b(what|who|when|where|why|how|which)\b', re.IGNORECASE)
+_REWRITE_STOPWORDS = {
+    'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'do', 'for', 'from', 'give', 'has', 'have',
+    'how', 'i', 'in', 'is', 'it', 'its', 'list', 'me', 'of', 'on', 'or', 'our', 'please', 'show',
+    'that', 'the', 'their', 'them', 'there', 'these', 'they', 'this', 'to', 'us', 'what', 'when',
+    'where', 'which', 'who', 'why', 'with', 'you', 'your',
+}
+_TITLE_ALIGNMENT_CUE_PATTERN = re.compile(
+    r'\b(compare|between|versus|vs)\b'
+    r'|'
+    r'\b(?:in|from)\s+.{0,120}\b(document|file|text|record|entry|item|source|material|attachment|note|paper)\b',
+    re.IGNORECASE,
+)
+_QUOTED_TITLE_PATTERN = re.compile(r'["“](.{3,120}?)[”"]')
+_TITLE_IN_PREPOSITION_PATTERN = re.compile(
+    r'\b(?:of|in|about|from)\s+'
+    r'((?:[A-Z][A-Za-z0-9\'_-]*)(?:\s+[A-Z][A-Za-z0-9\'_-]*){1,8})'
+    r'(?:\s+(?:file|document|text|record|entry|item|source|material|attachment|note|paper))?\b'
+)
+_TITLE_BEFORE_DOCUMENT_NOUN_PATTERN = re.compile(
+    r'\b('
+    r'(?!(?:What|Who|When|Where|Why|How|Which|Tell|List)\b)'
+    r'(?:[A-Z][A-Za-z0-9\'_-]*)(?:\s+[A-Z][A-Za-z0-9\'_-]*){1,8}'
+    r')\s+'
+    r'(?:book|document|file|text|record|entry|item|source|material|attachment|note|paper)\b'
+)
+_ANAPHORIC_SCOPE_PATTERN = re.compile(
+    r'\b(this|that|it|'
+    r'this\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper|book)|'
+    r'that\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper|book)'
+    r')\b',
+    re.IGNORECASE,
+)
+
+
+def _normalize_text(text: str) -> str:
+    return ' '.join(str(text or '').strip().split())
+
+
+def _extract_explicit_title_reference(text: str) -> str | None:
+    message = _normalize_text(text)
+    if not message:
+        return None
+    quoted_match = _QUOTED_TITLE_PATTERN.search(message)
+    if quoted_match:
+        return _normalize_text(quoted_match.group(1))
+    preposition_match = _TITLE_IN_PREPOSITION_PATTERN.search(message)
+    if preposition_match:
+        return _normalize_text(preposition_match.group(1))
+    noun_match = _TITLE_BEFORE_DOCUMENT_NOUN_PATTERN.search(message)
+    if noun_match:
+        return _normalize_text(noun_match.group(1))
+    return None
+
+
+def _tokenize_query_terms(text: str) -> set[str]:
+    lowered = _normalize_text(text).lower()
+    if not lowered:
+        return set()
+    raw_terms = set(re.findall(r"[a-z0-9][a-z0-9'_-]{2,}", lowered))
+    terms: set[str] = set()
+    for term in raw_terms:
+        if term in _REWRITE_STOPWORDS:
+            continue
+        terms.add(term)
+        if term.endswith('s') and len(term) > 4:
+            terms.add(term[:-1])
+    return terms
+
+
+def _has_topic_overlap_with_previous_user(
+    *,
+    question: str,
+    history: list[ChatMessage] | None,
+) -> bool:
+    if not history:
+        return False
+    current_terms = _tokenize_query_terms(question)
+    if not current_terms:
+        return False
+    for message in reversed(history):
+        if message.role != 'user':
+            continue
+        previous_terms = _tokenize_query_terms(message.content or '')
+        if not previous_terms:
+            continue
+        return bool(current_terms & previous_terms)
+    return False
+
+
+def _build_history_aware_retrieval_query(
+    *,
+    question: str,
+    history: list[ChatMessage] | None,
+    intent: IntentLabel,
+    is_scope_reset: bool,
+    filename_filter: str | None,
+    has_topic_shift_cue: bool,
+    has_referential_followup: bool,
+    preferred_previous_user: str | None = None,
+) -> tuple[str | None, bool]:
+    normalized_question = _normalize_text(question)
+    if not normalized_question:
+        return None, False
+    if not bool(settings.rag_query_rewrite_enabled):
+        return None, False
+    if not history:
+        return None, False
+    if has_topic_shift_cue:
+        return None, False
+    if is_scope_reset:
+        return None, False
+    if filename_filter is not None:
+        return None, False
+    if intent not in {IntentLabel.FOCUSED, IntentLabel.COVERAGE}:
+        return None, False
+
+    has_topical_overlap = _has_topic_overlap_with_previous_user(
+        question=normalized_question,
+        history=history,
+    )
+    if not has_referential_followup and not has_topical_overlap:
+        return None, False
+
+    history_limit = max(0, int(settings.rag_query_rewrite_max_history_messages))
+    if history_limit == 0:
+        return None, False
+    max_chars_per_turn = max(1, int(settings.rag_query_rewrite_max_chars_per_turn))
+    max_query_chars = max(64, int(settings.rag_query_rewrite_max_query_chars))
+
+    previous_user = _normalize_text(preferred_previous_user or '')
+    if not previous_user:
+        for message in reversed(history[-history_limit:]):
+            content = _normalize_text(message.content or '')
+            if not content:
+                continue
+            if not previous_user and message.role == 'user':
+                previous_user = content
+            if previous_user:
+                break
+    if not previous_user:
+        return None, False
+
+    rewritten_query = (
+        f"{normalized_question}\n\nFollow-up context:\n"
+        f"- Previous user question: {previous_user[:max_chars_per_turn]}"
+    )
+    return rewritten_query[:max_query_chars], True
+
+
+def _decompose_content_query(text: str) -> tuple[str, float, list[str]]:
+    normalized = _normalize_text(text)
+    if not normalized:
+        return '', 0.0, []
+
+    segments = [segment.strip() for segment in re.split(r'(?<=[.!?])\s+', normalized) if segment.strip()]
+    if not segments:
+        return normalized, 0.0, ['fallback_original']
+    if len(segments) == 1:
+        single = segments[0]
+        if _DISCOURSE_PREFIX_PATTERN.match(single):
+            trimmed = _DISCOURSE_PREFIX_PATTERN.sub('', single).strip(' ,:;-')
+            if trimmed:
+                return trimmed, 0.65, ['trimmed_discourse_prefix']
+        return single, 0.95, ['single_clause']
+
+    best_text = segments[-1]
+    best_score = -1.0
+    best_reasons: list[str] = []
+    for segment in segments:
+        score = 0.0
+        reasons: list[str] = []
+        segment_lower = segment.casefold()
+        word_count = len(segment_lower.split())
+        if _DISCOURSE_PREFIX_PATTERN.match(segment):
+            score -= 0.7
+            reasons.append('discourse_prefix')
+        if '?' in segment:
+            score += 1.0
+            reasons.append('question_mark')
+        if _QUESTION_WORD_PATTERN.search(segment):
+            score += 0.7
+            reasons.append('question_word')
+        if word_count >= 5:
+            score += 0.2
+            reasons.append('sufficient_length')
+        if score > best_score:
+            best_score = score
+            best_text = segment
+            best_reasons = reasons
+
+    extracted = _normalize_text(best_text)
+    if not extracted:
+        return normalized, 0.0, ['fallback_original']
+    if _DISCOURSE_PREFIX_PATTERN.match(extracted):
+        trimmed = _DISCOURSE_PREFIX_PATTERN.sub('', extracted).strip(' ,:;-')
+        if trimmed:
+            extracted = trimmed
+            best_reasons.append('trimmed_discourse_prefix')
+    confidence = 0.75 if best_score >= 0.7 else 0.55
+    return extracted, confidence, best_reasons or ['selected_best_clause']
 
 
 def _has_structured_schema_request(text: str) -> bool:
@@ -208,6 +423,24 @@ def _detect_output_format(text: str) -> OutputFormat | None:
     if _OUTPUT_FORMAT_LIST_PATTERN.search(text):
         return OutputFormat.LIST
     if _OUTPUT_FORMAT_NARRATIVE_PATTERN.search(text):
+        return OutputFormat.NARRATIVE
+    return None
+
+
+def _resolve_output_format_from_promptcue(
+    *,
+    requested_output_formats: tuple[str, ...],
+) -> OutputFormat | None:
+    formats = set(requested_output_formats)
+    if 'csv' in formats:
+        return OutputFormat.CSV
+    if 'table' in formats:
+        return OutputFormat.TABLE
+    if 'bullets' in formats:
+        return OutputFormat.BULLETS
+    if 'list' in formats:
+        return OutputFormat.LIST
+    if 'narrative' in formats:
         return OutputFormat.NARRATIVE
     return None
 
@@ -422,11 +655,28 @@ class QueryClassification:
     # action_hints: forwarded from PromptCueQueryObject when the promptcue adapter is active.
     # Empty dict when a non-promptcue router is used (e.g. test fakes).
     action_hints: dict[str, bool] = field(default_factory=dict)
+    # retrieval_content_query: decomposition-derived semantic query used by retrieval
+    # when conversational control language is present in the utterance.
+    retrieval_content_query: str | None = None
+    retrieval_content_confidence: float = 0.0
+    retrieval_content_reasons: list[str] = field(default_factory=list)
     # Provenance flags — describe how route_candidate was selected.
     # deterministic_override: True when a hard aggregate rule fired (e.g. policy_aggregate_route_enforced).
     # llm_confidence: raw confidence reported by the LLM (0.0 when LLM did not emit a confidence field).
     deterministic_override: bool = False
     llm_confidence: float = 0.0
+    # Focus state (single source of truth for downstream retrieval behavior).
+    focus_has_referential_followup: bool = False
+    focus_has_topic_shift_cue: bool = False
+    focus_explicit_title_reference: bool = False
+    focus_referential_title_anchor: str | None = None
+    focus_prefer_title_alignment: bool = False
+    focus_strict_title_alignment: bool = False
+    focus_title_alignment_query: str | None = None
+    focus_disable_term_expansion: bool = False
+    focus_query_rewritten: bool = False
+    focus_rewritten_query: str | None = None
+    focus_resolved: bool = False
 
     @property
     def confidence_band(self) -> ConfidenceBand:
@@ -437,10 +687,15 @@ class QueryClassification:
         return ConfidenceBand.LOW
 
 
-def classify_query(query: str) -> QueryClassification:
+def classify_query(
+    query: str,
+    *,
+    history: list[ChatMessage] | None = None,
+) -> QueryClassification:
     """Classify query via pluggable intent router + deterministic slot extraction."""
     text = str(query or '').strip()
     lowered = text.casefold()
+    retrieval_content_query, retrieval_content_confidence, retrieval_content_reasons = _decompose_content_query(text)
     year_filter: int | None = None
 
     year_candidates = [match.group(0) for match in EXPLICIT_YEAR_PATTERN.finditer(lowered)]
@@ -502,8 +757,12 @@ def classify_query(query: str) -> QueryClassification:
         lowered=lowered,
         pcue=pcue,
     )
+    prompt_signals = extract_prompt_signals(text, pcue=pcue)
     if pcue is not None:
-        is_continuation = pcue.is_continuation
+        is_continuation = bool(prompt_signals.is_continuation)
+        output_format = _resolve_output_format_from_promptcue(
+            requested_output_formats=prompt_signals.requested_output_formats,
+        ) or output_format
 
     # --- Corpus metadata promotion ----------------------------------------
     # Inventory queries (count, enumeration, file listing, capability) are
@@ -598,6 +857,24 @@ def classify_query(query: str) -> QueryClassification:
     if (
         intent == IntentLabel.COVERAGE
         and signals.single_target_scope
+        and bool(prompt_signals.has_referential_followup)
+        and not _looks_plural_corpus_scope_request(lowered)
+        and not signals.has_multi_doc_listing
+        and not signals.has_multi_year_scope
+        and not signals.has_aggregate_listing_scope
+        and not signals.has_global_entity_listing
+    ):
+        apply_override(
+            reason_code='deterministic_override_referential_single_target_to_focused',
+            new_intent=IntentLabel.FOCUSED,
+            new_route=IntentProfileId.TARGETED_FACT_LOOKUP,
+            new_shape=OutputShape.NARRATIVE_SYNTHESIS,
+        )
+
+    if (
+        intent == IntentLabel.COVERAGE
+        and signals.single_target_scope
+        and not bool(prompt_signals.has_referential_followup)
         and not _looks_plural_corpus_scope_request(lowered)
         and not signals.has_multi_doc_listing
         and not signals.has_multi_year_scope
@@ -649,6 +926,79 @@ def classify_query(query: str) -> QueryClassification:
             response_shape = OutputShape.NARRATIVE_SYNTHESIS
             reason_codes.append('deterministic_override_year_aggregate_narrative_shape')
 
+    explicit_title_reference = _extract_explicit_title_reference(text)
+    has_referential_followup = bool(
+        prompt_signals.has_referential_followup
+        or _ANAPHORIC_SCOPE_PATTERN.search(text)
+    )
+    referential_title_anchor = None
+    referential_anchor_question = None
+    if has_referential_followup and explicit_title_reference is None and history:
+        for message in reversed(history):
+            if message.role != 'user':
+                continue
+            referential_title_anchor = _extract_explicit_title_reference(message.content or '')
+            if referential_title_anchor:
+                referential_anchor_question = _normalize_text(message.content or '')
+                break
+    if (
+        referential_title_anchor is None
+        and explicit_title_reference is None
+        and not bool(prompt_signals.has_topic_shift_cue)
+        and history
+        and intent in {IntentLabel.FOCUSED, IntentLabel.COVERAGE}
+        and not signals.has_corpus_scope
+        and not signals.has_multi_doc_listing
+        and not signals.has_aggregate_listing_scope
+        and not signals.has_global_entity_listing
+    ):
+        for message in reversed(history):
+            if message.role != 'user':
+                continue
+            referential_title_anchor = _extract_explicit_title_reference(message.content or '')
+            if referential_title_anchor:
+                referential_anchor_question = _normalize_text(message.content or '')
+                reason_codes.append('focus_title_anchor_from_history')
+                break
+    if referential_title_anchor is not None:
+        has_referential_followup = True
+    prefer_title_alignment = bool(
+        intent in {IntentLabel.FOCUSED, IntentLabel.COVERAGE}
+        and (
+            explicit_title_reference is not None
+            or referential_title_anchor is not None
+            or _TITLE_ALIGNMENT_CUE_PATTERN.search(text)
+            or any(len(term) >= 6 and ' ' in term for term in source_terms)
+        )
+    )
+    strict_title_alignment = bool(
+        (explicit_title_reference is not None or referential_title_anchor is not None)
+        and not re.search(r'\b(compare|between|versus|vs)\b', text, re.IGNORECASE)
+    )
+    title_alignment_query = text
+    if referential_title_anchor:
+        title_alignment_query = f'{text}\n\nDocument title anchor: {referential_title_anchor}'
+    disable_term_expansion = bool(
+        referential_title_anchor
+        or (explicit_title_reference is not None and intent == IntentLabel.FOCUSED)
+    )
+    rewritten_query, query_rewritten = _build_history_aware_retrieval_query(
+        question=(retrieval_content_query or text),
+        history=history,
+        intent=intent,
+        is_scope_reset=False,
+        filename_filter=filename_filter,
+        has_topic_shift_cue=bool(prompt_signals.has_topic_shift_cue),
+        has_referential_followup=has_referential_followup,
+        preferred_previous_user=referential_anchor_question,
+    )
+    if (
+        rewritten_query
+        and referential_title_anchor
+        and referential_title_anchor.casefold() not in rewritten_query.casefold()
+    ):
+        rewritten_query = f'{rewritten_query}\n- Document title anchor: {referential_title_anchor}'
+
     return QueryClassification(
         intent=intent,
         response_shape=response_shape,
@@ -674,8 +1024,22 @@ def classify_query(query: str) -> QueryClassification:
         mentions_time=bool(getattr(getattr(pcue, 'semantic_hints', None), 'mentions_time', False)),
         needs_chat_history=needs_chat_history,
         action_hints=(pcue.action_hints if pcue is not None else {}),
+        retrieval_content_query=retrieval_content_query or text,
+        retrieval_content_confidence=float(retrieval_content_confidence),
+        retrieval_content_reasons=retrieval_content_reasons,
         deterministic_override=deterministic_override,
         llm_confidence=0.0,
+        focus_has_referential_followup=has_referential_followup,
+        focus_has_topic_shift_cue=bool(prompt_signals.has_topic_shift_cue),
+        focus_explicit_title_reference=bool(explicit_title_reference),
+        focus_referential_title_anchor=referential_title_anchor,
+        focus_prefer_title_alignment=prefer_title_alignment,
+        focus_strict_title_alignment=strict_title_alignment,
+        focus_title_alignment_query=title_alignment_query if prefer_title_alignment else None,
+        focus_disable_term_expansion=disable_term_expansion,
+        focus_query_rewritten=query_rewritten,
+        focus_rewritten_query=rewritten_query,
+        focus_resolved=True,
     )
 
 

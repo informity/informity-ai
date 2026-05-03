@@ -14,8 +14,10 @@ from re import Pattern
 # Quantifiers: "all", "every", "each"
 QUANTIFIERS: str = r'(all|every|each)'
 
-# Document types: "files", "documents", "reports"
-DOCUMENT_TYPES: str = r'(files?|documents?|reports?)'
+# Document types: generic nouns users use for stored content.
+DOCUMENT_TYPES: str = (
+    r'(files?|documents?|texts?|records?|entries|items?|sources?|materials?|attachments?|notes?|papers?)'
+)
 
 # List-triggering verbs: explicit list commands and conversational inventory verbs.
 LIST_VERBS: str = r'(list|display|enumerate)'
@@ -220,7 +222,7 @@ PLURAL_CORPUS_SCOPE_KEYWORDS: str = (
 SINGLE_TARGET_KEYWORDS: str = (
     r'\b(?:any|one|single|this|that|the)\s+'
     r'(?:[a-z0-9][a-z0-9\s-]{0,40}\s+)?'
-    r'(?:document|file|record|receipt|statement|report|return|form|invoice|summary)\b'
+    r'(?:document|file|text|record|entry|item|source|material|attachment|note|paper|summary)\b'
 )
 YEAR_AGGREGATE_CUE_KEYWORDS: str = (
     r'\b('
@@ -269,7 +271,8 @@ GENERIC_CAPABILITY_KEYWORDS: str = (
 )
 FACT_LOOKUP_KEYWORDS: str = r'^\s*(when|what\s+year|which\s+year|who|where|what\s+is|what\s+was|when\s+was)\b'
 ANCHOR_DOCUMENT_TERM_KEYWORDS: str = (
-    r'\b(?:19|20)\d{2}\s+[a-z0-9][a-z0-9\s-]{1,64}\b(?:receipt|statement|report|return|form|record|invoice|summary)\b'
+    r'\b(?:19|20)\d{2}\s+[a-z0-9][a-z0-9\s-]{1,64}\b'
+    r'(?:document|file|text|record|entry|item|source|material|attachment|note|paper|summary)\b'
 )
 QUOTED_PHRASE_KEYWORDS: str = r'["\']([^"\']{3,80})["\']'
 CORPUS_DOCUMENT_SCOPE_KEYWORDS: str = r'\b(indexed\s+)?(files?|documents?|records?)\b'
@@ -296,7 +299,7 @@ def build_coverage_pattern() -> Pattern[str]:
     """
     Build regex pattern for coverage queries (broad scope).
 
-    Matches: "all years", "all annual reports", "every document", "each file"
+    Matches: "all years", "all documents", "every document", "each file"
     Also: "summarize all", "compare all", "analyze all"
 
     Returns:

@@ -20,6 +20,7 @@ interface FileDetailProps {
   fileId: number | null
   onClose?: () => void
   onRemoved?: () => void
+  onChatAboutFile?: (file: IndexedFile) => void
   onReindexRequest?: (file: IndexedFile) => Promise<void> | void
   isReindexing?: boolean
 }
@@ -28,6 +29,7 @@ export function FileDetail({
   fileId,
   onClose,
   onRemoved,
+  onChatAboutFile,
   onReindexRequest,
   isReindexing = false,
 }: FileDetailProps) {
@@ -222,7 +224,7 @@ export function FileDetail({
                   <div className="file-detail__preview">
                     {previewText ? (
                       <>
-                        <pre className="file-detail__preview-text">{displayText}</pre>
+                        <pre className="file-detail__preview-text file-detail__preview-empty">{displayText}</pre>
                         {showMore && (
                           <button
                             type="button"
@@ -242,6 +244,16 @@ export function FileDetail({
             </div>
 
             <div className="file-detail__actions">
+              <button
+                type="button"
+                className="file-detail__btn file-detail__btn--secondary"
+                onClick={() => file && onChatAboutFile?.(file)}
+                disabled={offline || actionLoading !== null || !file}
+                title="Open chat focused on this file"
+              >
+                <i className="ri-chat-ai-4-line" aria-hidden style={{ fontSize: '1rem' }} />
+                <span>Chat With This File</span>
+              </button>
               <button
                 type="button"
                 className="file-detail__btn file-detail__btn--secondary"

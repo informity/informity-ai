@@ -65,6 +65,7 @@ def build_source_references(
             path=chunk.get('file_path', ''),
             chunk_preview=truncate_preview_fn(str(chunk.get('chunk_text', '') or '')),
             relevance_score=normalize_relevance_score_fn(chunk.get('score', 0.0)),
+            file_id=int(chunk['file_id']) if chunk.get('file_id') is not None else None,
         )
         for chunk in candidate_chunks
     ]

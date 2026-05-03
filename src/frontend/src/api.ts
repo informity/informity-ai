@@ -4,6 +4,7 @@
  */
 
 import type {
+  ChatUploadAttachment,
   ChatMode,
   FileReindexOperation,
   PlanStepPayload,
@@ -135,6 +136,15 @@ export async function cancelScan(): Promise<unknown> {
   return request('POST', '/api/scan/cancel')
 }
 
+export async function getScanErrors(
+  params: { limit?: number; offset?: number } = {},
+): Promise<unknown> {
+  const { limit = 500, offset = 0 } = params
+  return request('GET', '/api/scan/errors', {
+    params: { limit, offset },
+  })
+}
+
 // -----------------------------------------------------------------------------
 // Files
 // -----------------------------------------------------------------------------
@@ -227,6 +237,8 @@ export async function streamChat(
   options?: {
     mode?: ChatMode
     requestId?: string
+    fileId?: number | null
+    scopedUploadIds?: string[] | null
     chatWebSearchEnabled?: boolean
     chatWebSearchPrivacyOverride?: boolean
   },
@@ -236,9 +248,19 @@ export async function streamChat(
   const streamState = { seenSources: false, seenCleaned: false, seenDone: false }
   const url = `${getApiBase()}/api/chat`
   const sessionToken = getSessionToken()
+  const scopedFileId = Number(options?.fileId)
+  const scopedFileIds = Number.isFinite(scopedFileId) && scopedFileId > 0
+    ? [Math.trunc(scopedFileId)]
+    : null
+  const scopedUploadIdsRaw = Array.isArray(options?.scopedUploadIds) ? options?.scopedUploadIds : []
+  const scopedUploadIds = scopedUploadIdsRaw
+    .map((value) => String(value || '').trim())
+    .filter((value) => value.length > 0)
   const body = JSON.stringify({
     message: message.trim(),
     chat_id: chatId || null,
+    scoped_file_ids: scopedFileIds,
+    scoped_upload_ids: scopedUploadIds.length > 0 ? scopedUploadIds : null,
     mode: options?.mode ?? 'researcher',
     request_id: options?.requestId ?? null,
     chat_web_search_enabled: options?.chatWebSearchEnabled ?? false,
@@ -471,6 +493,45 @@ export async function setChatTitle(chatId: string, title: string): Promise<unkno
 
 export async function deleteChat(chatId: string): Promise<unknown> {
   return request('DELETE', `/api/chat/chats/${chatId}`)
+}
+
+export async function listChatUploads(chatId: string): Promise<{ chat_id: string; attachments: ChatUploadAttachment[] }> {
+  return request<{ chat_id: string; attachments: ChatUploadAttachment[] }>('GET', `/api/chat/chats/${chatId}/uploads`)
+}
+
+export async function uploadChatFile(
+  file: File,
+  chatId?: string | null,
+): Promise<{ chat_id: string; upload_id: string; attachment: ChatUploadAttachment }> {
+  const formData = new FormData()
+  if (chatId && String(chatId).trim().length > 0) {
+    formData.append('chat_id', String(chatId).trim())
+  }
+  formData.append('file', file)
+
+  const sessionToken = getSessionToken()
+  const response = await fetch(`${getApiBase()}/api/chat/uploads`, {
+    method: 'POST',
+    headers: {
+      ...(sessionToken ? { 'X-Informity-Session': sessionToken } : {}),
+    },
+    body: formData,
+    cache: 'no-store',
+  })
+  if (!response.ok) {
+    const detail = await extractErrorDetail(response)
+    throw new ApiError(detail || `HTTP ${response.status}`, response.status, detail)
+  }
+  return response.json() as Promise<{ chat_id: string; upload_id: string; attachment: ChatUploadAttachment }>
+}
+
+export async function deleteChatUpload(
+  uploadId: string,
+  chatId: string,
+): Promise<{ chat_id: string; upload_id: string; deleted: boolean; fallback_to_scanned_documents?: boolean; toast_message?: string | null }> {
+  return request('DELETE', `/api/chat/uploads/${uploadId}`, {
+    params: { chat_id: chatId },
+  }) as Promise<{ chat_id: string; upload_id: string; deleted: boolean; fallback_to_scanned_documents?: boolean; toast_message?: string | null }>
 }
 
 // -----------------------------------------------------------------------------
