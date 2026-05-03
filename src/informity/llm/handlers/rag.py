@@ -26,7 +26,18 @@ from informity.llm.query_patterns import (
     build_exhaustive_entity_inventory_scope_pattern,
     build_global_entity_listing_pattern,
     build_person_entity_listing_pattern,
-    build_referential_followup_pattern,
+)
+from informity.llm.rag_patterns import (
+    SUMMARY_BLOCK_TYPE_EXCLUDE,
+    evaluate_substantive_evidence,
+    has_explicit_title_reference,
+    has_extraction_cue,
+    has_referential_followup_language,
+    has_topic_overlap_with_previous_user,
+    has_topic_shift_cue,
+    is_summary_style_request,
+    normalize_query_text,
+    should_prefer_title_alignment,
 )
 from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
@@ -51,9 +62,7 @@ _HANDLER_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, asy
 
 _INSUFFICIENT_CONTEXT_RESPONSE = INSUFFICIENT_CONTEXT_RESEARCHER_MESSAGE
 _CHUNK_PREVIEW_MAX_LENGTH = 200
-_REFERENTIAL_FOLLOWUP_PATTERN = build_referential_followup_pattern()
 _DETERMINISTIC_EXTRACTION_HEADING = '### Deterministic Numeric Extraction\n\n'
-_EXTRACTION_CUE_PATTERN = re.compile(r'\bextract\b', re.IGNORECASE)
 _STRICT_CONTRACT_MAX_TEMPERATURE = 0.2
 _STRICT_CONTRACT_MAX_TOP_P = 0.8
 _COVERAGE_ENTITY_LISTING_TOP_K_BOOST = 8
@@ -65,6 +74,24 @@ _ACRONYM_INVENTORY_PATTERN = build_acronym_entity_listing_pattern()
 _ENTITY_INVENTORY_MAX_ROWS = 300
 _ENTITY_INVENTORY_SOURCE_LIMIT = 12
 _ENTITY_INVENTORY_DEFAULT_PREVIEW = 'Indexed term evidence match.'
+_WEAK_SUMMARY_SUBSTANTIVE_RATIO_THRESHOLD = 0.55
+_WEAK_SUMMARY_DOMINANT_FILE_RATIO_THRESHOLD = 0.6
+_SUMMARY_TITLE_MAX_TEMPERATURE = 0.3
+_SUMMARY_TITLE_MAX_TOP_P = 0.9
+
+
+def _dominant_file_ratio(chunks: list[dict]) -> float:
+    if not chunks:
+        return 0.0
+    counts: dict[int, int] = {}
+    for chunk in chunks:
+        file_id = chunk.get('file_id')
+        if not isinstance(file_id, int):
+            continue
+        counts[file_id] = counts.get(file_id, 0) + 1
+    if not counts:
+        return 0.0
+    return max(counts.values()) / max(1, len(chunks))
 
 
 def _collapse_duplicate_insufficient_context_message(
@@ -145,17 +172,6 @@ def _truncate_preview(text: str, max_length: int = _CHUNK_PREVIEW_MAX_LENGTH) ->
     return text[:max_length]
 
 
-def _normalize_query_text(text: str) -> str:
-    return ' '.join(str(text or '').strip().split())
-
-
-def _has_referential_language(question: str) -> bool:
-    normalized = _normalize_query_text(question).lower()
-    if not normalized:
-        return False
-    return bool(_REFERENTIAL_FOLLOWUP_PATTERN.search(normalized))
-
-
 def _should_prepend_deterministic_extraction_heading(
     *,
     question: str,
@@ -165,24 +181,55 @@ def _should_prepend_deterministic_extraction_heading(
         return False
     if classification.subtype != QuerySubtype.AGGREGATE_BY_PERIOD:
         return False
-    if not _EXTRACTION_CUE_PATTERN.search(question):
+    if not has_extraction_cue(question):
         return False
     return BY_PER_YEAR_PATTERN.search(question)
 
 
 def _build_history_aware_retrieval_query(question: str, history: list[ChatMessage] | None) -> tuple[str, bool]:
-    normalized_question = _normalize_query_text(question)
+    return _build_history_aware_retrieval_query_with_classification(
+        question=question,
+        history=history,
+        classification=None,
+    )
+
+
+def _build_history_aware_retrieval_query_with_classification(
+    *,
+    question: str,
+    history: list[ChatMessage] | None,
+    classification: QueryClassification | None,
+) -> tuple[str, bool]:
+    normalized_question = normalize_query_text(question)
     if not normalized_question:
         return '', False
+    if classification is not None:
+        if bool(classification.focus_resolved):
+            rewritten_query = normalize_query_text(classification.focus_rewritten_query or '')
+            if rewritten_query and bool(classification.focus_query_rewritten):
+                return rewritten_query, True
+            return normalized_question, False
+        if bool(classification.is_scope_reset):
+            return normalized_question, False
+        if classification.filename_filter is not None:
+            return normalized_question, False
+        if classification.intent not in {QueryType.FOCUSED, QueryType.COVERAGE}:
+            return normalized_question, False
     if not bool(settings.rag_query_rewrite_enabled):
-        return normalized_question, False
-    if not _has_referential_language(normalized_question):
         return normalized_question, False
     if not history:
         return normalized_question, False
+    if has_topic_shift_cue(normalized_question):
+        return normalized_question, False
+    has_referential_language = has_referential_followup_language(normalized_question)
+    has_topical_overlap = has_topic_overlap_with_previous_user(
+        question=normalized_question,
+        history=history,
+    )
+    if not has_referential_language and not has_topical_overlap:
+        return normalized_question, False
 
     previous_user = ''
-    previous_assistant = ''
     history_limit = max(0, int(settings.rag_query_rewrite_max_history_messages))
     if history_limit == 0:
         return normalized_question, False
@@ -190,28 +237,21 @@ def _build_history_aware_retrieval_query(question: str, history: list[ChatMessag
     max_query_chars = max(64, int(settings.rag_query_rewrite_max_query_chars))
 
     for message in reversed(history[-history_limit:]):
-        content = _normalize_query_text(message.content or '')
+        content = normalize_query_text(message.content or '')
         if not content:
             continue
         if not previous_user and message.role == 'user':
             previous_user = content
-        elif not previous_assistant and message.role == 'assistant':
-            previous_assistant = content
-        if previous_user and previous_assistant:
+        if previous_user:
             break
 
-    if not previous_user and not previous_assistant:
+    if not previous_user:
         return normalized_question, False
 
-    context_lines: list[str] = []
-    if previous_user:
-        context_lines.append(f'Previous user question: {previous_user[:max_chars_per_turn]}')
-    if previous_assistant:
-        context_lines.append(f'Previous assistant answer: {previous_assistant[:max_chars_per_turn]}')
-    rewritten_query = normalized_question
-    if context_lines:
-        rewritten_query = f"{normalized_question}\n\nFollow-up context:\n" + '\n'.join(f'- {line}' for line in context_lines)
-
+    rewritten_query = (
+        f"{normalized_question}\n\nFollow-up context:\n"
+        f"- Previous user question: {previous_user[:max_chars_per_turn]}"
+    )
     return rewritten_query[:max_query_chars], True
 
 
@@ -305,6 +345,7 @@ async def _fetch_term_inventory_sources(
     cursor = await db.execute(
         '''
         SELECT
+            f.id AS file_id,
             f.filename AS filename,
             f.path AS path,
             MAX(COALESCE(tei.evidence_snippet, '')) AS chunk_preview,
@@ -337,6 +378,7 @@ async def _fetch_term_inventory_sources(
                 path=path,
                 chunk_preview=chunk_preview,
                 relevance_score=relevance_score,
+                file_id=int(row['file_id']) if row['file_id'] is not None else None,
             )
         )
     return sources
@@ -404,6 +446,7 @@ class RAGHandler:
         history: list[ChatMessage] | None,
         db: aiosqlite.Connection,
         trace: object | None,
+        file_ids: list[int] | None = None,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         profile = get_profile()
         effective_query_type = _resolve_minimal_query_type(classification)
@@ -471,12 +514,52 @@ class RAGHandler:
             })
 
         retrieval_timing: dict[str, float] = {}
-        retrieval_query, query_rewritten = _build_history_aware_retrieval_query(question, history)
+        retrieval_query, query_rewritten = _build_history_aware_retrieval_query_with_classification(
+            question=(classification.retrieval_content_query or question),
+            history=history,
+            classification=classification,
+        )
+        if classification.focus_resolved:
+            explicit_title_reference = bool(classification.focus_explicit_title_reference)
+            referential_title_anchor = classification.focus_referential_title_anchor
+            title_alignment_query = classification.focus_title_alignment_query or question
+            prefer_title_alignment = bool(classification.focus_prefer_title_alignment)
+            strict_title_alignment = bool(classification.focus_strict_title_alignment)
+            disable_term_expansion_for_focused_title = bool(classification.focus_disable_term_expansion)
+        else:
+            explicit_title_reference = has_explicit_title_reference(question)
+            referential_title_anchor = None
+            title_alignment_query = question
+            prefer_title_alignment = should_prefer_title_alignment(
+                question=question,
+                classification=classification,
+            )
+            strict_title_alignment = bool(
+                explicit_title_reference
+                and not re.search(r'\b(compare|between|versus|vs)\b', str(question or ''), re.IGNORECASE)
+            )
+            disable_term_expansion_for_focused_title = False
+        summary_style_request = is_summary_style_request(question, classification)
+        effective_block_type_exclude = list(getattr(classification, 'block_type_exclude', None) or [])
+        if summary_style_request and not classification.block_type_filter:
+            for excluded_type in SUMMARY_BLOCK_TYPE_EXCLUDE:
+                if excluded_type not in effective_block_type_exclude:
+                    effective_block_type_exclude.append(excluded_type)
         if trace is not None:
             trace.record('retrieval.query_rewrite', {
                 'query_rewrite': query_rewritten,
                 'original_query': question,
+                'retrieval_content_query': classification.retrieval_content_query,
+                'retrieval_content_confidence': round(float(classification.retrieval_content_confidence or 0.0), 4),
+                'retrieval_content_reasons': list(classification.retrieval_content_reasons or []),
                 'rewritten_query': retrieval_query if query_rewritten else None,
+                'summary_style_request': summary_style_request,
+                'prefer_title_alignment': prefer_title_alignment,
+                'strict_title_alignment': strict_title_alignment,
+                'explicit_title_reference': explicit_title_reference,
+                'referential_title_anchor': referential_title_anchor,
+                'focus_query_rewritten': classification.focus_query_rewritten,
+                'term_expansion_enabled': not disable_term_expansion_for_focused_title,
             })
         retrieval_start = time.perf_counter()
         chunks = await retrieve_chunks(
@@ -492,12 +575,72 @@ class RAGHandler:
             filename_filter=classification.filename_filter,
             filename_exclude=classification.filename_exclude,
             block_type_filter=classification.block_type_filter,
+            block_type_exclude=effective_block_type_exclude or None,
             section_filter=classification.section_filter,
+            file_ids_filter=file_ids,
+            exclude_upload_sources=not bool(file_ids),
+            prefer_substantive_sections=summary_style_request,
+            prefer_title_alignment=prefer_title_alignment,
+            title_alignment_query=title_alignment_query if prefer_title_alignment else None,
+            strict_title_alignment=strict_title_alignment,
+            enable_term_expansion=not disable_term_expansion_for_focused_title,
+            prefer_within_file_diversity=summary_style_request,
             query_type=effective_query_type,
             db=db,
             trace=trace,
             timing_output=retrieval_timing,
         )
+        if summary_style_request and explicit_title_reference:
+            evidence_profile = evaluate_substantive_evidence(chunks)
+            dominant_ratio = _dominant_file_ratio(chunks)
+            weak_summary_evidence = (
+                float(evidence_profile.get('substantive_ratio') or 0.0) < _WEAK_SUMMARY_SUBSTANTIVE_RATIO_THRESHOLD
+                and dominant_ratio >= _WEAK_SUMMARY_DOMINANT_FILE_RATIO_THRESHOLD
+            )
+            if weak_summary_evidence:
+                retry_timing: dict[str, float] = {}
+                retry_chunks = await retrieve_chunks(
+                    query=question,
+                    top_k=effective_top_k,
+                    max_score=None,
+                    year_filter=classification.year_filter,
+                    category_filter=classification.category_filter,
+                    extension_filter=classification.file_type_filter,
+                    filename_filter=classification.filename_filter,
+                    filename_exclude=classification.filename_exclude,
+                    block_type_filter=classification.block_type_filter,
+                    block_type_exclude=effective_block_type_exclude or None,
+                    section_filter=classification.section_filter,
+                    file_ids_filter=file_ids,
+                    exclude_upload_sources=not bool(file_ids),
+                    prefer_substantive_sections=True,
+                    prefer_title_alignment=True,
+                    title_alignment_query=question,
+                    strict_title_alignment=True,
+                    enable_term_expansion=False,
+                    prefer_within_file_diversity=True,
+                    query_type=effective_query_type,
+                    db=db,
+                    trace=None,
+                    timing_output=retry_timing,
+                )
+                retry_evidence_profile = evaluate_substantive_evidence(retry_chunks)
+                if (
+                    retry_chunks
+                    and float(retry_evidence_profile.get('substantive_ratio') or 0.0)
+                    >= float(evidence_profile.get('substantive_ratio') or 0.0)
+                ):
+                    chunks = retry_chunks
+                    retrieval_timing = retry_timing
+                if trace is not None:
+                    trace.record('retrieval.summary_retry', {
+                        'triggered': True,
+                        'weak_summary_evidence': weak_summary_evidence,
+                        'initial_substantive_ratio': round(float(evidence_profile.get('substantive_ratio') or 0.0), 4),
+                        'retry_substantive_ratio': round(float(retry_evidence_profile.get('substantive_ratio') or 0.0), 4),
+                        'initial_dominant_file_ratio': round(dominant_ratio, 4),
+                        'retry_used': bool(chunks is retry_chunks and retry_chunks),
+                    })
         retrieval_elapsed_ms = (time.perf_counter() - retrieval_start) * 1000
 
         answerability_passed, answerability_score, answerability_threshold, min_chunks = _evaluate_minimal_answerability(
@@ -574,6 +717,9 @@ class RAGHandler:
             profile_top_p=profile.top_p,
             format_requirements=format_requirements,
         )
+        if summary_style_request and explicit_title_reference:
+            generation_temperature = min(generation_temperature, _SUMMARY_TITLE_MAX_TEMPERATURE)
+            generation_top_p = min(generation_top_p, _SUMMARY_TITLE_MAX_TOP_P)
 
         messages = build_messages(
             question=question,
@@ -697,6 +843,7 @@ class RAGHandler:
         trace:          object | None,
         diagnostics_context: dict[str, object] | None = None,
         chat_id: str | None = None,
+        file_ids: list[int] | None = None,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         """
         Handle RAG query using the single minimal runtime path.
@@ -710,6 +857,7 @@ class RAGHandler:
                 history=history,
                 db=db,
                 trace=trace,
+                file_ids=file_ids,
             ):
                 yield item
         except _HANDLER_RUNTIME_EXCEPTIONS as exc:

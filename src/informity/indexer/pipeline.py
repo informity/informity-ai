@@ -37,14 +37,17 @@ from informity.scanner.extractors.base import (
 )
 from informity.scanner.extractors.text_utils import get_max_file_size_bytes
 from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE, IngestionItem
+from informity.utils.file_utils import normalize_extension
 from informity.utils.path_utils import normalize_path
 
 if TYPE_CHECKING:
     from informity.scanner.crawler import ScannedFile
 
 log = structlog.get_logger(__name__)
-_INDEXER_RUNTIME_EXCEPTIONS = (aiosqlite.Error, sqlite3.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError)
+_INDEXER_RUNTIME_EXCEPTIONS = (aiosqlite.Error, sqlite3.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError, MemoryError)
 _EMBEDDING_MODEL_MAX_TOKENS = 8192
+_PLAINTEXT_EXTENSIONS = frozenset({'.txt', '.md', '.rst', '.log', '.json', '.yaml', '.yml', '.toml'})
+_PLAINTEXT_MAX_LINE_CHARS = 200_000
 
 @dataclass
 class IndexResult:
@@ -55,6 +58,16 @@ class IndexResult:
     ocr_used: bool = False
     error_code: str | None = None
     retryable: bool = True
+
+
+def _no_extractor_result(extension: str) -> IndexResult:
+    return IndexResult(
+        success=False,
+        chunks_created=0,
+        error=f'No extractor for extension: {extension}',
+        error_code='no_extractor_for_extension',
+        retryable=False,
+    )
 
 
 def _parse_int_metadata(metadata: dict[str, str], key: str) -> int | None:
@@ -84,6 +97,18 @@ def _build_file_metadata(path: Path, doc_metadata: dict[str, str]) -> dict[str, 
         'pictures_count': _parse_int_metadata(doc_metadata, 'pictures_count'),
         'document_hash': doc_metadata.get('document_hash'),
     }
+
+
+def _max_line_length(path: Path) -> int:
+    # Return maximum line length (in characters) for a UTF-8-decodable text file.
+    # Uses replacement decoding to avoid hard failures on mixed encodings.
+    max_len = 0
+    with path.open('r', encoding='utf-8', errors='replace') as handle:
+        for line in handle:
+            line_len = len(line)
+            if line_len > max_len:
+                max_len = line_len
+    return max_len
 
 
 async def _cleanup_partial_file_data(
@@ -419,9 +444,7 @@ async def index_file(
             pseudo_path = str(item.metadata.get('path') or f'source://{source_provider}/{entity_type}/{item.source_item_id}')
             file_path = Path(pseudo_path)
             filename = str(item.metadata.get('filename') or item.title or item.source_item_id or 'source-item')
-            extension = str(item.metadata.get('extension') or '.txt')
-            if extension and not extension.startswith('.'):
-                extension = f'.{extension}'
+            extension = normalize_extension(str(item.metadata.get('extension') or '.txt'))
             modified_at = item.modified_at or datetime.now(UTC)
             content_hash = item.content_hash or hashlib.sha256(item.content_text.encode('utf-8')).hexdigest()
             size_bytes = int(item.size_bytes or item.metadata.get('size_bytes') or len((item.content_text or '').encode('utf-8')))
@@ -445,14 +468,22 @@ async def index_file(
             scanned = file_path_or_scanned
             scanned_file = scanned
             file_path = scanned.path
+            max_bytes = get_max_file_size_bytes()
+            if int(scanned.size_bytes) > max_bytes:
+                return IndexResult(
+                    success=False,
+                    chunks_created=0,
+                    error=(
+                        f'File too large to index ({scanned.size_bytes / (1024 * 1024):.1f} MB). '
+                        f'Max allowed: {max_bytes // (1024 * 1024)} MB.'
+                    ),
+                    error_code='file_too_large',
+                    retryable=False,
+                )
             if extractor is None:
                 extractor = get_extractor(file_path)
                 if extractor is None:
-                    return IndexResult(
-                        success=False,
-                        chunks_created=0,
-                        error=f'No extractor for extension: {scanned.extension}',
-                    )
+                    return _no_extractor_result(scanned.extension)
             # Use scanned metadata (including pre-computed content_hash)
             size_bytes = scanned.size_bytes
             modified_at = scanned.modified_at
@@ -460,7 +491,7 @@ async def index_file(
             extension = scanned.extension
             content_hash = scanned.content_hash  # Already computed by crawler
             doc_text = ''
-            file_metadata: dict[str, object]
+            file_metadata: dict[str, object] = {}
         else:
             # It's a Path
             file_path = file_path_or_scanned
@@ -503,6 +534,28 @@ async def index_file(
         )
 
         if not isinstance(file_path_or_scanned, IngestionItem):
+            if extension.lower() in _PLAINTEXT_EXTENSIONS:
+                max_line_chars = await asyncio.to_thread(_max_line_length, file_path)
+                if max_line_chars > _PLAINTEXT_MAX_LINE_CHARS:
+                    message = (
+                        f'Pathological text shape detected: max line length {max_line_chars} chars '
+                        f'exceeds {_PLAINTEXT_MAX_LINE_CHARS}.'
+                    )
+                    log.warning(
+                        'pathological_text_shape_skipped',
+                        path=str(file_path),
+                        filename=filename,
+                        extension=extension,
+                        max_line_chars=max_line_chars,
+                        threshold=_PLAINTEXT_MAX_LINE_CHARS,
+                    )
+                    return IndexResult(
+                        success=False,
+                        chunks_created=0,
+                        error=message,
+                        error_code='text_pathological_line_length',
+                        retryable=False,
+                    )
             # 1. Extract (run in thread pool to avoid blocking and help with memory)
             doc = await asyncio.to_thread(extractor.extract, file_path)
             if doc.error:
@@ -774,11 +827,7 @@ async def reindex_file(
             log.debug('reindex_as_new', path=str(path))
             extractor = get_extractor(path)
             if extractor is None:
-                return IndexResult(
-                    success=False,
-                    chunks_created=0,
-                    error=f'No extractor for extension: {scanned.extension}',
-                )
+                return _no_extractor_result(scanned.extension)
             return await index_file(
                 db,
                 path,
@@ -807,11 +856,7 @@ async def reindex_file(
                 filename=scanned.filename,
                 extension=scanned.extension
             )
-            return IndexResult(
-                success=False,
-                chunks_created=0,
-                error=f'No extractor for extension: {scanned.extension}',
-            )
+            return _no_extractor_result(scanned.extension)
 
         doc = await asyncio.to_thread(extractor.extract, path)
         if doc.error:

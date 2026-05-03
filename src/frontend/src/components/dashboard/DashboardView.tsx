@@ -8,6 +8,7 @@ import { useLocation } from 'react-router-dom'
 import {
   cancelScan,
   getIndexStatus,
+  getScanErrors,
   getScanStatus,
   scanFiles,
   getFiles,
@@ -27,7 +28,7 @@ import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { extractErrorMessage } from '../../utils/errorMessages'
 import { MENU_SCAN_NOW_PENDING_KEY } from '../../utils/storageKeys'
 import { proxyWheelToContainer } from '../../utils/wheelProxy'
-import type { IndexedFile, IndexStatus, ScanStatus } from '../../types/api'
+import type { IndexedFile, IndexStatus, ScanErrorsResponse, ScanStatus } from '../../types/api'
 import '../../styles/shared/buttons.css'
 import './DashboardView.css'
 
@@ -59,84 +60,11 @@ interface SettingsData {
   watched_directories?: string[]
 }
 
-type ScanNoticeSeverity = 'warning' | 'error'
-
-interface ScanNotice {
-  key: string
-  severity: ScanNoticeSeverity
-  icon: string
-  text: string
-}
-
-const MAX_SCAN_NOTICES = 3
-
-function getRecentErrorKey(err: NonNullable<ScanStatus['recent_errors']>[number], idx: number): string {
-  const source = err.path || err.filename || `item-${idx}`
-  const code = err.error_code || 'error'
-  const createdAt = err.created_at || 'unknown-time'
-  return `${createdAt}|${source}|${code}`
-}
-
-function getScanNoticeFromRecentError(
-  err: NonNullable<ScanStatus['recent_errors']>[number],
-  idx: number,
-): ScanNotice {
-  const fileLabel = err.filename || err.path || 'Unknown file'
-  const code = err.error_code ?? ''
-  const key = getRecentErrorKey(err, idx)
-
-  if (code === 'pdf_password_protected') {
-    return {
-      key,
-      severity: 'warning',
-      icon: 'ri-lock-line',
-      text: `${fileLabel}: Password-protected PDF skipped.`,
-    }
-  }
-
-  if (code === 'pdf_invalid_or_corrupt') {
-    return {
-      key,
-      severity: 'warning',
-      icon: 'ri-file-warning-line',
-      text: `${fileLabel}: PDF is invalid or corrupted and could not be indexed.`,
-    }
-  }
-
-  if (code === 'docling_extraction_error') {
-    return {
-      key,
-      severity: 'error',
-      icon: 'ri-file-damage-line',
-      text: `${fileLabel}: Document extraction failed.`,
-    }
-  }
-
-  if (code === 'scan_cancelled') {
-    return {
-      key,
-      severity: 'warning',
-      icon: 'ri-close-circle-line',
-      text: `${fileLabel}: Scan was cancelled before completion.`,
-    }
-  }
-
-  if (err.is_timeout || code.includes('timeout')) {
-    return {
-      key,
-      severity: 'warning',
-      icon: 'ri-time-line',
-      text: `${fileLabel}: Processing timed out.`,
-    }
-  }
-
-  const codeLabel = code ? ` (${code})` : ''
-  return {
-    key,
-    severity: 'error',
-    icon: 'ri-alert-line',
-    text: `${fileLabel}: Scan failed${codeLabel}.`,
-  }
+function formatScanErrorTimestamp(value?: string | null): string {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString()
 }
 
 export function DashboardView() {
@@ -152,8 +80,9 @@ export function DashboardView() {
   const [cancelling, setCancelling] = useState(false)
   const [rebuilding, setRebuilding] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
-  const [dismissedNoticeKeys, setDismissedNoticeKeys] = useState<Set<string>>(new Set())
-  const [suppressRecentErrors, setSuppressRecentErrors] = useState(false)
+  const [showErrorsModal, setShowErrorsModal] = useState(false)
+  const [errorsLoading, setErrorsLoading] = useState(false)
+  const [allScanErrors, setAllScanErrors] = useState<NonNullable<ScanErrorsResponse['errors']>>([])
   const previousScanStatusRef = useRef<string | undefined>(undefined)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
@@ -249,38 +178,21 @@ export function DashboardView() {
   useEffect(() => {
     const previousStatus = previousScanStatusRef.current
     const currentStatus = scanStatus?.status
-    if (currentStatus === 'running' && previousStatus !== 'running') {
-      setDismissedNoticeKeys(new Set())
-      setSuppressRecentErrors(false)
-    }
     if (previousStatus === 'running' && currentStatus !== 'running') {
       const completedWithoutErrors =
         (scanStatus?.errors ?? 0) === 0 &&
-        (scanStatus?.timeout_errors ?? 0) === 0 &&
-        (scanStatus?.recent_errors?.length ?? 0) === 0
+        (scanStatus?.timeout_errors ?? 0) === 0
       if (completedWithoutErrors) {
         setScanError(null)
-        setDismissedNoticeKeys(new Set())
-        setSuppressRecentErrors(true)
       }
     }
     previousScanStatusRef.current = currentStatus
   }, [scanStatus])
 
-  const dismissNotice = useCallback((key: string) => {
-    setDismissedNoticeKeys((previous) => {
-      const next = new Set(previous)
-      next.add(key)
-      return next
-    })
-  }, [])
-
   const runScan = useCallback(async (force: boolean, failureFallbackMessage: string, successMessage: string) => {
     if (offline) return
     setScanning(true)
     setScanError(null)
-    setDismissedNoticeKeys(new Set())
-    setSuppressRecentErrors(false)
     try {
       let dirs = settings?.watched_directories
       if (!dirs?.length) {
@@ -426,6 +338,19 @@ export function DashboardView() {
     proxyWheelToContainer(e, scrollContainerRef.current)
   }, [])
 
+  const openErrorsModal = useCallback(async () => {
+    setShowErrorsModal(true)
+    setErrorsLoading(true)
+    try {
+      const response = (await getScanErrors({ limit: 1000, offset: 0 })) as ScanErrorsResponse
+      setAllScanErrors(response.errors ?? [])
+    } catch {
+      setAllScanErrors([])
+    } finally {
+      setErrorsLoading(false)
+    }
+  }, [])
+
   if (loading && !indexStatus) {
     return <DashboardSkeleton />
   }
@@ -444,21 +369,6 @@ export function DashboardView() {
       </div>
     )
   }
-  const recentNotices = suppressRecentErrors
-    ? []
-    : (scanStatus?.recent_errors ?? []).slice(0, MAX_SCAN_NOTICES).map(getScanNoticeFromRecentError)
-  const scanNotices: ScanNotice[] = []
-  if (scanError) {
-    scanNotices.push({
-      key: 'scan-error',
-      severity: 'error',
-      icon: 'ri-alert-circle-line',
-      text: scanError,
-    })
-  }
-  scanNotices.push(...recentNotices)
-  const visibleScanNotices = scanNotices.filter((notice) => !dismissedNoticeKeys.has(notice.key))
-
   return (
     <div className="page page--dashboard" onWheel={handlePageWheel}>
       <PageHeader
@@ -491,6 +401,18 @@ export function DashboardView() {
                   <span>
                     {watchedDirCount} source {watchedDirCount === 1 ? 'directory' : 'directories'}
                   </span>
+                </>
+              )}
+              {(scanStatus?.errors ?? 0) > 0 && (
+                <>
+                  {' · '}
+                  <button
+                    type="button"
+                    className="dashboard__hero-meta-link dashboard__hero-meta-link--danger"
+                    onClick={() => void openErrorsModal()}
+                  >
+                    Errors: {scanStatus?.errors ?? 0}
+                  </button>
                 </>
               )}
             </div>
@@ -537,25 +459,9 @@ export function DashboardView() {
                 </div>
               </div>
             )}
-            {visibleScanNotices.length > 0 && (
-              <div className="dashboard__scan-notices" role="status" aria-live="polite">
-                {visibleScanNotices.map((notice) => (
-                  <div
-                    key={notice.key}
-                    className={`dashboard__scan-notice dashboard__scan-notice--${notice.severity}`}
-                  >
-                    <i className={notice.icon} aria-hidden />
-                    <span>{notice.text}</span>
-                    <button
-                      type="button"
-                      className="dashboard__scan-notice-dismiss"
-                      aria-label="Dismiss scan notice"
-                      onClick={() => dismissNotice(notice.key)}
-                    >
-                      <i className="ri-close-line" aria-hidden />
-                    </button>
-                  </div>
-                ))}
+            {scanError && (
+              <div className="dashboard__scan-summary" role="status" aria-live="polite">
+                <span className="dashboard__scan-summary-text">{scanError}</span>
               </div>
             )}
           </div>
@@ -662,6 +568,59 @@ export function DashboardView() {
           </div>
         </div>
       </div>
+      {showErrorsModal && (
+        <div className="dashboard-errors-modal__backdrop" onClick={() => setShowErrorsModal(false)}>
+          <div className="dashboard-errors-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="dashboard-errors-modal__header">
+              <h3>
+                <span className="dashboard-errors-modal__title-icon">
+                  <i className="ri-alert-line" aria-hidden />
+                </span>
+                <span>Scan Errors ({scanStatus?.errors ?? 0})</span>
+              </h3>
+              <button
+                type="button"
+                className="dashboard-errors-modal__close"
+                aria-label="Close errors modal"
+                onClick={() => setShowErrorsModal(false)}
+              >
+                <i className="ri-close-line" aria-hidden />
+              </button>
+            </div>
+            <div className="dashboard-errors-modal__body">
+              <p className="dashboard-errors-modal__description">
+                Below are the errors encountered during the most recent scan.
+              </p>
+              <div className="dashboard-errors-modal__list-wrap">
+              {errorsLoading ? (
+                <p className="dashboard-errors-modal__empty">Loading…</p>
+              ) : allScanErrors.length === 0 ? (
+                <p className="dashboard-errors-modal__empty">No errors found for this scan.</p>
+              ) : (
+                <table className="dashboard-errors-modal__table">
+                  <thead>
+                    <tr>
+                      <th>Date/Time</th>
+                      <th>File</th>
+                      <th>Error</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allScanErrors.map((err, idx) => (
+                      <tr key={`${err.created_at ?? 'time'}-${err.path ?? err.filename ?? idx}-${idx}`}>
+                        <td>{formatScanErrorTimestamp(err.created_at)}</td>
+                        <td title={err.path || err.filename || ''}>{err.filename || err.path || 'Unknown file'}</td>
+                        <td title={err.error_message || ''}>{err.error_message || err.error_code || 'Unknown error'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

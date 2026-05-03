@@ -17,6 +17,7 @@ from informity.llm.handlers.rag import (
     _apply_negation_preferences,
     _apply_output_format_preferences,
     _build_history_aware_retrieval_query,
+    _build_history_aware_retrieval_query_with_classification,
     _resolve_exhaustive_inventory_term_type,
     _should_boost_coverage_top_k,
 )
@@ -240,7 +241,7 @@ class TestRAGHandler:
         assert applied is True
         assert 'Follow-up context:' in rewritten
         assert 'Previous user question:' in rewritten
-        assert 'Previous assistant answer:' in rewritten
+        assert 'Previous assistant answer:' not in rewritten
 
     def test_query_rewrite_can_be_disabled_via_settings(self) -> None:
         original_enabled = settings.rag_query_rewrite_enabled
@@ -257,6 +258,43 @@ class TestRAGHandler:
             assert rewritten == 'What about that one?'
         finally:
             settings.rag_query_rewrite_enabled = original_enabled
+
+    def test_query_rewrite_adds_context_for_topical_followups_without_pronouns(self) -> None:
+        rewritten, applied = _build_history_aware_retrieval_query_with_classification(
+            question='give basic character description for each character',
+            history=[
+                ChatMessage(chat_id='chat', role='user', content='List all the main characters in The Three Musketeers'),
+                ChatMessage(chat_id='chat', role='assistant', content='Here are the main characters.'),
+            ],
+            classification=QueryClassification(intent='focused'),
+        )
+        assert applied is True
+        assert 'Follow-up context:' in rewritten
+        assert 'Three Musketeers' in rewritten
+
+    def test_query_rewrite_skips_when_scope_reset_is_explicit(self) -> None:
+        rewritten, applied = _build_history_aware_retrieval_query_with_classification(
+            question='Summarize this contract',
+            history=[
+                ChatMessage(chat_id='chat', role='user', content='List all the main characters in The Three Musketeers'),
+                ChatMessage(chat_id='chat', role='assistant', content='Here are the main characters.'),
+            ],
+            classification=QueryClassification(intent='focused', is_scope_reset=True),
+        )
+        assert applied is False
+        assert rewritten == 'Summarize this contract'
+
+    def test_query_rewrite_skips_when_explicit_topic_shift_cue_present(self) -> None:
+        rewritten, applied = _build_history_aware_retrieval_query_with_classification(
+            question='Instead, new topic: summarize 2025 planning notes',
+            history=[
+                ChatMessage(chat_id='chat', role='user', content='List all the main characters in The Three Musketeers'),
+                ChatMessage(chat_id='chat', role='assistant', content='Here are the main characters.'),
+            ],
+            classification=QueryClassification(intent='focused'),
+        )
+        assert applied is False
+        assert rewritten == 'Instead, new topic: summarize 2025 planning notes'
     @pytest.fixture(autouse=True)
     def _force_minimal_mode_for_rag_tests(self) -> None:
         # RAG handler tests validate the minimal one-path runtime directly.
@@ -371,6 +409,7 @@ class TestRAGHandler:
         mock_sources_cursor.fetchall = AsyncMock(
             return_value=[
                 {
+                    'file_id': 42,
                     'filename': 'retirement-plan.pdf',
                     'path': '/docs/retirement-plan.pdf',
                     'chunk_preview': 'Benjamin Bjork reviewed projected retirement distributions.',
@@ -496,6 +535,26 @@ class TestRAGHandler:
             assert mock_retrieve.await_count == 1
 
     @pytest.mark.asyncio
+    async def test_handle_passes_file_scopes_to_retrieve_chunks(self) -> None:
+        handler = RAGHandler()
+        classification = QueryClassification(intent='focused')
+        mock_db = MagicMock()
+
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
+            mock_retrieve.return_value = []
+            async for _item in handler.handle(
+                'test question',
+                classification,
+                None,
+                mock_db,
+                None,
+                file_ids=[7],
+            ):
+                pass
+            assert mock_retrieve.await_count == 1
+            assert mock_retrieve.await_args.kwargs.get('file_ids_filter') == [7]
+
+    @pytest.mark.asyncio
     async def test_handle_rewrites_referential_query_for_retrieval(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(intent='focused')
@@ -512,6 +571,54 @@ class TestRAGHandler:
             assert results[-1] == []
             assert mock_retrieve.await_count == 1
             assert 'Follow-up context:' in mock_retrieve.await_args.kwargs['query']
+
+    @pytest.mark.asyncio
+    async def test_handle_enables_term_expansion_and_diversity_for_focused_explicit_title_query(self) -> None:
+        handler = RAGHandler()
+        classification = QueryClassification(intent='focused')
+        mock_db = MagicMock()
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
+            mock_retrieve.return_value = []
+            results: list[object] = []
+            async for item in handler.handle(
+                'What is the general plot of The Three Musketeers book?',
+                classification,
+                [],
+                mock_db,
+                None,
+            ):
+                results.append(item)
+            assert results[-1] == []
+            assert mock_retrieve.await_count == 1
+            assert mock_retrieve.await_args.kwargs.get('query') == 'What is the general plot of The Three Musketeers book?'
+            assert mock_retrieve.await_args.kwargs.get('enable_term_expansion') is True
+            assert mock_retrieve.await_args.kwargs.get('prefer_within_file_diversity') is True
+            assert mock_retrieve.await_args.kwargs.get('strict_title_alignment') is True
+
+    @pytest.mark.asyncio
+    async def test_handle_uses_decomposed_retrieval_content_query(self) -> None:
+        handler = RAGHandler()
+        classification = QueryClassification(
+            intent='focused',
+            retrieval_content_query='What is the general plot of The Count of Monte Cristo?',
+            retrieval_content_confidence=0.8,
+            retrieval_content_reasons=['question_mark', 'question_word'],
+        )
+        mock_db = MagicMock()
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
+            mock_retrieve.return_value = []
+            results: list[object] = []
+            async for item in handler.handle(
+                'OK, new topic. What is the general plot of The Count of Monte Cristo?',
+                classification,
+                [],
+                mock_db,
+                None,
+            ):
+                results.append(item)
+            assert results[-1] == []
+            assert mock_retrieve.await_count == 1
+            assert mock_retrieve.await_args.kwargs.get('query') == 'What is the general plot of The Count of Monte Cristo?'
 
     @pytest.mark.asyncio
     async def test_continuation_without_overlap_keeps_scope_without_clarification(self) -> None:

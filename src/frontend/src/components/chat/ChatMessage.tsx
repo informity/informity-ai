@@ -40,6 +40,7 @@ interface ChatMessageProps {
     total: number
   }
   streamPlanSteps?: Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>
+  scopedFileName?: string | null
   isPartial?: boolean
   hasRemainingScope?: boolean
   completionMode?: 'complete' | 'partial' | 'scoped_complete' | 'stopped'
@@ -72,6 +73,7 @@ function ChatMessageComponent({
   streamStatusText,
   streamSectionProgress,
   streamPlanSteps,
+  scopedFileName = null,
   isPartial = false,
   hasRemainingScope = false,
   completionMode = 'complete',
@@ -185,6 +187,17 @@ function ChatMessageComponent({
         <div className="chat-message__meta-item">
           <i className="ri-global-line chat-message__meta-icon" aria-hidden />
           <span>Web Search</span>
+        </div>
+      ),
+    })
+  }
+  if (!isUser && scopedFileName) {
+    assistantMetaItems.push({
+      key: 'scoped_file',
+      node: (
+        <div className="chat-message__meta-item" title={scopedFileName}>
+          <i className="ri-focus-3-line chat-message__meta-icon" aria-hidden />
+          <span>Scoped</span>
         </div>
       ),
     })
@@ -518,6 +531,7 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.streamStatusText === next.streamStatusText &&
     prev.streamSectionProgress === next.streamSectionProgress &&
     prev.streamPlanSteps === next.streamPlanSteps &&
+    prev.scopedFileName === next.scopedFileName &&
     prev.isPartial === next.isPartial &&
     prev.hasRemainingScope === next.hasRemainingScope &&
     prev.completionMode === next.completionMode &&

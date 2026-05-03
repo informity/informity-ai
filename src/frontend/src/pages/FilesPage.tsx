@@ -3,6 +3,7 @@
  * File browser with table, filters (TASK-050), detail panel (TASK-051).
  */
 import { useState, useEffect, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { FileTable } from '../components/files/FileTable'
 import { PageHeader } from '../components/PageHeader'
 import { FileTableSkeleton } from '../components/files/FileTableSkeleton'
@@ -29,6 +30,7 @@ interface FileFiltersState {
 }
 
 export function FilesPage() {
+  const navigate = useNavigate()
   const confirm = useConfirm()
   const [files, setFiles] = useState<IndexedFile[]>([])
   const [total, setTotal] = useState(0)
@@ -217,6 +219,16 @@ export function FilesPage() {
     loadFiles()
   }, [loadFiles])
 
+  const handleChatAboutFile = useCallback((file: IndexedFile) => {
+    if (!file?.id) return
+    navigate('/chat', {
+      state: {
+        scopedFileId: file.id,
+        scopedFileName: file.filename,
+      },
+    })
+  }, [navigate])
+
   const handleReindex = useCallback(
     async (file: IndexedFile) => {
       if (!file?.id) return
@@ -311,6 +323,7 @@ export function FilesPage() {
                   onSortChange={handleSortChange}
                   onPageChange={handlePageChange}
                   onSelectFile={handleSelectFile}
+                  onChatAboutFile={handleChatAboutFile}
                   onReindex={handleReindex}
                   onRemove={handleRemove}
                   selectedFileId={selectedFileId}
@@ -326,6 +339,7 @@ export function FilesPage() {
           fileId={selectedFileId}
           onClose={handleCloseDetail}
           onRemoved={handleFileRemoved}
+          onChatAboutFile={handleChatAboutFile}
           isReindexing={Boolean(reindexOperationsByFileId[selectedFileId])}
           onReindexRequest={handleReindex}
         />

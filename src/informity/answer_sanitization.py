@@ -23,6 +23,19 @@ _OUT_OF_CORPUS_SENTENCE_PATTERN = re.compile(
 _OUT_OF_CORPUS_SIGNAL_PATTERN = re.compile(
     r'(?is)\b(?:documents?|context)\b.{0,120}\b(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b(?:contain|include|cover|mention|provide)\b'
 )
+_OVERCAUTIOUS_SUMMARY_OPENING_PATTERN = re.compile(
+    r'(?is)^\s*'
+    r'(?:'
+    r'(?:based on the provided text|the provided text)[^.]*\.\s*'
+    r'(?:[^.]*\.\s*){0,2}'
+    r'|'
+    r'(?:based on the provided text)[^.]*cannot[^.]*\.\s*'
+    r')'
+    r'(?='
+    r'(?:based on the available|from the available|however,|the following|'
+    r'[\*\-]\s|\d+\.\s)'
+    r')'
+)
 _IDENTITY_LEAK_PATTERNS = (
     re.compile(r'^\s*(?:my name is|i am|i\'m)\s+qwen\b[^.!?\n]*[.!?]?\s*', re.IGNORECASE),
     re.compile(
@@ -111,6 +124,33 @@ def sanitize_display_answer(text: str) -> str:
     # Normalize line-break HTML artifacts commonly emitted inside markdown table cells.
     cleaned = re.sub(r'(?i)<br\s*/?>', '; ', cleaned)
     cleaned = _normalize_inline_whitespace_preserve_indentation(cleaned)
+    match = _OVERCAUTIOUS_SUMMARY_OPENING_PATTERN.match(cleaned)
+    if match is not None:
+        remainder = cleaned[match.end():].lstrip()
+        remainder = re.sub(r'(?is)^however,\s*', '', remainder)
+        if remainder:
+            cleaned = remainder
+    cleaned = re.sub(r'(?is)^\s*(?:the\s+)?following\s+[^:\n]{3,140}:\s*', '', cleaned)
+    paragraphs = re.split(r'\n{2,}', cleaned)
+    filtered_paragraphs: list[str] = []
+    skip_next_paragraph = False
+    for paragraph in paragraphs:
+        if skip_next_paragraph:
+            skip_next_paragraph = False
+            continue
+        text_paragraph = paragraph.strip()
+        normalized = text_paragraph.lower()
+        is_scope_meta_heading = (
+            normalized.startswith('limitations of the provided text')
+            or normalized.startswith('note on scope')
+            or normalized.startswith('scope note')
+        )
+        if is_scope_meta_heading:
+            if ':' not in text_paragraph:
+                skip_next_paragraph = True
+            continue
+        filtered_paragraphs.append(paragraph)
+    cleaned = '\n\n'.join(filtered_paragraphs)
     cleaned = _trim_truncated_trailing_markdown_table_row(cleaned)
     cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
     return cleaned.strip()

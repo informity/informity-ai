@@ -7,31 +7,66 @@ Deterministic pattern and helper utilities used by the RAG runtime.
 import re
 
 from informity.db.models import ChatMessage
+from informity.llm.promptcue_signals import extract_prompt_signals
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.types import QueryType
 
 SUMMARY_STYLE_REQUEST_PATTERN = re.compile(
-    r'\b(summar(?:y|ize|ized)|overview|key\s+points?|main\s+points?|chapter|plot|story)\b',
+    r'\b('
+    r'summar(?:y|ize|ized)|overview|key\s+points?|main\s+points?|chapter|plot|story'
+    r'|what\s+(?:is|does)\s+(?:this|the)\s+'
+    r'(?:document|file|text|record|entry|item|source|material|attachment|note|paper)\s+'
+    r'(?:about|cover)'
+    r')\b',
     re.IGNORECASE,
 )
 PLOT_CHAPTER_REQUEST_PATTERN = re.compile(r'\b(plot|chapter)\b', re.IGNORECASE)
 ANAPHORIC_SCOPE_PATTERN = re.compile(
-    r'\b(this|that|it|this\s+(?:book|document|file)|that\s+(?:book|document|file))\b',
+    r'\b(this|that|it|'
+    r'this\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)|'
+    r'that\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)'
+    r')\b',
     re.IGNORECASE,
 )
 EXPLICIT_SCOPE_RESET_PATTERN = re.compile(
     r'\b('
     r'all\s+(?:documents?|files?|records?)'
     r'|across\s+all'
-    r'|another\s+(?:document|file|book)'
-    r'|different\s+(?:document|file|book)'
-    r'|other\s+(?:document|file|book)'
+    r'|another\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)'
+    r'|different\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)'
+    r'|other\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)'
     r'|[a-z0-9][a-z0-9._-]*\.(?:pdf|txt|md|csv|json|docx?|xlsx?)'
     r')\b',
     re.IGNORECASE,
 )
+TITLE_ALIGNMENT_CUE_PATTERN = re.compile(
+    r'\b(compare|between|versus|vs)\b'
+    r'|'
+    r'\b(?:in|from)\s+.{0,120}\b(document|file|text|record|entry|item|source|material|attachment|note|paper)\b',
+    re.IGNORECASE,
+)
+_TITLE_IN_PREPOSITION_PATTERN = re.compile(
+    r'\b(?:of|in|about|from)\s+'
+    r'((?:[A-Z][A-Za-z0-9\'_-]*)(?:\s+[A-Z][A-Za-z0-9\'_-]*){1,8})'
+    r'(?:\s+(?:file|document|text|record|entry|item|source|material|attachment|note|paper))?\b'
+)
+_TITLE_BEFORE_DOCUMENT_NOUN_PATTERN = re.compile(
+    r'\b('
+    r'(?!(?:What|Who|When|Where|Why|How|Which|Tell|List)\b)'
+    r'(?:[A-Z][A-Za-z0-9\'_-]*)(?:\s+[A-Z][A-Za-z0-9\'_-]*){1,8}'
+    r')\s+'
+    r'(?:book|document|file|text|record|entry|item|source|material|attachment|note|paper)\b'
+)
+_QUOTED_TITLE_PATTERN = re.compile(r'["“](.{3,120}?)[”"]')
 STRUCTURAL_BLOCK_TYPES = {'table', 'form'}
 SUMMARY_BLOCK_TYPE_EXCLUDE = ['table', 'form']
+EXTRACTION_CUE_PATTERN = re.compile(r'\bextract\b', re.IGNORECASE)
+REWRITE_STOPWORDS = {
+    'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'do', 'for', 'from', 'give', 'has', 'have',
+    'how', 'i', 'in', 'is', 'it', 'its', 'list', 'me', 'of', 'on', 'or', 'our', 'please', 'show',
+    'that', 'the', 'their', 'them', 'there', 'these', 'they', 'this', 'to', 'us', 'what', 'when',
+    'where', 'which', 'who', 'why', 'with', 'you', 'your',
+}
 
 
 def is_summary_style_request(
@@ -45,6 +80,96 @@ def is_summary_style_request(
 
 def is_plot_or_chapter_request(question: str) -> bool:
     return bool(PLOT_CHAPTER_REQUEST_PATTERN.search(str(question or '')))
+
+
+def has_extraction_cue(question: str) -> bool:
+    return bool(EXTRACTION_CUE_PATTERN.search(str(question or '')))
+
+
+def normalize_query_text(text: str) -> str:
+    return ' '.join(str(text or '').strip().split())
+
+
+def has_referential_followup_language(question: str) -> bool:
+    normalized = normalize_query_text(question)
+    if not normalized:
+        return False
+    return extract_prompt_signals(normalized).has_referential_followup
+
+
+def has_topic_shift_cue(question: str) -> bool:
+    normalized = normalize_query_text(question)
+    if not normalized:
+        return False
+    return extract_prompt_signals(normalized).has_topic_shift_cue
+
+
+def has_explicit_title_reference(question: str) -> bool:
+    return extract_explicit_title_reference(question) is not None
+
+
+def extract_explicit_title_reference(question: str) -> str | None:
+    text = str(question or '').strip()
+    if not text:
+        return None
+    quoted_match = _QUOTED_TITLE_PATTERN.search(text)
+    if quoted_match:
+        return normalize_query_text(quoted_match.group(1))
+    preposition_match = _TITLE_IN_PREPOSITION_PATTERN.search(text)
+    if preposition_match:
+        return normalize_query_text(preposition_match.group(1))
+    noun_match = _TITLE_BEFORE_DOCUMENT_NOUN_PATTERN.search(text)
+    if noun_match:
+        return normalize_query_text(noun_match.group(1))
+    return None
+
+
+def tokenize_query_terms(text: str) -> set[str]:
+    lowered = normalize_query_text(text).lower()
+    if not lowered:
+        return set()
+    raw_terms = set(re.findall(r"[a-z0-9][a-z0-9'_-]{2,}", lowered))
+    terms: set[str] = set()
+    for term in raw_terms:
+        if term in REWRITE_STOPWORDS:
+            continue
+        terms.add(term)
+        if term.endswith('s') and len(term) > 4:
+            terms.add(term[:-1])
+    return terms
+
+
+def has_topic_overlap_with_previous_user(
+    *,
+    question: str,
+    history: list[ChatMessage],
+) -> bool:
+    current_terms = tokenize_query_terms(question)
+    if not current_terms:
+        return False
+    for message in reversed(history):
+        if message.role != 'user':
+            continue
+        previous_terms = tokenize_query_terms(message.content or '')
+        if not previous_terms:
+            continue
+        return bool(current_terms & previous_terms)
+    return False
+
+
+def should_prefer_title_alignment(
+    *,
+    question: str,
+    classification: QueryClassification,
+) -> bool:
+    if classification.intent not in {QueryType.FOCUSED, QueryType.COVERAGE}:
+        return False
+    if has_explicit_title_reference(question):
+        return True
+    if TITLE_ALIGNMENT_CUE_PATTERN.search(str(question or '')):
+        return True
+    source_terms = [str(term or '').strip() for term in (classification.source_terms or [])]
+    return any(len(term) >= 6 and ' ' in term for term in source_terms)
 
 
 def evaluate_substantive_evidence(chunks: list[dict]) -> dict[str, float | int]:

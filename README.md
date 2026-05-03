@@ -1,6 +1,10 @@
 # Informity AI
 
-[![Version](https://img.shields.io/badge/version-0.9.5-blue.svg)](#)
+<p align="center">
+  <img src="./assets/demo/informity-ai-demo.gif" alt="Informity AI demo" width="960" />
+</p>
+
+[![Version](https://img.shields.io/github/v/tag/informity/informity-ai?label=version)](https://github.com/informity/informity-ai/releases)
 [![Python](https://img.shields.io/badge/python-3.13+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-macOS-black?logo=apple)](#)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -17,6 +21,7 @@ Informity scans and indexes local files, then answers questions with a local RAG
 - [Data Location](#data-location)
 - [PDF Processing](#pdf-processing)
 - [Offline Mode](#offline-mode)
+- [Chat Scope Contract](#chat-scope-contract)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
 - [Release Scripts](#release-scripts)
@@ -27,6 +32,7 @@ Informity scans and indexes local files, then answers questions with a local RAG
 
 - Local-first RAG over local files
 - Offline-first runtime (full privacy mode)
+- Temporary per-chat uploaded files in Researcher mode (`+` attach, `x` remove)
 - SQLite + sqlite-vec for metadata + embeddings
 - Local LLM inference via `xllamacpp` (Metal/GPU on macOS)
 
@@ -95,6 +101,8 @@ Directory layout:
   config.json              # Saved settings
   db/                      # SQLite DB and WAL files
     informity.db
+  storage/
+    uploads/               # Temporary chat-scoped uploaded files
   logs/                    # Runtime log files
   models/
     llm/                   # LLM models (*.gguf files)
@@ -126,6 +134,22 @@ The app is **offline-first by default**. With **Full Privacy Mode** on (Settings
   Note: the optional installer seed in `scripts/install.conf.json` points to Qwen3.6 35B A3B.
 
 After models are in place, the app runs fully offline with no internet required.
+
+## Chat Scope Contract
+
+`POST /api/chat` supports optional scoped researcher retrieval with:
+
+- `scoped_file_ids`: one-or-more indexed file IDs
+- `scoped_upload_ids`: one-or-more chat-scoped upload IDs (Researcher mode only)
+
+Notes:
+
+- Legacy `file_id` is no longer accepted.
+- When `scoped_file_ids` is provided, researcher retrieval is constrained to that file set.
+- Uploaded files are temporary and chat-scoped (`POST /api/chat/uploads`, `GET /api/chat/chats/{chat_id}/uploads`, `DELETE /api/chat/uploads/{upload_id}`).
+- When uploads are present and no explicit subset is chosen, retrieval defaults to all ready uploaded files in that chat.
+- Removing the last upload auto-falls back to scanned-documents retrieval for subsequent turns.
+- Assistant mode remains retrieval-free.
 
 ## Tech Stack
 
@@ -182,7 +206,7 @@ src/informity/
 │   ├── system_prompts.py           # Centralized system prompt templates
 │   ├── timeout_policy.py           # Request timeout policy mapping by mode/intent
 │   ├── user_messages.py            # Centralized user-facing message strings
-│   ├── web_search.py               # Tavily-backed web search adapter and status handling
+│   ├── web_search.py               # Tavily/Linkup-backed web search adapter and status handling
 │   ├── rag_runtime/                # RAG execution sub-pipeline (retrieval + generation phases)
 │   └── handlers/                   # Query handlers (metadata, rag, simple)
 └── api/
@@ -194,7 +218,7 @@ src/informity/
     ├── chat_sse.py                 # SSE event formatting for chat streams
     ├── chat_closeout.py            # Post-generation chat record finalization
     ├── chat_stream_registry.py     # Active stream registry (cancel support)
-    ├── routes_scan.py              # POST /api/scan, GET /api/scan/status, GET /api/files
+    ├── routes_scan.py              # POST /api/scan, GET /api/scan/status, GET /api/scan/errors, GET /api/files
     ├── routes_index.py             # POST /api/index/rebuild, GET /api/index/status, POST /api/index/reset
     │                               # GET|POST /api/index/term-dictionary/status|rebuild|purge
     ├── routes_search.py            # POST /api/search
