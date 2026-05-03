@@ -7,10 +7,6 @@ import sys
 from pathlib import Path
 from unittest.mock import patch
 
-import docx
-import openpyxl
-import pptx
-import pymupdf
 import pytest
 
 # ==============================================================================
@@ -68,6 +64,7 @@ def sample_md(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_pdf(tmp_path: Path) -> Path:
     # Create a sample .pdf file with two pages.
+    pymupdf = pytest.importorskip('pymupdf')
     f = tmp_path / "sample.pdf"
     doc = pymupdf.open()
     page1 = doc.new_page()
@@ -82,6 +79,7 @@ def sample_pdf(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_docx(tmp_path: Path) -> Path:
     # Create a sample .docx file with paragraphs and a table.
+    docx = pytest.importorskip('docx')
     f = tmp_path / "sample.docx"
     doc = docx.Document()
     doc.core_properties.title = "Test DOCX"
@@ -101,6 +99,7 @@ def sample_docx(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_pptx(tmp_path: Path) -> Path:
     # Create a sample .pptx file with two slides.
+    pptx = pytest.importorskip('pptx')
     f = tmp_path / "sample.pptx"
     prs = pptx.Presentation()
     slide1 = prs.slides.add_slide(prs.slide_layouts[1])
@@ -116,6 +115,7 @@ def sample_pptx(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_xlsx(tmp_path: Path) -> Path:
     # Create a sample .xlsx file with data.
+    openpyxl = pytest.importorskip('openpyxl')
     f = tmp_path / "sample.xlsx"
     wb = openpyxl.Workbook()
     ws = wb.active

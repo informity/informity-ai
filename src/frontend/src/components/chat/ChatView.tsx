@@ -286,7 +286,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const hasPendingUploads = pendingUploadCount > 0
   const hasUploadChipRow = hasUploadAttachments || hasPendingUploads
   const hasScopedInputPill = !!chatFileScope || hasUploadChipRow
-  const hideAssistantSwitch = hasActiveUploadAttachments || hasPendingUploads
+  const hideAssistantSwitch = hasScopedInputPill
   const hiddenUploadCount = Math.max(0, chatUploads.length - visibleUploadCount)
   const visibleUploads = hiddenUploadCount > 0 ? chatUploads.slice(0, visibleUploadCount) : chatUploads
   const recomputeVisibleUploadCount = useCallback(() => {
@@ -508,6 +508,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const handleAskInAssistant = useCallback((assistantMessageIndex: number) => {
     if (offline) return
     if (isStreaming) return
+    if (hasScopedInputPill) return
     const previousUser = [...messages]
       .slice(0, assistantMessageIndex)
       .reverse()
@@ -525,7 +526,16 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, isStreaming, messages, sendMessage, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [
+    offline,
+    isStreaming,
+    hasScopedInputPill,
+    messages,
+    sendMessage,
+    chatFileScope,
+    chatWebSearchPrivacyOverride,
+    chatWebSearchEnabled,
+  ])
 
   const handleNewChat = useCallback(() => {
     if (offline) return
