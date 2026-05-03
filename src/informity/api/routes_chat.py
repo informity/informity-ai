@@ -160,6 +160,15 @@ _OUT_OF_CORPUS_RESPONSE_PATTERN = re.compile(
     r'(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b'
     r'(?:contain|include|cover|mention|provide|have)\b'
 )
+_PER_FILE_SEPARATE_REQUEST_PATTERN = re.compile(
+    r'(?i)\b('
+    r'each\s+(?:document|doc|file|attachment)s?'
+    r'|'
+    r'(?:document|doc|file|attachment)s?\s+separately'
+    r'|'
+    r'separately\s+(?:for\s+)?(?:each\s+)?(?:document|doc|file|attachment)s?'
+    r')\b'
+)
 
 
 def _normalize_diagnostics_query_type(value: object) -> str:
@@ -172,6 +181,24 @@ def _normalize_diagnostics_query_type(value: object) -> str:
 
 def _answer_signals_out_of_corpus(text: str) -> bool:
     return bool(_OUT_OF_CORPUS_RESPONSE_PATTERN.search(str(text or '')))
+
+
+def _looks_per_file_separate_request(text: str) -> bool:
+    return bool(_PER_FILE_SEPARATE_REQUEST_PATTERN.search(str(text or '')))
+
+
+def _build_per_file_separate_guidance(file_names: list[str]) -> str | None:
+    normalized = [str(name or '').strip() for name in file_names if str(name or '').strip()]
+    if len(normalized) <= 1:
+        return None
+    heading_lines = '\n'.join(f'- {name}' for name in normalized)
+    return (
+        'Output contract (strict): summarize each scoped file exactly once.\n'
+        f'- Return exactly {len(normalized)} top-level sections, one per file.\n'
+        '- Use these exact section headings (same order):\n'
+        f'{heading_lines}\n'
+        '- Do not invent additional document sections.'
+    )
 
 
 def _sanitize_upload_filename(filename: str) -> str:
@@ -994,6 +1021,24 @@ async def chat(
         upload_attachments_all=upload_attachments_all,
         selected_upload_ids=upload_scope_selected_ids,
     )
+    scoped_file_names: list[str] = []
+    if scoped_file_ids:
+        filenames_by_file_id: dict[int, str] = {}
+        for attachment in upload_attachments:
+            if attachment.file_id is None:
+                continue
+            file_id = int(attachment.file_id)
+            if file_id not in filenames_by_file_id:
+                filenames_by_file_id[file_id] = str(attachment.filename_at_upload or '').strip()
+        missing_file_ids = [file_id for file_id in scoped_file_ids if file_id not in filenames_by_file_id]
+        if missing_file_ids:
+            indexed_files = await get_files_by_ids(db, missing_file_ids)
+            for file_id, indexed_file in indexed_files.items():
+                filenames_by_file_id[int(file_id)] = str(indexed_file.filename or '').strip()
+        scoped_file_names = [
+            filenames_by_file_id.get(file_id) or f'File {file_id}'
+            for file_id in scoped_file_ids
+        ]
     full_history = await get_chat(db, chat_id)
     retrieval_scope_key, context_scope_resolution = resolve_retrieval_context_scope_key(
         chat_mode=resolved_chat_mode,
@@ -1192,6 +1237,7 @@ async def chat(
                         locked_classification, pre_classification_elapsed_ms = await classify_query_with_timing(
                             continuation_anchor_question,
                             scoped_file_active=bool(scoped_file_ids),
+                            scoped_file_count=len(scoped_file_ids or []),
                             history=history,
                         )
                         log.info(
@@ -1221,6 +1267,11 @@ async def chat(
                     question=continuation_anchor_question,
                     classification=locked_classification if resolved_chat_mode != 'assistant' else None,
                 )
+                per_file_separate_guidance = (
+                    _build_per_file_separate_guidance(scoped_file_names)
+                    if _looks_per_file_separate_request(continuation_anchor_question)
+                    else None
+                )
                 if contract_spec.required_headings or contract_spec.min_year_count > 0:
                     max_total_passes = max(max_total_passes, 2)
                 pass_index = 1
@@ -1235,6 +1286,8 @@ async def chat(
                         )
                         if continuation_contract_guidance:
                             pass_question = f"{pass_question}\n\n{continuation_contract_guidance}".strip()
+                    elif per_file_separate_guidance:
+                        pass_question = f"{pass_question}\n\n{per_file_separate_guidance}".strip()
                     pass_history = history
                     if pass_index > 1:
                         assistant_history_content = ''.join(answer_parts).strip()
