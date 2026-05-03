@@ -1,6 +1,10 @@
 # Informity AI
 
-[![Version](https://img.shields.io/badge/version-0.9.8-blue.svg)](#)
+<p align="center">
+  <img src="./assets/demo/informity-ai-demo.gif" alt="Informity AI demo" width="960" />
+</p>
+
+[![Version](https://img.shields.io/github/v/tag/informity/informity-ai?label=version)](https://github.com/informity/informity-ai/releases)
 [![Python](https://img.shields.io/badge/python-3.13+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-macOS-black?logo=apple)](#)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
@@ -8,10 +12,6 @@
 
 Privacy-first local document intelligence for macOS.
 Informity scans and indexes local files, then answers questions with a local RAG pipeline backed by local embeddings and local LLM inference. Your documents and vectors stay on your machine.
-
-<p align="center">
-  <img src="./assets/screenshots/screenshot-chat-active.png" alt="Informity AI chat screenshot" width="1100" />
-</p>
 
 ## Contents
 
