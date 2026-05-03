@@ -5,14 +5,19 @@
 # ==============================================================================
 
 import asyncio
+import contextlib
+import os
 import re
+import shutil
 import time
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
+from pathlib import Path
 
 import aiosqlite
 import structlog
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from sse_starlette.sse import EventSourceResponse
 from structlog.contextvars import get_contextvars
 
@@ -51,6 +56,11 @@ from informity.api.chat_orchestrator import ChatOrchestrator
 from informity.api.chat_sources import merge_sources, serialize_sources
 from informity.api.chat_sse import SSE_PHASE_ORDER, SseContractTracker, SseStatusEmitter
 from informity.api.chat_stream_registry import CHAT_STREAM_REGISTRY
+from informity.api.context_scope_manager import (
+    INDEXED_CORPUS_SCOPE_KIND,
+    normalize_indexed_corpus_scope_key,
+    resolve_retrieval_context_scope_key,
+)
 from informity.api.error_messages import to_client_error_message
 from informity.api.schemas import (
     ChatPreferencesUpdateRequest,
@@ -61,24 +71,34 @@ from informity.api.schemas import (
 from informity.api.security import EndpointGuard
 from informity.chat_trace import get_trace_writer
 from informity.config import settings
-from informity.db.models import ChatMessage, ContinuationPassArtifact
+from informity.db.models import ChatMessage, ChatUploadAttachment, ContinuationPassArtifact
 from informity.db.sqlite import (
+    append_chat_upload_reference_message,
     delete_chat,
     get_chat,
     get_chat_count,
     get_chat_message_by_id,
     get_chat_preferences,
+    get_chat_upload_attachment_by_upload_id,
+    get_chat_upload_attachments,
+    get_chat_upload_size_bytes,
     get_chats,
     get_connection,
     get_db,
+    get_file_by_id,
+    get_file_by_path,
+    get_files_by_ids,
     insert_chat_message,
+    insert_chat_upload_attachment,
     insert_continuation_pass_artifact,
     insert_diagnostics_metrics,
     set_chat_title,
+    update_chat_upload_attachment_state,
     upsert_chat_preferences,
 )
 from informity.diagnostics.observer import EvalMetrics, detect_issues, estimate_evidence_metrics
 from informity.diagnostics.resource_snapshot import build_resource_delta, capture_resource_snapshot
+from informity.indexer.pipeline import index_file, remove_file
 from informity.llm.chat_mode import resolve_chat_mode
 from informity.llm.classification_policy import classify_query_with_timing
 from informity.llm.contract_gate import (
@@ -99,6 +119,17 @@ from informity.llm.types import (
     StructuralGapReason,
     TimeoutReason,
 )
+from informity.scanner.crawler import scanned_file_for_path
+from informity.upload_policy import (
+    MAX_UPLOAD_FILES_PER_CHAT,
+    UPLOAD_ENTITY_TYPE,
+    UPLOAD_PROVIDER,
+    is_allowed_extension,
+    is_allowed_mime,
+    max_upload_file_size_bytes,
+    max_upload_total_size_bytes,
+    upload_root_dir,
+)
 from informity.utils.json_utils import serialize_api_response
 from informity.utils.number_utils import safe_float, safe_int
 
@@ -116,10 +147,27 @@ _STREAM_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, Conn
 _STOP_FINALIZE_GRACE_SECONDS = 2.5
 _STOP_FINALIZATION_TASKS: dict[str, asyncio.Task[None]] = {}
 _CONTINUING_STATUS_MESSAGE = 'Continuing response...'
+_ANSWER_STREAM_HEARTBEAT_SECONDS = 12.0
+_ACTIVE_UPLOAD_STATES = {'uploading', 'indexing', 'ready'}
+_UPLOAD_DELETE_RETRY_ATTEMPTS = 3
+_SCOPE_SIGNAL_PATTERN = re.compile(r'(?i)\b(compare|vs|versus|only|just|between)\b')
+_FILENAME_CANDIDATE_PATTERN = re.compile(
+    r'(?i)\b([a-z0-9][a-z0-9_\-\(\)\[\]\.]{0,140}\.[a-z0-9]{1,10})\b'
+)
+_QUOTED_TEXT_PATTERN = re.compile(r'["\']([^"\']{1,180})["\']')
 _OUT_OF_CORPUS_RESPONSE_PATTERN = re.compile(
     r'(?is)\b(?:provided|indexed|these)?\s*(?:documents?|records?|context)\b.{0,120}\b'
     r'(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b'
     r'(?:contain|include|cover|mention|provide|have)\b'
+)
+_PER_FILE_SEPARATE_REQUEST_PATTERN = re.compile(
+    r'(?i)\b('
+    r'each\s+(?:document|doc|file|attachment)s?'
+    r'|'
+    r'(?:document|doc|file|attachment)s?\s+separately'
+    r'|'
+    r'separately\s+(?:for\s+)?(?:each\s+)?(?:document|doc|file|attachment)s?'
+    r')\b'
 )
 
 
@@ -133,6 +181,278 @@ def _normalize_diagnostics_query_type(value: object) -> str:
 
 def _answer_signals_out_of_corpus(text: str) -> bool:
     return bool(_OUT_OF_CORPUS_RESPONSE_PATTERN.search(str(text or '')))
+
+
+def _looks_per_file_separate_request(text: str) -> bool:
+    return bool(_PER_FILE_SEPARATE_REQUEST_PATTERN.search(str(text or '')))
+
+
+def _build_per_file_separate_guidance(file_names: list[str]) -> str | None:
+    normalized = [str(name or '').strip() for name in file_names if str(name or '').strip()]
+    if len(normalized) <= 1:
+        return None
+    heading_lines = '\n'.join(f'- {name}' for name in normalized)
+    return (
+        'Output contract (strict): summarize each scoped file exactly once.\n'
+        f'- Return exactly {len(normalized)} top-level sections, one per file.\n'
+        '- Use these exact section headings (same order):\n'
+        f'{heading_lines}\n'
+        '- Do not invent additional document sections.'
+    )
+
+
+def _sanitize_upload_filename(filename: str) -> str:
+    name = Path(str(filename or '')).name.strip()
+    if not name:
+        return 'upload.txt'
+    return ''.join(ch for ch in name if ch.isprintable())[:255] or 'upload.txt'
+
+
+def _upload_chat_dir(chat_id: str) -> Path:
+    return upload_root_dir() / str(chat_id).strip()
+
+
+def _upload_file_dir(chat_id: str, upload_id: str) -> Path:
+    return _upload_chat_dir(chat_id) / str(upload_id).strip()
+
+
+def _normalize_filename_token(value: str) -> str:
+    token = ' '.join(str(value or '').strip().split())
+    token = token.strip('.,;:()[]{}')
+    token = re.sub(r'(?i)^(?:compare|vs|versus|and|with|between)\s+', '', token).strip()
+    token = token.strip('.,;:()[]{}')
+    return token
+
+
+def _extract_filename_candidates(text: str) -> list[str]:
+    message = str(text or '')
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for match in _FILENAME_CANDIDATE_PATTERN.finditer(message):
+        token = _normalize_filename_token(match.group(1))
+        lowered = token.lower()
+        if token and lowered not in seen:
+            seen.add(lowered)
+            candidates.append(token)
+    for match in _QUOTED_TEXT_PATTERN.finditer(message):
+        token = _normalize_filename_token(match.group(1))
+        if '.' not in token:
+            continue
+        lowered = token.lower()
+        if token and lowered not in seen:
+            seen.add(lowered)
+            candidates.append(token)
+    return candidates
+
+
+def _resolve_upload_scope_from_filename_candidates(
+    *,
+    candidates: list[str],
+    attachments: list[ChatUploadAttachment],
+) -> tuple[list[ChatUploadAttachment], str | None]:
+    if not candidates:
+        return [], None
+    selected_by_upload_id: dict[str, ChatUploadAttachment] = {}
+    for raw_candidate in candidates:
+        candidate = _normalize_filename_token(raw_candidate).lower()
+        exact_matches = [
+            attachment
+            for attachment in attachments
+            if _normalize_filename_token(attachment.filename_at_upload).lower() == candidate
+        ]
+        if len(exact_matches) == 1:
+            selected_by_upload_id[exact_matches[0].upload_id] = exact_matches[0]
+            continue
+        if len(exact_matches) > 1:
+            return [], f'Ambiguous upload reference "{raw_candidate}". Select files explicitly in the attachment pills.'
+        partial_matches = [
+            attachment
+            for attachment in attachments
+            if candidate in _normalize_filename_token(attachment.filename_at_upload).lower()
+        ]
+        if len(partial_matches) == 1:
+            selected_by_upload_id[partial_matches[0].upload_id] = partial_matches[0]
+            continue
+        if len(partial_matches) > 1:
+            return [], f'Ambiguous upload reference "{raw_candidate}". Select files explicitly in the attachment pills.'
+        return [], f'No uploaded file matched "{raw_candidate}".'
+    return list(selected_by_upload_id.values()), None
+
+
+_RETRIEVAL_SCOPE_ASSISTANT = 'assistant_mode'
+_RETRIEVAL_SCOPE_INDEXED_CORPUS = 'indexed_corpus'
+_RETRIEVAL_SCOPE_INDEXED_FILES = 'indexed_files'
+_RETRIEVAL_SCOPE_CHAT_UPLOADS = 'chat_uploads'
+
+
+def _build_retrieval_scope(
+    *,
+    chat_mode: str,
+    scoped_file_ids: list[int] | None,
+    upload_attachments: list[ChatUploadAttachment] | None = None,
+    upload_attachments_all: list[ChatUploadAttachment] | None = None,
+    selected_upload_ids: list[str] | None = None,
+) -> tuple[str, str]:
+    if chat_mode != 'researcher':
+        return _RETRIEVAL_SCOPE_ASSISTANT, _RETRIEVAL_SCOPE_ASSISTANT
+    active_uploads = [
+        attachment
+        for attachment in (upload_attachments or [])
+        if attachment.state in _ACTIVE_UPLOAD_STATES and str(attachment.upload_id or '').strip()
+    ]
+    if active_uploads:
+        # Reconstruct active-count transitions from upload/remove timestamps so
+        # we can keep one stable key for the current contiguous upload session.
+        events: list[tuple[str, int, str]] = []
+        for attachment in (upload_attachments_all or upload_attachments or []):
+            upload_id = str(attachment.upload_id or '').strip()
+            if not upload_id:
+                continue
+            if attachment.uploaded_at is not None:
+                events.append((attachment.uploaded_at.isoformat(), 1, upload_id))  # upload (+1)
+            if attachment.removed_at is not None:
+                events.append((attachment.removed_at.isoformat(), 0, upload_id))  # remove (-1), process first on tie
+        events.sort(key=lambda item: (item[0], item[1], item[2]))
+
+        active_count = 0
+        session_anchor_upload_id: str | None = None
+        for _, event_type, upload_id in events:
+            if event_type == 0:
+                active_count = max(0, active_count - 1)
+                continue
+            if active_count == 0:
+                session_anchor_upload_id = upload_id
+            active_count += 1
+        if not session_anchor_upload_id:
+            # All uploads are expected to carry uploaded_at; this path should not occur.
+            session_anchor_upload_id = str(active_uploads[0].upload_id or '').strip()
+
+        scope_key = f'{_RETRIEVAL_SCOPE_CHAT_UPLOADS}:{session_anchor_upload_id}'
+        active_upload_ids = {
+            str(item.upload_id or '').strip()
+            for item in active_uploads
+            if str(item.upload_id or '').strip()
+        }
+        normalized_selected_ids = sorted({
+            str(upload_id).strip()
+            for upload_id in (selected_upload_ids or [])
+            if str(upload_id).strip() in active_upload_ids
+        })
+        if normalized_selected_ids and set(normalized_selected_ids) != active_upload_ids:
+            scope_key = f'{scope_key}|sel:{",".join(normalized_selected_ids)}'
+        return _RETRIEVAL_SCOPE_CHAT_UPLOADS, scope_key
+    normalized_file_ids = sorted({int(file_id) for file_id in (scoped_file_ids or []) if int(file_id) > 0})
+    if normalized_file_ids:
+        return _RETRIEVAL_SCOPE_INDEXED_FILES, ','.join(str(file_id) for file_id in normalized_file_ids)
+    return _RETRIEVAL_SCOPE_INDEXED_CORPUS, _RETRIEVAL_SCOPE_INDEXED_CORPUS
+
+
+def _filter_history_for_scope(
+    *,
+    history: list[ChatMessage],
+    chat_mode: str,
+    retrieval_scope_kind: str,
+    retrieval_scope_key: str,
+) -> list[ChatMessage]:
+    if chat_mode != 'researcher':
+        return list(history)
+    target_scope_key = str(retrieval_scope_key or '').strip()
+    target_scope_key_normalized = (
+        normalize_indexed_corpus_scope_key(target_scope_key)
+        if retrieval_scope_kind == INDEXED_CORPUS_SCOPE_KIND
+        else target_scope_key
+    )
+    scoped: list[ChatMessage] = []
+    for message in history:
+        message_chat_mode = str(message.chat_mode or '').strip()
+        if message_chat_mode and message_chat_mode != chat_mode:
+            continue
+        message_scope_kind = str(message.retrieval_scope_kind or '').strip()
+        message_scope_key = str(message.retrieval_scope_key or '').strip()
+        if message_scope_kind and message_scope_key:
+            message_scope_key_normalized = (
+                normalize_indexed_corpus_scope_key(message_scope_key)
+                if message_scope_kind == INDEXED_CORPUS_SCOPE_KIND
+                else message_scope_key
+            )
+            if (
+                message_scope_kind == retrieval_scope_kind
+                and message_scope_key_normalized == target_scope_key_normalized
+            ):
+                scoped.append(message)
+    return scoped
+
+
+async def _sweep_chat_upload_orphans(
+    *,
+    db: aiosqlite.Connection,
+    chat_id: str,
+) -> dict[str, int]:
+    removed_orphan_dirs = 0
+    removed_deleted_dirs = 0
+    repaired_failed_states = 0
+    removed_empty_chat_dirs = 0
+    attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=True)
+    attachments_by_id = {str(item.upload_id): item for item in attachments}
+    chat_dir = _upload_chat_dir(chat_id)
+    if chat_dir.exists():
+        for child in chat_dir.iterdir():
+            if not child.is_dir():
+                continue
+            upload_id = str(child.name).strip()
+            attachment = attachments_by_id.get(upload_id)
+            if attachment is None:
+                try:
+                    shutil.rmtree(child)
+                    removed_orphan_dirs += 1
+                except (OSError, RuntimeError) as exc:
+                    log.warning(
+                        'chat_upload_orphan_dir_remove_failed',
+                        chat_id=chat_id,
+                        upload_id=upload_id,
+                        error=str(exc),
+                    )
+                continue
+            if attachment.state == 'deleted':
+                try:
+                    shutil.rmtree(child)
+                    removed_deleted_dirs += 1
+                except (OSError, RuntimeError) as exc:
+                    log.warning(
+                        'chat_upload_deleted_dir_remove_failed',
+                        chat_id=chat_id,
+                        upload_id=upload_id,
+                        error=str(exc),
+                    )
+    for attachment in attachments:
+        if attachment.state not in {'uploading', 'indexing'}:
+            continue
+        attachment_dir = _upload_file_dir(chat_id, attachment.upload_id)
+        if attachment_dir.exists():
+            continue
+        await update_chat_upload_attachment_state(
+            db,
+            upload_id=attachment.upload_id,
+            chat_id=chat_id,
+            state='failed',
+        )
+        repaired_failed_states += 1
+    if chat_dir.exists():
+        try:
+            if not any(chat_dir.iterdir()):
+                chat_dir.rmdir()
+                removed_empty_chat_dirs += 1
+        except (OSError, RuntimeError):
+            # Best-effort cleanup only; stale empty dirs are harmless.
+            pass
+    return {
+        'removed_orphan_dirs': removed_orphan_dirs,
+        'removed_deleted_dirs': removed_deleted_dirs,
+        'repaired_failed_states': repaired_failed_states,
+        'removed_empty_chat_dirs': removed_empty_chat_dirs,
+    }
+
+
 # ==============================================================================
 # Logger
 # ==============================================================================
@@ -194,6 +514,13 @@ async def _finalize_stopped_stream_if_active(
                                 has_remaining_scope=True,
                                 next_action=NextAction.REGENERATE,
                                 next_action_reason='stopped',
+                                chat_mode=latest_assistant.chat_mode if latest_assistant is not None else None,
+                                retrieval_scope_kind=(
+                                    latest_assistant.retrieval_scope_kind if latest_assistant is not None else None
+                                ),
+                                retrieval_scope_key=(
+                                    latest_assistant.retrieval_scope_key if latest_assistant is not None else None
+                                ),
                                 is_internal=False,
                             ),
                         )
@@ -245,6 +572,8 @@ async def _persist_terminal_assistant_message(
     next_action: NextAction,
     next_action_reason: str | None,
     chat_mode: str,
+    retrieval_scope_kind: str | None = None,
+    retrieval_scope_key: str | None = None,
 ) -> tuple[ChatMessage | None, bool]:
     """
     Persist terminal assistant messages (stopped/cancelled/partial) via one path.
@@ -262,6 +591,8 @@ async def _persist_terminal_assistant_message(
         next_action=next_action,
         next_action_reason=next_action_reason,
         chat_mode=chat_mode,
+        retrieval_scope_kind=retrieval_scope_kind,
+        retrieval_scope_key=retrieval_scope_key,
         is_internal=False,
     )
     try:
@@ -274,6 +605,237 @@ async def _persist_terminal_assistant_message(
     except _PERSISTENCE_EXCEPTIONS as persist_err:
         log.warning('chat_terminal_persist_failed', chat_id=chat_id, error=str(persist_err))
         return None, False
+
+
+@router.get('/api/chat/chats/{chat_id}/uploads')
+async def list_chat_uploads(
+    chat_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    sweep_summary = await _sweep_chat_upload_orphans(db=db, chat_id=chat_id)
+    attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
+    return {
+        'chat_id': chat_id,
+        'sweep_summary': sweep_summary,
+        'attachments': [attachment.model_dump(mode='json') for attachment in attachments],
+    }
+
+
+@router.post('/api/chat/uploads')
+async def upload_chat_file(
+    chat_id: str | None = Form(default=None),
+    file: UploadFile = File(...),
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    resolved_chat_id = str(chat_id or '').strip() or str(uuid.uuid4())
+    filename = _sanitize_upload_filename(file.filename or '')
+    if not is_allowed_extension(filename):
+        raise HTTPException(status_code=400, detail='Unsupported file type for chat upload.')
+    if not is_allowed_mime(file.content_type):
+        raise HTTPException(status_code=400, detail='Unsupported upload MIME type.')
+
+    existing_attachments = await get_chat_upload_attachments(db, chat_id=resolved_chat_id, include_deleted=False)
+    active_attachments = [a for a in existing_attachments if a.state in {'uploading', 'indexing', 'ready'}]
+    if len(active_attachments) >= MAX_UPLOAD_FILES_PER_CHAT:
+        raise HTTPException(
+            status_code=413,
+            detail=f'Maximum uploads per chat reached ({MAX_UPLOAD_FILES_PER_CHAT}).',
+        )
+
+    raw_bytes = await file.read()
+    size_bytes = len(raw_bytes)
+    if size_bytes <= 0:
+        raise HTTPException(status_code=400, detail='Uploaded file is empty.')
+    if size_bytes > max_upload_file_size_bytes():
+        raise HTTPException(
+            status_code=413,
+            detail=f'File exceeds max upload size ({max_upload_file_size_bytes() // (1024 * 1024)} MB).',
+        )
+    current_chat_upload_size = await get_chat_upload_size_bytes(db, chat_id=resolved_chat_id)
+    if current_chat_upload_size + size_bytes > max_upload_total_size_bytes():
+        raise HTTPException(
+            status_code=413,
+            detail=f'Chat upload total size limit exceeded ({max_upload_total_size_bytes() // (1024 * 1024)} MB).',
+        )
+
+    upload_id = str(uuid.uuid4())
+    attachment = await insert_chat_upload_attachment(
+        db,
+        upload_id=upload_id,
+        chat_id=resolved_chat_id,
+        filename_at_upload=filename,
+        size_bytes=size_bytes,
+        state='uploading',
+    )
+    file_dir = _upload_file_dir(resolved_chat_id, upload_id)
+    file_path = file_dir / filename
+    try:
+        os.makedirs(file_dir, exist_ok=True)
+        file_path.write_bytes(raw_bytes)
+        await update_chat_upload_attachment_state(
+            db,
+            upload_id=upload_id,
+            chat_id=resolved_chat_id,
+            state='indexing',
+        )
+        scanned = scanned_file_for_path(file_path)
+        if scanned is None:
+            raise HTTPException(status_code=422, detail='Unable to process uploaded file for indexing.')
+        index_result = await index_file(
+            db,
+            scanned,
+            source_provider=UPLOAD_PROVIDER,
+            entity_type=UPLOAD_ENTITY_TYPE,
+        )
+        if not index_result.success:
+            await update_chat_upload_attachment_state(
+                db,
+                upload_id=upload_id,
+                chat_id=resolved_chat_id,
+                state='failed',
+            )
+            raise HTTPException(status_code=422, detail=f'Failed to index upload: {index_result.error or "unknown error"}')
+        file_record = await get_file_by_path(db, str(file_path))
+        if file_record is None or file_record.id is None:
+            await update_chat_upload_attachment_state(
+                db,
+                upload_id=upload_id,
+                chat_id=resolved_chat_id,
+                state='failed',
+            )
+            raise HTTPException(status_code=500, detail='Upload indexed but file record was not found.')
+        await update_chat_upload_attachment_state(
+            db,
+            upload_id=upload_id,
+            chat_id=resolved_chat_id,
+            state='ready',
+            file_id=file_record.id,
+            content_hash=file_record.content_hash,
+        )
+        latest_attachment = await get_chat_upload_attachment_by_upload_id(
+            db,
+            upload_id=upload_id,
+            chat_id=resolved_chat_id,
+        )
+        return {
+            'chat_id': resolved_chat_id,
+            'upload_id': upload_id,
+            'attachment': (latest_attachment.model_dump(mode='json') if latest_attachment else attachment.model_dump(mode='json')),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        await update_chat_upload_attachment_state(
+            db,
+            upload_id=upload_id,
+            chat_id=resolved_chat_id,
+            state='failed',
+        )
+        log.error(
+            'chat_upload_failed',
+            chat_id=resolved_chat_id,
+            upload_id=upload_id,
+            filename=filename,
+            error=str(exc),
+            exc_info=True,
+        )
+        raise HTTPException(status_code=500, detail='Upload failed during processing.') from exc
+
+
+async def _delete_chat_upload_artifacts(
+    *,
+    db: aiosqlite.Connection,
+    attachment: ChatUploadAttachment,
+) -> bool:
+    upload_id = str(attachment.upload_id)
+    chat_id = str(attachment.chat_id)
+    file_id = attachment.file_id
+    await update_chat_upload_attachment_state(
+        db,
+        upload_id=upload_id,
+        chat_id=chat_id,
+        state='deleting',
+    )
+
+    deletion_succeeded = True
+    if file_id is not None:
+        file_record = await get_file_by_id(db, int(file_id))
+        if file_record is not None:
+            removed = False
+            for attempt in range(1, _UPLOAD_DELETE_RETRY_ATTEMPTS + 1):
+                removed = await remove_file(db, file_record)
+                if removed:
+                    break
+                await asyncio.sleep(0.05 * attempt)
+            if not removed:
+                log.warning('chat_upload_file_remove_failed', chat_id=chat_id, upload_id=upload_id, file_id=file_id)
+                deletion_succeeded = False
+
+    file_dir = _upload_file_dir(chat_id, upload_id)
+    if file_dir.exists():
+        deleted_from_disk = False
+        for attempt in range(1, _UPLOAD_DELETE_RETRY_ATTEMPTS + 1):
+            try:
+                shutil.rmtree(file_dir)
+                deleted_from_disk = True
+                break
+            except (OSError, RuntimeError) as exc:
+                if attempt >= _UPLOAD_DELETE_RETRY_ATTEMPTS:
+                    log.warning('chat_upload_storage_remove_failed', chat_id=chat_id, upload_id=upload_id, error=str(exc))
+                    break
+                await asyncio.sleep(0.05 * attempt)
+        if not deleted_from_disk and file_dir.exists():
+            log.warning('chat_upload_storage_delete_incomplete', chat_id=chat_id, upload_id=upload_id)
+            deletion_succeeded = False
+
+    await update_chat_upload_attachment_state(
+        db,
+        upload_id=upload_id,
+        chat_id=chat_id,
+        state='deleted' if deletion_succeeded else 'failed',
+        removed_at=datetime.now(UTC) if deletion_succeeded else None,
+    )
+    return deletion_succeeded
+
+
+@router.delete('/api/chat/uploads/{upload_id}')
+async def delete_chat_upload(
+    upload_id: str,
+    chat_id: str = Query(..., min_length=1),
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    attachment = await get_chat_upload_attachment_by_upload_id(
+        db,
+        upload_id=upload_id,
+        chat_id=chat_id,
+    )
+    if attachment is None:
+        raise HTTPException(status_code=404, detail='Upload not found.')
+
+    if attachment.state == 'deleted':
+        return {'chat_id': chat_id, 'upload_id': upload_id, 'deleted': True, 'fallback_to_scanned_documents': False}
+    deletion_succeeded = await _delete_chat_upload_artifacts(db=db, attachment=attachment)
+    if not deletion_succeeded:
+        raise HTTPException(
+            status_code=500,
+            detail='Failed to fully delete uploaded file artifacts. Please retry.',
+        )
+    sweep_summary = await _sweep_chat_upload_orphans(db=db, chat_id=chat_id)
+    remaining = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
+    active_remaining = [item for item in remaining if item.state in {'uploading', 'indexing', 'ready'}]
+    fallback_to_scanned_documents = len(active_remaining) == 0
+    return {
+        'chat_id': chat_id,
+        'upload_id': upload_id,
+        'deleted': True,
+        'fallback_to_scanned_documents': fallback_to_scanned_documents,
+        'toast_message': (
+            'No uploaded files. Using your scanned documents.'
+            if fallback_to_scanned_documents
+            else None
+        ),
+        'sweep_summary': sweep_summary,
+    }
 
 
 
@@ -295,6 +857,22 @@ async def chat(
             status_code=413,
             detail=f'Message too large (max {MAX_CHAT_MESSAGE_CHARS} characters).',
         )
+    requested_scoped_file_ids: list[int] | None = None
+    if request.scoped_file_ids is not None:
+        candidate_file_ids = [int(file_id) for file_id in request.scoped_file_ids]
+        files_by_id = await get_files_by_ids(db, candidate_file_ids)
+        missing_file_ids = [file_id for file_id in candidate_file_ids if file_id not in files_by_id]
+        if missing_file_ids:
+            missing_ids_text = ', '.join(str(file_id) for file_id in missing_file_ids)
+            raise HTTPException(status_code=404, detail=f'Files not found in index: {missing_ids_text}.')
+        requested_scoped_file_ids = candidate_file_ids
+    requested_scoped_upload_ids: list[str] | None = None
+    if request.scoped_upload_ids is not None:
+        requested_scoped_upload_ids = [
+            str(upload_id).strip()
+            for upload_id in request.scoped_upload_ids
+            if str(upload_id).strip()
+        ]
     await CHAT_GUARD.check_rate_limit()
     requested_run_id = str(request.run_id or '').strip() or None
     resolved_chat_mode = resolve_chat_mode(request.mode)
@@ -311,16 +889,179 @@ async def chat(
     )
     artifact_request_id = request_id
 
+    upload_attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
+    await _sweep_chat_upload_orphans(db=db, chat_id=chat_id)
+    upload_attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
+    upload_attachments_all = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=True)
+    uploads_by_id = {str(item.upload_id): item for item in upload_attachments}
+    upload_ready_file_ids = sorted({
+        int(item.file_id)
+        for item in upload_attachments
+        if item.state == 'ready' and item.file_id is not None
+    })
+    upload_indexing_ids = [
+        item.upload_id
+        for item in upload_attachments
+        if item.state in {'uploading', 'indexing'}
+    ]
+    upload_active_ids = [
+        item.upload_id
+        for item in upload_attachments
+        if item.state in _ACTIVE_UPLOAD_STATES
+    ]
+    if requested_scoped_file_ids is not None and requested_scoped_upload_ids is not None:
+        raise HTTPException(
+            status_code=409,
+            detail='Provide either scoped_file_ids or scoped_upload_ids, not both.',
+        )
+    if resolved_chat_mode != 'researcher' and requested_scoped_file_ids is not None:
+        raise HTTPException(
+            status_code=409,
+            detail='Scoped file retrieval is available only in Researcher mode.',
+        )
+    if resolved_chat_mode != 'researcher' and (upload_active_ids or requested_scoped_upload_ids):
+        raise HTTPException(
+            status_code=409,
+            detail='Uploaded files are available only in Researcher mode.',
+        )
+    if requested_scoped_file_ids is not None and upload_active_ids:
+        raise HTTPException(
+            status_code=409,
+            detail='Mixed library scope and chat uploads are not supported in one turn.',
+        )
+    scoped_file_ids: list[int] | None = requested_scoped_file_ids
+    upload_scope_omitted_ids: list[str] = []
+    upload_scope_selected_ids: list[str] = []
+    upload_scope_resolution_mode = 'default'
+    message_filename_candidates = _extract_filename_candidates(message_text)
+    message_scope_signal = bool(_SCOPE_SIGNAL_PATTERN.search(message_text))
+    if requested_scoped_upload_ids is not None:
+        upload_scope_resolution_mode = 'explicit_upload_ids'
+        if not upload_attachments:
+            raise HTTPException(status_code=404, detail='No uploaded files found for this chat.')
+        selected_uploads: list[ChatUploadAttachment] = []
+        missing_upload_ids: list[str] = []
+        for upload_id in requested_scoped_upload_ids:
+            attachment = uploads_by_id.get(upload_id)
+            if attachment is None or attachment.state not in _ACTIVE_UPLOAD_STATES:
+                missing_upload_ids.append(upload_id)
+                continue
+            selected_uploads.append(attachment)
+        if missing_upload_ids:
+            raise HTTPException(
+                status_code=404,
+                detail=f'Upload not found or inactive: {", ".join(missing_upload_ids)}.',
+            )
+        indexing_selected = [item.upload_id for item in selected_uploads if item.state in {'uploading', 'indexing'}]
+        if indexing_selected:
+            raise HTTPException(
+                status_code=409,
+                detail='Selected uploaded file is still indexing. Please retry in a moment.',
+            )
+        selected_ready_file_ids = sorted({
+            int(item.file_id)
+            for item in selected_uploads
+            if item.state == 'ready' and item.file_id is not None
+        })
+        if not selected_ready_file_ids:
+            raise HTTPException(
+                status_code=409,
+                detail='Selected uploaded files are not ready yet. Please retry in a moment.',
+            )
+        scoped_file_ids = selected_ready_file_ids
+        upload_scope_selected_ids = [item.upload_id for item in selected_uploads]
+    elif scoped_file_ids is None and upload_active_ids:
+        resolved_selected_uploads: list[ChatUploadAttachment] = []
+        if message_filename_candidates or message_scope_signal:
+            resolved_selected_uploads, resolution_error = _resolve_upload_scope_from_filename_candidates(
+                candidates=message_filename_candidates,
+                attachments=[item for item in upload_attachments if item.state in _ACTIVE_UPLOAD_STATES],
+            )
+            if resolution_error:
+                raise HTTPException(status_code=409, detail=resolution_error)
+            if resolved_selected_uploads:
+                upload_scope_resolution_mode = 'nlp_filename_scope'
+                selected_indexing = [
+                    item.upload_id for item in resolved_selected_uploads if item.state in {'uploading', 'indexing'}
+                ]
+                if selected_indexing:
+                    raise HTTPException(
+                        status_code=409,
+                        detail='Selected uploaded file is still indexing. Please retry in a moment.',
+                    )
+                selected_ready_ids = sorted({
+                    int(item.file_id)
+                    for item in resolved_selected_uploads
+                    if item.file_id is not None and item.state == 'ready'
+                })
+                if not selected_ready_ids:
+                    raise HTTPException(
+                        status_code=409,
+                        detail='Selected uploaded files are not ready yet. Please retry in a moment.',
+                    )
+                scoped_file_ids = selected_ready_ids
+                upload_scope_selected_ids = [item.upload_id for item in resolved_selected_uploads]
+            elif message_scope_signal and not message_filename_candidates:
+                upload_scope_resolution_mode = 'nlp_scope_all_uploads'
+        if upload_ready_file_ids:
+            if not scoped_file_ids:
+                scoped_file_ids = upload_ready_file_ids
+                upload_scope_omitted_ids = list(upload_indexing_ids)
+                upload_scope_selected_ids = list(upload_active_ids)
+                upload_scope_resolution_mode = 'default_all_uploads'
+        else:
+            raise HTTPException(
+                status_code=409,
+                detail='Uploaded files are still indexing. Please retry in a moment.',
+            )
+    retrieval_scope_kind, retrieval_scope_key = _build_retrieval_scope(
+        chat_mode=resolved_chat_mode,
+        scoped_file_ids=scoped_file_ids,
+        upload_attachments=upload_attachments,
+        upload_attachments_all=upload_attachments_all,
+        selected_upload_ids=upload_scope_selected_ids,
+    )
+    scoped_file_names: list[str] = []
+    if scoped_file_ids:
+        filenames_by_file_id: dict[int, str] = {}
+        for attachment in upload_attachments:
+            if attachment.file_id is None:
+                continue
+            file_id = int(attachment.file_id)
+            if file_id not in filenames_by_file_id:
+                filenames_by_file_id[file_id] = str(attachment.filename_at_upload or '').strip()
+        missing_file_ids = [file_id for file_id in scoped_file_ids if file_id not in filenames_by_file_id]
+        if missing_file_ids:
+            indexed_files = await get_files_by_ids(db, missing_file_ids)
+            for file_id, indexed_file in indexed_files.items():
+                filenames_by_file_id[int(file_id)] = str(indexed_file.filename or '').strip()
+        scoped_file_names = [
+            filenames_by_file_id.get(file_id) or f'File {file_id}'
+            for file_id in scoped_file_ids
+        ]
+    full_history = await get_chat(db, chat_id)
+    retrieval_scope_key, context_scope_resolution = resolve_retrieval_context_scope_key(
+        chat_mode=resolved_chat_mode,
+        retrieval_scope_kind=retrieval_scope_kind,
+        retrieval_scope_key=retrieval_scope_key,
+        message_text=message_text,
+        history=full_history,
+    )
     # Fetch chat history (excluding the current message we're about to add)
-    history = await get_chat(db, chat_id)
+    history = _filter_history_for_scope(
+        history=full_history,
+        chat_mode=resolved_chat_mode,
+        retrieval_scope_kind=retrieval_scope_kind,
+        retrieval_scope_key=retrieval_scope_key,
+    )
     existing_chat_preferences = await get_chat_preferences(db, chat_id)
     resolved_chat_web_search_enabled = (
-        existing_chat_preferences.get('chat_web_search_enabled') is True
+        bool(existing_chat_preferences.get('chat_web_search_enabled'))
         if request.chat_web_search_enabled is None
         else bool(request.chat_web_search_enabled)
     )
     resolved_chat_web_search_privacy_override = (
-        existing_chat_preferences.get('chat_web_search_privacy_override') is True
+        bool(existing_chat_preferences.get('chat_web_search_privacy_override'))
         if request.chat_web_search_privacy_override is None
         else bool(request.chat_web_search_privacy_override)
     )
@@ -331,6 +1072,9 @@ async def chat(
         chat_id = chat_id,
         role    = 'user',
         content = message_text,
+        chat_mode = resolved_chat_mode,
+        retrieval_scope_kind = retrieval_scope_kind,
+        retrieval_scope_key = retrieval_scope_key,
         model_filename = settings.llm_model_filename,
         is_internal = user_message_is_internal,
     )
@@ -349,6 +1093,9 @@ async def chat(
         stream_request_id = request_id,
         run_id           = requested_run_id,
         chat_mode        = resolved_chat_mode,
+        topic_shift_reset = bool(context_scope_resolution.get('topic_shift_reset')),
+        scope_transition_reset = bool(context_scope_resolution.get('scope_transition_reset')),
+        context_generation = context_scope_resolution.get('generation'),
         message_length   = len(message_text),
         history_messages = len(history),
     )
@@ -489,6 +1236,9 @@ async def chat(
                     try:
                         locked_classification, pre_classification_elapsed_ms = await classify_query_with_timing(
                             continuation_anchor_question,
+                            scoped_file_active=bool(scoped_file_ids),
+                            scoped_file_count=len(scoped_file_ids or []),
+                            history=history,
                         )
                         log.info(
                             'query_pre_classified',
@@ -517,6 +1267,11 @@ async def chat(
                     question=continuation_anchor_question,
                     classification=locked_classification if resolved_chat_mode != 'assistant' else None,
                 )
+                per_file_separate_guidance = (
+                    _build_per_file_separate_guidance(scoped_file_names)
+                    if _looks_per_file_separate_request(continuation_anchor_question)
+                    else None
+                )
                 if contract_spec.required_headings or contract_spec.min_year_count > 0:
                     max_total_passes = max(max_total_passes, 2)
                 pass_index = 1
@@ -531,6 +1286,8 @@ async def chat(
                         )
                         if continuation_contract_guidance:
                             pass_question = f"{pass_question}\n\n{continuation_contract_guidance}".strip()
+                    elif per_file_separate_guidance:
+                        pass_question = f"{pass_question}\n\n{per_file_separate_guidance}".strip()
                     pass_history = history
                     if pass_index > 1:
                         assistant_history_content = ''.join(answer_parts).strip()
@@ -545,6 +1302,9 @@ async def chat(
                                 model_filename=settings.llm_model_filename,
                                 completion_mode=CompletionMode.SCOPED_COMPLETE,
                                 has_remaining_scope=True,
+                                chat_mode=resolved_chat_mode,
+                                retrieval_scope_kind=retrieval_scope_kind,
+                                retrieval_scope_key=retrieval_scope_key,
                             ),
                         ]
                         continuing_status = status_emitter.build_event(
@@ -577,9 +1337,24 @@ async def chat(
                         if retrieving_status is not None:
                             yield retrieving_status
 
-                    async for item in answer_question(
+                    log.info(
+                        'chat_answer_stream_begin',
+                        chat_id=chat_id,
+                        request_id=request_id,
+                        pass_index=pass_index,
+                        chat_mode=resolved_chat_mode,
+                        question_length=len(pass_question),
+                        history_messages=len(pass_history) if pass_history else 0,
+                    )
+                    answer_stream_started_at = time.perf_counter()
+                    answer_items_seen = 0
+                    answer_tokens_seen = 0
+                    answer_list_events = 0
+                    answer_next_task: asyncio.Task[object] | None = None
+                    answer_iter = answer_question(
                         question=pass_question,
                         chat_id=chat_id,
+                        file_ids=scoped_file_ids,
                         history=pass_history,
                         db=db,
                         trace=trace_writer,
@@ -587,126 +1362,190 @@ async def chat(
                         chat_mode=resolved_chat_mode,
                         chat_web_search_enabled=resolved_chat_web_search_enabled,
                         chat_web_search_privacy_override=resolved_chat_web_search_privacy_override,
-                    ):
-                        _raise_if_user_stopped()
-
-                        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.CLASSIFICATION:
-                            locked_classification = item[1]
-                            _classification = item[1]
-                            if resolved_chat_mode != 'assistant':
-                                _retrieval_message = (
-                                    'Checking document index...'
-                                    if _classification.is_metadata_query
-                                    else 'Searching for relevant information...'
-                                )
-                                retrieving_status = status_emitter.build_event(
-                                    'retrieving',
-                                    message=_retrieval_message,
-                                )
-                                if retrieving_status is not None:
-                                    yield retrieving_status
-                            continue
-
-                        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.SEARCHING_STATUS:
-                            searching_payload = item[1] if isinstance(item[1], dict) else {}
-                            searching_status = status_emitter.build_event(
-                                'searching',
-                                message=str(searching_payload.get('message') or 'Searching the web...'),
+                    ).__aiter__()
+                    try:
+                        while True:
+                            _raise_if_user_stopped()
+                            if answer_next_task is None:
+                                answer_next_task = asyncio.create_task(answer_iter.__anext__())
+                            done, _ = await asyncio.wait(
+                                {answer_next_task},
+                                timeout=_ANSWER_STREAM_HEARTBEAT_SECONDS,
                             )
-                            if searching_status is not None:
-                                yield searching_status
-                            continue
-
-                        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.TIMEOUT:
-                            timeout_occurred = True
-                            timeout_payload = item[1] if isinstance(item[1], dict) else {}
-                            timeout_seconds = float(timeout_payload.get('timeout_seconds') or 0.0)
-                            timeout_reason = normalize_timeout_reason(timeout_payload.get('reason'))
-                            timeout_allows_continuation = not is_terminal_timeout_reason(timeout_reason)
-                            pass_has_remaining_scope = timeout_allows_continuation
-                            if timeout_allows_continuation:
-                                has_remaining_scope = True
-                            if continuation_resolution_reason is None:
-                                continuation_resolution_reason = timeout_reason
-                            _update_sse_phase('timeout')
-                            yield {
-                                'event': 'timeout',
-                                'data': serialize_api_response({
-                                    'message': f'Response truncated: generation time limit ({int(timeout_seconds) if timeout_seconds else "unknown"}s) reached',
-                                    'elapsed_seconds': round(time.time() - start_time, 1),
-                                    'timeout_seconds': timeout_seconds if timeout_seconds else None,
-                                    'timeout_reason': timeout_reason,
-                                }),
-                            }
-                            continue
-
-                        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.BUDGET_CHECKPOINT:
-                            checkpoint_payload = item[1] if isinstance(item[1], dict) else {}
-                            budget_checkpoints.append(checkpoint_payload)
-                            _update_sse_phase('budget')
-                            yield {
-                                'event': 'budget',
-                                'data': serialize_api_response(checkpoint_payload),
-                            }
-                            continue
-
-                        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.PLAN_STEP:
-                            step_payload = item[1] if isinstance(item[1], dict) else {}
-                            _update_sse_phase('plan_step')
-                            yield {
-                                'event': 'plan_step',
-                                'data': serialize_api_response(step_payload),
-                            }
-                            continue
-
-                        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.METRICS:
-                            metrics_payload = item[1] if isinstance(item[1], dict) else {}
-                            budget_metrics = metrics_payload
-                            metrics_query_value = metrics_payload.get('query_type')
-                            if isinstance(metrics_query_value, str) and metrics_query_value.strip():
-                                metrics_query_type = _normalize_diagnostics_query_type(metrics_query_value)
-                            metrics_raw_chunks_count = safe_int(
-                                metrics_payload.get('raw_chunks_count'),
-                                default=metrics_raw_chunks_count,
-                            )
-                            remaining_scope_value = metrics_payload.get('has_remaining_scope')
-                            if isinstance(remaining_scope_value, bool):
-                                pass_has_remaining_scope = remaining_scope_value
-                                has_remaining_scope = remaining_scope_value
-                            suggested_mode = metrics_payload.get('suggested_completion_mode')
-                            if isinstance(suggested_mode, str):
-                                try:
-                                    normalized_mode = CompletionMode(suggested_mode.strip().lower())
-                                except ValueError:
-                                    normalized_mode = None
-                                if normalized_mode is not None:
-                                    pass_completion_mode_override = normalized_mode
-                                    completion_mode_override = normalized_mode
-                            if (
-                                resolved_chat_mode == 'researcher'
-                                and metrics_query_type in {DiagnosticsQueryType.FOCUSED.value, DiagnosticsQueryType.COVERAGE.value}
-                                and bool(metrics_payload.get('generation_skipped')) is True
-                                and bool(metrics_payload.get('answerability_passed')) is False
-                                and not bool(getattr(locked_classification, 'is_metadata_query', False))
-                            ):
-                                researcher_out_of_corpus = True
-                            continue
-
-                        if isinstance(item, str):
-                            if not generation_started:
-                                generation_started = True
-                                generating_status = status_emitter.build_event(
-                                    'generating',
-                                    message='Generating response...',
+                            if not done:
+                                log.warning(
+                                    'chat_answer_stream_heartbeat_waiting',
+                                    chat_id=chat_id,
+                                    request_id=request_id,
+                                    pass_index=pass_index,
+                                    wait_seconds=_ANSWER_STREAM_HEARTBEAT_SECONDS,
+                                    elapsed_seconds=round(time.perf_counter() - answer_stream_started_at, 1),
+                                    items_seen=answer_items_seen,
+                                    tokens_seen=answer_tokens_seen,
+                                    list_events_seen=answer_list_events,
+                                    sse_phase=sse_tracker.current_phase,
                                 )
-                                if generating_status is not None:
-                                    yield generating_status
-                            answer_parts.append(item)
-                            pass_answer_parts.append(item)
-                            _update_sse_phase('token')
-                            yield {'event': 'token', 'data': item}
-                        elif isinstance(item, list):
-                            pass_sources = item
+                                continue
+                            try:
+                                item = answer_next_task.result()
+                            except StopAsyncIteration:
+                                answer_next_task = None
+                                break
+                            finally:
+                                answer_next_task = None
+                            answer_items_seen += 1
+
+                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.CLASSIFICATION:
+                                locked_classification = item[1]
+                                _classification = item[1]
+                                if resolved_chat_mode != 'assistant':
+                                    _retrieval_message = (
+                                        'Checking document index...'
+                                        if _classification.is_metadata_query
+                                        else 'Searching for relevant information...'
+                                    )
+                                    retrieving_status = status_emitter.build_event(
+                                        'retrieving',
+                                        message=_retrieval_message,
+                                    )
+                                    if retrieving_status is not None:
+                                        yield retrieving_status
+                                continue
+
+                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.SEARCHING_STATUS:
+                                searching_payload = item[1] if isinstance(item[1], dict) else {}
+                                searching_status = status_emitter.build_event(
+                                    'searching',
+                                    message=str(searching_payload.get('message') or 'Searching the web...'),
+                                )
+                                if searching_status is not None:
+                                    yield searching_status
+                                continue
+
+                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.TIMEOUT:
+                                timeout_occurred = True
+                                timeout_payload = item[1] if isinstance(item[1], dict) else {}
+                                timeout_seconds = float(timeout_payload.get('timeout_seconds') or 0.0)
+                                timeout_reason = normalize_timeout_reason(timeout_payload.get('reason'))
+                                timeout_allows_continuation = not is_terminal_timeout_reason(timeout_reason)
+                                pass_has_remaining_scope = timeout_allows_continuation
+                                if timeout_allows_continuation:
+                                    has_remaining_scope = True
+                                if continuation_resolution_reason is None:
+                                    continuation_resolution_reason = timeout_reason
+                                _update_sse_phase('timeout')
+                                yield {
+                                    'event': 'timeout',
+                                    'data': serialize_api_response({
+                                        'message': f'Response truncated: generation time limit ({int(timeout_seconds) if timeout_seconds else "unknown"}s) reached',
+                                        'elapsed_seconds': round(time.time() - start_time, 1),
+                                        'timeout_seconds': timeout_seconds if timeout_seconds else None,
+                                        'timeout_reason': timeout_reason,
+                                    }),
+                                }
+                                continue
+
+                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.BUDGET_CHECKPOINT:
+                                checkpoint_payload = item[1] if isinstance(item[1], dict) else {}
+                                budget_checkpoints.append(checkpoint_payload)
+                                _update_sse_phase('budget')
+                                yield {
+                                    'event': 'budget',
+                                    'data': serialize_api_response(checkpoint_payload),
+                                }
+                                continue
+
+                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.PLAN_STEP:
+                                step_payload = item[1] if isinstance(item[1], dict) else {}
+                                _update_sse_phase('plan_step')
+                                yield {
+                                    'event': 'plan_step',
+                                    'data': serialize_api_response(step_payload),
+                                }
+                                continue
+
+                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.METRICS:
+                                metrics_payload = item[1] if isinstance(item[1], dict) else {}
+                                budget_metrics = metrics_payload
+                                metrics_query_value = metrics_payload.get('query_type')
+                                if isinstance(metrics_query_value, str) and metrics_query_value.strip():
+                                    metrics_query_type = _normalize_diagnostics_query_type(metrics_query_value)
+                                metrics_raw_chunks_count = safe_int(
+                                    metrics_payload.get('raw_chunks_count'),
+                                    default=metrics_raw_chunks_count,
+                                )
+                                remaining_scope_value = metrics_payload.get('has_remaining_scope')
+                                if isinstance(remaining_scope_value, bool):
+                                    pass_has_remaining_scope = remaining_scope_value
+                                    has_remaining_scope = remaining_scope_value
+                                suggested_mode = metrics_payload.get('suggested_completion_mode')
+                                if isinstance(suggested_mode, str):
+                                    try:
+                                        normalized_mode = CompletionMode(suggested_mode.strip().lower())
+                                    except ValueError:
+                                        normalized_mode = None
+                                    if normalized_mode is not None:
+                                        pass_completion_mode_override = normalized_mode
+                                        completion_mode_override = normalized_mode
+                                if (
+                                    resolved_chat_mode == 'researcher'
+                                    and metrics_query_type in {DiagnosticsQueryType.FOCUSED.value, DiagnosticsQueryType.COVERAGE.value}
+                                    and bool(metrics_payload.get('generation_skipped'))
+                                    and not bool(metrics_payload.get('answerability_passed'))
+                                    and not bool(getattr(locked_classification, 'is_metadata_query', False))
+                                ):
+                                    researcher_out_of_corpus = True
+                                log.info(
+                                    'chat_answer_stream_metrics_received',
+                                    chat_id=chat_id,
+                                    request_id=request_id,
+                                    pass_index=pass_index,
+                                    raw_chunks_count=metrics_raw_chunks_count,
+                                    answerability_passed=metrics_payload.get('answerability_passed'),
+                                    generation_skipped=metrics_payload.get('generation_skipped'),
+                                    elapsed_seconds=round(time.perf_counter() - answer_stream_started_at, 2),
+                                )
+                                continue
+
+                            if isinstance(item, str):
+                                answer_tokens_seen += 1
+                                if not generation_started:
+                                    generation_started = True
+                                    log.info(
+                                        'chat_answer_stream_first_token',
+                                        chat_id=chat_id,
+                                        request_id=request_id,
+                                        pass_index=pass_index,
+                                        elapsed_seconds=round(time.perf_counter() - answer_stream_started_at, 2),
+                                    )
+                                    generating_status = status_emitter.build_event(
+                                        'generating',
+                                        message='Generating response...',
+                                    )
+                                    if generating_status is not None:
+                                        yield generating_status
+                                answer_parts.append(item)
+                                pass_answer_parts.append(item)
+                                _update_sse_phase('token')
+                                yield {'event': 'token', 'data': item}
+                            elif isinstance(item, list):
+                                answer_list_events += 1
+                                pass_sources = item
+                    finally:
+                        if answer_next_task is not None and not answer_next_task.done():
+                            answer_next_task.cancel()
+                            with contextlib.suppress(asyncio.CancelledError):
+                                await answer_next_task
+                    log.info(
+                        'chat_answer_stream_end',
+                        chat_id=chat_id,
+                        request_id=request_id,
+                        pass_index=pass_index,
+                        elapsed_seconds=round(time.perf_counter() - answer_stream_started_at, 2),
+                        items_seen=answer_items_seen,
+                        tokens_seen=answer_tokens_seen,
+                        list_events_seen=answer_list_events,
+                    )
 
                     merge_sources(source_map, pass_sources)
 
@@ -956,6 +1795,8 @@ async def chat(
                     next_action=message_next_action,
                     next_action_reason=message_next_action_reason,
                     chat_mode=resolved_chat_mode,
+                    retrieval_scope_kind=retrieval_scope_kind,
+                    retrieval_scope_key=retrieval_scope_key,
                     is_internal=False,
                 )
                 persist_db = await get_connection()
@@ -972,6 +1813,26 @@ async def chat(
                     message_persisted = assistant_message_id is not None
                 finally:
                     await persist_db.close()
+
+                if assistant_message_id is not None:
+                    seen_source_file_ids: set[int] = set()
+                    for source in source_dicts:
+                        file_id_raw = source.get('file_id')
+                        try:
+                            file_id = int(file_id_raw) if file_id_raw is not None else None
+                        except (TypeError, ValueError):
+                            file_id = None
+                        if file_id is None or file_id <= 0:
+                            continue
+                        if file_id in seen_source_file_ids:
+                            continue
+                        seen_source_file_ids.add(file_id)
+                        await append_chat_upload_reference_message(
+                            db,
+                            chat_id=chat_id,
+                            file_id=file_id,
+                            message_id=int(assistant_message_id),
+                        )
 
                 if trace_writer is not None:
                     resource_end_snapshot = capture_resource_snapshot()
@@ -1066,6 +1927,8 @@ async def chat(
                     next_action=NextAction.REGENERATE,
                     next_action_reason='stopped',
                     chat_mode=resolved_chat_mode,
+                    retrieval_scope_kind=retrieval_scope_kind,
+                    retrieval_scope_key=retrieval_scope_key,
                 )
                 if persisted_message is not None:
                     assistant_message_record = persisted_message
@@ -1121,6 +1984,8 @@ async def chat(
                         next_action=cancelled_next_action,
                         next_action_reason=cancelled_next_action_reason,
                         chat_mode=resolved_chat_mode,
+                        retrieval_scope_kind=retrieval_scope_kind,
+                        retrieval_scope_key=retrieval_scope_key,
                     )
                 if trace_writer is not None:
                     resource_end_snapshot = capture_resource_snapshot()
@@ -1298,6 +2163,14 @@ async def chat(
                 resource_metrics=resource_metrics,
                 message_id=assistant_message_id,
             )
+            done_data['upload_scope'] = {
+                'active_upload_ids': upload_active_ids,
+                'selected_upload_ids': upload_scope_selected_ids,
+                'ready_file_ids': upload_ready_file_ids,
+                'indexing_upload_ids': upload_indexing_ids,
+                'omitted_upload_ids': upload_scope_omitted_ids,
+                'resolution_mode': upload_scope_resolution_mode,
+            }
             log.info(
                 'chat_response_completed',
                 chat_id=chat_id,
@@ -1503,13 +2376,35 @@ async def delete_chat_endpoint(
     chat_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=True)
+    uploads_deleted = 0
+    upload_delete_failures = 0
+    for attachment in attachments:
+        if attachment.state != 'deleted':
+            deleted = await _delete_chat_upload_artifacts(db=db, attachment=attachment)
+            if not deleted:
+                upload_delete_failures += 1
+        uploads_deleted += 1
+    if upload_delete_failures > 0:
+        raise HTTPException(
+            status_code=500,
+            detail='Failed to fully delete one or more uploaded file artifacts. Retry chat deletion.',
+        )
+    chat_upload_dir = _upload_chat_dir(chat_id)
+    if chat_upload_dir.exists():
+        try:
+            shutil.rmtree(chat_upload_dir)
+        except (OSError, RuntimeError) as exc:
+            log.warning('chat_upload_chat_dir_remove_failed', chat_id=chat_id, error=str(exc))
+
     deleted = await delete_chat(db, chat_id)
     if not deleted:
         raise HTTPException(status_code=404, detail='Chat not found')
 
-    log.info('chat_deleted', chat_id=chat_id)
+    log.info('chat_deleted', chat_id=chat_id, uploads_deleted=uploads_deleted)
 
     return {
         'chat_id':  chat_id,
         'deleted':  True,
+        'uploads_deleted': uploads_deleted,
     }
