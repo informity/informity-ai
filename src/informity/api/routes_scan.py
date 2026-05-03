@@ -27,6 +27,7 @@ from informity.api.schemas import (
     FileListResponse,
     OpenFileRequest,
     ScanErrorItem,
+    ScanErrorsResponse,
     ScanRequest,
     ScanStatusResponse,
 )
@@ -48,6 +49,7 @@ from informity.db.sqlite import (
     get_index_integrity_issues,
     get_latest_scan,
     get_scan_error_records,
+    get_scan_error_records_page,
     get_scan_timeout_error_count,
     insert_scan_error_record,
     insert_scan_record,
@@ -72,6 +74,7 @@ from informity.scanner.extractors.docling import DoclingExtractor
 from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE
 from informity.sources.orchestrator import build_default_orchestrator
 from informity.timeout_policy import normalize_scope_key, resolve_timeout_seconds
+from informity.upload_policy import UPLOAD_PROVIDER
 from informity.utils.path_utils import normalize_path
 
 # ==============================================================================
@@ -79,7 +82,7 @@ from informity.utils.path_utils import normalize_path
 # ==============================================================================
 
 log = structlog.get_logger(__name__)
-_SCAN_RUNTIME_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError)
+_SCAN_RUNTIME_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError, MemoryError)
 _SCAN_UNHANDLED_GUARD_EXCEPTIONS = (AssertionError, AttributeError, ImportError, LookupError, UnicodeError)
 SCAN_CANCEL_POLL_INTERVAL_SECONDS = 0.25
 SCAN_PROGRESS_DB_BUSY_TIMEOUT_MS = 250
@@ -87,6 +90,8 @@ SCAN_PROGRESS_UPDATE_TIMEOUT_SECONDS = 1.0
 SCAN_TERMINAL_UPDATE_RETRIES = 3
 SCAN_TERMINAL_UPDATE_RETRY_DELAY_SECONDS = 0.2
 SCAN_ORCHESTRATOR = build_default_orchestrator()
+_PLAINTEXT_EXTENSIONS = frozenset({'.txt', '.md', '.rst', '.log', '.json', '.yaml', '.yml', '.toml'})
+_PLAINTEXT_TIMEOUT_CAP_SECONDS = 120
 
 
 class _ScanCancelledInFlightError(Exception):
@@ -124,11 +129,14 @@ def _clamp_scan_file_timeout_seconds(timeout_seconds: int) -> int:
 def _resolve_scan_timeout_seconds_for_file(sf: ScannedFile) -> int:
     # Resolve timeout using scope-aware policy + item size.
     scope_key = normalize_scope_key(FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE)
-    return resolve_timeout_seconds(
+    resolved = resolve_timeout_seconds(
         settings.scan_timeout_policy,
         scope_key=scope_key,
         size_bytes=max(0, int(sf.size_bytes)),
     )
+    if sf.extension.lower() in _PLAINTEXT_EXTENSIONS:
+        return max(SCAN_FILE_TIMEOUT_MIN_SECONDS, min(resolved, _PLAINTEXT_TIMEOUT_CAP_SECONDS))
+    return resolved
 
 @router.post('/api/scan')
 async def trigger_scan(
@@ -231,6 +239,43 @@ async def get_scan_status(
     )
 
 
+@router.get('/api/scan/errors', response_model=ScanErrorsResponse)
+async def get_scan_errors(
+    limit: int = Query(default=200, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+    db: aiosqlite.Connection = Depends(get_db),
+) -> ScanErrorsResponse:
+    latest = await get_latest_scan(db)
+    if latest is None or latest.id is None:
+        raise HTTPException(status_code=404, detail='No scan has been run yet')
+
+    errors = await get_scan_error_records_page(
+        db,
+        latest.id,
+        limit=limit,
+        offset=offset,
+    )
+    return ScanErrorsResponse(
+        scan_id=latest.id,
+        total=latest.errors,
+        offset=offset,
+        limit=limit,
+        errors=[
+            ScanErrorItem(
+                path=item.path,
+                filename=item.filename,
+                extension=item.extension,
+                operation=item.operation,
+                error_code=item.error_code,
+                error_message=item.error_message,
+                is_timeout=item.is_timeout,
+                created_at=item.created_at,
+            )
+            for item in errors
+        ],
+    )
+
+
 @router.post('/api/scan/cancel')
 async def cancel_scan(
     db: aiosqlite.Connection = Depends(get_db),
@@ -270,6 +315,7 @@ async def list_files(
         extensions=extensions,
         search=search,
         tag=tag,
+        excluded_source_providers=[UPLOAD_PROVIDER],
         sort_by=sort,
         order=order,
         offset=offset,

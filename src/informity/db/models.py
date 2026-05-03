@@ -135,6 +135,8 @@ class ChatMessage(BaseModel):
     next_action: NextAction | str | None = None
     next_action_reason: str | None = None
     chat_mode: str | None = None
+    retrieval_scope_kind: str | None = None
+    retrieval_scope_key: str | None = None
     model_filename: str | None = None
     is_internal: bool = False
     created_at:       datetime | None = None
@@ -158,3 +160,19 @@ class ContinuationPassArtifact(BaseModel):
     status_transitions: list[dict] = Field(default_factory=list)
     payload_hash: str = ''
     created_at: datetime | None = None
+
+
+class ChatUploadAttachment(BaseModel):
+    # Chat-scoped uploaded attachment lifecycle state.
+    id: int | None = None
+    upload_id: str
+    chat_id: str
+    file_id: int | None = None
+    filename_at_upload: str
+    size_bytes: int = 0
+    content_hash: str | None = None
+    state: str = 'uploading'  # uploading | indexing | ready | deleting | deleted | failed
+    referenced_message_ids: list[int] = Field(default_factory=list)
+    uploaded_at: datetime | None = None
+    updated_at: datetime | None = None
+    removed_at: datetime | None = None

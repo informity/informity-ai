@@ -4,6 +4,7 @@
 # ==============================================================================
 
 import asyncio
+import re
 import time
 
 import aiosqlite
@@ -19,12 +20,48 @@ from informity.llm.metadata_filters import (
     build_where_clause_and_params,
 )
 from informity.llm.model_adapter import get_profile
-from informity.llm.term_dictionary import expand_query_for_retrieval
+from informity.llm.term_dictionary import TermExpansion, expand_query_for_retrieval
 from informity.llm.types import BlockType, FilterOperator, QueryType
+from informity.upload_policy import UPLOAD_ENTITY_TYPE, UPLOAD_PROVIDER
+from informity.utils.file_utils import normalize_extension
 
 log = structlog.get_logger(__name__)
 _COVERAGE_DIVERSITY_PRIMARY_FILE_CAP = 1
 _COVERAGE_DIVERSITY_SECONDARY_FILE_CAP = 2
+_STRUCTURAL_SECTION_PATTERNS = (
+    re.compile(r'\b(table\s+of\s+contents?|contents?)\b', re.IGNORECASE),
+    re.compile(r'\b(index|appendix|appendices|glossary)\b', re.IGNORECASE),
+    re.compile(r'\b(references?|bibliography|citations?)\b', re.IGNORECASE),
+    re.compile(r'\b(copyright|license|legal(?:\s+notice)?)\b', re.IGNORECASE),
+    re.compile(r'\b(acknowledg(?:e)?ments?)\b', re.IGNORECASE),
+    re.compile(r'\b(changelog|revision\s+history|release\s+notes?)\b', re.IGNORECASE),
+    re.compile(r'\b(title\s+page|cover\s+page|front\s+matter)\b', re.IGNORECASE),
+)
+_SECTION_STRUCTURAL_PENALTY = 0.15
+_BLOCK_TYPE_STRUCTURAL_PENALTY = 0.08
+_TEXT_STRUCTURAL_PENALTY = 0.35
+_SHORT_TEXT_PENALTY = 0.04
+_SHORT_TEXT_CHAR_THRESHOLD = 180
+_SHORT_TEXT_LINE_THRESHOLD = 3
+_SUBSTANTIVE_FILTER_MIN_CANDIDATES = 8
+_TITLE_ALIGNMENT_BONUS_PER_MATCH = 0.05
+_TITLE_ALIGNMENT_BONUS_MAX = 0.20
+_TITLE_ALIGNMENT_STRICT_NO_MATCH_PENALTY = 0.30
+_TITLE_ALIGNMENT_STRICT_BONUS_PER_MATCH = 0.12
+_TITLE_ALIGNMENT_STRICT_BONUS_MAX = 0.50
+_TITLE_ALIGNMENT_STOPWORDS = {
+    'a', 'an', 'and', 'as', 'at', 'attachment', 'by', 'compare', 'description', 'describe', 'document',
+    'entry', 'file', 'for', 'from', 'give', 'in', 'is', 'it', 'item', 'later', 'material', 'note', 'of',
+    'on', 'or', 'paper', 'record', 'source', 'text', 'the', 'to', 'vs', 'versus', 'what', 'with',
+}
+_STRUCTURAL_TEXT_PATTERNS = (
+    re.compile(r'\*\*\*\s*start\s+of\s+the\s+project\s+gutenberg\s+ebook', re.IGNORECASE),
+    re.compile(r'\bproject\s+gutenberg\s+ebook\b', re.IGNORECASE),
+    re.compile(r'\bthis\s+ebook\s+is\s+for\s+the\s+use\s+of\s+anyone\b', re.IGNORECASE),
+    re.compile(r'\bother\s+information\s+and\s+formats?\b', re.IGNORECASE),
+    re.compile(r'\bcredits?:\b', re.IGNORECASE),
+    re.compile(r'\blanguage:\s*[A-Za-z]', re.IGNORECASE),
+)
 
 
 def _coerce_reranker_score(value: object) -> float | None:
@@ -49,16 +86,219 @@ def _resolve_within_file_location_key(chunk: dict) -> str:
     return f"chunk:{chunk.get('chunk_id')}"
 
 
+def _looks_structural_section(section_path: object) -> bool:
+    value = str(section_path or '').strip()
+    if not value:
+        return False
+    return any(pattern.search(value) for pattern in _STRUCTURAL_SECTION_PATTERNS)
+
+
+def _apply_substantive_section_bias(
+    *,
+    chunks: list[dict],
+    prefer_substantive_sections: bool,
+) -> list[dict]:
+    if not prefer_substantive_sections or len(chunks) <= 1:
+        return chunks
+
+    rescored: list[dict] = []
+    for chunk in chunks:
+        score = _coerce_reranker_score(chunk.get('score')) or 0.0
+        penalty = 0.0
+
+        block_type = str(chunk.get('block_type') or '').strip().casefold()
+        if block_type in {'table', 'form'}:
+            penalty += _BLOCK_TYPE_STRUCTURAL_PENALTY
+
+        if _looks_structural_section(chunk.get('section_path')):
+            penalty += _SECTION_STRUCTURAL_PENALTY
+
+        text = str(chunk.get('chunk_text') or '').strip()
+        if text and any(pattern.search(text[:1200]) for pattern in _STRUCTURAL_TEXT_PATTERNS):
+            penalty += _TEXT_STRUCTURAL_PENALTY
+        if text and len(re.findall(r'\bchapter\s+[ivxlcdm0-9]+\b', text[:1200], re.IGNORECASE)) >= 4:
+            penalty += _TEXT_STRUCTURAL_PENALTY
+        if text:
+            line_count = text.count('\n') + 1
+            if len(text) < _SHORT_TEXT_CHAR_THRESHOLD and line_count <= _SHORT_TEXT_LINE_THRESHOLD:
+                penalty += _SHORT_TEXT_PENALTY
+
+        rescored.append({**chunk, 'score': score - penalty})
+
+    rescored.sort(key=lambda item: _coerce_reranker_score(item.get('score')) or 0.0, reverse=True)
+    return rescored
+
+
+def _is_structural_text_snippet(text: str) -> bool:
+    snippet = str(text or '')[:1200]
+    if not snippet:
+        return False
+    if any(pattern.search(snippet) for pattern in _STRUCTURAL_TEXT_PATTERNS):
+        return True
+    return len(re.findall(r'\bchapter\s+[ivxlcdm0-9]+\b', snippet, re.IGNORECASE)) >= 4
+
+
+def _filter_structural_chunks_when_possible(
+    *,
+    chunks: list[dict],
+    prefer_substantive_sections: bool,
+    top_k: int,
+) -> list[dict]:
+    if not prefer_substantive_sections or len(chunks) <= 1:
+        return chunks
+    non_structural = [
+        chunk for chunk in chunks
+        if not _is_structural_text_snippet(str(chunk.get('chunk_text') or ''))
+    ]
+    minimum_keep = max(top_k, _SUBSTANTIVE_FILTER_MIN_CANDIDATES)
+    if len(non_structural) >= minimum_keep:
+        return non_structural
+    return chunks
+
+
+def _tokenize_title_alignment_terms(text: str) -> set[str]:
+    lowered = str(text or '').strip().lower()
+    if not lowered:
+        return set()
+    raw_terms = set(re.findall(r"[a-z0-9][a-z0-9'_-]{2,}", lowered))
+    terms: set[str] = set()
+    for term in raw_terms:
+        if term in _TITLE_ALIGNMENT_STOPWORDS:
+            continue
+        terms.add(term)
+        if term.endswith('s') and len(term) > 4:
+            terms.add(term[:-1])
+    return terms
+
+
+def _apply_title_alignment_bias(
+    *,
+    chunks: list[dict],
+    query: str | None,
+    prefer_title_alignment: bool,
+    strict_title_alignment: bool = False,
+) -> list[dict]:
+    if not prefer_title_alignment or len(chunks) <= 1:
+        return chunks
+    query_terms = _tokenize_title_alignment_terms(query or '')
+    if not query_terms:
+        return chunks
+
+    chunk_overlaps: list[tuple[dict, int]] = []
+    has_overlap_match = False
+    for chunk in chunks:
+        filename = str(chunk.get('filename') or '')
+        filename_terms = _tokenize_title_alignment_terms(filename)
+        overlap_count = len(query_terms & filename_terms)
+        if overlap_count > 0:
+            has_overlap_match = True
+        chunk_overlaps.append((chunk, overlap_count))
+
+    rescored: list[dict] = []
+    for chunk, overlap_count in chunk_overlaps:
+        score = _coerce_reranker_score(chunk.get('score')) or 0.0
+        if overlap_count <= 0:
+            penalty = _TITLE_ALIGNMENT_STRICT_NO_MATCH_PENALTY if strict_title_alignment and has_overlap_match else 0.0
+            rescored.append({**chunk, 'score': score - penalty})
+            continue
+        if strict_title_alignment:
+            bonus = min(_TITLE_ALIGNMENT_STRICT_BONUS_MAX, overlap_count * _TITLE_ALIGNMENT_STRICT_BONUS_PER_MATCH)
+        else:
+            bonus = min(_TITLE_ALIGNMENT_BONUS_MAX, overlap_count * _TITLE_ALIGNMENT_BONUS_PER_MATCH)
+        rescored.append({**chunk, 'score': score + bonus})
+
+    rescored.sort(key=lambda item: _coerce_reranker_score(item.get('score')) or 0.0, reverse=True)
+    return rescored
+
+
+def _apply_strict_title_file_focus(
+    *,
+    chunks: list[dict],
+    query: str | None,
+    strict_title_alignment: bool,
+) -> list[dict]:
+    if not strict_title_alignment or len(chunks) <= 1:
+        return chunks
+    query_terms = _tokenize_title_alignment_terms(query or '')
+    if not query_terms:
+        return chunks
+
+    overlap_by_file: dict[int, int] = {}
+    for chunk in chunks:
+        file_id = chunk.get('file_id')
+        try:
+            normalized_file_id = int(file_id)
+        except (TypeError, ValueError):
+            continue
+        filename_terms = _tokenize_title_alignment_terms(str(chunk.get('filename') or ''))
+        overlap = len(query_terms & filename_terms)
+        if overlap <= 0:
+            continue
+        overlap_by_file[normalized_file_id] = max(overlap_by_file.get(normalized_file_id, 0), overlap)
+
+    if not overlap_by_file:
+        return chunks
+    best_overlap = max(overlap_by_file.values())
+    focused_file_ids = {file_id for file_id, overlap in overlap_by_file.items() if overlap == best_overlap}
+    focused_chunks: list[dict] = []
+    for chunk in chunks:
+        try:
+            normalized_file_id = int(chunk.get('file_id'))
+        except (TypeError, ValueError):
+            continue
+        if normalized_file_id in focused_file_ids:
+            focused_chunks.append(chunk)
+    return focused_chunks or chunks
+
+
 def _select_top_children(
     *,
     reranked_children: list[dict],
     top_k: int,
     query_type: QueryType,
+    prefer_within_file_diversity: bool = False,
 ) -> list[dict]:
     if top_k <= 0:
         return []
     if query_type != QueryType.COVERAGE:
-        return reranked_children[:top_k]
+        if not prefer_within_file_diversity:
+            return reranked_children[:top_k]
+        selected: list[dict] = []
+        seen_chunk_ids: set[int] = set()
+        seen_file_locations: set[tuple[int, str]] = set()
+        for chunk in reranked_children:
+            try:
+                chunk_id = int(chunk.get('chunk_id'))
+            except (TypeError, ValueError):
+                continue
+            if chunk_id in seen_chunk_ids:
+                continue
+            file_id_raw = chunk.get('file_id')
+            try:
+                file_id = int(file_id_raw) if file_id_raw is not None else -1
+            except (TypeError, ValueError):
+                file_id = -1
+            file_location = (file_id, _resolve_within_file_location_key(chunk))
+            if file_location in seen_file_locations:
+                continue
+            selected.append(chunk)
+            seen_chunk_ids.add(chunk_id)
+            seen_file_locations.add(file_location)
+            if len(selected) >= top_k:
+                return selected
+        if len(selected) < top_k:
+            for chunk in reranked_children:
+                try:
+                    chunk_id = int(chunk.get('chunk_id'))
+                except (TypeError, ValueError):
+                    continue
+                if chunk_id in seen_chunk_ids:
+                    continue
+                selected.append(chunk)
+                seen_chunk_ids.add(chunk_id)
+                if len(selected) >= top_k:
+                    break
+        return selected
 
     selected: list[dict] = []
     seen_chunk_ids: set[int] = set()
@@ -139,6 +379,14 @@ async def retrieve_chunks(
     block_type_filter: str | None = None,
     block_type_exclude: list[str] | None = None,
     section_filter: str | None = None,
+    file_ids_filter: list[int] | None = None,
+    exclude_upload_sources: bool = False,
+    prefer_substantive_sections: bool = False,
+    prefer_title_alignment: bool = False,
+    title_alignment_query: str | None = None,
+    strict_title_alignment: bool = False,
+    enable_term_expansion: bool = True,
+    prefer_within_file_diversity: bool = False,
     query_type: QueryType = QueryType.FOCUSED,
     db: aiosqlite.Connection | None = None,
     trace: object | None = None,
@@ -150,7 +398,14 @@ async def retrieve_chunks(
     If trace is provided (TraceWriter protocol), records 'retrieval' and 'rerank' steps.
     """
     # 1. Embed query (CPU-bound, run in thread pool to avoid blocking event loop)
-    term_expansion = await expand_query_for_retrieval(db=db, query=query)
+    if enable_term_expansion:
+        term_expansion = await expand_query_for_retrieval(db=db, query=query)
+    else:
+        term_expansion = TermExpansion(
+            dictionary_version=0,
+            embedding_query=query,
+            fts_query=query,
+        )
     query_for_embedding = term_expansion.embedding_query or query
     query_for_fts = term_expansion.fts_query or query
 
@@ -181,7 +436,7 @@ async def retrieve_chunks(
             filters.append(MetadataFilter(field='category', operator=FilterOperator.EQ, value=safe_category))
     if extension_filter:
         # Sanitize extension filter (ensure it starts with dot)
-        safe_extension = extension_filter if extension_filter.startswith('.') else f'.{extension_filter}'
+        safe_extension = normalize_extension(extension_filter)
         filters.append(MetadataFilter(field='extension', operator=FilterOperator.EQ, value=safe_extension))
     if filename_filter:
         normalized_filename_filter = filename_filter.strip()
@@ -203,6 +458,16 @@ async def retrieve_chunks(
                     field='filename',
                     operator=FilterOperator.NE,
                     value=normalized_excluded_name,
+                )
+            )
+    if file_ids_filter:
+        normalized_file_ids = sorted({int(file_id) for file_id in file_ids_filter if int(file_id) > 0})
+        if normalized_file_ids:
+            filters.append(
+                MetadataFilter(
+                    field='file_id',
+                    operator=FilterOperator.IN,
+                    value=normalized_file_ids,
                 )
             )
     safe_block_type_filter = (
@@ -238,6 +503,15 @@ async def retrieve_chunks(
     # the chunks table, where those fields are authoritative.
     vector_filters = [f for f in active_filters if f.field != 'block_type']
     where_clause, where_params = build_where_clause_and_params(vector_filters)
+    if exclude_upload_sources:
+        upload_exclusion_clause = 'file_id NOT IN (SELECT id FROM files WHERE source_provider = ? AND entity_type = ?)'
+        upload_exclusion_params: list[int | str] = [UPLOAD_PROVIDER, UPLOAD_ENTITY_TYPE]
+        if where_clause:
+            where_clause = f'({where_clause}) AND {upload_exclusion_clause}'
+            where_params = [*where_params, *upload_exclusion_params]
+        else:
+            where_clause = upload_exclusion_clause
+            where_params = upload_exclusion_params
     applied_filters_for_trace = [
         {
             'field': metadata_filter.field,
@@ -336,6 +610,13 @@ async def retrieve_chunks(
                 'block_type_exclude':  list(safe_block_type_exclude),
                 'section_filter':      safe_section_filter,
                 'max_score':           max_score,
+                'file_ids_filter':     file_ids_filter,
+                'exclude_upload_sources': exclude_upload_sources,
+                'prefer_substantive_sections': prefer_substantive_sections,
+                'prefer_title_alignment': prefer_title_alignment,
+                'strict_title_alignment': strict_title_alignment,
+                'term_expansion_enabled': enable_term_expansion,
+                'prefer_within_file_diversity': prefer_within_file_diversity,
             })
         return []
 
@@ -432,6 +713,11 @@ async def retrieve_chunks(
         ]
         if section_filtered:
             filtered_child_chunks = section_filtered
+    filtered_child_chunks = _filter_structural_chunks_when_possible(
+        chunks=filtered_child_chunks,
+        prefer_substantive_sections=prefer_substantive_sections,
+        top_k=top_k,
+    )
 
     # 5. Rerank child chunks (controlled by rag_rerank / rag_rerank_coverage settings)
     # CPU-bound cross-encoder, run in thread pool to avoid blocking event loop
@@ -448,11 +734,27 @@ async def retrieve_chunks(
             {**chunk, 'score': vector_score_map.get(chunk['chunk_id'], 0.0)}
             for chunk in filtered_child_chunks
         ]
+    reranked_children = _apply_substantive_section_bias(
+        chunks=reranked_children,
+        prefer_substantive_sections=prefer_substantive_sections,
+    )
+    reranked_children = _apply_title_alignment_bias(
+        chunks=reranked_children,
+        query=title_alignment_query or query,
+        prefer_title_alignment=prefer_title_alignment,
+        strict_title_alignment=strict_title_alignment,
+    )
+    reranked_children = _apply_strict_title_file_focus(
+        chunks=reranked_children,
+        query=title_alignment_query or query,
+        strict_title_alignment=strict_title_alignment,
+    )
     rerank_elapsed_ms = (time.perf_counter() - rerank_start) * 1000
     top_children = _select_top_children(
         reranked_children=reranked_children,
         top_k=top_k,
         query_type=query_type,
+        prefer_within_file_diversity=prefer_within_file_diversity,
     )
     post_rerank_top_ids = [chunk.get('chunk_id') for chunk in top_children]
     rerank_top_k_overlap = len(set(pre_rerank_top_ids) & set(post_rerank_top_ids))
@@ -549,8 +851,15 @@ async def retrieve_chunks(
             'block_type_exclude':  list(safe_block_type_exclude),
             'section_filter':      safe_section_filter,
             'max_score':           max_score,
+            'file_ids_filter':     file_ids_filter,
+            'exclude_upload_sources': exclude_upload_sources,
+            'prefer_substantive_sections': prefer_substantive_sections,
+            'prefer_title_alignment': prefer_title_alignment,
+            'strict_title_alignment': strict_title_alignment,
+            'term_expansion_enabled': enable_term_expansion,
+            'prefer_within_file_diversity': prefer_within_file_diversity,
             'children_reranked':   len(reranked_children),
-        'children_after_structural_filter': len(filtered_child_chunks),
+            'children_after_structural_filter': len(filtered_child_chunks),
             'parents_fetched':     len(parent_chunks),
             'fts5_augmented_count': fts5_augmented_count,
         }

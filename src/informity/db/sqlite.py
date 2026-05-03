@@ -7,6 +7,7 @@
 import asyncio
 import hashlib
 import json
+import re
 from collections.abc import AsyncGenerator
 from contextlib import suppress
 from datetime import UTC, datetime
@@ -17,6 +18,7 @@ import structlog
 from informity.config import settings
 from informity.db.models import (
     ChatMessage,
+    ChatUploadAttachment,
     Chunk,
     ContinuationPassArtifact,
     IndexedFile,
@@ -53,6 +55,12 @@ _CHAT_PREVIEW_TRUNCATE_LENGTH = 100
 _RESET_SCHEMA_RETRY_ATTEMPTS = 15
 _RESET_SCHEMA_RETRY_BASE_DELAY_SECONDS = 0.2
 _RESET_COMPACTION_RETRY_ATTEMPTS = 10
+_CHAT_TITLE_MAX_LENGTH = 50
+_CHAT_TITLE_MARKDOWN_HEADING_RE = re.compile(r'^\s{0,3}#{1,6}\s+')
+_CHAT_TITLE_MARKDOWN_LINK_RE = re.compile(r'\[([^\]]+)\]\([^)]+\)')
+_CHAT_TITLE_MARKDOWN_DECORATOR_RE = re.compile(r'[*_`~]+')
+_CHAT_TITLE_MARKDOWN_LEADING_LIST_RE = re.compile(r'^\s*[-+*>\s]+')
+_CHAT_TITLE_WHITESPACE_RE = re.compile(r'\s+')
 
 # ==============================================================================
 # Schema — DDL statements for all tables
@@ -206,6 +214,8 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     next_action        TEXT,
     next_action_reason TEXT,
     chat_mode          TEXT,
+    retrieval_scope_kind TEXT,
+    retrieval_scope_key  TEXT,
     model_filename     TEXT,
     is_internal        INTEGER DEFAULT 0,
     created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -229,6 +239,23 @@ CREATE TABLE IF NOT EXISTS chat_preferences (
     chat_web_search_privacy_override  INTEGER DEFAULT 0,
     updated_at                        TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS chat_upload_attachments (
+    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+    upload_id             TEXT NOT NULL UNIQUE,
+    chat_id               TEXT NOT NULL REFERENCES chats(chat_id) ON DELETE CASCADE,
+    file_id               INTEGER REFERENCES files(id) ON DELETE SET NULL,
+    filename_at_upload    TEXT NOT NULL,
+    size_bytes            INTEGER NOT NULL DEFAULT 0,
+    content_hash          TEXT,
+    state                 TEXT NOT NULL DEFAULT 'uploading',
+    referenced_message_ids TEXT NOT NULL DEFAULT '[]',
+    uploaded_at           TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at            TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    removed_at            TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_chat_upload_chat_id ON chat_upload_attachments(chat_id);
+CREATE INDEX IF NOT EXISTS idx_chat_upload_state ON chat_upload_attachments(state);
 
 CREATE TABLE IF NOT EXISTS response_diagnostics_metrics (
     id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -408,6 +435,7 @@ DROP TABLE IF EXISTS response_diagnostics_metrics;
 DROP TABLE IF EXISTS continuation_pass_artifacts;
 DROP TABLE IF EXISTS chat_messages;
 DROP TABLE IF EXISTS chat_preferences;
+DROP TABLE IF EXISTS chat_upload_attachments;
 DROP TABLE IF EXISTS chunks;
 DROP TABLE IF EXISTS files;
 DROP TABLE IF EXISTS chats;
@@ -611,6 +639,31 @@ async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
         log.warning('startup_database_compaction_skipped', error=str(exc))
 
 
+async def compact_database_if_empty_with_retries() -> dict[str, object]:
+    # Best-effort compaction pass intended for post-reset execution while the app
+    # is still running. Uses a fresh connection and retries to ride out brief locks.
+    compacted = False
+    error: str | None = None
+    for attempt in range(1, _RESET_COMPACTION_RETRY_ATTEMPTS + 1):
+        conn = await get_connection()
+        try:
+            await _compact_empty_db_if_bloated(conn)
+            compacted = True
+            error = None
+            break
+        except (aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError) as exc:
+            error = str(exc)
+            if attempt < _RESET_COMPACTION_RETRY_ATTEMPTS:
+                await asyncio.sleep(0.2 * attempt)
+        finally:
+            await conn.close()
+
+    return {
+        'storage_compacted': compacted,
+        'compaction_error': error,
+    }
+
+
 async def get_db() -> AsyncGenerator[aiosqlite.Connection]:
     # FastAPI dependency that yields an aiosqlite connection.
     conn = await get_connection()
@@ -726,9 +779,37 @@ def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
         next_action        = row['next_action'],
         next_action_reason = row['next_action_reason'],
         chat_mode          = row['chat_mode'],
+        retrieval_scope_kind = row['retrieval_scope_kind'],
+        retrieval_scope_key = row['retrieval_scope_key'],
         model_filename     = row['model_filename'],
         is_internal        = bool(row['is_internal']),
         created_at         = parse_timestamp(row['created_at']),
+    )
+
+
+def _row_to_chat_upload_attachment(row: aiosqlite.Row) -> ChatUploadAttachment:
+    referenced_ids_raw = row['referenced_message_ids']
+    referenced_ids: list[int] = []
+    if isinstance(referenced_ids_raw, str) and referenced_ids_raw.strip():
+        try:
+            parsed = json.loads(referenced_ids_raw)
+            if isinstance(parsed, list):
+                referenced_ids = [int(v) for v in parsed if isinstance(v, int) or (isinstance(v, str) and v.isdigit())]
+        except (TypeError, ValueError, json.JSONDecodeError):
+            referenced_ids = []
+    return ChatUploadAttachment(
+        id=row['id'],
+        upload_id=str(row['upload_id'] or ''),
+        chat_id=str(row['chat_id'] or ''),
+        file_id=row['file_id'],
+        filename_at_upload=str(row['filename_at_upload'] or ''),
+        size_bytes=int(row['size_bytes'] or 0),
+        content_hash=str(row['content_hash'] or '').strip() or None,
+        state=str(row['state'] or 'uploading'),
+        referenced_message_ids=referenced_ids,
+        uploaded_at=parse_timestamp(row['uploaded_at']),
+        updated_at=parse_timestamp(row['updated_at']),
+        removed_at=parse_timestamp(row['removed_at']),
     )
 
 
@@ -967,6 +1048,7 @@ async def get_files(
     extensions:  list[str] | None = None,
     search:      str | None = None,
     tag:         str | None = None,
+    excluded_source_providers: list[str] | None = None,
     sort_by:     str        = 'indexed_at',
     order:       str        = 'desc',
     offset:      int        = 0,
@@ -990,6 +1072,13 @@ async def get_files(
             "EXISTS (SELECT 1 FROM json_each(files.tags) WHERE json_each.value = ?)"
         )
         params.append(tag.strip())
+
+    if excluded_source_providers:
+        normalized_excluded_providers = [str(provider).strip() for provider in excluded_source_providers if str(provider).strip()]
+        if normalized_excluded_providers:
+            placeholders = ', '.join('?' * len(normalized_excluded_providers))
+            conditions.append(f'source_provider NOT IN ({placeholders})')
+            params.extend(normalized_excluded_providers)
 
     if search is not None:
         escaped = search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
@@ -1296,6 +1385,30 @@ async def get_scan_error_records(
     return [_row_to_scan_error_record(row) for row in rows]
 
 
+async def get_scan_error_records_page(
+    db: aiosqlite.Connection,
+    scan_id: int,
+    *,
+    limit: int = 200,
+    offset: int = 0,
+) -> list[ScanErrorRecord]:
+    # Return paginated per-file scan errors for a scan, newest first.
+    safe_limit = max(1, min(int(limit), 1000))
+    safe_offset = max(0, int(offset))
+    cursor = await db.execute(
+        """
+        SELECT *
+        FROM scan_errors
+        WHERE scan_id = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT ? OFFSET ?
+        """,
+        (scan_id, safe_limit, safe_offset),
+    )
+    rows = await cursor.fetchall()
+    return [_row_to_scan_error_record(row) for row in rows]
+
+
 async def get_scan_timeout_error_count(
     db: aiosqlite.Connection,
     scan_id: int,
@@ -1362,10 +1475,19 @@ async def ensure_chat_exists(db: aiosqlite.Connection, chat_id: str, first_user_
 
     title = None
     if first_user_message:
-        # Simple title: first 50 chars of message
-        title = first_user_message[:50].strip()
-        if len(first_user_message) > 50:
-            title += '...'
+        # Simple title from first line with light markdown stripping.
+        raw_title_candidate = first_user_message.splitlines()[0].strip()
+        normalized_title = _CHAT_TITLE_MARKDOWN_HEADING_RE.sub('', raw_title_candidate)
+        normalized_title = _CHAT_TITLE_MARKDOWN_LINK_RE.sub(r'\1', normalized_title)
+        normalized_title = _CHAT_TITLE_MARKDOWN_DECORATOR_RE.sub('', normalized_title)
+        normalized_title = _CHAT_TITLE_MARKDOWN_LEADING_LIST_RE.sub('', normalized_title)
+        normalized_title = _CHAT_TITLE_WHITESPACE_RE.sub(' ', normalized_title).strip()
+
+        title_source = normalized_title or raw_title_candidate
+        if title_source:
+            title = title_source[:_CHAT_TITLE_MAX_LENGTH].strip()
+            if len(title_source) > _CHAT_TITLE_MAX_LENGTH:
+                title += '...'
 
     await db.execute(
         'INSERT INTO chats (chat_id, title) VALUES (?, ?)',
@@ -1384,9 +1506,9 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
         INSERT INTO chat_messages (
             chat_id, role, content, sources, generation_seconds,
             completion_mode, stopped_by_user, has_remaining_scope, next_action, next_action_reason,
-            chat_mode, model_filename, is_internal
+            chat_mode, retrieval_scope_kind, retrieval_scope_key, model_filename, is_internal
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             message.chat_id,
@@ -1400,6 +1522,8 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
             message.next_action,
             message.next_action_reason,
             message.chat_mode,
+            message.retrieval_scope_kind,
+            message.retrieval_scope_key,
             message.model_filename,
             1 if message.is_internal else 0,
         ),
@@ -1484,6 +1608,188 @@ async def upsert_chat_preferences(
         'chat_web_search_enabled': resolved_web_search_enabled,
         'chat_web_search_privacy_override': resolved_privacy_override,
     }
+
+
+async def insert_chat_upload_attachment(
+    db: aiosqlite.Connection,
+    *,
+    upload_id: str,
+    chat_id: str,
+    filename_at_upload: str,
+    size_bytes: int,
+    state: str = 'uploading',
+    file_id: int | None = None,
+    content_hash: str | None = None,
+) -> ChatUploadAttachment:
+    await ensure_chat_exists(db, chat_id)
+    cursor = await db.execute(
+        """
+        INSERT INTO chat_upload_attachments (
+            upload_id, chat_id, file_id, filename_at_upload, size_bytes, content_hash, state, referenced_message_ids, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, '[]', CURRENT_TIMESTAMP)
+        """,
+        (upload_id, chat_id, file_id, filename_at_upload, int(size_bytes), content_hash, state),
+    )
+    await db.commit()
+    attachment_id = int(cursor.lastrowid or 0)
+    return await get_chat_upload_attachment_by_id(db, attachment_id) or ChatUploadAttachment(
+        id=attachment_id,
+        upload_id=upload_id,
+        chat_id=chat_id,
+        file_id=file_id,
+        filename_at_upload=filename_at_upload,
+        size_bytes=int(size_bytes),
+        content_hash=(str(content_hash or '').strip() or None),
+        state=state,
+    )
+
+
+async def get_chat_upload_attachment_by_id(
+    db: aiosqlite.Connection,
+    attachment_id: int,
+) -> ChatUploadAttachment | None:
+    cursor = await db.execute(
+        'SELECT * FROM chat_upload_attachments WHERE id = ?',
+        (attachment_id,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    return _row_to_chat_upload_attachment(row)
+
+
+async def get_chat_upload_attachment_by_upload_id(
+    db: aiosqlite.Connection,
+    *,
+    upload_id: str,
+    chat_id: str | None = None,
+) -> ChatUploadAttachment | None:
+    if chat_id:
+        cursor = await db.execute(
+            'SELECT * FROM chat_upload_attachments WHERE upload_id = ? AND chat_id = ?',
+            (upload_id, chat_id),
+        )
+    else:
+        cursor = await db.execute(
+            'SELECT * FROM chat_upload_attachments WHERE upload_id = ?',
+            (upload_id,),
+        )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    return _row_to_chat_upload_attachment(row)
+
+
+async def get_chat_upload_attachments(
+    db: aiosqlite.Connection,
+    *,
+    chat_id: str,
+    include_deleted: bool = False,
+) -> list[ChatUploadAttachment]:
+    query = 'SELECT * FROM chat_upload_attachments WHERE chat_id = ?'
+    params: list[object] = [chat_id]
+    if not include_deleted:
+        query += " AND state != 'deleted'"
+    query += ' ORDER BY uploaded_at ASC, id ASC'
+    cursor = await db.execute(query, tuple(params))
+    rows = await cursor.fetchall()
+    return [_row_to_chat_upload_attachment(row) for row in rows]
+
+
+async def update_chat_upload_attachment_state(
+    db: aiosqlite.Connection,
+    *,
+    upload_id: str,
+    chat_id: str,
+    state: str,
+    file_id: int | None = None,
+    content_hash: str | None = None,
+    removed_at: datetime | None = None,
+) -> None:
+    await db.execute(
+        """
+        UPDATE chat_upload_attachments
+        SET state = ?,
+            file_id = COALESCE(?, file_id),
+            content_hash = COALESCE(?, content_hash),
+            removed_at = ?,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE upload_id = ? AND chat_id = ?
+        """,
+        (
+            state,
+            file_id,
+            content_hash,
+            removed_at.isoformat() if removed_at else None,
+            upload_id,
+            chat_id,
+        ),
+    )
+    await db.commit()
+
+
+async def append_chat_upload_reference_message(
+    db: aiosqlite.Connection,
+    *,
+    chat_id: str,
+    file_id: int,
+    message_id: int,
+) -> None:
+    cursor = await db.execute(
+        """
+        SELECT referenced_message_ids
+        FROM chat_upload_attachments
+        WHERE chat_id = ? AND file_id = ?
+        LIMIT 1
+        """,
+        (chat_id, file_id),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return
+    current_ids: list[int] = []
+    raw = row['referenced_message_ids']
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                current_ids = [int(v) for v in parsed if isinstance(v, int) or (isinstance(v, str) and str(v).isdigit())]
+        except (TypeError, ValueError, json.JSONDecodeError):
+            current_ids = []
+    if int(message_id) not in current_ids:
+        current_ids.append(int(message_id))
+        current_ids = sorted(set(current_ids))
+        await db.execute(
+            """
+            UPDATE chat_upload_attachments
+            SET referenced_message_ids = ?, updated_at = CURRENT_TIMESTAMP
+            WHERE chat_id = ? AND file_id = ?
+            """,
+            (json.dumps(current_ids), chat_id, file_id),
+        )
+        await db.commit()
+
+
+async def get_chat_upload_size_bytes(
+    db: aiosqlite.Connection,
+    *,
+    chat_id: str,
+    include_states: tuple[str, ...] = ('uploading', 'indexing', 'ready'),
+) -> int:
+    if not include_states:
+        return 0
+    placeholders = ', '.join('?' * len(include_states))
+    cursor = await db.execute(
+        f"""
+        SELECT COALESCE(SUM(size_bytes), 0) AS total_size
+        FROM chat_upload_attachments
+        WHERE chat_id = ?
+          AND state IN ({placeholders})
+        """,
+        (chat_id, *include_states),
+    )
+    row = await cursor.fetchone()
+    return int((row['total_size'] if row else 0) or 0)
 
 
 def _build_continuation_artifact_payload_hash(artifact: ContinuationPassArtifact) -> str:
@@ -1930,9 +2236,24 @@ async def get_diagnostics_metrics_since(
 # Utility Functions
 # ==============================================================================
 
-async def get_file_count(db: aiosqlite.Connection) -> int:
-    # Total count of indexed files.
-    cursor = await db.execute('SELECT COUNT(*) as count FROM files')
+async def get_file_count(
+    db: aiosqlite.Connection,
+    *,
+    source_provider: str | None = None,
+    entity_type: str | None = None,
+) -> int:
+    # Total count of indexed files, optionally scoped by source/entity.
+    if source_provider is not None and entity_type is not None:
+        cursor = await db.execute(
+            '''
+            SELECT COUNT(*) as count
+            FROM files
+            WHERE source_provider = ? AND entity_type = ?
+            ''',
+            (source_provider, entity_type),
+        )
+    else:
+        cursor = await db.execute('SELECT COUNT(*) as count FROM files')
     row = await cursor.fetchone()
     return int(row['count']) if row else 0
 
@@ -2487,6 +2808,68 @@ async def reset_all_data(db: aiosqlite.Connection) -> dict[str, object]:
     # Drop all tables and recreate from current schema so the database has the
     # latest structure (e.g. new columns). Returns a dict with table names and
     # 0 counts (tables are recreated empty).
+    tracked_tables = (
+        'response_diagnostics_metrics',
+        'continuation_pass_artifacts',
+        'chat_messages',
+        'chat_upload_attachments',
+        'chunks',
+        'chats',
+        'scan_errors',
+        'file_failures',
+        'scan_history',
+        'files',
+        'vec_chunks',
+        'term_entries',
+        'term_aliases',
+        'term_evidence',
+        'term_dictionary_build_runs',
+    )
+
+    pre_counts: dict[str, object] = {table: 0 for table in tracked_tables}
+    for table in tracked_tables:
+        try:
+            cursor = await db.execute(f'SELECT COUNT(*) AS cnt FROM {table}')
+            row = await cursor.fetchone()
+            pre_counts[table] = int(row['cnt']) if row else 0
+        except (aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError):
+            pre_counts[table] = 0
+    try:
+        upload_counts_cursor = await db.execute(
+            """
+            SELECT
+                (SELECT COUNT(*) FROM chat_upload_attachments) AS upload_attachments,
+                (SELECT COUNT(*) FROM files WHERE source_provider = 'upload.local' AND entity_type = 'file') AS upload_files,
+                (
+                    SELECT COUNT(*)
+                    FROM chunks
+                    WHERE file_id IN (
+                        SELECT id FROM files
+                        WHERE source_provider = 'upload.local' AND entity_type = 'file'
+                    )
+                ) AS upload_chunks,
+                (
+                    SELECT COUNT(*)
+                    FROM vec_chunks
+                    WHERE file_id IN (
+                        SELECT id FROM files
+                        WHERE source_provider = 'upload.local' AND entity_type = 'file'
+                    )
+                ) AS upload_vectors
+            """,
+        )
+        upload_counts_row = await upload_counts_cursor.fetchone()
+        if upload_counts_row is not None:
+            pre_counts['upload_attachments'] = int(upload_counts_row['upload_attachments'] or 0)
+            pre_counts['upload_files'] = int(upload_counts_row['upload_files'] or 0)
+            pre_counts['upload_chunks'] = int(upload_counts_row['upload_chunks'] or 0)
+            pre_counts['upload_vectors'] = int(upload_counts_row['upload_vectors'] or 0)
+    except (aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError):
+        pre_counts.setdefault('upload_attachments', 0)
+        pre_counts.setdefault('upload_files', 0)
+        pre_counts.setdefault('upload_chunks', 0)
+        pre_counts.setdefault('upload_vectors', 0)
+
     reset_error: Exception | None = None
     for attempt in range(1, _RESET_SCHEMA_RETRY_ATTEMPTS + 1):
         try:
@@ -2529,25 +2912,7 @@ async def reset_all_data(db: aiosqlite.Connection) -> dict[str, object]:
                 await asyncio.sleep(0.2 * attempt)
             continue
 
-    counts: dict[str, object] = {
-        t: 0
-        for t in (
-            'response_diagnostics_metrics',
-            'continuation_pass_artifacts',
-            'chat_messages',
-            'chunks',
-            'chats',
-            'scan_errors',
-            'file_failures',
-            'scan_history',
-            'files',
-            'vec_chunks',
-            'term_entries',
-            'term_aliases',
-            'term_evidence',
-            'term_dictionary_build_runs',
-        )
-    }
+    counts: dict[str, object] = dict(pre_counts)
     counts['storage_compacted'] = storage_compacted
     counts['compaction_error'] = compaction_error
     log.info(
