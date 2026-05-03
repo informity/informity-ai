@@ -113,6 +113,38 @@ async def test_chat_rejects_mixed_library_scope_and_uploads(
 
 
 @pytest.mark.asyncio
+async def test_chat_rejects_scoped_file_ids_in_assistant_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, 'app_data_dir', tmp_path / 'app-data')
+    monkeypatch.setattr(settings, 'db_path', tmp_path / 'policy-assistant-scoped-file.db')
+    await init_db()
+    db = await get_connection()
+    try:
+        file_id = await _insert_indexed_file(
+            db,
+            path='/tmp/policy-assistant-scope.txt',
+            filename='policy-assistant-scope.txt',
+            content_hash='policy-assistant-scoped-hash',
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await routes_chat.chat(
+                request=ChatRequest(
+                    message='answer from this file',
+                    chat_id='policy-chat-assistant-scoped-file',
+                    mode='assistant',
+                    scoped_file_ids=[file_id],
+                ),
+                db=db,
+            )
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.detail == 'Scoped file retrieval is available only in Researcher mode.'
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
 async def test_chat_explicit_scoped_upload_ids_require_existing_uploads(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

@@ -887,6 +887,11 @@ async def chat(
             status_code=409,
             detail='Provide either scoped_file_ids or scoped_upload_ids, not both.',
         )
+    if resolved_chat_mode != 'researcher' and requested_scoped_file_ids is not None:
+        raise HTTPException(
+            status_code=409,
+            detail='Scoped file retrieval is available only in Researcher mode.',
+        )
     if resolved_chat_mode != 'researcher' and (upload_active_ids or requested_scoped_upload_ids):
         raise HTTPException(
             status_code=409,
