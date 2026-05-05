@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 import threading
 import time
 from contextlib import suppress
+from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -269,3 +272,63 @@ def test_chat_complete_includes_chat_template_kwargs(monkeypatch: pytest.MonkeyP
 
     assert response['choices'][0]['message']['content'] == 'ok'
     assert captured_payload['chat_template_kwargs'] == {'enable_thinking': False}
+
+
+def test_download_model_uses_httpx_stream_api(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    class _FakeResponse:
+        status_code = 200
+        headers = {'Content-Length': '5'}
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def iter_bytes(self, chunk_size: int):  # type: ignore[no-untyped-def]
+            _ = chunk_size
+            yield b'he'
+            yield b'llo'
+
+    class _FakeStreamContext:
+        def __enter__(self) -> _FakeResponse:
+            return _FakeResponse()
+
+        def __exit__(self, exc_type, exc, tb) -> bool:  # type: ignore[no-untyped-def]
+            return False
+
+    class _FakeSession:
+        called = False
+
+        def stream(self, method: str, url: str, headers: dict, timeout):  # type: ignore[no-untyped-def]
+            self.called = True
+            assert method == 'GET'
+            assert isinstance(url, str) and url
+            assert isinstance(headers, dict)
+            assert timeout == (10, 60)
+            return _FakeStreamContext()
+
+    fake_session = _FakeSession()
+    fake_hf_module = SimpleNamespace(hf_hub_url=lambda **kwargs: 'https://example.invalid/model.gguf')
+    fake_hf_utils = SimpleNamespace(
+        build_hf_headers=lambda: {},
+        get_session=lambda: fake_session,
+    )
+    monkeypatch.setitem(sys.modules, 'huggingface_hub', fake_hf_module)
+    monkeypatch.setitem(sys.modules, 'huggingface_hub.utils', fake_hf_utils)
+    monkeypatch.setattr('informity.config.configure_hf_environment', lambda **kwargs: None)
+    monkeypatch.setattr('informity.llm.engine.remove_models_dir_cache', lambda: None)
+
+    engine = LLMEngine()
+    target = tmp_path / 'model.gguf'
+    progress_calls: list[tuple[int, int | None, float]] = []
+
+    engine._download_model(
+        target_path=target,
+        repo_id='repo/test',
+        filename='model.gguf',
+        progress_callback=lambda done, total, speed: progress_calls.append((done, total, speed)),
+    )
+
+    assert fake_session.called is True
+    assert target.read_bytes() == b'hello'
+    assert progress_calls
+    assert progress_calls[-1][0] == 5
+    assert progress_calls[-1][1] == 5
