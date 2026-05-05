@@ -2,12 +2,15 @@
 
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::fs::OpenOptions;
+use std::io::Write;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
+use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::image::Image as TauriImage;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
@@ -25,6 +28,8 @@ const BACKEND_BINARY_STEM: &str = "informity-backend";
 const MANAGED_BACKEND_PID_FILENAME: &str = "informity-ai-backend.pid";
 const MANAGED_BACKEND_PID_FILE_ENV: &str = "INFORMITY_MANAGED_PID_FILE";
 const CACHE_DIRNAME: &str = "cache";
+const LOGS_DIRNAME: &str = "logs";
+const ERROR_LOG_FILENAME: &str = "app.error.log";
 const CONFIG_FILENAME: &str = "config.json";
 const APP_DATA_DIRNAME: &str = ".informity";
 const MENU_BAR_TRAY_ID: &str = "informity_menu_bar";
@@ -190,7 +195,10 @@ async fn backend_start(
         None
     };
 
-    let launch_specs = build_launch_specs(&app, repo_root.clone())?;
+    let launch_specs = build_launch_specs(&app, repo_root.clone()).map_err(|error| {
+        append_backend_startup_error(&app, &format!("launch spec resolution failed: {error}"));
+        error
+    })?;
     let mut launch_errors: Vec<String> = Vec::new();
     let mut launched_mode = String::new();
     let mut launched_child: Option<Child> = None;
@@ -240,12 +248,17 @@ async fn backend_start(
         }
     }
 
-    let child = launched_child.ok_or_else(|| {
-        format!(
-            "failed to launch backend runtime. attempts: {}",
-            launch_errors.join(" | ")
-        )
-    })?;
+    let child = match launched_child {
+        Some(child) => child,
+        None => {
+            let detail = format!(
+                "failed to launch backend runtime. attempts: {}",
+                launch_errors.join(" | ")
+            );
+            append_backend_startup_error(&app, &detail);
+            return Err(detail);
+        }
+    };
 
     {
         let mut guard = controller
@@ -295,10 +308,12 @@ async fn backend_start(
                         if let Some(path) = guard.pid_file_path.take() {
                             let _ = remove_pid_file(&path);
                         }
-                        return Err(guard
+                        let detail = guard
                             .startup_error
                             .clone()
-                            .unwrap_or_else(|| "backend exited during startup".to_string()));
+                            .unwrap_or_else(|| "backend exited during startup".to_string());
+                        append_backend_startup_error(&app, &detail);
+                        return Err(detail);
                     }
                     Ok(None) => {}
                     Err(error) => {
@@ -324,10 +339,12 @@ async fn backend_start(
             startup_timeout_secs
         ));
     }
-    Err(format!(
+    let detail = format!(
         "backend failed to become healthy within {} seconds",
         startup_timeout_secs
-    ))
+    );
+    append_backend_startup_error(&app, &detail);
+    Err(detail)
 }
 
 fn emit_backend_startup_status(app: &AppHandle, message: &str) {
@@ -534,6 +551,26 @@ fn resolve_managed_app_data_dir(app: &AppHandle) -> Result<PathBuf, String> {
 fn resolve_managed_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let app_data_dir = resolve_managed_app_data_dir(app)?;
     Ok(app_data_dir.join(CACHE_DIRNAME))
+}
+
+fn append_backend_startup_error(app: &AppHandle, detail: &str) {
+    let app_data_dir = match resolve_managed_app_data_dir(app) {
+        Ok(path) => path,
+        Err(_) => return,
+    };
+    let log_dir = app_data_dir.join(LOGS_DIRNAME);
+    if std::fs::create_dir_all(&log_dir).is_err() {
+        return;
+    }
+    let log_path = log_dir.join(ERROR_LOG_FILENAME);
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let line = format!("[{ts}] tauri backend startup failed: {detail}\n");
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(log_path) {
+        let _ = f.write_all(line.as_bytes());
+    }
 }
 
 fn managed_backend_pid_file_path(app_data_dir: &Path) -> PathBuf {
