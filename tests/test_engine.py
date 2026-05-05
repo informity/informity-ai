@@ -214,6 +214,31 @@ async def test_generate_stream_cancellation_cleans_up_worker(monkeypatch: pytest
 
 
 @pytest.mark.asyncio
+async def test_generate_stream_uses_effective_context_length(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, int] = {}
+
+    def _capture_truncate(**kwargs):  # type: ignore[no-untyped-def]
+        captured['context_length'] = int(kwargs['context_length'])
+        return kwargs['messages'], {'truncated': False, 'original_tokens': 1, 'available_budget': 3900}
+
+    engine = LLMEngine()
+    engine._server = object()  # type: ignore[assignment]
+    monkeypatch.setattr(
+        'informity.llm.engine.get_profile',
+        lambda: SimpleNamespace(context_length=24576, generation_tokens_per_second=12.0),
+    )
+    monkeypatch.setattr('informity.llm.engine.settings.llm_context_length', 8192)
+    monkeypatch.setattr('informity.llm.engine._truncate_messages_to_fit', _capture_truncate)
+    monkeypatch.setattr(
+        'informity.llm.engine._run_stream_worker',
+        _make_stream_worker_that_emits(['ok']),
+    )
+
+    _ = [item async for item in engine.generate_stream(messages=[{'role': 'user', 'content': 'hi'}])]
+    assert captured.get('context_length') == 8192
+
+
+@pytest.mark.asyncio
 async def test_stream_worker_includes_chat_template_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
     captured_payload: dict[str, object] = {}
 
@@ -331,3 +356,43 @@ def test_download_model_uses_httpx_stream_api(monkeypatch: pytest.MonkeyPatch, t
     assert progress_calls
     assert progress_calls[-1][0] == 5
     assert progress_calls[-1][1] == 5
+
+
+def test_load_model_caps_context_length_to_configured_limit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    captured: dict[str, object] = {}
+
+    class _FakeServer:
+        def __init__(self, params) -> None:  # type: ignore[no-untyped-def]
+            captured['n_ctx'] = getattr(params, 'n_ctx', None)
+            captured['n_threads'] = getattr(getattr(params, 'cpuparams', None), 'n_threads', None)
+
+    class _FakeCommonParams:
+        def __init__(self) -> None:
+            self.model = SimpleNamespace(path='')
+            self.n_ctx = 0
+            self.n_gpu_layers = 0
+            self.n_batch = 0
+            self.cpuparams = SimpleNamespace(n_threads=0)
+            self.cpuparams_batch = SimpleNamespace(n_threads=0)
+            self.verbosity = 0
+
+    monkeypatch.setitem(sys.modules, 'xllamacpp', SimpleNamespace(CommonParams=_FakeCommonParams, Server=_FakeServer))
+    monkeypatch.setattr('informity.llm.engine._read_gguf_chat_template', lambda _p: None)
+    monkeypatch.setattr(
+        'informity.llm.engine.get_profile_for_filename',
+        lambda _name: SimpleNamespace(context_length=24576),
+    )
+
+    model_path = tmp_path / 'model.gguf'
+    model_path.write_bytes(b'gguf')
+
+    monkeypatch.setattr('informity.llm.engine.settings.models_dir', tmp_path)
+    monkeypatch.setattr('informity.llm.engine.settings.llm_model_filename', 'model.gguf')
+    monkeypatch.setattr('informity.llm.engine.settings.llm_context_length', 8192)
+    monkeypatch.setattr('informity.llm.engine.settings.llm_cpu_threads', 4)
+
+    engine = LLMEngine()
+    engine._load_model()
+
+    assert captured['n_ctx'] == 8192
+    assert captured['n_threads'] == 4
