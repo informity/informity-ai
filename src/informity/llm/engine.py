@@ -590,50 +590,78 @@ class LLMEngine:
             if bytes_done > 0:
                 headers['Range'] = f'bytes={bytes_done}-'
 
+            def _extract_total_bytes(response_obj: object, completed: int) -> int | None:
+                headers_obj = getattr(response_obj, 'headers', None)
+                if headers_obj is None:
+                    return None
+                content_range = headers_obj.get('Content-Range', '')
+                content_length = headers_obj.get('Content-Length')
+                if content_range and '/' in content_range:
+                    with suppress(ValueError):
+                        return int(content_range.split('/')[-1])
+                    return None
+                if content_length:
+                    with suppress(ValueError):
+                        return completed + int(content_length)
+                return None
+
+            def _status_code(response_obj: object) -> int | None:
+                status = getattr(response_obj, 'status_code', None)
+                return status if isinstance(status, int) else None
+
+            def _iter_chunks(response_obj: object, size: int):
+                iter_bytes = getattr(response_obj, 'iter_bytes', None)
+                if callable(iter_bytes):
+                    yield from iter_bytes(chunk_size=size)
+                    return
+                iter_content = getattr(response_obj, 'iter_content', None)
+                if callable(iter_content):
+                    yield from iter_content(chunk_size=size)
+                    return
+                raise LLMError('Unsupported HTTP response stream interface')
+
             session = get_session()
-            response = session.get(url, headers=headers, stream=True, timeout=(10, 60))
-            response.raise_for_status()
-
-            # If resume was requested but the server ignored Range and returned the
-            # full file (200), restart from scratch to avoid duplicate bytes.
-            if bytes_done > 0 and response.status_code == 200:
-                with suppress(OSError):
-                    tmp_path.unlink(missing_ok=True)
-                bytes_done = 0
-
-            content_range = response.headers.get('Content-Range', '')
-            content_length = response.headers.get('Content-Length')
-            total_bytes: int | None = None
-            if content_range and '/' in content_range:
-                try:
-                    total_bytes = int(content_range.split('/')[-1])
-                except ValueError:
-                    total_bytes = None
-            elif content_length:
-                try:
-                    total_bytes = bytes_done + int(content_length)
-                except ValueError:
-                    total_bytes = None
-
             last_report = time.perf_counter()
             report_interval_s = 0.20
             chunk_size = 1024 * 1024
 
-            with tmp_path.open('ab' if bytes_done > 0 else 'wb') as f:
-                for chunk in response.iter_content(chunk_size=chunk_size):
-                    if cancel_event is not None and cancel_event.is_set():
-                        raise RuntimeError('download cancelled')
-                    if not chunk:
-                        continue
-                    f.write(chunk)
-                    bytes_done += len(chunk)
+            def _consume_response(response_obj: object) -> int | None:
+                nonlocal bytes_done, last_report
+                response_obj.raise_for_status()
 
-                    now = time.perf_counter()
-                    if progress_callback and (now - last_report >= report_interval_s):
-                        elapsed = max(now - start, 0.001)
-                        speed_bps = float(bytes_done / elapsed)
-                        progress_callback(bytes_done, total_bytes, speed_bps)
-                        last_report = now
+                # If resume was requested but the server ignored Range and returned
+                # the full file (200), restart from scratch to avoid duplicate bytes.
+                if bytes_done > 0 and _status_code(response_obj) == 200:
+                    with suppress(OSError):
+                        tmp_path.unlink(missing_ok=True)
+                    bytes_done = 0
+
+                total_bytes_local = _extract_total_bytes(response_obj, bytes_done)
+                with tmp_path.open('ab' if bytes_done > 0 else 'wb') as f:
+                    for chunk in _iter_chunks(response_obj, chunk_size):
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise RuntimeError('download cancelled')
+                        if not chunk:
+                            continue
+                        f.write(chunk)
+                        bytes_done += len(chunk)
+
+                        now = time.perf_counter()
+                        if progress_callback and (now - last_report >= report_interval_s):
+                            elapsed = max(now - start, 0.001)
+                            speed_bps = float(bytes_done / elapsed)
+                            progress_callback(bytes_done, total_bytes_local, speed_bps)
+                            last_report = now
+                return total_bytes_local
+
+            total_bytes: int | None = None
+            session_stream = getattr(session, 'stream', None)
+            if callable(session_stream):
+                with session.stream('GET', url, headers=headers, timeout=(10, 60)) as response:
+                    total_bytes = _consume_response(response)
+            else:
+                response = session.get(url, headers=headers, stream=True, timeout=(10, 60))
+                total_bytes = _consume_response(response)
 
             if progress_callback:
                 elapsed = max(time.perf_counter() - start, 0.001)
