@@ -30,7 +30,11 @@ from thinkstrip import ThinkStrip, strip_think_prefill
 
 from informity.config import settings
 from informity.exceptions import LLMError
-from informity.llm.model_adapter import get_profile, get_profile_for_filename
+from informity.llm.model_adapter import (
+    get_effective_context_length,
+    get_profile,
+    get_profile_for_filename,
+)
 from informity.llm.types import StreamSignalTag, TimeoutReason
 from informity.utils.directory_utils import ensure_file_directory
 
@@ -481,12 +485,16 @@ class LLMEngine:
             self._download_model(model_path)
 
         profile = get_profile_for_filename(profile_filename)
-        ctx_len = profile.context_length
+        profile_ctx_len = int(profile.context_length)
+        configured_ctx_len = int(getattr(settings, 'llm_context_length', 0) or 0)
+        ctx_len = get_effective_context_length(profile)
 
         log.info(
             'loading_llm_model',
             path           = str(model_path),
             context_length = ctx_len,
+            profile_context_length = profile_ctx_len,
+            configured_context_length = configured_ctx_len if configured_ctx_len > 0 else None,
             n_batch        = 512,
             n_threads      = settings.llm_cpu_threads,
         )
@@ -824,7 +832,7 @@ class LLMEngine:
         wall_clock = 120.0 if timeout_seconds is None else float(timeout_seconds)
 
         profile     = get_profile()
-        context_len = profile.context_length
+        context_len = get_effective_context_length(profile)
         server      = self._loaded_server
 
         truncated_messages, truncation_info = _truncate_messages_to_fit(
