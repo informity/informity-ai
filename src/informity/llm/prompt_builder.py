@@ -14,6 +14,7 @@ import tiktoken
 from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.chat_mode import normalize_chat_mode
+from informity.llm.model_adapter import get_effective_context_length
 
 if TYPE_CHECKING:
     from informity.llm.model_adapter import ModelProfile
@@ -96,7 +97,7 @@ def _trim_history_by_token_budget(
     if not capped_history or model_profile is None:
         return capped_history
 
-    context_length = int(getattr(model_profile, 'context_length', settings.llm_context_length) or settings.llm_context_length)
+    context_length = get_effective_context_length(model_profile)
     rag_context_ratio = float(getattr(model_profile, 'rag_context_ratio', 0.75) or 0.75)
     rag_context_ratio = min(max(rag_context_ratio, 0.0), 0.95)
 

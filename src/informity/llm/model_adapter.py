@@ -310,8 +310,8 @@ QWEN3_5_9B_PROFILE = ModelProfile(
 
     timeout_seconds = 420,
 
-    # Qwen3.5 supports long context; 24K is a practical local sweet spot for Q4_K_M.
-    context_length = 24576,
+    # Align with 14B default for predictable memory behavior on consumer hardware.
+    context_length = 16384,
     generation_tokens_per_second = 12.0,
     temperature    = 0.7,   # Recommended for non-thinking mode (was 0.15 — too low)
     top_p          = 0.8,   # Recommended for non-thinking mode
@@ -449,6 +449,22 @@ def get_profile_for_filename(filename: str) -> ModelProfile:
 def get_profile() -> ModelProfile:
     """Return the ModelProfile for the currently configured LLM model."""
     return get_profile_for_filename(settings.llm_model_filename)
+
+
+def get_effective_context_length(profile: ModelProfile | None = None) -> int:
+    """
+    Resolve effective context length for runtime and budgeting.
+
+    Uses the lower of:
+    - model profile context length
+    - configured llm_context_length (when > 0)
+    """
+    active_profile = profile or get_profile()
+    profile_ctx = max(1, int(active_profile.context_length))
+    configured_ctx = int(getattr(settings, 'llm_context_length', 0) or 0)
+    if configured_ctx > 0:
+        return max(1, min(profile_ctx, configured_ctx))
+    return profile_ctx
 
 
 def get_retrieval_top_k(query_type: QueryType) -> int:
