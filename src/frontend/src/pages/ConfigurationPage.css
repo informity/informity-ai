@@ -66,6 +66,10 @@
   color: var(--color-text-secondary);
 }
 
+html[data-accent='light'] .config__var-default-value {
+  color: var(--color-parameter-value);
+}
+
 .config__var-desc {
   font-size: var(--font-size-description);
   color: var(--color-text-muted);

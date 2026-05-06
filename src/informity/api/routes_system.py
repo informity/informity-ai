@@ -56,7 +56,14 @@ from informity.diagnostics.issue_types import IssueType
 from informity.indexer.embedder import embedder
 from informity.indexer.reranker import reranker
 from informity.llm.engine import llm_engine
-from informity.llm.model_adapter import get_model_display_name
+from informity.llm.model_adapter import (
+    MODEL_ID_QWEN_14B,
+    MODEL_ID_QWEN_35B_A3B,
+    MODEL_ID_QWEN_9B,
+    get_model_alias_filenames,
+    get_model_display_name,
+    infer_model_id_from_filename,
+)
 from informity.llm.types import DiagnosticsQueryType
 from informity.version import APP_VERSION
 
@@ -78,6 +85,7 @@ _MODEL_SIZE_BYTES = {
 _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
     SetupTierOption(
         tier='small',
+        model_id=MODEL_ID_QWEN_9B,
         title='Small',
         display_name=get_model_display_name('Qwen_Qwen3.5-9B-Q4_K_M.gguf'),
         model_filename='Qwen_Qwen3.5-9B-Q4_K_M.gguf',
@@ -90,6 +98,7 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
     ),
     SetupTierOption(
         tier='balanced',
+        model_id=MODEL_ID_QWEN_14B,
         title='Balanced',
         display_name=get_model_display_name('Qwen3-14B-Q5_K_M.gguf'),
         model_filename='Qwen3-14B-Q5_K_M.gguf',
@@ -102,6 +111,7 @@ _SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
     ),
     SetupTierOption(
         tier='quality',
+        model_id=MODEL_ID_QWEN_35B_A3B,
         title='Quality',
         display_name=get_model_display_name('Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'),
         model_filename='Qwen3.6-35B-A3B-UD-Q4_K_M.gguf',
@@ -222,6 +232,14 @@ def _required_model_filename(setup_state_payload: dict[str, object] | None = Non
     selected = str((setup_state_payload or {}).get('model_filename') or '').strip()
     if selected:
         return selected
+    model_id = str(getattr(settings, 'llm_model_id', '') or '').strip().lower()
+    if model_id:
+        aliases = get_model_alias_filenames(model_id)
+        for alias in aliases:
+            if _is_model_file_ready(alias):
+                return alias
+        if aliases:
+            return aliases[0]
     return str(settings.llm_model_filename).strip()
 
 
@@ -368,6 +386,9 @@ def _apply_setup_completion_config(model_filename: str) -> None:
                 config_data = parsed
         except (OSError, ValueError, TypeError):
             config_data = {}
+    model_id = infer_model_id_from_filename(model_filename) or str(getattr(settings, 'llm_model_id', '') or '').strip()
+    if model_id:
+        config_data['llm_model_id'] = model_id
     config_data['llm_model_filename'] = model_filename
     config_data['full_privacy'] = True
     config_data['llm_local_only'] = True
@@ -392,6 +413,9 @@ def _apply_setup_bootstrap_config(model_filename: str) -> None:
                 config_data = parsed
         except (OSError, ValueError, TypeError):
             config_data = {}
+    model_id = infer_model_id_from_filename(model_filename) or str(getattr(settings, 'llm_model_id', '') or '').strip()
+    if model_id:
+        config_data['llm_model_id'] = model_id
     config_data['llm_model_filename'] = model_filename
     config_data['full_privacy'] = False
     config_data['llm_local_only'] = False
@@ -457,6 +481,9 @@ def _apply_model_default_config(model_filename: str) -> None:
                 config_data = parsed
         except (OSError, ValueError, TypeError):
             config_data = {}
+    model_id = infer_model_id_from_filename(model_filename) or str(getattr(settings, 'llm_model_id', '') or '').strip()
+    if model_id:
+        config_data['llm_model_id'] = model_id
     config_data['llm_model_filename'] = model_filename
     config_path.parent.mkdir(parents=True, exist_ok=True)
     config_path.write_text(json.dumps(config_data, indent=2), encoding='utf-8')
@@ -559,6 +586,9 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
         _update_setup_runtime(stage='finalizing', overall_pct=97)
         _persist_setup_state_file()
         _apply_setup_completion_config(model_filename)
+        resolved_model_id = infer_model_id_from_filename(model_filename)
+        if resolved_model_id:
+            settings.llm_model_id = resolved_model_id
         settings.llm_model_filename = model_filename
         settings.full_privacy = True
         settings.llm_local_only = True
@@ -837,6 +867,9 @@ async def start_setup(payload: SetupStartRequest) -> SetupStartResponse:
         if _setup_task is not None and not _setup_task.done():
             return SetupStartResponse(accepted=True, state=SetupState.IN_PROGRESS)
         _apply_setup_bootstrap_config(selected_model)
+        resolved_model_id = infer_model_id_from_filename(selected_model)
+        if resolved_model_id:
+            settings.llm_model_id = resolved_model_id
         settings.llm_model_filename = selected_model
         settings.full_privacy = False
         settings.llm_local_only = False
@@ -876,6 +909,9 @@ async def retry_setup() -> SetupActionResponse:
         if _setup_task is not None and not _setup_task.done():
             return SetupActionResponse(accepted=True, state=SetupState.IN_PROGRESS, detail='Setup already in progress')
         _apply_setup_bootstrap_config(model_filename)
+        resolved_model_id = infer_model_id_from_filename(model_filename)
+        if resolved_model_id:
+            settings.llm_model_id = resolved_model_id
         settings.llm_model_filename = model_filename
         settings.full_privacy = False
         settings.llm_local_only = False
@@ -935,11 +971,20 @@ async def get_setup_events() -> SetupEventResponse:
 @router.get('/models', response_model=ModelsCatalogResponse)
 async def get_models_catalog() -> ModelsCatalogResponse:
     default_model = str(settings.llm_model_filename).strip()
+    default_model_id = str(getattr(settings, 'llm_model_id', '') or '').strip().lower()
+    inferred_default_model_id = infer_model_id_from_filename(default_model) or ''
+    if inferred_default_model_id:
+        default_model_id = inferred_default_model_id
+
     models: list[ModelsCatalogItem] = []
     for option in _SETUP_TIER_OPTIONS:
+        option_model_id = str(option.model_id or '').strip().lower()
+        aliases = get_model_alias_filenames(option_model_id)
+        installed = any(_is_model_file_ready(alias) for alias in aliases) if aliases else _is_model_file_ready(option.model_filename)
         models.append(
             ModelsCatalogItem(
                 tier=option.tier,
+                model_id=option.model_id,
                 title=option.title,
                 display_name=option.display_name,
                 model_filename=option.model_filename,
@@ -949,11 +994,12 @@ async def get_models_catalog() -> ModelsCatalogResponse:
                 speed=option.speed,
                 ram_profile=option.ram_profile,
                 description=option.description,
-                installed=_is_model_file_ready(option.model_filename),
-                is_default=default_model == option.model_filename,
+                installed=installed,
+                is_default=bool(default_model_id) and option_model_id == default_model_id,
             ),
         )
     return ModelsCatalogResponse(
+        default_model_id=default_model_id or None,
         default_model_filename=default_model,
         models=models,
     )
@@ -1033,6 +1079,9 @@ async def set_default_model(payload: ModelActionRequest) -> ModelActionResponse:
         raise HTTPException(status_code=400, detail='model_filename is not installed')
 
     _apply_model_default_config(model_filename)
+    resolved_model_id = infer_model_id_from_filename(model_filename)
+    if resolved_model_id:
+        settings.llm_model_id = resolved_model_id
     settings.llm_model_filename = model_filename
     return ModelActionResponse(accepted=True, detail='Default model updated')
 

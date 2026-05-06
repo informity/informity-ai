@@ -31,13 +31,17 @@
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius-lg);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-modal);
   pointer-events: auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   overscroll-behavior: contain;
   user-select: none;
+}
+
+html[data-accent='light'] .file-detail__panel {
+  box-shadow: 0 14px 28px rgba(122, 84, 56, 0.2);
 }
 
 .file-detail__header {

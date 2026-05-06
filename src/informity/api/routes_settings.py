@@ -29,7 +29,11 @@ from informity.api.schemas import (
     SettingsUpdateRequest,
 )
 from informity.file_types import get_file_type_options
-from informity.llm.model_adapter import discover_available_models, get_profile_for_filename
+from informity.llm.model_adapter import (
+    discover_available_models,
+    get_profile_for_filename,
+    infer_model_id_from_filename,
+)
 from informity.scanner.watcher import invalidate_watcher_cache
 from informity.utils.directory_utils import ensure_file_directory, ensure_private_file
 from informity.utils.json_utils import serialize_config
@@ -78,10 +82,33 @@ _SUPPORTED_MAIN_MODEL_PROFILES: set[str] = {
     'Qwen3 14B',
     'Qwen3.6 35B A3B',
 }
+_SUPPORTED_EXTENSIONS_CANONICAL_ORDER: tuple[str, ...] = tuple(
+    ext
+    for option in get_file_type_options()
+    for ext in option.get('extensions', [])
+)
 
 
 def _allowed_values_detail(field_name: str, values: tuple[str, ...]) -> str:
     return f"{field_name} must be one of: {', '.join(values)}"
+
+
+def _normalize_supported_extensions(value: object) -> list[str]:
+    raw_items = value if isinstance(value, list) else []
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        ext = str(item or '').strip().lower()
+        if not ext or ext in seen:
+            continue
+        seen.add(ext)
+        normalized.append(ext)
+
+    canonical_index = {ext: idx for idx, ext in enumerate(_SUPPORTED_EXTENSIONS_CANONICAL_ORDER)}
+    return sorted(
+        normalized,
+        key=lambda ext: (canonical_index.get(ext, 10_000), ext),
+    )
 
 
 _SETTINGS_RANGE_RULES: dict[str, tuple[float, float, str]] = {
@@ -298,6 +325,7 @@ _UPDATABLE_FIELDS: set[str] = {
     'web_search_timeout_seconds',
     'embedding_offline',
     'llm_local_only',
+    'llm_model_id',
     'llm_model_filename',
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (in ModelProfile, not updatable)
     'rag_minimal_mode',
@@ -369,6 +397,11 @@ async def get_settings() -> SettingsResponse:
     # Access config.settings to always get the current singleton value
     s = config.settings
     effective_llm_model_filename = str(s.llm_model_filename or '').strip()
+    effective_llm_model_id = str(getattr(s, 'llm_model_id', '') or '').strip().lower()
+    if not effective_llm_model_id:
+        effective_llm_model_id = infer_model_id_from_filename(effective_llm_model_filename) or ''
+        if effective_llm_model_id:
+            s.llm_model_id = effective_llm_model_id
     if effective_llm_model_filename and effective_llm_model_filename != s.llm_model_filename:
         s.llm_model_filename = effective_llm_model_filename
 
@@ -413,6 +446,7 @@ async def get_settings() -> SettingsResponse:
         web_search_timeout_seconds = s.web_search_timeout_seconds,
         embedding_offline       = s.embedding_offline,
         llm_local_only          = s.llm_local_only,
+        llm_model_id         = effective_llm_model_id,
         llm_model_filename   = effective_llm_model_filename,
         # rag_max_score and rag_context_ratio are now in model_profile (read-only, model-specific)
         rag_minimal_mode     = s.rag_minimal_mode,
@@ -574,6 +608,10 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                         status_code=400,
                         detail=f'llm_model_filename not found in models directory: {value}',
                     )
+                inferred_model_id = infer_model_id_from_filename(value)
+                if inferred_model_id:
+                    config.settings.llm_model_id = inferred_model_id
+                    config_data['llm_model_id'] = inferred_model_id
 
             if field_name == 'tavily_api_key' and value is not None:
                 value = str(value).strip()
@@ -603,6 +641,10 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                     resolved.append(path)
                 setattr(config.settings, field_name, resolved)
                 config_data[field_name] = [str(p) for p in resolved]  # Persist absolute paths
+            elif field_name == 'supported_extensions':
+                normalized_extensions = _normalize_supported_extensions(value)
+                setattr(config.settings, field_name, normalized_extensions)
+                config_data[field_name] = normalized_extensions
             else:
                 setattr(config.settings, field_name, value)
                 config_data[field_name] = value
@@ -671,7 +713,7 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
 
     # Keep adaptive top-k cache aligned with model/settings changes.
     adaptive_changed = 'adaptive_rag_tuning' in updates
-    model_changed = 'llm_model_filename' in updates
+    model_changed = 'llm_model_filename' in updates or 'llm_model_id' in updates
     if adaptive_changed or model_changed:
         try:
             from informity.db.sqlite import get_connection

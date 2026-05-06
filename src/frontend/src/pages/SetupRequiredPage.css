@@ -25,6 +25,14 @@
   object-fit: cover;
 }
 
+html[data-accent='light'] .setup-required__logo {
+  filter: brightness(0) saturate(100%);
+}
+
+html[data-accent='light'] .setup-required__logo-shell {
+  background: transparent;
+}
+
 .setup-required__logo-shell {
   width: 2.125rem;
   height: 2.125rem;

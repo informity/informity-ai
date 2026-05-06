@@ -22,6 +22,7 @@ EXTENSION_CATEGORY_MAP: dict[str, FileCategory] = {
     # Document files (rich formats)
     '.pdf':   FileCategory.DOCUMENT,
     '.docx':  FileCategory.DOCUMENT,
+    '.epub':  FileCategory.DOCUMENT,
     '.pptx':  FileCategory.DOCUMENT,
 
     # Plaintext files (including config formats read as text for RAG)

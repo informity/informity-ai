@@ -175,7 +175,7 @@ src/informity/
 ├── scanner/
 │   ├── crawler.py                  # Filesystem traversal, SHA-256 hashes, compare_with_db
 │   ├── watcher.py                  # watchdog file change monitoring
-│   └── extractors/                 # Unified docling extractor (PDF, DOCX, PPTX, XLSX, HTML, CSV) + text extractor
+│   └── extractors/                 # Docling extractor (PDF, DOCX, PPTX, XLSX, HTML, CSV) + EPUB extractor + text extractor
 ├── indexer/
 │   ├── chunker.py                  # Parent-child chunking (child ~150 tokens, parent ~512 tokens)
 │   ├── embedder.py                 # Embedding generation (nomic-embed-text-v1.5)

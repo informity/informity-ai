@@ -62,6 +62,7 @@ const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; icon: string }> = [
   { id: 'system', label: 'System', icon: 'ri-server-line' },
 ]
 const SETTINGS_TAB_IDS = new Set<SettingsTab>(SETTINGS_TABS.map((tab) => tab.id))
+const FILE_TYPE_DISPLAY_ORDER = ['pdf', 'docx', 'spreadsheet', 'pptx', 'epub', 'web', 'text', 'data'] as const
 
 const INDEXING_SPEED_LABELS = ['', 'Responsive', 'Gentle', 'Balanced', 'Fast', 'Fastest']
 const INDEXING_SPEED_TO_THREADS = [2, 4, 6, 8, 0]
@@ -69,6 +70,9 @@ const CHAT_CPU_RESPONSIVENESS_LABELS = ['', 'Most Responsive', 'Balanced', 'Fast
 const CHAT_CPU_RESPONSIVENESS_TO_THREADS = [2, 4, 6]
 const MASKED_TAVILY_KEY = '••••••••••••••••••••••••••••••••••••••••••••••••••'
 const MASKED_LINKUP_KEY = '••••••••••••••••••••••••••••••••••••••••••••••••••'
+const MODEL_FILENAME_ALIASES: Record<string, string> = {
+  'Qwen3.6-35B-A3B-Q4_K_M.gguf': 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf',
+}
 
 function threadsToSpeed(threads: number): number {
   if (threads === 0) return 5
@@ -88,6 +92,12 @@ function parseInteger(raw: string, fallback: number): number {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
+}
+
+function canonicalizeModelFilename(filename: string | null | undefined): string {
+  const value = String(filename || '').trim()
+  if (!value) return ''
+  return MODEL_FILENAME_ALIASES[value] || value
 }
 
 function isMaskedTavilyKey(value: string): boolean {
@@ -279,7 +289,7 @@ function buildFormState(settings: SettingsData): FormState {
     enable_raw_output_control: settings.enable_raw_output_control ?? false,
     ui_theme: normalizedTheme ?? UI_THEME_DEFAULT,
     enable_menu_bar_icon: settings.enable_menu_bar_icon ?? false,
-    llm_model_filename: settings.llm_model_filename ?? '',
+    llm_model_filename: canonicalizeModelFilename(settings.llm_model_filename),
   }
 }
 
@@ -324,7 +334,7 @@ export function SettingsView({
   const [modelDownloadError, setModelDownloadError] = useState<string | null>(null)
   const [modelEvent, setModelEvent] = useState<ModelOperationEventResponse | null>(null)
   const modelEventStateRef = useRef<ModelOperationEventResponse['state'] | null>(null)
-  const persistedModel = settings?.llm_model_filename ?? ''
+  const persistedModel = canonicalizeModelFilename(settings?.llm_model_filename ?? '')
   const effectiveProfile = previewProfile ?? settings?.model_profile
 
   useEffect(() => {
@@ -343,7 +353,7 @@ export function SettingsView({
   }, [activeTab])
 
   useEffect(() => {
-    const selected = form.llm_model_filename
+    const selected = canonicalizeModelFilename(form.llm_model_filename)
     if (!settings || !selected || selected === persistedModel) {
       setPreviewProfile(null)
       return
@@ -520,14 +530,14 @@ export function SettingsView({
     onDiscard?.()
   }
 
-  const selectedModelFilename = form.llm_model_filename || settings.llm_model_filename || ''
+  const selectedModelFilename = canonicalizeModelFilename(form.llm_model_filename || settings.llm_model_filename || '')
   const catalogModels = modelsCatalog?.models || []
   const selectedCatalogEntry = catalogModels.find((model) => model.model_filename === selectedModelFilename)
   const knownModelFilenames = (() => {
     const ordered: string[] = []
     const seen = new Set<string>()
     const add = (value: string | undefined | null) => {
-      const normalized = String(value || '').trim()
+      const normalized = canonicalizeModelFilename(value)
       if (!normalized || seen.has(normalized)) return
       seen.add(normalized)
       ordered.push(normalized)
@@ -540,13 +550,21 @@ export function SettingsView({
   })()
   const installedModelSet = new Set(
     catalogModels.length > 0
-      ? catalogModels.filter((model) => model.installed).map((model) => model.model_filename)
-      : (settings.available_models || []),
+      ? catalogModels.filter((model) => model.installed).map((model) => canonicalizeModelFilename(model.model_filename))
+      : (settings.available_models || []).map((model) => canonicalizeModelFilename(model)),
   )
   const selectedModelInstalled = selectedModelFilename ? installedModelSet.has(selectedModelFilename) : false
   const modelEventMatchesSelected = modelEvent?.model_filename === selectedModelFilename
   const modelDownloadInProgress = modelEventMatchesSelected && modelEvent?.state === 'in_progress'
   const canSaveSettings = !saving && selectedModelInstalled && !modelDownloadInProgress && !modelDownloadPending
+  const orderedFileTypeOptions = [...(fileTypeOptions || [])].sort((a, b) => {
+    const ai = FILE_TYPE_DISPLAY_ORDER.indexOf(a.id as (typeof FILE_TYPE_DISPLAY_ORDER)[number])
+    const bi = FILE_TYPE_DISPLAY_ORDER.indexOf(b.id as (typeof FILE_TYPE_DISPLAY_ORDER)[number])
+    const aRank = ai === -1 ? Number.MAX_SAFE_INTEGER : ai
+    const bRank = bi === -1 ? Number.MAX_SAFE_INTEGER : bi
+    if (aRank !== bRank) return aRank - bRank
+    return a.label.localeCompare(b.label)
+  })
 
   const formatBytes = (value: number): string => {
     if (!Number.isFinite(value) || value <= 0) return '0 KB'
@@ -1074,7 +1092,7 @@ export function SettingsView({
             <p className="settings-subsection-description ui-subsection-description">Only checked file types will be scanned and indexed.</p>
           </div>
           <div className="settings-file-types">
-            {(fileTypeOptions || []).map((opt) => {
+            {orderedFileTypeOptions.map((opt) => {
               const exts = opt.extensions || []
               const current = form.supported_extensions || []
               const allChecked = exts.length > 0 && exts.every((e) => current.includes(e))
@@ -1322,7 +1340,7 @@ export function SettingsView({
                   className="settings-select"
                   value={selectedModelFilename}
                   onChange={(e) => {
-                    update('llm_model_filename', e.target.value)
+                    update('llm_model_filename', canonicalizeModelFilename(e.target.value))
                     setModelDownloadError(null)
                   }}
                 >
@@ -1366,7 +1384,7 @@ export function SettingsView({
             </div>
             <div className="settings-profile-grid">
               <ProfileRow label="Profile" value={profile.name} />
-              <ProfileRow label="Model" value={form.llm_model_filename || settings.llm_model_filename} />
+              <ProfileRow label="Model" value={selectedModelFilename} />
               <ProfileRow label="Family" value={profile.family} />
               <ProfileRow label="Reasoning" value={profile.reasoning_mode} />
               <ProfileRow label="Max tokens" value={profile.max_tokens ?? '--'} />

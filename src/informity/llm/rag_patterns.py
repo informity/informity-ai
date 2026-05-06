@@ -9,7 +9,10 @@ import re
 from informity.db.models import ChatMessage
 from informity.llm.promptcue_signals import extract_prompt_signals
 from informity.llm.query_classifier import QueryClassification
+from informity.llm.query_patterns import build_supported_filename_extension_pattern
 from informity.llm.types import QueryType
+
+_FILENAME_EXTENSION_ALT = build_supported_filename_extension_pattern()
 
 SUMMARY_STYLE_REQUEST_PATTERN = re.compile(
     r'\b('
@@ -35,7 +38,7 @@ EXPLICIT_SCOPE_RESET_PATTERN = re.compile(
     r'|another\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)'
     r'|different\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)'
     r'|other\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)'
-    r'|[a-z0-9][a-z0-9._-]*\.(?:pdf|txt|md|csv|json|docx?|xlsx?)'
+    rf'|[a-z0-9][a-z0-9._-]*\.(?:{_FILENAME_EXTENSION_ALT})'
     r')\b',
     re.IGNORECASE,
 )

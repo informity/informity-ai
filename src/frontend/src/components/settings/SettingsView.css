@@ -607,6 +607,11 @@
   border-color: var(--color-text-secondary);
 }
 
+html[data-accent='light'] .settings-btn--add-cancel {
+  color: var(--color-secondary-btn-text);
+  border-color: var(--color-secondary-btn-border);
+}
+
 .settings-count {
   display: block;
   font-size: var(--font-size-caption);
@@ -736,6 +741,7 @@
   color: var(--color-text);
   cursor: pointer;
   margin-bottom: 0;
+  user-select: none;
 }
 
 .settings-file-type input {
@@ -874,6 +880,37 @@
   color: var(--color-accent);
   text-align: right;
   word-break: break-word;
+}
+
+html[data-accent='light'] .settings-profile-row__value {
+  color: var(--settings-light-value);
+}
+
+html[data-accent='light'] .settings-select,
+html[data-accent='light'] .settings-input,
+html[data-accent='light'] .settings-input--readonly {
+  color: var(--settings-light-input);
+}
+
+html[data-accent='light'] .settings-subsection-field-label,
+html[data-accent='light'] .settings-checkbox-row-label,
+html[data-accent='light'] .settings-file-type,
+html[data-accent='light'] .settings-list__text {
+  color: var(--settings-light-label);
+}
+
+html[data-accent='light'] .settings-model-progress-inline,
+html[data-accent='light'] .settings-count,
+html[data-accent='light'] .settings-status,
+html[data-accent='light'] .settings-subsection-description {
+  color: var(--settings-light-meta);
+}
+
+html[data-accent='light'] {
+  --settings-light-label: var(--color-text);
+  --settings-light-value: var(--color-parameter-value);
+  --settings-light-input: var(--color-text);
+  --settings-light-meta: var(--color-text-muted);
 }
 
 /* -----------------------------------------------------------------------------
