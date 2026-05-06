@@ -51,6 +51,11 @@
     border-color: var(--color-text-secondary);
 }
 
+html[data-accent='light'] .settings-btn--secondary {
+    color: var(--color-secondary-btn-text);
+    border-color: var(--color-secondary-btn-border);
+}
+
 .settings-btn--add {
     flex-shrink: 0;
     min-height: var(--min-touch-height);

@@ -7,6 +7,14 @@
 import re
 from re import Pattern
 
+from informity.file_patterns import build_extension_regex_pattern, get_all_supported_extensions
+
+
+def build_supported_filename_extension_pattern() -> str:
+    """Return canonical extension alternation for filename detection regexes."""
+    return build_extension_regex_pattern(get_all_supported_extensions())
+
+
 # ==============================================================================
 # Pattern Building Blocks
 # ==============================================================================
@@ -165,7 +173,7 @@ NEGATION_KEYWORDS: str = (
 )
 FILENAME_EXCLUSION_KEYWORDS: str = (
     r'\b(?:exclude\s+file|exclude|not\s+from\s+file)\s+'
-    r'([a-z0-9][a-z0-9._-]*\.(?:pdf|txt|md|csv|json|docx?|xlsx?))\b'
+    rf'([a-z0-9][a-z0-9._-]*\.(?:{build_supported_filename_extension_pattern()}))\b'
 )
 
 # Analysis/synthesis action directives that imply content generation (not inventory metadata).

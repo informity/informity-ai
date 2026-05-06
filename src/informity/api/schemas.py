@@ -309,6 +309,7 @@ class SettingsResponse(BaseModel):
     web_search_timeout_seconds: float = 8.0
     embedding_offline:       bool
     llm_local_only:          bool
+    llm_model_id:         str
     llm_model_filename:   str
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (in ModelProfile, read-only)
     rag_minimal_mode:      bool        = True
@@ -346,7 +347,7 @@ class SettingsResponse(BaseModel):
     file_type_options:      list[FileTypeOption] = Field(default_factory=list)  # Canonical list for UI
     config_file_path:       str               = ''
     model_profile:          ModelProfileInfo | None = None  # Main model profile (read-only)
-    ui_theme:               str               = 'mono'     # Color theme: gray, purple, blue, green, orange, mono
+    ui_theme:               str               = 'mono'     # Color theme: light, gray, purple, blue, green, orange, mono
     enable_menu_bar_icon:   bool              = False      # Show menu bar icon while app is running (macOS desktop runtime)
     cpu_priority_nice:      int = 10  # 0 = off, >0 lowers process priority at startup
 
@@ -386,6 +387,7 @@ class SettingsUpdateRequest(BaseModel):
     web_search_timeout_seconds: float | None = None
     embedding_offline:      bool | None = None
     llm_local_only:        bool | None = None
+    llm_model_id:        str | None        = None
     llm_model_filename:  str | None        = None
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (in ModelProfile, not updatable)
     rag_minimal_mode:      bool | None = None
@@ -418,7 +420,7 @@ class SettingsUpdateRequest(BaseModel):
     chat_trace_user_retention_days: int | None = None
     chat_trace_evaluation_retention_days: int | None = None
     enable_raw_output_control: bool | None = None   # Show control to fetch raw model output per assistant message
-    ui_theme:             str | None  = None  # Color theme: gray, purple, blue, green, orange, mono
+    ui_theme:             str | None  = None  # Color theme: light, gray, purple, blue, green, orange, mono
     enable_menu_bar_icon: bool | None = None  # Show menu bar icon while app is running (macOS desktop runtime)
     cpu_priority_nice:    int | None = None
 
@@ -558,6 +560,7 @@ class HealthResponse(BaseModel):
 
 class SetupTierOption(BaseModel):
     tier: str
+    model_id: str | None = None
     title: str
     display_name: str
     model_filename: str
@@ -613,6 +616,7 @@ class SetupEventResponse(BaseModel):
 
 class ModelsCatalogItem(BaseModel):
     tier: str
+    model_id: str | None = None
     title: str
     display_name: str
     model_filename: str
@@ -627,6 +631,7 @@ class ModelsCatalogItem(BaseModel):
 
 
 class ModelsCatalogResponse(BaseModel):
+    default_model_id: str | None = None
     default_model_filename: str
     models: list[ModelsCatalogItem] = Field(default_factory=list)
 

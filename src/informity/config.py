@@ -47,6 +47,7 @@ _DEFAULT_APP_DATA_DIR = Path.home() / APP_DATA_DIRNAME
 
 # Default model for reset-to-factory and first load: Qwen3.6 35B A3B.
 _DEFAULT_LLM_MODEL_FILENAME = 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'
+_DEFAULT_LLM_MODEL_ID = 'qwen-35b-a3b'
 
 # Default embedding model (sentence-transformers)
 _DEFAULT_EMBEDDING_MODEL = 'nomic-ai/nomic-embed-text-v1.5'
@@ -65,7 +66,7 @@ _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT = (
     'Keep the same structure and avoid repeating completed sections.'
 )
 LOG_LEVEL_ALLOWED_VALUES: tuple[str, ...] = ('debug', 'info', 'warning', 'error')
-UI_THEME_ALLOWED_VALUES: tuple[str, ...] = ('gray', 'purple', 'blue', 'green', 'orange', 'mono')
+UI_THEME_ALLOWED_VALUES: tuple[str, ...] = ('light', 'gray', 'purple', 'blue', 'green', 'orange', 'mono')
 _DEFAULT_LOG_LEVEL = 'info'
 _DEFAULT_UI_THEME = 'mono'
 
@@ -342,6 +343,7 @@ class Settings(BaseSettings):
     # When True, load LLM only from models_dir; never download from the network.
     # Synced from full_privacy when that setting is updated via the UI.
     llm_local_only:       bool = True
+    llm_model_id:         str  = _DEFAULT_LLM_MODEL_ID
     llm_model_filename:   str  = _DEFAULT_LLM_MODEL_FILENAME  # Default: Qwen3.6 35B A3B
     llm_hf_repo:          str  = _DEFAULT_LLM_HF_REPO  # Hugging Face repo for automatic model downloads
     llm_context_length:   int  = 16384  # 16K is ample (10K chunks + 4K prompt/history + 2K gen); prevents over-assembly
@@ -509,8 +511,8 @@ class Settings(BaseSettings):
     diagnostics_alert_max_rss_delta_mb: float = 1024.0
 
     # -- UI (frontend-only; persisted so theme survives restarts) -------------
-    # Color theme for the app UI: gray, purple, blue, green, orange, mono.
-    ui_theme: Literal['gray', 'purple', 'blue', 'green', 'orange', 'mono'] = _DEFAULT_UI_THEME
+    # Color theme for the app UI: light, gray, purple, blue, green, orange, mono.
+    ui_theme: Literal['light', 'gray', 'purple', 'blue', 'green', 'orange', 'mono'] = _DEFAULT_UI_THEME
     # When true, show the macOS menu bar icon while the app is running.
     enable_menu_bar_icon: bool = False
     # -- Pydantic Settings Config ---------------------------------------------
@@ -697,6 +699,7 @@ def reset_to_factory_defaults() -> Settings:
     # Write minimal config with default models and theme so env vars cannot override the reset result
     config_path.parent.mkdir(parents=True, exist_ok=True)
     default_config = {
+        'llm_model_id':            _DEFAULT_LLM_MODEL_ID,
         'llm_model_filename':      _DEFAULT_LLM_MODEL_FILENAME,
         'diagnostics_profile':     'standard',
         'chat_trace_logging':      False,
@@ -941,9 +944,23 @@ def are_required_models_cached() -> bool:
         return False
 
     # Check LLM model (if configured)
-    llm_filename = settings.llm_model_filename
-    if llm_filename and not _is_gguf_model_cached(llm_filename, settings.models_dir):
-        log.debug('llm_model_not_cached', model=llm_filename)
-        return False
+    llm_filename = str(settings.llm_model_filename or '').strip()
+    llm_model_id = str(getattr(settings, 'llm_model_id', '') or '').strip().lower()
+    if llm_filename or llm_model_id:
+        from informity.llm.model_adapter import get_model_alias_filenames, infer_model_id_from_filename
+
+        resolved_model_id = llm_model_id or (infer_model_id_from_filename(llm_filename) or '')
+        candidates: list[str] = []
+        if llm_filename:
+            candidates.append(llm_filename)
+        if resolved_model_id:
+            for alias in get_model_alias_filenames(resolved_model_id):
+                if alias not in candidates:
+                    candidates.append(alias)
+
+        has_cached_model = any(_is_gguf_model_cached(candidate, settings.models_dir) for candidate in candidates)
+        if not has_cached_model:
+            log.debug('llm_model_not_cached', model=llm_filename or None, model_id=resolved_model_id or None)
+            return False
 
     return True

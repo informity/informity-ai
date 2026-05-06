@@ -22,6 +22,7 @@ dependencies = [
     "charset-normalizer==3.4.7",
     "dateparser==1.4.0",
     "docling>=2.90.0",
+    "EbookLib>=0.18",
     "einops>=0.8.2",
     "fastapi>=0.136.0",
     "gguf>=0.18.0",

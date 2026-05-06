@@ -2,7 +2,7 @@
 
 This file is the **single source of truth** for types, interfaces, and module responsibilities. When generating code for any module, consult this file first.
 
-**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `upload_policy.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, security, chat_completion_policy, chat_out_of_corpus, chat_sources, error_messages, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils, file_utils, number_utils); `sources/` (base, filesystem_adapter, registry, orchestrator); `scanner/` (crawler, watcher, extractors — docling unified extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, model_adapter, rag, query_classifier, query_patterns, nlp_heuristics, types, retrieval, prompt_builder, streaming, metadata_filters, intent_router, classification_policy, promptcue_adapter, term_dictionary, chat_mode, contract_gate, contract_prompt_parser, metrics_payload, system_prompts, timeout_policy, user_messages, web_search, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics runtime modules: `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
+**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `upload_policy.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, security, chat_completion_policy, chat_out_of_corpus, chat_sources, error_messages, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils, file_utils, number_utils); `sources/` (base, filesystem_adapter, registry, orchestrator); `scanner/` (crawler, watcher, extractors — docling unified extractor + EPUB extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, model_adapter, rag, query_classifier, query_patterns, nlp_heuristics, types, retrieval, prompt_builder, streaming, metadata_filters, intent_router, classification_policy, promptcue_adapter, term_dictionary, chat_mode, contract_gate, contract_prompt_parser, metrics_payload, system_prompts, timeout_policy, user_messages, web_search, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics runtime modules: `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
 
 ---
 
@@ -480,7 +480,7 @@ class HealthResponse(BaseModel):
 - **Imported by:** main.py (started in lifespan)
 
 ### `scanner/extractors/*.py`
-- Extractors: TextExtractor (.txt, .md, .rst, .log), DoclingExtractor (unified: .pdf, .docx, .pptx, .xlsx, .html, .csv). Registry in `base.py`: `register_extractors()`, `get_extractor(path)`.
+- Extractors: TextExtractor (.txt, .md, .rst, .log), DoclingExtractor (unified: .pdf, .docx, .pptx, .xlsx, .html, .csv), EpubExtractor (.epub). Registry in `base.py`: `register_extractors()`, `get_extractor(path)`.
 - **DoclingExtractor** uses docling's `DocumentConverter` to convert documents to markdown. Docling provides superior structure preservation including tables, formulas, reading order detection, and built-in OCR support. The converter handles all document types (text-based, scanned, image-only) automatically without requiring external OCR tools.
 - **text_utils.py:** shared utilities: `elapsed_ms()`, `decode_bytes()` (UTF-8 then chardet), `repair_hyphenation()` (rejoin hyphenated line breaks); used by extractors and by indexer/post_process.
 - All extractors implement `BaseExtractor` protocol; must never raise — return errors in `ExtractedDocument.error`.
@@ -953,10 +953,12 @@ def register_extractors() -> None:
         return
     
     from informity.scanner.extractors.docling import DoclingExtractor
+    from informity.scanner.extractors.epub import EpubExtractor
     from informity.scanner.extractors.text import TextExtractor
     
     extractor_classes = [
         DoclingExtractor,  # Unified extractor for PDF, DOCX, PPTX, XLSX, HTML, CSV
+        EpubExtractor,     # EPUB ebooks
         TextExtractor,      # Plain text files (.txt, .md, .rst, .log)
     ]
     

@@ -436,6 +436,32 @@ _PROFILE_REGISTRY: list[ModelProfile] = [
     QWEN3_14B_PROFILE,             # Qwen3-14B-Q5_K_M (analysis RAG profile)
 ]
 
+# Stable model IDs + alias mapping for backward-compatible filename migrations.
+MODEL_ID_QWEN_9B = 'qwen-9b'
+MODEL_ID_QWEN_14B = 'qwen-14b'
+MODEL_ID_QWEN_35B_A3B = 'qwen-35b-a3b'
+
+MODEL_ID_TO_FILENAMES: dict[str, tuple[str, ...]] = {
+    MODEL_ID_QWEN_9B: (
+        'Qwen_Qwen3.5-9B-Q4_K_M.gguf',
+    ),
+    MODEL_ID_QWEN_14B: (
+        'Qwen3-14B-Q5_K_M.gguf',
+    ),
+    MODEL_ID_QWEN_35B_A3B: (
+        'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf',
+        # Legacy naming variants kept for migration compatibility.
+        'Qwen3.5-35B-A3B-Q4_K_M.gguf',
+        'Qwen3.5-35B-A3B-UD-Q4_K_M.gguf',
+    ),
+}
+
+_FILENAME_TO_MODEL_ID: dict[str, str] = {
+    filename.lower(): model_id
+    for model_id, filenames in MODEL_ID_TO_FILENAMES.items()
+    for filename in filenames
+}
+
 
 def get_profile_for_filename(filename: str) -> ModelProfile:
     """Match a GGUF filename to a ModelProfile. First match wins (ANY pattern)."""
@@ -444,6 +470,27 @@ def get_profile_for_filename(filename: str) -> ModelProfile:
         if profile.filename_patterns and any(p in name for p in profile.filename_patterns):
             return profile
     return DEFAULT_PROFILE
+
+
+def infer_model_id_from_filename(filename: str) -> str | None:
+    normalized = str(filename or '').strip().lower()
+    if not normalized:
+        return None
+    model_id = _FILENAME_TO_MODEL_ID.get(normalized)
+    if model_id:
+        return model_id
+    profile = get_profile_for_filename(normalized)
+    if profile is QWEN3_5_9B_PROFILE:
+        return MODEL_ID_QWEN_9B
+    if profile is QWEN3_14B_PROFILE:
+        return MODEL_ID_QWEN_14B
+    if profile is QWEN3_6_35B_A3B_PROFILE:
+        return MODEL_ID_QWEN_35B_A3B
+    return None
+
+
+def get_model_alias_filenames(model_id: str) -> tuple[str, ...]:
+    return MODEL_ID_TO_FILENAMES.get(str(model_id or '').strip().lower(), ())
 
 
 def get_profile() -> ModelProfile:

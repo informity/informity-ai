@@ -315,7 +315,7 @@ def test_download_model_uses_httpx_stream_api(monkeypatch: pytest.MonkeyPatch, t
         def __enter__(self) -> _FakeResponse:
             return _FakeResponse()
 
-        def __exit__(self, exc_type, exc, tb) -> bool:  # type: ignore[no-untyped-def]
+        def __exit__(self, _exc_type, _exc, _tb) -> bool:  # type: ignore[no-untyped-def]
             return False
 
     class _FakeSession:

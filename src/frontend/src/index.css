@@ -61,6 +61,7 @@
   --color-on-primary: #ffffff;
   --color-checkbox-accent: var(--color-accent);
   --transition-fast: 150ms ease;
+  --shadow-modal: 0 20px 40px rgba(0, 0, 0, 0.4);
 }
 
 /* Base colors — dark theme only */
@@ -236,7 +237,7 @@ input[type='checkbox']::before {
   content: '';
   width: 0.28rem;
   height: 0.56rem;
-  border: solid var(--color-text);
+  border: solid var(--color-on-primary);
   border-width: 0 2px 2px 0;
   transform: rotate(45deg) scale(0);
   transition: transform var(--transition-fast);
@@ -297,6 +298,60 @@ html[data-accent='orange'] {
   --color-primary-bg: rgba(212, 133, 74, 0.12);
   --color-primary-bg-strong: rgba(212, 133, 74, 0.18);
   --color-primary-border: rgba(212, 133, 74, 0.2);
+}
+html[data-accent='light'] {
+  color-scheme: light;
+  --color-accent: #ab6a43;
+  --color-primary: #ab6a43;
+  --color-accent-subtle: rgba(171, 106, 67, 0.12);
+  --color-primary-bg: rgba(171, 106, 67, 0.16);
+  --color-primary-bg-strong: rgba(171, 106, 67, 0.22);
+  --color-primary-border: rgba(171, 106, 67, 0.28);
+  --color-bg: #faf6ef;
+  --color-bg-surface: #fffdf8;
+  --color-bg-elevated: #f3ebdd;
+  --color-bg-hover: #efe3d2;
+  --color-border: #d9cbb8;
+  --color-border-subtle: #e9dccb;
+  --color-text: #3a2f25;
+  --color-text-muted: #5e4f40;
+  --color-text-dimmed: #6d5d4c;
+  --color-text-secondary: #4f4134;
+  --color-danger: #a64b3c;
+  --color-danger-solid: #a64b3c;
+  --color-danger-bg: rgba(166, 75, 60, 0.1);
+  --color-danger-bg-strong: rgba(166, 75, 60, 0.14);
+  --color-danger-border: rgba(166, 75, 60, 0.3);
+  --color-danger-border-strong: rgba(166, 75, 60, 0.38);
+  --color-danger-subtle: rgba(166, 75, 60, 0.08);
+  --color-danger-text: #8f342a;
+  --color-success: #4e7a4e;
+  --color-success-bg: rgba(78, 122, 78, 0.14);
+  --color-success-border: rgba(78, 122, 78, 0.3);
+  --color-success-light: #5f8d5f;
+  --color-success-score-bg: rgba(78, 122, 78, 0.18);
+  --color-info: #506d95;
+  --color-info-bg: rgba(80, 109, 149, 0.12);
+  --color-info-border: rgba(80, 109, 149, 0.28);
+  --color-warning-bright: #b07a22;
+  --color-warning-bg: rgba(176, 122, 34, 0.15);
+  --color-warning-border: rgba(176, 122, 34, 0.28);
+  --surface-nav: #fffaf2;
+  --surface-control: #fff8ee;
+  --surface-readonly: color-mix(in srgb, var(--color-bg-elevated) 78%, var(--color-bg-surface));
+  --surface-table-head: color-mix(in srgb, var(--surface-nav) 88%, #f2e5d3);
+  --surface-table-row-hover: var(--color-bg-hover);
+  --surface-tooltip: #fff5e9;
+  --text-tooltip: var(--color-text);
+  --color-parameter-value: #9f6a49;
+  --color-secondary-btn-text: #7a6654;
+  --color-secondary-btn-border: #bfae9a;
+  --color-control-icon: #8f5f42;
+  --color-control-ring: #cdb79f;
+  --shadow-modal: 0 14px 28px rgba(122, 84, 56, 0.2);
+  --chat-source-border: rgba(171, 106, 67, 0.26);
+  --source-card-border: rgba(171, 106, 67, 0.24);
+  --source-card-hover-border: rgba(171, 106, 67, 0.38);
 }
 /* Mono Theme Start: black base + dotted separators */
 html[data-accent='mono'] {

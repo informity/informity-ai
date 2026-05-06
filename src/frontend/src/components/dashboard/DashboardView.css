@@ -262,11 +262,15 @@
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius-lg);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-modal);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   user-select: none;
+}
+
+html[data-accent='light'] .dashboard-errors-modal {
+  box-shadow: 0 14px 28px rgba(122, 84, 56, 0.2);
 }
 
 .dashboard-errors-modal__header {
