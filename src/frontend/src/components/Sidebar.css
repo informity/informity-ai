@@ -162,6 +162,10 @@ html[data-accent='light'] .sidebar__logo-shell {
   width: calc(100% - 2px);
 }
 
+html[data-accent='light'] .sidebar__link:hover:not(.sidebar__link--active) {
+  background: var(--color-primary-bg);
+}
+
 .sidebar__icon {
   font-size: var(--font-size-icon);
   width: 1.5rem;

@@ -742,14 +742,14 @@ html[data-accent='light'] .chat-view__scroll-to-bottom:hover {
 }
 
 html[data-accent='light'] .chat-view {
-  --chat-view-toggle-hover-bg: color-mix(in srgb, var(--color-accent) 14%, var(--color-bg-elevated));
+  --chat-view-toggle-hover-bg: var(--color-primary-bg);
   --chat-view-toggle-hover-border: color-mix(in srgb, var(--color-accent) 34%, var(--color-border));
 }
 
 html[data-accent='light'] .chat-view__mode-option:hover,
 html[data-accent='light'] .chat-view__mode-option--active,
 html[data-accent='light'] .chat-view__mode-option--active:hover {
-  background: color-mix(in srgb, var(--color-accent) 12%, var(--color-bg-hover));
+  background: var(--color-primary-bg);
   color: var(--color-text);
 }
 
