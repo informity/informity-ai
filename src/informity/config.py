@@ -947,7 +947,10 @@ def are_required_models_cached() -> bool:
     llm_filename = str(settings.llm_model_filename or '').strip()
     llm_model_id = str(getattr(settings, 'llm_model_id', '') or '').strip().lower()
     if llm_filename or llm_model_id:
-        from informity.llm.model_adapter import get_model_alias_filenames, infer_model_id_from_filename
+        from informity.llm.model_adapter import (
+            get_model_alias_filenames,
+            infer_model_id_from_filename,
+        )
 
         resolved_model_id = llm_model_id or (infer_model_id_from_filename(llm_filename) or '')
         candidates: list[str] = []
