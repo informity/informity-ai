@@ -46,7 +46,7 @@ APP_DATA_DIRNAME = '.informity'    # Default app data directory name under user 
 _DEFAULT_APP_DATA_DIR = Path.home() / APP_DATA_DIRNAME
 
 # Default model for reset-to-factory and first load: Qwen3.6 35B A3B.
-_DEFAULT_LLM_MODEL_FILENAME = 'Qwen3.6-35B-A3B-Q4_K_M.gguf'
+_DEFAULT_LLM_MODEL_FILENAME = 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'
 
 # Default embedding model (sentence-transformers)
 _DEFAULT_EMBEDDING_MODEL = 'nomic-ai/nomic-embed-text-v1.5'

@@ -27,7 +27,7 @@ from informity.llm.model_adapter import (
 
 class TestGetProfileForFilename:
     def test_qwen3_5_35b_a3b_detected(self) -> None:
-        profile = get_profile_for_filename('Qwen3.6-35B-A3B-Q4_K_M.gguf')
+        profile = get_profile_for_filename('Qwen3.6-35B-A3B-UD-Q4_K_M.gguf')
         assert profile is QWEN3_6_35B_A3B_PROFILE
         assert profile.name == 'Qwen3.6 35B A3B'
 
