@@ -246,7 +246,10 @@ make tauri-icons
 make tauri-backend
 
 # Build + sign + notarize macOS release (requires local signing credentials)
-make tauri-build-signed
+make tauri-build-mac
+
+# Build Linux release artifacts (.deb + AppImage)
+make tauri-build-linux
 ```
 
 Runtime chat diagnostics metrics are also persisted in SQLite (`response_diagnostics_metrics`) for operational observability. Use `GET /api/diagnostics/summary` for aggregated counts/rates/query-type breakdowns over a time window.

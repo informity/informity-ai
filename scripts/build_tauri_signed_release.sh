@@ -51,7 +51,7 @@ echo "Building signed app and DMG (Tauri notarization disabled during bundle)...
   export APPLE_SIGNING_IDENTITY
   unset APPLE_API_ISSUER APPLE_API_KEY APPLE_API_KEY_PATH
   cd "$FRONTEND_DIR"
-  npm run tauri:build
+  npm run tauri:build:mac
 )
 
 if [[ ! -d "$APP_PATH" ]]; then
