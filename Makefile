@@ -4,7 +4,7 @@
 # ==============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help run dev test lint format reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build tauri-build-signed tauri-build-appstore app qa-quick qa-full qa-security qa-lint qa-typecheck
+.PHONY: help run dev test lint format reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build tauri-build-mac tauri-build-linux tauri-build-appstore app qa-quick qa-full qa-security qa-lint qa-typecheck
 
 # ==============================================================================
 # Configuration
@@ -77,8 +77,11 @@ tauri-backend: ## Maintainers: build Python backend sidecar artifact for Tauri p
 tauri-build: ## Build desktop bundle artifacts (requires Rust toolchain + Tauri CLI)
 	cd src/frontend && npm run tauri:build
 
-tauri-build-signed: ## Maintainers: build/sign/notarize/staple/verify macOS release artifacts (requires .env.codesign)
+tauri-build-mac: ## Maintainers: build/sign/notarize/staple/verify macOS release artifacts (requires .env.codesign)
 	./scripts/build_tauri_signed_release.sh
+
+tauri-build-linux: ## Maintainers: build Linux release artifacts (.deb + AppImage)
+	./scripts/build_tauri_linux_release.sh
 
 tauri-build-appstore: ## Maintainers: build/sign/package/upload macOS App Store artifacts (requires .env.appstore)
 	./scripts/build_tauri_appstore_release.sh
