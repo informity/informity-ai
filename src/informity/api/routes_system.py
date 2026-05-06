@@ -57,9 +57,9 @@ from informity.indexer.embedder import embedder
 from informity.indexer.reranker import reranker
 from informity.llm.engine import llm_engine
 from informity.llm.model_adapter import (
+    MODEL_ID_QWEN_9B,
     MODEL_ID_QWEN_14B,
     MODEL_ID_QWEN_35B_A3B,
-    MODEL_ID_QWEN_9B,
     get_model_alias_filenames,
     get_model_display_name,
     infer_model_id_from_filename,
