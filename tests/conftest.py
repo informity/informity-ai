@@ -150,3 +150,30 @@ def sample_html(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return f
+
+
+@pytest.fixture
+def sample_epub(tmp_path: Path) -> Path:
+    # Create a sample .epub file with two chapters.
+    epub = pytest.importorskip('ebooklib.epub')
+    book = epub.EpubBook()
+    book.set_identifier("test-book-id")
+    book.set_title("Test EPUB")
+    book.set_language("en")
+    book.add_author("Informity AI")
+
+    ch1 = epub.EpubHtml(title="Intro", file_name="intro.xhtml", lang="en")
+    ch1.content = "<h1>Intro</h1><p>Hello from EPUB chapter one.</p>"
+    ch2 = epub.EpubHtml(title="Details", file_name="details.xhtml", lang="en")
+    ch2.content = "<h2>Details</h2><p>Second chapter includes more text.</p>"
+
+    book.add_item(ch1)
+    book.add_item(ch2)
+    book.toc = (ch1, ch2)
+    book.spine = ["nav", ch1, ch2]
+    book.add_item(epub.EpubNcx())
+    book.add_item(epub.EpubNav())
+
+    f = tmp_path / "sample.epub"
+    epub.write_epub(str(f), book)
+    return f

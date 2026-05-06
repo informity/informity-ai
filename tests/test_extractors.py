@@ -13,6 +13,7 @@ from informity.scanner.extractors.base import (
     register_extractors,
 )
 from informity.scanner.extractors.docling import DoclingExtractor
+from informity.scanner.extractors.epub import EpubExtractor
 from informity.scanner.extractors.text import TextExtractor
 
 # ==============================================================================
@@ -31,6 +32,7 @@ class TestExtractorRegistry:
         assert get_extractor(Path("test.csv")) is not None
         assert get_extractor(Path("test.html")) is not None
         assert get_extractor(Path("test.htm")) is not None
+        assert get_extractor(Path("test.epub")) is not None
         # TextExtractor handles: .txt, .md, .rst, .log, .json, .yaml, .yml, .toml
         assert get_extractor(Path("test.txt")) is not None
         assert get_extractor(Path("test.md")) is not None
@@ -46,6 +48,7 @@ class TestExtractorRegistry:
         extractors = [
             TextExtractor(),
             DoclingExtractor(),
+            EpubExtractor(),
         ]
         for ext in extractors:
             assert isinstance(ext, BaseExtractor)
@@ -213,3 +216,36 @@ class TestDoclingExtractor:
         self._skip_if_models_unavailable(doc)
         # Docling provides metadata
         assert isinstance(doc.metadata, dict)
+
+
+class TestEpubExtractor:
+    def setup_method(self) -> None:
+        self.extractor = EpubExtractor()
+
+    def test_can_handle(self) -> None:
+        assert self.extractor.can_handle(Path("book.epub"))
+        assert not self.extractor.can_handle(Path("book.pdf"))
+
+    def test_extract_epub(self, sample_epub: Path) -> None:
+        doc = self.extractor.extract(sample_epub)
+        if doc.error and 'dependency not available' in doc.error.lower():
+            pytest.skip('ebooklib is not installed in this environment')
+        assert doc.error is None
+        assert "Hello from EPUB chapter one." in doc.text
+        assert doc.word_count > 0
+        assert doc.metadata.get("converter") == "ebooklib"
+        assert doc.metadata.get("mime_type") == "application/epub+zip"
+        assert doc.metadata.get("title") == "Test EPUB"
+
+    def test_missing_file(self, tmp_path: Path) -> None:
+        doc = self.extractor.extract(tmp_path / "missing.epub")
+        assert doc.text == ""
+        assert doc.error is not None
+
+    def test_corrupt_epub(self, tmp_path: Path) -> None:
+        f = tmp_path / "corrupt.epub"
+        f.write_bytes(b"not-a-valid-epub")
+        doc = self.extractor.extract(f)
+        if doc.error and 'dependency not available' in doc.error.lower():
+            pytest.skip('ebooklib is not installed in this environment')
+        assert doc.error is not None

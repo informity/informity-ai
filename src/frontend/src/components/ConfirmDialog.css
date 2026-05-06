@@ -31,8 +31,12 @@
   overflow: hidden;
   display: flex;
   flex-direction: column;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-modal);
   animation: confirm-dialog-slide-in 0.2s ease-out;
+}
+
+html[data-accent='light'] .confirm-dialog {
+  box-shadow: 0 14px 28px rgba(122, 84, 56, 0.2);
 }
 
 @keyframes confirm-dialog-slide-in {

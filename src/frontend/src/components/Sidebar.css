@@ -73,6 +73,14 @@
   flex-shrink: 0;
 }
 
+html[data-accent='light'] .sidebar__logo {
+  filter: brightness(0) saturate(100%);
+}
+
+html[data-accent='light'] .sidebar__logo-shell {
+  background: transparent;
+}
+
 .sidebar__logo-shell {
   width: 1.5rem;
   height: 1.5rem;

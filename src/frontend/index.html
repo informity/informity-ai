@@ -2,10 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="color-scheme" content="dark" />
+    <meta name="color-scheme" content="dark light" />
     <script>
       try {
-        const allowed = new Set(['gray', 'purple', 'blue', 'green', 'orange', 'mono'])
+        const allowed = new Set(['light', 'gray', 'purple', 'blue', 'green', 'orange', 'mono'])
         const saved = localStorage.getItem('informity-ui-theme')
         document.documentElement.setAttribute('data-accent', allowed.has(saved) ? saved : 'mono')
       } catch {
@@ -23,6 +23,11 @@
       html[data-accent='gray'] {
         --boot-accent: #8f8f8f;
         --boot-text: #a8a8a8;
+      }
+      html[data-accent='light'] {
+        --boot-bg: #faf6ef;
+        --boot-accent: #ab6a43;
+        --boot-text: #6a5a4a;
       }
       html[data-accent='blue'] {
         --boot-accent: #6b9ec9;

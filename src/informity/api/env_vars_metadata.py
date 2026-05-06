@@ -10,6 +10,7 @@ from pathlib import Path
 
 from informity.api.schemas import EnvVarGroup, EnvVarItem, EnvVarsResponse
 from informity.config import APP_SLUG, DirNames, Settings
+from informity.file_types import get_file_type_options
 from informity.utils.path_utils import normalize_path
 
 # Prefix used by pydantic-settings for this app.
@@ -94,7 +95,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'Appearance',
         'Frontend UI customization settings.',
         [
-            ('ui_theme', 'Color theme for the app UI. Options: gray, purple, blue, green, orange, mono.'),
+            ('ui_theme', 'Color theme for the app UI. Options: light, gray, purple, blue, green, orange, mono.'),
             ('enable_menu_bar_icon', 'When true, show the menu bar icon while the app is running (macOS desktop runtime).'),
         ],
     ),
@@ -233,6 +234,26 @@ _INTERNAL_CONSTANTS_PREFIXES = (
     'scan_stale_',
     'scan_timeout_policy',
 )
+_SUPPORTED_EXTENSIONS_CANONICAL_ORDER: tuple[str, ...] = tuple(
+    ext
+    for option in get_file_type_options()
+    for ext in option.get('extensions', [])
+)
+
+
+def _normalize_supported_extensions_display(value: object) -> object:
+    if not isinstance(value, list):
+        return value
+    canonical_index = {ext: idx for idx, ext in enumerate(_SUPPORTED_EXTENSIONS_CANONICAL_ORDER)}
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        ext = str(item or '').strip().lower()
+        if not ext or ext in seen:
+            continue
+        seen.add(ext)
+        normalized.append(ext)
+    return sorted(normalized, key=lambda ext: (canonical_index.get(ext, 10_000), ext))
 
 
 def get_env_vars_response(settings: object) -> EnvVarsResponse:
@@ -248,6 +269,8 @@ def get_env_vars_response(settings: object) -> EnvVarsResponse:
             documented_fields.add(field)
             try:
                 value = getattr(settings, field)
+                if field == 'supported_extensions':
+                    value = _normalize_supported_extensions_display(value)
                 current_value = _format_value(value, app_dir)
             except (AttributeError, TypeError):
                 current_value = '(unset)'

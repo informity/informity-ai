@@ -16,6 +16,7 @@ MAX_UPLOAD_TOTAL_SIZE_MB = 200
 ALLOWED_MIME_PREFIXES: tuple[str, ...] = (
     'text/',
     'application/pdf',
+    'application/epub+zip',
     'application/json',
     'application/xml',
     'application/vnd.openxmlformats-officedocument',

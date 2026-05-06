@@ -16,6 +16,7 @@ FILE_TYPE_OPTIONS: list[dict[str, str | list[str]]] = [
     {'id': 'docx',        'label': 'Word Documents',                'extensions': ['.docx']},
     {'id': 'spreadsheet', 'label': 'Spreadsheets',                  'extensions': ['.xlsx', '.csv']},
     {'id': 'pptx',        'label': 'PowerPoint Presentations',      'extensions': ['.pptx']},
+    {'id': 'epub',        'label': 'EPUB Ebooks',                   'extensions': ['.epub']},
     {'id': 'web',         'label': 'Web Pages',                     'extensions': ['.html', '.htm']},
     {'id': 'text',        'label': 'Text and Markdown Files',       'extensions': ['.txt', '.md', '.rst', '.log']},
     {'id': 'data',        'label': 'Data and Configuration Files',  'extensions': ['.json', '.yaml', '.yml', '.toml']},

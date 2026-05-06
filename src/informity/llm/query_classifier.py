@@ -44,6 +44,7 @@ from informity.llm.query_patterns import (
     build_quoted_phrase_pattern,
     build_single_target_pattern,
     build_structured_output_schema_pattern,
+    build_supported_filename_extension_pattern,
     build_year_aggregate_cue_pattern,
 )
 from informity.llm.term_dictionary import expand_query_for_routing
@@ -147,6 +148,7 @@ _ANAPHORIC_SCOPE_PATTERN = re.compile(
     r')\b',
     re.IGNORECASE,
 )
+_FILENAME_EXTENSION_ALT = build_supported_filename_extension_pattern()
 
 
 def _normalize_text(text: str) -> str:
@@ -705,14 +707,14 @@ def classify_query(
             year_filter = _yr
 
     file_type_filter: str | None = None
-    ext_match = re.search(r'\.(pdf|txt|md|csv|json|docx?|xlsx?)\b', lowered)
+    ext_match = re.search(rf'\.({_FILENAME_EXTENSION_ALT})\b', lowered)
     if ext_match:
         file_type_filter = f".{ext_match.group(1)}"
     elif 'pdf' in lowered:
         file_type_filter = '.pdf'
 
     filename_filter: str | None = None
-    filename_match = re.search(r'([a-z0-9][a-z0-9._-]*\.(?:pdf|txt|md|csv|json|docx?|xlsx?))', lowered)
+    filename_match = re.search(rf'([a-z0-9][a-z0-9._-]*\.(?:{_FILENAME_EXTENSION_ALT}))', lowered)
     if filename_match:
         filename_filter = filename_match.group(1)
     output_format = _detect_output_format(lowered)

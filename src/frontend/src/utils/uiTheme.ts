@@ -2,6 +2,7 @@ export const UI_THEME_STORAGE_KEY = 'informity-ui-theme'
 export const UI_THEME_DEFAULT = 'mono'
 
 export const UI_THEME_VALUES = [
+  'light',
   'mono',
   'gray',
   'purple',
@@ -19,6 +20,7 @@ export const UI_THEME_OPTIONS: Array<{ value: UiThemeValue; label: string }> = [
   { value: 'blue', label: 'Blue' },
   { value: 'green', label: 'Green' },
   { value: 'orange', label: 'Orange' },
+  { value: 'light', label: 'Light' },
 ]
 
 export function normalizeUiTheme(theme: string | null | undefined): UiThemeValue | undefined {
