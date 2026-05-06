@@ -431,7 +431,7 @@ DEFAULT_PROFILE = ModelProfile(
 
 # Order matters: more specific patterns first.
 _PROFILE_REGISTRY: list[ModelProfile] = [
-    QWEN3_6_35B_A3B_PROFILE,       # Qwen3.6-35B-A3B-Q4_K_M
+    QWEN3_6_35B_A3B_PROFILE,       # Qwen3.6-35B-A3B(-UD)-Q4_K_M
     QWEN3_5_9B_PROFILE,            # Qwen3.5-9B-Q4_K_M (analysis RAG)
     QWEN3_14B_PROFILE,             # Qwen3-14B-Q5_K_M (analysis RAG profile)
 ]
