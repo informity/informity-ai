@@ -63,6 +63,7 @@ from informity.api.context_scope_manager import (
 )
 from informity.api.error_messages import to_client_error_message
 from informity.api.schemas import (
+    ChatRoleDefinition,
     ChatPreferencesUpdateRequest,
     ChatRequest,
     ChatSourceReference,
@@ -108,6 +109,7 @@ from informity.llm.contract_gate import (
     validate_contract,
 )
 from informity.llm.rag import answer_question
+from informity.llm.personas import list_role_profiles
 from informity.llm.timeout_policy import is_terminal_timeout_reason, normalize_timeout_reason
 from informity.llm.types import (
     ChatRole,
@@ -837,6 +839,21 @@ async def delete_chat_upload(
         'sweep_summary': sweep_summary,
     }
 
+
+
+@router.get('/api/roles', response_model=list[ChatRoleDefinition])
+async def list_roles() -> list[ChatRoleDefinition]:
+    profiles = list_role_profiles(visible_only=True)
+    return [
+        ChatRoleDefinition(
+            id=profile.id,
+            name=profile.name,
+            description=profile.description,
+            icon=profile.icon or None,
+            disclaimer=profile.disclaimer or None,
+        )
+        for profile in profiles
+    ]
 
 
 # ==============================================================================

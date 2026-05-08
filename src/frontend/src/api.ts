@@ -6,6 +6,7 @@
 import type {
   ChatUploadAttachment,
   ChatMode,
+  ChatRoleDefinition,
   FileReindexOperation,
   PlanStepPayload,
   StreamChatCallbacks,
@@ -236,6 +237,7 @@ export async function streamChat(
   callbacks: StreamChatCallbacks,
   options?: {
     mode?: ChatMode
+    roleId?: string | null
     requestId?: string
     fileId?: number | null
     scopedUploadIds?: string[] | null
@@ -262,6 +264,7 @@ export async function streamChat(
     scoped_file_ids: scopedFileIds,
     scoped_upload_ids: scopedUploadIds.length > 0 ? scopedUploadIds : null,
     mode: options?.mode ?? 'researcher',
+    role_id: options?.roleId ?? null,
     request_id: options?.requestId ?? null,
     chat_web_search_enabled: options?.chatWebSearchEnabled ?? false,
     chat_web_search_privacy_override: options?.chatWebSearchPrivacyOverride ?? false,
@@ -540,6 +543,10 @@ export async function deleteChatUpload(
 
 export async function getSettings(): Promise<unknown> {
   return request('GET', '/api/settings')
+}
+
+export async function getRoles(): Promise<ChatRoleDefinition[]> {
+  return request<ChatRoleDefinition[]>('GET', '/api/roles')
 }
 
 export async function getModelProfile(modelFilename: string): Promise<unknown> {
