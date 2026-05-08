@@ -634,28 +634,6 @@ html[data-accent='light'] .chat-view__scroll-to-bottom:hover {
   pointer-events: auto;
 }
 
-.chat-view__roles-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  color: var(--color-text-muted);
-  font-size: 0.8rem;
-  line-height: 1;
-  user-select: none;
-}
-
-.chat-view__roles-toggle input[type='checkbox'] {
-  width: 0.9rem;
-  height: 0.9rem;
-}
-
-.chat-view__roles-toggle .ui-tooltip-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-dimmed);
-}
-
 .chat-view__mode-selector {
   position: relative;
   z-index: 4;

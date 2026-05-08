@@ -49,6 +49,7 @@ const UPDATABLE_KEYS = [
   'adaptive_rag_tuning',
   'chat_history_messages',
   'default_chat_mode',
+  'enable_chat_roles',
   'entity_extract_acronym',
   'entity_extract_person_name',
   'entity_extract_organization',
@@ -90,6 +91,7 @@ interface FormState {
   adaptive_rag_tuning?: boolean
   chat_history_messages?: number
   default_chat_mode?: ChatMode
+  enable_chat_roles?: boolean
   entity_extract_acronym?: boolean
   entity_extract_person_name?: boolean
   entity_extract_organization?: boolean
