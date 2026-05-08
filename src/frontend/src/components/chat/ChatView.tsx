@@ -1086,8 +1086,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                           {chatWebSearchEnabled && <span className="chat-view__web-search-pill">Search</span>}
                         </button>
                       )}
-                    </div>
-                    <div className="chat-view__controls-right">
                       {rolesEnabled && (
                       <div ref={roleMenuRef} className="chat-view__role-selector">
                         <button
@@ -1154,6 +1152,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                         )}
                       </div>
                       )}
+                    </div>
+                    <div className="chat-view__controls-right">
                       <div ref={modeMenuRef} className="chat-view__mode-selector">
                         <button
                           type="button"
