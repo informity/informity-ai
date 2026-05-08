@@ -704,7 +704,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   }, [webSearchToggleLocked, chatWebSearchEnabled, fullPrivacyMode, setChatWebSearchPreferences])
 
   const selectedRole = roles.find((role) => role.id === selectedRoleId) ?? null
-  const roleSelectorDisabled = offline || isStreaming || !rolesEnabled || roles.length === 0
+  const roleSelectorDisabled = offline || isStreaming || roles.length === 0
   const roleButtonLabel = selectedRole?.name || 'General'
 
   const handleUploadControl = useCallback(() => {
@@ -1088,23 +1088,44 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       )}
                     </div>
                     <div className="chat-view__controls-right">
-                      <div ref={roleMenuRef} className="chat-view__mode-selector">
+                      {rolesEnabled && (
+                      <div ref={roleMenuRef} className="chat-view__role-selector">
                         <button
                           type="button"
-                          className="chat-view__mode-button"
+                          className="chat-view__role-button"
                           onClick={() => setRoleMenuOpen((open) => !open)}
                           disabled={roleSelectorDisabled}
                           aria-haspopup="menu"
                           aria-expanded={roleMenuOpen}
                           aria-label="Select role"
-                          title={rolesEnabled ? 'Select role overlay' : 'Enable roles to choose a role'}
+                          title={`Role: ${roleButtonLabel}`}
                         >
                           <i className={selectedRole?.icon || 'ri-user-settings-line'} aria-hidden />
-                          <span>{roleButtonLabel}</span>
-                          <i className="ri-arrow-down-s-line" aria-hidden />
                         </button>
                         {roleMenuOpen && (
                           <div className="chat-view__mode-menu" role="menu">
+                            <span className="chat-view__mode-option-wrap">
+                              <button
+                                type="button"
+                                className={`chat-view__mode-option${selectedRoleId == null ? ' chat-view__mode-option--active' : ''}`}
+                                role="menuitemradio"
+                                aria-checked={selectedRoleId == null}
+                                disabled={roleSelectorDisabled}
+                                onClick={() => {
+                                  setSelectedRoleId(null)
+                                  setRoleMenuOpen(false)
+                                  try {
+                                    window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
+                                  } catch {
+                                    // ignore storage errors
+                                  }
+                                }}
+                                title="No specialized role overlay"
+                              >
+                                <i className="ri-user-settings-line" aria-hidden />
+                                <span>General</span>
+                              </button>
+                            </span>
                             {roles.map((role) => (
                               <span key={role.id} className="chat-view__mode-option-wrap">
                                 <button
@@ -1132,6 +1153,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                           </div>
                         )}
                       </div>
+                      )}
                       <div ref={modeMenuRef} className="chat-view__mode-selector">
                         <button
                           type="button"
