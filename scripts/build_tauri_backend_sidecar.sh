@@ -21,10 +21,17 @@ mkdir -p "$DIST_DIR" "$WORK_DIR" "$SPEC_DIR" "$OUT_DIR"
 CHARSET_MYPYC_MODULE="$(uv run python - <<'PY'
 from __future__ import annotations
 from pathlib import Path
+import sys
 
-site_packages = Path('.venv/lib/python3.13/site-packages')
-matches = sorted(site_packages.glob('*__mypyc.cpython-*.so'))
-print(matches[0].stem.split('.cpython-')[0] if matches else '')
+matches: list[Path] = []
+for base in map(Path, sys.path):
+    if not base.is_dir():
+        continue
+    if "site-packages" not in str(base):
+        continue
+    matches.extend(sorted(base.glob("*__mypyc.cpython-*.so")))
+
+print(matches[0].stem.split(".cpython-")[0] if matches else "")
 PY
 )"
 if [[ -n "$CHARSET_MYPYC_MODULE" ]]; then
