@@ -271,8 +271,13 @@ def get_persona_prompt(persona_id: str) -> str:
     return get_mode_prompt(persona_id)
 
 
-def compose_persona_prompt(*, persona_id: str, chat_mode: str | None = None) -> str:
-    return compose_prompt(mode_id=persona_id, chat_mode=chat_mode)
+def compose_persona_prompt(
+    *,
+    persona_id: str,
+    chat_mode: str | None = None,
+    role_id: str | None = None,
+) -> str:
+    return compose_prompt(mode_id=persona_id, chat_mode=chat_mode, role_id=role_id)
 
 
 def resolve_runtime_persona_id(chat_mode: str | None) -> str:

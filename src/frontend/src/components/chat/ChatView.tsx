@@ -703,9 +703,21 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     })
   }, [webSearchToggleLocked, chatWebSearchEnabled, fullPrivacyMode, setChatWebSearchPreferences])
 
+  const lockedRoleId = (
+    messages.find((msg) => msg.role === 'user' && !msg.isInternal)?.roleId
+    ?? null
+  )
   const selectedRole = roles.find((role) => role.id === selectedRoleId) ?? null
-  const roleSelectorDisabled = offline || isStreaming || roles.length === 0
+  const activeRoleId = lockedRoleId ?? selectedRoleId
+  const activeRole = roles.find((role) => role.id === activeRoleId) ?? null
+  const roleSelectorDisabled = offline || isStreaming || roles.length === 0 || lockedRoleId !== null
   const roleButtonLabel = selectedRole?.name || 'General'
+
+  useEffect(() => {
+    if (!rolesEnabled) return
+    if (lockedRoleId === selectedRoleId) return
+    setSelectedRoleId(lockedRoleId)
+  }, [lockedRoleId, rolesEnabled, selectedRoleId])
 
   const handleUploadControl = useCallback(() => {
     if (offline || isStreaming || chatMode !== 'researcher') return
@@ -851,6 +863,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
           </button>
         }
       />
+      {rolesEnabled && activeRole && (
+        <div className="chat-view__active-role-badge" title={activeRole.description}>
+          <i className={activeRole.icon || 'ri-user-settings-line'} aria-hidden />
+          <span>{activeRole.name}</span>
+        </div>
+      )}
 
       <div className="chat-view__body">
         <div className="chat-view__content">
@@ -1098,10 +1116,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                           aria-label="Select role"
                           title={`Role: ${roleButtonLabel}`}
                         >
-                          <i className={selectedRole?.icon || 'ri-user-settings-line'} aria-hidden />
+                          <i className={activeRole?.icon || selectedRole?.icon || 'ri-user-settings-line'} aria-hidden />
                         </button>
                         {roleMenuOpen && (
-                          <div className="chat-view__mode-menu" role="menu">
+                          <div className="chat-view__mode-menu chat-view__mode-menu--role" role="menu">
                             <span className="chat-view__mode-option-wrap">
                               <button
                                 type="button"
