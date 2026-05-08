@@ -5,6 +5,7 @@
 
 from informity.config import settings
 from informity.db.models import ChatMessage
+from informity.llm.personas import compose_persona_prompt
 from informity.llm.prompt_builder import build_messages
 
 
@@ -254,6 +255,16 @@ class TestPromptBuilder:
     def test_builder_keeps_single_route_prompt_contract(self) -> None:
         messages = build_messages('Question', [])
         assert 'Research mode instructions:' not in messages[0]['content']
+
+    def test_builder_system_prompt_matches_rag_persona_composer_exactly(self) -> None:
+        messages = build_messages('Question', [], chat_mode='researcher')
+        expected_system_prefix = compose_persona_prompt(persona_id='researcher_rag', chat_mode='researcher')
+        assert messages[0]['content'] == f'{expected_system_prefix}\n\nContext:\n'
+
+    def test_builder_assistant_mode_system_prompt_matches_composer_exactly(self) -> None:
+        messages = build_messages('Question', [], chat_mode='assistant')
+        expected_system_prefix = compose_persona_prompt(persona_id='researcher_rag', chat_mode='assistant')
+        assert messages[0]['content'] == f'{expected_system_prefix}\n\nContext:\n'
 
     def test_preserves_assistant_history_verbatim(self) -> None:
         history = [
