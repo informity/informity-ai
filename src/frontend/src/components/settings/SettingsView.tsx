@@ -173,6 +173,7 @@ interface SettingsData {
   adaptive_rag_tuning?: boolean
   chat_history_messages?: number
   default_chat_mode?: ChatMode
+  enable_chat_roles?: boolean
   entity_extract_acronym?: boolean
   entity_extract_person_name?: boolean
   entity_extract_organization?: boolean
@@ -221,6 +222,7 @@ interface FormState {
   adaptive_rag_tuning: boolean
   chat_history_messages: number
   default_chat_mode: ChatMode
+  enable_chat_roles: boolean
   entity_extract_acronym: boolean
   entity_extract_person_name: boolean
   entity_extract_organization: boolean
@@ -275,6 +277,7 @@ function buildFormState(settings: SettingsData): FormState {
     adaptive_rag_tuning: settings.adaptive_rag_tuning ?? true,
     chat_history_messages: settings.chat_history_messages ?? 5,
     default_chat_mode: isChatMode(settings.default_chat_mode) ? settings.default_chat_mode : 'researcher',
+    enable_chat_roles: settings.enable_chat_roles ?? false,
     entity_extract_acronym: settings.entity_extract_acronym ?? true,
     entity_extract_person_name: settings.entity_extract_person_name ?? false,
     entity_extract_organization: settings.entity_extract_organization ?? false,
@@ -797,6 +800,24 @@ export function SettingsView({
               </option>
             ))}
           </select>
+          <label className="settings-checkbox-row" style={{ marginTop: '0.75rem' }}>
+            <input
+              type="checkbox"
+              checked={form.enable_chat_roles ?? false}
+              onChange={(e) => update('enable_chat_roles', e.target.checked)}
+            />
+            <div>
+              <span className="settings-checkbox-row-label">
+                Enable roles
+                <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                  <i className="ri-information-line" aria-hidden="true" />
+                  <span className="settings-tooltip ui-tooltip">
+                    Roles apply a domain-specific lens to how responses are framed.
+                  </span>
+                </span>
+              </span>
+            </div>
+          </label>
         </div>
 
         <div className="settings-subsection">
