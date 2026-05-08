@@ -22,8 +22,10 @@ from informity.llm.handlers.rag import (
     _should_boost_coverage_top_k,
 )
 from informity.llm.handlers.simple import SimpleHandler
+from informity.llm.personas import get_persona_prompt
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.types import OutputFormat
+from informity.llm.web_search import SearchResult, WebSearchOutcome
 
 
 class TestHandlerProtocol:
@@ -1021,6 +1023,32 @@ class TestSimpleHandler:
         assert 'without document retrieval' in lowered
         assert 'if asked about document search' not in lowered
         assert 'you can:' not in lowered
+        assert captured_messages[0]['content'] == f"{get_persona_prompt('assistant_default')}\n\nContext:\n"
+
+    @pytest.mark.asyncio
+    async def test_handle_uses_researcher_prompt_exactly_in_researcher_mode(self) -> None:
+        handler = SimpleHandler()
+        classification = QueryClassification(intent='simple')
+        mock_db = MagicMock()
+        captured_messages: list[dict[str, str]] = []
+
+        async def _fake_stream_llm(messages, *_args, **_kwargs):
+            captured_messages.extend(messages)
+            yield 'answer'
+
+        with patch('informity.llm.handlers.simple.stream_llm', _fake_stream_llm):
+            async for _item in handler.handle(
+                'hello',
+                classification,
+                None,
+                mock_db,
+                None,
+                chat_mode='researcher',
+            ):
+                pass
+
+        assert captured_messages
+        assert captured_messages[0]['content'] == f"{get_persona_prompt('researcher_default')}\n\nContext:\n"
 
     @pytest.mark.asyncio
     async def test_handle_chat_summary_mode_disables_web_search_and_uses_chat_prompt(self) -> None:
@@ -1057,6 +1085,52 @@ class TestSimpleHandler:
         assert captured_messages
         system_message = captured_messages[0]['content'].lower()
         assert 'summarize this chat conversation only' in system_message
+        assert captured_messages[0]['content'].startswith(get_persona_prompt('chat_summary'))
+
+    @pytest.mark.asyncio
+    async def test_handle_web_search_synthesis_uses_exact_web_persona_prompt(self) -> None:
+        handler = SimpleHandler()
+        classification = QueryClassification(intent='simple')
+        mock_db = MagicMock()
+        captured_messages: list[dict[str, str]] = []
+
+        async def _fake_stream_llm(messages, *_args, **_kwargs):
+            captured_messages.extend(messages)
+            yield 'answer'
+
+        fake_outcome = WebSearchOutcome(
+            status='ok',
+            results=[
+                SearchResult(
+                    title='Doc',
+                    url='https://example.com',
+                    snippet='Snippet',
+                )
+            ],
+            provider_attempted='provider-a',
+            provider_used='provider-a',
+            failover_applied=False,
+        )
+
+        with (
+            patch('informity.llm.handlers.simple.stream_llm', _fake_stream_llm),
+            patch('informity.llm.handlers.simple.has_any_provider_api_key', return_value=True),
+            patch('informity.llm.handlers.simple.search_web', return_value=fake_outcome),
+        ):
+            async for _item in handler.handle(
+                'latest updates',
+                classification,
+                None,
+                mock_db,
+                None,
+                chat_mode='assistant',
+                chat_web_search_enabled=True,
+                chat_web_search_privacy_override=True,
+            ):
+                pass
+
+        assert captured_messages
+        assert captured_messages[0]['content'] == f"{get_persona_prompt('assistant_web_search_synthesis')}\n\nContext:\n"
 
     @pytest.mark.asyncio
     async def test_handle_chat_summary_mode_loads_chat_id_history_and_excludes_internal(self) -> None:
