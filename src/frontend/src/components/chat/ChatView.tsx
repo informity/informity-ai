@@ -579,6 +579,22 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (offline) return
+    if (e.key === 'Tab' && !e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) {
+      // Keep focus in composer for plain Tab to avoid accidental focus jumps in
+      // desktop WebView hosts (Tauri/WKWebView) while typing.
+      e.preventDefault()
+      const textarea = e.currentTarget as HTMLTextAreaElement
+      const { selectionStart, selectionEnd, value } = textarea
+      const hasTrailingInlineSelection = (
+        selectionEnd > selectionStart
+        && selectionEnd === value.length
+      )
+      if (hasTrailingInlineSelection) {
+        // Accept inline completion selection without moving focus away from composer.
+        textarea.setSelectionRange(selectionEnd, selectionEnd)
+      }
+      return
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
