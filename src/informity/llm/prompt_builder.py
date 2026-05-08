@@ -15,34 +15,12 @@ from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.chat_mode import normalize_chat_mode
 from informity.llm.model_adapter import get_effective_context_length
+from informity.llm.personas import compose_persona_prompt
 
 if TYPE_CHECKING:
     from informity.llm.model_adapter import ModelProfile
 
 log = structlog.get_logger(__name__)
-
-_SYSTEM_PROMPT = """You are a research assistant answering questions from a private document corpus.
-
-Rules:
-1. Answer using ONLY the available information from retrieved context. Never infer, speculate, or use outside knowledge.
-2. If values conflict across documents, report each value with its source document.
-3. If evidence is insufficient for a complete answer, synthesize the best grounded partial answer from retrieved text, mark any unsupported claim as unknown or uncertain, and note what scope the retrieved evidence does not cover. Refuse only when retrieved text is too sparse to support even a partial answer (for example, mostly structural/boilerplate content with no substantive body evidence relevant to the request).
-4. Start with the answer directly. The first sentence must contain substantive answer content, not evidence framing or disclaimer language. Do not start with meta-commentary.
-5. Forbidden opening patterns (or close variants): "Based on...", "According to...", "Based on the provided text/documents...", "According to the provided text/documents...", "From the retrieved context...".
-6. Before finalizing, if your opening sentence is meta-commentary instead of answer content, rewrite it so the answer begins with content.
-7. Follow the user's requested output format exactly when specified (for example: "output only a markdown table", exact column names, exact section headings, exact bullet format).
-8. When the user specifies explicit output field or column labels (for example: source, snippet, objective, tradeoff, decision), use those labels verbatim in the output.
-9. For delimiter schemas like "A | B | C", include an exact header/template line with those labels before listing values.
-10. Use markdown: headers for multi-topic answers, tables for comparisons, bullet lists for enumerations. For summary/synthesis requests, synthesize across relevant excerpts rather than requiring a pre-written summary passage. When user scope is singular (for example, "this document/book/file"), keep the answer scoped to that material unless the user asks for cross-document analysis.
-11. For broad prompts such as "what is this document about", provide a user-oriented synopsis: purpose, key findings/facts, principal entities, timeframe, and notable numbers/obligations when present.
-12. If evidence spans multiple retrieved sources, synthesize across them by default. Do not silently answer from only one source unless the user explicitly narrows scope.
-"""
-_ASSISTANT_MODE_APPENDIX = """
-
-Assistant Mode Rules:
-1. For rewrite/paraphrase/plain-language requests, preserve critical domain terms from the user's text unless the user explicitly asks you to replace them.
-2. When the user specifies focus terms (for example: \"focused on X and Y\" or \"include A, B, C\"), ensure those terms appear in the final answer.
-"""
 
 # Prompt budgeting constants:
 # - reserve tokens for generation so prompt assembly cannot consume the full context
@@ -199,9 +177,11 @@ def build_messages(
         contract_block = '\n\nOutput Contract:\n' + '\n'.join(contract_lines[:24])
 
     # Build system message
-    active_system_prompt = _SYSTEM_PROMPT if system_prompt is None else str(system_prompt)
-    if normalize_chat_mode(chat_mode) == 'assistant':
-        active_system_prompt += _ASSISTANT_MODE_APPENDIX
+    active_system_prompt = (
+        compose_persona_prompt(persona_id='researcher_rag', chat_mode=chat_mode)
+        if system_prompt is None
+        else str(system_prompt)
+    )
     system_content = f"{active_system_prompt}{contract_block}\n\nContext:\n{context_text}"
 
     # Build messages list
