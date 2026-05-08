@@ -65,10 +65,15 @@ verify_sidecar_contents() {
     "promptcue/__init__\\.py"
     "thinkstrip-[0-9].*\\.dist-info/METADATA"
     "thinkstrip/__init__\\.py"
-    ".*__mypyc\\.cpython-.*\\.(so|dylib|pyd)"
     "charset_normalizer/md\\.cpython-.*\\.(so|dylib|pyd)"
     "PIL/_imagingmorph\\.cpython-.*\\.(so|dylib|pyd)"
   )
+
+  # Some platforms/builds do not ship a standalone __mypyc extension module.
+  # Only require it when we detected and requested a concrete hidden import.
+  if [[ -n "${CHARSET_MYPYC_MODULE:-}" ]]; then
+    required_patterns+=(".*__mypyc\\.cpython-.*\\.(so|dylib|pyd)")
+  fi
 
   for pattern in "${required_patterns[@]}"; do
     if ! grep -Eq "$pattern" "$listing_file"; then
