@@ -66,7 +66,7 @@ _CHAT_TITLE_WHITESPACE_RE = re.compile(r'\s+')
 # Schema — DDL statements for all tables
 # ==============================================================================
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 DIAGNOSTICS_TYPE_USER = 'user'
 DIAGNOSTICS_TYPE_EVALUATION = 'evaluation'
@@ -214,6 +214,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     next_action        TEXT,
     next_action_reason TEXT,
     chat_mode          TEXT,
+    role_id            TEXT,
     retrieval_scope_kind TEXT,
     retrieval_scope_key  TEXT,
     model_filename     TEXT,
@@ -560,8 +561,8 @@ async def init_db() -> None:
 
 async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
     """
-    Ensure schema_version row exists and matches expected runtime SCHEMA_VERSION.
-    Fail closed on mismatch to avoid silent cross-version corruption.
+    Ensure schema_version row exists and apply forward migrations to the
+    expected runtime SCHEMA_VERSION.
     """
     cursor = await conn.execute('SELECT version FROM schema_version LIMIT 1')
     row = await cursor.fetchone()
@@ -572,11 +573,33 @@ async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
     existing = int(row['version'])
     if existing == SCHEMA_VERSION:
         return
+    if existing > SCHEMA_VERSION:
+        raise RuntimeError(
+            f'Database schema version mismatch: found {existing}, expected <= {SCHEMA_VERSION}. '
+            'Downgrade is not supported.'
+        )
 
-    raise RuntimeError(
-        f'Database schema version mismatch: found {existing}, expected {SCHEMA_VERSION}. '
-        'Run a reset/migration before continuing.'
-    )
+    current = existing
+    while current < SCHEMA_VERSION:
+        next_version = current + 1
+        if next_version == 2:
+            await _migrate_to_v2(conn)
+        else:
+            raise RuntimeError(f'No migration path defined for schema version {next_version}')
+        await conn.execute('UPDATE schema_version SET version = ?', (next_version,))
+        current = next_version
+
+
+async def _migrate_to_v2(conn: aiosqlite.Connection) -> None:
+    """
+    v2 migration:
+    - add nullable role_id to chat_messages for role overlay session persistence.
+    """
+    cursor = await conn.execute("PRAGMA table_info('chat_messages')")
+    columns = await cursor.fetchall()
+    column_names = {str(row['name']) for row in columns}
+    if 'role_id' not in column_names:
+        await conn.execute('ALTER TABLE chat_messages ADD COLUMN role_id TEXT')
 
 
 async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
@@ -779,6 +802,7 @@ def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
         next_action        = row['next_action'],
         next_action_reason = row['next_action_reason'],
         chat_mode          = row['chat_mode'],
+        role_id            = row['role_id'] if 'role_id' in row.keys() else None,
         retrieval_scope_kind = row['retrieval_scope_kind'],
         retrieval_scope_key = row['retrieval_scope_key'],
         model_filename     = row['model_filename'],
@@ -1506,9 +1530,9 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
         INSERT INTO chat_messages (
             chat_id, role, content, sources, generation_seconds,
             completion_mode, stopped_by_user, has_remaining_scope, next_action, next_action_reason,
-            chat_mode, retrieval_scope_kind, retrieval_scope_key, model_filename, is_internal
+            chat_mode, role_id, retrieval_scope_kind, retrieval_scope_key, model_filename, is_internal
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             message.chat_id,
@@ -1522,6 +1546,7 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
             message.next_action,
             message.next_action_reason,
             message.chat_mode,
+            message.role_id,
             message.retrieval_scope_kind,
             message.retrieval_scope_key,
             message.model_filename,

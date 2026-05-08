@@ -109,7 +109,7 @@ from informity.llm.contract_gate import (
     validate_contract,
 )
 from informity.llm.rag import answer_question
-from informity.llm.personas import list_role_profiles
+from informity.llm.personas import get_role_profile, list_role_profiles
 from informity.llm.timeout_policy import is_terminal_timeout_reason, normalize_timeout_reason
 from informity.llm.types import (
     ChatRole,
@@ -517,6 +517,7 @@ async def _finalize_stopped_stream_if_active(
                                 next_action=NextAction.REGENERATE,
                                 next_action_reason='stopped',
                                 chat_mode=latest_assistant.chat_mode if latest_assistant is not None else None,
+                                role_id=latest_assistant.role_id if latest_assistant is not None else None,
                                 retrieval_scope_kind=(
                                     latest_assistant.retrieval_scope_kind if latest_assistant is not None else None
                                 ),
@@ -574,6 +575,7 @@ async def _persist_terminal_assistant_message(
     next_action: NextAction,
     next_action_reason: str | None,
     chat_mode: str,
+    role_id: str | None = None,
     retrieval_scope_kind: str | None = None,
     retrieval_scope_key: str | None = None,
 ) -> tuple[ChatMessage | None, bool]:
@@ -593,6 +595,7 @@ async def _persist_terminal_assistant_message(
         next_action=next_action,
         next_action_reason=next_action_reason,
         chat_mode=chat_mode,
+        role_id=role_id,
         retrieval_scope_kind=retrieval_scope_kind,
         retrieval_scope_key=retrieval_scope_key,
         is_internal=False,
@@ -893,6 +896,12 @@ async def chat(
     await CHAT_GUARD.check_rate_limit()
     requested_run_id = str(request.run_id or '').strip() or None
     resolved_chat_mode = resolve_chat_mode(request.mode)
+    requested_role_id = str(request.role_id or '').strip() or None
+    if requested_role_id is not None:
+        try:
+            get_role_profile(requested_role_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=400, detail=f'Unknown role_id: {requested_role_id}') from exc
     _enforce_continuation_chat_binding(question=message_text, chat_id=request.chat_id)
 
     # Resolve chat ID — create a new one if not provided
@@ -1057,6 +1066,21 @@ async def chat(
             for file_id in scoped_file_ids
         ]
     full_history = await get_chat(db, chat_id)
+    first_user_message = next(
+        (message for message in full_history if message.role == ChatRole.USER and not bool(message.is_internal)),
+        None,
+    )
+    locked_role_id = (
+        str(first_user_message.role_id or '').strip() or None
+        if first_user_message is not None
+        else None
+    )
+    if first_user_message is not None and requested_role_id != locked_role_id:
+        raise HTTPException(
+            status_code=409,
+            detail='Role is locked for this chat session. Start a new chat to change role.',
+        )
+    resolved_role_id = locked_role_id if first_user_message is not None else requested_role_id
     retrieval_scope_key, context_scope_resolution = resolve_retrieval_context_scope_key(
         chat_mode=resolved_chat_mode,
         retrieval_scope_kind=retrieval_scope_kind,
@@ -1090,6 +1114,7 @@ async def chat(
         role    = 'user',
         content = message_text,
         chat_mode = resolved_chat_mode,
+        role_id = resolved_role_id,
         retrieval_scope_kind = retrieval_scope_kind,
         retrieval_scope_key = retrieval_scope_key,
         model_filename = settings.llm_model_filename,
@@ -1127,6 +1152,7 @@ async def chat(
             'question_length':  len(message_text),
             'history_messages': len(history),
             'chat_mode':        resolved_chat_mode,
+            'role_id':          resolved_role_id,
             'model_filename':   settings.llm_model_filename,
             'chat_web_search_enabled': resolved_chat_web_search_enabled,
             'chat_web_search_privacy_override': resolved_chat_web_search_privacy_override,
@@ -1320,6 +1346,7 @@ async def chat(
                                 completion_mode=CompletionMode.SCOPED_COMPLETE,
                                 has_remaining_scope=True,
                                 chat_mode=resolved_chat_mode,
+                                role_id=resolved_role_id,
                                 retrieval_scope_kind=retrieval_scope_kind,
                                 retrieval_scope_key=retrieval_scope_key,
                             ),
@@ -1377,6 +1404,7 @@ async def chat(
                         trace=trace_writer,
                         classification=locked_classification,
                         chat_mode=resolved_chat_mode,
+                        role_id=resolved_role_id,
                         chat_web_search_enabled=resolved_chat_web_search_enabled,
                         chat_web_search_privacy_override=resolved_chat_web_search_privacy_override,
                     ).__aiter__()
@@ -1812,6 +1840,7 @@ async def chat(
                     next_action=message_next_action,
                     next_action_reason=message_next_action_reason,
                     chat_mode=resolved_chat_mode,
+                    role_id=resolved_role_id,
                     retrieval_scope_kind=retrieval_scope_kind,
                     retrieval_scope_key=retrieval_scope_key,
                     is_internal=False,
@@ -1944,6 +1973,7 @@ async def chat(
                     next_action=NextAction.REGENERATE,
                     next_action_reason='stopped',
                     chat_mode=resolved_chat_mode,
+                    role_id=resolved_role_id,
                     retrieval_scope_kind=retrieval_scope_kind,
                     retrieval_scope_key=retrieval_scope_key,
                 )
@@ -2001,6 +2031,7 @@ async def chat(
                         next_action=cancelled_next_action,
                         next_action_reason=cancelled_next_action_reason,
                         chat_mode=resolved_chat_mode,
+                        role_id=resolved_role_id,
                         retrieval_scope_kind=retrieval_scope_kind,
                         retrieval_scope_key=retrieval_scope_key,
                     )

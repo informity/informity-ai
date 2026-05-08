@@ -115,6 +115,7 @@ async def answer_question(
     diagnostics_context: dict[str, object] | None = None,
     classification: QueryClassification | None = None,  # If provided, skip re-classification (continuation passes)
     chat_mode: str | None = None,
+    role_id: str | None = None,
     chat_web_search_enabled: bool = False,
     chat_web_search_privacy_override: bool = False,
 ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
@@ -177,6 +178,7 @@ async def answer_question(
                 chat_id=chat_id,
                 file_ids=file_ids,
                 chat_mode='assistant',
+                role_id=role_id,
                 chat_web_search_enabled=chat_web_search_enabled,
                 chat_web_search_privacy_override=chat_web_search_privacy_override,
             ):
@@ -298,6 +300,8 @@ async def answer_question(
                     diagnostics_context=diagnostics_context,
                     chat_id=chat_id,
                     file_ids=file_ids,
+                    chat_mode=normalized_chat_mode or 'researcher',
+                    role_id=role_id,
                 ):
                     yield item
                 return
@@ -329,6 +333,8 @@ async def answer_question(
                     diagnostics_context=diagnostics_context,
                     chat_id=chat_id,
                     file_ids=file_ids,
+                    chat_mode=normalized_chat_mode or 'researcher',
+                    role_id=role_id,
                 ):
                     if isinstance(item, list):
                         for source in item:

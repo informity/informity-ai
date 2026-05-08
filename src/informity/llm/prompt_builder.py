@@ -130,6 +130,7 @@ def build_messages(
     model_profile: ModelProfile | None = None,
     system_prompt: str | None = None,
     chat_mode: str | None = None,
+    role_id: str | None = None,
 ) -> list[dict[str, str]]:
     # Build messages for LLM. Context chunks formatted with [Source: N] labels
     # for LLM understanding (document boundaries, structure, provenance).
@@ -178,7 +179,7 @@ def build_messages(
 
     # Build system message
     active_system_prompt = (
-        compose_persona_prompt(persona_id='researcher_rag', chat_mode=chat_mode)
+        compose_persona_prompt(persona_id='researcher_rag', chat_mode=chat_mode, role_id=role_id)
         if system_prompt is None
         else str(system_prompt)
     )

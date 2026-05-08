@@ -142,6 +142,7 @@ export interface ChatMessageApi {
   created_at?: string
   generation_seconds?: number
   chat_mode?: ChatMode
+  role_id?: string | null
 }
 
 export interface ChatMessageDisplay {
@@ -167,6 +168,7 @@ export interface ChatMessageDisplay {
   createdAt?: string
   generationSeconds?: number
   chatMode?: ChatMode
+  roleId?: string | null
   nextAction?: NextAction
   nextActionReason?: NextActionReason | null
   continuationPasses?: number
