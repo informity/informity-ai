@@ -151,7 +151,7 @@ MODE_REGISTRY: dict[str, ModeProfile] = {
 ROLE_REGISTRY: dict[str, RoleProfile] = {
     'legal': RoleProfile(
         id='legal',
-        name='US Legal Advisor',
+        name='Legal',
         description='Reviews documents and questions through a US legal risk lens.',
         icon='ri-scales-3-line',
         overlay_prompt=(
@@ -164,7 +164,7 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
     ),
     'security_compliance': RoleProfile(
         id='security_compliance',
-        name='Security & Compliance Reviewer',
+        name='Security & Compliance',
         description='Evaluates security controls, data handling, and compliance obligations.',
         icon='ri-shield-check-line',
         overlay_prompt=(
@@ -177,7 +177,7 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
     ),
     'financial': RoleProfile(
         id='financial',
-        name='Financial Analyst',
+        name='Financial',
         description='Analyzes cost drivers, budget implications, and financial risk.',
         icon='ri-line-chart-line',
         overlay_prompt=(
@@ -189,7 +189,7 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
     ),
     'technical': RoleProfile(
         id='technical',
-        name='Technical Reviewer',
+        name='Technical',
         description='Evaluates architecture, implementation feasibility, and technical risk.',
         icon='ri-terminal-box-line',
         overlay_prompt=(
