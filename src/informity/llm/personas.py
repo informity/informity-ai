@@ -1,6 +1,6 @@
 # ==============================================================================
-# Informity AI — Persona Registry
-# Centralized persona profiles and prompt composition utilities.
+# Informity AI — Mode/Role Profiles
+# Centralized mode profiles, role overlays, and prompt composition utilities.
 # ==============================================================================
 
 from __future__ import annotations
@@ -11,8 +11,8 @@ from informity.llm.chat_mode import normalize_chat_mode
 
 
 @dataclass(frozen=True)
-class PersonaProfile:
-    """Profile describing a runtime persona configuration."""
+class ModeProfile:
+    """Required operational profile selected by chat mode/runtime path."""
 
     id: str
     name: str
@@ -21,8 +21,21 @@ class PersonaProfile:
     mode_policy: str = ''
     disclaimer: str = ''
     capabilities: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class RoleProfile:
+    """Optional domain overlay profile composed on top of a mode profile."""
+
+    id: str
+    name: str
+    description: str
+    overlay_prompt: str
+    icon: str = ''
+    disclaimer: str = ''
+    capabilities: tuple[str, ...] = ()
     retrieval_hints: tuple[str, ...] = ()
-    visible_in_ui: bool = False
+    visible_in_ui: bool = True
 
 
 _ASSISTANT_DEFAULT_PROMPT = """You are Informity AI, a helpful AI assistant. Answer conversationally, clearly, and directly.
@@ -96,36 +109,36 @@ Assistant Mode Rules:
 2. When the user specifies focus terms (for example: \"focused on X and Y\" or \"include A, B, C\"), ensure those terms appear in the final answer.
 """
 
-PERSONA_REGISTRY: dict[str, PersonaProfile] = {
-    'assistant_default': PersonaProfile(
+MODE_REGISTRY: dict[str, ModeProfile] = {
+    'assistant_default': ModeProfile(
         id='assistant_default',
         name='Assistant (Default)',
         description='General conversational assistant mode persona.',
         identity_prompt=_ASSISTANT_DEFAULT_PROMPT,
         capabilities=('chat',),
     ),
-    'assistant_web_search_synthesis': PersonaProfile(
+    'assistant_web_search_synthesis': ModeProfile(
         id='assistant_web_search_synthesis',
         name='Assistant Web Synthesis',
         description='Assistant persona for synthesizing web search results.',
         identity_prompt=_ASSISTANT_WEB_SEARCH_SYNTHESIS_PROMPT,
         capabilities=('chat', 'web_search'),
     ),
-    'researcher_default': PersonaProfile(
+    'researcher_default': ModeProfile(
         id='researcher_default',
         name='Researcher (Default)',
         description='Research-aware conversational assistant mode persona.',
         identity_prompt=_RESEARCHER_SIMPLE_PROMPT,
         capabilities=('chat', 'retrieval_awareness'),
     ),
-    'chat_summary': PersonaProfile(
+    'chat_summary': ModeProfile(
         id='chat_summary',
         name='Chat Summary',
         description='Persona for summarizing prior chat conversation only.',
         identity_prompt=_CHAT_SUMMARY_PROMPT,
         capabilities=('chat_summary',),
     ),
-    'researcher_rag': PersonaProfile(
+    'researcher_rag': ModeProfile(
         id='researcher_rag',
         name='Researcher RAG',
         description='Strict retrieval-grounded persona for RAG response generation.',
@@ -135,37 +148,90 @@ PERSONA_REGISTRY: dict[str, PersonaProfile] = {
     ),
 }
 
+ROLE_REGISTRY: dict[str, RoleProfile] = {}
 
-def get_persona_profile(persona_id: str) -> PersonaProfile:
-    """Resolve a persona profile by id."""
+
+def get_mode_profile(mode_id: str) -> ModeProfile:
+    """Resolve a mode profile by id."""
     try:
-        return PERSONA_REGISTRY[persona_id]
+        return MODE_REGISTRY[mode_id]
     except KeyError as exc:
-        raise KeyError(f'Unknown persona_id: {persona_id}') from exc
+        raise KeyError(f'Unknown mode_id: {mode_id}') from exc
 
 
-def get_persona_prompt(persona_id: str) -> str:
-    """Resolve persona prompt text by id."""
-    return get_persona_profile(persona_id).identity_prompt
+def get_role_profile(role_id: str) -> RoleProfile:
+    """Resolve a role profile by id."""
+    try:
+        return ROLE_REGISTRY[role_id]
+    except KeyError as exc:
+        raise KeyError(f'Unknown role_id: {role_id}') from exc
 
 
-def compose_persona_prompt(*, persona_id: str, chat_mode: str | None = None) -> str:
-    """Compose persona prompt with optional mode policy overlay."""
-    profile = get_persona_profile(persona_id)
-    prompt = profile.identity_prompt
-    if profile.mode_policy and normalize_chat_mode(chat_mode) == 'assistant':
-        prompt += profile.mode_policy
+def get_mode_prompt(mode_id: str) -> str:
+    return get_mode_profile(mode_id).identity_prompt
+
+
+def compose_prompt(
+    *,
+    mode_id: str,
+    chat_mode: str | None = None,
+    role_id: str | None = None,
+) -> str:
+    """Compose final prompt from mode profile + optional role overlay."""
+    mode_profile = get_mode_profile(mode_id)
+    prompt = mode_profile.identity_prompt
+    if mode_profile.mode_policy and normalize_chat_mode(chat_mode) == 'assistant':
+        prompt += mode_profile.mode_policy
+
+    if role_id:
+        role_profile = get_role_profile(role_id)
+        if role_profile.overlay_prompt:
+            prompt = f'{prompt}\n\nRole Overlay:\n{role_profile.overlay_prompt}'
+        if role_profile.disclaimer:
+            prompt = f'{prompt}\n\nRole Disclaimer:\n{role_profile.disclaimer}'
+
     return prompt
 
 
-def resolve_runtime_persona_id(chat_mode: str | None) -> str:
-    """Resolve default runtime persona for simple chat by mode."""
+def resolve_runtime_mode_id(chat_mode: str | None) -> str:
+    """Resolve default runtime mode profile for simple chat by mode."""
     if normalize_chat_mode(chat_mode) == 'assistant':
         return 'assistant_default'
     return 'researcher_default'
 
 
+# Backward-compatibility wrappers retained during ModeProfile/RoleProfile transition.
+PersonaProfile = ModeProfile
+PERSONA_REGISTRY = MODE_REGISTRY
+
+
+def get_persona_profile(persona_id: str) -> ModeProfile:
+    return get_mode_profile(persona_id)
+
+
+def get_persona_prompt(persona_id: str) -> str:
+    return get_mode_prompt(persona_id)
+
+
+def compose_persona_prompt(*, persona_id: str, chat_mode: str | None = None) -> str:
+    return compose_prompt(mode_id=persona_id, chat_mode=chat_mode)
+
+
+def resolve_runtime_persona_id(chat_mode: str | None) -> str:
+    return resolve_runtime_mode_id(chat_mode)
+
+
 __all__ = [
+    'ModeProfile',
+    'RoleProfile',
+    'MODE_REGISTRY',
+    'ROLE_REGISTRY',
+    'compose_prompt',
+    'get_mode_profile',
+    'get_mode_prompt',
+    'get_role_profile',
+    'resolve_runtime_mode_id',
+    # Backward-compat exports.
     'PersonaProfile',
     'PERSONA_REGISTRY',
     'compose_persona_prompt',
