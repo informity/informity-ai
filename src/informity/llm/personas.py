@@ -149,8 +149,8 @@ MODE_REGISTRY: dict[str, ModeProfile] = {
 }
 
 ROLE_REGISTRY: dict[str, RoleProfile] = {
-    'legal_us': RoleProfile(
-        id='legal_us',
+    'legal': RoleProfile(
+        id='legal',
         name='US Legal Advisor',
         description='Reviews documents and questions through a US legal risk lens.',
         icon='ri-scales-3-line',
@@ -175,8 +175,8 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
         capabilities=('security', 'compliance'),
         retrieval_hints=('SOC 2', 'GDPR', 'PCI', 'NIST', 'retention', 'encryption'),
     ),
-    'financial_analyst': RoleProfile(
-        id='financial_analyst',
+    'financial': RoleProfile(
+        id='financial',
         name='Financial Analyst',
         description='Analyzes cost drivers, budget implications, and financial risk.',
         icon='ri-line-chart-line',
@@ -187,8 +187,8 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
         capabilities=('finance',),
         retrieval_hints=('cost', 'budget', 'revenue', 'margin', 'expense', 'forecast'),
     ),
-    'technical_reviewer': RoleProfile(
-        id='technical_reviewer',
+    'technical': RoleProfile(
+        id='technical',
         name='Technical Reviewer',
         description='Evaluates architecture, implementation feasibility, and technical risk.',
         icon='ri-terminal-box-line',
