@@ -9,10 +9,10 @@ import { PageHeader } from '../PageHeader'
 import { ServiceUnavailableState } from '../ServiceUnavailableState'
 import { useChatContext } from '../../context/useChatContext'
 import { useBackendStatus } from '../../context/useBackendStatus'
-import { getCurrentChat, getSettings } from '../../api'
-import { isChatMode, type ChatFileScope, type ChatMessageDisplay, type ChatMode } from '../../types/api'
+import { getCurrentChat, getRoles, getSettings } from '../../api'
+import { isChatMode, type ChatFileScope, type ChatMessageDisplay, type ChatMode, type ChatRoleDefinition } from '../../types/api'
 import { logApiError } from '../../utils/logApiError'
-import { CHAT_MODE_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
+import { CHAT_MODE_STORAGE_KEY, CHAT_ROLE_ID_STORAGE_KEY, CHAT_ROLES_ENABLED_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
 import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
 import { getFileIcon } from '../../utils/fileFormatting'
 import './ChatView.css'
@@ -94,6 +94,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const [fullPrivacyMode, setFullPrivacyMode] = useState(true)
   const [webSearchConfigured, setWebSearchConfigured] = useState(false)
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
+  const [rolesEnabled, setRolesEnabled] = useState(false)
+  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
+  const [roles, setRoles] = useState<ChatRoleDefinition[]>([])
+  const [roleMenuOpen, setRoleMenuOpen] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [animateToDocked, setAnimateToDocked] = useState(false)
   const [textareaCanScroll, setTextareaCanScroll] = useState(false)
@@ -109,6 +113,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const showScrollRef = useRef(false)
   const isNearBottomRef = useRef(true)
   const modeMenuRef = useRef<HTMLDivElement>(null)
+  const roleMenuRef = useRef<HTMLDivElement>(null)
   const consumedInitialScopeRef = useRef<string | null>(null)
   const skipNextSelectChatIdRef = useRef<string | null>(null)
   const draftPendingAliasChatIdRef = useRef<string | null>(null)
@@ -155,6 +160,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
 
   useEffect(() => {
     let cancelled = false
+    let rolesCancelled = false
     let hasStoredMode = false
     try {
       const raw = window.localStorage.getItem(CHAT_MODE_STORAGE_KEY)
@@ -162,6 +168,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         hasStoredMode = true
         setChatMode(raw)
       }
+      setRolesEnabled(window.localStorage.getItem(CHAT_ROLES_ENABLED_KEY) === '1')
+      const storedRoleId = String(window.localStorage.getItem(CHAT_ROLE_ID_STORAGE_KEY) || '').trim()
+      if (storedRoleId) setSelectedRoleId(storedRoleId)
     } catch {
       // ignore storage errors
     }
@@ -185,8 +194,15 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         }
       })
       .catch((err) => logApiError(err, 'ChatView.getSettings.default_chat_mode'))
+    getRoles()
+      .then((items) => {
+        if (rolesCancelled) return
+        setRoles(Array.isArray(items) ? items : [])
+      })
+      .catch((err) => logApiError(err, 'ChatView.getRoles'))
     return () => {
       cancelled = true
+      rolesCancelled = true
     }
   }, [])
 
@@ -216,6 +232,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       if (modeMenuRef.current && !modeMenuRef.current.contains(target)) {
         setModeMenuOpen(false)
       }
+      if (roleMenuRef.current && !roleMenuRef.current.contains(target)) {
+        setRoleMenuOpen(false)
+      }
     }
     document.addEventListener('mousedown', handlePointerDown)
     return () => document.removeEventListener('mousedown', handlePointerDown)
@@ -224,8 +243,31 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   useEffect(() => {
     if (offline || isStreaming) {
       setModeMenuOpen(false)
+      setRoleMenuOpen(false)
     }
   }, [offline, isStreaming])
+
+  useEffect(() => {
+    if (rolesEnabled) return
+    if (selectedRoleId == null) return
+    setSelectedRoleId(null)
+    try {
+      window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
+    } catch {
+      // ignore storage errors
+    }
+  }, [rolesEnabled, selectedRoleId])
+
+  useEffect(() => {
+    if (!selectedRoleId) return
+    if (roles.some((role) => role.id === selectedRoleId)) return
+    setSelectedRoleId(null)
+    try {
+      window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
+    } catch {
+      // ignore storage errors
+    }
+  }, [roles, selectedRoleId])
 
   useEffect(() => {
     if (isForceNewChatRequested()) return
@@ -483,11 +525,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     if (offline) return
     void continueLastScope(anchorMessageId, {
       mode: chatMode,
+      roleId: rolesEnabled ? selectedRoleId : null,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, continueLastScope, chatMode, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, continueLastScope, chatMode, rolesEnabled, selectedRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleRegenerate = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -499,11 +542,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     if (!previousUser) return
     void sendMessage(previousUser.content, {
       mode: chatMode,
+      roleId: rolesEnabled ? selectedRoleId : null,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, isStreaming, messages, sendMessage, chatMode, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, isStreaming, messages, sendMessage, chatMode, rolesEnabled, selectedRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleAskInAssistant = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -522,6 +566,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     }
     void sendMessage(previousUser.content, {
       mode: 'assistant',
+      roleId: rolesEnabled ? selectedRoleId : null,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
@@ -532,6 +577,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     hasScopedInputPill,
     messages,
     sendMessage,
+    rolesEnabled,
+    selectedRoleId,
     chatFileScope,
     chatWebSearchPrivacyOverride,
     chatWebSearchEnabled,
@@ -566,11 +613,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     setInputValue('')
     await sendMessage(text, {
       mode: chatMode,
+      roleId: rolesEnabled ? selectedRoleId : null,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, inputValue, sendMessage, chatMode, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, inputValue, sendMessage, chatMode, rolesEnabled, selectedRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleStop = useCallback(() => {
     if (offline) return
@@ -650,6 +698,35 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       privacyOverride: nextPrivacyOverride,
     })
   }, [webSearchToggleLocked, chatWebSearchEnabled, fullPrivacyMode, setChatWebSearchPreferences])
+
+  const selectedRole = roles.find((role) => role.id === selectedRoleId) ?? null
+  const rolesToggleLocked = offline || isStreaming
+  const roleSelectorDisabled = rolesToggleLocked || !rolesEnabled || roles.length === 0
+  const roleButtonLabel = selectedRole?.name || 'General'
+
+  const handleRolesEnabledToggle = useCallback(() => {
+    if (rolesToggleLocked) return
+    const next = !rolesEnabled
+    setRolesEnabled(next)
+    setRoleMenuOpen(false)
+    if (!next) {
+      setSelectedRoleId(null)
+      try {
+        window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
+      } catch {
+        // ignore storage errors
+      }
+    }
+    try {
+      if (next) {
+        window.localStorage.setItem(CHAT_ROLES_ENABLED_KEY, '1')
+      } else {
+        window.localStorage.removeItem(CHAT_ROLES_ENABLED_KEY)
+      }
+    } catch {
+      // ignore storage errors
+    }
+  }, [rolesToggleLocked, rolesEnabled])
 
   const handleUploadControl = useCallback(() => {
     if (offline || isStreaming || chatMode !== 'researcher') return
@@ -1032,6 +1109,66 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       )}
                     </div>
                     <div className="chat-view__controls-right">
+                      <label className="chat-view__roles-toggle" title="Enable specialist lenses that shape how answers are framed.">
+                        <input
+                          type="checkbox"
+                          checked={rolesEnabled}
+                          onChange={handleRolesEnabledToggle}
+                          disabled={rolesToggleLocked}
+                          aria-label="Enable roles"
+                        />
+                        <span>Enable roles</span>
+                        <span className="ui-tooltip-trigger" aria-hidden>
+                          <i className="ri-information-line" />
+                          <span className="ui-tooltip ui-tooltip--compact ui-tooltip--up-right">
+                            Roles apply a domain-specific lens to assistant responses.
+                          </span>
+                        </span>
+                      </label>
+                      <div ref={roleMenuRef} className="chat-view__mode-selector">
+                        <button
+                          type="button"
+                          className="chat-view__mode-button"
+                          onClick={() => setRoleMenuOpen((open) => !open)}
+                          disabled={roleSelectorDisabled}
+                          aria-haspopup="menu"
+                          aria-expanded={roleMenuOpen}
+                          aria-label="Select role"
+                          title={rolesEnabled ? 'Select role overlay' : 'Enable roles to choose a role'}
+                        >
+                          <i className={selectedRole?.icon || 'ri-user-settings-line'} aria-hidden />
+                          <span>{roleButtonLabel}</span>
+                          <i className="ri-arrow-down-s-line" aria-hidden />
+                        </button>
+                        {roleMenuOpen && (
+                          <div className="chat-view__mode-menu" role="menu">
+                            {roles.map((role) => (
+                              <span key={role.id} className="chat-view__mode-option-wrap">
+                                <button
+                                  type="button"
+                                  className={`chat-view__mode-option${selectedRoleId === role.id ? ' chat-view__mode-option--active' : ''}`}
+                                  role="menuitemradio"
+                                  aria-checked={selectedRoleId === role.id}
+                                  disabled={roleSelectorDisabled}
+                                  onClick={() => {
+                                    setSelectedRoleId(role.id)
+                                    setRoleMenuOpen(false)
+                                    try {
+                                      window.localStorage.setItem(CHAT_ROLE_ID_STORAGE_KEY, role.id)
+                                    } catch {
+                                      // ignore storage errors
+                                    }
+                                  }}
+                                  title={role.description}
+                                >
+                                  <i className={role.icon || 'ri-user-settings-line'} aria-hidden />
+                                  <span>{role.name}</span>
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                       <div ref={modeMenuRef} className="chat-view__mode-selector">
                         <button
                           type="button"

@@ -685,6 +685,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     options?: {
       isInternal?: boolean
       mode?: ChatMode
+      roleId?: string | null
       fileScope?: ChatFileScope | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
@@ -693,6 +694,9 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const message = text.trim()
     const isInternalMessage = !!options?.isInternal
     const chatMode: ChatMode = options?.mode ?? 'researcher'
+    const roleId = typeof options?.roleId === 'string' && options.roleId.trim().length > 0
+      ? options.roleId.trim()
+      : null
     const providedScope = options?.fileScope ?? null
     const chatWebSearchEnabled = !!options?.chatWebSearchEnabled
     const chatWebSearchPrivacyOverride = !!options?.chatWebSearchPrivacyOverride
@@ -1226,6 +1230,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         },
       }, {
         mode: chatMode,
+        roleId,
         requestId,
         fileId: effectiveFileScope?.fileId ?? null,
         scopedUploadIds: effectiveScopedUploadIds.length > 0 ? effectiveScopedUploadIds : null,
@@ -1249,6 +1254,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     anchorMessageId?: number,
     options?: {
       mode?: ChatMode
+      roleId?: string | null
       fileScope?: ChatFileScope | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
@@ -1262,6 +1268,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       {
         isInternal: true,
         mode: options?.mode ?? 'researcher',
+        roleId: options?.roleId ?? null,
         fileScope: options?.fileScope ?? null,
         chatWebSearchEnabled: options?.chatWebSearchEnabled ?? false,
         chatWebSearchPrivacyOverride: options?.chatWebSearchPrivacyOverride ?? false,

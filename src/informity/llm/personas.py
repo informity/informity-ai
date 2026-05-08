@@ -148,7 +148,58 @@ MODE_REGISTRY: dict[str, ModeProfile] = {
     ),
 }
 
-ROLE_REGISTRY: dict[str, RoleProfile] = {}
+ROLE_REGISTRY: dict[str, RoleProfile] = {
+    'legal_us': RoleProfile(
+        id='legal_us',
+        name='US Legal Advisor',
+        description='Reviews documents and questions through a US legal risk lens.',
+        icon='ri-scales-3-line',
+        overlay_prompt=(
+            'Prioritize legal risk identification, obligations, liabilities, jurisdiction clauses, '
+            'and ambiguous terms. Distinguish facts from legal interpretation and call out uncertainty.'
+        ),
+        disclaimer='Informity AI is not a lawyer and this is not legal advice.',
+        capabilities=('legal',),
+        retrieval_hints=('liability', 'indemnification', 'jurisdiction', 'termination', 'governing law'),
+    ),
+    'security_compliance': RoleProfile(
+        id='security_compliance',
+        name='Security & Compliance Reviewer',
+        description='Evaluates security controls, data handling, and compliance obligations.',
+        icon='ri-shield-check-line',
+        overlay_prompt=(
+            'Prioritize security and compliance analysis: controls, data flows, retention, access, '
+            'auditability, and policy gaps. Map findings to common frameworks when evidence supports it.'
+        ),
+        disclaimer='This is informational only and not a formal compliance attestation.',
+        capabilities=('security', 'compliance'),
+        retrieval_hints=('SOC 2', 'GDPR', 'PCI', 'NIST', 'retention', 'encryption'),
+    ),
+    'financial_analyst': RoleProfile(
+        id='financial_analyst',
+        name='Financial Analyst',
+        description='Analyzes cost drivers, budget implications, and financial risk.',
+        icon='ri-line-chart-line',
+        overlay_prompt=(
+            'Prioritize financial interpretation: cost structure, assumptions, pricing, budget impact, '
+            'material risks, and sensitivity to uncertain inputs.'
+        ),
+        capabilities=('finance',),
+        retrieval_hints=('cost', 'budget', 'revenue', 'margin', 'expense', 'forecast'),
+    ),
+    'technical_reviewer': RoleProfile(
+        id='technical_reviewer',
+        name='Technical Reviewer',
+        description='Evaluates architecture, implementation feasibility, and technical risk.',
+        icon='ri-terminal-box-line',
+        overlay_prompt=(
+            'Prioritize technical clarity: architecture tradeoffs, feasibility, implementation details, '
+            'dependencies, operational risk, and testing implications.'
+        ),
+        capabilities=('technical',),
+        retrieval_hints=('architecture', 'dependency', 'latency', 'scalability', 'implementation'),
+    ),
+}
 
 
 def get_mode_profile(mode_id: str) -> ModeProfile:
@@ -165,6 +216,13 @@ def get_role_profile(role_id: str) -> RoleProfile:
         return ROLE_REGISTRY[role_id]
     except KeyError as exc:
         raise KeyError(f'Unknown role_id: {role_id}') from exc
+
+
+def list_role_profiles(*, visible_only: bool = True) -> list[RoleProfile]:
+    profiles = list(ROLE_REGISTRY.values())
+    if visible_only:
+        profiles = [profile for profile in profiles if profile.visible_in_ui]
+    return profiles
 
 
 def get_mode_prompt(mode_id: str) -> str:
@@ -230,6 +288,7 @@ __all__ = [
     'get_mode_profile',
     'get_mode_prompt',
     'get_role_profile',
+    'list_role_profiles',
     'resolve_runtime_mode_id',
     # Backward-compat exports.
     'PersonaProfile',

@@ -195,6 +195,14 @@ export interface ChatFileScope {
   filename: string
 }
 
+export interface ChatRoleDefinition {
+  id: string
+  name: string
+  description: string
+  icon?: string | null
+  disclaimer?: string | null
+}
+
 export interface IndexedFile {
   id: number
   path: string

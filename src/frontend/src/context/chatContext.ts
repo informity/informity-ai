@@ -35,6 +35,7 @@ export interface ChatContextValue {
     options?: {
       isInternal?: boolean
       mode?: ChatMode
+      roleId?: string | null
       fileScope?: ChatFileScope | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
@@ -44,6 +45,7 @@ export interface ChatContextValue {
     anchorMessageId?: number,
     options?: {
       mode?: ChatMode
+      roleId?: string | null
       fileScope?: ChatFileScope | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean

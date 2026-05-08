@@ -116,8 +116,11 @@ def test_compose_prompt_mode_only_matches_legacy_composer() -> None:
     )
 
 
-def test_role_registry_defaults_empty_for_phase_0_5() -> None:
-    assert ROLE_REGISTRY == {}
+def test_role_registry_contains_builtin_roles() -> None:
+    assert 'legal_us' in ROLE_REGISTRY
+    assert 'security_compliance' in ROLE_REGISTRY
+    assert 'financial_analyst' in ROLE_REGISTRY
+    assert 'technical_reviewer' in ROLE_REGISTRY
 
 
 def test_system_prompt_exports_match_golden_baseline_exactly() -> None:
