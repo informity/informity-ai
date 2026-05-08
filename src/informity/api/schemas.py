@@ -103,6 +103,7 @@ class ChatRequest(BaseModel):
     request_id: str | None = None  # Optional client-generated request ID for deterministic stop
     run_id: str | None = None      # Optional diagnostics run correlation ID
     mode: str | None = None        # Optional chat mode: assistant | researcher (invalid -> researcher)
+    role_id: str | None = None     # Optional domain role overlay ID
     chat_web_search_enabled: bool | None = None  # Optional chat-scoped assistant web-search toggle
     chat_web_search_privacy_override: bool | None = None  # Optional chat-scoped privacy override for web search
 
@@ -155,6 +156,14 @@ class ChatPreferencesUpdateRequest(BaseModel):
         if self.chat_web_search_enabled is None and self.chat_web_search_privacy_override is None:
             raise ValueError('At least one chat preference field is required')
         return self
+
+
+class ChatRoleDefinition(BaseModel):
+    id: str
+    name: str
+    description: str
+    icon: str | None = None
+    disclaimer: str | None = None
 
 
 class ChatStopRequest(BaseModel):
