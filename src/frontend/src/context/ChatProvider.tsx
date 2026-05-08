@@ -587,6 +587,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           createdAt: m.created_at,
           generationSeconds: m.generation_seconds,
           chatMode: inferredAssistantMode,
+          roleId: typeof m.role_id === 'string' && m.role_id.trim().length > 0 ? m.role_id.trim() : null,
           scopedFileName: m.role === 'assistant' ? resolvedFileScope?.filename ?? null : null,
         }
       })
