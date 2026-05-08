@@ -457,6 +457,8 @@ class Settings(BaseSettings):
     chat_summary_max_chars_per_message: int = 900
     # Default chat mode shown in the Chat UI.
     default_chat_mode: Literal['assistant', 'researcher'] = 'researcher'
+    # When true, role overlays can be selected in chat UI.
+    enable_chat_roles: bool = False
     # Chat auto-continuation policy for long/strict outputs.
     chat_auto_continue_enabled: bool = True
     chat_auto_continue_default_max_rounds: int = 2
@@ -705,6 +707,7 @@ def reset_to_factory_defaults() -> Settings:
         'chat_trace_logging':      False,
         'enable_raw_output_control': False,
         'default_chat_mode':      'researcher',
+        'enable_chat_roles':      False,
         'rag_minimal_mode':        True,
         'adaptive_rag_tuning':     True,  # Enabled by default
         'ui_theme':                 _DEFAULT_UI_THEME,

@@ -12,7 +12,7 @@ import { useBackendStatus } from '../../context/useBackendStatus'
 import { getCurrentChat, getRoles, getSettings } from '../../api'
 import { isChatMode, type ChatFileScope, type ChatMessageDisplay, type ChatMode, type ChatRoleDefinition } from '../../types/api'
 import { logApiError } from '../../utils/logApiError'
-import { CHAT_MODE_STORAGE_KEY, CHAT_ROLE_ID_STORAGE_KEY, CHAT_ROLES_ENABLED_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
+import { CHAT_MODE_STORAGE_KEY, CHAT_ROLE_ID_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
 import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
 import { getFileIcon } from '../../utils/fileFormatting'
 import './ChatView.css'
@@ -38,6 +38,7 @@ interface ChatSettingsResponse {
   default_chat_mode?: ChatMode
   full_privacy?: boolean
   web_search_configured?: boolean
+  enable_chat_roles?: boolean
 }
 
 interface SettingsUpdatedEvent extends Event {
@@ -168,7 +169,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         hasStoredMode = true
         setChatMode(raw)
       }
-      setRolesEnabled(window.localStorage.getItem(CHAT_ROLES_ENABLED_KEY) === '1')
       const storedRoleId = String(window.localStorage.getItem(CHAT_ROLE_ID_STORAGE_KEY) || '').trim()
       if (storedRoleId) setSelectedRoleId(storedRoleId)
     } catch {
@@ -181,6 +181,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         const mode = settings?.default_chat_mode
         setFullPrivacyMode(!!settings?.full_privacy)
         setWebSearchConfigured(!!settings?.web_search_configured)
+        setRolesEnabled(!!settings?.enable_chat_roles)
         if (isChatMode(mode)) {
           setDefaultChatMode(mode)
         }
@@ -215,6 +216,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       }
       if (typeof detail.web_search_configured === 'boolean') {
         setWebSearchConfigured(detail.web_search_configured)
+      }
+      if (typeof detail.enable_chat_roles === 'boolean') {
+        setRolesEnabled(detail.enable_chat_roles)
       }
       if (isChatMode(detail.default_chat_mode)) {
         setDefaultChatMode(detail.default_chat_mode)
@@ -700,33 +704,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   }, [webSearchToggleLocked, chatWebSearchEnabled, fullPrivacyMode, setChatWebSearchPreferences])
 
   const selectedRole = roles.find((role) => role.id === selectedRoleId) ?? null
-  const rolesToggleLocked = offline || isStreaming
-  const roleSelectorDisabled = rolesToggleLocked || !rolesEnabled || roles.length === 0
+  const roleSelectorDisabled = offline || isStreaming || !rolesEnabled || roles.length === 0
   const roleButtonLabel = selectedRole?.name || 'General'
-
-  const handleRolesEnabledToggle = useCallback(() => {
-    if (rolesToggleLocked) return
-    const next = !rolesEnabled
-    setRolesEnabled(next)
-    setRoleMenuOpen(false)
-    if (!next) {
-      setSelectedRoleId(null)
-      try {
-        window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
-      } catch {
-        // ignore storage errors
-      }
-    }
-    try {
-      if (next) {
-        window.localStorage.setItem(CHAT_ROLES_ENABLED_KEY, '1')
-      } else {
-        window.localStorage.removeItem(CHAT_ROLES_ENABLED_KEY)
-      }
-    } catch {
-      // ignore storage errors
-    }
-  }, [rolesToggleLocked, rolesEnabled])
 
   const handleUploadControl = useCallback(() => {
     if (offline || isStreaming || chatMode !== 'researcher') return
@@ -1109,22 +1088,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       )}
                     </div>
                     <div className="chat-view__controls-right">
-                      <label className="chat-view__roles-toggle" title="Enable specialist lenses that shape how answers are framed.">
-                        <input
-                          type="checkbox"
-                          checked={rolesEnabled}
-                          onChange={handleRolesEnabledToggle}
-                          disabled={rolesToggleLocked}
-                          aria-label="Enable roles"
-                        />
-                        <span>Enable roles</span>
-                        <span className="ui-tooltip-trigger" aria-hidden>
-                          <i className="ri-information-line" />
-                          <span className="ui-tooltip ui-tooltip--compact ui-tooltip--up-right">
-                            Roles apply a domain-specific lens to assistant responses.
-                          </span>
-                        </span>
-                      </label>
                       <div ref={roleMenuRef} className="chat-view__mode-selector">
                         <button
                           type="button"
