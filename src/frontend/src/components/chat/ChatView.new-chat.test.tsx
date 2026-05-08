@@ -172,6 +172,63 @@ describe('ChatView new chat behavior', () => {
     expect(streamChatMock.mock.calls[0][3]).toMatchObject({ requestId: expect.any(String) })
   })
 
+  it('accepts trailing inline selection on Tab without sending message', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockResolvedValue(undefined)
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({ messages: [] })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    const input = screen.getByLabelText('Chat message input') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: 'hello world' } })
+    input.focus()
+    input.setSelectionRange(6, 11)
+
+    const dispatchResult = fireEvent.keyDown(input, { key: 'Tab' })
+    expect(dispatchResult).toBe(false)
+    expect(input.selectionStart).toBe(11)
+    expect(input.selectionEnd).toBe(11)
+    expect(streamChatMock).not.toHaveBeenCalled()
+  })
+
+  it('keeps focus in composer on Tab when no inline selection is active', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockResolvedValue(undefined)
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({ messages: [] })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    const input = screen.getByLabelText('Chat message input') as HTMLTextAreaElement
+    fireEvent.change(input, { target: { value: 'hello world' } })
+    input.focus()
+    input.setSelectionRange(11, 11)
+
+    const dispatchResult = fireEvent.keyDown(input, { key: 'Tab' })
+    expect(dispatchResult).toBe(false)
+    expect(document.activeElement).toBe(input)
+    expect(streamChatMock).not.toHaveBeenCalled()
+  })
+
   it('retains file scope when opening a scoped chat from history and uses it on send', async () => {
     getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
