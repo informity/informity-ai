@@ -814,6 +814,10 @@ def _row_to_scan_error_record(row: aiosqlite.Row) -> ScanErrorRecord:
 
 def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
     # Convert a SQLite row to a ChatMessage model.
+    try:
+        role_id = row['role_id']
+    except (KeyError, IndexError):
+        role_id = None
     return ChatMessage(
         id                 = row['id'],
         chat_id            = row['chat_id'],
@@ -827,7 +831,7 @@ def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
         next_action        = row['next_action'],
         next_action_reason = row['next_action_reason'],
         chat_mode          = row['chat_mode'],
-        role_id            = row['role_id'] if 'role_id' in row.keys() else None,
+        role_id            = role_id,
         retrieval_scope_kind = row['retrieval_scope_kind'],
         retrieval_scope_key = row['retrieval_scope_key'],
         model_filename     = row['model_filename'],

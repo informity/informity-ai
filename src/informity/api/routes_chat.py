@@ -1090,7 +1090,7 @@ async def chat(
             filenames_by_file_id.get(file_id) or f'File {file_id}'
             for file_id in scoped_file_ids
         ]
-    
+
     first_user_role_id = (
         str(first_user_message.role_id or '').strip() or None
         if first_user_message is not None

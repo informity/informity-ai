@@ -38,7 +38,7 @@ interface ChatSettingsResponse {
   default_chat_mode?: ChatMode
   full_privacy?: boolean
   web_search_configured?: boolean
-  enable_chat_roles?: boolean
+  enabled_chat_role_ids?: string[]
 }
 
 interface SettingsUpdatedEvent extends Event {
@@ -121,7 +121,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const [fullPrivacyMode, setFullPrivacyMode] = useState(true)
   const [webSearchConfigured, setWebSearchConfigured] = useState(false)
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
-  const [rolesEnabled, setRolesEnabled] = useState(false)
+  const [enabledRoleIds, setEnabledRoleIds] = useState<string[]>([])
+  const [hasConfiguredEnabledRoleIds, setHasConfiguredEnabledRoleIds] = useState(false)
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
   const [roles, setRoles] = useState<ChatRoleDefinition[]>([])
   const [rolesLoaded, setRolesLoaded] = useState(false)
@@ -208,7 +209,13 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         const mode = settings?.default_chat_mode
         setFullPrivacyMode(!!settings?.full_privacy)
         setWebSearchConfigured(!!settings?.web_search_configured)
-        setRolesEnabled(!!settings?.enable_chat_roles)
+        if (Array.isArray(settings?.enabled_chat_role_ids)) {
+          setEnabledRoleIds(settings.enabled_chat_role_ids)
+          setHasConfiguredEnabledRoleIds(true)
+        } else {
+          setEnabledRoleIds([])
+          setHasConfiguredEnabledRoleIds(false)
+        }
         if (isChatMode(mode)) {
           setDefaultChatMode(mode)
         }
@@ -249,8 +256,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       if (typeof detail.web_search_configured === 'boolean') {
         setWebSearchConfigured(detail.web_search_configured)
       }
-      if (typeof detail.enable_chat_roles === 'boolean') {
-        setRolesEnabled(detail.enable_chat_roles)
+      if (Array.isArray(detail.enabled_chat_role_ids)) {
+        setEnabledRoleIds(detail.enabled_chat_role_ids)
+        setHasConfiguredEnabledRoleIds(true)
       }
       if (isChatMode(detail.default_chat_mode)) {
         setDefaultChatMode(detail.default_chat_mode)
@@ -284,28 +292,29 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   }, [offline, isStreaming])
 
   useEffect(() => {
-    if (rolesEnabled) return
-    if (selectedRoleId == null) return
-    setSelectedRoleId(null)
-    try {
-      window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
-    } catch {
-      // ignore storage errors
-    }
-  }, [rolesEnabled, selectedRoleId])
-
-  useEffect(() => {
     if (!rolesLoaded) return
     if (!selectedRoleId) return
-    if (roles.some((role) => role.id === selectedRoleId)) return
     if (messages.length > 0) return
+    if (!roles.some((role) => role.id === selectedRoleId)) {
+      setSelectedRoleId(null)
+      try {
+        window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
+      } catch {
+        // ignore storage errors
+      }
+      return
+    }
+    const normalizedEnabledRoleIds = hasConfiguredEnabledRoleIds
+      ? enabledRoleIds
+      : roles.map((role) => role.id)
+    if (normalizedEnabledRoleIds.includes(selectedRoleId)) return
     setSelectedRoleId(null)
     try {
       window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
     } catch {
       // ignore storage errors
     }
-  }, [roles, selectedRoleId, rolesLoaded, messages.length])
+  }, [roles, selectedRoleId, rolesLoaded, messages.length, enabledRoleIds, hasConfiguredEnabledRoleIds])
 
   useEffect(() => {
     if (isForceNewChatRequested()) return
@@ -375,6 +384,13 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   )
   const effectiveChatMode: ChatMode = lockedMode ?? chatMode
   const effectiveRoleId = lockedRoleId ?? selectedRoleId
+  const effectiveEnabledRoleIds = (
+    hasConfiguredEnabledRoleIds
+      ? enabledRoleIds
+      : roles.map((role) => role.id)
+  )
+  const rolesSelectable = effectiveEnabledRoleIds.length > 0
+  const requestRoleId = lockedRoleId ?? (rolesSelectable ? effectiveRoleId : null)
   const hiddenUploadCount = Math.max(0, chatUploads.length - visibleUploadCount)
   const visibleUploads = hiddenUploadCount > 0 ? chatUploads.slice(0, visibleUploadCount) : chatUploads
   const recomputeVisibleUploadCount = useCallback(() => {
@@ -583,12 +599,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     if (offline) return
     void continueLastScope(anchorMessageId, {
       mode: effectiveChatMode,
-      roleId: rolesEnabled ? effectiveRoleId : null,
+      roleId: requestRoleId,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, continueLastScope, effectiveChatMode, rolesEnabled, effectiveRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, continueLastScope, effectiveChatMode, requestRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleRegenerate = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -600,12 +616,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     if (!previousUser) return
     void sendMessage(previousUser.content, {
       mode: effectiveChatMode,
-      roleId: rolesEnabled ? effectiveRoleId : null,
+      roleId: requestRoleId,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, isStreaming, messages, sendMessage, effectiveChatMode, rolesEnabled, effectiveRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, isStreaming, messages, sendMessage, effectiveChatMode, requestRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleAskInAssistant = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -627,7 +643,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     }
     void sendMessage(previousUser.content, {
       mode: 'assistant',
-      roleId: rolesEnabled ? effectiveRoleId : null,
+      roleId: requestRoleId,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
@@ -638,8 +654,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     hasScopedInputPill,
     messages,
     sendMessage,
-    rolesEnabled,
-    effectiveRoleId,
+    requestRoleId,
     chatFileScope,
     chatWebSearchPrivacyOverride,
     chatWebSearchEnabled,
@@ -677,12 +692,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     setInputValue('')
     await sendMessage(text, {
       mode: effectiveChatMode,
-      roleId: rolesEnabled ? effectiveRoleId : null,
+      roleId: requestRoleId,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, inputValue, sendMessage, effectiveChatMode, rolesEnabled, effectiveRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, inputValue, sendMessage, effectiveChatMode, requestRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleStop = useCallback(() => {
     if (offline) return
@@ -763,6 +778,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     })
   }, [webSearchToggleLocked, chatWebSearchEnabled, fullPrivacyMode, setChatWebSearchPreferences])
 
+  const enabledRoles = roles.filter((role) => effectiveEnabledRoleIds.includes(role.id))
   const selectedRole = roles.find((role) => role.id === effectiveRoleId) ?? (
     effectiveRoleId
       ? {
@@ -774,11 +790,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       : null
   )
   const modeSelectorDisabled = offline || isStreaming || chatSessionLocked
-  const roleSelectorDisabled = offline || isStreaming || roles.length === 0 || chatSessionLocked
+  const roleSelectorDisabled = offline || isStreaming || enabledRoles.length === 0 || chatSessionLocked
   const roleButtonLabel = selectedRole?.name || 'General'
   const hasRoleDocContext = !!chatFileScope || chatUploads.some((item) => item.state === 'ready')
   const showRoleSelector = (
-    rolesEnabled
+    (rolesSelectable || lockedRoleId != null || !rolesLoaded)
+    && (enabledRoles.length > 0 || lockedRoleId != null || !rolesLoaded)
     && (
       effectiveChatMode === 'assistant'
       || (effectiveChatMode === 'researcher' && hasRoleDocContext)
@@ -795,12 +812,17 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     setRoleMenuOpen(false)
   }, [showRoleSelector])
 
+  const lockedRoleMissingFromEnabled = (
+    !!lockedRoleId
+    && !effectiveEnabledRoleIds.includes(lockedRoleId)
+    && roles.some((role) => role.id === lockedRoleId)
+  )
+
   useEffect(() => {
-    if (!rolesEnabled) return
     if (lockedRoleId == null) return
     if (lockedRoleId === selectedRoleId) return
     setSelectedRoleId(lockedRoleId)
-  }, [lockedRoleId, rolesEnabled, selectedRoleId])
+  }, [lockedRoleId, selectedRoleId])
 
   useEffect(() => {
     if (lockedMode == null) return
@@ -1230,7 +1252,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                 <span>General</span>
                               </button>
                             </span>
-                            {roles.map((role) => (
+                            {enabledRoles.map((role) => (
                               <span key={role.id} className="chat-view__mode-option-wrap">
                                 <button
                                   type="button"
@@ -1254,6 +1276,21 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                 </button>
                               </span>
                             ))}
+                            {lockedRoleMissingFromEnabled && selectedRole && (
+                              <span key={`${selectedRole.id}-locked`} className="chat-view__mode-option-wrap">
+                                <button
+                                  type="button"
+                                  className="chat-view__mode-option chat-view__mode-option--disabled"
+                                  role="menuitemradio"
+                                  aria-checked
+                                  disabled
+                                  title="Disabled in Settings for new chats"
+                                >
+                                  <i className={selectedRole.icon || 'ri-user-settings-line'} aria-hidden />
+                                  <span>{selectedRole.name}</span>
+                                </button>
+                              </span>
+                            )}
                           </div>
                         )}
                       </div>

@@ -8,13 +8,14 @@ import { Link } from 'react-router-dom'
 import {
   cancelModelDownload,
   downloadModel,
+  getRoles,
   getModelOperationEvents,
   getModelProfile,
   getModelsCatalog,
   type ModelOperationEventResponse,
   type ModelsCatalogResponse,
 } from '../../api'
-import { isChatMode, type ChatMode } from '../../types/api'
+import { isChatMode, type ChatMode, type ChatRoleDefinition } from '../../types/api'
 import { SETTINGS_ACTIVE_TAB_STORAGE_KEY } from '../../utils/storageKeys'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_OPTIONS, UI_THEME_STORAGE_KEY } from '../../utils/uiTheme'
 import { formatModelSizeGb } from '../../utils/formatModelSizeGb'
@@ -173,7 +174,7 @@ interface SettingsData {
   adaptive_rag_tuning?: boolean
   chat_history_messages?: number
   default_chat_mode?: ChatMode
-  enable_chat_roles?: boolean
+  enabled_chat_role_ids?: string[]
   entity_extract_acronym?: boolean
   entity_extract_person_name?: boolean
   entity_extract_organization?: boolean
@@ -222,7 +223,7 @@ interface FormState {
   adaptive_rag_tuning: boolean
   chat_history_messages: number
   default_chat_mode: ChatMode
-  enable_chat_roles: boolean
+  enabled_chat_role_ids: string[]
   entity_extract_acronym: boolean
   entity_extract_person_name: boolean
   entity_extract_organization: boolean
@@ -277,7 +278,7 @@ function buildFormState(settings: SettingsData): FormState {
     adaptive_rag_tuning: settings.adaptive_rag_tuning ?? true,
     chat_history_messages: settings.chat_history_messages ?? 5,
     default_chat_mode: isChatMode(settings.default_chat_mode) ? settings.default_chat_mode : 'researcher',
-    enable_chat_roles: settings.enable_chat_roles ?? false,
+    enabled_chat_role_ids: Array.isArray(settings.enabled_chat_role_ids) ? settings.enabled_chat_role_ids : [],
     entity_extract_acronym: settings.entity_extract_acronym ?? true,
     entity_extract_person_name: settings.entity_extract_person_name ?? false,
     entity_extract_organization: settings.entity_extract_organization ?? false,
@@ -333,11 +334,28 @@ export function SettingsView({
   const [dirInput, setDirInput] = useState('')
   const [ignoreInput, setIgnoreInput] = useState('')
   const [modelsCatalog, setModelsCatalog] = useState<ModelsCatalogResponse | null>(null)
+  const [availableRoles, setAvailableRoles] = useState<ChatRoleDefinition[]>([])
   const [modelDownloadPending, setModelDownloadPending] = useState(false)
   const [modelDownloadError, setModelDownloadError] = useState<string | null>(null)
   const [modelEvent, setModelEvent] = useState<ModelOperationEventResponse | null>(null)
   const modelEventStateRef = useRef<ModelOperationEventResponse['state'] | null>(null)
   const persistedModel = canonicalizeModelFilename(settings?.llm_model_filename ?? '')
+
+  useEffect(() => {
+    let cancelled = false
+    getRoles()
+      .then((roles) => {
+        if (cancelled) return
+        setAvailableRoles(Array.isArray(roles) ? roles : [])
+      })
+      .catch(() => {
+        if (cancelled) return
+        setAvailableRoles([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
   const effectiveProfile = previewProfile ?? settings?.model_profile
 
   useEffect(() => {
@@ -800,24 +818,41 @@ export function SettingsView({
               </option>
             ))}
           </select>
-          <label className="settings-checkbox-row" style={{ marginTop: '0.75rem' }}>
-            <input
-              type="checkbox"
-              checked={form.enable_chat_roles ?? false}
-              onChange={(e) => update('enable_chat_roles', e.target.checked)}
-            />
-            <div>
-              <span className="settings-checkbox-row-label">
-                Enable roles
-                <span className="settings-checkbox-row-info ui-tooltip-trigger">
-                  <i className="ri-information-line" aria-hidden="true" />
-                  <span className="settings-tooltip ui-tooltip">
-                    Add role-based guidance to responses (best with scoped documents)
-                  </span>
-                </span>
-              </span>
+        </div>
+
+        <div className="settings-subsection">
+          <div className="settings-subsection-head ui-subsection-head">
+            <div className="settings-subsection-title ui-subsection-title">
+              <i className="ri-user-settings-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              Specialized AI Roles
             </div>
-          </label>
+            <p className="settings-subsection-description ui-subsection-description">
+              Enable domain-specific response lenses. Selected roles appear in chat role selection.
+            </p>
+          </div>
+          <div>
+            <div className="settings-file-types">
+              {availableRoles.map((role) => {
+                const checked = (form.enabled_chat_role_ids || []).includes(role.id)
+                return (
+                  <label key={role.id} className="settings-file-type">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        const current = form.enabled_chat_role_ids || []
+                        const next = checked
+                          ? current.filter((id) => id !== role.id)
+                          : [...current, role.id]
+                        update('enabled_chat_role_ids', next)
+                      }}
+                    />
+                    <span>{role.name}</span>
+                  </label>
+                )
+              })}
+            </div>
+          </div>
         </div>
 
         <div className="settings-subsection">

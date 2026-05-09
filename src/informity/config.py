@@ -459,6 +459,8 @@ class Settings(BaseSettings):
     default_chat_mode: Literal['assistant', 'researcher'] = 'researcher'
     # When true, role overlays can be selected in chat UI.
     enable_chat_roles: bool = False
+    # Enabled built-in role IDs shown in the role picker when roles are enabled.
+    enabled_chat_role_ids: list[str] = Field(default_factory=list)
     # Chat auto-continuation policy for long/strict outputs.
     chat_auto_continue_enabled: bool = True
     chat_auto_continue_default_max_rounds: int = 2
@@ -708,6 +710,7 @@ def reset_to_factory_defaults() -> Settings:
         'enable_raw_output_control': False,
         'default_chat_mode':      'researcher',
         'enable_chat_roles':      False,
+        'enabled_chat_role_ids':  [],
         'rag_minimal_mode':        True,
         'adaptive_rag_tuning':     True,  # Enabled by default
         'ui_theme':                 _DEFAULT_UI_THEME,

@@ -340,6 +340,7 @@ class SettingsResponse(BaseModel):
     chat_history_messages_researcher: int = 5  # Researcher mode history window
     default_chat_mode: Literal['assistant', 'researcher'] = 'researcher'
     enable_chat_roles: bool = False
+    enabled_chat_role_ids: list[str] = Field(default_factory=list)
     entity_extract_acronym: bool = True
     entity_extract_person_name: bool = False
     entity_extract_organization: bool = False
@@ -419,6 +420,7 @@ class SettingsUpdateRequest(BaseModel):
     chat_history_messages_researcher: int | None = None  # Researcher mode history window
     default_chat_mode: Literal['assistant', 'researcher'] | None = None
     enable_chat_roles: bool | None = None
+    enabled_chat_role_ids: list[str] | None = None
     entity_extract_acronym: bool | None = None
     entity_extract_person_name: bool | None = None
     entity_extract_organization: bool | None = None

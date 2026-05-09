@@ -18,6 +18,8 @@ from informity.db.sqlite import (
     insert_chat_upload_attachment,
     insert_file,
 )
+
+
 async def _insert_indexed_file(db, *, path: str, filename: str, content_hash: str) -> int:
     now = datetime.now(UTC)
     indexed_file = await insert_file(
