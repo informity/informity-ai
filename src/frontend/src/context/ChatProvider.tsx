@@ -41,6 +41,8 @@ interface ChatProviderProps {
 
 interface GetChatResponse {
   messages?: ChatMessageApi[]
+  chat_mode?: ChatMode
+  role_id?: string | null
   chat_web_search_enabled?: boolean
   chat_web_search_privacy_override?: boolean
 }
@@ -62,6 +64,11 @@ const STREAM_STATUS_LABELS: Record<string, string> = {
   generating: 'Generating response...',
   continuing: 'Continuing response...',
   finalizing: 'Finalizing answer...',
+}
+
+function isTransientFetchFailure(err: unknown): boolean {
+  const msg = String((err as { message?: unknown })?.message || '').trim().toLowerCase()
+  return msg.includes('failed to fetch') || msg.includes('networkerror') || msg.includes('load failed')
 }
 
 function normalizeCompletionMode(
@@ -285,6 +292,8 @@ async function resolveFileScopeFromHistory(messages: ChatMessageApi[]): Promise<
 
 export function ChatProvider({ children }: ChatProviderProps) {
   const [currentChatId, setCurrentChatIdState] = useState<string | null>(null)
+  const [currentChatLockedMode, setCurrentChatLockedMode] = useState<ChatMode | null>(null)
+  const [currentChatLockedRoleId, setCurrentChatLockedRoleId] = useState<string | null>(null)
   const [activeGenerationChatId, setActiveGenerationChatId] = useState<string | null>(null)
   const [activeGenerationRequestId, setActiveGenerationRequestId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessageDisplay[]>([])
@@ -518,9 +527,22 @@ export function ChatProvider({ children }: ChatProviderProps) {
     setLoadingChat(true)
     setMessages([])
     try {
-      const data = (await getChat(selectedChatId)) as GetChatResponse
+      let data: GetChatResponse
+      try {
+        data = (await getChat(selectedChatId)) as GetChatResponse
+      } catch (firstErr) {
+        if (!isTransientFetchFailure(firstErr)) throw firstErr
+        await new Promise((resolve) => setTimeout(resolve, 250))
+        data = (await getChat(selectedChatId)) as GetChatResponse
+      }
       if (chatLoadSessionRef.current !== sessionId) return
       const historyMessages = data.messages || []
+      const lockedChatMode = isChatMode(data.chat_mode) ? data.chat_mode : undefined
+      const lockedRoleId = typeof data.role_id === 'string' && data.role_id.trim().length > 0
+        ? data.role_id.trim()
+        : null
+      setCurrentChatLockedMode(lockedChatMode ?? null)
+      setCurrentChatLockedRoleId(lockedRoleId)
       const resolvedPrefs = {
         enabled: data.chat_web_search_enabled === true,
         privacyOverride: data.chat_web_search_privacy_override === true,
@@ -539,7 +561,13 @@ export function ChatProvider({ children }: ChatProviderProps) {
         }
       }
       setChatFileScope(resolvedFileScope)
-      await refreshChatUploads(selectedChatId)
+      try {
+        await refreshChatUploads(selectedChatId)
+      } catch (uploadErr) {
+        // Non-fatal for history open; keep the chat readable even if uploads refresh
+        // had a transient transport error.
+        if (!isTransientFetchFailure(uploadErr)) throw uploadErr
+      }
       const storedModes = readStoredMessageModes()
       const mapped: ChatMessageDisplay[] = historyMessages.map((m, index) => {
         const completionMode = normalizeCompletionMode(m.completion_mode)
@@ -555,15 +583,17 @@ export function ChatProvider({ children }: ChatProviderProps) {
           ? [...(historyBlocks || []), recoveryCallout]
           : historyBlocks
         const storedMode = typeof m.id === 'number' ? storedModes[String(m.id)] : undefined
+        const explicitMessageMode = isChatMode(m.chat_mode) ? m.chat_mode : undefined
         const inferredAssistantMode: ChatMode | undefined = (
           m.role === 'assistant'
             ? (
                 storedMode
-                ?? (isChatMode(m.chat_mode) ? m.chat_mode : undefined)
+                ?? explicitMessageMode
+                ?? lockedChatMode
                 ?? (nextActionReason === 'out_of_corpus' ? 'researcher' : undefined)
                 ?? ((m.sources?.length || 0) > 0 ? 'researcher' : undefined)
               )
-            : undefined
+            : (explicitMessageMode ?? lockedChatMode)
         )
         return {
           id: m.id,
@@ -587,7 +617,11 @@ export function ChatProvider({ children }: ChatProviderProps) {
           createdAt: m.created_at,
           generationSeconds: m.generation_seconds,
           chatMode: inferredAssistantMode,
-          roleId: typeof m.role_id === 'string' && m.role_id.trim().length > 0 ? m.role_id.trim() : null,
+          roleId: (
+            typeof m.role_id === 'string' && m.role_id.trim().length > 0
+              ? m.role_id.trim()
+              : lockedRoleId
+          ),
           scopedFileName: m.role === 'assistant' ? resolvedFileScope?.filename ?? null : null,
         }
       })
@@ -609,6 +643,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
         persistStoredChatFileScopes(chatFileScopesRef.current)
         currentChatIdRef.current = null
         setCurrentChatIdState(null)
+        setCurrentChatLockedMode(null)
+        setCurrentChatLockedRoleId(null)
         setChatWebSearchEnabled(false)
         setChatWebSearchPrivacyOverride(false)
         setChatFileScope(null)
@@ -748,6 +784,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       content: '',
       sources: [],
       chatMode,
+      roleId,
       scopedFileName: effectiveFileScope?.filename ?? null,
       isStreaming: true,
       isContinuation: isInternalMessage,
@@ -878,6 +915,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           stoppedByUser,
           generationSeconds: elapsed,
           chatMode,
+          roleId,
           nextAction,
           nextActionReason,
           continuationPasses,
@@ -904,6 +942,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 stoppedByUser,
                 generationSeconds: elapsed ?? last.generationSeconds,
                 chatMode: chatMode ?? last.chatMode,
+                roleId: roleId ?? last.roleId,
                 scopedFileName: effectiveFileScope?.filename ?? last.scopedFileName ?? null,
                 nextAction,
                 nextActionReason,
@@ -1287,6 +1326,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
     setLoadingChat(false)
     currentChatIdRef.current = null
     setCurrentChatIdState(null)
+    setCurrentChatLockedMode(null)
+    setCurrentChatLockedRoleId(null)
     setChatWebSearchEnabled(false)
     setChatWebSearchPrivacyOverride(false)
     setChatFileScope(null)
@@ -1329,6 +1370,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
     <ChatContext.Provider
       value={{
         currentChatId,
+        currentChatLockedMode,
+        currentChatLockedRoleId,
         setCurrentChatId,
         activeGenerationChatId,
         activeGenerationRequestId,

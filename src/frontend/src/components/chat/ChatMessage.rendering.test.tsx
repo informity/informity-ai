@@ -166,6 +166,92 @@ describe('ChatMessage markdown rendering', () => {
     expect(container.querySelector('.chat-message__block--metric')).not.toBeNull()
   })
 
+  it('renders structured list/checklist blocks with nesting', () => {
+    const { container } = render(
+      <ChatMessage
+        role="assistant"
+        content={'fallback'}
+        displayBlocks={[
+          {
+            type: 'list',
+            ordered: false,
+            items: [
+              { text: 'Top done', level: 0, checked: true },
+              { text: 'Top todo', level: 0, checked: false },
+              { text: 'Child', level: 1, checked: null },
+            ],
+          },
+        ]}
+        isStreaming={false}
+      />,
+    )
+
+    expect(screen.getByText('Top done')).toBeInTheDocument()
+    expect(screen.getByText('Top todo')).toBeInTheDocument()
+    expect(screen.getByText('Child')).toBeInTheDocument()
+    expect(container.querySelectorAll('.chat-message__block--list ul li').length).toBe(3)
+    expect(container.querySelectorAll('.chat-message__block--list input[type="checkbox"]').length).toBe(2)
+  })
+
+  it('renders inline markdown formatting inside structured list items', () => {
+    render(
+      <ChatMessage
+        role="assistant"
+        content={'fallback'}
+        displayBlocks={[
+          {
+            type: 'list',
+            ordered: false,
+            items: [
+              { text: '**Important:** check this', level: 0, checked: null },
+            ],
+          },
+        ]}
+        isStreaming={false}
+      />,
+    )
+
+    expect(screen.getByText('Important:')).toBeInTheDocument()
+    expect(document.querySelector('.chat-message__block--list strong')).not.toBeNull()
+  })
+
+  it('renders structured quote blocks', () => {
+    const { container } = render(
+      <ChatMessage
+        role="assistant"
+        content={'fallback'}
+        displayBlocks={[
+          { type: 'quote', text: 'Trust, but verify.', attribution: 'Security maxim' },
+        ]}
+        isStreaming={false}
+      />,
+    )
+
+    expect(screen.getByText('Trust, but verify.')).toBeInTheDocument()
+    expect(screen.getByText('Security maxim')).toBeInTheDocument()
+    expect(container.querySelector('.chat-message__block--quote')).not.toBeNull()
+  })
+
+  it('renders inline markdown formatting inside structured table cells', () => {
+    const { container } = render(
+      <ChatMessage
+        role="assistant"
+        content={'fallback'}
+        displayBlocks={[
+          {
+            type: 'table',
+            columns: ['Risk', 'Role'],
+            rows: [['**Data Exfiltration**', 'Analyst']],
+          },
+        ]}
+        isStreaming={false}
+      />,
+    )
+
+    expect(screen.getByText('Data Exfiltration')).toBeInTheDocument()
+    expect(container.querySelector('.chat-message__table-scroll td strong')).not.toBeNull()
+  })
+
   it('renders readable draft text while streaming instead of markdown structure', () => {
     const { container } = render(
       <ChatMessage

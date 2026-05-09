@@ -111,8 +111,8 @@ export function HistoryTable({
   const handleOpenChat = useCallback(
     (chatId: string) => {
       if (offline) return
-      // Prime shared chat state immediately so selected history chat becomes active
-      // even before Chat page effects run.
+      // Prime chat state immediately, then navigate with route-state handoff.
+      // This keeps history-open robust even if route transition timing varies.
       void selectChat(chatId)
       navigate('/chat', { state: { chatId } })
     },

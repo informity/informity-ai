@@ -7,6 +7,8 @@ import type { ChatFileScope, ChatMessageDisplay, ChatMode, ChatUploadAttachment 
 
 export interface ChatContextValue {
   currentChatId: string | null
+  currentChatLockedMode: ChatMode | null
+  currentChatLockedRoleId: string | null
   setCurrentChatId: (id: string | null) => void
   activeGenerationChatId: string | null
   activeGenerationRequestId: string | null

@@ -15,7 +15,7 @@ from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.chat_mode import normalize_chat_mode
 from informity.llm.model_adapter import get_effective_context_length
-from informity.llm.personas import compose_persona_prompt
+from informity.llm.personas import compose_prompt
 
 if TYPE_CHECKING:
     from informity.llm.model_adapter import ModelProfile
@@ -179,7 +179,7 @@ def build_messages(
 
     # Build system message
     active_system_prompt = (
-        compose_persona_prompt(persona_id='researcher_rag', chat_mode=chat_mode, role_id=role_id)
+        compose_prompt(mode_id='researcher_rag', chat_mode=chat_mode, role_id=role_id)
         if system_prompt is None
         else str(system_prompt)
     )

@@ -123,14 +123,32 @@
   margin-top: 0;
 }
 
-.chat-message__markdown ul,
+.chat-message__markdown ul {
+  margin: 0.45rem 0;
+  padding-left: 1.35rem;
+  list-style-position: outside;
+}
+
 .chat-message__markdown ol {
   margin: 0.45rem 0;
   padding-left: 1.35rem;
+  list-style-position: outside;
 }
 
 .chat-message__markdown li {
   margin: 0.2rem 0;
+}
+
+.chat-message__block--list ul {
+  margin: 0.45rem 0;
+  padding-left: 1.35rem;
+  list-style-position: outside;
+}
+
+.chat-message__block--list ol {
+  margin: 0.45rem 0;
+  padding-left: 1.35rem;
+  list-style-position: outside;
 }
 
 .chat-message__markdown li > p {
@@ -145,6 +163,17 @@
 .chat-message__markdown li > ul,
 .chat-message__markdown li > ol {
   margin: 0.28rem 0 0.22rem 0;
+}
+
+.chat-message__markdown li input[type='checkbox'] {
+  appearance: auto;
+  -webkit-appearance: checkbox;
+  width: auto;
+  height: auto;
+  margin: 0 0.5rem 0 0;
+  vertical-align: middle;
+  transform: translateY(-1px);
+  pointer-events: none;
 }
 
 .chat-message__markdown a {
@@ -166,12 +195,38 @@
   padding: 0.05rem 0 0.05rem 0.8rem;
   border-left: 3px solid var(--color-border);
   color: var(--color-text-muted);
+  font-size: var(--font-size-base);
+}
+
+.chat-message__markdown blockquote p {
+  font-size: var(--font-size-base);
+}
+
+.chat-message__block--quote {
+  margin: 0.75rem 0;
+  padding: 0.05rem 0 0.05rem 0.8rem;
+  border-left: 3px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-base);
+}
+
+.chat-message__block--quote p {
+  margin: 0;
+  font-size: var(--font-size-base);
+}
+
+.chat-message__block--quote cite {
+  display: block;
+  margin-top: 0.35rem;
+  font-style: normal;
+  font-size: 0.9em;
+  color: var(--color-text-dimmed);
 }
 
 .chat-message__markdown hr {
   margin: 0.9rem 0;
   border: 0;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px var(--layout-divider-style) color-mix(in srgb, var(--layout-divider-color) 65%, transparent);
 }
 
 .chat-message__markdown code {
@@ -247,6 +302,11 @@
 .chat-message__table-scroll th[data-align='center'],
 .chat-message__table-scroll td[data-align='center'] {
   text-align: center;
+}
+
+/* Keep non-numeric header columns left-aligned. */
+.chat-message__table-scroll th[data-align='center'] {
+  text-align: left;
 }
 
 .chat-message__table-scroll tr:last-child td {
