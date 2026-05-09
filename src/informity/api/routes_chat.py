@@ -62,6 +62,7 @@ from informity.api.context_scope_manager import (
     resolve_retrieval_context_scope_key,
 )
 from informity.api.error_messages import to_client_error_message
+from informity.api.role_evidence_fallback import apply_role_evidence_fallback
 from informity.api.schemas import (
     ChatPreferencesUpdateRequest,
     ChatRequest,
@@ -97,7 +98,7 @@ from informity.db.sqlite import (
     update_chat_upload_attachment_state,
     upsert_chat_preferences,
 )
-from informity.diagnostics.observer import EvalMetrics, detect_issues, estimate_evidence_metrics
+from informity.diagnostics.observer import EvalMetrics, detect_issues
 from informity.diagnostics.resource_snapshot import build_resource_delta, capture_resource_snapshot
 from informity.indexer.pipeline import index_file, remove_file
 from informity.llm.chat_mode import resolve_chat_mode
@@ -1807,8 +1808,10 @@ async def chat(
                 finalized_sources = True
 
                 full_answer = ''.join(answer_parts).strip()
+                model_raw_answer = full_answer
                 if not full_answer:
                     full_answer = 'I could not find enough information to answer your question.'
+                    model_raw_answer = full_answer
                     log.warning('chat_empty_after_cleaning', chat_id=chat_id)
                 requested_max_words = answer_sanitization.extract_requested_max_words(message_text)
                 if isinstance(requested_max_words, int) and requested_max_words > 0:
@@ -1863,12 +1866,28 @@ async def chat(
                     completion_mode_override = CompletionMode.SCOPED_COMPLETE
                     if continuation_resolution_reason is None:
                         continuation_resolution_reason = structural_incomplete_reason
-                estimated_unsupported_claim_count, estimated_evidence_coverage_rate, estimated_not_found_count = (
-                    estimate_evidence_metrics(
-                        answer=cleaned_answer if cleaned_answer else full_answer,
-                        source_texts=[str(source.get('chunk_preview', '') or '') for source in source_dicts],
-                    )
+                (
+                    finalized_answer_for_metrics,
+                    estimated_unsupported_claim_count,
+                    estimated_evidence_coverage_rate,
+                    estimated_not_found_count,
+                    role_fallback_applied,
+                ) = apply_role_evidence_fallback(
+                    answer=cleaned_answer if cleaned_answer else full_answer,
+                    source_items=source_dicts,
+                    chat_mode=resolved_chat_mode,
+                    role_id=resolved_role_id,
                 )
+                if role_fallback_applied:
+                    full_answer = finalized_answer_for_metrics
+                    cleaned_answer = finalized_answer_for_metrics
+                    log.info(
+                        'role_evidence_fallback_applied',
+                        chat_id=chat_id,
+                        role_id=resolved_role_id,
+                        unsupported_claim_count=estimated_unsupported_claim_count,
+                        evidence_coverage_rate=estimated_evidence_coverage_rate,
+                    )
                 budget_metrics['unsupported_claim_count'] = estimated_unsupported_claim_count
                 budget_metrics['evidence_coverage_rate'] = estimated_evidence_coverage_rate
                 budget_metrics['not_found_count'] = estimated_not_found_count
@@ -1918,7 +1937,7 @@ async def chat(
                 assistant_message = ChatMessage(
                     chat_id=chat_id,
                     role='assistant',
-                    content=full_answer,
+                    content=model_raw_answer,
                     sources=source_dicts,
                     model_filename=settings.llm_model_filename,
                     generation_seconds=generation_seconds,
@@ -1985,6 +2004,9 @@ async def chat(
                         'rerank_ms',
                         'prompt_duration_ms',
                         'prompt_build_ms',
+                        'llm_submit_ms',
+                        'llm_queue_wait_ms',
+                        'llm_decode_first_token_ms',
                         'first_token_latency_ms',
                         'ttft_ms',
                         'stream_duration_ms',

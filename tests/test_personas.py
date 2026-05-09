@@ -114,6 +114,7 @@ def test_role_overlay_is_additive_and_keeps_mode_prompt_prefix() -> None:
     assert 'Role Scope:' in legal
     assert 'Role Analysis Checklist:' in legal
     assert 'Role Output Preferences:' in legal
+    assert 'Role Evidence Discipline:' in legal
     assert 'Role Overlay:' in legal
     assert 'Role Disclaimer:' in legal
 

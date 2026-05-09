@@ -27,11 +27,20 @@ _EVIDENCE_CLAIM_SIGNAL_PATTERN = re.compile(
     r'(?:\d|\$|%|\b(?:total|balance|amount|conflict|difference|delta|increase|decrease)\b)',
     re.IGNORECASE,
 )
+_MEANINGFUL_NUMERIC_PATTERN = re.compile(
+    r'(?:\$\s*\d[\d,]*(?:\.\d+)?|\d+(?:\.\d+)?\s*%|\b(?:19|20)\d{2}\b|\b\d{3,}\b)',
+    re.IGNORECASE,
+)
 _LIKELY_REASON_PATTERN = re.compile(
     r'(?:\blikely\s+reason\b|\bprobable\s+reason\b|\bpossible\s+reason\b|\breason\s*:)',
     re.IGNORECASE,
 )
 _NOT_FOUND_PATTERN = re.compile(r'\bnot found\b', re.IGNORECASE)
+_NON_FACTUAL_CLAIM_PATTERN = re.compile(
+    r'^(?:\s*(?:recommended|recommendation|follow-?up|open questions?|unknowns?|uncertainty|assumptions?)\b|'
+    r'.*\b(?:should|could|may|might|consider|recommend)\b)',
+    re.IGNORECASE,
+)
 _EVIDENCE_STOPWORDS = {
     'the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'onto', 'about',
     'were', 'was', 'are', 'have', 'has', 'had', 'their', 'there', 'which', 'while',
@@ -198,10 +207,14 @@ def estimate_evidence_metrics(
             continue
         if not _EVIDENCE_CLAIM_SIGNAL_PATTERN.search(claim):
             continue
-        has_numeric_signal = any(any(ch.isdigit() for ch in token) for token in claim_tokens)
+        has_numeric_signal = bool(_MEANINGFUL_NUMERIC_PATTERN.search(claim))
         # Explanatory "likely reason" text is useful but often inferential.
         # Keep unsupported-claim counting focused on factual extractive claims.
         if not has_numeric_signal and _LIKELY_REASON_PATTERN.search(claim):
+            continue
+        # Advisory, uncertainty, and recommendation statements are not strict
+        # factual extraction claims; skip them for hallucination counting.
+        if _NON_FACTUAL_CLAIM_PATTERN.search(claim):
             continue
         evaluated_claims += 1
         threshold = 1 if has_numeric_signal else 2

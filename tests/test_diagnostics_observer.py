@@ -88,3 +88,32 @@ def test_estimate_evidence_metrics_skips_non_numeric_likely_reason_claims() -> N
 
     assert unsupported_claim_count == 0
     assert evidence_coverage_rate >= 1.0
+
+
+def test_estimate_evidence_metrics_skips_recommendation_and_uncertainty_claims() -> None:
+    answer = (
+        "- Recommendation: Consider quarterly access reviews.\n"
+        "- Uncertainty: Additional audit logs may be required.\n"
+    )
+    sources = ["Audit logs show quarterly review cadence for privileged access."]
+
+    unsupported_claim_count, evidence_coverage_rate, _ = estimate_evidence_metrics(
+        answer=answer,
+        source_texts=sources,
+    )
+
+    assert unsupported_claim_count == 0
+    assert evidence_coverage_rate >= 1.0
+
+
+def test_estimate_evidence_metrics_ignores_section_number_only_signals() -> None:
+    answer = "- Section 4.2 identifies governance concerns and process gaps."
+    sources = ["Section 4.2 introduces framework overview without governance detail."]
+
+    unsupported_claim_count, evidence_coverage_rate, _ = estimate_evidence_metrics(
+        answer=answer,
+        source_texts=sources,
+    )
+
+    assert unsupported_claim_count == 0
+    assert evidence_coverage_rate >= 1.0

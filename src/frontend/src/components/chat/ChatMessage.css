@@ -6,7 +6,7 @@
 }
 
 html[data-accent='light'] .chat-message {
-  --chat-message-muted-fg: color-mix(in srgb, var(--color-text-dimmed) 72%, white);
+  --chat-message-muted-fg: color-mix(in srgb, var(--color-text-dimmed) 84%, white);
 }
 
 .chat-message--user {
