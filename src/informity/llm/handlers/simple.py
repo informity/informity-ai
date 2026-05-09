@@ -228,6 +228,10 @@ class SimpleHandler:
                         build_metrics_payload(
                             query_type=QueryType.SIMPLE,
                             raw_chunks_count=0,
+                            prompt_build_ms='N/A',
+                            llm_submit_ms='N/A',
+                            llm_queue_wait_ms='N/A',
+                            llm_decode_first_token_ms='N/A',
                             web_search_used=True,
                             web_search_status=web_search_status,
                         ),
@@ -268,6 +272,10 @@ class SimpleHandler:
                         build_metrics_payload(
                             query_type=QueryType.SIMPLE,
                             raw_chunks_count=0,
+                            prompt_build_ms='N/A',
+                            llm_submit_ms='N/A',
+                            llm_queue_wait_ms='N/A',
+                            llm_decode_first_token_ms='N/A',
                             web_search_used=False,
                         ),
                     )
@@ -364,6 +372,7 @@ class SimpleHandler:
                     'web_search_failover_applied': web_search_failover_applied,
                 })
 
+            first_token_ms: float | None = None
             async for token in stream_llm(
                 messages,
                 max_tokens=max_tokens,
@@ -372,6 +381,8 @@ class SimpleHandler:
                 timeout_seconds=timeout_seconds,
                 stop_sequences=stop_sequences,
             ):
+                if first_token_ms is None:
+                    first_token_ms = (time.perf_counter() - llm_start) * 1000
                 token_count += 1
                 yield token
 
@@ -405,6 +416,10 @@ class SimpleHandler:
                 build_metrics_payload(
                     query_type=QueryType.SIMPLE,
                     raw_chunks_count=0,
+                    prompt_build_ms='N/A',
+                    llm_submit_ms='N/A',
+                    llm_queue_wait_ms='N/A',
+                    llm_decode_first_token_ms=round(first_token_ms, 1) if first_token_ms is not None else 'N/A',
                     web_search_used=web_search_used,
                     web_search_status=web_search_status,
                 ),

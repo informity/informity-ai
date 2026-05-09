@@ -333,7 +333,15 @@ def compose_prompt(
         role_sections.append(
             'Role Style Rules:\n'
             '- Start directly with findings; avoid meta-prefaces such as "Based on..." or "According to the scenario...".\n'
-            '- If evidence is limited, state uncertainty explicitly without refusing when a useful partial answer is possible.'
+            '- If evidence is limited, state uncertainty explicitly without refusing when a useful partial answer is possible.\n'
+            '- Do not present role assumptions as facts; label assumptions as assumptions.\n'
+            '- For each major claim, provide an evidence anchor from retrieved context or mark it uncertain.'
+        )
+        role_sections.append(
+            'Role Evidence Discipline:\n'
+            '- Prefer evidence-grounded statements over broad domain-general guidance.\n'
+            '- If retrieved evidence is thin, provide a constrained answer with two sections: "Evidence from Retrieved Context" and "Uncertainty / Missing Evidence".\n'
+            '- Avoid definitive compliance/legal/financial/technical conclusions unless directly supported by retrieved text.'
         )
         if role_profile.disclaimer:
             role_sections.append(

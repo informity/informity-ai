@@ -810,7 +810,7 @@ html[data-accent='light'] .chat-view__scroll-to-bottom:hover {
 }
 
 html[data-accent='light'] .chat-view {
-  --chat-view-muted-fg: color-mix(in srgb, var(--color-text-dimmed) 72%, white);
+  --chat-view-muted-fg: color-mix(in srgb, var(--color-text-dimmed) 84%, white);
   --chat-view-toggle-hover-bg: var(--chat-view-toggle-active-bg);
   --chat-view-toggle-hover-border: transparent;
   --chat-view-toggle-active-bg: var(--color-primary-bg);

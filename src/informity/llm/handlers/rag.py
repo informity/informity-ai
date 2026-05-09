@@ -477,6 +477,10 @@ class RAGHandler:
                     query_type=effective_query_type,
                     raw_chunks_count=0,
                     retrieval_duration_ms=round(inventory_elapsed_ms, 1),
+                    prompt_build_ms='N/A',
+                    llm_submit_ms='N/A',
+                    llm_queue_wait_ms='N/A',
+                    llm_decode_first_token_ms='N/A',
                     generation_skipped=True,
                     minimal_mode=True,
                     deterministic_inventory=True,
@@ -670,6 +674,10 @@ class RAGHandler:
                     'query_type': effective_query_type,
                     'raw_chunks_count': len(chunks),
                     'retrieval_duration_ms': round(retrieval_elapsed_ms, 1),
+                    'prompt_build_ms': 'N/A',
+                    'llm_submit_ms': 'N/A',
+                    'llm_queue_wait_ms': 'N/A',
+                    'llm_decode_first_token_ms': 'N/A',
                     'answerability_passed': False,
                     'answerability_score': round(answerability_score, 4),
                     'answerability_threshold': answerability_threshold,
@@ -722,6 +730,7 @@ class RAGHandler:
             generation_temperature = min(generation_temperature, _SUMMARY_TITLE_MAX_TEMPERATURE)
             generation_top_p = min(generation_top_p, _SUMMARY_TITLE_MAX_TOP_P)
 
+        prompt_build_start = time.perf_counter()
         messages = build_messages(
             question=question,
             context_chunks=chunks,
@@ -733,6 +742,7 @@ class RAGHandler:
             role_id=role_id,
         )
         messages = profile.prepare_messages(messages, effective_query_type)
+        prompt_build_ms = (time.perf_counter() - prompt_build_start) * 1000
 
         if trace is not None:
             trace.record('prompt', {
@@ -818,6 +828,12 @@ class RAGHandler:
                 embed_ms=retrieval_timing.get('embed_ms'),
                 vector_search_ms=retrieval_timing.get('vector_search_ms'),
                 rerank_ms=retrieval_timing.get('rerank_ms'),
+                prompt_build_ms=round(prompt_build_ms, 1),
+                llm_submit_ms='N/A',
+                llm_queue_wait_ms='N/A',
+                llm_decode_first_token_ms=(
+                    round(first_token_ms, 1) if first_token_ms is not None else 'N/A'
+                ),
                 answerability_passed=True,
                 answerability_score=round(answerability_score, 4),
                 answerability_threshold=answerability_threshold,
