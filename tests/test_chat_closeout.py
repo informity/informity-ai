@@ -84,3 +84,39 @@ def test_build_display_blocks_extracts_quote_block() -> None:
     assert blocks[0] == {'type': 'text', 'markdown': 'Context first.'}
     assert blocks[1] == {'type': 'quote', 'text': 'Quoted line one.\nQuoted line two.'}
     assert blocks[2] == {'type': 'text', 'markdown': 'After quote.'}
+
+
+def test_build_display_blocks_normalizes_disclaimer_with_consistent_callout() -> None:
+    answer = (
+        'Findings summary paragraph.\n'
+        '\n'
+        '---\n'
+        'Disclaimer: Informity AI is not a lawyer and this is not legal advice.\n'
+    )
+    blocks = build_display_blocks(answer)
+    assert blocks == [
+        {'type': 'text', 'markdown': 'Findings summary paragraph.'},
+        {
+            'type': 'callout',
+            'tone': 'info',
+            'text': 'Disclaimer: Informity AI is not a lawyer and this is not legal advice.',
+        },
+    ]
+
+
+def test_build_display_blocks_normalizes_bold_disclaimer_with_continuation_line() -> None:
+    answer = (
+        '**Disclaimer:** Informity AI is not a compliance auditor.\n'
+        'This is not a formal compliance attestation.\n'
+    )
+    blocks = build_display_blocks(answer)
+    assert blocks == [
+        {
+            'type': 'callout',
+            'tone': 'info',
+            'text': (
+                'Disclaimer: Informity AI is not a compliance auditor. '
+                'This is not a formal compliance attestation.'
+            ),
+        },
+    ]

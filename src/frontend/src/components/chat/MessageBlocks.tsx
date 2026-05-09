@@ -63,11 +63,25 @@ function MessageBlocksComponent({ blocks, fallbackMarkdown, onCopyCode, codeBloc
               </div>
             )
           case 'callout':
-            return (
-              <div key={key} className={`chat-message__block chat-message__block--callout chat-message__block--${block.tone ?? 'info'}`}>
-                {typeof block.text === 'string' ? block.text : ''}
-              </div>
-            )
+            {
+              const text = typeof block.text === 'string' ? block.text : ''
+              const isDisclaimer = /^disclaimer\s*:/i.test(text.trim())
+              const className = [
+                'chat-message__block',
+                'chat-message__block--callout',
+                `chat-message__block--${block.tone ?? 'info'}`,
+                isDisclaimer ? 'chat-message__block--disclaimer' : '',
+              ].filter(Boolean).join(' ')
+              return (
+                <div key={key} className={className}>
+                  {isDisclaimer ? (
+                    <span className="chat-message__disclaimer-inline">{text}</span>
+                  ) : (
+                    text
+                  )}
+                </div>
+              )
+            }
           case 'metric':
             return (
               <div key={key} className="chat-message__block chat-message__block--metric">
