@@ -14,6 +14,7 @@ import structlog
 
 from informity.api.error_messages import to_client_error_message
 from informity.api.schemas import ChatSourceReference
+from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.db.sqlite import get_chunk_count
 from informity.llm.chat_mode import is_assistant_mode, resolve_chat_mode
@@ -46,6 +47,17 @@ _COMPOUND_SECONDARY_BROAD_SCOPE_PATTERN = re.compile(
     r'\b(all|across|every|each|by\s+year|year[-\s]*by[-\s]*year|cross[-\s]*year|summarize|compare)\b',
     re.IGNORECASE,
 )
+_CLASSIFICATION_TIMEOUT_SECONDS = max(
+    5.0,
+    min(30.0, float(getattr(settings, 'diagnostics_alert_max_first_token_seconds', 45.0) or 45.0) / 2.0),
+)
+
+
+async def _classify_with_timing(question: str, *, history: list[ChatMessage] | None) -> tuple[QueryClassification, float]:
+    classify_start = asyncio.get_running_loop().time()
+    classification = await asyncio.to_thread(classify_query, question, history=history)
+    classify_elapsed_ms = (asyncio.get_running_loop().time() - classify_start) * 1000.0
+    return classification, classify_elapsed_ms
 
 
 def _resolve_handler_for_classification(classification: QueryClassification) -> Any | None:
@@ -134,9 +146,24 @@ async def answer_question(
             classify_elapsed_ms = 0.0
             base_classification = classification
             if base_classification is None:
-                classify_start = asyncio.get_running_loop().time()
-                base_classification = await asyncio.to_thread(classify_query, question, history=history)
-                classify_elapsed_ms = (asyncio.get_running_loop().time() - classify_start) * 1000.0
+                log.info(
+                    'query_classification_begin',
+                    chat_mode='assistant',
+                    timeout_seconds=round(_CLASSIFICATION_TIMEOUT_SECONDS, 1),
+                )
+                try:
+                    base_classification, classify_elapsed_ms = await asyncio.wait_for(
+                        _classify_with_timing(question, history=history),
+                        timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
+                    )
+                except TimeoutError:
+                    log.error(
+                        'query_classification_timeout',
+                        chat_mode='assistant',
+                        timeout_seconds=round(_CLASSIFICATION_TIMEOUT_SECONDS, 1),
+                    )
+                    base_classification = QueryClassification(intent=QueryType.SIMPLE)
+                    classify_elapsed_ms = _CLASSIFICATION_TIMEOUT_SECONDS * 1000.0
 
             # Assistant always routes to SimpleHandler, but we preserve PromptCue
             # freshness/action signals on the forced-simple classification.
@@ -166,8 +193,10 @@ async def answer_question(
                 'query_classified_forced_assistant',
                 intent=QueryType.SIMPLE,
                 chat_mode='assistant',
+                duration_ms=round(classify_elapsed_ms, 1),
             )
             handler = SimpleHandler()
+            first_item_seen = False
             async for item in handler.handle(
                 question=question,
                 classification=forced_classification,
@@ -182,14 +211,23 @@ async def answer_question(
                 chat_web_search_enabled=chat_web_search_enabled,
                 chat_web_search_privacy_override=chat_web_search_privacy_override,
             ):
+                if not first_item_seen:
+                    first_item_seen = True
+                    log.info('assistant_handler_first_item_emitted', chat_mode='assistant')
                 yield item
             return
 
         # 1. Classify query (extract filters and intent)
         if classification is None:
-            classify_start = asyncio.get_running_loop().time()
-            classification = await asyncio.to_thread(classify_query, question, history=history)
-            classify_elapsed_ms = (asyncio.get_running_loop().time() - classify_start) * 1000.0
+            log.info(
+                'query_classification_begin',
+                chat_mode=normalized_chat_mode or 'researcher',
+                timeout_seconds=round(_CLASSIFICATION_TIMEOUT_SECONDS, 1),
+            )
+            classification, classify_elapsed_ms = await asyncio.wait_for(
+                _classify_with_timing(question, history=history),
+                timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
+            )
             if trace is not None:
                 trace.record('classification', {
                     'query_length': len(question),

@@ -63,9 +63,9 @@ from informity.api.context_scope_manager import (
 )
 from informity.api.error_messages import to_client_error_message
 from informity.api.schemas import (
-    ChatRoleDefinition,
     ChatPreferencesUpdateRequest,
     ChatRequest,
+    ChatRoleDefinition,
     ChatSourceReference,
     ChatStopRequest,
 )
@@ -108,8 +108,8 @@ from informity.llm.contract_gate import (
     enforce_required_sections,
     validate_contract,
 )
-from informity.llm.rag import answer_question
 from informity.llm.personas import get_role_profile, list_role_profiles
+from informity.llm.rag import answer_question
 from informity.llm.timeout_policy import is_terminal_timeout_reason, normalize_timeout_reason
 from informity.llm.types import (
     ChatRole,
@@ -150,6 +150,10 @@ _STOP_FINALIZE_GRACE_SECONDS = 2.5
 _STOP_FINALIZATION_TASKS: dict[str, asyncio.Task[None]] = {}
 _CONTINUING_STATUS_MESSAGE = 'Continuing response...'
 _ANSWER_STREAM_HEARTBEAT_SECONDS = 12.0
+_ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS = max(
+    _ANSWER_STREAM_HEARTBEAT_SECONDS * 2.0,
+    float(getattr(settings, 'diagnostics_alert_max_first_token_seconds', 45.0) or 45.0),
+)
 _ACTIVE_UPLOAD_STATES = {'uploading', 'indexing', 'ready'}
 _UPLOAD_DELETE_RETRY_ATTEMPTS = 3
 _SCOPE_SIGNAL_PATTERN = re.compile(r'(?i)\b(compare|vs|versus|only|just|between)\b')
@@ -877,6 +881,7 @@ async def chat(
             status_code=413,
             detail=f'Message too large (max {MAX_CHAT_MESSAGE_CHARS} characters).',
         )
+    preserve_task_checkboxes = answer_sanitization.should_preserve_task_checkboxes(message_text)
     requested_scoped_file_ids: list[int] | None = None
     if request.scoped_file_ids is not None:
         candidate_file_ids = [int(file_id) for file_id in request.scoped_file_ids]
@@ -906,6 +911,26 @@ async def chat(
 
     # Resolve chat ID — create a new one if not provided
     chat_id = request.chat_id or str(uuid.uuid4())
+    full_history = await get_chat(db, chat_id)
+    first_user_message = next(
+        (message for message in full_history if message.role == ChatRole.USER and not bool(message.is_internal)),
+        None,
+    )
+    first_user_chat_mode = (
+        resolve_chat_mode(first_user_message.chat_mode)
+        if first_user_message is not None
+        else None
+    )
+    first_assistant_chat_mode = next(
+        (
+            resolve_chat_mode(str(message.chat_mode or '').strip())
+            for message in full_history
+            if message.role == ChatRole.ASSISTANT and (str(message.chat_mode or '').strip())
+        ),
+        None,
+    )
+    locked_chat_mode = first_user_chat_mode or first_assistant_chat_mode
+    resolved_chat_mode = locked_chat_mode if locked_chat_mode is not None else resolved_chat_mode
     stream_id = str(uuid.uuid4())
     client_request_id = str(request.request_id or '').strip()
     request_id = (
@@ -1065,22 +1090,22 @@ async def chat(
             filenames_by_file_id.get(file_id) or f'File {file_id}'
             for file_id in scoped_file_ids
         ]
-    full_history = await get_chat(db, chat_id)
-    first_user_message = next(
-        (message for message in full_history if message.role == ChatRole.USER and not bool(message.is_internal)),
-        None,
-    )
-    locked_role_id = (
+    
+    first_user_role_id = (
         str(first_user_message.role_id or '').strip() or None
         if first_user_message is not None
         else None
     )
-    if first_user_message is not None and requested_role_id != locked_role_id:
-        raise HTTPException(
-            status_code=409,
-            detail='Role is locked for this chat session. Start a new chat to change role.',
-        )
-    resolved_role_id = locked_role_id if first_user_message is not None else requested_role_id
+    first_assistant_role_id = next(
+        (
+            str(message.role_id or '').strip()
+            for message in full_history
+            if message.role == ChatRole.ASSISTANT and (str(message.role_id or '').strip())
+        ),
+        None,
+    )
+    locked_role_id = first_user_role_id or first_assistant_role_id
+    resolved_role_id = locked_role_id if locked_role_id is not None else requested_role_id
     retrieval_scope_key, context_scope_resolution = resolve_retrieval_context_scope_key(
         chat_mode=resolved_chat_mode,
         retrieval_scope_kind=retrieval_scope_kind,
@@ -1250,6 +1275,9 @@ async def chat(
             previous_pass_raw_answer: str | None = None
             pre_classification_elapsed_ms: float | None = None
             sanitization_elapsed_ms: float | None = None
+            pre_first_yield_timeout_occurred = False
+            pre_first_yield_elapsed_seconds: float | None = None
+            pre_first_yield_stage: str | None = None
             terminal_state = 'unknown'
 
             try:
@@ -1418,18 +1446,64 @@ async def chat(
                                 timeout=_ANSWER_STREAM_HEARTBEAT_SECONDS,
                             )
                             if not done:
+                                elapsed_wait_seconds = time.perf_counter() - answer_stream_started_at
                                 log.warning(
                                     'chat_answer_stream_heartbeat_waiting',
                                     chat_id=chat_id,
                                     request_id=request_id,
                                     pass_index=pass_index,
                                     wait_seconds=_ANSWER_STREAM_HEARTBEAT_SECONDS,
-                                    elapsed_seconds=round(time.perf_counter() - answer_stream_started_at, 1),
+                                    elapsed_seconds=round(elapsed_wait_seconds, 1),
                                     items_seen=answer_items_seen,
                                     tokens_seen=answer_tokens_seen,
                                     list_events_seen=answer_list_events,
                                     sse_phase=sse_tracker.current_phase,
                                 )
+                                if (
+                                    answer_items_seen == 0
+                                    and elapsed_wait_seconds >= _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS
+                                ):
+                                    pre_first_yield_timeout_occurred = True
+                                    pre_first_yield_elapsed_seconds = float(round(elapsed_wait_seconds, 3))
+                                    pre_first_yield_stage = 'answer_question_first_item'
+                                    budget_metrics['pre_first_yield_timeout_occurred'] = True
+                                    budget_metrics['pre_first_yield_elapsed_seconds'] = pre_first_yield_elapsed_seconds
+                                    budget_metrics['pre_first_yield_stage'] = pre_first_yield_stage
+                                    timeout_occurred = True
+                                    timeout_reason = TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT
+                                    timeout_allows_continuation = not is_terminal_timeout_reason(timeout_reason)
+                                    pass_has_remaining_scope = timeout_allows_continuation
+                                    if timeout_allows_continuation:
+                                        has_remaining_scope = True
+                                    if continuation_resolution_reason is None:
+                                        continuation_resolution_reason = timeout_reason
+                                    log.error(
+                                        'chat_answer_stream_first_item_watchdog_timeout',
+                                        chat_id=chat_id,
+                                        request_id=request_id,
+                                        pass_index=pass_index,
+                                        elapsed_seconds=round(elapsed_wait_seconds, 1),
+                                        timeout_seconds=round(_ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS, 1),
+                                    )
+                                    if answer_next_task is not None and not answer_next_task.done():
+                                        answer_next_task.cancel()
+                                        with contextlib.suppress(asyncio.CancelledError):
+                                            await answer_next_task
+                                    answer_next_task = None
+                                    _update_sse_phase('timeout')
+                                    yield {
+                                        'event': 'timeout',
+                                        'data': serialize_api_response({
+                                            'message': (
+                                                'Response truncated: generation did not start in time '
+                                                f'({int(_ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS)}s watchdog)'
+                                            ),
+                                            'elapsed_seconds': round(time.time() - start_time, 1),
+                                            'timeout_seconds': _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS,
+                                            'timeout_reason': timeout_reason,
+                                        }),
+                                    }
+                                    break
                                 continue
                             try:
                                 item = answer_next_task.result()
@@ -1595,7 +1669,14 @@ async def chat(
                     merge_sources(source_map, pass_sources)
 
                     pass_raw_answer = ''.join(pass_answer_parts).strip()
-                    pass_cleaned_answer = sanitize_display_answer(pass_raw_answer) if pass_raw_answer else ''
+                    pass_cleaned_answer = (
+                        sanitize_display_answer(
+                            pass_raw_answer,
+                            preserve_task_checkboxes=preserve_task_checkboxes,
+                        )
+                        if pass_raw_answer
+                        else ''
+                    )
                     pass_reasoning_only_output = bool(pass_raw_answer) and not pass_cleaned_answer and (
                         '<think>' in pass_raw_answer.lower() or '<<think>>' in pass_raw_answer.lower()
                     )
@@ -1747,7 +1828,10 @@ async def chat(
                         )
                 generation_seconds = time.time() - start_time
                 sanitize_started = time.perf_counter()
-                cleaned_answer, reasoning_only_output = build_display_answer(full_answer)
+                cleaned_answer, reasoning_only_output = build_display_answer(
+                    full_answer,
+                    preserve_task_checkboxes=preserve_task_checkboxes,
+                )
                 sanitization_elapsed_ms = (time.perf_counter() - sanitize_started) * 1000.0
                 finalized_contract_answer = cleaned_answer if cleaned_answer else full_answer
                 finalized_contract_answer, missing_sections_filled = enforce_required_sections(
@@ -1759,7 +1843,10 @@ async def chat(
                         cleaned_answer = finalized_contract_answer
                     else:
                         full_answer = finalized_contract_answer
-                        cleaned_answer = sanitize_display_answer(full_answer)
+                        cleaned_answer = sanitize_display_answer(
+                            full_answer,
+                            preserve_task_checkboxes=preserve_task_checkboxes,
+                        )
                     log.info(
                         'contract_sections_filled_at_closeout',
                         chat_id=chat_id,
@@ -1944,7 +2031,14 @@ async def chat(
                 partial_sources = serialize_sources(sources) if sources else []
                 has_remaining_scope = True
                 completion_mode_override = CompletionMode.STOPPED
-                cleaned_answer = sanitize_display_answer(partial_answer) if partial_answer else ''
+                cleaned_answer = (
+                    sanitize_display_answer(
+                        partial_answer,
+                        preserve_task_checkboxes=preserve_task_checkboxes,
+                    )
+                    if partial_answer
+                    else ''
+                )
 
                 finalizing_status = status_emitter.build_event(
                     'finalizing',
@@ -2162,6 +2256,9 @@ async def chat(
                 unsupported_claim_count=metrics_unsupported_claim_count,
                 evidence_coverage_rate=metrics_evidence_coverage_rate,
                 not_found_count=metrics_not_found_count,
+                pre_first_yield_timeout_occurred=pre_first_yield_timeout_occurred,
+                pre_first_yield_elapsed_seconds=pre_first_yield_elapsed_seconds,
+                pre_first_yield_stage=pre_first_yield_stage,
             )
             detected_issues = detect_issues(refusal_text, metrics_model)
             issue_strings = [issue.value for issue in detected_issues]
@@ -2348,10 +2445,49 @@ async def get_chat_messages(
         raise HTTPException(status_code=404, detail='Chat not found')
 
     serialized_messages: list[dict[str, object]] = []
+    latest_user_prompt = ''
+    first_user_message = next(
+        (message for message in messages if message.role == ChatRole.USER and not bool(message.is_internal)),
+        None,
+    )
+    first_user_chat_mode = (
+        resolve_chat_mode(first_user_message.chat_mode)
+        if first_user_message is not None
+        else None
+    )
+    first_assistant_chat_mode = next(
+        (
+            resolve_chat_mode(str(message.chat_mode or '').strip())
+            for message in messages
+            if message.role == ChatRole.ASSISTANT and (str(message.chat_mode or '').strip())
+        ),
+        None,
+    )
+    locked_chat_mode = first_user_chat_mode or first_assistant_chat_mode
+    first_user_role_id = (
+        str(first_user_message.role_id or '').strip() or None
+        if first_user_message is not None
+        else None
+    )
+    first_assistant_role_id = next(
+        (
+            str(message.role_id or '').strip()
+            for message in messages
+            if message.role == ChatRole.ASSISTANT and (str(message.role_id or '').strip())
+        ),
+        None,
+    )
+    locked_role_id = first_user_role_id or first_assistant_role_id
     for message in messages:
         payload = message.model_dump(mode='json')
+        if message.role == ChatRole.USER:
+            latest_user_prompt = str(message.content or '')
         if message.role == ChatRole.ASSISTANT:
-            cleaned_content, _ = build_display_answer(message.content)
+            preserve_task_checkboxes = answer_sanitization.should_preserve_task_checkboxes(latest_user_prompt)
+            cleaned_content, _ = build_display_answer(
+                message.content,
+                preserve_task_checkboxes=preserve_task_checkboxes,
+            )
             payload['content'] = cleaned_content
             payload['display_blocks'] = build_display_blocks(cleaned_content)
         serialized_messages.append(payload)
@@ -2361,6 +2497,8 @@ async def get_chat_messages(
         'chat_id':                           chat_id,
         'messages':                          serialized_messages,
         'total':                             len(messages),
+        'chat_mode':                         locked_chat_mode,
+        'role_id':                           locked_role_id,
         'chat_web_search_enabled':           bool(chat_preferences.get('chat_web_search_enabled')),
         'chat_web_search_privacy_override':  bool(chat_preferences.get('chat_web_search_privacy_override')),
     }

@@ -34,10 +34,28 @@ export interface DisplayMetricBlock {
   value: string
 }
 
+export interface DisplayQuoteBlock {
+  type: 'quote'
+  text: string
+  attribution?: string
+}
+
 export interface DisplayTableBlock {
   type: 'table'
   columns: string[]
   rows: Array<Array<string | number | null>>
+}
+
+export interface DisplayListBlockItem {
+  text: string
+  level?: number
+  checked?: boolean | null
+}
+
+export interface DisplayListBlock {
+  type: 'list'
+  ordered?: boolean
+  items: DisplayListBlockItem[]
 }
 
 export interface DisplayUnknownBlock {
@@ -50,7 +68,9 @@ export type DisplayBlock =
   | DisplayCodeBlock
   | DisplayCalloutBlock
   | DisplayMetricBlock
+  | DisplayQuoteBlock
   | DisplayTableBlock
+  | DisplayListBlock
   | DisplayUnknownBlock
 
 export type CompletionMode = 'complete' | 'partial' | 'scoped_complete' | 'stopped'

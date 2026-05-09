@@ -30,7 +30,11 @@ class RoleProfile:
     id: str
     name: str
     description: str
-    overlay_prompt: str
+    identity_prompt: str = ''
+    scope_guidance: str = ''
+    analysis_checklist: tuple[str, ...] = ()
+    output_preferences: tuple[str, ...] = ()
+    overlay_prompt: str = ''
     icon: str = ''
     disclaimer: str = ''
     capabilities: tuple[str, ...] = ()
@@ -154,6 +158,27 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
         name='Legal',
         description='Reviews documents and questions through a US legal risk lens.',
         icon='ri-scales-3-line',
+        identity_prompt=(
+            'You are Informity AI Legal Analyst. Apply a US legal-analysis lens to identify '
+            'contractual and legal risk with precision and evidence discipline.'
+        ),
+        scope_guidance=(
+            'Focus on contractual obligations, liability allocation, enforceability signals, and dispute posture. '
+            'Separate evidence-backed facts from interpretation, and avoid implying legal representation or '
+            'attorney-client relationship.'
+        ),
+        analysis_checklist=(
+            'Obligations and performance requirements',
+            'Liability allocation, indemnification, and limitation of liability',
+            'Termination rights, remedies, and breach triggers',
+            'Governing law, jurisdiction, venue, and dispute resolution',
+            'Ambiguous language, undefined terms, and clauses needing clarification',
+        ),
+        output_preferences=(
+            'When useful, provide a risk-severity table (high/medium/low) tied to specific evidence.',
+            'Use concise headings: Findings, Risk Assessment, Open Questions, and Recommended Follow-ups.',
+            'Explicitly separate evidence-backed facts from legal interpretation.',
+        ),
         overlay_prompt=(
             'Prioritize legal risk identification, obligations, liabilities, jurisdiction clauses, '
             'and ambiguous terms. Distinguish facts from legal interpretation and call out uncertainty.'
@@ -167,11 +192,28 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
         name='Security & Compliance',
         description='Evaluates security controls, data handling, and compliance obligations.',
         icon='ri-shield-check-line',
+        identity_prompt='You are Informity AI Security & Compliance Analyst.',
+        scope_guidance=(
+            'Evaluate controls and compliance posture using available evidence; avoid certifying compliance where '
+            'evidence is incomplete.'
+        ),
+        analysis_checklist=(
+            'Data handling lifecycle (collection, storage, transfer, retention, disposal)',
+            'Access control, authentication, authorization, and auditability',
+            'Security controls and potential gaps (encryption, logging, monitoring)',
+            'Framework mapping only when evidence supports it (e.g., SOC 2, GDPR, PCI, NIST)',
+            'Operational and policy risks requiring remediation',
+        ),
+        output_preferences=(
+            'Prefer control-gap style findings with concrete evidence references.',
+            'When useful, group findings by Preventive, Detective, and Corrective controls.',
+            'Call out unknowns that block a formal compliance conclusion.',
+        ),
         overlay_prompt=(
             'Prioritize security and compliance analysis: controls, data flows, retention, access, '
             'auditability, and policy gaps. Map findings to common frameworks when evidence supports it.'
         ),
-        disclaimer='This is informational only and not a formal compliance attestation.',
+        disclaimer='Informity AI is not a compliance auditor. This is not a formal compliance attestation.',
         capabilities=('security', 'compliance'),
         retrieval_hints=('SOC 2', 'GDPR', 'PCI', 'NIST', 'retention', 'encryption'),
     ),
@@ -180,6 +222,23 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
         name='Financial',
         description='Analyzes cost drivers, budget implications, and financial risk.',
         icon='ri-line-chart-line',
+        identity_prompt='You are Informity AI Financial Analyst.',
+        scope_guidance=(
+            'Focus on financial impact, cost structure, and downside exposure using only available evidence. '
+            'Avoid treating assumptions as facts.'
+        ),
+        analysis_checklist=(
+            'Cost structure and major cost drivers',
+            'Budget impact and expenditure profile',
+            'Revenue, margin, and downside risk indicators where present',
+            'Assumptions, dependencies, and sensitivity factors',
+            'Material uncertainties and missing financial evidence',
+        ),
+        output_preferences=(
+            'Use concise financial risk framing with assumptions called out explicitly.',
+            'When available, quantify impact ranges and identify key sensitivity drivers.',
+            'When possible, separate observed facts from projected implications.',
+        ),
         overlay_prompt=(
             'Prioritize financial interpretation: cost structure, assumptions, pricing, budget impact, '
             'material risks, and sensitivity to uncertain inputs.'
@@ -192,6 +251,23 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
         name='Technical',
         description='Evaluates architecture, implementation feasibility, and technical risk.',
         icon='ri-terminal-box-line',
+        identity_prompt='You are Informity AI Technical Analyst.',
+        scope_guidance=(
+            'Prioritize technical feasibility, architecture quality, and operational reliability using '
+            'evidence from the provided corpus.'
+        ),
+        analysis_checklist=(
+            'Architecture choices and tradeoffs',
+            'Implementation feasibility and delivery risks',
+            'Dependencies, integration points, and operational constraints',
+            'Reliability, scalability, latency, and observability considerations',
+            'Testing strategy, validation gaps, and rollout risk',
+        ),
+        output_preferences=(
+            'Use implementation-oriented language and concrete risk statements.',
+            'When useful, structure output as Architecture, Feasibility Risks, Operations Risks, and Test Gaps.',
+            'Highlight unknown technical details that affect feasibility.',
+        ),
         overlay_prompt=(
             'Prioritize technical clarity: architecture tradeoffs, feasibility, implementation details, '
             'dependencies, operational risk, and testing implications.'
@@ -243,8 +319,32 @@ def compose_prompt(
 
     if role_id:
         role_profile = get_role_profile(role_id)
+        role_sections: list[str] = []
+        if role_profile.identity_prompt:
+            role_sections.append(f'Role Identity:\n{role_profile.identity_prompt}')
+        if role_profile.scope_guidance:
+            role_sections.append(f'Role Scope:\n{role_profile.scope_guidance}')
+        if role_profile.analysis_checklist:
+            checklist_lines = '\n'.join(f'- {item}' for item in role_profile.analysis_checklist)
+            role_sections.append(f'Role Analysis Checklist:\n{checklist_lines}')
+        if role_profile.output_preferences:
+            output_lines = '\n'.join(f'- {item}' for item in role_profile.output_preferences)
+            role_sections.append(f'Role Output Preferences:\n{output_lines}')
+        role_sections.append(
+            'Role Style Rules:\n'
+            '- Start directly with findings; avoid meta-prefaces such as "Based on..." or "According to the scenario...".\n'
+            '- If evidence is limited, state uncertainty explicitly without refusing when a useful partial answer is possible.'
+        )
+        if role_profile.disclaimer:
+            role_sections.append(
+                'Disclaimer Placement Rule:\n'
+                '- Include the disclaimer at the end of the answer under a "Disclaimer:" line.\n'
+                '- Do not place the disclaimer at the beginning of the answer.'
+            )
         if role_profile.overlay_prompt:
-            prompt = f'{prompt}\n\nRole Overlay:\n{role_profile.overlay_prompt}'
+            role_sections.append(f'Role Overlay:\n{role_profile.overlay_prompt}')
+        if role_sections:
+            prompt = f'{prompt}\n\n' + '\n\n'.join(role_sections)
         if role_profile.disclaimer:
             prompt = f'{prompt}\n\nRole Disclaimer:\n{role_profile.disclaimer}'
 
@@ -258,32 +358,6 @@ def resolve_runtime_mode_id(chat_mode: str | None) -> str:
     return 'researcher_default'
 
 
-# Backward-compatibility wrappers retained during ModeProfile/RoleProfile transition.
-PersonaProfile = ModeProfile
-PERSONA_REGISTRY = MODE_REGISTRY
-
-
-def get_persona_profile(persona_id: str) -> ModeProfile:
-    return get_mode_profile(persona_id)
-
-
-def get_persona_prompt(persona_id: str) -> str:
-    return get_mode_prompt(persona_id)
-
-
-def compose_persona_prompt(
-    *,
-    persona_id: str,
-    chat_mode: str | None = None,
-    role_id: str | None = None,
-) -> str:
-    return compose_prompt(mode_id=persona_id, chat_mode=chat_mode, role_id=role_id)
-
-
-def resolve_runtime_persona_id(chat_mode: str | None) -> str:
-    return resolve_runtime_mode_id(chat_mode)
-
-
 __all__ = [
     'ModeProfile',
     'RoleProfile',
@@ -295,11 +369,4 @@ __all__ = [
     'get_role_profile',
     'list_role_profiles',
     'resolve_runtime_mode_id',
-    # Backward-compat exports.
-    'PersonaProfile',
-    'PERSONA_REGISTRY',
-    'compose_persona_prompt',
-    'get_persona_profile',
-    'get_persona_prompt',
-    'resolve_runtime_persona_id',
 ]

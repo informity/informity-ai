@@ -62,6 +62,9 @@ class EvalMetrics:
     unsupported_claim_count: int = 0
     evidence_coverage_rate: float = 0.0
     not_found_count: int = 0
+    pre_first_yield_timeout_occurred: bool = False
+    pre_first_yield_elapsed_seconds: float | None = None
+    pre_first_yield_stage: str | None = None
 
 
 def detect_issues(answer: str, metrics: EvalMetrics) -> list[IssueType]:

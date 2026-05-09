@@ -6,7 +6,9 @@ import type {
   DisplayBlock,
   DisplayCalloutBlock,
   DisplayCodeBlock,
+  DisplayListBlock,
   DisplayMetricBlock,
+  DisplayQuoteBlock,
   DisplayTableBlock,
   DisplayTextBlock,
 } from '../../types/api'
@@ -23,7 +25,9 @@ type RenderableBlock =
   | DisplayCodeBlock
   | DisplayCalloutBlock
   | DisplayMetricBlock
+  | DisplayQuoteBlock
   | DisplayTableBlock
+  | DisplayListBlock
 
 function MessageBlocksComponent({ blocks, fallbackMarkdown, onCopyCode, codeBlockCopied }: MessageBlocksProps) {
   const normalizedBlocks = useMemo(
@@ -71,6 +75,15 @@ function MessageBlocksComponent({ blocks, fallbackMarkdown, onCopyCode, codeBloc
                 <div className="chat-message__metric-value">{typeof block.value === 'string' ? block.value : ''}</div>
               </div>
             )
+          case 'quote':
+            return (
+              <blockquote key={key} className="chat-message__block chat-message__block--quote">
+                <p>{typeof block.text === 'string' ? block.text : ''}</p>
+                {typeof block.attribution === 'string' && block.attribution.trim().length > 0 && (
+                  <cite>{block.attribution}</cite>
+                )}
+              </blockquote>
+            )
           case 'table': {
             const columns = block.columns
             const rows = block.rows
@@ -81,7 +94,9 @@ function MessageBlocksComponent({ blocks, fallbackMarkdown, onCopyCode, codeBloc
                     <thead>
                       <tr>
                         {columns.map((column, colIdx) => (
-                          <th key={`${key}-h-${colIdx}`}>{column}</th>
+                          <th key={`${key}-h-${colIdx}`}>
+                            <InlineMarkdown markdown={column} />
+                          </th>
                         ))}
                       </tr>
                     </thead>
@@ -94,7 +109,7 @@ function MessageBlocksComponent({ blocks, fallbackMarkdown, onCopyCode, codeBloc
                           const align = isNumericCellContent(value) ? 'right' : undefined
                           return (
                             <td key={`${key}-c-${rowIdx}-${colIdx}`} data-align={align}>
-                              {value}
+                              <InlineMarkdown markdown={value} />
                             </td>
                           )
                         })}
@@ -106,6 +121,13 @@ function MessageBlocksComponent({ blocks, fallbackMarkdown, onCopyCode, codeBloc
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )
+          }
+          case 'list': {
+            return (
+              <div key={key} className="chat-message__block chat-message__block--list">
+                <StructuredList ordered={!!block.ordered} items={block.items} />
               </div>
             )
           }
@@ -134,6 +156,11 @@ function MarkdownBlock({ markdown, onCopyCode, codeBlockCopied }: MarkdownBlockP
             <table>{children}</table>
           </div>
         ),
+        th: ({ children }) => {
+          const text = flattenNodeText(Children.toArray(children))
+          const align = isNumericCellContent(text) ? 'right' : 'left'
+          return <th data-align={align}>{children}</th>
+        },
         td: ({ children }) => {
           const text = flattenNodeText(Children.toArray(children))
           const align = isNumericCellContent(text) ? 'right' : undefined
@@ -181,6 +208,46 @@ function isNumericCellContent(value: string): boolean {
   return /^[+-]?(?:[$€£]\s*)?(?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d+)?%?$/.test(normalized)
 }
 
+interface StructuredListItem {
+  text: string
+  level?: number
+  checked?: boolean | null
+}
+
+function StructuredList({ ordered, items }: { ordered: boolean; items: StructuredListItem[] }) {
+  const ListTag = ordered ? 'ol' : 'ul'
+  const normalized = items.map((item) => ({
+    text: item.text,
+    level: Math.max(0, typeof item.level === 'number' ? item.level : 0),
+    checked: item.checked,
+  }))
+  return (
+    <ListTag>
+      {normalized.map((item, idx) => (
+        <li key={`${idx}-${item.level}`} style={{ marginLeft: `${item.level * 0.8}rem` }}>
+          {typeof item.checked === 'boolean' && (
+            <input type="checkbox" checked={item.checked} readOnly tabIndex={-1} aria-hidden />
+          )}
+          <InlineMarkdown markdown={item.text} />
+        </li>
+      ))}
+    </ListTag>
+  )
+}
+
+function InlineMarkdown({ markdown }: { markdown: string }) {
+  return (
+    <ReactMarkdown
+      remarkPlugins={[remarkGfm]}
+      components={{
+        p: ({ children }) => <>{children}</>,
+      }}
+    >
+      {markdown}
+    </ReactMarkdown>
+  )
+}
+
 function normalizeRenderableBlocks(blocks: DisplayBlock[]): RenderableBlock[] {
   const normalized: RenderableBlock[] = []
 
@@ -219,6 +286,15 @@ function normalizeRenderableBlocks(blocks: DisplayBlock[]): RenderableBlock[] {
         }
         break
       }
+      case 'quote': {
+        if (typeof block.text !== 'string' || block.text.trim().length === 0) break
+        normalized.push({
+          type: 'quote',
+          text: block.text,
+          attribution: typeof block.attribution === 'string' ? block.attribution : undefined,
+        })
+        break
+      }
       case 'table': {
         if (!Array.isArray(block.columns) || !Array.isArray(block.rows)) break
         const columns = block.columns.filter((column): column is string => typeof column === 'string')
@@ -233,6 +309,25 @@ function normalizeRenderableBlocks(blocks: DisplayBlock[]): RenderableBlock[] {
               ),
           )
         normalized.push({ type: 'table', columns, rows })
+        break
+      }
+      case 'list': {
+        if (!Array.isArray(block.items) || block.items.length === 0) break
+        const items = block.items
+          .filter((item): item is { text: string; level?: number; checked?: boolean | null } => (
+            !!item && typeof item === 'object' && typeof item.text === 'string'
+          ))
+          .map((item) => ({
+            text: item.text,
+            level: typeof item.level === 'number' ? Math.max(0, Math.floor(item.level)) : 0,
+            checked: typeof item.checked === 'boolean' ? item.checked : null,
+          }))
+        if (items.length === 0) break
+        normalized.push({
+          type: 'list',
+          ordered: !!block.ordered,
+          items,
+        })
         break
       }
       default:

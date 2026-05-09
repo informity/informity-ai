@@ -33,7 +33,7 @@ vi.mock('../../context/useToast', () => ({
 }))
 
 describe('HistoryTable', () => {
-  it('opens selected history chat and primes chat context', () => {
+  it('opens selected history chat and primes context before route handoff', () => {
     render(
       <HistoryTable
         chats={[

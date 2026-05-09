@@ -66,7 +66,7 @@ _CHAT_TITLE_WHITESPACE_RE = re.compile(r'\s+')
 # Schema — DDL statements for all tables
 # ==============================================================================
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 DIAGNOSTICS_TYPE_USER = 'user'
 DIAGNOSTICS_TYPE_EVALUATION = 'evaluation'
@@ -276,6 +276,9 @@ CREATE TABLE IF NOT EXISTS response_diagnostics_metrics (
     unsupported_claim_count INTEGER,
     evidence_coverage_rate REAL,
     not_found_count INTEGER,
+    pre_first_yield_timeout_occurred INTEGER,
+    pre_first_yield_elapsed_seconds REAL,
+    pre_first_yield_stage TEXT,
     detected_issues     TEXT,        -- JSON list of IssueType strings
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -584,6 +587,8 @@ async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
         next_version = current + 1
         if next_version == 2:
             await _migrate_to_v2(conn)
+        elif next_version == 3:
+            await _migrate_to_v3(conn)
         else:
             raise RuntimeError(f'No migration path defined for schema version {next_version}')
         await conn.execute('UPDATE schema_version SET version = ?', (next_version,))
@@ -600,6 +605,26 @@ async def _migrate_to_v2(conn: aiosqlite.Connection) -> None:
     column_names = {str(row['name']) for row in columns}
     if 'role_id' not in column_names:
         await conn.execute('ALTER TABLE chat_messages ADD COLUMN role_id TEXT')
+
+
+async def _migrate_to_v3(conn: aiosqlite.Connection) -> None:
+    """
+    v3 migration:
+    - add pre-first-yield timeout observability fields to response diagnostics metrics.
+    """
+    cursor = await conn.execute("PRAGMA table_info('response_diagnostics_metrics')")
+    columns = await cursor.fetchall()
+    column_names = {str(row['name']) for row in columns}
+    if 'pre_first_yield_timeout_occurred' not in column_names:
+        await conn.execute(
+            'ALTER TABLE response_diagnostics_metrics ADD COLUMN pre_first_yield_timeout_occurred INTEGER'
+        )
+    if 'pre_first_yield_elapsed_seconds' not in column_names:
+        await conn.execute(
+            'ALTER TABLE response_diagnostics_metrics ADD COLUMN pre_first_yield_elapsed_seconds REAL'
+        )
+    if 'pre_first_yield_stage' not in column_names:
+        await conn.execute('ALTER TABLE response_diagnostics_metrics ADD COLUMN pre_first_yield_stage TEXT')
 
 
 async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
@@ -2130,6 +2155,14 @@ async def insert_diagnostics_metrics(
             continue
         seen_issues.add(normalized_issue)
         normalized_detected_issues.append(normalized_issue)
+    pre_first_yield_timeout_occurred = bool(getattr(metrics, 'pre_first_yield_timeout_occurred', False))
+    pre_first_yield_elapsed_seconds_raw = getattr(metrics, 'pre_first_yield_elapsed_seconds', None)
+    pre_first_yield_elapsed_seconds = (
+        float(pre_first_yield_elapsed_seconds_raw)
+        if pre_first_yield_elapsed_seconds_raw is not None
+        else None
+    )
+    pre_first_yield_stage = str(getattr(metrics, 'pre_first_yield_stage', '') or '').strip() or None
 
     await db.execute(
         """
@@ -2138,8 +2171,9 @@ async def insert_diagnostics_metrics(
             raw_chunks_count, sources_count, generation_seconds, answer_length,
             timeout_occurred, has_empty_answer, has_refusal_pattern,
             unsupported_claim_count, evidence_coverage_rate, not_found_count,
+            pre_first_yield_timeout_occurred, pre_first_yield_elapsed_seconds, pre_first_yield_stage,
             detected_issues
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             metrics.chat_id,
@@ -2158,6 +2192,9 @@ async def insert_diagnostics_metrics(
             int(getattr(metrics, 'unsupported_claim_count', 0) or 0),
             float(getattr(metrics, 'evidence_coverage_rate', 0.0) or 0.0),
             int(getattr(metrics, 'not_found_count', 0) or 0),
+            1 if pre_first_yield_timeout_occurred else 0,
+            pre_first_yield_elapsed_seconds,
+            pre_first_yield_stage,
             json.dumps(normalized_detected_issues),
         ),
     )
