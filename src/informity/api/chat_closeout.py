@@ -12,6 +12,8 @@ _CODE_FENCE_OPEN_RE = re.compile(r'^```(?P<lang>[A-Za-z0-9_+\-]*)\s*$')
 _LIST_ITEM_RE = re.compile(r'^(?P<indent>\s*)(?P<marker>(?:[-*+])|(?:\d+[.)]))\s+(?P<body>.+)$')
 _CHECKBOX_RE = re.compile(r'^\[(?P<state>[xX ])\]\s+(?P<text>.+)$')
 _QUOTE_LINE_RE = re.compile(r'^\s*>\s?(?P<body>.*)$')
+_DISCLAIMER_LINE_RE = re.compile(r'^\s*(?:\*\*)?\s*Disclaimer\s*:\s*(?P<body>.+?)\s*$', re.IGNORECASE)
+_HORIZONTAL_RULE_RE = re.compile(r'^\s*(?:-{3,}|\*{3,}|_{3,})\s*$')
 
 
 def _split_table_cells(line: str) -> list[str]:
@@ -47,6 +49,18 @@ def _flush_text(lines: list[str], blocks: list[dict[str, object]]) -> None:
     if markdown:
         blocks.append({'type': 'text', 'markdown': markdown})
     lines.clear()
+
+
+def _trim_trailing_divider(lines: list[str]) -> None:
+    while lines:
+        candidate = lines[-1].strip()
+        if not candidate:
+            lines.pop()
+            continue
+        if _HORIZONTAL_RULE_RE.match(candidate):
+            lines.pop()
+            continue
+        break
 
 
 def build_display_blocks(cleaned_answer: str) -> list[dict[str, object]]:
@@ -88,7 +102,7 @@ def build_display_blocks(cleaned_answer: str) -> list[dict[str, object]]:
             if header_cells:
                 _flush_text(text_buffer, blocks)
                 i += 2
-                table_rows: list[list[str | number | None]] = []
+                table_rows: list[list[str | int | float | None]] = []
                 while i < len(lines):
                     row_line = lines[i]
                     if not row_line.strip() or '|' not in row_line:
@@ -168,6 +182,35 @@ def build_display_blocks(cleaned_answer: str) -> list[dict[str, object]]:
                     'text': quote_text,
                 })
                 continue
+
+        disclaimer_match = _DISCLAIMER_LINE_RE.match(line)
+        if disclaimer_match:
+            _trim_trailing_divider(text_buffer)
+            _flush_text(text_buffer, blocks)
+            disclaimer_body = disclaimer_match.group('body').strip()
+            if disclaimer_body.startswith('**'):
+                disclaimer_body = disclaimer_body[2:].lstrip()
+            if disclaimer_body.endswith('**'):
+                disclaimer_body = disclaimer_body[:-2].rstrip()
+            disclaimer_lines = [f"Disclaimer: {disclaimer_body}"]
+            i += 1
+            while i < len(lines):
+                continuation = lines[i].strip()
+                if not continuation:
+                    break
+                if _LIST_ITEM_RE.match(lines[i]) or _QUOTE_LINE_RE.match(lines[i]) or _CODE_FENCE_OPEN_RE.match(lines[i].strip()):
+                    break
+                if _HORIZONTAL_RULE_RE.match(continuation):
+                    i += 1
+                    continue
+                disclaimer_lines.append(continuation)
+                i += 1
+            blocks.append({
+                'type': 'callout',
+                'tone': 'info',
+                'text': ' '.join(disclaimer_lines).strip(),
+            })
+            continue
 
         text_buffer.append(line)
         i += 1

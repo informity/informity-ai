@@ -438,7 +438,18 @@ describe('ChatView new chat behavior', () => {
   })
 
   it('locks mode to Researcher when file scope is active', async () => {
-    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+    getSettingsMock.mockResolvedValue({
+      enable_raw_output_control: false,
+      enabled_chat_role_ids: ['legal'],
+    })
+    getRolesMock.mockResolvedValue([
+      {
+        id: 'legal',
+        name: 'Legal',
+        description: 'Legal role',
+        icon: 'ri-scales-3-line',
+      },
+    ])
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
     getMessageRawMock.mockResolvedValue({ raw_content: null })
     streamChatMock.mockResolvedValue(undefined)
@@ -796,5 +807,65 @@ describe('ChatView new chat behavior', () => {
     })
     expect(screen.getByRole('button', { name: 'Select chat mode' })).toBeDisabled()
     expect(screen.getByRole('button', { name: 'Role: Legal' })).toBeDisabled()
+  })
+
+  it('preserves locked role on existing chat even when role is unchecked in settings', async () => {
+    getSettingsMock.mockResolvedValue({
+      enable_raw_output_control: false,
+      enabled_chat_role_ids: [],
+    })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getRolesMock.mockResolvedValue([
+      {
+        id: 'legal',
+        name: 'Legal',
+        description: 'Legal role',
+        icon: 'ri-scales-3-line',
+      },
+    ])
+    streamChatMock.mockResolvedValue(undefined)
+    getChatMock.mockResolvedValue({
+      messages: [
+        {
+          id: 9200,
+          role: 'user',
+          content: 'Follow-up legal question',
+          role_id: 'legal',
+          chat_mode: 'assistant',
+          sources: [],
+          created_at: '2026-02-23T12:00:00.000Z',
+        },
+        {
+          id: 9201,
+          role: 'assistant',
+          content: 'Legal response.',
+          role_id: 'legal',
+          chat_mode: 'assistant',
+          sources: [],
+          created_at: '2026-02-23T12:00:02.000Z',
+        },
+      ],
+    })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialChatId="chat-role-unchecked-1" />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-role-unchecked-1'))
+    const roleButton = await screen.findByRole('button', { name: 'Role: Legal' })
+    expect(roleButton).toBeDisabled()
+
+    fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'Follow-up legal question' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(1))
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ mode: 'assistant', roleId: 'legal' })
   })
 })

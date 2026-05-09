@@ -14,7 +14,8 @@
   --chat-view-control-fg: color-mix(in srgb, var(--color-text-muted) 60%, white);
   --chat-view-inline-inset: 0.875rem;
   --chat-view-controls-left-inset: calc(var(--chat-view-inline-inset) + 4px);
-  --chat-view-mode-emphasis: color-mix(in srgb, var(--color-text-secondary) 78%, white);
+  --chat-view-mode-emphasis: var(--chat-view-muted-fg);
+  --chat-view-muted-fg: var(--color-text-dimmed);
   --chat-view-toggle-hover-bg: var(--color-bg-hover);
   --chat-view-toggle-hover-border: color-mix(in srgb, var(--color-border) 72%, transparent);
   --chat-view-toggle-active-bg: var(--color-bg-hover);
@@ -582,7 +583,7 @@ html[data-accent='light'] .chat-view__scroll-to-bottom:hover {
 }
 
 .chat-view__textarea::placeholder {
-  color: var(--color-text-dimmed);
+  color: var(--chat-view-muted-fg);
   font-size: inherit;
   line-height: inherit;
 }
@@ -619,7 +620,7 @@ html[data-accent='light'] .chat-view__scroll-to-bottom:hover {
   left: var(--chat-view-controls-left-inset);
   right: var(--chat-view-inline-inset);
   bottom: 0.75rem;
-  z-index: 4;
+  z-index: 8;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -649,14 +650,14 @@ html[data-accent='light'] .chat-view__scroll-to-bottom:hover {
 
 .chat-view__mode-selector {
   position: relative;
-  z-index: 4;
+  z-index: 9;
   transform: translateX(-4px);
   width: 8.9rem;
 }
 
 .chat-view__role-selector {
   position: relative;
-  z-index: 4;
+  z-index: 9;
 }
 
 .chat-view__role-button {
@@ -746,12 +747,13 @@ html[data-accent='light'] .chat-view__scroll-to-bottom:hover {
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  z-index: 5;
+  z-index: 12;
 }
 
 .chat-view__mode-menu--role {
-  left: 0;
+  left: -3px;
   right: auto;
+  transform: none;
 }
 
 .chat-view__mode-option {
@@ -799,7 +801,16 @@ html[data-accent='light'] .chat-view__scroll-to-bottom:hover {
   font-weight: 500;
 }
 
+.chat-view__mode-option--disabled,
+.chat-view__mode-option--disabled:hover {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background: transparent;
+  color: var(--color-text-dimmed);
+}
+
 html[data-accent='light'] .chat-view {
+  --chat-view-muted-fg: color-mix(in srgb, var(--color-text-dimmed) 72%, white);
   --chat-view-toggle-hover-bg: var(--chat-view-toggle-active-bg);
   --chat-view-toggle-hover-border: transparent;
   --chat-view-toggle-active-bg: var(--color-primary-bg);
@@ -912,7 +923,7 @@ html[data-accent='light'] .chat-view__mode-option--active:hover {
 
 .chat-view__disclaimer {
   font-size: var(--font-size-description);
-  color: var(--color-text-dimmed);
+  color: var(--chat-view-muted-fg);
   text-align: center;
   margin: var(--space-sm) 0 0;
   padding: 0 var(--space-sm);

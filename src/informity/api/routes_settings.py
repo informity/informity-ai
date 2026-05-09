@@ -34,6 +34,7 @@ from informity.llm.model_adapter import (
     get_profile_for_filename,
     infer_model_id_from_filename,
 )
+from informity.llm.personas import list_role_profiles
 from informity.scanner.watcher import invalidate_watcher_cache
 from informity.utils.directory_utils import ensure_file_directory, ensure_private_file
 from informity.utils.json_utils import serialize_config
@@ -87,6 +88,33 @@ _SUPPORTED_EXTENSIONS_CANONICAL_ORDER: tuple[str, ...] = tuple(
     for option in get_file_type_options()
     for ext in option.get('extensions', [])
 )
+
+
+def _visible_role_ids() -> set[str]:
+    return {profile.id for profile in list_role_profiles(visible_only=True)}
+
+
+def _normalize_enabled_chat_role_ids(values: object, *, strict: bool = True) -> list[str]:
+    if not isinstance(values, list):
+        if strict:
+            raise HTTPException(status_code=400, detail='enabled_chat_role_ids must be a list of role IDs')
+        return []
+    allowed = _visible_role_ids()
+    seen: set[str] = set()
+    normalized: list[str] = []
+    for raw in values:
+        role_id = str(raw or '').strip()
+        if not role_id:
+            continue
+        if role_id in seen:
+            continue
+        if role_id not in allowed:
+            if strict:
+                raise HTTPException(status_code=400, detail=f'Unknown role ID in enabled_chat_role_ids: {role_id}')
+            continue
+        seen.add(role_id)
+        normalized.append(role_id)
+    return normalized
 
 
 def _allowed_values_detail(field_name: str, values: tuple[str, ...]) -> str:
@@ -347,6 +375,7 @@ _UPDATABLE_FIELDS: set[str] = {
     'chat_history_messages_researcher',
     'default_chat_mode',
     'enable_chat_roles',
+    'enabled_chat_role_ids',
     'entity_extract_acronym',
     'entity_extract_person_name',
     'entity_extract_organization',
@@ -408,6 +437,17 @@ async def get_settings() -> SettingsResponse:
 
     profile_info = _build_model_profile_info(effective_llm_model_filename)
 
+    enabled_chat_role_ids = _normalize_enabled_chat_role_ids(
+        getattr(s, 'enabled_chat_role_ids', []),
+        strict=False,
+    )
+    if enabled_chat_role_ids != list(getattr(s, 'enabled_chat_role_ids', [])):
+        s.enabled_chat_role_ids = enabled_chat_role_ids
+
+    roles_enabled = len(enabled_chat_role_ids) > 0
+    if s.enable_chat_roles != roles_enabled:
+        s.enable_chat_roles = roles_enabled
+
     return SettingsResponse(
         watched_directories     = [str(p) for p in s.watched_directories],
         source_scopes_enabled   = dict(s.source_scopes_enabled),
@@ -468,7 +508,8 @@ async def get_settings() -> SettingsResponse:
         chat_history_messages_assistant = s.chat_history_messages_assistant,
         chat_history_messages_researcher = s.chat_history_messages_researcher,
         default_chat_mode = s.default_chat_mode,
-        enable_chat_roles = s.enable_chat_roles,
+        enable_chat_roles = roles_enabled,
+        enabled_chat_role_ids = enabled_chat_role_ids,
         entity_extract_acronym = s.entity_extract_acronym,
         entity_extract_person_name = s.entity_extract_person_name,
         entity_extract_organization = s.entity_extract_organization,
@@ -598,6 +639,15 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
             if field_name == 'diagnostics_profile' and value is not None:
                 diagnostics_profile_value = value
                 continue
+            if field_name == 'enable_chat_roles':
+                # Compatibility field: canonical source of truth is enabled_chat_role_ids.
+                enabled = bool(value)
+                config.settings.enable_chat_roles = enabled
+                config_data['enable_chat_roles'] = enabled
+                if not enabled:
+                    config.settings.enabled_chat_role_ids = []
+                    config_data['enabled_chat_role_ids'] = []
+                continue
             if field_name == 'llm_model_filename' and value is not None:
                 value = (value or '').strip()
                 if not value:
@@ -647,6 +697,12 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                 normalized_extensions = _normalize_supported_extensions(value)
                 setattr(config.settings, field_name, normalized_extensions)
                 config_data[field_name] = normalized_extensions
+            elif field_name == 'enabled_chat_role_ids':
+                normalized_role_ids = _normalize_enabled_chat_role_ids(value)
+                setattr(config.settings, field_name, normalized_role_ids)
+                config.settings.enable_chat_roles = len(normalized_role_ids) > 0
+                config_data[field_name] = normalized_role_ids
+                config_data['enable_chat_roles'] = len(normalized_role_ids) > 0
             else:
                 setattr(config.settings, field_name, value)
                 config_data[field_name] = value

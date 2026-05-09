@@ -251,20 +251,24 @@ exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatt
         <table>
           <thead>
             <tr>
-              <th>
+              <th
+                data-align="left"
+              >
                 Year
               </th>
               <th
-                style="text-align: right;"
+                data-align="left"
               >
                 Revenue
               </th>
               <th
-                style="text-align: right;"
+                data-align="left"
               >
                 Margin
               </th>
-              <th>
+              <th
+                data-align="left"
+              >
                 Notes
               </th>
             </tr>
