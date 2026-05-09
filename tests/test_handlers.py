@@ -22,7 +22,7 @@ from informity.llm.handlers.rag import (
     _should_boost_coverage_top_k,
 )
 from informity.llm.handlers.simple import SimpleHandler
-from informity.llm.personas import get_persona_prompt
+from informity.llm.personas import get_mode_prompt
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.types import OutputFormat
 from informity.llm.web_search import SearchResult, WebSearchOutcome
@@ -1023,7 +1023,7 @@ class TestSimpleHandler:
         assert 'without document retrieval' in lowered
         assert 'if asked about document search' not in lowered
         assert 'you can:' not in lowered
-        assert captured_messages[0]['content'] == f"{get_persona_prompt('assistant_default')}\n\nContext:\n"
+        assert captured_messages[0]['content'] == f"{get_mode_prompt('assistant_default')}\n\nContext:\n"
 
     @pytest.mark.asyncio
     async def test_handle_uses_researcher_prompt_exactly_in_researcher_mode(self) -> None:
@@ -1048,7 +1048,7 @@ class TestSimpleHandler:
                 pass
 
         assert captured_messages
-        assert captured_messages[0]['content'] == f"{get_persona_prompt('researcher_default')}\n\nContext:\n"
+        assert captured_messages[0]['content'] == f"{get_mode_prompt('researcher_default')}\n\nContext:\n"
 
     @pytest.mark.asyncio
     async def test_handle_chat_summary_mode_disables_web_search_and_uses_chat_prompt(self) -> None:
@@ -1085,7 +1085,7 @@ class TestSimpleHandler:
         assert captured_messages
         system_message = captured_messages[0]['content'].lower()
         assert 'summarize this chat conversation only' in system_message
-        assert captured_messages[0]['content'].startswith(get_persona_prompt('chat_summary'))
+        assert captured_messages[0]['content'].startswith(get_mode_prompt('chat_summary'))
 
     @pytest.mark.asyncio
     async def test_handle_web_search_synthesis_uses_exact_web_persona_prompt(self) -> None:
@@ -1130,7 +1130,7 @@ class TestSimpleHandler:
                 pass
 
         assert captured_messages
-        assert captured_messages[0]['content'] == f"{get_persona_prompt('assistant_web_search_synthesis')}\n\nContext:\n"
+        assert captured_messages[0]['content'] == f"{get_mode_prompt('assistant_web_search_synthesis')}\n\nContext:\n"
 
     @pytest.mark.asyncio
     async def test_handle_chat_summary_mode_loads_chat_id_history_and_excludes_internal(self) -> None:

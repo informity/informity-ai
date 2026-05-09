@@ -77,19 +77,6 @@
   cursor: not-allowed;
 }
 
-.chat-view__active-role-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 0 8px var(--space-xl);
-  padding: 4px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  color: var(--color-text-secondary);
-  background: var(--color-bg-elevated);
-  font-size: 0.8rem;
-}
-
 /* Matches old app: #chat-container — flex column, align-items: center, padding: 0 */
 .chat-view__body {
   flex: 1;
@@ -645,6 +632,19 @@ html[data-accent='light'] .chat-view__scroll-to-bottom:hover {
   align-items: center;
   gap: var(--space-xs);
   pointer-events: auto;
+}
+
+.chat-view__control-tooltip {
+  left: 0;
+  right: auto;
+  transform: none;
+  z-index: 1202;
+}
+
+.chat-view__control-tooltip::after {
+  left: 0.55rem;
+  right: auto;
+  transform: none;
 }
 
 .chat-view__mode-selector {

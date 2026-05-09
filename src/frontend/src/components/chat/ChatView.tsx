@@ -64,10 +64,36 @@ function resolveChatModeFromHistory(history: ChatMessageDisplay[]): ChatMode | n
   return null
 }
 
+function resolveLockedMode(history: ChatMessageDisplay[]): ChatMode | null {
+  return (
+    history.find((msg) => msg.role === 'user' && !msg.isInternal && isChatMode(msg.chatMode))?.chatMode
+    ?? history.find((msg) => msg.role === 'assistant' && isChatMode(msg.chatMode))?.chatMode
+    ?? null
+  )
+}
+
+function resolveLockedRoleId(history: ChatMessageDisplay[]): string | null {
+  return (
+    history.find((msg) => msg.role === 'user' && !msg.isInternal && !!msg.roleId)?.roleId
+    ?? history.find((msg) => msg.role === 'assistant' && !!msg.roleId)?.roleId
+    ?? null
+  )
+}
+
+function formatRoleNameFromId(roleId: string): string {
+  return roleId
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ')
+}
+
 export function ChatView({ prefillMessage = '', initialChatId = null, initialScopedFile = null }: ChatViewProps) {
   const { offline } = useBackendStatus()
   const {
     currentChatId: contextChatId,
+    currentChatLockedMode,
+    currentChatLockedRoleId,
     messages,
     isStreaming,
     loadingChat,
@@ -91,13 +117,14 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   } = useChatContext()
   const [inputValue, setInputValue] = useState(prefillMessage)
   const [chatMode, setChatMode] = useState<ChatMode>('researcher')
-  const [defaultChatMode, setDefaultChatMode] = useState<ChatMode>('researcher')
+  const [, setDefaultChatMode] = useState<ChatMode>('researcher')
   const [fullPrivacyMode, setFullPrivacyMode] = useState(true)
   const [webSearchConfigured, setWebSearchConfigured] = useState(false)
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
   const [rolesEnabled, setRolesEnabled] = useState(false)
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
   const [roles, setRoles] = useState<ChatRoleDefinition[]>([])
+  const [rolesLoaded, setRolesLoaded] = useState(false)
   const [roleMenuOpen, setRoleMenuOpen] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [animateToDocked, setAnimateToDocked] = useState(false)
@@ -199,8 +226,13 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       .then((items) => {
         if (rolesCancelled) return
         setRoles(Array.isArray(items) ? items : [])
+        setRolesLoaded(true)
       })
-      .catch((err) => logApiError(err, 'ChatView.getRoles'))
+      .catch((err) => {
+        if (rolesCancelled) return
+        setRolesLoaded(true)
+        logApiError(err, 'ChatView.getRoles')
+      })
     return () => {
       cancelled = true
       rolesCancelled = true
@@ -263,15 +295,17 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   }, [rolesEnabled, selectedRoleId])
 
   useEffect(() => {
+    if (!rolesLoaded) return
     if (!selectedRoleId) return
     if (roles.some((role) => role.id === selectedRoleId)) return
+    if (messages.length > 0) return
     setSelectedRoleId(null)
     try {
       window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
     } catch {
       // ignore storage errors
     }
-  }, [roles, selectedRoleId])
+  }, [roles, selectedRoleId, rolesLoaded, messages.length])
 
   useEffect(() => {
     if (isForceNewChatRequested()) return
@@ -333,6 +367,14 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const hasUploadChipRow = hasUploadAttachments || hasPendingUploads
   const hasScopedInputPill = !!chatFileScope || hasUploadChipRow
   const hideAssistantSwitch = hasScopedInputPill
+  const lockedMode = currentChatLockedMode ?? resolveLockedMode(messages)
+  const lockedRoleId = currentChatLockedRoleId ?? resolveLockedRoleId(messages)
+  const chatSessionLocked = (
+    !!contextChatId
+    && messages.some((msg) => (msg.role === 'user' && !msg.isInternal) || msg.role === 'assistant')
+  )
+  const effectiveChatMode: ChatMode = lockedMode ?? chatMode
+  const effectiveRoleId = lockedRoleId ?? selectedRoleId
   const hiddenUploadCount = Math.max(0, chatUploads.length - visibleUploadCount)
   const visibleUploads = hiddenUploadCount > 0 ? chatUploads.slice(0, visibleUploadCount) : chatUploads
   const recomputeVisibleUploadCount = useCallback(() => {
@@ -400,14 +442,14 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
 
   useEffect(() => {
     if (!chatFileScope && !hasActiveUploadAttachments && !hasPendingUploads) return
-    if (chatMode === 'researcher') return
+    if (effectiveChatMode === 'researcher') return
     setChatMode('researcher')
     try {
       window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'researcher')
     } catch {
       // ignore storage errors
     }
-  }, [chatFileScope, chatMode, hasActiveUploadAttachments, hasPendingUploads])
+  }, [chatFileScope, effectiveChatMode, hasActiveUploadAttachments, hasPendingUploads])
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
     const el = messagesContainerRef.current
@@ -487,6 +529,18 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     }
   }, [contextChatId, messages, loadingChat, chatMode])
 
+  useEffect(() => {
+    if (!contextChatId || loadingChat || messages.length === 0) return
+    const restoredRoleId = (
+      messages.find((msg) => msg.role === 'user' && !msg.isInternal && !!msg.roleId)?.roleId
+      ?? messages.find((msg) => msg.role === 'assistant' && !!msg.roleId)?.roleId
+      ?? null
+    )
+    if (restoredRoleId == null) return
+    if (restoredRoleId === selectedRoleId) return
+    setSelectedRoleId(restoredRoleId)
+  }, [contextChatId, messages, loadingChat, selectedRoleId])
+
   const lastMessage = messages[messages.length - 1]
   const streamContent = lastMessage?.role === 'assistant' ? lastMessage.content : ''
   const isInitialThinkingPhase = isStreaming && lastMessage?.role === 'assistant' && !lastMessage.content
@@ -528,13 +582,13 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const handleContinue = useCallback((anchorMessageId?: number) => {
     if (offline) return
     void continueLastScope(anchorMessageId, {
-      mode: chatMode,
-      roleId: rolesEnabled ? selectedRoleId : null,
+      mode: effectiveChatMode,
+      roleId: rolesEnabled ? effectiveRoleId : null,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, continueLastScope, chatMode, rolesEnabled, selectedRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, continueLastScope, effectiveChatMode, rolesEnabled, effectiveRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleRegenerate = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -545,32 +599,35 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       .find((msg) => msg.role === 'user' && !msg.isInternal && !!msg.content?.trim())
     if (!previousUser) return
     void sendMessage(previousUser.content, {
-      mode: chatMode,
-      roleId: rolesEnabled ? selectedRoleId : null,
+      mode: effectiveChatMode,
+      roleId: rolesEnabled ? effectiveRoleId : null,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, isStreaming, messages, sendMessage, chatMode, rolesEnabled, selectedRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, isStreaming, messages, sendMessage, effectiveChatMode, rolesEnabled, effectiveRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleAskInAssistant = useCallback((assistantMessageIndex: number) => {
     if (offline) return
     if (isStreaming) return
     if (hasScopedInputPill) return
+    if (lockedMode != null && lockedMode !== 'assistant') return
     const previousUser = [...messages]
       .slice(0, assistantMessageIndex)
       .reverse()
       .find((msg) => msg.role === 'user' && !msg.isInternal && !!msg.content?.trim())
     if (!previousUser) return
-    setChatMode('assistant')
-    try {
-      window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'assistant')
-    } catch {
-      // ignore storage errors
+    if (lockedMode == null) {
+      setChatMode('assistant')
+      try {
+        window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'assistant')
+      } catch {
+        // ignore storage errors
+      }
     }
     void sendMessage(previousUser.content, {
       mode: 'assistant',
-      roleId: rolesEnabled ? selectedRoleId : null,
+      roleId: rolesEnabled ? effectiveRoleId : null,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
@@ -582,26 +639,29 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     messages,
     sendMessage,
     rolesEnabled,
-    selectedRoleId,
+    effectiveRoleId,
     chatFileScope,
     chatWebSearchPrivacyOverride,
     chatWebSearchEnabled,
+    lockedMode,
   ])
 
   const handleNewChat = useCallback(() => {
     if (offline) return
     newChatRequestedRef.current = true
     setInputValue('')
-    setChatMode(defaultChatMode)
+    setChatMode('researcher')
+    setSelectedRoleId(null)
     try {
-      window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, defaultChatMode)
+      window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'researcher')
+      window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
     } catch {
       // ignore storage errors
     }
     void setChatWebSearchPreferences({ enabled: false, privacyOverride: false, persist: false })
     clearError()
     newChat().catch((err) => logApiError(err, 'ChatView.handleNewChat'))
-  }, [offline, defaultChatMode, clearError, newChat, setChatWebSearchPreferences])
+  }, [offline, clearError, newChat, setChatWebSearchPreferences])
 
   useEffect(() => {
     const handleNewChatEvent = () => handleNewChat()
@@ -616,13 +676,13 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
 
     setInputValue('')
     await sendMessage(text, {
-      mode: chatMode,
-      roleId: rolesEnabled ? selectedRoleId : null,
+      mode: effectiveChatMode,
+      roleId: rolesEnabled ? effectiveRoleId : null,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, inputValue, sendMessage, chatMode, rolesEnabled, selectedRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, inputValue, sendMessage, effectiveChatMode, rolesEnabled, effectiveRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleStop = useCallback(() => {
     if (offline) return
@@ -703,21 +763,55 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     })
   }, [webSearchToggleLocked, chatWebSearchEnabled, fullPrivacyMode, setChatWebSearchPreferences])
 
-  const lockedRoleId = (
-    messages.find((msg) => msg.role === 'user' && !msg.isInternal)?.roleId
-    ?? null
+  const selectedRole = roles.find((role) => role.id === effectiveRoleId) ?? (
+    effectiveRoleId
+      ? {
+          id: effectiveRoleId,
+          name: formatRoleNameFromId(effectiveRoleId),
+          description: '',
+          icon: null,
+        }
+      : null
   )
-  const selectedRole = roles.find((role) => role.id === selectedRoleId) ?? null
-  const activeRoleId = lockedRoleId ?? selectedRoleId
-  const activeRole = roles.find((role) => role.id === activeRoleId) ?? null
-  const roleSelectorDisabled = offline || isStreaming || roles.length === 0 || lockedRoleId !== null
+  const modeSelectorDisabled = offline || isStreaming || chatSessionLocked
+  const roleSelectorDisabled = offline || isStreaming || roles.length === 0 || chatSessionLocked
   const roleButtonLabel = selectedRole?.name || 'General'
+  const hasRoleDocContext = !!chatFileScope || chatUploads.some((item) => item.state === 'ready')
+  const showRoleSelector = (
+    rolesEnabled
+    && (
+      effectiveChatMode === 'assistant'
+      || (effectiveChatMode === 'researcher' && hasRoleDocContext)
+    )
+  )
+  const roleContextTooltip = (
+    effectiveChatMode === 'researcher' && !hasRoleDocContext
+      ? 'Roles are strongest with scoped documents'
+      : `Role: ${roleButtonLabel}`
+  )
+
+  useEffect(() => {
+    if (showRoleSelector) return
+    setRoleMenuOpen(false)
+  }, [showRoleSelector])
 
   useEffect(() => {
     if (!rolesEnabled) return
+    if (lockedRoleId == null) return
     if (lockedRoleId === selectedRoleId) return
     setSelectedRoleId(lockedRoleId)
   }, [lockedRoleId, rolesEnabled, selectedRoleId])
+
+  useEffect(() => {
+    if (lockedMode == null) return
+    if (lockedMode === chatMode) return
+    setChatMode(lockedMode)
+    try {
+      window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, lockedMode)
+    } catch {
+      // ignore storage errors
+    }
+  }, [lockedMode, chatMode])
 
   const handleUploadControl = useCallback(() => {
     if (offline || isStreaming || chatMode !== 'researcher') return
@@ -863,12 +957,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
           </button>
         }
       />
-      {rolesEnabled && activeRole && (
-        <div className="chat-view__active-role-badge" title={activeRole.description}>
-          <i className={activeRole.icon || 'ri-user-settings-line'} aria-hidden />
-          <span>{activeRole.name}</span>
-        </div>
-      )}
 
       <div className="chat-view__body">
         <div className="chat-view__content">
@@ -911,6 +999,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       nextAction={msg.nextAction}
                       continueLabel={msg.continueLabel}
                       webSearchUsed={msg.webSearchUsed}
+                      roleName={msg.roleId ? (roles.find((role) => role.id === msg.roleId)?.name || msg.roleId) : undefined}
+                      roleIcon={msg.roleId ? (roles.find((role) => role.id === msg.roleId)?.icon || undefined) : undefined}
                       createdAt={msg.createdAt}
                       generationSeconds={msg.generationSeconds}
                       enableRawOutputControl={enableRawOutputControl}
@@ -1065,7 +1155,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                         ? 'Service unavailable'
                         : isStreaming
                           ? 'Response in progress...'
-                          : (chatMode === 'assistant' && chatWebSearchEnabled
+                          : (effectiveChatMode === 'assistant' && chatWebSearchEnabled
                             ? 'Search the web...'
                             : 'Ask me anything...')
                     }
@@ -1079,7 +1169,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                   />
                   <div className="chat-view__controls-row">
                     <div className="chat-view__controls-left">
-                      {chatMode === 'researcher' && !chatFileScope && (
+                      {effectiveChatMode === 'researcher' && !chatFileScope && (
                         <button
                           type="button"
                           className="chat-view__upload-toggle"
@@ -1090,21 +1180,20 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                           <i className="ri-add-line" aria-hidden />
                         </button>
                       )}
-                      {chatMode === 'assistant' && webSearchConfigured && (
+                      {effectiveChatMode === 'assistant' && webSearchConfigured && (
                         <button
                           type="button"
                           className={`chat-view__web-search-toggle${chatWebSearchEnabled ? ' chat-view__web-search-toggle--active' : ''}`}
                           onClick={handleWebSearchToggle}
                           disabled={webSearchToggleLocked}
-                          title={webSearchToggleTitle}
-                          aria-label="Toggle web search for this chat"
+                          aria-label={webSearchToggleTitle}
                           aria-pressed={chatWebSearchEnabled}
                         >
                           <i className="ri-global-line" aria-hidden />
                           {chatWebSearchEnabled && <span className="chat-view__web-search-pill">Search</span>}
                         </button>
                       )}
-                      {rolesEnabled && (
+                      {showRoleSelector && (
                       <div ref={roleMenuRef} className="chat-view__role-selector">
                         <button
                           type="button"
@@ -1113,19 +1202,18 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                           disabled={roleSelectorDisabled}
                           aria-haspopup="menu"
                           aria-expanded={roleMenuOpen}
-                          aria-label="Select role"
-                          title={`Role: ${roleButtonLabel}`}
+                          aria-label={roleContextTooltip}
                         >
-                          <i className={activeRole?.icon || selectedRole?.icon || 'ri-user-settings-line'} aria-hidden />
+                          <i className={selectedRole?.icon || 'ri-user-settings-line'} aria-hidden />
                         </button>
                         {roleMenuOpen && (
                           <div className="chat-view__mode-menu chat-view__mode-menu--role" role="menu">
                             <span className="chat-view__mode-option-wrap">
                               <button
                                 type="button"
-                                className={`chat-view__mode-option${selectedRoleId == null ? ' chat-view__mode-option--active' : ''}`}
+                                className={`chat-view__mode-option${effectiveRoleId == null ? ' chat-view__mode-option--active' : ''}`}
                                 role="menuitemradio"
-                                aria-checked={selectedRoleId == null}
+                                aria-checked={effectiveRoleId == null}
                                 disabled={roleSelectorDisabled}
                                 onClick={() => {
                                   setSelectedRoleId(null)
@@ -1146,9 +1234,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                               <span key={role.id} className="chat-view__mode-option-wrap">
                                 <button
                                   type="button"
-                                  className={`chat-view__mode-option${selectedRoleId === role.id ? ' chat-view__mode-option--active' : ''}`}
+                                  className={`chat-view__mode-option${effectiveRoleId === role.id ? ' chat-view__mode-option--active' : ''}`}
                                   role="menuitemradio"
-                                  aria-checked={selectedRoleId === role.id}
+                                  aria-checked={effectiveRoleId === role.id}
                                   disabled={roleSelectorDisabled}
                                   onClick={() => {
                                     setSelectedRoleId(role.id)
@@ -1177,13 +1265,13 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                           type="button"
                           className="chat-view__mode-button"
                           onClick={() => setModeMenuOpen((open) => !open)}
-                          disabled={offline || isStreaming}
+                          disabled={modeSelectorDisabled}
                           aria-haspopup="menu"
                           aria-expanded={modeMenuOpen}
                           aria-label="Select chat mode"
                         >
-                          <i className={CHAT_MODE_ICONS[chatMode]} aria-hidden />
-                          <span>{CHAT_MODE_LABELS[chatMode]}</span>
+                          <i className={CHAT_MODE_ICONS[effectiveChatMode]} aria-hidden />
+                          <span>{CHAT_MODE_LABELS[effectiveChatMode]}</span>
                           <i className="ri-arrow-down-s-line" aria-hidden />
                         </button>
                         {modeMenuOpen && (
@@ -1194,11 +1282,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                 <span key={mode} className="chat-view__mode-option-wrap">
                                 <button
                                   type="button"
-                                  className={`chat-view__mode-option${chatMode === mode ? ' chat-view__mode-option--active' : ''}`}
+                                  className={`chat-view__mode-option${effectiveChatMode === mode ? ' chat-view__mode-option--active' : ''}`}
                                   role="menuitemradio"
-                                  aria-checked={chatMode === mode}
-                                  disabled={offline || isStreaming || scopedModeLocked}
+                                  aria-checked={effectiveChatMode === mode}
+                                  disabled={modeSelectorDisabled || scopedModeLocked}
                                   onClick={() => {
+                                    if (modeSelectorDisabled) return
                                     if (scopedModeLocked) return
                                     setChatMode(mode)
                                     setModeMenuOpen(false)

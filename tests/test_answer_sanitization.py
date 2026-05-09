@@ -5,6 +5,7 @@ from informity.answer_sanitization import (
     extract_requested_max_words,
     normalize_assistant_identity_claim,
     sanitize_display_answer,
+    should_preserve_task_checkboxes,
     truncate_to_word_limit,
 )
 
@@ -129,3 +130,26 @@ def test_sanitize_display_answer_strips_limitations_and_scope_meta_sections() ->
         "Final grounded point."
     )
     assert sanitize_display_answer(raw) == "Character summary here.\n\nFinal grounded point."
+
+
+def test_sanitize_display_answer_normalizes_markdown_task_list_checkboxes_by_default() -> None:
+    raw = "- [ ] Review config\n- [x] Confirm approvals\n1. [ ] Capture evidence"
+    assert sanitize_display_answer(raw) == "- Review config\n- Confirm approvals\n1. Capture evidence"
+
+
+def test_sanitize_display_answer_preserves_markdown_task_list_checkboxes_when_enabled() -> None:
+    raw = "- [ ] Review config\n- [x] Confirm approvals"
+    assert sanitize_display_answer(raw, preserve_task_checkboxes=True) == raw
+
+
+def test_sanitize_display_answer_rewrites_emoji_status_markers_to_text() -> None:
+    raw = "| Control | Status |\n|---|---|\n| MFA | ✅ |\n| Backups | ❌ |\n| Alerts | ⚠️ |"
+    assert sanitize_display_answer(raw) == (
+        "| Control | Status |\n|---|---|\n| MFA | Yes |\n| Backups | No |\n| Alerts | Warning |"
+    )
+
+
+def test_should_preserve_task_checkboxes_detects_explicit_checkbox_intent() -> None:
+    assert should_preserve_task_checkboxes("Return a checklist with checkboxes") is True
+    assert should_preserve_task_checkboxes("Use markdown task list format") is True
+    assert should_preserve_task_checkboxes("Create a weekly review checklist") is False

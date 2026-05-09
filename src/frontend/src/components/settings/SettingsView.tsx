@@ -812,7 +812,7 @@ export function SettingsView({
                 <span className="settings-checkbox-row-info ui-tooltip-trigger">
                   <i className="ri-information-line" aria-hidden="true" />
                   <span className="settings-tooltip ui-tooltip">
-                    Roles apply a domain-specific lens to how responses are framed.
+                    Add role-based guidance to responses (best with scoped documents)
                   </span>
                 </span>
               </span>

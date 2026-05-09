@@ -54,6 +54,49 @@ MAX_WORDS_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _WORD_PATTERN = re.compile(r'\S+')
+_TASK_LIST_BULLET_PATTERN = re.compile(r'(?im)^([ \t]*[-*+][ \t]+)\[(?: |x|X)\][ \t]+')
+_TASK_LIST_NUMBERED_PATTERN = re.compile(r'(?im)^([ \t]*\d+\.[ \t]+)\[(?: |x|X)\][ \t]+')
+_TASK_CHECKBOX_INTENT_PATTERN = re.compile(
+    r'(?is)\b('
+    r'checkbox(?:es)?'
+    r'|task[\s\-]*list'
+    r'|todo'
+    r'|to[\s\-]*do'
+    r'|check[\s\-]*list\s+with\s+checkbox(?:es)?'
+    r'|markdown\s+task\s+list'
+    r'|\-\s*\[\s*[xX ]\s*\]'
+    r')\b'
+)
+
+
+def should_preserve_task_checkboxes(user_prompt: str | None) -> bool:
+    prompt = str(user_prompt or '').strip()
+    if not prompt:
+        return False
+    return _TASK_CHECKBOX_INTENT_PATTERN.search(prompt) is not None
+
+
+def _normalize_visual_status_markers(text: str, *, preserve_task_checkboxes: bool) -> str:
+    cleaned = text
+    if not preserve_task_checkboxes:
+        # Default policy: normalize markdown task-list checkboxes to plain bullets.
+        cleaned = _TASK_LIST_BULLET_PATTERN.sub(lambda m: m.group(1), cleaned)
+        cleaned = _TASK_LIST_NUMBERED_PATTERN.sub(lambda m: m.group(1), cleaned)
+    # Replace emoji status glyphs with plain-text markers.
+    replacements = {
+        '✅': 'Yes',
+        '☑️': 'Yes',
+        '✔️': 'Yes',
+        '✔': 'Yes',
+        '❌': 'No',
+        '✖️': 'No',
+        '✗': 'No',
+        '⚠️': 'Warning',
+        '⚠': 'Warning',
+    }
+    for source, target in replacements.items():
+        cleaned = cleaned.replace(source, target)
+    return cleaned
 
 
 def strip_think_blocks(text: str) -> str:
@@ -111,9 +154,13 @@ def _trim_truncated_trailing_markdown_table_row(text: str) -> str:
     return ''
 
 
-def sanitize_display_answer(text: str) -> str:
+def sanitize_display_answer(text: str, *, preserve_task_checkboxes: bool = False) -> str:
     cleaned = strip_think_blocks(text)
     cleaned = strip_source_artifacts(cleaned)
+    cleaned = _normalize_visual_status_markers(
+        cleaned,
+        preserve_task_checkboxes=preserve_task_checkboxes,
+    )
     cleaned = _ANSWER_LABEL_BOLD_COLON_INSIDE_PATTERN.sub(lambda m: m.group(1), cleaned)
     cleaned = _ANSWER_LABEL_PATTERN.sub(lambda m: m.group(1), cleaned)
     if (
@@ -177,13 +224,21 @@ def normalize_assistant_identity_claim(text: str) -> str:
     return raw
 
 
-def build_display_answer(raw_answer: str, fallback_message: str = DISPLAY_FALLBACK_MESSAGE) -> tuple[str, bool]:
+def build_display_answer(
+    raw_answer: str,
+    fallback_message: str = DISPLAY_FALLBACK_MESSAGE,
+    *,
+    preserve_task_checkboxes: bool = False,
+) -> tuple[str, bool]:
     """
     Build UI-safe answer while preserving canonical raw answer in storage.
     Returns (display_answer, reasoning_only_output).
     """
     normalized_raw_answer = normalize_assistant_identity_claim(raw_answer)
-    cleaned_answer = sanitize_display_answer(normalized_raw_answer)
+    cleaned_answer = sanitize_display_answer(
+        normalized_raw_answer,
+        preserve_task_checkboxes=preserve_task_checkboxes,
+    )
     reasoning_only_output = bool(normalized_raw_answer) and not cleaned_answer and (
         '<think>' in normalized_raw_answer.lower() or '<<think>>' in normalized_raw_answer.lower()
     )

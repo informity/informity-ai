@@ -5,7 +5,7 @@
 
 from informity.config import settings
 from informity.db.models import ChatMessage
-from informity.llm.personas import compose_persona_prompt
+from informity.llm.personas import compose_prompt
 from informity.llm.prompt_builder import build_messages
 
 
@@ -258,13 +258,23 @@ class TestPromptBuilder:
 
     def test_builder_system_prompt_matches_rag_persona_composer_exactly(self) -> None:
         messages = build_messages('Question', [], chat_mode='researcher')
-        expected_system_prefix = compose_persona_prompt(persona_id='researcher_rag', chat_mode='researcher')
+        expected_system_prefix = compose_prompt(mode_id='researcher_rag', chat_mode='researcher')
         assert messages[0]['content'] == f'{expected_system_prefix}\n\nContext:\n'
 
     def test_builder_assistant_mode_system_prompt_matches_composer_exactly(self) -> None:
         messages = build_messages('Question', [], chat_mode='assistant')
-        expected_system_prefix = compose_persona_prompt(persona_id='researcher_rag', chat_mode='assistant')
+        expected_system_prefix = compose_prompt(mode_id='researcher_rag', chat_mode='assistant')
         assert messages[0]['content'] == f'{expected_system_prefix}\n\nContext:\n'
+
+    def test_builder_general_role_parity_when_role_absent(self) -> None:
+        messages_no_role = build_messages('Question', [], chat_mode='researcher', role_id=None)
+        messages_legacy = build_messages('Question', [], chat_mode='researcher')
+        assert messages_no_role[0]['content'] == messages_legacy[0]['content']
+
+    def test_builder_applies_role_overlay_when_role_present(self) -> None:
+        messages = build_messages('Question', [], chat_mode='researcher', role_id='legal')
+        assert 'Role Identity:' in messages[0]['content']
+        assert 'Role Disclaimer:' in messages[0]['content']
 
     def test_preserves_assistant_history_verbatim(self) -> None:
         history = [

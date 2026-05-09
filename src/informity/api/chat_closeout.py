@@ -3,10 +3,177 @@
 # Done-payload assembly and closeout-only numeric evidence helpers.
 # ==============================================================================
 
-def build_display_blocks(cleaned_answer: str) -> list[dict[str, str]]:
+from __future__ import annotations
+
+import re
+
+_TABLE_SEPARATOR_RE = re.compile(r'^\|?(?:\s*:?-{3,}:?\s*\|)+(?:\s*:?-{3,}:?\s*)\|?$')
+_CODE_FENCE_OPEN_RE = re.compile(r'^```(?P<lang>[A-Za-z0-9_+\-]*)\s*$')
+_LIST_ITEM_RE = re.compile(r'^(?P<indent>\s*)(?P<marker>(?:[-*+])|(?:\d+[.)]))\s+(?P<body>.+)$')
+_CHECKBOX_RE = re.compile(r'^\[(?P<state>[xX ])\]\s+(?P<text>.+)$')
+_QUOTE_LINE_RE = re.compile(r'^\s*>\s?(?P<body>.*)$')
+
+
+def _split_table_cells(line: str) -> list[str]:
+    text = line.strip()
+    if text.startswith('|'):
+        text = text[1:]
+    if text.endswith('|'):
+        text = text[:-1]
+    cells: list[str] = []
+    current: list[str] = []
+    escaped = False
+    for ch in text:
+        if escaped:
+            current.append(ch)
+            escaped = False
+            continue
+        if ch == '\\':
+            escaped = True
+            continue
+        if ch == '|':
+            cells.append(''.join(current).strip())
+            current = []
+            continue
+        current.append(ch)
+    cells.append(''.join(current).strip())
+    return cells
+
+
+def _flush_text(lines: list[str], blocks: list[dict[str, object]]) -> None:
+    if not lines:
+        return
+    markdown = '\n'.join(lines).strip('\n')
+    if markdown:
+        blocks.append({'type': 'text', 'markdown': markdown})
+    lines.clear()
+
+
+def build_display_blocks(cleaned_answer: str) -> list[dict[str, object]]:
     if not cleaned_answer:
         return []
-    return [{'type': 'text', 'markdown': cleaned_answer}]
+
+    blocks: list[dict[str, object]] = []
+    lines = cleaned_answer.splitlines()
+    text_buffer: list[str] = []
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+
+        code_open = _CODE_FENCE_OPEN_RE.match(line.strip())
+        if code_open:
+            _flush_text(text_buffer, blocks)
+            lang = code_open.group('lang') or None
+            i += 1
+            code_lines: list[str] = []
+            while i < len(lines) and not lines[i].strip().startswith('```'):
+                code_lines.append(lines[i])
+                i += 1
+            if i < len(lines) and lines[i].strip().startswith('```'):
+                i += 1
+            blocks.append({
+                'type': 'code',
+                'code': '\n'.join(code_lines),
+                'language': lang,
+            })
+            continue
+
+        has_next = i + 1 < len(lines)
+        if (
+            has_next
+            and '|' in line
+            and _TABLE_SEPARATOR_RE.match(lines[i + 1].strip())
+        ):
+            header_cells = _split_table_cells(line)
+            if header_cells:
+                _flush_text(text_buffer, blocks)
+                i += 2
+                table_rows: list[list[str | number | None]] = []
+                while i < len(lines):
+                    row_line = lines[i]
+                    if not row_line.strip() or '|' not in row_line:
+                        break
+                    row_cells = _split_table_cells(row_line)
+                    if not row_cells:
+                        break
+                    if len(row_cells) < len(header_cells):
+                        row_cells.extend([''] * (len(header_cells) - len(row_cells)))
+                    table_rows.append(row_cells[:len(header_cells)])
+                    i += 1
+                blocks.append({
+                    'type': 'table',
+                    'columns': header_cells,
+                    'rows': table_rows,
+                })
+                continue
+
+        list_match = _LIST_ITEM_RE.match(line)
+        if list_match:
+            _flush_text(text_buffer, blocks)
+            marker = list_match.group('marker')
+            ordered = marker[0].isdigit()
+            items: list[dict[str, object]] = []
+            while i < len(lines):
+                candidate = lines[i]
+                candidate_match = _LIST_ITEM_RE.match(candidate)
+                if not candidate_match:
+                    if not candidate.strip():
+                        i += 1
+                        continue
+                    break
+                candidate_marker = candidate_match.group('marker')
+                candidate_ordered = candidate_marker[0].isdigit()
+                if candidate_ordered != ordered:
+                    break
+                body = candidate_match.group('body').strip()
+                indent_spaces = len(candidate_match.group('indent') or '')
+                # Treat 2-space indentation as one nested list level.
+                level = max(0, indent_spaces // 2)
+                checked: bool | None = None
+                checkbox_match = _CHECKBOX_RE.match(body)
+                if checkbox_match:
+                    checked = checkbox_match.group('state').strip().lower() == 'x'
+                    body = checkbox_match.group('text').strip()
+                items.append({
+                    'text': body,
+                    'level': level,
+                    'checked': checked,
+                })
+                i += 1
+            if items:
+                blocks.append({
+                    'type': 'list',
+                    'ordered': ordered,
+                    'items': items,
+                })
+                continue
+
+        quote_match = _QUOTE_LINE_RE.match(line)
+        if quote_match:
+            _flush_text(text_buffer, blocks)
+            quote_lines: list[str] = []
+            while i < len(lines):
+                quote_candidate = _QUOTE_LINE_RE.match(lines[i])
+                if not quote_candidate:
+                    if not lines[i].strip():
+                        i += 1
+                        continue
+                    break
+                quote_lines.append(quote_candidate.group('body'))
+                i += 1
+            quote_text = '\n'.join(quote_lines).strip()
+            if quote_text:
+                blocks.append({
+                    'type': 'quote',
+                    'text': quote_text,
+                })
+                continue
+
+        text_buffer.append(line)
+        i += 1
+
+    _flush_text(text_buffer, blocks)
+    return blocks
 
 
 def build_done_payload(

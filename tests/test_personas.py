@@ -1,13 +1,9 @@
 from informity.llm.personas import (
     MODE_REGISTRY,
-    PERSONA_REGISTRY,
     ROLE_REGISTRY,
     compose_prompt,
-    compose_persona_prompt,
     get_mode_prompt,
-    get_persona_prompt,
     resolve_runtime_mode_id,
-    resolve_runtime_persona_id,
 )
 from informity.llm.system_prompts import (
     SIMPLE_ASSISTANT_SYSTEM_PROMPT,
@@ -68,23 +64,17 @@ def test_registry_contains_core_default_personas() -> None:
     assert 'assistant_default' in MODE_REGISTRY
     assert 'researcher_default' in MODE_REGISTRY
     assert 'researcher_rag' in MODE_REGISTRY
-    assert 'assistant_default' in PERSONA_REGISTRY
-    assert 'researcher_default' in PERSONA_REGISTRY
-    assert 'researcher_rag' in PERSONA_REGISTRY
 
 
 def test_runtime_persona_resolution_by_mode() -> None:
     assert resolve_runtime_mode_id('assistant') == 'assistant_default'
     assert resolve_runtime_mode_id('researcher') == 'researcher_default'
     assert resolve_runtime_mode_id(None) == 'researcher_default'
-    assert resolve_runtime_persona_id('assistant') == 'assistant_default'
-    assert resolve_runtime_persona_id('researcher') == 'researcher_default'
-    assert resolve_runtime_persona_id(None) == 'researcher_default'
 
 
 def test_rag_persona_composition_adds_assistant_mode_policy_only_for_assistant() -> None:
-    assistant_prompt = compose_persona_prompt(persona_id='researcher_rag', chat_mode='assistant')
-    researcher_prompt = compose_persona_prompt(persona_id='researcher_rag', chat_mode='researcher')
+    assistant_prompt = compose_prompt(mode_id='researcher_rag', chat_mode='assistant')
+    researcher_prompt = compose_prompt(mode_id='researcher_rag', chat_mode='researcher')
 
     assert 'Answer using ONLY the available information from retrieved context' in assistant_prompt
     assert 'Assistant Mode Rules:' in assistant_prompt
@@ -93,27 +83,19 @@ def test_rag_persona_composition_adds_assistant_mode_policy_only_for_assistant()
 
 def test_legacy_prompt_exports_are_covered_by_registry_prompts() -> None:
     assert get_mode_prompt('assistant_default').startswith('You are Informity AI')
-    assert get_persona_prompt('assistant_default').startswith('You are Informity AI')
-    assert 'Summarize this chat conversation only.' in get_persona_prompt('chat_summary')
+    assert 'Summarize this chat conversation only.' in get_mode_prompt('chat_summary')
 
 
 def test_persona_prompts_match_golden_baseline_exactly() -> None:
     assert get_mode_prompt('assistant_default') == _EXPECTED_ASSISTANT_PROMPT
-    assert get_persona_prompt('assistant_default') == _EXPECTED_ASSISTANT_PROMPT
-    assert get_persona_prompt('assistant_web_search_synthesis') == _EXPECTED_ASSISTANT_WEB_SYNTHESIS_PROMPT
-    assert get_persona_prompt('researcher_default') == _EXPECTED_RESEARCHER_SIMPLE_PROMPT
-    assert get_persona_prompt('chat_summary') == _EXPECTED_CHAT_SUMMARY_PROMPT
+    assert get_mode_prompt('assistant_web_search_synthesis') == _EXPECTED_ASSISTANT_WEB_SYNTHESIS_PROMPT
+    assert get_mode_prompt('researcher_default') == _EXPECTED_RESEARCHER_SIMPLE_PROMPT
+    assert get_mode_prompt('chat_summary') == _EXPECTED_CHAT_SUMMARY_PROMPT
 
 
-def test_compose_prompt_mode_only_matches_legacy_composer() -> None:
-    assert compose_prompt(mode_id='researcher_rag', chat_mode='assistant') == compose_persona_prompt(
-        persona_id='researcher_rag',
-        chat_mode='assistant',
-    )
-    assert compose_prompt(mode_id='researcher_rag', chat_mode='researcher') == compose_persona_prompt(
-        persona_id='researcher_rag',
-        chat_mode='researcher',
-    )
+def test_compose_prompt_mode_only_is_stable() -> None:
+    assert compose_prompt(mode_id='researcher_rag', chat_mode='assistant')
+    assert compose_prompt(mode_id='researcher_rag', chat_mode='researcher')
 
 
 def test_role_registry_contains_builtin_roles() -> None:
@@ -121,6 +103,24 @@ def test_role_registry_contains_builtin_roles() -> None:
     assert 'security_compliance' in ROLE_REGISTRY
     assert 'financial' in ROLE_REGISTRY
     assert 'technical' in ROLE_REGISTRY
+
+
+def test_role_overlay_is_additive_and_keeps_mode_prompt_prefix() -> None:
+    general = compose_prompt(mode_id='researcher_rag', chat_mode='researcher', role_id=None)
+    legal = compose_prompt(mode_id='researcher_rag', chat_mode='researcher', role_id='legal')
+
+    assert legal.startswith(general)
+    assert 'Role Identity:' in legal
+    assert 'Role Scope:' in legal
+    assert 'Role Analysis Checklist:' in legal
+    assert 'Role Output Preferences:' in legal
+    assert 'Role Overlay:' in legal
+    assert 'Role Disclaimer:' in legal
+
+
+def test_general_mode_prompt_parity_when_role_absent() -> None:
+    assert compose_prompt(mode_id='assistant_default', chat_mode='assistant', role_id=None) == _EXPECTED_ASSISTANT_PROMPT
+    assert compose_prompt(mode_id='researcher_default', chat_mode='researcher', role_id=None) == _EXPECTED_RESEARCHER_SIMPLE_PROMPT
 
 
 def test_system_prompt_exports_match_golden_baseline_exactly() -> None:

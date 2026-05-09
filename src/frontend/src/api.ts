@@ -102,7 +102,20 @@ async function request<T = unknown>(
     ...(body != null ? { body: JSON.stringify(body) } : {}),
   }
 
-  const response = await fetch(fullUrl, config)
+  let response: Response
+  try {
+    response = await fetch(fullUrl, config)
+  } catch (err) {
+    const normalizedMessage = String((err as { message?: unknown })?.message || '').toLowerCase()
+    const canRetryOnLoopbackAlias = fullUrl.includes('://localhost:') && (
+      normalizedMessage.includes('failed to fetch')
+      || normalizedMessage.includes('networkerror')
+      || normalizedMessage.includes('load failed')
+    )
+    if (!canRetryOnLoopbackAlias) throw err
+    const retryUrl = fullUrl.replace('://localhost:', '://127.0.0.1:')
+    response = await fetch(retryUrl, config)
+  }
 
   if (!response.ok) {
     const detail = await extractErrorDetail(response)

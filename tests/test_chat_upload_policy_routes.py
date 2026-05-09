@@ -9,15 +9,15 @@ from fastapi import HTTPException
 from informity.api import routes_chat
 from informity.api.schemas import ChatRequest
 from informity.config import settings
-from informity.db.models import FileCategory, IndexedFile
+from informity.db.models import ChatMessage, ChatRole, FileCategory, IndexedFile
 from informity.db.sqlite import (
+    get_chat,
     get_connection,
     init_db,
+    insert_chat_message,
     insert_chat_upload_attachment,
     insert_file,
 )
-
-
 async def _insert_indexed_file(db, *, path: str, filename: str, content_hash: str) -> int:
     now = datetime.now(UTC)
     indexed_file = await insert_file(
@@ -239,5 +239,204 @@ async def test_chat_explicit_scoped_upload_ids_reject_missing_upload_ids(
             )
         assert exc_info.value.status_code == 404
         assert exc_info.value.detail == 'Upload not found or inactive: upload-missing.'
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_chat_allows_follow_up_when_role_is_omitted_but_chat_role_is_locked(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, 'app_data_dir', tmp_path / 'app-data')
+    monkeypatch.setattr(settings, 'db_path', tmp_path / 'policy-role-lock-omitted.db')
+    await init_db()
+    db = await get_connection()
+    try:
+        chat_id = 'policy-chat-role-lock-omitted'
+        await insert_chat_message(
+            db,
+            ChatMessage(
+                chat_id=chat_id,
+                role=ChatRole.USER,
+                content='Initial legal question',
+                chat_mode='assistant',
+                role_id='legal',
+            ),
+        )
+
+        def _raise_after_role_lock(**_kwargs):
+            raise RuntimeError('after_role_lock')
+
+        monkeypatch.setattr(routes_chat, 'resolve_retrieval_context_scope_key', _raise_after_role_lock)
+
+        with pytest.raises(RuntimeError, match='after_role_lock'):
+            await routes_chat.chat(
+                request=ChatRequest(
+                    message='Follow-up question without explicit role id',
+                    chat_id=chat_id,
+                    mode='assistant',
+                    role_id=None,
+                ),
+                db=db,
+            )
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_chat_allows_follow_up_when_user_role_missing_but_assistant_role_locked(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, 'app_data_dir', tmp_path / 'app-data')
+    monkeypatch.setattr(settings, 'db_path', tmp_path / 'policy-role-lock-assistant-fallback.db')
+    await init_db()
+    db = await get_connection()
+    try:
+        chat_id = 'policy-chat-role-lock-assistant-fallback'
+        await insert_chat_message(
+            db,
+            ChatMessage(
+                chat_id=chat_id,
+                role=ChatRole.USER,
+                content='Initial question without role metadata',
+                chat_mode='assistant',
+                role_id=None,
+            ),
+        )
+        await insert_chat_message(
+            db,
+            ChatMessage(
+                chat_id=chat_id,
+                role=ChatRole.ASSISTANT,
+                content='Assistant reply tagged legal',
+                chat_mode='assistant',
+                role_id='legal',
+            ),
+        )
+
+        def _raise_after_role_lock(**_kwargs):
+            raise RuntimeError('after_role_lock_assistant_fallback')
+
+        monkeypatch.setattr(routes_chat, 'resolve_retrieval_context_scope_key', _raise_after_role_lock)
+
+        with pytest.raises(RuntimeError, match='after_role_lock_assistant_fallback'):
+            await routes_chat.chat(
+                request=ChatRequest(
+                    message='Follow-up with legal role should be accepted',
+                    chat_id=chat_id,
+                    mode='assistant',
+                    role_id='legal',
+                ),
+                db=db,
+            )
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_chat_coerces_follow_up_mode_to_locked_chat_mode(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, 'app_data_dir', tmp_path / 'app-data')
+    monkeypatch.setattr(settings, 'db_path', tmp_path / 'policy-mode-lock-coerce.db')
+    await init_db()
+    db = await get_connection()
+    try:
+        chat_id = 'policy-chat-mode-lock-coerce'
+        await insert_chat_message(
+            db,
+            ChatMessage(
+                chat_id=chat_id,
+                role=ChatRole.USER,
+                content='Initial researcher question',
+                chat_mode='researcher',
+                role_id='legal',
+            ),
+        )
+        await routes_chat.chat(
+            request=ChatRequest(
+                message='Follow-up tries to switch mode',
+                chat_id=chat_id,
+                mode='assistant',
+                role_id='legal',
+            ),
+            db=db,
+        )
+        history = await get_chat(db, chat_id)
+        persisted_user = [msg for msg in history if msg.role == ChatRole.USER and not bool(msg.is_internal)]
+        assert len(persisted_user) >= 2
+        assert persisted_user[-1].chat_mode == 'researcher'
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_get_chat_preserves_role_id_from_db_rows(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, 'app_data_dir', tmp_path / 'app-data')
+    monkeypatch.setattr(settings, 'db_path', tmp_path / 'policy-role-row-preserve.db')
+    await init_db()
+    db = await get_connection()
+    try:
+        chat_id = 'policy-chat-role-row-preserve'
+        await insert_chat_message(
+            db,
+            ChatMessage(
+                chat_id=chat_id,
+                role=ChatRole.USER,
+                content='Initial legal question',
+                chat_mode='assistant',
+                role_id='legal',
+            ),
+        )
+        history = await get_chat(db, chat_id)
+        assert len(history) == 1
+        assert history[0].role_id == 'legal'
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_chat_coerces_follow_up_role_to_locked_chat_role(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, 'app_data_dir', tmp_path / 'app-data')
+    monkeypatch.setattr(settings, 'db_path', tmp_path / 'policy-role-lock-coerce.db')
+    await init_db()
+    db = await get_connection()
+    try:
+        chat_id = 'policy-chat-role-lock-coerce'
+        await insert_chat_message(
+            db,
+            ChatMessage(
+                chat_id=chat_id,
+                role=ChatRole.USER,
+                content='Initial legal question',
+                chat_mode='assistant',
+                role_id='legal',
+            ),
+        )
+
+        def _raise_after_role_lock(**_kwargs):
+            raise RuntimeError('after_role_lock_coerce')
+
+        monkeypatch.setattr(routes_chat, 'resolve_retrieval_context_scope_key', _raise_after_role_lock)
+
+        with pytest.raises(RuntimeError, match='after_role_lock_coerce'):
+            await routes_chat.chat(
+                request=ChatRequest(
+                    message='Follow-up tries to switch role',
+                    chat_id=chat_id,
+                    mode='assistant',
+                    role_id='financial',
+                ),
+                db=db,
+            )
     finally:
         await db.close()
