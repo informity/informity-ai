@@ -824,10 +824,10 @@ export function SettingsView({
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
               <i className="ri-user-settings-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Specialized AI Roles
+              AI Roles
             </div>
             <p className="settings-subsection-description ui-subsection-description">
-              Enable domain-specific response lenses. Selected roles appear in chat role selection.
+              Focus responses on a specific domain. Active roles appear in the chat composer.
             </p>
           </div>
           <div>
