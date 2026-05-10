@@ -166,6 +166,26 @@ describe('ChatMessage markdown rendering', () => {
     expect(container.querySelector('.chat-message__block--metric')).not.toBeNull()
   })
 
+  it('renders structured code blocks with copy action wrapper', () => {
+    const { container } = render(
+      <ChatMessage
+        role="assistant"
+        content={'fallback'}
+        displayBlocks={[
+          { type: 'code', language: 'ts', code: 'const answer: number = 42;' },
+        ]}
+        isStreaming={false}
+      />,
+    )
+
+    expect(screen.getByRole('button', { name: 'Copy code block' })).toBeInTheDocument()
+    expect(screen.getByText('TypeScript')).toBeInTheDocument()
+    expect(container.querySelector('.chat-message__block--code .chat-message__code-wrapper')).not.toBeNull()
+    const codeElement = container.querySelector('.chat-message__block--code pre code')
+    expect(codeElement?.textContent).toContain('const answer: number = 42;')
+    expect(codeElement?.className).toContain('language-ts')
+  })
+
   it('renders structured list/checklist blocks with nesting', () => {
     const { container } = render(
       <ChatMessage

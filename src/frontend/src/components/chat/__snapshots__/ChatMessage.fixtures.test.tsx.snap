@@ -159,56 +159,69 @@ exports[`ChatMessage rendering fixtures > matches rendering fixtures and formatt
       <div
         class="chat-message__code-wrapper"
       >
-        <button
-          aria-label="Copy code block"
-          class="chat-message__copy-code"
-          title="Copy code"
-          type="button"
+        <div
+          class="chat-message__code-header"
         >
-          <i
-            aria-hidden="true"
-            class="ri-file-copy-line"
-            style="font-size: 0.875rem;"
-          />
-        </button>
-        <pre>
-          <code
-            class="hljs language-python"
+          <span
+            class="chat-message__code-language"
           >
-            <span
-              class="hljs-keyword"
+            Code
+          </span>
+          <button
+            aria-label="Copy code block"
+            class="chat-message__copy-code"
+            title="Copy code"
+            type="button"
+          >
+            <i
+              aria-hidden="true"
+              class="ri-file-copy-line"
+              style="font-size: 0.875rem;"
+            />
+          </button>
+        </div>
+        <div
+          class="chat-message__code-body"
+        >
+          <pre>
+            <code
+              class="hljs language-python"
             >
-              for
-            </span>
-             index 
-            <span
-              class="hljs-keyword"
-            >
-              in
-            </span>
-             
-            <span
-              class="hljs-built_in"
-            >
-              range
-            </span>
-            (
-            <span
-              class="hljs-number"
-            >
-              3
-            </span>
-            ):
+              <span
+                class="hljs-keyword"
+              >
+                for
+              </span>
+               index 
+              <span
+                class="hljs-keyword"
+              >
+                in
+              </span>
+               
+              <span
+                class="hljs-built_in"
+              >
+                range
+              </span>
+              (
+              <span
+                class="hljs-number"
+              >
+                3
+              </span>
+              ):
     
-            <span
-              class="hljs-built_in"
-            >
-              print
-            </span>
-            (index)
+              <span
+                class="hljs-built_in"
+              >
+                print
+              </span>
+              (index)
 
-          </code>
-        </pre>
+            </code>
+          </pre>
+        </div>
       </div>
     </div>
   </div>

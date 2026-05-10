@@ -14,6 +14,23 @@ _CHECKBOX_RE = re.compile(r'^\[(?P<state>[xX ])\]\s+(?P<text>.+)$')
 _QUOTE_LINE_RE = re.compile(r'^\s*>\s?(?P<body>.*)$')
 _DISCLAIMER_LINE_RE = re.compile(r'^\s*(?:\*\*)?\s*Disclaimer\s*:\s*(?P<body>.+?)\s*$', re.IGNORECASE)
 _HORIZONTAL_RULE_RE = re.compile(r'^\s*(?:-{3,}|\*{3,}|_{3,})\s*$')
+_UNFENCED_CODE_LINE_HINT_RE = re.compile(
+    r'^\s*(?:'
+    r'(?:const|let|var|function|class|interface|type|enum|import|export|from|if|else|for|while|switch|case|return|try|catch|finally|throw|new)\b'
+    r'|(?:def|class|import|from|return|if|elif|else|for|while|try|except|finally|with|lambda)\b'
+    r'|(?:public|private|protected|static|final|void)\b'
+    r'|(?:SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|WITH)\b'
+    r'|(?:#include|package|func|fn)\b'
+    r')',
+)
+_UNFENCED_CODE_INLINE_HINT_RE = re.compile(r'[{}()[\];]|=>|::|:=|==|!=|<=|>=|&&|\|\|')
+_UNFENCED_CODE_MARKDOWN_BLOCKER_RE = re.compile(r'^\s*(?:[-*+]\s+|\d+[.)]\s+|#{1,6}\s+|>\s+|\|)')
+_UNFENCED_CODE_LANGUAGE_HINTS: list[tuple[str, str]] = [
+    (r'^\s*(?:def\b|import\b|from\b|class\b|elif\b|except\b|lambda\b)', 'python'),
+    (r'^\s*(?:const\b|let\b|var\b|function\b|interface\b|type\b|import\b|export\b)', 'typescript'),
+    (r'^\s*(?:public\b|private\b|protected\b|class\b|interface\b)', 'java'),
+    (r'^\s*(?:SELECT\b|INSERT\b|UPDATE\b|DELETE\b|CREATE\b|ALTER\b|DROP\b|WITH\b)', 'sql'),
+]
 
 
 def _split_table_cells(line: str) -> list[str]:
@@ -63,9 +80,50 @@ def _trim_trailing_divider(lines: list[str]) -> None:
         break
 
 
+def _infer_unfenced_code_language(lines: list[str]) -> str | None:
+    for pattern, language in _UNFENCED_CODE_LANGUAGE_HINTS:
+        regex = re.compile(pattern, re.IGNORECASE)
+        if any(regex.search(line) for line in lines):
+            return language
+    return None
+
+
+def _looks_like_unfenced_code_block(answer: str) -> bool:
+    raw_lines = answer.splitlines()
+    non_empty = [line for line in raw_lines if line.strip()]
+    if len(non_empty) < 3:
+        return False
+    if any(_UNFENCED_CODE_MARKDOWN_BLOCKER_RE.match(line) for line in non_empty):
+        return False
+    if any(_TABLE_SEPARATOR_RE.match(line.strip()) for line in non_empty):
+        return False
+
+    hint_lines = 0
+    symbol_lines = 0
+    prose_like_lines = 0
+    for line in non_empty:
+        stripped = line.strip()
+        if _UNFENCED_CODE_LINE_HINT_RE.search(stripped):
+            hint_lines += 1
+        if _UNFENCED_CODE_INLINE_HINT_RE.search(stripped):
+            symbol_lines += 1
+        if stripped.endswith(('.', '?', '!')) and not _UNFENCED_CODE_INLINE_HINT_RE.search(stripped):
+            prose_like_lines += 1
+
+    # Conservative threshold to avoid coercing normal prose.
+    return hint_lines >= 2 and symbol_lines >= 2 and prose_like_lines <= max(1, len(non_empty) // 4)
+
+
 def build_display_blocks(cleaned_answer: str) -> list[dict[str, object]]:
     if not cleaned_answer:
         return []
+    if '```' not in cleaned_answer and _looks_like_unfenced_code_block(cleaned_answer):
+        code_lines = cleaned_answer.splitlines()
+        return [{
+            'type': 'code',
+            'code': '\n'.join(code_lines).strip('\n'),
+            'language': _infer_unfenced_code_language(code_lines),
+        }]
 
     blocks: list[dict[str, object]] = []
     lines = cleaned_answer.splitlines()
