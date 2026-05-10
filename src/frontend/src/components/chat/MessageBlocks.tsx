@@ -1,7 +1,8 @@
-import { Children, isValidElement, memo, useMemo, type ReactNode } from 'react'
+import { Children, isValidElement, memo, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import rehypeHighlight from 'rehype-highlight'
+import { formatCodeLanguageLabel } from '../../utils/codeLanguageLabel'
 import type {
   DisplayBlock,
   DisplayCalloutBlock,
@@ -55,13 +56,22 @@ function MessageBlocksComponent({ blocks, fallbackMarkdown, onCopyCode, codeBloc
               />
             )
           case 'code':
+            {
+              const language = typeof block.language === 'string' && block.language.trim().length > 0
+                ? block.language.trim().toLowerCase()
+                : 'code'
             return (
               <div key={key} className="chat-message__block chat-message__block--code">
-                <pre>
-                  <code>{typeof block.code === 'string' ? block.code : ''}</code>
-                </pre>
+                <CodeCard
+                  language={formatCodeLanguageLabel(language)}
+                  code={typeof block.code === 'string' ? block.code : ''}
+                  codeBlockCopied={codeBlockCopied}
+                  onCopyCode={onCopyCode}
+                  codeClassName={typeof block.language === 'string' && block.language ? `language-${block.language}` : undefined}
+                />
               </div>
             )
+            }
           case 'callout':
             {
               const text = typeof block.text === 'string' ? block.text : ''
@@ -181,30 +191,67 @@ function MarkdownBlock({ markdown, onCopyCode, codeBlockCopied }: MarkdownBlockP
           return <td data-align={align}>{children}</td>
         },
         pre: ({ children }) => (
-          <div className="chat-message__code-wrapper">
-            <button
-              type="button"
-              className="chat-message__copy-code"
-              onClick={(e) => {
-                const pre = e.currentTarget.nextElementSibling
-                onCopyCode(pre?.textContent ?? '')
-              }}
-              title="Copy code"
-              aria-label="Copy code block"
-            >
-              {codeBlockCopied ? (
-                <i className="ri-check-line" aria-hidden style={{ fontSize: '0.875rem' }} />
-              ) : (
-                <i className="ri-file-copy-line" aria-hidden style={{ fontSize: '0.875rem' }} />
-              )}
-            </button>
-            <pre>{children}</pre>
-          </div>
+          <CodeCard
+            language={formatCodeLanguageLabel('code')}
+            code={flattenNodeText(Children.toArray(children))}
+            codeBlockCopied={codeBlockCopied}
+            onCopyCode={onCopyCode}
+            preChildren={children}
+          />
         ),
       }}
     >
       {markdown}
     </ReactMarkdown>
+  )
+}
+
+interface CodeCardProps {
+  language: string
+  code: string
+  codeBlockCopied: boolean
+  onCopyCode: (code: string) => void
+  codeClassName?: string
+  preChildren?: ReactNode
+}
+
+function CodeCard({ language, code, codeBlockCopied, onCopyCode, codeClassName, preChildren }: CodeCardProps) {
+  const bodyRef = useRef<HTMLDivElement | null>(null)
+
+  useLayoutEffect(() => {
+    if (bodyRef.current) {
+      bodyRef.current.scrollLeft = 0
+    }
+  }, [code])
+
+  return (
+    <div className="chat-message__code-wrapper">
+      <div className="chat-message__code-header">
+        <span className="chat-message__code-language">{language}</span>
+        <button
+          type="button"
+          className="chat-message__copy-code"
+          onClick={() => onCopyCode(code)}
+          title="Copy code"
+          aria-label="Copy code block"
+        >
+          {codeBlockCopied ? (
+            <i className="ri-check-line" aria-hidden style={{ fontSize: '0.875rem' }} />
+          ) : (
+            <i className="ri-file-copy-line" aria-hidden style={{ fontSize: '0.875rem' }} />
+          )}
+        </button>
+      </div>
+      <div ref={bodyRef} className="chat-message__code-body">
+        {preChildren ? (
+          <pre>{preChildren}</pre>
+        ) : (
+          <pre>
+            <code className={codeClassName}>{code}</code>
+          </pre>
+        )}
+      </div>
+    </div>
   )
 }
 
