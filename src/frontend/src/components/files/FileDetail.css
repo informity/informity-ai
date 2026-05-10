@@ -214,7 +214,7 @@ html[data-accent='light'] .file-detail__panel {
 .file-detail__info {
   margin-left: var(--space-xs);
   color: var(--color-text-muted);
-  cursor: help;
+  cursor: auto;
   vertical-align: middle;
 }
 

@@ -43,10 +43,10 @@
 
 .ui-tooltip--side-right::after {
   top: 50%;
-  left: auto;
-  right: 100%;
-  transform: translateY(-50%);
-  border-top-color: transparent;
+  left: 0;
+  right: auto;
+  transform: translate(-100%, -50%);
+  border-color: transparent;
   border-right-color: var(--surface-tooltip);
 }
 
@@ -116,4 +116,14 @@
   word-break: break-all;
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
+}
+
+/* Keep this override last so side-right arrow shape/position wins over base ::after. */
+.ui-tooltip.ui-tooltip--side-right::after {
+  top: 50%;
+  left: 0;
+  right: auto;
+  transform: translate(-100%, -50%);
+  border-color: transparent;
+  border-right-color: var(--surface-tooltip);
 }

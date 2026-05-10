@@ -437,7 +437,7 @@
 .settings-checkbox-row-info {
   margin-left: 0.25rem;
   color: var(--color-text-muted);
-  cursor: help;
+  cursor: auto;
   vertical-align: middle;
 }
 
