@@ -1,6 +1,6 @@
 # Informity AI — Ollama Provider Integration Plan
 
-**Status:** ⏳ NOT STARTED  
+**Status:** 🚧 IN PROGRESS (Phase 0 and Phase 1 completed)  
 **Version:** 1.1  
 **Last updated:** 2026-05-09  
 **Scope:** Introduce provider pre-abstraction first, then add Ollama as an optional LLM runtime while preserving the current tuned GGUF path as default.
@@ -25,15 +25,15 @@ Prepare Informity AI for multi-provider LLM runtime by first extracting the curr
 
 | Phase | Scope | Status |
 |---|---|---|
-| Phase 0 | Provider pre-abstraction (xllamacpp only, parity refactor) | ⏳ NOT STARTED |
-| Phase 1 | Provider contract and settings surface | ⏳ NOT STARTED |
+| Phase 0 | Provider pre-abstraction (xllamacpp only, parity refactor) | ✅ COMPLETED |
+| Phase 1 | Provider contract and settings surface | ✅ COMPLETED |
 | Phase 2 | Ollama engine implementation and fallback behavior | ⏳ NOT STARTED |
 | Phase 3 | Router/handler integration and model capability mapping | ⏳ NOT STARTED |
 | Phase 4 | UX, diagnostics, and release hardening | ⏳ NOT STARTED |
 
 ---
 
-### Phase 0 — Provider Pre-Abstraction (Parity Refactor) ⏳ NOT STARTED
+### Phase 0 — Provider Pre-Abstraction (Parity Refactor) ✅ COMPLETED
 
 - Goal: Refactor current LLM runtime internals to a provider interface without changing functionality, quality, or performance.
 - Scope:
@@ -51,7 +51,13 @@ Prepare Informity AI for multi-provider LLM runtime by first extracting the curr
 - No intentional behavior changes in local GGUF mode.
 - No measurable regression in baseline performance/quality.
 
-### Phase 1 — Provider Contract and Settings Surface ⏳ NOT STARTED
+Completed notes:
+- Added provider facade in `llm_engine` while preserving legacy engine API and private compatibility hooks.
+- Current runtime moved behind `XllamaCppProvider`.
+- Added placeholder `OllamaProvider` with explicit "not implemented yet" behavior.
+- Parity regression tests passed for engine/config/settings slices.
+
+### Phase 1 — Provider Contract and Settings Surface ✅ COMPLETED
 
 - Goal: Expose explicit provider configuration once Phase 0 abstraction is complete.
 - Scope:
@@ -68,6 +74,11 @@ Prepare Informity AI for multi-provider LLM runtime by first extracting the curr
 - New provider settings are persisted and returned by `/api/settings`.
 - Existing installs upgrade without config migration errors.
 - Default behavior remains current in-process GGUF path.
+
+Completed notes:
+- Added `llm_provider` setting with allowed values `local_gguf` (default) and `ollama`.
+- Extended settings schemas/routes/env-var metadata to include provider setting and validation.
+- Kept default behavior unchanged for existing users (`local_gguf` path).
 
 ### Phase 2 — Ollama Engine Implementation and Fallback Behavior ⏳ NOT STARTED
 
