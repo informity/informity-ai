@@ -629,6 +629,31 @@ def get_effective_ignore_patterns(s: Settings) -> list[str]:
     return result
 
 
+def get_effective_ignore_patterns_for_scan() -> list[str]:
+    """
+    Return effective ignore patterns to use for a scan. Re-reads persisted
+    config so scan crawling uses the latest saved exclude toggles and custom
+    ignore patterns immediately, even if in-memory settings are stale.
+    """
+    vals = _load_config_file_values()
+    exclude_macos_system = bool(vals.get('exclude_macos_system', settings.exclude_macos_system))
+    exclude_developer_data = bool(vals.get('exclude_developer_data', settings.exclude_developer_data))
+    raw_custom_patterns = vals.get('ignore_patterns')
+    custom_patterns = (
+        [str(x) for x in raw_custom_patterns if str(x).strip()]
+        if isinstance(raw_custom_patterns, list)
+        else list(settings.ignore_patterns)
+    )
+
+    result: list[str] = []
+    if exclude_macos_system:
+        result.extend(EXCLUDE_MACOS_SYSTEM_PATTERNS)
+    if exclude_developer_data:
+        result.extend(EXCLUDE_DEVELOPER_PATTERNS)
+    result.extend(custom_patterns)
+    return result
+
+
 def get_supported_extensions_for_scan() -> list[str]:
     """
     Return supported_extensions to use for a scan. Re-reads the persisted
