@@ -1594,7 +1594,7 @@ dependencies = [
 
 [[package]]
 name = "informity-ai"
-version = "0.9.9"
+version = "0.10.0"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
