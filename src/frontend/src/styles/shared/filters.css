@@ -33,7 +33,7 @@
 }
 
 .filter-search__input::placeholder {
-  color: var(--color-text-muted);
+  color: var(--color-placeholder);
 }
 
 .filter-search__input:focus {

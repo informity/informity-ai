@@ -41,7 +41,7 @@
 }
 
 .file-filters__input::placeholder {
-  color: var(--color-text-muted);
+  color: var(--color-placeholder);
 }
 
 .file-filters__select:focus,
