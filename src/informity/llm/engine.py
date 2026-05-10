@@ -24,6 +24,7 @@ import time
 from collections.abc import AsyncGenerator, Callable
 from contextlib import suppress
 from pathlib import Path
+from typing import Protocol
 
 import structlog
 from thinkstrip import ThinkStrip, strip_think_prefill
@@ -407,10 +408,51 @@ def _run_stream_worker(
 
 
 # ==============================================================================
-# LLMEngine — lazy-loading xllamacpp wrapper
+# Provider interfaces
 # ==============================================================================
 
-class LLMEngine:
+class LLMProvider(Protocol):
+    @property
+    def is_loaded(self) -> bool: ...
+
+    def unload(self) -> None: ...
+    def count_tokens(self, text: str) -> int: ...
+    def _get_model_path(self) -> Path: ...
+    def _download_model(
+        self,
+        target_path: Path,
+        repo_id: str | None = None,
+        filename: str | None = None,
+        revision: str | None = None,
+        expected_sha256: str | None = None,
+        progress_callback: Callable[[int, int | None, float], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> None: ...
+    def chat_complete(
+        self,
+        messages: list[dict],
+        max_tokens: int = 400,
+        temperature: float = 0.0,
+        stop: list[str] | None = None,
+        response_format: dict | None = None,
+    ) -> dict: ...
+    async def generate_stream(
+        self,
+        messages:        list[dict[str, str]],
+        max_tokens:      int | None       = None,
+        temperature:     float | None     = None,
+        top_p:           float | None     = None,
+        stop:            list[str] | None = None,
+        force_chatml:    bool             = False,
+        timeout_seconds: float | None     = None,
+    ) -> AsyncGenerator[str | tuple[str, object]]: ...
+
+
+# ==============================================================================
+# XllamaCppProvider — lazy-loading xllamacpp wrapper
+# ==============================================================================
+
+class XllamaCppProvider:
     # Wraps an xllamacpp Server with lazy loading, automatic download,
     # and async streaming generation. Configured for Apple Metal GPU by default.
 
@@ -1027,6 +1069,177 @@ class LLMEngine:
                 timeout_occurred = timeout_occurred,
                 timeout_reason   = timeout_reason,
             )
+
+
+class OllamaProvider:
+    """Placeholder provider to reserve settings/API surface before implementation."""
+
+    @property
+    def is_loaded(self) -> bool:
+        return True
+
+    def unload(self) -> None:
+        return
+
+    def count_tokens(self, text: str) -> int:
+        return _count_tokens(text)
+
+    def _get_model_path(self) -> Path:
+        return settings.models_dir / settings.llm_model_filename
+
+    def _download_model(
+        self,
+        target_path: Path,
+        repo_id: str | None = None,
+        filename: str | None = None,
+        revision: str | None = None,
+        expected_sha256: str | None = None,
+        progress_callback: Callable[[int, int | None, float], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> None:
+        _ = (target_path, repo_id, filename, revision, expected_sha256, progress_callback, cancel_event)
+        raise LLMError('Ollama provider is not implemented yet')
+
+    def chat_complete(
+        self,
+        messages: list[dict],
+        max_tokens: int = 400,
+        temperature: float = 0.0,
+        stop: list[str] | None = None,
+        response_format: dict | None = None,
+    ) -> dict:
+        _ = (messages, max_tokens, temperature, stop, response_format)
+        raise LLMError('Ollama provider is not implemented yet')
+
+    async def generate_stream(
+        self,
+        messages:        list[dict[str, str]],
+        max_tokens:      int | None       = None,
+        temperature:     float | None     = None,
+        top_p:           float | None     = None,
+        stop:            list[str] | None = None,
+        force_chatml:    bool             = False,
+        timeout_seconds: float | None     = None,
+    ) -> AsyncGenerator[str | tuple[str, object]]:
+        _ = (messages, max_tokens, temperature, top_p, stop, force_chatml, timeout_seconds)
+        raise LLMError('Ollama provider is not implemented yet')
+        yield ''  # pragma: no cover
+
+
+class LLMEngine:
+    """
+    Provider-facade for inference runtime.
+    Keeps legacy LLMEngine API stable while routing calls to a concrete provider.
+    """
+
+    def __init__(self) -> None:
+        provider_name = str(getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
+        if provider_name == 'local_gguf':
+            self._provider: LLMProvider = XllamaCppProvider()
+        elif provider_name == 'ollama':
+            self._provider = OllamaProvider()
+        else:
+            raise LLMError(f'Unsupported llm_provider: {provider_name}')
+        self.provider_name = provider_name
+
+    # Backward-compatible private hooks relied on by runtime/tests.
+    @property
+    def _server(self) -> object | None:
+        if isinstance(self._provider, XllamaCppProvider):
+            return self._provider._server
+        return None
+
+    @_server.setter
+    def _server(self, value: object | None) -> None:
+        if isinstance(self._provider, XllamaCppProvider):
+            self._provider._server = value
+
+    @property
+    def _chat_template(self) -> str:
+        if isinstance(self._provider, XllamaCppProvider):
+            return self._provider._chat_template
+        return ''
+
+    @_chat_template.setter
+    def _chat_template(self, value: str) -> None:
+        if isinstance(self._provider, XllamaCppProvider):
+            self._provider._chat_template = value
+
+    @property
+    def is_loaded(self) -> bool:
+        return self._provider.is_loaded
+
+    def unload(self) -> None:
+        self._provider.unload()
+
+    def count_tokens(self, text: str) -> int:
+        return self._provider.count_tokens(text)
+
+    def _get_model_path(self) -> Path:
+        return self._provider._get_model_path()
+
+    def _download_model(
+        self,
+        target_path: Path,
+        repo_id: str | None = None,
+        filename: str | None = None,
+        revision: str | None = None,
+        expected_sha256: str | None = None,
+        progress_callback: Callable[[int, int | None, float], None] | None = None,
+        cancel_event: threading.Event | None = None,
+    ) -> None:
+        self._provider._download_model(
+            target_path=target_path,
+            repo_id=repo_id,
+            filename=filename,
+            revision=revision,
+            expected_sha256=expected_sha256,
+            progress_callback=progress_callback,
+            cancel_event=cancel_event,
+        )
+
+    def _load_model(self, model_filename: str | None = None) -> None:
+        if isinstance(self._provider, XllamaCppProvider):
+            self._provider._load_model(model_filename=model_filename)
+            return
+        raise LLMError(f'Provider "{self.provider_name}" does not support in-process model loading')
+
+    def chat_complete(
+        self,
+        messages: list[dict],
+        max_tokens: int = 400,
+        temperature: float = 0.0,
+        stop: list[str] | None = None,
+        response_format: dict | None = None,
+    ) -> dict:
+        return self._provider.chat_complete(
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            stop=stop,
+            response_format=response_format,
+        )
+
+    async def generate_stream(
+        self,
+        messages:        list[dict[str, str]],
+        max_tokens:      int | None       = None,
+        temperature:     float | None     = None,
+        top_p:           float | None     = None,
+        stop:            list[str] | None = None,
+        force_chatml:    bool             = False,
+        timeout_seconds: float | None     = None,
+    ) -> AsyncGenerator[str | tuple[str, object]]:
+        async for item in self._provider.generate_stream(
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            top_p=top_p,
+            stop=stop,
+            force_chatml=force_chatml,
+            timeout_seconds=timeout_seconds,
+        ):
+            yield item
 
 
 # ==============================================================================

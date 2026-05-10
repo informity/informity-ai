@@ -317,6 +317,7 @@ class SettingsResponse(BaseModel):
     web_search_max_results:  int = 5
     web_search_timeout_seconds: float = 8.0
     embedding_offline:       bool
+    llm_provider:         Literal['local_gguf', 'ollama'] = 'local_gguf'
     llm_local_only:          bool
     llm_model_id:         str
     llm_model_filename:   str
@@ -397,6 +398,7 @@ class SettingsUpdateRequest(BaseModel):
     web_search_max_results: int | None = None
     web_search_timeout_seconds: float | None = None
     embedding_offline:      bool | None = None
+    llm_provider:        Literal['local_gguf', 'ollama'] | None = None
     llm_local_only:        bool | None = None
     llm_model_id:        str | None        = None
     llm_model_filename:  str | None        = None
