@@ -259,6 +259,11 @@ _SETTINGS_ALLOWED_VALUE_RULES: dict[str, tuple[tuple[str, ...], bool, str]] = {
         True,
         'web_search_primary_provider must be one of: tavily, linkup',
     ),
+    'llm_provider': (
+        ('local_gguf', 'ollama'),
+        True,
+        'llm_provider must be one of: local_gguf, ollama',
+    ),
     'ui_theme': (
         config.UI_THEME_ALLOWED_VALUES,
         False,
@@ -352,6 +357,7 @@ _UPDATABLE_FIELDS: set[str] = {
     'web_search_max_results',
     'web_search_timeout_seconds',
     'embedding_offline',
+    'llm_provider',
     'llm_local_only',
     'llm_model_id',
     'llm_model_filename',
@@ -486,6 +492,7 @@ async def get_settings() -> SettingsResponse:
         web_search_max_results  = s.web_search_max_results,
         web_search_timeout_seconds = s.web_search_timeout_seconds,
         embedding_offline       = s.embedding_offline,
+        llm_provider         = str(getattr(s, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower(),
         llm_local_only          = s.llm_local_only,
         llm_model_id         = effective_llm_model_id,
         llm_model_filename   = effective_llm_model_filename,

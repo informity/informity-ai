@@ -163,7 +163,9 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('llm_cpu_threads', 'Max CPU threads for LLM generation (0 = auto; set lower to keep system responsive during chat).'),
             ('llm_hf_repo', 'Hugging Face repository for automatic LLM model downloads (e.g., "unsloth/Qwen3.6-35B-A3B-GGUF").'),
             ('llm_max_tokens', 'Maximum tokens to generate per response.'),
+            ('llm_model_id', 'Canonical model identifier used for profile matching and diagnostics metadata.'),
             ('llm_model_filename', 'Filename of the GGUF model file inside the models directory.'),
+            ('llm_provider', 'LLM runtime provider: local_gguf (default) or ollama.'),
             ('llm_temperature', 'Sampling temperature (0 = deterministic; higher = more varied).'),
             # NOTE: rag_context_ratio, rag_max_score, rag_top_k, coverage_top_k are model-specific (ModelProfile, not configurable via env)
             ('rag_minimal_mode', 'When true, use a simplified one-pass retrieval flow instead of the full multi-route pipeline. Faster but less adaptive.'),
