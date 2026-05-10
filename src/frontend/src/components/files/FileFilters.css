@@ -22,7 +22,7 @@
   font-size: var(--font-size-sm);
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
-  background: var(--color-bg-elevated);
+  background: var(--surface-control);
   color: inherit;
   min-height: var(--min-touch-height);
   box-sizing: border-box;
