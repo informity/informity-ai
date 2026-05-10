@@ -847,7 +847,15 @@ export function SettingsView({
                         update('enabled_chat_role_ids', next)
                       }}
                     />
-                    <span>{role.name}</span>
+                    <span>
+                      {role.name}
+                      <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                        <i className="ri-information-line" aria-hidden="true" />
+                        <span className="settings-tooltip ui-tooltip">
+                          {role.description}
+                        </span>
+                      </span>
+                    </span>
                   </label>
                 )
               })}

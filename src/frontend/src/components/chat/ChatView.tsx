@@ -24,6 +24,8 @@ const UPLOAD_CHIP_FALLBACK_WIDTH = 180
 const UPLOAD_OVERFLOW_CHIP_FALLBACK_WIDTH = 52
 const UPLOAD_PENDING_CHIP_FALLBACK_WIDTH = 116
 const ALL_CHAT_MODES: ChatMode[] = ['assistant', 'researcher']
+const GENERAL_ROLE_LABEL = 'General Assistant'
+const GENERAL_ROLE_DESCRIPTION = 'No domain bias. Works across all document types and questions.'
 
 interface ChatViewProps {
   prefillMessage?: string
@@ -791,7 +793,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   )
   const modeSelectorDisabled = offline || isStreaming || chatSessionLocked
   const roleSelectorDisabled = offline || isStreaming || enabledRoles.length === 0 || chatSessionLocked
-  const roleButtonLabel = selectedRole?.name || 'General'
+  const roleButtonLabel = selectedRole?.name || GENERAL_ROLE_LABEL
   const hasRoleDocContext = !!chatFileScope || chatUploads.some((item) => item.state === 'ready')
   const showRoleSelector = (
     (rolesSelectable || lockedRoleId != null || !rolesLoaded)
@@ -1235,6 +1237,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                 type="button"
                                 className={`chat-view__mode-option${effectiveRoleId == null ? ' chat-view__mode-option--active' : ''}`}
                                 role="menuitemradio"
+                                aria-label={GENERAL_ROLE_LABEL}
                                 aria-checked={effectiveRoleId == null}
                                 disabled={roleSelectorDisabled}
                                 onClick={() => {
@@ -1246,10 +1249,22 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                     // ignore storage errors
                                   }
                                 }}
-                                title="No specialized role overlay"
                               >
                                 <i className="ri-user-settings-line" aria-hidden />
-                                <span>General</span>
+                                <span className="chat-view__mode-option-label">{GENERAL_ROLE_LABEL}</span>
+                                <span
+                                  className="chat-view__role-info ui-tooltip-trigger"
+                                  onClick={(e) => {
+                                    e.preventDefault()
+                                    e.stopPropagation()
+                                  }}
+                                  onMouseDown={(e) => e.stopPropagation()}
+                                >
+                                  <i className="ri-information-line" aria-hidden="true" />
+                                  <span className="ui-tooltip ui-tooltip--side-right">
+                                    {GENERAL_ROLE_DESCRIPTION}
+                                  </span>
+                                </span>
                               </button>
                             </span>
                             {enabledRoles.map((role) => (
@@ -1258,6 +1273,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                   type="button"
                                   className={`chat-view__mode-option${effectiveRoleId === role.id ? ' chat-view__mode-option--active' : ''}`}
                                   role="menuitemradio"
+                                  aria-label={role.name}
                                   aria-checked={effectiveRoleId === role.id}
                                   disabled={roleSelectorDisabled}
                                   onClick={() => {
@@ -1269,10 +1285,22 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                       // ignore storage errors
                                     }
                                   }}
-                                  title={role.description}
                                 >
                                   <i className={role.icon || 'ri-user-settings-line'} aria-hidden />
-                                  <span>{role.name}</span>
+                                  <span className="chat-view__mode-option-label">{role.name}</span>
+                                  <span
+                                    className="chat-view__role-info ui-tooltip-trigger"
+                                    onClick={(e) => {
+                                      e.preventDefault()
+                                      e.stopPropagation()
+                                    }}
+                                    onMouseDown={(e) => e.stopPropagation()}
+                                  >
+                                    <i className="ri-information-line" aria-hidden="true" />
+                                    <span className="ui-tooltip ui-tooltip--side-right">
+                                      {role.description}
+                                    </span>
+                                  </span>
                                 </button>
                               </span>
                             ))}

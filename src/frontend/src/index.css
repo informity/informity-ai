@@ -76,6 +76,8 @@
   --color-text: #e8e8e8;
   --color-text-muted: #7a7a7a;
   --color-text-dimmed: #707070;
+  --color-placeholder: var(--color-text-dimmed);
+  --placeholder-opacity: 1;
   --color-text-secondary: #9e9e9e;
   --color-warning-border: rgba(245, 158, 11, 0.3);
   --color-warning-text: #d97706;
@@ -194,7 +196,8 @@ select:focus-visible {
 
 input::placeholder,
 textarea::placeholder {
-  color: var(--color-text-dimmed);
+  color: var(--color-placeholder);
+  opacity: var(--placeholder-opacity);
 }
 
 select {
@@ -316,6 +319,8 @@ html[data-accent='light'] {
   --color-text: #3a2f25;
   --color-text-muted: #5e4f40;
   --color-text-dimmed: #625340;
+  --color-placeholder: var(--color-text-dimmed);
+  --placeholder-opacity: 0.56;
   --color-text-secondary: #4f4134;
   --color-danger: #a64b3c;
   --color-danger-solid: #a64b3c;

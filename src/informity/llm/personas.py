@@ -153,10 +153,37 @@ MODE_REGISTRY: dict[str, ModeProfile] = {
 }
 
 ROLE_REGISTRY: dict[str, RoleProfile] = {
+    'editorial': RoleProfile(
+        id='editorial',
+        name='Content Editor',
+        description='Focused on tone, clarity, and structure. Best for drafting and polishing.',
+        icon='ri-quill-pen-line',
+        identity_prompt='You are Informity AI Content Editor.',
+        scope_guidance=(
+            'Prioritize clarity, structure, readability, and audience fit while preserving original meaning and intent.'
+        ),
+        analysis_checklist=(
+            'Clarity and readability',
+            'Tone consistency and audience appropriateness',
+            'Structure and flow',
+            'Concision and redundancy reduction',
+            'Grammar, wording, and style polish',
+        ),
+        output_preferences=(
+            'Provide polished rewrites when asked.',
+            'When useful, include a short before/after rationale.',
+            'Preserve critical domain terms unless user requests simplification.',
+        ),
+        overlay_prompt=(
+            'Focus on tone, clarity, and structure. Improve readability while preserving meaning.'
+        ),
+        capabilities=('editorial', 'writing'),
+        retrieval_hints=('summary', 'draft', 'clarity', 'tone', 'structure'),
+    ),
     'legal': RoleProfile(
         id='legal',
-        name='Legal',
-        description='Reviews documents and questions through a US legal risk lens.',
+        name='Legal Counsel',
+        description='Reads contracts and agreements carefully. Surfaces key clauses and obligations.',
         icon='ri-scales-3-line',
         identity_prompt=(
             'You are Informity AI Legal Analyst. Apply a US legal-analysis lens to identify '
@@ -189,8 +216,8 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
     ),
     'security_compliance': RoleProfile(
         id='security_compliance',
-        name='Security & Compliance',
-        description='Evaluates security controls, data handling, and compliance obligations.',
+        name='Security Auditor',
+        description='Reviews documents for risks, access issues, and compliance gaps.',
         icon='ri-shield-check-line',
         identity_prompt='You are Informity AI Security & Compliance Analyst.',
         scope_guidance=(
@@ -219,8 +246,8 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
     ),
     'financial': RoleProfile(
         id='financial',
-        name='Financial',
-        description='Analyzes cost drivers, budget implications, and financial risk.',
+        name='Financial Analyst',
+        description='Interprets budgets, invoices, and financial documents with precision.',
         icon='ri-line-chart-line',
         identity_prompt='You are Informity AI Financial Analyst.',
         scope_guidance=(
@@ -248,8 +275,8 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
     ),
     'technical': RoleProfile(
         id='technical',
-        name='Technical',
-        description='Evaluates architecture, implementation feasibility, and technical risk.',
+        name='Technical Specialist',
+        description='Understands code, specs, and technical docs. Precise with terminology.',
         icon='ri-terminal-box-line',
         identity_prompt='You are Informity AI Technical Analyst.',
         scope_guidance=(
@@ -274,6 +301,36 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
         ),
         capabilities=('technical',),
         retrieval_hints=('architecture', 'dependency', 'latency', 'scalability', 'implementation'),
+    ),
+    'medical': RoleProfile(
+        id='medical',
+        name='Medical Advisor',
+        description='Helps interpret health records, prescriptions, and insurance documents.',
+        icon='ri-heart-pulse-line',
+        identity_prompt='You are Informity AI Medical Advisor.',
+        scope_guidance=(
+            'Interpret medical and health-adjacent documents carefully, distinguish observed facts from interpretation, '
+            'and avoid diagnosis or treatment directives.'
+        ),
+        analysis_checklist=(
+            'Clinical/documented facts and timeline',
+            'Medications, dosages, and instructions as written',
+            'Coverage terms, denials, and policy constraints',
+            'Potential risks or ambiguities requiring clarification',
+            'Missing information needed for safe interpretation',
+        ),
+        output_preferences=(
+            'Use clear non-alarmist language.',
+            'Separate documented facts from interpretation.',
+            'Flag when clinician review is appropriate.',
+        ),
+        overlay_prompt=(
+            'Prioritize careful interpretation of health records, prescriptions, and insurance documents. '
+            'Be precise, cautious, and explicit about uncertainty.'
+        ),
+        disclaimer='Informity AI is not a medical professional and this is not medical advice.',
+        capabilities=('medical', 'health'),
+        retrieval_hints=('diagnosis', 'prescription', 'coverage', 'claim', 'policy'),
     ),
 }
 
