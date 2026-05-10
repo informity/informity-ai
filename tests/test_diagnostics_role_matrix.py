@@ -1,9 +1,13 @@
-import sys
+import importlib.util
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+_EVALUATE_PATH = Path(__file__).resolve().parents[1] / 'tools' / 'diagnostics' / 'evaluate.py'
+_SPEC = importlib.util.spec_from_file_location('diagnostics_evaluate_for_tests', _EVALUATE_PATH)
+assert _SPEC is not None and _SPEC.loader is not None
+_MODULE = importlib.util.module_from_spec(_SPEC)
+_SPEC.loader.exec_module(_MODULE)
 
-from tools.diagnostics.evaluate import _validate_query_expectations
+_validate_query_expectations = _MODULE._validate_query_expectations
 
 
 def test_validate_query_expectations_required_terms_all_missing() -> None:
