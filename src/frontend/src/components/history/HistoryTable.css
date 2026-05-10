@@ -98,7 +98,7 @@
   font-family: inherit;
   border: 1px solid var(--color-accent);
   border-radius: var(--border-radius-sm);
-  background: var(--color-bg-elevated);
+  background: var(--surface-control);
   color: inherit;
   box-sizing: border-box;
 }

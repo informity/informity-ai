@@ -549,7 +549,7 @@ html[data-accent='light'] .chat-view__scroll-to-bottom:hover {
 
 .chat-view__input-wrapper--drag-active .chat-view__textarea {
   border-color: var(--color-accent);
-  background: color-mix(in srgb, var(--color-bg-surface) 90%, var(--color-accent));
+  background: color-mix(in srgb, var(--surface-control) 90%, var(--color-accent));
 }
 
 .chat-view__textarea {
@@ -564,7 +564,7 @@ html[data-accent='light'] .chat-view__scroll-to-bottom:hover {
   line-height: 1.5;
   border: 1px solid var(--color-primary-border);
   border-radius: var(--border-radius);
-  background: var(--color-bg-surface);
+  background: var(--surface-control);
   color: var(--color-text);
   resize: none;
   overflow-y: hidden;
