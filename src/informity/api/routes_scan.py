@@ -33,7 +33,7 @@ from informity.api.schemas import (
 )
 from informity.api.security import EndpointGuard
 from informity.config import (
-    get_effective_ignore_patterns,
+    get_effective_ignore_patterns_for_scan,
     get_supported_extensions_for_scan,
     settings,
 )
@@ -955,7 +955,7 @@ async def _run_scan_task(
         # Use persisted config for file types so the crawl respects the latest
         # saved Settings (e.g. PDF unchecked) even if the server started with defaults.
         supported_extensions = get_supported_extensions_for_scan()
-        effective_ignores    = get_effective_ignore_patterns(settings)
+        effective_ignores    = get_effective_ignore_patterns_for_scan()
         log.info(
             'scan_crawling',
             directories = [str(d) for d in directories],
