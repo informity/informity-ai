@@ -48,6 +48,7 @@ _DEFAULT_APP_DATA_DIR = Path.home() / APP_DATA_DIRNAME
 # Default model for reset-to-factory and first load: Qwen3.6 35B A3B.
 _DEFAULT_LLM_MODEL_FILENAME = 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'
 _DEFAULT_LLM_MODEL_ID = 'qwen-35b-a3b'
+_DEFAULT_LLM_PROVIDER = 'local_gguf'
 
 # Default embedding model (sentence-transformers)
 _DEFAULT_EMBEDDING_MODEL = 'nomic-ai/nomic-embed-text-v1.5'
@@ -340,6 +341,7 @@ class Settings(BaseSettings):
     web_search_timeout_seconds: float = 8.0
 
     # -- LLM ------------------------------------------------------------------
+    llm_provider: Literal['local_gguf', 'ollama'] = _DEFAULT_LLM_PROVIDER
     # When True, load LLM only from models_dir; never download from the network.
     # Synced from full_privacy when that setting is updated via the UI.
     llm_local_only:       bool = True
@@ -728,6 +730,7 @@ def reset_to_factory_defaults() -> Settings:
     # Write minimal config with default models and theme so env vars cannot override the reset result
     config_path.parent.mkdir(parents=True, exist_ok=True)
     default_config = {
+        'llm_provider':            _DEFAULT_LLM_PROVIDER,
         'llm_model_id':            _DEFAULT_LLM_MODEL_ID,
         'llm_model_filename':      _DEFAULT_LLM_MODEL_FILENAME,
         'diagnostics_profile':     'standard',
