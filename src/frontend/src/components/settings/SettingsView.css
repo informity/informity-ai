@@ -515,7 +515,7 @@
 }
 
 .settings-input::placeholder {
-  color: var(--color-text-dimmed);
+  color: var(--color-placeholder);
 }
 
 .settings-input:focus {

@@ -467,7 +467,7 @@ describe('ChatView new chat behavior', () => {
 
     expect(await screen.findByRole('button', { name: 'Clear file scope' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Select chat mode' })).toHaveTextContent('Researcher')
-    expect(screen.getByRole('button', { name: 'Role: General' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Role: General Assistant' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Select chat mode' }))
     const assistantOption = screen.getByRole('menuitemradio', { name: 'Assistant' })
@@ -726,7 +726,7 @@ describe('ChatView new chat behavior', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Select chat mode' })).toHaveTextContent('Assistant')
     })
-    expect(screen.getByRole('button', { name: 'Role: General' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Role: General Assistant' })).toBeDisabled()
   })
 
   it('locks assistant mode and legal role across send and history reopen', async () => {
@@ -781,9 +781,9 @@ describe('ChatView new chat behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select chat mode' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Assistant' }))
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Role: General' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Role: General Assistant' })).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Role: General' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Role: General Assistant' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Legal' }))
     fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'First legal assistant question' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))

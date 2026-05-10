@@ -26,11 +26,28 @@
   width: 280px;
   max-width: calc(100vw - 2rem);
   text-align: left;
-  z-index: 1000;
+  z-index: 1400;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.1);
   transition: opacity var(--transition-fast), visibility var(--transition-fast), transform var(--transition-fast);
   pointer-events: none;
   line-height: 1.5;
+}
+
+.ui-tooltip--side-right {
+  left: calc(100% + 8px);
+  right: auto;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
+}
+
+.ui-tooltip--side-right::after {
+  top: 50%;
+  left: auto;
+  right: 100%;
+  transform: translateY(-50%);
+  border-top-color: transparent;
+  border-right-color: var(--surface-tooltip);
 }
 
 .ui-tooltip::after {
