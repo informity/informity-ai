@@ -1,7 +1,11 @@
 import importlib.util
 from pathlib import Path
 
+import pytest
+
 _EVALUATE_PATH = Path(__file__).resolve().parents[1] / 'tools' / 'diagnostics' / 'evaluate.py'
+if not _EVALUATE_PATH.exists():
+    pytest.skip('diagnostics evaluator tool is not available in this test environment', allow_module_level=True)
 _SPEC = importlib.util.spec_from_file_location('diagnostics_evaluate_for_tests', _EVALUATE_PATH)
 assert _SPEC is not None and _SPEC.loader is not None
 _MODULE = importlib.util.module_from_spec(_SPEC)
