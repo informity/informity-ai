@@ -50,6 +50,51 @@ def test_build_display_blocks_extracts_code_fence() -> None:
     assert blocks[2] == {'type': 'text', 'markdown': 'Then continue.'}
 
 
+def test_build_display_blocks_coerces_unfenced_code_only_answer() -> None:
+    answer = (
+        'function sum(a: number, b: number): number {\n'
+        '  return a + b;\n'
+        '}\n'
+        '\n'
+        'const value = sum(2, 3);\n'
+        'console.log(value);\n'
+    )
+    blocks = build_display_blocks(answer)
+    assert blocks == [
+        {
+            'type': 'code',
+            'code': (
+                'function sum(a: number, b: number): number {\n'
+                '  return a + b;\n'
+                '}\n'
+                '\n'
+                'const value = sum(2, 3);\n'
+                'console.log(value);'
+            ),
+            'language': 'typescript',
+        },
+    ]
+
+
+def test_build_display_blocks_keeps_plain_prose_as_text_block() -> None:
+    answer = (
+        'We should implement this in two phases.\n'
+        'First, we standardize format selection.\n'
+        'Then, we validate outputs in tests.\n'
+    )
+    blocks = build_display_blocks(answer)
+    assert blocks == [
+        {
+            'type': 'text',
+            'markdown': (
+                'We should implement this in two phases.\n'
+                'First, we standardize format selection.\n'
+                'Then, we validate outputs in tests.'
+            ),
+        },
+    ]
+
+
 def test_build_display_blocks_extracts_nested_checklist() -> None:
     answer = (
         'Checklist:\n\n'
