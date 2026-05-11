@@ -269,7 +269,7 @@ async def test_get_setup_status_reflects_setup_state_file(
 
 
 @pytest.mark.asyncio
-async def test_get_setup_status_ollama_provider_reports_probe(
+async def test_get_setup_status_ollama_provider_does_not_gate_on_probe_detail(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -282,7 +282,7 @@ async def test_get_setup_status_ollama_provider_reports_probe(
     assert status.llm_provider == 'ollama'
     assert status.ollama_reachable is True
     assert status.ollama_model_ready is False
-    assert status.detail == 'Ollama model not found: qwen3:14b'
+    assert status.detail is None
 
 
 @pytest.mark.asyncio
@@ -295,6 +295,43 @@ async def test_get_ollama_status_returns_probe_result(monkeypatch: pytest.Monkey
     assert status.reachable is True
     assert status.model_ready is True
     assert status.model == 'qwen3:14b'
+
+
+@pytest.mark.asyncio
+async def test_start_setup_ollama_still_requires_valid_tier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(routes_system.settings, 'llm_provider', 'ollama')
+    with pytest.raises(HTTPException, match='Unknown setup tier'):
+        await routes_system.start_setup(payload=routes_system.SetupStartRequest(tier='invalid', model_filename='invalid'))
+
+
+@pytest.mark.asyncio
+async def test_retry_setup_ollama_uses_classic_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _DummyTask:
+        def done(self) -> bool:
+            return False
+
+    called = {'scheduled': False}
+
+    async def _fake_setup_workflow(*, tier: str, model_filename: str) -> None:
+        _ = (tier, model_filename)
+
+    monkeypatch.setattr(routes_system.settings, 'llm_provider', 'ollama')
+    monkeypatch.setattr(routes_system, '_run_setup_workflow', _fake_setup_workflow)
+    monkeypatch.setattr(routes_system, '_setup_task', None)
+    monkeypatch.setattr(routes_system, '_persist_setup_state_file', lambda: None)
+    monkeypatch.setattr(
+        routes_system.asyncio,
+        'create_task',
+        lambda coro: (called.__setitem__('scheduled', True), coro.close(), _DummyTask())[2],
+    )
+    monkeypatch.setattr(routes_system, '_load_setup_state_file', lambda _path: ({'selected_tier': 'small', 'model_filename': 'x.gguf'}, None))
+
+    response = await routes_system.retry_setup()
+    assert response.accepted is True
+    assert response.state == 'setup_in_progress'
+    assert called['scheduled'] is True
 
 
 def test_recommend_setup_tier_prefers_small_on_16gb_class_devices() -> None:
