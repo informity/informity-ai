@@ -21,6 +21,8 @@ import os
 import shutil
 import threading
 import time
+import urllib.error
+import urllib.request
 from collections.abc import AsyncGenerator, Callable
 from contextlib import suppress
 from pathlib import Path
@@ -369,6 +371,11 @@ def _run_stream_worker(
             choice = choices[0] if choices else {}
             delta = choice.get('delta') or {}
             token = delta.get('content') or ''
+
+            # Some local adapters emit chat-completions chunks as choices[0].message.content
+            # (without delta). Accept that shape to preserve streaming compatibility.
+            if not token:
+                token = (choice.get('message') or {}).get('content') or ''
 
             # Alternate llama.cpp completions payload uses top-level 'content'
             if not token:
@@ -1072,10 +1079,15 @@ class XllamaCppProvider:
 
 
 class OllamaProvider:
-    """Placeholder provider to reserve settings/API surface before implementation."""
+    """Ollama-backed provider using /api/chat compatible streaming."""
+
+    def __init__(self) -> None:
+        self._base_url = str(getattr(settings, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip().rstrip('/')
+        self._timeout_seconds = float(getattr(settings, 'ollama_timeout_seconds', 120.0) or 120.0)
 
     @property
     def is_loaded(self) -> bool:
+        # Ollama manages model lifecycle in its daemon process.
         return True
 
     def unload(self) -> None:
@@ -1098,7 +1110,55 @@ class OllamaProvider:
         cancel_event: threading.Event | None = None,
     ) -> None:
         _ = (target_path, repo_id, filename, revision, expected_sha256, progress_callback, cancel_event)
-        raise LLMError('Ollama provider is not implemented yet')
+        raise LLMError('Ollama provider does not support local GGUF download')
+
+    def _resolve_model(self) -> str:
+        model = str(getattr(settings, 'llm_model_id', '') or '').strip()
+        if model:
+            return model
+        raise LLMError('Ollama provider requires llm_model_id to be set')
+
+    def _post_chat(
+        self,
+        *,
+        payload: dict,
+        stream: bool,
+    ) -> dict | list[dict]:
+        req = urllib.request.Request(
+            url=f'{self._base_url}/api/chat',
+            data=json.dumps(payload).encode('utf-8'),
+            headers={'Content-Type': 'application/json'},
+            method='POST',
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout_seconds) as resp:  # noqa: S310
+                if stream:
+                    events: list[dict] = []
+                    for raw_line in resp:
+                        line = raw_line.decode('utf-8', errors='replace').strip()
+                        if not line:
+                            continue
+                        with suppress(json.JSONDecodeError, ValueError):
+                            data = json.loads(line)
+                            if isinstance(data, dict):
+                                events.append(data)
+                    return events
+                body = resp.read().decode('utf-8', errors='replace')
+                parsed = json.loads(body) if body else {}
+                if not isinstance(parsed, dict):
+                    raise LLMError('Invalid Ollama response format')
+                return parsed
+        except urllib.error.HTTPError as exc:
+            detail = ''
+            with suppress(Exception):
+                detail = exc.read().decode('utf-8', errors='replace').strip()
+            raise LLMError(f'Ollama HTTP error ({exc.code}): {detail or exc.reason}') from exc
+        except urllib.error.URLError as exc:
+            raise LLMError(f'Ollama connection failed: {exc.reason}') from exc
+        except TimeoutError as exc:
+            raise LLMError('Ollama request timed out') from exc
+        except json.JSONDecodeError as exc:
+            raise LLMError(f'Invalid Ollama JSON response: {exc}') from exc
 
     def chat_complete(
         self,
@@ -1108,8 +1168,28 @@ class OllamaProvider:
         stop: list[str] | None = None,
         response_format: dict | None = None,
     ) -> dict:
-        _ = (messages, max_tokens, temperature, stop, response_format)
-        raise LLMError('Ollama provider is not implemented yet')
+        model = self._resolve_model()
+        options: dict[str, object] = {
+            'num_predict': int(max_tokens),
+            'temperature': float(temperature),
+        }
+        if stop:
+            options['stop'] = stop
+        payload: dict[str, object] = {
+            'model': model,
+            'messages': messages,
+            'stream': False,
+            'think': False,
+            'options': options,
+        }
+        if response_format is not None:
+            payload['format'] = response_format
+
+        parsed = self._post_chat(payload=payload, stream=False)
+        if not isinstance(parsed, dict):
+            raise LLMError('Invalid Ollama response format')
+        content = str((parsed.get('message') or {}).get('content') or '')
+        return {'choices': [{'message': {'content': content}}]}
 
     async def generate_stream(
         self,
@@ -1121,9 +1201,233 @@ class OllamaProvider:
         force_chatml:    bool             = False,
         timeout_seconds: float | None     = None,
     ) -> AsyncGenerator[str | tuple[str, object]]:
-        _ = (messages, max_tokens, temperature, top_p, stop, force_chatml, timeout_seconds)
-        raise LLMError('Ollama provider is not implemented yet')
-        yield ''  # pragma: no cover
+        if not messages:
+            raise LLMError('Cannot generate from empty messages')
+
+        max_tok   = max_tokens if max_tokens is not None else settings.llm_max_tokens
+        temp      = temperature if temperature is not None else settings.llm_temperature
+        top_p_val = 1.0 if top_p is None else top_p
+        stop_seqs = stop if stop is not None else []
+        wall_clock = 120.0 if timeout_seconds is None else float(timeout_seconds)
+
+        profile     = get_profile()
+        context_len = get_effective_context_length(profile)
+
+        truncated_messages, truncation_info = _truncate_messages_to_fit(
+            chat_template  = '',
+            messages       = messages,
+            context_length = context_len,
+            max_tokens     = max_tok,
+            force_chatml   = force_chatml if force_chatml else True,
+        )
+        if truncation_info['truncated']:
+            log.warning(
+                'prompt_truncated',
+                original_tokens          = truncation_info['original_tokens'],
+                final_tokens             = truncation_info.get('final_tokens', truncation_info['original_tokens']),
+                available_budget         = truncation_info['available_budget'],
+                history_messages_removed = truncation_info.get('history_messages_removed', 0),
+                system_content_truncated = truncation_info.get('system_content_truncated', False),
+                chunks_removed           = truncation_info.get('chunks_removed', 0),
+                warning                  = truncation_info.get('warning'),
+            )
+        messages = truncated_messages
+
+        queue: asyncio.Queue[str | object] = asyncio.Queue()
+        loop = asyncio.get_running_loop()
+        exception_holder: list[BaseException] = []
+        cancel_event = threading.Event()
+
+        model = self._resolve_model()
+        payload = {
+            'model': model,
+            'messages': messages,
+            'stream': True,
+            'think': False,
+            'options': {
+                'num_predict': int(max_tok),
+                'temperature': float(temp),
+                'top_p': float(top_p_val),
+                **({'stop': stop_seqs} if stop_seqs else {}),
+            },
+        }
+        raw_frame_count = 0
+        parsed_frame_count = 0
+        non_dict_frame_count = 0
+        json_decode_error_count = 0
+        empty_content_frame_count = 0
+        raw_frame_samples: list[str] = []
+        done_frame_snapshot: dict[str, object] | None = None
+
+        def _worker() -> None:
+            nonlocal raw_frame_count, parsed_frame_count, non_dict_frame_count
+            nonlocal json_decode_error_count, empty_content_frame_count
+            nonlocal raw_frame_samples, done_frame_snapshot
+            finish_reason: str | None = None
+            req = urllib.request.Request(
+                url=f'{self._base_url}/api/chat',
+                data=json.dumps(payload).encode('utf-8'),
+                headers={'Content-Type': 'application/json'},
+                method='POST',
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=self._timeout_seconds) as resp:  # noqa: S310
+                    for raw_line in resp:
+                        raw_frame_count += 1
+                        if cancel_event.is_set():
+                            finish_reason = 'cancelled'
+                            break
+                        line = raw_line.decode('utf-8', errors='replace').strip()
+                        if len(raw_frame_samples) < 5:
+                            raw_frame_samples.append(line[:300])
+                        if not line:
+                            continue
+                        try:
+                            data = json.loads(line)
+                        except (json.JSONDecodeError, ValueError):
+                            json_decode_error_count += 1
+                            continue
+                        parsed_frame_count += 1
+                        if not isinstance(data, dict):
+                            non_dict_frame_count += 1
+                            continue
+                        token = str((data.get('message') or {}).get('content') or '')
+                        if token:
+                            loop.call_soon_threadsafe(queue.put_nowait, token)
+                        else:
+                            empty_content_frame_count += 1
+                        if data.get('done') is True:
+                            done_frame_snapshot = {
+                                'done': data.get('done'),
+                                'done_reason': data.get('done_reason'),
+                                'has_message': isinstance(data.get('message'), dict),
+                                'content_length': len(token),
+                            }
+                            finish_reason = _normalize_finish_reason(str(data.get('done_reason') or 'stop'))
+                            break
+            except urllib.error.HTTPError as exc:
+                detail = ''
+                with suppress(Exception):
+                    detail = exc.read().decode('utf-8', errors='replace').strip()
+                exception_holder.append(LLMError(f'Ollama HTTP error ({exc.code}): {detail or exc.reason}'))
+            except urllib.error.URLError as exc:
+                exception_holder.append(LLMError(f'Ollama connection failed: {exc.reason}'))
+            except TimeoutError:
+                exception_holder.append(LLMError('Ollama request timed out'))
+            except BaseException as exc:  # noqa: BLE001
+                exception_holder.append(exc)
+            finally:
+                loop.call_soon_threadsafe(queue.put_nowait, (StreamSignalTag.FINISH_REASON, finish_reason))
+                with suppress(RuntimeError):
+                    loop.call_soon_threadsafe(queue.put_nowait, _STREAM_END)
+
+        worker = threading.Thread(target=_worker, name='ollama-stream-worker', daemon=True)
+        worker.start()
+
+        start           = time.perf_counter()
+        token_count     = 0
+        first_token_ms: float | None = None
+        total_text      = ''
+        finish_reason: str | None = None
+        timeout_occurred = False
+        timeout_reason: str | None = None
+        first_token_deadline_seconds = _resolve_first_token_deadline_seconds(
+            wall_clock=wall_clock,
+            profile_tps=float(getattr(profile, 'generation_tokens_per_second', 12.0) or 12.0),
+        )
+        stripper = ThinkStrip()
+
+        try:
+            while True:
+                elapsed = time.perf_counter() - start
+                if elapsed >= wall_clock:
+                    cancel_event.set()
+                    timeout_occurred = True
+                    timeout_reason = 'wall_clock_limit'
+                    break
+                if first_token_ms is None and elapsed >= first_token_deadline_seconds:
+                    cancel_event.set()
+                    timeout_occurred = True
+                    timeout_reason = 'first_token_watchdog_timeout'
+                    break
+
+                remaining_timeout = wall_clock - elapsed
+                queue_poll_timeout = min(remaining_timeout, 2.0)
+                try:
+                    item = await asyncio.wait_for(queue.get(), timeout=queue_poll_timeout)
+                except TimeoutError:
+                    continue
+
+                if item is _STREAM_END:
+                    emit_text = stripper.flush()
+                    if emit_text:
+                        if first_token_ms is None:
+                            first_token_ms = (time.perf_counter() - start) * 1000
+                        token_count += 1
+                        total_text += emit_text
+                        yield emit_text
+                    break
+                if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.FINISH_REASON:
+                    finish_reason = item[1]
+                    continue
+
+                raw_token = str(item)
+                emit_text = stripper.feed(raw_token)
+                if not emit_text:
+                    continue
+                if first_token_ms is None:
+                    first_token_ms = (time.perf_counter() - start) * 1000
+                token_count += 1
+                total_text += emit_text
+                yield emit_text
+
+            if timeout_occurred:
+                timeout_notice = f'\n\n[Response truncated: generation time limit ({int(wall_clock)}s) reached]'
+                total_text += timeout_notice
+                yield timeout_notice
+                yield (StreamSignalTag.TIMEOUT, {
+                    'reason':          timeout_reason or TimeoutReason.UNKNOWN_TIMEOUT.value,
+                    'elapsed_seconds': round(time.perf_counter() - start, 1),
+                    'timeout_seconds': wall_clock,
+                })
+
+            if exception_holder:
+                exc = exception_holder[0]
+                if isinstance(exc, LLMError):
+                    raise exc
+                raise LLMError(f'LLM streaming failed: {exc}') from exc
+            if token_count == 0 and not timeout_occurred:
+                log.warning(
+                    'ollama_stream_empty_completion',
+                    model=model,
+                    raw_frame_count=raw_frame_count,
+                    parsed_frame_count=parsed_frame_count,
+                    non_dict_frame_count=non_dict_frame_count,
+                    json_decode_error_count=json_decode_error_count,
+                    empty_content_frame_count=empty_content_frame_count,
+                    done_frame_snapshot=done_frame_snapshot,
+                    raw_frame_samples=raw_frame_samples,
+                )
+                raise LLMError('Ollama returned no response tokens')
+        finally:
+            if worker.is_alive():
+                cancel_event.set()
+                await asyncio.to_thread(worker.join, 0.25)
+
+            elapsed_ms = (time.perf_counter() - start) * 1000
+            log.info(
+                'llm_stream_completed',
+                provider='ollama',
+                messages_count=len(messages),
+                tokens=token_count,
+                output_length=len(total_text),
+                elapsed_ms=round(elapsed_ms, 1),
+                first_token_ms=round(first_token_ms, 1) if first_token_ms is not None else None,
+                finish_reason=finish_reason,
+                cancelled=cancel_event.is_set(),
+                timeout_occurred=timeout_occurred,
+                timeout_reason=timeout_reason,
+            )
 
 
 class LLMEngine:
