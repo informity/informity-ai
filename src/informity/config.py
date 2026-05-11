@@ -49,6 +49,8 @@ _DEFAULT_APP_DATA_DIR = Path.home() / APP_DATA_DIRNAME
 _DEFAULT_LLM_MODEL_FILENAME = 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'
 _DEFAULT_LLM_MODEL_ID = 'qwen-35b-a3b'
 _DEFAULT_LLM_PROVIDER = 'local_gguf'
+_DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434'
+_DEFAULT_OLLAMA_TIMEOUT_SECONDS = 120.0
 
 # Default embedding model (sentence-transformers)
 _DEFAULT_EMBEDDING_MODEL = 'nomic-ai/nomic-embed-text-v1.5'
@@ -346,6 +348,8 @@ class Settings(BaseSettings):
     # Synced from full_privacy when that setting is updated via the UI.
     llm_local_only:       bool = True
     llm_model_id:         str  = _DEFAULT_LLM_MODEL_ID
+    ollama_base_url:      str = _DEFAULT_OLLAMA_BASE_URL
+    ollama_timeout_seconds: float = _DEFAULT_OLLAMA_TIMEOUT_SECONDS
     llm_model_filename:   str  = _DEFAULT_LLM_MODEL_FILENAME  # Default: Qwen3.6 35B A3B
     llm_hf_repo:          str  = _DEFAULT_LLM_HF_REPO  # Hugging Face repo for automatic model downloads
     llm_context_length:   int  = 16384  # 16K is ample (10K chunks + 4K prompt/history + 2K gen); prevents over-assembly
@@ -732,6 +736,8 @@ def reset_to_factory_defaults() -> Settings:
     default_config = {
         'llm_provider':            _DEFAULT_LLM_PROVIDER,
         'llm_model_id':            _DEFAULT_LLM_MODEL_ID,
+        'ollama_base_url':         _DEFAULT_OLLAMA_BASE_URL,
+        'ollama_timeout_seconds':  _DEFAULT_OLLAMA_TIMEOUT_SECONDS,
         'llm_model_filename':      _DEFAULT_LLM_MODEL_FILENAME,
         'diagnostics_profile':     'standard',
         'chat_trace_logging':      False,

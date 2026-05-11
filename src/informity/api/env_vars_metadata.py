@@ -166,6 +166,8 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('llm_model_id', 'Canonical model identifier used for profile matching and diagnostics metadata.'),
             ('llm_model_filename', 'Filename of the GGUF model file inside the models directory.'),
             ('llm_provider', 'LLM runtime provider: local_gguf (default) or ollama.'),
+            ('ollama_base_url', 'Base URL for Ollama API when llm_provider=ollama (default: http://127.0.0.1:11434).'),
+            ('ollama_timeout_seconds', 'Request timeout in seconds for Ollama chat requests.'),
             ('llm_temperature', 'Sampling temperature (0 = deterministic; higher = more varied).'),
             # NOTE: rag_context_ratio, rag_max_score, rag_top_k, coverage_top_k are model-specific (ModelProfile, not configurable via env)
             ('rag_minimal_mode', 'When true, use a simplified one-pass retrieval flow instead of the full multi-route pipeline. Faster but less adaptive.'),

@@ -5,6 +5,7 @@ import json
 import sys
 import threading
 import time
+import urllib.error
 from contextlib import suppress
 from pathlib import Path
 from types import SimpleNamespace
@@ -396,3 +397,72 @@ def test_load_model_caps_context_length_to_configured_limit(monkeypatch: pytest.
 
     assert captured['n_ctx'] == 8192
     assert captured['n_threads'] == 4
+
+
+def test_ollama_chat_complete_maps_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('informity.llm.engine.settings.llm_provider', 'ollama')
+    monkeypatch.setattr('informity.llm.engine.settings.llm_model_id', 'qwen3:14b')
+    monkeypatch.setattr('informity.llm.engine.settings.ollama_base_url', 'http://127.0.0.1:11434')
+    monkeypatch.setattr('informity.llm.engine.settings.ollama_timeout_seconds', 5.0)
+
+    class _Resp:
+        def __enter__(self) -> '_Resp':
+            return self
+
+        def __exit__(self, _exc_type, _exc, _tb) -> bool:  # type: ignore[no-untyped-def]
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({'message': {'content': 'hello from ollama'}}).encode('utf-8')
+
+    monkeypatch.setattr('informity.llm.engine.urllib.request.urlopen', lambda *_args, **_kwargs: _Resp())
+
+    engine = LLMEngine()
+    response = engine.chat_complete(messages=[{'role': 'user', 'content': 'hi'}], max_tokens=32, temperature=0.1)
+    assert response['choices'][0]['message']['content'] == 'hello from ollama'
+
+
+@pytest.mark.asyncio
+async def test_ollama_generate_stream_maps_tokens_and_finish(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('informity.llm.engine.settings.llm_provider', 'ollama')
+    monkeypatch.setattr('informity.llm.engine.settings.llm_model_id', 'qwen3:14b')
+    monkeypatch.setattr('informity.llm.engine.settings.ollama_base_url', 'http://127.0.0.1:11434')
+    monkeypatch.setattr('informity.llm.engine.settings.ollama_timeout_seconds', 5.0)
+    monkeypatch.setattr(
+        'informity.llm.engine.get_profile',
+        lambda: SimpleNamespace(context_length=4096, generation_tokens_per_second=12.0),
+    )
+
+    class _StreamResp:
+        def __enter__(self) -> '_StreamResp':
+            return self
+
+        def __exit__(self, _exc_type, _exc, _tb) -> bool:  # type: ignore[no-untyped-def]
+            return False
+
+        def __iter__(self):  # type: ignore[no-untyped-def]
+            yield json.dumps({'message': {'content': 'Hel'}}).encode('utf-8')
+            yield json.dumps({'message': {'content': 'lo'}}).encode('utf-8')
+            yield json.dumps({'done': True, 'done_reason': 'stop'}).encode('utf-8')
+
+    monkeypatch.setattr('informity.llm.engine.urllib.request.urlopen', lambda *_args, **_kwargs: _StreamResp())
+
+    engine = LLMEngine()
+    out = ''.join(
+        item for item in [i async for i in engine.generate_stream(messages=[{'role': 'user', 'content': 'hi'}])]
+        if isinstance(item, str)
+    )
+    assert out == 'Hello'
+
+
+def test_ollama_chat_complete_connection_error_mapped(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('informity.llm.engine.settings.llm_provider', 'ollama')
+    monkeypatch.setattr('informity.llm.engine.settings.llm_model_id', 'qwen3:14b')
+    monkeypatch.setattr(
+        'informity.llm.engine.urllib.request.urlopen',
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(urllib.error.URLError('connection refused')),
+    )
+
+    engine = LLMEngine()
+    with pytest.raises(Exception, match='Ollama connection failed'):
+        _ = engine.chat_complete(messages=[{'role': 'user', 'content': 'hi'}])

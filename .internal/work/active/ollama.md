@@ -1,6 +1,6 @@
 # Informity AI — Ollama Provider Integration Plan
 
-**Status:** 🚧 IN PROGRESS (Phase 0 and Phase 1 completed)  
+**Status:** 🚧 IN PROGRESS (Phase 0, Phase 1, and Phase 2 completed)  
 **Version:** 1.1  
 **Last updated:** 2026-05-09  
 **Scope:** Introduce provider pre-abstraction first, then add Ollama as an optional LLM runtime while preserving the current tuned GGUF path as default.
@@ -27,7 +27,7 @@ Prepare Informity AI for multi-provider LLM runtime by first extracting the curr
 |---|---|---|
 | Phase 0 | Provider pre-abstraction (xllamacpp only, parity refactor) | ✅ COMPLETED |
 | Phase 1 | Provider contract and settings surface | ✅ COMPLETED |
-| Phase 2 | Ollama engine implementation and fallback behavior | ⏳ NOT STARTED |
+| Phase 2 | Ollama engine implementation and fallback behavior | ✅ COMPLETED |
 | Phase 3 | Router/handler integration and model capability mapping | ⏳ NOT STARTED |
 | Phase 4 | UX, diagnostics, and release hardening | ⏳ NOT STARTED |
 
@@ -90,7 +90,7 @@ Completed notes:
 - Extended settings schemas/routes/env-var metadata to include provider setting and validation.
 - Kept default behavior unchanged for existing users (`local_gguf` path).
 
-### Phase 2 — Ollama Engine Implementation and Fallback Behavior ⏳ NOT STARTED
+### Phase 2 — Ollama Engine Implementation and Fallback Behavior ✅ COMPLETED
 
 - Goal: Add a production-safe Ollama-backed chat completion/streaming engine behind the Phase 0 provider interface.
 - Scope:
@@ -106,6 +106,13 @@ Completed notes:
 - Researcher and assistant responses stream correctly through Ollama.
 - Classifier/simple/non-stream paths work without contract regressions.
 - Connection and model-not-found failures return actionable user-safe errors.
+
+Completed notes:
+- Implemented `OllamaProvider` runtime with `/api/chat` streaming and non-streaming support.
+- Added stream normalization to existing internal token/finish-reason handling.
+- Added provider-side error mapping for HTTP, connection, timeout, and malformed JSON responses.
+- Added minimal Ollama runtime settings (`ollama_base_url`, `ollama_timeout_seconds`) to config + settings API + env-var metadata.
+- Added focused engine tests for Ollama sync and streaming behavior.
 
 ### Phase 3 — Router/Handler Integration and Capability Mapping ⏳ NOT STARTED
 
