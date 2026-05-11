@@ -1,6 +1,6 @@
 # Informity AI — Ollama Provider Integration Plan
 
-**Status:** 🚧 IN PROGRESS (Phase 0, Phase 1, Phase 2, and Phase 3 completed)  
+**Status:** ✅ COMPLETED (Phase 0–4 completed)  
 **Version:** 1.1  
 **Last updated:** 2026-05-09  
 **Scope:** Introduce provider pre-abstraction first, then add Ollama as an optional LLM runtime while preserving the current tuned GGUF path as default.
@@ -29,7 +29,7 @@ Prepare Informity AI for multi-provider LLM runtime by first extracting the curr
 | Phase 1 | Provider contract and settings surface | ✅ COMPLETED |
 | Phase 2 | Ollama engine implementation and fallback behavior | ✅ COMPLETED |
 | Phase 3 | Router/handler integration and model capability mapping | ✅ COMPLETED |
-| Phase 4 | UX, diagnostics, and release hardening | ⏳ NOT STARTED |
+| Phase 4 | UX, diagnostics, and release hardening | ✅ COMPLETED |
 
 ---
 
@@ -139,7 +139,7 @@ Completed notes:
 - Added model-id alias matching for known Ollama IDs (`qwen-9b`, `qwen-14b`, `qwen-35b-a3b`) to reuse tuned profiles when applicable.
 - Added profile-selection tests for Ollama known/unknown model IDs.
 
-### Phase 4 — UX, Diagnostics, and Release Hardening ⏳ NOT STARTED
+### Phase 4 — UX, Diagnostics, and Release Hardening ✅ COMPLETED
 
 - Goal: Ship Ollama support with observability, docs, and rollback safety.
 - Scope:
@@ -166,6 +166,16 @@ Completed notes:
 - Release notes/docs include operational setup and troubleshooting paths.
 - Setup screen/readiness behavior is provider-specific and does not force GGUF downloads when `llm_provider=ollama`.
 - Existing `local_gguf` users see unchanged setup path by default.
+
+Completed notes:
+- Added provider-aware setup readiness logic:
+- `local_gguf` keeps existing GGUF readiness path.
+- `ollama` uses non-LLM cache readiness + live Ollama daemon/model probe.
+- Added `GET /api/setup/ollama-status` endpoint for explicit operator checks.
+- Extended setup-status payload with provider-specific readiness fields (`llm_provider`, `ollama_reachable`, `ollama_model_ready`).
+- Added minimal Models-tab controls for Ollama provider settings and a live "Check Ollama" action.
+- Added diagnostics provider metadata (`llm_provider`, `llm_model_id`) in diagnostics response.
+- Added route tests for Ollama setup/probe status behavior.
 
 ---
 

@@ -478,6 +478,8 @@ class DiagnosticsResponse(BaseModel):
     disk_available_gb: float
     disk_used_gb: float
     model_loaded: bool
+    llm_provider: Literal['local_gguf', 'ollama'] = 'local_gguf'
+    llm_model_id: str | None = None
     model_filename: str | None = None
     model_size_gb: float | None = None
     db_path: str
@@ -600,6 +602,9 @@ class SetupStatusResponse(BaseModel):
     machine_ram_gb: int | None = None
     recommended_tier: str | None = None
     recommended_reason: str | None = None
+    llm_provider: Literal['local_gguf', 'ollama'] = 'local_gguf'
+    ollama_reachable: bool | None = None
+    ollama_model_ready: bool | None = None
     tier_options: list[SetupTierOption] = Field(default_factory=list)
 
 
@@ -631,6 +636,14 @@ class SetupEventResponse(BaseModel):
     eta_sec: int | None = None
     paused: bool = False
     error: str | None = None
+
+
+class OllamaStatusResponse(BaseModel):
+    reachable: bool
+    model_ready: bool
+    model: str
+    base_url: str
+    detail: str | None = None
 
 
 class ModelsCatalogItem(BaseModel):

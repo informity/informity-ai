@@ -268,6 +268,35 @@ async def test_get_setup_status_reflects_setup_state_file(
     assert status.setup_state_file_present is True
 
 
+@pytest.mark.asyncio
+async def test_get_setup_status_ollama_provider_reports_probe(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(routes_system.settings, 'app_data_dir', tmp_path)
+    monkeypatch.setattr(routes_system.settings, 'llm_provider', 'ollama')
+    monkeypatch.setattr(routes_system, '_is_setup_ready', lambda: False)
+    monkeypatch.setattr(routes_system, '_probe_ollama_status', lambda: (True, False, 'Ollama model not found: qwen3:14b'))
+
+    status = await routes_system.get_setup_status()
+    assert status.llm_provider == 'ollama'
+    assert status.ollama_reachable is True
+    assert status.ollama_model_ready is False
+    assert status.detail == 'Ollama model not found: qwen3:14b'
+
+
+@pytest.mark.asyncio
+async def test_get_ollama_status_returns_probe_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(routes_system.settings, 'ollama_base_url', 'http://127.0.0.1:11434')
+    monkeypatch.setattr(routes_system.settings, 'llm_model_id', 'qwen3:14b')
+    monkeypatch.setattr(routes_system, '_probe_ollama_status', lambda: (True, True, None))
+
+    status = await routes_system.get_ollama_status()
+    assert status.reachable is True
+    assert status.model_ready is True
+    assert status.model == 'qwen3:14b'
+
+
 def test_recommend_setup_tier_prefers_small_on_16gb_class_devices() -> None:
     tier, reason = routes_system._recommend_setup_tier(ram_total_gb=16.0, free_disk_gb=200.0)
     assert tier == 'small'

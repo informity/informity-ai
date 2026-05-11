@@ -949,7 +949,7 @@ def _is_docling_cached(cache_dir: Path | None = None) -> bool:
     return False
 
 
-def are_required_models_cached() -> bool:
+def are_required_models_cached(*, include_llm: bool = True) -> bool:
     """
     Check if all required models are cached.
 
@@ -983,10 +983,10 @@ def are_required_models_cached() -> bool:
         log.debug('docling_models_not_cached')
         return False
 
-    # Check LLM model (if configured)
+    # Check LLM model (if configured and required by provider path).
     llm_filename = str(settings.llm_model_filename or '').strip()
     llm_model_id = str(getattr(settings, 'llm_model_id', '') or '').strip().lower()
-    if llm_filename or llm_model_id:
+    if include_llm and (llm_filename or llm_model_id):
         from informity.llm.model_adapter import (
             get_model_alias_filenames,
             infer_model_id_from_filename,
