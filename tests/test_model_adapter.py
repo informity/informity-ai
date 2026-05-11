@@ -17,10 +17,10 @@ from informity.llm.model_adapter import (
     ModelProfile,
     PromptFormat,
     ReasoningMode,
-    infer_model_id_from_ollama_model,
     get_profile,
     get_profile_for_filename,
     get_retrieval_top_k,
+    infer_model_id_from_ollama_model,
 )
 
 # ==============================================================================
