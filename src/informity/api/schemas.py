@@ -320,6 +320,8 @@ class SettingsResponse(BaseModel):
     llm_provider:         Literal['local_gguf', 'ollama'] = 'local_gguf'
     llm_local_only:          bool
     llm_model_id:         str
+    ollama_base_url:      str = 'http://127.0.0.1:11434'
+    ollama_timeout_seconds: float = 120.0
     llm_model_filename:   str
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (in ModelProfile, read-only)
     rag_minimal_mode:      bool        = True
@@ -401,6 +403,8 @@ class SettingsUpdateRequest(BaseModel):
     llm_provider:        Literal['local_gguf', 'ollama'] | None = None
     llm_local_only:        bool | None = None
     llm_model_id:        str | None        = None
+    ollama_base_url:     str | None        = None
+    ollama_timeout_seconds: float | None = None
     llm_model_filename:  str | None        = None
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (in ModelProfile, not updatable)
     rag_minimal_mode:      bool | None = None
