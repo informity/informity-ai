@@ -10,7 +10,7 @@ from pathlib import Path
 
 _PACKAGE_NAME = 'informity'
 _ENV_VERSION_KEY = 'INFORMITY_APP_VERSION'
-_DEFAULT_FALLBACK_VERSION = '0.10.0'
+_DEFAULT_FALLBACK_VERSION = '0.11.0'
 
 
 def _resolve_pyproject_version() -> str | None:
