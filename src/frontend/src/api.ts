@@ -616,6 +616,9 @@ export interface SetupStatusResponse {
   machine_ram_gb: number | null
   recommended_tier: SetupTierOption['tier'] | null
   recommended_reason: string | null
+  llm_provider: 'local_gguf' | 'ollama'
+  ollama_reachable: boolean | null
+  ollama_model_ready: boolean | null
   tier_options: SetupTierOption[]
 }
 
@@ -677,6 +680,23 @@ export async function cancelSetup(): Promise<SetupActionResponse> {
 
 export async function getSetupEvents(): Promise<SetupEventResponse> {
   return request<SetupEventResponse>('GET', '/api/setup/events')
+}
+
+export interface OllamaStatusResponse {
+  reachable: boolean
+  model_ready: boolean
+  model: string
+  base_url: string
+  detail: string | null
+}
+
+export async function getOllamaStatus(params?: { baseUrl?: string; model?: string }): Promise<OllamaStatusResponse> {
+  const qs = new URLSearchParams()
+  if (params?.baseUrl && params.baseUrl.trim()) qs.set('base_url', params.baseUrl.trim())
+  if (params?.model && params.model.trim()) qs.set('model', params.model.trim())
+  const query = qs.toString()
+  const path = query ? `/api/setup/ollama-status?${query}` : '/api/setup/ollama-status'
+  return request<OllamaStatusResponse>('GET', path)
 }
 
 export interface ModelsCatalogItem {
