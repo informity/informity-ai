@@ -131,7 +131,7 @@ The app is **offline-first by default**. With **Full Privacy Mode** on (Settings
 
 - **Two models in the Hugging Face cache** (`cache/huggingface/hub/` under app data): (1) **Embedding model** (`nomic-ai/nomic-embed-text-v1.5`) for document and query vectors; (2) **Reranker** (`cross-encoder/ms-marco-MiniLM-L-6-v2`) for re-ranking search results. Settings → System shows both for transparency.
 - With `full_privacy=true` (default after install), embedding and reranker are loaded only from this cache. Set `INFORMITY_FULL_PRIVACY=false` (or turn off in Settings) once to allow downloads, then turn Full Privacy Mode back on for offline use.
-- **LLM (GGUF):** App default model is **Qwen3.6 35B A3B** (`Qwen3.6-35B-A3B-Q4_K_M.gguf`), stored in `models/llm/` under the app data directory. With `llm_local_only=true` (default), the app only loads from this directory and never downloads. Place your `.gguf` file there, or set `INFORMITY_LLM_LOCAL_ONLY=false` once to allow a one-time download, then set it back to true.  
+- **LLM (GGUF):** App default model is **Qwen3.6 35B A3B** (`Qwen3.6-35B-A3B-UD-Q4_K_M.gguf`), stored in `models/llm/` under the app data directory. With `llm_local_only=true` (default), the app only loads from this directory and never downloads. Place your `.gguf` file there, or set `INFORMITY_LLM_LOCAL_ONLY=false` once to allow a one-time download, then set it back to true.  
   Note: the optional installer seed in `scripts/install.conf.json` points to Qwen3.6 35B A3B.
 
 After models are in place, the app runs fully offline with no internet required.
