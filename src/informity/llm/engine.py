@@ -372,6 +372,11 @@ def _run_stream_worker(
             delta = choice.get('delta') or {}
             token = delta.get('content') or ''
 
+            # Some local adapters emit chat-completions chunks as choices[0].message.content
+            # (without delta). Accept that shape to preserve streaming compatibility.
+            if not token:
+                token = (choice.get('message') or {}).get('content') or ''
+
             # Alternate llama.cpp completions payload uses top-level 'content'
             if not token:
                 token = data.get('content') or ''
@@ -1174,6 +1179,7 @@ class OllamaProvider:
             'model': model,
             'messages': messages,
             'stream': False,
+            'think': False,
             'options': options,
         }
         if response_format is not None:
@@ -1237,6 +1243,7 @@ class OllamaProvider:
             'model': model,
             'messages': messages,
             'stream': True,
+            'think': False,
             'options': {
                 'num_predict': int(max_tok),
                 'temperature': float(temp),
@@ -1244,8 +1251,18 @@ class OllamaProvider:
                 **({'stop': stop_seqs} if stop_seqs else {}),
             },
         }
+        raw_frame_count = 0
+        parsed_frame_count = 0
+        non_dict_frame_count = 0
+        json_decode_error_count = 0
+        empty_content_frame_count = 0
+        raw_frame_samples: list[str] = []
+        done_frame_snapshot: dict[str, object] | None = None
 
         def _worker() -> None:
+            nonlocal raw_frame_count, parsed_frame_count, non_dict_frame_count
+            nonlocal json_decode_error_count, empty_content_frame_count
+            nonlocal raw_frame_samples, done_frame_snapshot
             finish_reason: str | None = None
             req = urllib.request.Request(
                 url=f'{self._base_url}/api/chat',
@@ -1256,22 +1273,36 @@ class OllamaProvider:
             try:
                 with urllib.request.urlopen(req, timeout=self._timeout_seconds) as resp:  # noqa: S310
                     for raw_line in resp:
+                        raw_frame_count += 1
                         if cancel_event.is_set():
                             finish_reason = 'cancelled'
                             break
                         line = raw_line.decode('utf-8', errors='replace').strip()
+                        if len(raw_frame_samples) < 5:
+                            raw_frame_samples.append(line[:300])
                         if not line:
                             continue
                         try:
                             data = json.loads(line)
                         except (json.JSONDecodeError, ValueError):
+                            json_decode_error_count += 1
                             continue
+                        parsed_frame_count += 1
                         if not isinstance(data, dict):
+                            non_dict_frame_count += 1
                             continue
                         token = str((data.get('message') or {}).get('content') or '')
                         if token:
                             loop.call_soon_threadsafe(queue.put_nowait, token)
+                        else:
+                            empty_content_frame_count += 1
                         if data.get('done') is True:
+                            done_frame_snapshot = {
+                                'done': data.get('done'),
+                                'done_reason': data.get('done_reason'),
+                                'has_message': isinstance(data.get('message'), dict),
+                                'content_length': len(token),
+                            }
                             finish_reason = _normalize_finish_reason(str(data.get('done_reason') or 'stop'))
                             break
             except urllib.error.HTTPError as exc:
@@ -1366,6 +1397,17 @@ class OllamaProvider:
                     raise exc
                 raise LLMError(f'LLM streaming failed: {exc}') from exc
             if token_count == 0 and not timeout_occurred:
+                log.warning(
+                    'ollama_stream_empty_completion',
+                    model=model,
+                    raw_frame_count=raw_frame_count,
+                    parsed_frame_count=parsed_frame_count,
+                    non_dict_frame_count=non_dict_frame_count,
+                    json_decode_error_count=json_decode_error_count,
+                    empty_content_frame_count=empty_content_frame_count,
+                    done_frame_snapshot=done_frame_snapshot,
+                    raw_frame_samples=raw_frame_samples,
+                )
                 raise LLMError('Ollama returned no response tokens')
         finally:
             if worker.is_alive():
