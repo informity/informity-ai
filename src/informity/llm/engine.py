@@ -1212,7 +1212,7 @@ class OllamaProvider:
             messages       = messages,
             context_length = context_len,
             max_tokens     = max_tok,
-            force_chatml   = True if not force_chatml else force_chatml,
+            force_chatml   = force_chatml if force_chatml else True,
         )
         if truncation_info['truncated']:
             log.warning(
@@ -1365,6 +1365,8 @@ class OllamaProvider:
                 if isinstance(exc, LLMError):
                     raise exc
                 raise LLMError(f'LLM streaming failed: {exc}') from exc
+            if token_count == 0 and not timeout_occurred:
+                raise LLMError('Ollama returned no response tokens')
         finally:
             if worker.is_alive():
                 cancel_event.set()

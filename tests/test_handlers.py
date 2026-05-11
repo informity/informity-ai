@@ -22,8 +22,8 @@ from informity.llm.handlers.rag import (
     _should_boost_coverage_top_k,
 )
 from informity.llm.handlers.simple import SimpleHandler
-from informity.llm.personas import get_mode_prompt
 from informity.llm.query_classifier import QueryClassification
+from informity.llm.roles import get_mode_prompt
 from informity.llm.types import OutputFormat
 from informity.llm.web_search import SearchResult, WebSearchOutcome
 
@@ -1088,7 +1088,7 @@ class TestSimpleHandler:
         assert captured_messages[0]['content'].startswith(get_mode_prompt('chat_summary'))
 
     @pytest.mark.asyncio
-    async def test_handle_web_search_synthesis_uses_exact_web_persona_prompt(self) -> None:
+    async def test_handle_web_search_synthesis_uses_exact_web_role_prompt(self) -> None:
         handler = SimpleHandler()
         classification = QueryClassification(intent='simple')
         mock_db = MagicMock()

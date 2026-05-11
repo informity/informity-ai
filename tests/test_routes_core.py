@@ -243,6 +243,7 @@ async def test_get_setup_status_returns_ready_when_required_models_cached(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setattr(routes_system.settings, 'llm_provider', 'local_gguf')
     monkeypatch.setattr(routes_system, '_is_setup_ready', lambda _payload=None: True)
     monkeypatch.setattr(routes_system.settings, 'app_data_dir', tmp_path)
 
@@ -258,6 +259,7 @@ async def test_get_setup_status_reflects_setup_state_file(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setattr(routes_system.settings, 'llm_provider', 'local_gguf')
     monkeypatch.setattr(routes_system, '_is_setup_ready', lambda _payload=None: False)
     monkeypatch.setattr(routes_system.settings, 'app_data_dir', tmp_path)
     (tmp_path / 'setup_state.json').write_text('{"state":"setup_in_progress"}', encoding='utf-8')
@@ -269,7 +271,7 @@ async def test_get_setup_status_reflects_setup_state_file(
 
 
 @pytest.mark.asyncio
-async def test_get_setup_status_ollama_provider_does_not_gate_on_probe_detail(
+async def test_get_setup_status_ollama_provider_bypasses_local_setup_gate(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -279,6 +281,9 @@ async def test_get_setup_status_ollama_provider_does_not_gate_on_probe_detail(
     monkeypatch.setattr(routes_system, '_probe_ollama_status', lambda: (True, False, 'Ollama model not found: qwen3:14b'))
 
     status = await routes_system.get_setup_status()
+    assert status.state == 'ready'
+    assert status.required_models_ready is True
+    assert status.setup_state_file_present is False
     assert status.llm_provider == 'ollama'
     assert status.ollama_reachable is True
     assert status.ollama_model_ready is False
@@ -289,7 +294,7 @@ async def test_get_setup_status_ollama_provider_does_not_gate_on_probe_detail(
 async def test_get_ollama_status_returns_probe_result(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(routes_system.settings, 'ollama_base_url', 'http://127.0.0.1:11434')
     monkeypatch.setattr(routes_system.settings, 'llm_model_id', 'qwen3:14b')
-    monkeypatch.setattr(routes_system, '_probe_ollama_status', lambda: (True, True, None))
+    monkeypatch.setattr(routes_system, '_probe_ollama_status', lambda **_kwargs: (True, True, None))
 
     status = await routes_system.get_ollama_status()
     assert status.reachable is True
@@ -454,6 +459,7 @@ async def test_get_models_catalog_marks_quality_installed_for_legacy_35b_alias(
     quality_entry = next(item for item in catalog.models if item.tier == 'quality')
     assert quality_entry.installed is True
     assert quality_entry.is_default is True
+    # Legacy 35B filename aliases still canonicalize to the historical model-id.
     assert catalog.default_model_id == 'qwen-35b-a3b'
 
 

@@ -690,8 +690,13 @@ export interface OllamaStatusResponse {
   detail: string | null
 }
 
-export async function getOllamaStatus(): Promise<OllamaStatusResponse> {
-  return request<OllamaStatusResponse>('GET', '/api/setup/ollama-status')
+export async function getOllamaStatus(params?: { baseUrl?: string; model?: string }): Promise<OllamaStatusResponse> {
+  const qs = new URLSearchParams()
+  if (params?.baseUrl && params.baseUrl.trim()) qs.set('base_url', params.baseUrl.trim())
+  if (params?.model && params.model.trim()) qs.set('model', params.model.trim())
+  const query = qs.toString()
+  const path = query ? `/api/setup/ollama-status?${query}` : '/api/setup/ollama-status'
+  return request<OllamaStatusResponse>('GET', path)
 }
 
 export interface ModelsCatalogItem {

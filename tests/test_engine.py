@@ -20,6 +20,10 @@ from informity.llm.engine import (
 )
 
 
+def _force_local_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('informity.llm.engine.settings.llm_provider', 'local_gguf')
+
+
 def test_truncate_messages_removes_history_before_system_content() -> None:
     messages = [
         {'role': 'system', 'content': 'You are helpful.\n\nContext:\n[Source: 1] baseline context.'},
@@ -70,6 +74,7 @@ def test_truncate_messages_truncates_system_context_chunks_when_needed() -> None
 
 @pytest.mark.asyncio
 async def test_generate_stream_emits_timeout_notice_and_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+    _force_local_provider(monkeypatch)
     engine = LLMEngine()
     engine._server = object()  # type: ignore[assignment]
 
@@ -122,6 +127,7 @@ def _make_stream_worker_that_emits(tokens: list[str]):
 
 
 def _common_engine_monkeypatches(monkeypatch: pytest.MonkeyPatch, worker_fn) -> LLMEngine:  # type: ignore[no-untyped-def]
+    _force_local_provider(monkeypatch)
     engine = LLMEngine()
     engine._server = object()  # type: ignore[assignment]
     monkeypatch.setattr('informity.llm.engine.get_profile', lambda: SimpleNamespace(context_length=4096))
@@ -216,6 +222,7 @@ async def test_generate_stream_cancellation_cleans_up_worker(monkeypatch: pytest
 
 @pytest.mark.asyncio
 async def test_generate_stream_uses_effective_context_length(monkeypatch: pytest.MonkeyPatch) -> None:
+    _force_local_provider(monkeypatch)
     captured: dict[str, int] = {}
 
     def _capture_truncate(**kwargs):  # type: ignore[no-untyped-def]
@@ -274,6 +281,7 @@ async def test_stream_worker_includes_chat_template_kwargs(monkeypatch: pytest.M
 
 
 def test_chat_complete_includes_chat_template_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+    _force_local_provider(monkeypatch)
     captured_payload: dict[str, object] = {}
 
     class _FakeServer:
@@ -300,6 +308,7 @@ def test_chat_complete_includes_chat_template_kwargs(monkeypatch: pytest.MonkeyP
 
 
 def test_download_model_uses_httpx_stream_api(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _force_local_provider(monkeypatch)
     class _FakeResponse:
         status_code = 200
         headers = {'Content-Length': '5'}
@@ -360,6 +369,7 @@ def test_download_model_uses_httpx_stream_api(monkeypatch: pytest.MonkeyPatch, t
 
 
 def test_load_model_caps_context_length_to_configured_limit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _force_local_provider(monkeypatch)
     captured: dict[str, object] = {}
 
     class _FakeServer:
@@ -406,7 +416,7 @@ def test_ollama_chat_complete_maps_response(monkeypatch: pytest.MonkeyPatch) -> 
     monkeypatch.setattr('informity.llm.engine.settings.ollama_timeout_seconds', 5.0)
 
     class _Resp:
-        def __enter__(self) -> '_Resp':
+        def __enter__(self) -> _Resp:
             return self
 
         def __exit__(self, _exc_type, _exc, _tb) -> bool:  # type: ignore[no-untyped-def]
@@ -434,7 +444,7 @@ async def test_ollama_generate_stream_maps_tokens_and_finish(monkeypatch: pytest
     )
 
     class _StreamResp:
-        def __enter__(self) -> '_StreamResp':
+        def __enter__(self) -> _StreamResp:
             return self
 
         def __exit__(self, _exc_type, _exc, _tb) -> bool:  # type: ignore[no-untyped-def]
@@ -453,6 +463,35 @@ async def test_ollama_generate_stream_maps_tokens_and_finish(monkeypatch: pytest
         if isinstance(item, str)
     )
     assert out == 'Hello'
+
+
+@pytest.mark.asyncio
+async def test_ollama_generate_stream_raises_on_empty_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('informity.llm.engine.settings.llm_provider', 'ollama')
+    monkeypatch.setattr('informity.llm.engine.settings.llm_model_id', 'qwen3:14b')
+    monkeypatch.setattr('informity.llm.engine.settings.ollama_base_url', 'http://127.0.0.1:11434')
+    monkeypatch.setattr('informity.llm.engine.settings.ollama_timeout_seconds', 5.0)
+    monkeypatch.setattr(
+        'informity.llm.engine.get_profile',
+        lambda: SimpleNamespace(context_length=4096, generation_tokens_per_second=12.0),
+    )
+
+    class _StreamResp:
+        def __enter__(self) -> _StreamResp:
+            return self
+
+        def __exit__(self, _exc_type, _exc, _tb) -> bool:  # type: ignore[no-untyped-def]
+            return False
+
+        def __iter__(self):  # type: ignore[no-untyped-def]
+            yield json.dumps({'done': True, 'done_reason': 'stop'}).encode('utf-8')
+
+    monkeypatch.setattr('informity.llm.engine.urllib.request.urlopen', lambda *_args, **_kwargs: _StreamResp())
+
+    engine = LLMEngine()
+    with pytest.raises(Exception, match='Ollama returned no response tokens'):
+        async for _ in engine.generate_stream(messages=[{'role': 'user', 'content': 'hi'}]):
+            pass
 
 
 def test_ollama_chat_complete_connection_error_mapped(monkeypatch: pytest.MonkeyPatch) -> None:
