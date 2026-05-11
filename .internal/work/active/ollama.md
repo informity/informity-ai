@@ -33,6 +33,16 @@ Prepare Informity AI for multi-provider LLM runtime by first extracting the curr
 
 ---
 
+## Rollout Strategy (Least Destructive)
+
+Adopt an additive, runtime-first rollout to protect current stable behavior:
+
+1. Implement provider runtime behavior first (Phase 2), with strict stream/event normalization to existing internal contracts.
+2. Apply model-safety/capability defaults next (Phase 3), without changing the existing chat orchestration path.
+3. Only after runtime parity is validated, wire provider-aware setup/UX and diagnostics hardening (Phase 4).
+
+This sequencing intentionally avoids early changes to setup gates and chat flows before Ollama runtime behavior is proven.
+
 ### Phase 0 — Provider Pre-Abstraction (Parity Refactor) ✅ COMPLETED
 
 - Goal: Refactor current LLM runtime internals to a provider interface without changing functionality, quality, or performance.
@@ -123,9 +133,16 @@ Completed notes:
 - Provider-aware diagnostics metrics (provider used, model ID, error class).
 - Add tests for provider selection, settings validation, stream contract, and fallback behavior.
 - Add docs for installation, model pull expectations, privacy/offline implications.
+- Provider-aware setup gating and readiness checks:
+- `local_gguf` provider keeps current GGUF setup/download requirements.
+- `ollama` provider bypasses GGUF setup gating and instead requires:
+- Ollama daemon reachable at configured URL.
+- Configured Ollama model available (pulled locally).
+- Provider-aware operator guidance/error copy (e.g., daemon not running, model missing, timeout).
 - Implementation targets:
 - `src/frontend/src/pages/SettingsPage.tsx`
 - `src/informity/api/routes_settings.py`
+- `src/informity/api/routes_system.py`
 - `src/informity/chat_trace.py`
 - `tests/`
 - `README.md`
@@ -133,6 +150,8 @@ Completed notes:
 - End-to-end provider switch works and is reversible without manual config edits.
 - Diagnostics can distinguish local GGUF vs Ollama regressions.
 - Release notes/docs include operational setup and troubleshooting paths.
+- Setup screen/readiness behavior is provider-specific and does not force GGUF downloads when `llm_provider=ollama`.
+- Existing `local_gguf` users see unchanged setup path by default.
 
 ---
 
