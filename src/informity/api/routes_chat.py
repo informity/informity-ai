@@ -109,8 +109,8 @@ from informity.llm.contract_gate import (
     enforce_required_sections,
     validate_contract,
 )
-from informity.llm.personas import get_role_profile, list_role_profiles
 from informity.llm.rag import answer_question
+from informity.llm.roles import get_role_profile, list_role_profiles
 from informity.llm.timeout_policy import is_terminal_timeout_reason, normalize_timeout_reason
 from informity.llm.types import (
     ChatRole,

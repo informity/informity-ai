@@ -251,13 +251,13 @@ def _is_model_file_ready(model_filename: str) -> bool:
     return model_path.exists() and model_path.is_file()
 
 
-def _probe_ollama_status() -> tuple[bool, bool, str | None]:
-    base_url = str(getattr(settings, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip().rstrip('/')
-    model = str(getattr(settings, 'llm_model_id', '') or '').strip()
-    if not model:
+def _probe_ollama_status(*, base_url: str | None = None, model: str | None = None) -> tuple[bool, bool, str | None]:
+    resolved_base_url = str(base_url if base_url is not None else getattr(settings, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip().rstrip('/')
+    resolved_model = str(model if model is not None else getattr(settings, 'llm_model_id', '') or '').strip()
+    if not resolved_model:
         return False, False, 'llm_model_id is required for ollama provider'
     timeout = float(getattr(settings, 'ollama_timeout_seconds', 120.0) or 120.0)
-    req = urllib.request.Request(url=f'{base_url}/api/tags', method='GET')
+    req = urllib.request.Request(url=f'{resolved_base_url}/api/tags', method='GET')
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
             body = resp.read().decode('utf-8', errors='replace')
@@ -270,11 +270,11 @@ def _probe_ollama_status() -> tuple[bool, bool, str | None]:
                 for item in models
                 if isinstance(item, dict)
             }
-            model_normalized = model.lower()
+            model_normalized = resolved_model.lower()
             ready = model_normalized in names
             if not ready and ':' not in model_normalized:
                 ready = f'{model_normalized}:latest' in names
-            return True, ready, (None if ready else f'Ollama model not found: {model}')
+            return True, ready, (None if ready else f'Ollama model not found: {resolved_model}')
     except urllib.error.HTTPError as exc:
         return False, False, f'Ollama HTTP error ({exc.code})'
     except urllib.error.URLError as exc:
@@ -825,7 +825,11 @@ async def get_setup_status() -> SetupStatusResponse:
     """
     setup_state_path = _setup_state_path()
     setup_state_payload, read_error = _load_setup_state_file(setup_state_path)
-    required_models_ready = _is_setup_ready()
+    provider = str(getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
+    # Keep first-run onboarding stable: setup gate applies to local provider only.
+    # Ollama is treated as a post-setup integration path and should not redirect
+    # users back into local-model setup.
+    required_models_ready = True if provider == 'ollama' else _is_setup_ready()
     vm = psutil.virtual_memory()
     disk = psutil.disk_usage(settings.app_data_dir)
     machine_ram_gb = int(round(float(vm.total / (1024 ** 3))))
@@ -833,7 +837,6 @@ async def get_setup_status() -> SetupStatusResponse:
         ram_total_gb=float(vm.total / (1024 ** 3)),
         free_disk_gb=float(disk.free / (1024 ** 3)),
     )
-    provider = str(getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
     ollama_reachable: bool | None = None
     ollama_model_ready: bool | None = None
     if provider == 'ollama':
@@ -902,15 +905,18 @@ async def get_setup_status() -> SetupStatusResponse:
 
 
 @router.get('/setup/ollama-status', response_model=OllamaStatusResponse)
-async def get_ollama_status() -> OllamaStatusResponse:
-    base_url = str(getattr(settings, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip()
-    model = str(getattr(settings, 'llm_model_id', '') or '').strip()
-    reachable, model_ready, detail = _probe_ollama_status()
+async def get_ollama_status(
+    base_url: str | None = None,
+    model: str | None = None,
+) -> OllamaStatusResponse:
+    resolved_base_url = str(base_url if base_url is not None else getattr(settings, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip()
+    resolved_model = str(model if model is not None else getattr(settings, 'llm_model_id', '') or '').strip()
+    reachable, model_ready, detail = _probe_ollama_status(base_url=resolved_base_url, model=resolved_model)
     return OllamaStatusResponse(
         reachable=reachable,
         model_ready=model_ready,
-        model=model,
-        base_url=base_url,
+        model=resolved_model,
+        base_url=resolved_base_url,
         detail=detail,
     )
 

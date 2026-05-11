@@ -5,8 +5,8 @@
 
 from informity.config import settings
 from informity.db.models import ChatMessage
-from informity.llm.personas import compose_prompt
 from informity.llm.prompt_builder import build_messages
+from informity.llm.roles import compose_prompt
 
 
 class _StubProfile:
@@ -256,7 +256,7 @@ class TestPromptBuilder:
         messages = build_messages('Question', [])
         assert 'Research mode instructions:' not in messages[0]['content']
 
-    def test_builder_system_prompt_matches_rag_persona_composer_exactly(self) -> None:
+    def test_builder_system_prompt_matches_rag_role_composer_exactly(self) -> None:
         messages = build_messages('Question', [], chat_mode='researcher')
         expected_system_prefix = compose_prompt(mode_id='researcher_rag', chat_mode='researcher')
         assert messages[0]['content'] == f'{expected_system_prefix}\n\nContext:\n'

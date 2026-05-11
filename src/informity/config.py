@@ -47,7 +47,7 @@ _DEFAULT_APP_DATA_DIR = Path.home() / APP_DATA_DIRNAME
 
 # Default model for reset-to-factory and first load: Qwen3.6 35B A3B.
 _DEFAULT_LLM_MODEL_FILENAME = 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'
-_DEFAULT_LLM_MODEL_ID = 'qwen-35b-a3b'
+_DEFAULT_LLM_MODEL_ID = 'qwen3.6:35b'
 _DEFAULT_LLM_PROVIDER = 'local_gguf'
 _DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434'
 _DEFAULT_OLLAMA_TIMEOUT_SECONDS = 120.0

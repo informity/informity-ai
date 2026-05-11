@@ -46,7 +46,7 @@ const CHAT_MODE_OPTIONS = [
   { value: 'assistant', label: 'Assistant' },
 ]
 const LLM_PROVIDER_OPTIONS = [
-  { value: 'local_gguf', label: 'Local GGUF (Recommended)' },
+  { value: 'local_gguf', label: 'Local (Recommended)' },
   { value: 'ollama', label: 'Ollama' },
 ]
 
@@ -258,7 +258,7 @@ interface FormState {
 interface SettingsViewProps {
   settings: SettingsData | null
   fileTypeOptions?: FileTypeOption[]
-  onSave: (form: FormState) => void
+  onSave: (form: FormState) => void | Promise<void>
   onDiscard?: () => void
   onResetSettings: () => void
   onResetIndex: () => void
@@ -336,6 +336,24 @@ function getInitialActiveTab(): SettingsTab {
   return 'general'
 }
 
+function getFriendlyOllamaStatusMessage(
+  detail: string | null | undefined,
+  field: 'server' | 'model',
+): string {
+  const text = String(detail || '').trim()
+  const lower = text.toLowerCase()
+
+  if (lower.includes('request timed out')) return 'Request timed out'
+  if (lower.includes('connection failed')) return "Can't reach server"
+  if (lower.includes('http error')) return 'Server returned an error'
+  if (lower.includes('invalid ollama') || lower.includes('invalid') || lower.includes('json')) return 'Unexpected server response'
+  if (lower.includes('llm_model_id is required')) return 'Model name required'
+  if (lower.includes('model not found')) return 'Model not installed'
+
+  if (!text) return field === 'server' ? 'Server unreachable' : 'Model not found'
+  return text
+}
+
 export function SettingsView({
   settings,
   fileTypeOptions,
@@ -357,8 +375,7 @@ export function SettingsView({
   const [modelDownloadError, setModelDownloadError] = useState<string | null>(null)
   const [modelEvent, setModelEvent] = useState<ModelOperationEventResponse | null>(null)
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatusResponse | null>(null)
-  const [ollamaStatusError, setOllamaStatusError] = useState<string | null>(null)
-  const [ollamaStatusPending, setOllamaStatusPending] = useState(false)
+  const [ollamaValidationPending, setOllamaValidationPending] = useState(false)
   const modelEventStateRef = useRef<ModelOperationEventResponse['state'] | null>(null)
   const persistedModel = canonicalizeModelFilename(settings?.llm_model_filename ?? '')
 
@@ -566,22 +583,33 @@ export function SettingsView({
     update('llm_cpu_threads', threads)
   }
 
-  const checkOllamaStatus = async (): Promise<void> => {
-    setOllamaStatusPending(true)
-    setOllamaStatusError(null)
-    try {
-      const status = await getOllamaStatus()
-      setOllamaStatus(status)
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Unable to check Ollama status'
-      setOllamaStatusError(message)
-      setOllamaStatus(null)
-    } finally {
-      setOllamaStatusPending(false)
+  const handleSave = async () => {
+    if (isOllamaProvider) {
+      setOllamaValidationPending(true)
+      try {
+        const status = await getOllamaStatus({
+          baseUrl: String(form.ollama_base_url || ''),
+          model: String(form.llm_model_id || ''),
+        })
+        setOllamaStatus(status)
+        if (!status.reachable || !status.model_ready) {
+          return
+        }
+      } catch {
+        setOllamaStatus({
+          reachable: false,
+          model_ready: false,
+          model: String(form.llm_model_id || ''),
+          base_url: String(form.ollama_base_url || ''),
+          detail: 'Unable to validate Ollama settings',
+        })
+        return
+      } finally {
+        setOllamaValidationPending(false)
+      }
     }
+    await onSave(form)
   }
-
-  const handleSave = () => onSave(form)
   const handleDiscard = () => {
     setForm(buildFormState(settings))
     onDiscard?.()
@@ -602,7 +630,6 @@ export function SettingsView({
 
     for (const model of catalogModels) add(model.model_filename)
     for (const model of settings.available_models || []) add(model)
-    add(selectedModelFilename)
     return ordered
   })()
   const installedModelSet = new Set(
@@ -610,11 +637,17 @@ export function SettingsView({
       ? catalogModels.filter((model) => model.installed).map((model) => canonicalizeModelFilename(model.model_filename))
       : (settings.available_models || []).map((model) => canonicalizeModelFilename(model)),
   )
-  const selectedModelInstalled = selectedModelFilename ? installedModelSet.has(selectedModelFilename) : false
-  const modelEventMatchesSelected = modelEvent?.model_filename === selectedModelFilename
+  const resolvedSelectedModelFilename = knownModelFilenames.includes(selectedModelFilename)
+    ? selectedModelFilename
+    : (knownModelFilenames[0] || '')
+  const selectedModelInstalledResolved = resolvedSelectedModelFilename
+    ? installedModelSet.has(resolvedSelectedModelFilename)
+    : false
+  const modelEventMatchesSelected = modelEvent?.model_filename === resolvedSelectedModelFilename
   const modelDownloadInProgress = modelEventMatchesSelected && modelEvent?.state === 'in_progress'
-  const providerAllowsSave = form.llm_provider === 'ollama' || selectedModelInstalled
-  const canSaveSettings = !saving && providerAllowsSave && !modelDownloadInProgress && !modelDownloadPending
+  const isOllamaProvider = String(form.llm_provider || '').trim().toLowerCase() === 'ollama'
+  const providerAllowsSave = isOllamaProvider || selectedModelInstalledResolved
+  const canSaveSettings = !saving && !ollamaValidationPending && providerAllowsSave && !modelDownloadInProgress && !modelDownloadPending
   const orderedFileTypeOptions = [...(fileTypeOptions || [])].sort((a, b) => {
     const ai = FILE_TYPE_DISPLAY_ORDER.indexOf(a.id as (typeof FILE_TYPE_DISPLAY_ORDER)[number])
     const bi = FILE_TYPE_DISPLAY_ORDER.indexOf(b.id as (typeof FILE_TYPE_DISPLAY_ORDER)[number])
@@ -647,13 +680,13 @@ export function SettingsView({
   })()
 
   const handleDownloadSelectedModel = async (): Promise<void> => {
-    if (!selectedModelFilename || selectedModelInstalled || modelDownloadPending) return
+    if (!resolvedSelectedModelFilename || selectedModelInstalledResolved || modelDownloadPending) return
     setModelDownloadPending(true)
     setModelDownloadError(null)
     setModelEvent((prev) => ({
       state: 'in_progress',
       stage: 'queued',
-      model_filename: selectedModelFilename,
+      model_filename: resolvedSelectedModelFilename,
       overall_pct: prev?.overall_pct ?? 0,
       bytes_done: prev?.bytes_done ?? 0,
       bytes_total: prev?.bytes_total ?? 0,
@@ -663,7 +696,7 @@ export function SettingsView({
       error: null,
     }))
     try {
-      await downloadModel(selectedModelFilename)
+      await downloadModel(resolvedSelectedModelFilename)
       const event = await getModelOperationEvents()
       setModelEvent(event)
     } catch (error) {
@@ -681,7 +714,7 @@ export function SettingsView({
     setModelEvent((prev) => ({
       state: 'cancelled',
       stage: 'cancelled',
-      model_filename: prev?.model_filename ?? selectedModelFilename,
+      model_filename: prev?.model_filename ?? resolvedSelectedModelFilename,
       overall_pct: 0,
       bytes_done: 0,
       bytes_total: 0,
@@ -1435,12 +1468,15 @@ export function SettingsView({
             </div>
             <div className="settings-control-group">
               <div className="settings-subsection-field">
-                <label htmlFor="settings-llm-provider" className="settings-subsection-field-label">LLM provider</label>
+                <label htmlFor="settings-llm-provider" className="settings-subsection-field-label">Model provider</label>
                 <select
                   id="settings-llm-provider"
                   className="settings-select"
                   value={form.llm_provider}
-                  onChange={(e) => update('llm_provider', e.target.value as FormState['llm_provider'])}
+                  onChange={(e) => {
+                    setOllamaStatus(null)
+                    update('llm_provider', e.target.value as FormState['llm_provider'])
+                  }}
                 >
                   {LLM_PROVIDER_OPTIONS.map((opt) => (
                     <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -1448,27 +1484,73 @@ export function SettingsView({
                 </select>
               </div>
             </div>
-            {form.llm_provider === 'ollama' && (
+            {isOllamaProvider && (
               <div className="settings-control-group">
                 <div className="settings-subsection-field">
-                  <label htmlFor="settings-ollama-url" className="settings-subsection-field-label">Ollama base URL</label>
-                  <input
-                    id="settings-ollama-url"
-                    type="text"
-                    className="settings-input"
-                    value={form.ollama_base_url}
-                    onChange={(e) => update('ollama_base_url', e.target.value)}
-                  />
+                  <label htmlFor="settings-ollama-url" className="settings-subsection-field-label">Ollama server URL</label>
+                  <div className="settings-input-wrap settings-input-wrap--status settings-input-wrap--narrow">
+                    <input
+                      id="settings-ollama-url"
+                      type="text"
+                      className="settings-input settings-input--narrow settings-input--with-status"
+                      value={form.ollama_base_url}
+                      onChange={(e) => {
+                        setOllamaStatus(null)
+                        update('ollama_base_url', e.target.value)
+                      }}
+                    />
+                    {(ollamaValidationPending || ollamaStatus) && (
+                      <span className="settings-status-indicator ui-tooltip-trigger" aria-hidden="true">
+                        <i
+                          className={
+                            ollamaValidationPending
+                              ? 'ri-loader-4-line subsection-icon ui-subsection-icon settings-status-icon settings-status-icon--pending'
+                              : ollamaStatus?.reachable
+                                ? 'ri-checkbox-circle-line subsection-icon ui-subsection-icon settings-status-icon settings-status-icon--ok'
+                                : 'ri-close-circle-line subsection-icon ui-subsection-icon settings-status-icon settings-status-icon--error'
+                          }
+                        />
+                        <span className="settings-tooltip settings-tooltip--status ui-tooltip ui-tooltip--compact ui-tooltip--nowrap">
+                          {ollamaValidationPending
+                            ? 'Checking server...'
+                            : (ollamaStatus?.reachable ? 'Server OK' : getFriendlyOllamaStatusMessage(ollamaStatus?.detail, 'server'))}
+                        </span>
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="settings-subsection-field">
-                  <label htmlFor="settings-ollama-model-id" className="settings-subsection-field-label">Ollama model ID</label>
-                  <input
-                    id="settings-ollama-model-id"
-                    type="text"
-                    className="settings-input"
-                    value={form.llm_model_id}
-                    onChange={(e) => update('llm_model_id', e.target.value)}
-                  />
+                  <label htmlFor="settings-ollama-model-id" className="settings-subsection-field-label">Ollama model name</label>
+                  <div className="settings-input-wrap settings-input-wrap--status settings-input-wrap--narrow">
+                    <input
+                      id="settings-ollama-model-id"
+                      type="text"
+                      className="settings-input settings-input--narrow settings-input--with-status"
+                      value={form.llm_model_id}
+                      onChange={(e) => {
+                        setOllamaStatus(null)
+                        update('llm_model_id', e.target.value)
+                      }}
+                    />
+                    {(ollamaValidationPending || ollamaStatus) && (
+                      <span className="settings-status-indicator ui-tooltip-trigger" aria-hidden="true">
+                        <i
+                          className={
+                            ollamaValidationPending
+                              ? 'ri-loader-4-line subsection-icon ui-subsection-icon settings-status-icon settings-status-icon--pending'
+                              : ollamaStatus?.model_ready
+                                ? 'ri-checkbox-circle-line subsection-icon ui-subsection-icon settings-status-icon settings-status-icon--ok'
+                                : 'ri-close-circle-line subsection-icon ui-subsection-icon settings-status-icon settings-status-icon--error'
+                          }
+                        />
+                        <span className="settings-tooltip settings-tooltip--status ui-tooltip ui-tooltip--compact ui-tooltip--nowrap">
+                          {ollamaValidationPending
+                            ? 'Checking model...'
+                            : (ollamaStatus?.model_ready ? 'Model OK' : getFriendlyOllamaStatusMessage(ollamaStatus?.detail, 'model'))}
+                        </span>
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <div className="settings-subsection-field">
                   <label htmlFor="settings-ollama-timeout" className="settings-subsection-field-label">Ollama timeout <span className="settings-subsection-field-unit">(seconds)</span></label>
@@ -1482,87 +1564,75 @@ export function SettingsView({
                     onChange={(e) => update('ollama_timeout_seconds', clamp(parseInteger(e.target.value, 120), 1, 1800))}
                   />
                 </div>
-                <div className="settings-add-row">
-                  <button
-                    type="button"
-                    className="settings-btn settings-btn--subtle"
-                    onClick={() => { void checkOllamaStatus() }}
-                    disabled={ollamaStatusPending}
-                  >
-                    {ollamaStatusPending ? 'Checking…' : 'Check Ollama'}
-                  </button>
-                </div>
-                {ollamaStatus && (
-                  <p className="settings-field-hint">
-                    {`Reachable: ${ollamaStatus.reachable ? 'yes' : 'no'} • Model ready: ${ollamaStatus.model_ready ? 'yes' : 'no'}${ollamaStatus.detail ? ` • ${ollamaStatus.detail}` : ''}`}
-                  </p>
-                )}
-                {ollamaStatusError && <p className="settings-field-hint">{ollamaStatusError}</p>}
               </div>
             )}
-            <div className="settings-control-group">
-              <div className="settings-add-row settings-add-row--model">
-                <select
-                  id="settings-llm-model"
-                  aria-label="Main model"
-                  className="settings-select"
-                  value={selectedModelFilename}
-                  onChange={(e) => {
-                    update('llm_model_filename', canonicalizeModelFilename(e.target.value))
-                    setModelDownloadError(null)
-                  }}
-                >
-                  {knownModelFilenames.map((modelName) => {
-                    const catalogEntry = catalogModels.find((model) => model.model_filename === modelName)
-                    const installed = installedModelSet.has(modelName)
-                    const baseLabel = catalogEntry?.display_name || modelProfileNames.get(modelName) || modelName
-                    const suffix = installed ? '' : ' (Not installed)'
-                    return (
-                      <option key={modelName} value={modelName}>
-                        {`${baseLabel}${suffix}`}
-                      </option>
-                    )
-                  })}
-                </select>
-                {!selectedModelInstalled && (
-                  <>
-                    <button
-                      type="button"
-                      className={`settings-btn settings-btn--add${modelDownloadInProgress ? ' settings-btn--add-cancel' : ''}`}
-                      onClick={() => {
-                        if (modelDownloadInProgress) {
-                          void handleCancelModelDownload()
-                          return
-                        }
-                        void handleDownloadSelectedModel()
+            {!isOllamaProvider && (
+              <>
+                <div className="settings-control-group">
+                  <div className="settings-add-row settings-add-row--model">
+                    <select
+                      id="settings-llm-model"
+                      aria-label="Main model"
+                      className="settings-select"
+                      value={resolvedSelectedModelFilename}
+                      onChange={(e) => {
+                        update('llm_model_filename', canonicalizeModelFilename(e.target.value))
+                        setModelDownloadError(null)
                       }}
-                      disabled={modelDownloadPending || !selectedModelFilename}
                     >
-                      {modelDownloadPending ? 'Working...' : (modelDownloadInProgress ? 'Cancel' : '+ Add')}
-                    </button>
-                    {modelProgressSummary && (
-                      <span className="settings-model-progress-inline">{modelProgressSummary}</span>
+                      {knownModelFilenames.map((modelName) => {
+                        const catalogEntry = catalogModels.find((model) => model.model_filename === modelName)
+                        const installed = installedModelSet.has(modelName)
+                        const baseLabel = catalogEntry?.display_name || modelProfileNames.get(modelName) || modelName
+                        const suffix = installed ? '' : ' (Not installed)'
+                        return (
+                          <option key={modelName} value={modelName}>
+                            {`${baseLabel}${suffix}`}
+                          </option>
+                        )
+                      })}
+                    </select>
+                    {!selectedModelInstalledResolved && (
+                      <>
+                        <button
+                          type="button"
+                          className={`settings-btn settings-btn--add${modelDownloadInProgress ? ' settings-btn--add-cancel' : ''}`}
+                          onClick={() => {
+                            if (modelDownloadInProgress) {
+                              void handleCancelModelDownload()
+                              return
+                            }
+                            void handleDownloadSelectedModel()
+                          }}
+                          disabled={modelDownloadPending || !resolvedSelectedModelFilename}
+                        >
+                          {modelDownloadPending ? 'Working...' : (modelDownloadInProgress ? 'Cancel' : '+ Add')}
+                        </button>
+                        {modelProgressSummary && (
+                          <span className="settings-model-progress-inline">{modelProgressSummary}</span>
+                        )}
+                      </>
                     )}
-                  </>
-                )}
-              </div>
-              {modelDownloadError && (
-                <p className="settings-field-hint">{modelDownloadError}</p>
-              )}
-            </div>
-            <div className="settings-profile-grid">
-              <ProfileRow label="Profile" value={profile.name} />
-              <ProfileRow label="Model" value={selectedModelFilename} />
-              <ProfileRow label="Family" value={profile.family} />
-              <ProfileRow label="Reasoning" value={profile.reasoning_mode} />
-              <ProfileRow label="Max tokens" value={profile.max_tokens ?? '--'} />
-              <ProfileRow label="Context length" value={profile.context_length ?? '--'} />
-              <ProfileRow label="Temperature" value={profile.temperature ?? '--'} />
-              <ProfileRow label="Retrieval (top-k)" value={profile.rag_top_k ?? '--'} />
-              <ProfileRow label="Document matching threshold" value={profile.rag_max_score ?? '--'} />
-              <ProfileRow label="Context ratio" value={profile.rag_context_ratio ?? '--'} />
-              <ProfileRow label="Model size" value={formatModelSizeGb(selectedCatalogEntry?.model_size_bytes)} />
-            </div>
+                  </div>
+                  {modelDownloadError && (
+                    <p className="settings-field-hint">{modelDownloadError}</p>
+                  )}
+                </div>
+                <div className="settings-profile-grid">
+                  <ProfileRow label="Profile" value={profile.name} />
+                  <ProfileRow label="Model" value={resolvedSelectedModelFilename || '--'} />
+                  <ProfileRow label="Family" value={profile.family} />
+                  <ProfileRow label="Reasoning" value={profile.reasoning_mode} />
+                  <ProfileRow label="Max tokens" value={profile.max_tokens ?? '--'} />
+                  <ProfileRow label="Context length" value={profile.context_length ?? '--'} />
+                  <ProfileRow label="Temperature" value={profile.temperature ?? '--'} />
+                  <ProfileRow label="Retrieval (top-k)" value={profile.rag_top_k ?? '--'} />
+                  <ProfileRow label="Document matching threshold" value={profile.rag_max_score ?? '--'} />
+                  <ProfileRow label="Context ratio" value={profile.rag_context_ratio ?? '--'} />
+                  <ProfileRow label="Model size" value={formatModelSizeGb(selectedCatalogEntry?.model_size_bytes)} />
+                </div>
+              </>
+            )}
           </>
         )}
         </section>

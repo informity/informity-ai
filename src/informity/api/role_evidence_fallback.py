@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from informity.diagnostics.observer import estimate_evidence_metrics
-from informity.llm.personas import get_role_profile
+from informity.llm.roles import get_role_profile
 
 _ROLE_EVIDENCE_COVERAGE_MIN = 0.45
 _ROLE_UNSUPPORTED_CLAIMS_MAX = 2

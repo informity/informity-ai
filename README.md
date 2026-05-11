@@ -35,6 +35,7 @@ Informity scans and indexes local files, then answers questions with a local RAG
 - Temporary per-chat uploaded files in Researcher mode (`+` attach, `x` remove)
 - SQLite + sqlite-vec for metadata + embeddings
 - Local LLM inference via `xllamacpp` (Metal/GPU on macOS)
+- Optional Ollama runtime provider (localhost daemon)
 
 ## Quick Start
 
@@ -134,6 +135,22 @@ The app is **offline-first by default**. With **Full Privacy Mode** on (Settings
   Note: the optional installer seed in `scripts/install.conf.json` points to Qwen3.6 35B A3B.
 
 After models are in place, the app runs fully offline with no internet required.
+
+## Provider Selection
+
+Informity supports two LLM runtime providers:
+
+- `local_gguf` (default): in-process `xllamacpp` with GGUF models in `models/llm/`.
+- `ollama`: uses an Ollama daemon (default URL `http://127.0.0.1:11434`) and `llm_model_id` (for example `qwen3:14b`).
+
+Setup/readiness is provider-aware:
+
+- First-run setup remains the existing local-model onboarding flow (`local_gguf` path).
+- Ollama is an advanced post-setup integration enabled from Settings.
+- After setup, choosing `ollama` bypasses local GGUF gating and uses:
+  - Ollama daemon reachable
+  - configured Ollama model available locally
+  - required dependency caches (embedding, reranker, docling)
 
 ## Chat Scope Contract
 

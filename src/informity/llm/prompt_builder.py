@@ -15,7 +15,7 @@ from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.chat_mode import normalize_chat_mode
 from informity.llm.model_adapter import get_effective_context_length
-from informity.llm.personas import compose_prompt
+from informity.llm.roles import compose_prompt
 
 if TYPE_CHECKING:
     from informity.llm.model_adapter import ModelProfile
