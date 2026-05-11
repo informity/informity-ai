@@ -4,7 +4,7 @@
 # ==============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help run dev test lint format reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build tauri-build-mac tauri-build-linux tauri-build-appstore app qa-quick qa-full qa-security qa-lint qa-typecheck
+.PHONY: help run dev kill-server dev-restart test lint format reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build tauri-build-mac tauri-build-linux tauri-build-appstore app qa-quick qa-full qa-security qa-lint qa-typecheck
 
 # ==============================================================================
 # Configuration
@@ -58,6 +58,17 @@ run: ## Run the application server (no reload — use for production or heavy in
 
 dev: ## Run with auto-reload for development (code changes restart the server)
 	INFORMITY_DEV_RELOAD=true uv run uvicorn informity.main:app --host $(HOST) --port $(PORT) --reload --log-level info
+
+kill-server: ## Kill any process listening on $(HOST):$(PORT)
+	@pids="$$(lsof -tiTCP:$(PORT) -sTCP:LISTEN 2>/dev/null)"; \
+	if [ -n "$$pids" ]; then \
+		kill -9 $$pids; \
+		echo "Killed server process(es) on port $(PORT): $$pids"; \
+	else \
+		echo "No server process listening on port $(PORT)."; \
+	fi
+
+dev-restart: kill-server dev ## Kill existing server on $(PORT), then start dev server
 
 frontend: ## Run Vite dev server (hot reload) — use with backend: make run or make dev in another terminal
 	cd src/frontend && npm run dev
