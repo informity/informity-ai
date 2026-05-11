@@ -15,6 +15,7 @@ import pytest
 from informity.llm.engine import (
     _STREAM_END,
     LLMEngine,
+    StreamSignalTag,
     _run_stream_worker,
     _truncate_messages_to_fit,
 )
@@ -280,6 +281,54 @@ async def test_stream_worker_includes_chat_template_kwargs(monkeypatch: pytest.M
     assert captured_payload['chat_template_kwargs'] == {'enable_thinking': False}
 
 
+@pytest.mark.asyncio
+async def test_stream_worker_accepts_choice_message_content_chunk(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen_payload: dict[str, object] = {}
+
+    class _FakeServer:
+        def handle_chat_completions(self, payload: str, callback) -> None:  # type: ignore[no-untyped-def]
+            nonlocal seen_payload
+            seen_payload = json.loads(payload)
+            callback({'choices': [{'message': {'content': 'Hello'}}]})
+            callback({'choices': [{'finish_reason': 'stop'}]})
+
+    monkeypatch.setattr(
+        'informity.llm.model_adapter.get_profile',
+        lambda: SimpleNamespace(chat_template_kwargs={}),
+    )
+
+    queue: asyncio.Queue[str | object] = asyncio.Queue()
+    exception_holder: list[BaseException] = []
+    _run_stream_worker(
+        server=_FakeServer(),
+        messages=[{'role': 'user', 'content': 'Hi'}],
+        max_tok=16,
+        temp=0.0,
+        top_p_val=1.0,
+        stop_seqs=[],
+        loop=asyncio.get_running_loop(),
+        queue=queue,
+        exception_holder=exception_holder,
+        cancel_event=threading.Event(),
+    )
+
+    assert exception_holder == []
+    assert seen_payload['stream'] is True
+
+    emitted: list[str | tuple[str, object]] = []
+    while True:
+        item = await asyncio.wait_for(queue.get(), timeout=1.0)
+        if item is _STREAM_END:
+            break
+        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.FINISH_REASON:
+            emitted.append(item)
+            continue
+        emitted.append(str(item))
+
+    assert 'Hello' in emitted
+    assert (StreamSignalTag.FINISH_REASON, 'stop') in emitted
+
+
 def test_chat_complete_includes_chat_template_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
     _force_local_provider(monkeypatch)
     captured_payload: dict[str, object] = {}
@@ -425,11 +474,19 @@ def test_ollama_chat_complete_maps_response(monkeypatch: pytest.MonkeyPatch) -> 
         def read(self) -> bytes:
             return json.dumps({'message': {'content': 'hello from ollama'}}).encode('utf-8')
 
-    monkeypatch.setattr('informity.llm.engine.urllib.request.urlopen', lambda *_args, **_kwargs: _Resp())
+    captured_payload: dict[str, object] = {}
+
+    def _fake_urlopen(req, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+        nonlocal captured_payload
+        captured_payload = json.loads(req.data.decode('utf-8'))
+        return _Resp()
+
+    monkeypatch.setattr('informity.llm.engine.urllib.request.urlopen', _fake_urlopen)
 
     engine = LLMEngine()
     response = engine.chat_complete(messages=[{'role': 'user', 'content': 'hi'}], max_tokens=32, temperature=0.1)
     assert response['choices'][0]['message']['content'] == 'hello from ollama'
+    assert captured_payload.get('think') is False
 
 
 @pytest.mark.asyncio
@@ -455,7 +512,14 @@ async def test_ollama_generate_stream_maps_tokens_and_finish(monkeypatch: pytest
             yield json.dumps({'message': {'content': 'lo'}}).encode('utf-8')
             yield json.dumps({'done': True, 'done_reason': 'stop'}).encode('utf-8')
 
-    monkeypatch.setattr('informity.llm.engine.urllib.request.urlopen', lambda *_args, **_kwargs: _StreamResp())
+    captured_payload: dict[str, object] = {}
+
+    def _fake_urlopen(req, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+        nonlocal captured_payload
+        captured_payload = json.loads(req.data.decode('utf-8'))
+        return _StreamResp()
+
+    monkeypatch.setattr('informity.llm.engine.urllib.request.urlopen', _fake_urlopen)
 
     engine = LLMEngine()
     out = ''.join(
@@ -463,6 +527,7 @@ async def test_ollama_generate_stream_maps_tokens_and_finish(monkeypatch: pytest
         if isinstance(item, str)
     )
     assert out == 'Hello'
+    assert captured_payload.get('think') is False
 
 
 @pytest.mark.asyncio

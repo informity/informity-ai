@@ -222,7 +222,7 @@ export function SettingsPage() {
     try {
       const payload = buildPayload(form, settings)
       if (Object.keys(payload).length === 0) {
-        showToast('info', 'No changes to save')
+        showToast('success', 'Settings saved')
         setSaving(false)
         return
       }
