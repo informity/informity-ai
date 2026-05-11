@@ -12,8 +12,10 @@ import {
   getModelOperationEvents,
   getModelProfile,
   getModelsCatalog,
+  getOllamaStatus,
   type ModelOperationEventResponse,
   type ModelsCatalogResponse,
+  type OllamaStatusResponse,
 } from '../../api'
 import { isChatMode, type ChatMode, type ChatRoleDefinition } from '../../types/api'
 import { SETTINGS_ACTIVE_TAB_STORAGE_KEY } from '../../utils/storageKeys'
@@ -42,6 +44,10 @@ const LOG_LEVEL_OPTIONS = [
 const CHAT_MODE_OPTIONS = [
   { value: 'researcher', label: 'Researcher (Recommended)' },
   { value: 'assistant', label: 'Assistant' },
+]
+const LLM_PROVIDER_OPTIONS = [
+  { value: 'local_gguf', label: 'Local GGUF (Recommended)' },
+  { value: 'ollama', label: 'Ollama' },
 ]
 
 type SettingsTab =
@@ -190,6 +196,10 @@ interface SettingsData {
   enable_raw_output_control?: boolean
   ui_theme?: string
   enable_menu_bar_icon?: boolean
+  llm_provider?: 'local_gguf' | 'ollama'
+  llm_model_id?: string
+  ollama_base_url?: string
+  ollama_timeout_seconds?: number
   llm_model_filename?: string
   available_models?: string[]
   embedding_model?: string
@@ -238,6 +248,10 @@ interface FormState {
   enable_raw_output_control: boolean
   ui_theme: string
   enable_menu_bar_icon: boolean
+  llm_provider: 'local_gguf' | 'ollama'
+  llm_model_id: string
+  ollama_base_url: string
+  ollama_timeout_seconds: number
   llm_model_filename: string
 }
 
@@ -293,6 +307,10 @@ function buildFormState(settings: SettingsData): FormState {
     enable_raw_output_control: settings.enable_raw_output_control ?? false,
     ui_theme: normalizedTheme ?? UI_THEME_DEFAULT,
     enable_menu_bar_icon: settings.enable_menu_bar_icon ?? false,
+    llm_provider: settings.llm_provider === 'ollama' ? 'ollama' : 'local_gguf',
+    llm_model_id: String(settings.llm_model_id || ''),
+    ollama_base_url: String(settings.ollama_base_url || 'http://127.0.0.1:11434'),
+    ollama_timeout_seconds: Number(settings.ollama_timeout_seconds ?? 120),
     llm_model_filename: canonicalizeModelFilename(settings.llm_model_filename),
   }
 }
@@ -338,6 +356,9 @@ export function SettingsView({
   const [modelDownloadPending, setModelDownloadPending] = useState(false)
   const [modelDownloadError, setModelDownloadError] = useState<string | null>(null)
   const [modelEvent, setModelEvent] = useState<ModelOperationEventResponse | null>(null)
+  const [ollamaStatus, setOllamaStatus] = useState<OllamaStatusResponse | null>(null)
+  const [ollamaStatusError, setOllamaStatusError] = useState<string | null>(null)
+  const [ollamaStatusPending, setOllamaStatusPending] = useState(false)
   const modelEventStateRef = useRef<ModelOperationEventResponse['state'] | null>(null)
   const persistedModel = canonicalizeModelFilename(settings?.llm_model_filename ?? '')
 
@@ -545,6 +566,21 @@ export function SettingsView({
     update('llm_cpu_threads', threads)
   }
 
+  const checkOllamaStatus = async (): Promise<void> => {
+    setOllamaStatusPending(true)
+    setOllamaStatusError(null)
+    try {
+      const status = await getOllamaStatus()
+      setOllamaStatus(status)
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Unable to check Ollama status'
+      setOllamaStatusError(message)
+      setOllamaStatus(null)
+    } finally {
+      setOllamaStatusPending(false)
+    }
+  }
+
   const handleSave = () => onSave(form)
   const handleDiscard = () => {
     setForm(buildFormState(settings))
@@ -577,7 +613,8 @@ export function SettingsView({
   const selectedModelInstalled = selectedModelFilename ? installedModelSet.has(selectedModelFilename) : false
   const modelEventMatchesSelected = modelEvent?.model_filename === selectedModelFilename
   const modelDownloadInProgress = modelEventMatchesSelected && modelEvent?.state === 'in_progress'
-  const canSaveSettings = !saving && selectedModelInstalled && !modelDownloadInProgress && !modelDownloadPending
+  const providerAllowsSave = form.llm_provider === 'ollama' || selectedModelInstalled
+  const canSaveSettings = !saving && providerAllowsSave && !modelDownloadInProgress && !modelDownloadPending
   const orderedFileTypeOptions = [...(fileTypeOptions || [])].sort((a, b) => {
     const ai = FILE_TYPE_DISPLAY_ORDER.indexOf(a.id as (typeof FILE_TYPE_DISPLAY_ORDER)[number])
     const bi = FILE_TYPE_DISPLAY_ORDER.indexOf(b.id as (typeof FILE_TYPE_DISPLAY_ORDER)[number])
@@ -832,7 +869,7 @@ export function SettingsView({
           </div>
           <div>
             <div className="settings-file-types">
-              {availableRoles.map((role) => {
+              {availableRoles.filter((role) => role.id !== 'general').map((role) => {
                 const checked = (form.enabled_chat_role_ids || []).includes(role.id)
                 return (
                   <label key={role.id} className="settings-file-type">
@@ -1396,6 +1433,73 @@ export function SettingsView({
                 <p className="settings-subsection-description ui-subsection-description">The AI model used for query classifications and chat responses. Requires restart.</p>
               </div>
             </div>
+            <div className="settings-control-group">
+              <div className="settings-subsection-field">
+                <label htmlFor="settings-llm-provider" className="settings-subsection-field-label">LLM provider</label>
+                <select
+                  id="settings-llm-provider"
+                  className="settings-select"
+                  value={form.llm_provider}
+                  onChange={(e) => update('llm_provider', e.target.value as FormState['llm_provider'])}
+                >
+                  {LLM_PROVIDER_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            {form.llm_provider === 'ollama' && (
+              <div className="settings-control-group">
+                <div className="settings-subsection-field">
+                  <label htmlFor="settings-ollama-url" className="settings-subsection-field-label">Ollama base URL</label>
+                  <input
+                    id="settings-ollama-url"
+                    type="text"
+                    className="settings-input"
+                    value={form.ollama_base_url}
+                    onChange={(e) => update('ollama_base_url', e.target.value)}
+                  />
+                </div>
+                <div className="settings-subsection-field">
+                  <label htmlFor="settings-ollama-model-id" className="settings-subsection-field-label">Ollama model ID</label>
+                  <input
+                    id="settings-ollama-model-id"
+                    type="text"
+                    className="settings-input"
+                    value={form.llm_model_id}
+                    onChange={(e) => update('llm_model_id', e.target.value)}
+                  />
+                </div>
+                <div className="settings-subsection-field">
+                  <label htmlFor="settings-ollama-timeout" className="settings-subsection-field-label">Ollama timeout <span className="settings-subsection-field-unit">(seconds)</span></label>
+                  <input
+                    id="settings-ollama-timeout"
+                    type="number"
+                    min={1}
+                    max={1800}
+                    className="settings-input settings-input--number"
+                    value={form.ollama_timeout_seconds}
+                    onChange={(e) => update('ollama_timeout_seconds', clamp(parseInteger(e.target.value, 120), 1, 1800))}
+                  />
+                </div>
+                <div className="settings-add-row">
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn--subtle"
+                    onClick={() => { void checkOllamaStatus() }}
+                    disabled={ollamaStatusPending}
+                  >
+                    {ollamaStatusPending ? 'Checking…' : 'Check Ollama'}
+                  </button>
+                </div>
+                {ollamaStatus && (
+                  <p className="settings-field-hint">
+                    {`Reachable: ${ollamaStatus.reachable ? 'yes' : 'no'} • Model ready: ${ollamaStatus.model_ready ? 'yes' : 'no'}${ollamaStatus.detail ? ` • ${ollamaStatus.detail}` : ''}`}
+                  </p>
+                )}
+                {ollamaStatusError && <p className="settings-field-hint">{ollamaStatusError}</p>}
+              </div>
+            )}
             <div className="settings-control-group">
               <div className="settings-add-row settings-add-row--model">
                 <select
