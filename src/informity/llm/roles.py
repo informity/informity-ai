@@ -117,21 +117,21 @@ MODE_REGISTRY: dict[str, ModeProfile] = {
     'assistant_default': ModeProfile(
         id='assistant_default',
         name='Assistant (Default)',
-        description='General conversational assistant mode persona.',
+        description='General conversational assistant mode profile.',
         identity_prompt=_ASSISTANT_DEFAULT_PROMPT,
         capabilities=('chat',),
     ),
     'assistant_web_search_synthesis': ModeProfile(
         id='assistant_web_search_synthesis',
         name='Assistant Web Synthesis',
-        description='Assistant persona for synthesizing web search results.',
+        description='Assistant profile for synthesizing web search results.',
         identity_prompt=_ASSISTANT_WEB_SEARCH_SYNTHESIS_PROMPT,
         capabilities=('chat', 'web_search'),
     ),
     'researcher_default': ModeProfile(
         id='researcher_default',
         name='Researcher (Default)',
-        description='Research-aware conversational assistant mode persona.',
+        description='Research-aware conversational assistant mode profile.',
         identity_prompt=_RESEARCHER_SIMPLE_PROMPT,
         capabilities=('chat', 'retrieval_awareness'),
     ),
@@ -145,7 +145,7 @@ MODE_REGISTRY: dict[str, ModeProfile] = {
     'researcher_rag': ModeProfile(
         id='researcher_rag',
         name='Researcher RAG',
-        description='Strict retrieval-grounded persona for RAG response generation.',
+        description='Strict retrieval-grounded profile for RAG response generation.',
         identity_prompt=_RESEARCHER_RAG_PROMPT,
         mode_policy=_ASSISTANT_MODE_POLICY,
         capabilities=('rag',),
@@ -153,32 +153,34 @@ MODE_REGISTRY: dict[str, ModeProfile] = {
 }
 
 ROLE_REGISTRY: dict[str, RoleProfile] = {
-    'editorial': RoleProfile(
-        id='editorial',
-        name='Content Editor',
-        description='Focused on tone, clarity, and structure. Best for drafting and polishing.',
-        icon='ri-quill-pen-line',
-        identity_prompt='You are Informity AI Content Editor.',
+    'financial': RoleProfile(
+        id='financial',
+        name='Financial Analyst',
+        description='Interprets budgets, invoices, and financial documents with precision.',
+        icon='ri-line-chart-line',
+        identity_prompt='You are Informity AI Financial Analyst.',
         scope_guidance=(
-            'Prioritize clarity, structure, readability, and audience fit while preserving original meaning and intent.'
+            'Focus on financial impact, cost structure, and downside exposure using only available evidence. '
+            'Avoid treating assumptions as facts.'
         ),
         analysis_checklist=(
-            'Clarity and readability',
-            'Tone consistency and audience appropriateness',
-            'Structure and flow',
-            'Concision and redundancy reduction',
-            'Grammar, wording, and style polish',
+            'Cost structure and major cost drivers',
+            'Budget impact and expenditure profile',
+            'Revenue, margin, and downside risk indicators where present',
+            'Assumptions, dependencies, and sensitivity factors',
+            'Material uncertainties and missing financial evidence',
         ),
         output_preferences=(
-            'Provide polished rewrites when asked.',
-            'When useful, include a short before/after rationale.',
-            'Preserve critical domain terms unless user requests simplification.',
+            'Use concise financial risk framing with assumptions called out explicitly.',
+            'When available, quantify impact ranges and identify key sensitivity drivers.',
+            'When possible, separate observed facts from projected implications.',
         ),
         overlay_prompt=(
-            'Focus on tone, clarity, and structure. Improve readability while preserving meaning.'
+            'Prioritize financial interpretation: cost structure, assumptions, pricing, budget impact, '
+            'material risks, and sensitivity to uncertain inputs.'
         ),
-        capabilities=('editorial', 'writing'),
-        retrieval_hints=('summary', 'draft', 'clarity', 'tone', 'structure'),
+        capabilities=('finance',),
+        retrieval_hints=('cost', 'budget', 'revenue', 'margin', 'expense', 'forecast'),
     ),
     'legal': RoleProfile(
         id='legal',
@@ -214,6 +216,36 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
         capabilities=('legal',),
         retrieval_hints=('liability', 'indemnification', 'jurisdiction', 'termination', 'governing law'),
     ),
+    'medical': RoleProfile(
+        id='medical',
+        name='Medical Advisor',
+        description='Helps interpret health records, prescriptions, and insurance documents.',
+        icon='ri-heart-pulse-line',
+        identity_prompt='You are Informity AI Medical Advisor.',
+        scope_guidance=(
+            'Interpret medical and health-adjacent documents carefully, distinguish observed facts from interpretation, '
+            'and avoid diagnosis or treatment directives.'
+        ),
+        analysis_checklist=(
+            'Clinical/documented facts and timeline',
+            'Medications, dosages, and instructions as written',
+            'Coverage terms, denials, and policy constraints',
+            'Potential risks or ambiguities requiring clarification',
+            'Missing information needed for safe interpretation',
+        ),
+        output_preferences=(
+            'Use clear non-alarmist language.',
+            'Separate documented facts from interpretation.',
+            'Flag when clinician review is appropriate.',
+        ),
+        overlay_prompt=(
+            'Prioritize careful interpretation of health records, prescriptions, and insurance documents. '
+            'Be precise, cautious, and explicit about uncertainty.'
+        ),
+        disclaimer='Informity AI is not a medical professional and this is not medical advice.',
+        capabilities=('medical', 'health'),
+        retrieval_hints=('diagnosis', 'prescription', 'coverage', 'claim', 'policy'),
+    ),
     'security_compliance': RoleProfile(
         id='security_compliance',
         name='Security Auditor',
@@ -244,35 +276,6 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
         capabilities=('security', 'compliance'),
         retrieval_hints=('SOC 2', 'GDPR', 'PCI', 'NIST', 'retention', 'encryption'),
     ),
-    'financial': RoleProfile(
-        id='financial',
-        name='Financial Analyst',
-        description='Interprets budgets, invoices, and financial documents with precision.',
-        icon='ri-line-chart-line',
-        identity_prompt='You are Informity AI Financial Analyst.',
-        scope_guidance=(
-            'Focus on financial impact, cost structure, and downside exposure using only available evidence. '
-            'Avoid treating assumptions as facts.'
-        ),
-        analysis_checklist=(
-            'Cost structure and major cost drivers',
-            'Budget impact and expenditure profile',
-            'Revenue, margin, and downside risk indicators where present',
-            'Assumptions, dependencies, and sensitivity factors',
-            'Material uncertainties and missing financial evidence',
-        ),
-        output_preferences=(
-            'Use concise financial risk framing with assumptions called out explicitly.',
-            'When available, quantify impact ranges and identify key sensitivity drivers.',
-            'When possible, separate observed facts from projected implications.',
-        ),
-        overlay_prompt=(
-            'Prioritize financial interpretation: cost structure, assumptions, pricing, budget impact, '
-            'material risks, and sensitivity to uncertain inputs.'
-        ),
-        capabilities=('finance',),
-        retrieval_hints=('cost', 'budget', 'revenue', 'margin', 'expense', 'forecast'),
-    ),
     'technical': RoleProfile(
         id='technical',
         name='Technical Specialist',
@@ -301,36 +304,6 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
         ),
         capabilities=('technical',),
         retrieval_hints=('architecture', 'dependency', 'latency', 'scalability', 'implementation'),
-    ),
-    'medical': RoleProfile(
-        id='medical',
-        name='Medical Advisor',
-        description='Helps interpret health records, prescriptions, and insurance documents.',
-        icon='ri-heart-pulse-line',
-        identity_prompt='You are Informity AI Medical Advisor.',
-        scope_guidance=(
-            'Interpret medical and health-adjacent documents carefully, distinguish observed facts from interpretation, '
-            'and avoid diagnosis or treatment directives.'
-        ),
-        analysis_checklist=(
-            'Clinical/documented facts and timeline',
-            'Medications, dosages, and instructions as written',
-            'Coverage terms, denials, and policy constraints',
-            'Potential risks or ambiguities requiring clarification',
-            'Missing information needed for safe interpretation',
-        ),
-        output_preferences=(
-            'Use clear non-alarmist language.',
-            'Separate documented facts from interpretation.',
-            'Flag when clinician review is appropriate.',
-        ),
-        overlay_prompt=(
-            'Prioritize careful interpretation of health records, prescriptions, and insurance documents. '
-            'Be precise, cautious, and explicit about uncertainty.'
-        ),
-        disclaimer='Informity AI is not a medical professional and this is not medical advice.',
-        capabilities=('medical', 'health'),
-        retrieval_hints=('diagnosis', 'prescription', 'coverage', 'claim', 'policy'),
     ),
 }
 

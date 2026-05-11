@@ -19,9 +19,9 @@ from informity.db.sqlite import get_chat
 from informity.llm.chat_mode import is_assistant_mode, resolve_chat_mode
 from informity.llm.metrics_payload import build_metrics_payload
 from informity.llm.model_adapter import get_profile
-from informity.llm.personas import compose_prompt, get_mode_prompt, resolve_runtime_mode_id
 from informity.llm.prompt_builder import build_messages, resolve_history_limit
 from informity.llm.query_classifier import QueryClassification
+from informity.llm.roles import compose_prompt, get_mode_prompt, resolve_runtime_mode_id
 from informity.llm.streaming import stream_llm
 from informity.llm.types import QueryType, StreamSignalTag
 from informity.llm.user_messages import get_web_search_status_message
