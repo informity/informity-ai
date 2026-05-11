@@ -1,6 +1,6 @@
 # Informity AI — Ollama Provider Integration Plan
 
-**Status:** 🚧 IN PROGRESS (Phase 0, Phase 1, and Phase 2 completed)  
+**Status:** 🚧 IN PROGRESS (Phase 0, Phase 1, Phase 2, and Phase 3 completed)  
 **Version:** 1.1  
 **Last updated:** 2026-05-09  
 **Scope:** Introduce provider pre-abstraction first, then add Ollama as an optional LLM runtime while preserving the current tuned GGUF path as default.
@@ -28,7 +28,7 @@ Prepare Informity AI for multi-provider LLM runtime by first extracting the curr
 | Phase 0 | Provider pre-abstraction (xllamacpp only, parity refactor) | ✅ COMPLETED |
 | Phase 1 | Provider contract and settings surface | ✅ COMPLETED |
 | Phase 2 | Ollama engine implementation and fallback behavior | ✅ COMPLETED |
-| Phase 3 | Router/handler integration and model capability mapping | ⏳ NOT STARTED |
+| Phase 3 | Router/handler integration and model capability mapping | ✅ COMPLETED |
 | Phase 4 | UX, diagnostics, and release hardening | ⏳ NOT STARTED |
 
 ---
@@ -114,7 +114,7 @@ Completed notes:
 - Added minimal Ollama runtime settings (`ollama_base_url`, `ollama_timeout_seconds`) to config + settings API + env-var metadata.
 - Added focused engine tests for Ollama sync and streaming behavior.
 
-### Phase 3 — Router/Handler Integration and Capability Mapping ⏳ NOT STARTED
+### Phase 3 — Router/Handler Integration and Capability Mapping ✅ COMPLETED
 
 - Goal: Preserve current quality safeguards when running untuned Ollama models.
 - Scope:
@@ -131,6 +131,13 @@ Completed notes:
 - Untuned Ollama models do not break baseline chat or RAG flow.
 - Default safeguards prevent common failure modes (reasoning leakage, premature stop, empty answer loops).
 - Local GGUF tuned profiles behave exactly as before.
+
+Completed notes:
+- Added provider-aware profile selection (`get_profile`) that branches by `llm_provider`.
+- Added conservative `OLLAMA_DEFAULT_PROFILE` for unknown Ollama models:
+- reasoning disabled (`NEVER`), no `/no_think` token injection, conservative retrieval/time budget defaults.
+- Added model-id alias matching for known Ollama IDs (`qwen-9b`, `qwen-14b`, `qwen-35b-a3b`) to reuse tuned profiles when applicable.
+- Added profile-selection tests for Ollama known/unknown model IDs.
 
 ### Phase 4 — UX, Diagnostics, and Release Hardening ⏳ NOT STARTED
 

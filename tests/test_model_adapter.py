@@ -9,6 +9,7 @@ import pytest
 
 from informity.llm.model_adapter import (
     DEFAULT_PROFILE,
+    OLLAMA_DEFAULT_PROFILE,
     QWEN3_5_9B_PROFILE,
     QWEN3_6_35B_A3B_PROFILE,
     QWEN3_14B_PROFILE,
@@ -16,6 +17,7 @@ from informity.llm.model_adapter import (
     ModelProfile,
     PromptFormat,
     ReasoningMode,
+    get_profile,
     get_profile_for_filename,
     get_retrieval_top_k,
 )
@@ -250,3 +252,21 @@ class TestGetRetrievalTopK:
         expected_coverage = profile.rag_top_k_coverage or profile.coverage_top_k
         assert get_retrieval_top_k('focused') == expected_focused
         assert get_retrieval_top_k('coverage') == expected_coverage
+
+
+class TestProviderAwareProfileSelection:
+    def test_ollama_unknown_model_uses_ollama_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_provider', 'ollama')
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_model_id', 'custom-unknown:latest')
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_model_filename', '')
+        profile = get_profile()
+        assert profile is OLLAMA_DEFAULT_PROFILE
+        assert profile.reasoning_mode == ReasoningMode.NEVER
+        assert profile.no_think_token is None
+
+    def test_ollama_known_model_id_maps_to_existing_profile(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_provider', 'ollama')
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_model_id', 'qwen-14b')
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_model_filename', '')
+        profile = get_profile()
+        assert profile is QWEN3_14B_PROFILE
