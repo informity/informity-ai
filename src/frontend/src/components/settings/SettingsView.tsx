@@ -1487,39 +1487,6 @@ export function SettingsView({
             {isOllamaProvider && (
               <div className="settings-control-group">
                 <div className="settings-subsection-field">
-                  <label htmlFor="settings-ollama-url" className="settings-subsection-field-label">Ollama server URL</label>
-                  <div className="settings-input-wrap settings-input-wrap--status settings-input-wrap--narrow">
-                    <input
-                      id="settings-ollama-url"
-                      type="text"
-                      className="settings-input settings-input--narrow settings-input--with-status"
-                      value={form.ollama_base_url}
-                      onChange={(e) => {
-                        setOllamaStatus(null)
-                        update('ollama_base_url', e.target.value)
-                      }}
-                    />
-                    {(ollamaValidationPending || ollamaStatus) && (
-                      <span className="settings-status-indicator ui-tooltip-trigger" aria-hidden="true">
-                        <i
-                          className={
-                            ollamaValidationPending
-                              ? 'ri-loader-4-line subsection-icon ui-subsection-icon settings-status-icon settings-status-icon--pending'
-                              : ollamaStatus?.reachable
-                                ? 'ri-checkbox-circle-line subsection-icon ui-subsection-icon settings-status-icon settings-status-icon--ok'
-                                : 'ri-close-circle-line subsection-icon ui-subsection-icon settings-status-icon settings-status-icon--error'
-                          }
-                        />
-                        <span className="settings-tooltip settings-tooltip--status ui-tooltip ui-tooltip--compact ui-tooltip--nowrap">
-                          {ollamaValidationPending
-                            ? 'Checking server...'
-                            : (ollamaStatus?.reachable ? 'Server OK' : getFriendlyOllamaStatusMessage(ollamaStatus?.detail, 'server'))}
-                        </span>
-                      </span>
-                    )}
-                  </div>
-                </div>
-                <div className="settings-subsection-field">
                   <label htmlFor="settings-ollama-model-id" className="settings-subsection-field-label">Ollama model name</label>
                   <div className="settings-input-wrap settings-input-wrap--status settings-input-wrap--narrow">
                     <input
@@ -1553,7 +1520,40 @@ export function SettingsView({
                   </div>
                 </div>
                 <div className="settings-subsection-field">
-                  <label htmlFor="settings-ollama-timeout" className="settings-subsection-field-label">Ollama timeout <span className="settings-subsection-field-unit">(seconds)</span></label>
+                  <label htmlFor="settings-ollama-url" className="settings-subsection-field-label">Ollama server URL</label>
+                  <div className="settings-input-wrap settings-input-wrap--status settings-input-wrap--narrow">
+                    <input
+                      id="settings-ollama-url"
+                      type="text"
+                      className="settings-input settings-input--narrow settings-input--with-status"
+                      value={form.ollama_base_url}
+                      onChange={(e) => {
+                        setOllamaStatus(null)
+                        update('ollama_base_url', e.target.value)
+                      }}
+                    />
+                    {(ollamaValidationPending || ollamaStatus) && (
+                      <span className="settings-status-indicator ui-tooltip-trigger" aria-hidden="true">
+                        <i
+                          className={
+                            ollamaValidationPending
+                              ? 'ri-loader-4-line subsection-icon ui-subsection-icon settings-status-icon settings-status-icon--pending'
+                              : ollamaStatus?.reachable
+                                ? 'ri-checkbox-circle-line subsection-icon ui-subsection-icon settings-status-icon settings-status-icon--ok'
+                                : 'ri-close-circle-line subsection-icon ui-subsection-icon settings-status-icon settings-status-icon--error'
+                          }
+                        />
+                        <span className="settings-tooltip settings-tooltip--status ui-tooltip ui-tooltip--compact ui-tooltip--nowrap">
+                          {ollamaValidationPending
+                            ? 'Checking server...'
+                            : (ollamaStatus?.reachable ? 'Server OK' : getFriendlyOllamaStatusMessage(ollamaStatus?.detail, 'server'))}
+                        </span>
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="settings-subsection-field">
+                  <label htmlFor="settings-ollama-timeout" className="settings-subsection-field-label">Ollama server timeout <span className="settings-subsection-field-unit">(seconds)</span></label>
                   <input
                     id="settings-ollama-timeout"
                     type="number"
