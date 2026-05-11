@@ -245,6 +245,11 @@
   user-select: none;
 }
 
+@keyframes settings-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 .settings-subsection--profile .settings-input,
 .settings-subsection--profile .settings-control-group {
   max-width: var(--page-content-width);
@@ -425,6 +430,29 @@
     user-select: none;
 }
 
+.settings-subsection-field-label--with-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+}
+
+.settings-status-icon {
+  line-height: 1;
+}
+
+.settings-status-icon--ok {
+  color: var(--color-success, #2f9e44);
+}
+
+.settings-status-icon--error {
+  color: var(--color-danger, #c92a2a);
+}
+
+.settings-status-icon--pending {
+  color: var(--color-text-muted);
+  animation: settings-spin 1s linear infinite;
+}
+
 .settings-subsection-field-unit {
     color: var(--color-text-muted);
     font-weight: 400;
@@ -488,7 +516,16 @@
   max-width: var(--page-content-width);
 }
 
+.settings-input-wrap--narrow {
+  max-width: var(--settings-narrow-width);
+  width: min(100%, var(--settings-narrow-width));
+}
+
 .settings-input--with-clear {
+  padding-right: 2rem;
+}
+
+.settings-input--with-status {
   padding-right: 2rem;
 }
 
@@ -509,6 +546,41 @@
   cursor: pointer;
 }
 
+.settings-status-indicator {
+  position: absolute;
+  top: 50%;
+  right: var(--space-sm);
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  color: var(--color-text-dimmed);
+  cursor: default;
+}
+
+.settings-status-indicator .settings-tooltip {
+  left: auto;
+  right: -0.25rem;
+  transform: translateX(0);
+  white-space: nowrap;
+}
+
+.settings-status-indicator .settings-tooltip::after {
+  left: auto;
+  right: 0.5rem;
+}
+
+.settings-tooltip--status {
+  left: calc(100% - 0.25rem) !important;
+  right: auto !important;
+  transform: none !important;
+}
+
+.settings-tooltip--status::after {
+  left: 0.5rem !important;
+  right: auto !important;
+  transform: none !important;
+}
+
 .settings-input-clear:hover {
   color: var(--color-text);
   background: var(--color-bg-hover);
@@ -527,6 +599,11 @@
   font-family: var(--font-mono);
   width: 8rem;
   max-width: 100%;
+}
+
+.settings-input--narrow {
+  max-width: var(--settings-narrow-width);
+  width: min(100%, var(--settings-narrow-width));
 }
 
 .settings-input--readonly {

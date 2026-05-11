@@ -1,9 +1,9 @@
 # ==============================================================================
 # Informity AI — System Prompt Registry
-# Backward-compatible exports sourced from centralized persona registry.
+# Backward-compatible exports sourced from centralized role registry.
 # ==============================================================================
 
-from informity.llm.personas import get_mode_prompt
+from informity.llm.roles import get_mode_prompt
 
 SIMPLE_ASSISTANT_SYSTEM_PROMPT = get_mode_prompt('assistant_default')
 SIMPLE_ASSISTANT_WEB_SEARCH_SYNTHESIS_PROMPT = get_mode_prompt('assistant_web_search_synthesis')

@@ -5,6 +5,7 @@ import json
 import sys
 import threading
 import time
+import urllib.error
 from contextlib import suppress
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,9 +15,14 @@ import pytest
 from informity.llm.engine import (
     _STREAM_END,
     LLMEngine,
+    StreamSignalTag,
     _run_stream_worker,
     _truncate_messages_to_fit,
 )
+
+
+def _force_local_provider(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('informity.llm.engine.settings.llm_provider', 'local_gguf')
 
 
 def test_truncate_messages_removes_history_before_system_content() -> None:
@@ -69,6 +75,7 @@ def test_truncate_messages_truncates_system_context_chunks_when_needed() -> None
 
 @pytest.mark.asyncio
 async def test_generate_stream_emits_timeout_notice_and_marker(monkeypatch: pytest.MonkeyPatch) -> None:
+    _force_local_provider(monkeypatch)
     engine = LLMEngine()
     engine._server = object()  # type: ignore[assignment]
 
@@ -121,6 +128,7 @@ def _make_stream_worker_that_emits(tokens: list[str]):
 
 
 def _common_engine_monkeypatches(monkeypatch: pytest.MonkeyPatch, worker_fn) -> LLMEngine:  # type: ignore[no-untyped-def]
+    _force_local_provider(monkeypatch)
     engine = LLMEngine()
     engine._server = object()  # type: ignore[assignment]
     monkeypatch.setattr('informity.llm.engine.get_profile', lambda: SimpleNamespace(context_length=4096))
@@ -215,6 +223,7 @@ async def test_generate_stream_cancellation_cleans_up_worker(monkeypatch: pytest
 
 @pytest.mark.asyncio
 async def test_generate_stream_uses_effective_context_length(monkeypatch: pytest.MonkeyPatch) -> None:
+    _force_local_provider(monkeypatch)
     captured: dict[str, int] = {}
 
     def _capture_truncate(**kwargs):  # type: ignore[no-untyped-def]
@@ -272,7 +281,56 @@ async def test_stream_worker_includes_chat_template_kwargs(monkeypatch: pytest.M
     assert captured_payload['chat_template_kwargs'] == {'enable_thinking': False}
 
 
+@pytest.mark.asyncio
+async def test_stream_worker_accepts_choice_message_content_chunk(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen_payload: dict[str, object] = {}
+
+    class _FakeServer:
+        def handle_chat_completions(self, payload: str, callback) -> None:  # type: ignore[no-untyped-def]
+            nonlocal seen_payload
+            seen_payload = json.loads(payload)
+            callback({'choices': [{'message': {'content': 'Hello'}}]})
+            callback({'choices': [{'finish_reason': 'stop'}]})
+
+    monkeypatch.setattr(
+        'informity.llm.model_adapter.get_profile',
+        lambda: SimpleNamespace(chat_template_kwargs={}),
+    )
+
+    queue: asyncio.Queue[str | object] = asyncio.Queue()
+    exception_holder: list[BaseException] = []
+    _run_stream_worker(
+        server=_FakeServer(),
+        messages=[{'role': 'user', 'content': 'Hi'}],
+        max_tok=16,
+        temp=0.0,
+        top_p_val=1.0,
+        stop_seqs=[],
+        loop=asyncio.get_running_loop(),
+        queue=queue,
+        exception_holder=exception_holder,
+        cancel_event=threading.Event(),
+    )
+
+    assert exception_holder == []
+    assert seen_payload['stream'] is True
+
+    emitted: list[str | tuple[str, object]] = []
+    while True:
+        item = await asyncio.wait_for(queue.get(), timeout=1.0)
+        if item is _STREAM_END:
+            break
+        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.FINISH_REASON:
+            emitted.append(item)
+            continue
+        emitted.append(str(item))
+
+    assert 'Hello' in emitted
+    assert (StreamSignalTag.FINISH_REASON, 'stop') in emitted
+
+
 def test_chat_complete_includes_chat_template_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
+    _force_local_provider(monkeypatch)
     captured_payload: dict[str, object] = {}
 
     class _FakeServer:
@@ -299,6 +357,7 @@ def test_chat_complete_includes_chat_template_kwargs(monkeypatch: pytest.MonkeyP
 
 
 def test_download_model_uses_httpx_stream_api(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _force_local_provider(monkeypatch)
     class _FakeResponse:
         status_code = 200
         headers = {'Content-Length': '5'}
@@ -359,6 +418,7 @@ def test_download_model_uses_httpx_stream_api(monkeypatch: pytest.MonkeyPatch, t
 
 
 def test_load_model_caps_context_length_to_configured_limit(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    _force_local_provider(monkeypatch)
     captured: dict[str, object] = {}
 
     class _FakeServer:
@@ -396,3 +456,117 @@ def test_load_model_caps_context_length_to_configured_limit(monkeypatch: pytest.
 
     assert captured['n_ctx'] == 8192
     assert captured['n_threads'] == 4
+
+
+def test_ollama_chat_complete_maps_response(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('informity.llm.engine.settings.llm_provider', 'ollama')
+    monkeypatch.setattr('informity.llm.engine.settings.llm_model_id', 'qwen3:14b')
+    monkeypatch.setattr('informity.llm.engine.settings.ollama_base_url', 'http://127.0.0.1:11434')
+    monkeypatch.setattr('informity.llm.engine.settings.ollama_timeout_seconds', 5.0)
+
+    class _Resp:
+        def __enter__(self) -> _Resp:
+            return self
+
+        def __exit__(self, _exc_type, _exc, _tb) -> bool:  # type: ignore[no-untyped-def]
+            return False
+
+        def read(self) -> bytes:
+            return json.dumps({'message': {'content': 'hello from ollama'}}).encode('utf-8')
+
+    captured_payload: dict[str, object] = {}
+
+    def _fake_urlopen(req, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+        nonlocal captured_payload
+        captured_payload = json.loads(req.data.decode('utf-8'))
+        return _Resp()
+
+    monkeypatch.setattr('informity.llm.engine.urllib.request.urlopen', _fake_urlopen)
+
+    engine = LLMEngine()
+    response = engine.chat_complete(messages=[{'role': 'user', 'content': 'hi'}], max_tokens=32, temperature=0.1)
+    assert response['choices'][0]['message']['content'] == 'hello from ollama'
+    assert captured_payload.get('think') is False
+
+
+@pytest.mark.asyncio
+async def test_ollama_generate_stream_maps_tokens_and_finish(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('informity.llm.engine.settings.llm_provider', 'ollama')
+    monkeypatch.setattr('informity.llm.engine.settings.llm_model_id', 'qwen3:14b')
+    monkeypatch.setattr('informity.llm.engine.settings.ollama_base_url', 'http://127.0.0.1:11434')
+    monkeypatch.setattr('informity.llm.engine.settings.ollama_timeout_seconds', 5.0)
+    monkeypatch.setattr(
+        'informity.llm.engine.get_profile',
+        lambda: SimpleNamespace(context_length=4096, generation_tokens_per_second=12.0),
+    )
+
+    class _StreamResp:
+        def __enter__(self) -> _StreamResp:
+            return self
+
+        def __exit__(self, _exc_type, _exc, _tb) -> bool:  # type: ignore[no-untyped-def]
+            return False
+
+        def __iter__(self):  # type: ignore[no-untyped-def]
+            yield json.dumps({'message': {'content': 'Hel'}}).encode('utf-8')
+            yield json.dumps({'message': {'content': 'lo'}}).encode('utf-8')
+            yield json.dumps({'done': True, 'done_reason': 'stop'}).encode('utf-8')
+
+    captured_payload: dict[str, object] = {}
+
+    def _fake_urlopen(req, *_args, **_kwargs):  # type: ignore[no-untyped-def]
+        nonlocal captured_payload
+        captured_payload = json.loads(req.data.decode('utf-8'))
+        return _StreamResp()
+
+    monkeypatch.setattr('informity.llm.engine.urllib.request.urlopen', _fake_urlopen)
+
+    engine = LLMEngine()
+    out = ''.join(
+        item for item in [i async for i in engine.generate_stream(messages=[{'role': 'user', 'content': 'hi'}])]
+        if isinstance(item, str)
+    )
+    assert out == 'Hello'
+    assert captured_payload.get('think') is False
+
+
+@pytest.mark.asyncio
+async def test_ollama_generate_stream_raises_on_empty_output(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('informity.llm.engine.settings.llm_provider', 'ollama')
+    monkeypatch.setattr('informity.llm.engine.settings.llm_model_id', 'qwen3:14b')
+    monkeypatch.setattr('informity.llm.engine.settings.ollama_base_url', 'http://127.0.0.1:11434')
+    monkeypatch.setattr('informity.llm.engine.settings.ollama_timeout_seconds', 5.0)
+    monkeypatch.setattr(
+        'informity.llm.engine.get_profile',
+        lambda: SimpleNamespace(context_length=4096, generation_tokens_per_second=12.0),
+    )
+
+    class _StreamResp:
+        def __enter__(self) -> _StreamResp:
+            return self
+
+        def __exit__(self, _exc_type, _exc, _tb) -> bool:  # type: ignore[no-untyped-def]
+            return False
+
+        def __iter__(self):  # type: ignore[no-untyped-def]
+            yield json.dumps({'done': True, 'done_reason': 'stop'}).encode('utf-8')
+
+    monkeypatch.setattr('informity.llm.engine.urllib.request.urlopen', lambda *_args, **_kwargs: _StreamResp())
+
+    engine = LLMEngine()
+    with pytest.raises(Exception, match='Ollama returned no response tokens'):
+        async for _ in engine.generate_stream(messages=[{'role': 'user', 'content': 'hi'}]):
+            pass
+
+
+def test_ollama_chat_complete_connection_error_mapped(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr('informity.llm.engine.settings.llm_provider', 'ollama')
+    monkeypatch.setattr('informity.llm.engine.settings.llm_model_id', 'qwen3:14b')
+    monkeypatch.setattr(
+        'informity.llm.engine.urllib.request.urlopen',
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(urllib.error.URLError('connection refused')),
+    )
+
+    engine = LLMEngine()
+    with pytest.raises(Exception, match='Ollama connection failed'):
+        _ = engine.chat_complete(messages=[{'role': 'user', 'content': 'hi'}])

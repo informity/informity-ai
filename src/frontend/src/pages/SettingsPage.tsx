@@ -55,6 +55,10 @@ const UPDATABLE_KEYS = [
   'entity_extract_organization',
   'entity_extract_location',
   'entity_extract_numeric_id',
+  'llm_provider',
+  'llm_model_id',
+  'ollama_base_url',
+  'ollama_timeout_seconds',
   'llm_model_filename',
   'diagnostics_profile',
   'chat_trace_logging',
@@ -107,6 +111,10 @@ interface FormState {
   ui_theme?: string
   enable_menu_bar_icon?: boolean
   llm_model_filename?: string
+  llm_provider?: 'local_gguf' | 'ollama'
+  llm_model_id?: string
+  ollama_base_url?: string
+  ollama_timeout_seconds?: number
 }
 
 function valuesEqual(a: unknown, b: unknown): boolean {
@@ -214,7 +222,7 @@ export function SettingsPage() {
     try {
       const payload = buildPayload(form, settings)
       if (Object.keys(payload).length === 0) {
-        showToast('info', 'No changes to save')
+        showToast('success', 'Settings saved')
         setSaving(false)
         return
       }

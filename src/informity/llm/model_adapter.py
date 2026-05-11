@@ -249,7 +249,7 @@ class ModelProfile:
 QWEN3_14B_PROFILE = ModelProfile(
     name              = 'Qwen3 14B',
     family            = ModelFamily.CHATML,
-    filename_patterns = ('qwen3-14b', 'qwen-3-14b'),
+    filename_patterns = ('qwen3-14b', 'qwen-3-14b', 'qwen-14b'),
 
     supports_think_blocks         = True,
     reasoning_mode                = ReasoningMode.NEVER,
@@ -292,7 +292,7 @@ QWEN3_14B_PROFILE = ModelProfile(
 QWEN3_5_9B_PROFILE = ModelProfile(
     name              = 'Qwen3.5 9B',
     family            = ModelFamily.CHATML,
-    filename_patterns = ('qwen3.5-9b', 'qwen-3.5-9b', 'qwen3-5-9b'),
+    filename_patterns = ('qwen3.5-9b', 'qwen-3.5-9b', 'qwen3-5-9b', 'qwen-9b'),
 
     # Qwen3.5 uses enable_thinking template variable, not /no_think user token.
     # Thinking disabled via chat_template_kwargs; reasoning_mode=NEVER because
@@ -386,7 +386,7 @@ def _build_qwen_35b_a3b_profile(*, name: str, filename_patterns: tuple[str, ...]
 # -- Qwen3.6 35B A3B ----------------------------------------------------------
 QWEN3_6_35B_A3B_PROFILE = _build_qwen_35b_a3b_profile(
     name='Qwen3.6 35B A3B',
-    filename_patterns=('qwen3.6-35b-a3b', 'qwen-3.6-35b-a3b', 'qwen3-6-35b-a3b'),
+    filename_patterns=('qwen3.6-35b-a3b', 'qwen-3.6-35b-a3b', 'qwen3-6-35b-a3b', 'qwen-35b-a3b'),
 )
 
 
@@ -422,6 +422,49 @@ DEFAULT_PROFILE = ModelProfile(
 
     strip_meta_commentary = True,
     strip_citations       = True,
+)
+
+
+# -- Ollama default profile for unknown models ---------------------------------
+# Conservative provider-safe defaults:
+# - No reasoning toggles (/no_think) because model support is unknown.
+# - ChatML prompt format metadata for display/diagnostics clarity.
+# - Modest context window and retrieval thresholds to reduce overflow risk.
+OLLAMA_DEFAULT_PROFILE = ModelProfile(
+    name='Ollama (Conservative default)',
+    family=ModelFamily.CHATML,
+    filename_patterns=(),
+
+    supports_think_blocks=False,
+    reasoning_mode=ReasoningMode.NEVER,
+    no_think_token=None,
+
+    prompt_format=PromptFormat.CHATML,
+    coverage_prompt_format=PromptFormat.CHATML,
+
+    max_tokens=2048,
+    coverage_top_k=15,
+    min_tokens_coverage=150,
+
+    timeout_seconds=450,
+
+    context_length=8192,
+    generation_tokens_per_second=12.0,
+    temperature=0.2,
+    top_p=0.9,
+    rag_top_k=10,
+
+    rag_max_score=0.95,
+    rag_context_ratio=0.70,
+
+    rag_top_k_simple=6,
+    rag_top_k_focused=10,
+    rag_top_k_coverage=0,
+    retrieval_top_k_final=10,
+
+    stop_sequences=_CITATION,
+    strip_meta_commentary=True,
+    strip_citations=True,
 )
 
 
@@ -462,6 +505,41 @@ _FILENAME_TO_MODEL_ID: dict[str, str] = {
     for filename in filenames
 }
 
+# Provider-side model aliases (e.g., Ollama tags) mapped to our stable profile IDs.
+# Keep this list conservative and explicit so tuning remains predictable.
+_OLLAMA_MODEL_ID_ALIASES: dict[str, str] = {
+    # 35B (Qwen 3.6 A3B family)
+    'qwen3.6:35b': MODEL_ID_QWEN_35B_A3B,
+    'qwen3.6:35b-instruct': MODEL_ID_QWEN_35B_A3B,
+    # 14B
+    'qwen3:14b': MODEL_ID_QWEN_14B,
+    'qwen3.5:14b': MODEL_ID_QWEN_14B,
+    # 9B
+    'qwen3.5:9b': MODEL_ID_QWEN_9B,
+}
+
+
+def _normalize_ollama_model_id(raw_model_id: str) -> str:
+    normalized = str(raw_model_id or '').strip().lower()
+    if not normalized:
+        return ''
+    # Preserve namespace/model style IDs (e.g., org/model:tag) but ignore digest/hash suffixes.
+    return normalized.split('@', 1)[0].strip()
+
+
+def infer_model_id_from_ollama_model(model_id: str) -> str | None:
+    normalized = _normalize_ollama_model_id(model_id)
+    if not normalized:
+        return None
+    direct = _OLLAMA_MODEL_ID_ALIASES.get(normalized)
+    if direct:
+        return direct
+    # Prefix-friendly handling for provider tags/variants (e.g., qwen3.6:35b-q4_k_m).
+    for alias, stable_model_id in _OLLAMA_MODEL_ID_ALIASES.items():
+        if normalized == alias or normalized.startswith(f'{alias}-'):
+            return stable_model_id
+    return None
+
 
 def get_profile_for_filename(filename: str) -> ModelProfile:
     """Match a GGUF filename to a ModelProfile. First match wins (ANY pattern)."""
@@ -495,6 +573,21 @@ def get_model_alias_filenames(model_id: str) -> tuple[str, ...]:
 
 def get_profile() -> ModelProfile:
     """Return the ModelProfile for the currently configured LLM model."""
+    provider = str(getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
+    if provider == 'ollama':
+        candidate = str(getattr(settings, 'llm_model_id', '') or '').strip().lower()
+        if not candidate:
+            candidate = str(getattr(settings, 'llm_model_filename', '') or '').strip().lower()
+        if candidate:
+            mapped_model_id = infer_model_id_from_ollama_model(candidate)
+            if mapped_model_id:
+                alias_filenames = get_model_alias_filenames(mapped_model_id)
+                if alias_filenames:
+                    return get_profile_for_filename(alias_filenames[0])
+            matched = get_profile_for_filename(candidate)
+            if matched is not DEFAULT_PROFILE:
+                return matched
+        return OLLAMA_DEFAULT_PROFILE
     return get_profile_for_filename(settings.llm_model_filename)
 
 

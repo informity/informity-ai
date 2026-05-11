@@ -9,6 +9,8 @@ import math
 import os
 import platform
 import threading
+import urllib.error
+import urllib.request
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal
@@ -26,6 +28,7 @@ from informity.api.schemas import (
     ModelOperationEventResponse,
     ModelsCatalogItem,
     ModelsCatalogResponse,
+    OllamaStatusResponse,
     SetupActionResponse,
     SetupEventResponse,
     SetupStartRequest,
@@ -248,10 +251,43 @@ def _is_model_file_ready(model_filename: str) -> bool:
     return model_path.exists() and model_path.is_file()
 
 
+def _probe_ollama_status(*, base_url: str | None = None, model: str | None = None) -> tuple[bool, bool, str | None]:
+    resolved_base_url = str(base_url if base_url is not None else getattr(settings, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip().rstrip('/')
+    resolved_model = str(model if model is not None else getattr(settings, 'llm_model_id', '') or '').strip()
+    if not resolved_model:
+        return False, False, 'llm_model_id is required for ollama provider'
+    timeout = float(getattr(settings, 'ollama_timeout_seconds', 120.0) or 120.0)
+    req = urllib.request.Request(url=f'{resolved_base_url}/api/tags', method='GET')
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            body = resp.read().decode('utf-8', errors='replace')
+            parsed = json.loads(body) if body else {}
+            if not isinstance(parsed, dict):
+                return True, False, 'invalid ollama /api/tags payload'
+            models = parsed.get('models') if isinstance(parsed.get('models'), list) else []
+            names = {
+                str(item.get('name') or '').strip().lower()
+                for item in models
+                if isinstance(item, dict)
+            }
+            model_normalized = resolved_model.lower()
+            ready = model_normalized in names
+            if not ready and ':' not in model_normalized:
+                ready = f'{model_normalized}:latest' in names
+            return True, ready, (None if ready else f'Ollama model not found: {resolved_model}')
+    except urllib.error.HTTPError as exc:
+        return False, False, f'Ollama HTTP error ({exc.code})'
+    except urllib.error.URLError as exc:
+        return False, False, f'Ollama connection failed: {exc.reason}'
+    except TimeoutError:
+        return False, False, 'Ollama request timed out'
+    except json.JSONDecodeError:
+        return False, False, 'Invalid Ollama response JSON'
+
+
 def _is_setup_ready() -> bool:
-    # Setup is only complete when all required runtime assets are cached.
-    # This includes the selected GGUF, embedding model, reranker, and docling artifacts.
-    return are_required_models_cached()
+    # Setup gating remains local-model based to preserve the stable first-run flow.
+    return are_required_models_cached(include_llm=True)
 
 
 def _update_setup_runtime(**updates: object) -> None:
@@ -789,7 +825,11 @@ async def get_setup_status() -> SetupStatusResponse:
     """
     setup_state_path = _setup_state_path()
     setup_state_payload, read_error = _load_setup_state_file(setup_state_path)
-    required_models_ready = _is_setup_ready()
+    provider = str(getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
+    # Keep first-run onboarding stable: setup gate applies to local provider only.
+    # Ollama is treated as a post-setup integration path and should not redirect
+    # users back into local-model setup.
+    required_models_ready = True if provider == 'ollama' else _is_setup_ready()
     vm = psutil.virtual_memory()
     disk = psutil.disk_usage(settings.app_data_dir)
     machine_ram_gb = int(round(float(vm.total / (1024 ** 3))))
@@ -797,6 +837,10 @@ async def get_setup_status() -> SetupStatusResponse:
         ram_total_gb=float(vm.total / (1024 ** 3)),
         free_disk_gb=float(disk.free / (1024 ** 3)),
     )
+    ollama_reachable: bool | None = None
+    ollama_model_ready: bool | None = None
+    if provider == 'ollama':
+        ollama_reachable, ollama_model_ready, _ = _probe_ollama_status()
     tier_options = list(_SETUP_TIER_OPTIONS)
 
     if required_models_ready:
@@ -808,6 +852,9 @@ async def get_setup_status() -> SetupStatusResponse:
             machine_ram_gb=machine_ram_gb,
             recommended_tier=recommended_tier,
             recommended_reason=recommended_reason,
+            llm_provider=provider if provider in {'local_gguf', 'ollama'} else 'local_gguf',
+            ollama_reachable=ollama_reachable,
+            ollama_model_ready=ollama_model_ready,
             tier_options=tier_options,
         )
 
@@ -821,6 +868,9 @@ async def get_setup_status() -> SetupStatusResponse:
             machine_ram_gb=machine_ram_gb,
             recommended_tier=recommended_tier,
             recommended_reason=recommended_reason,
+            llm_provider=provider if provider in {'local_gguf', 'ollama'} else 'local_gguf',
+            ollama_reachable=ollama_reachable,
+            ollama_model_ready=ollama_model_ready,
             tier_options=tier_options,
         )
 
@@ -847,7 +897,27 @@ async def get_setup_status() -> SetupStatusResponse:
         machine_ram_gb=machine_ram_gb,
         recommended_tier=recommended_tier,
         recommended_reason=recommended_reason,
+        llm_provider=provider if provider in {'local_gguf', 'ollama'} else 'local_gguf',
+        ollama_reachable=ollama_reachable,
+        ollama_model_ready=ollama_model_ready,
         tier_options=tier_options,
+    )
+
+
+@router.get('/setup/ollama-status', response_model=OllamaStatusResponse)
+async def get_ollama_status(
+    base_url: str | None = None,
+    model: str | None = None,
+) -> OllamaStatusResponse:
+    resolved_base_url = str(base_url if base_url is not None else getattr(settings, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip()
+    resolved_model = str(model if model is not None else getattr(settings, 'llm_model_id', '') or '').strip()
+    reachable, model_ready, detail = _probe_ollama_status(base_url=resolved_base_url, model=resolved_model)
+    return OllamaStatusResponse(
+        reachable=reachable,
+        model_ready=model_ready,
+        model=resolved_model,
+        base_url=resolved_base_url,
+        detail=detail,
     )
 
 
@@ -1123,6 +1193,8 @@ async def get_diagnostics(request: Request) -> DiagnosticsResponse:
     disk_used_gb = disk.used / (1024 ** 3)
 
     # Get model info
+    llm_provider = str(getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
+    llm_model_id = str(getattr(settings, 'llm_model_id', '') or '').strip() or None
     model_loaded = llm_engine.is_loaded
     model_filename = None
     model_size_gb = None
@@ -1178,6 +1250,8 @@ async def get_diagnostics(request: Request) -> DiagnosticsResponse:
         disk_available_gb=round(disk_available_gb, 2),
         disk_used_gb=round(disk_used_gb, 2),
         model_loaded=model_loaded,
+        llm_provider=llm_provider if llm_provider in {'local_gguf', 'ollama'} else 'local_gguf',
+        llm_model_id=llm_model_id,
         model_filename=model_filename,
         model_size_gb=round(model_size_gb, 2) if model_size_gb else None,
         db_path=db_path,

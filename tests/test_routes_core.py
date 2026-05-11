@@ -243,6 +243,7 @@ async def test_get_setup_status_returns_ready_when_required_models_cached(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setattr(routes_system.settings, 'llm_provider', 'local_gguf')
     monkeypatch.setattr(routes_system, '_is_setup_ready', lambda _payload=None: True)
     monkeypatch.setattr(routes_system.settings, 'app_data_dir', tmp_path)
 
@@ -258,6 +259,7 @@ async def test_get_setup_status_reflects_setup_state_file(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
+    monkeypatch.setattr(routes_system.settings, 'llm_provider', 'local_gguf')
     monkeypatch.setattr(routes_system, '_is_setup_ready', lambda _payload=None: False)
     monkeypatch.setattr(routes_system.settings, 'app_data_dir', tmp_path)
     (tmp_path / 'setup_state.json').write_text('{"state":"setup_in_progress"}', encoding='utf-8')
@@ -266,6 +268,75 @@ async def test_get_setup_status_reflects_setup_state_file(
     assert status.state == 'setup_in_progress'
     assert status.required_models_ready is False
     assert status.setup_state_file_present is True
+
+
+@pytest.mark.asyncio
+async def test_get_setup_status_ollama_provider_bypasses_local_setup_gate(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(routes_system.settings, 'app_data_dir', tmp_path)
+    monkeypatch.setattr(routes_system.settings, 'llm_provider', 'ollama')
+    monkeypatch.setattr(routes_system, '_is_setup_ready', lambda: False)
+    monkeypatch.setattr(routes_system, '_probe_ollama_status', lambda: (True, False, 'Ollama model not found: qwen3:14b'))
+
+    status = await routes_system.get_setup_status()
+    assert status.state == 'ready'
+    assert status.required_models_ready is True
+    assert status.setup_state_file_present is False
+    assert status.llm_provider == 'ollama'
+    assert status.ollama_reachable is True
+    assert status.ollama_model_ready is False
+    assert status.detail is None
+
+
+@pytest.mark.asyncio
+async def test_get_ollama_status_returns_probe_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(routes_system.settings, 'ollama_base_url', 'http://127.0.0.1:11434')
+    monkeypatch.setattr(routes_system.settings, 'llm_model_id', 'qwen3:14b')
+    monkeypatch.setattr(routes_system, '_probe_ollama_status', lambda **_kwargs: (True, True, None))
+
+    status = await routes_system.get_ollama_status()
+    assert status.reachable is True
+    assert status.model_ready is True
+    assert status.model == 'qwen3:14b'
+
+
+@pytest.mark.asyncio
+async def test_start_setup_ollama_still_requires_valid_tier(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(routes_system.settings, 'llm_provider', 'ollama')
+    with pytest.raises(HTTPException, match='Unknown setup tier'):
+        await routes_system.start_setup(payload=routes_system.SetupStartRequest(tier='invalid', model_filename='invalid'))
+
+
+@pytest.mark.asyncio
+async def test_retry_setup_ollama_uses_classic_workflow(monkeypatch: pytest.MonkeyPatch) -> None:
+    class _DummyTask:
+        def done(self) -> bool:
+            return False
+
+    called = {'scheduled': False}
+
+    async def _fake_setup_workflow(*, tier: str, model_filename: str) -> None:
+        _ = (tier, model_filename)
+
+    monkeypatch.setattr(routes_system.settings, 'llm_provider', 'ollama')
+    monkeypatch.setattr(routes_system, '_run_setup_workflow', _fake_setup_workflow)
+    monkeypatch.setattr(routes_system, '_setup_task', None)
+    monkeypatch.setattr(routes_system, '_persist_setup_state_file', lambda: None)
+    monkeypatch.setattr(
+        routes_system.asyncio,
+        'create_task',
+        lambda coro: (called.__setitem__('scheduled', True), coro.close(), _DummyTask())[2],
+    )
+    monkeypatch.setattr(routes_system, '_load_setup_state_file', lambda _path: ({'selected_tier': 'small', 'model_filename': 'x.gguf'}, None))
+
+    response = await routes_system.retry_setup()
+    assert response.accepted is True
+    assert response.state == 'setup_in_progress'
+    assert called['scheduled'] is True
 
 
 def test_recommend_setup_tier_prefers_small_on_16gb_class_devices() -> None:
@@ -388,6 +459,7 @@ async def test_get_models_catalog_marks_quality_installed_for_legacy_35b_alias(
     quality_entry = next(item for item in catalog.models if item.tier == 'quality')
     assert quality_entry.installed is True
     assert quality_entry.is_default is True
+    # Legacy 35B filename aliases still canonicalize to the historical model-id.
     assert catalog.default_model_id == 'qwen-35b-a3b'
 
 

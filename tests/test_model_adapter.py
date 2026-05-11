@@ -9,6 +9,7 @@ import pytest
 
 from informity.llm.model_adapter import (
     DEFAULT_PROFILE,
+    OLLAMA_DEFAULT_PROFILE,
     QWEN3_5_9B_PROFILE,
     QWEN3_6_35B_A3B_PROFILE,
     QWEN3_14B_PROFILE,
@@ -16,6 +17,8 @@ from informity.llm.model_adapter import (
     ModelProfile,
     PromptFormat,
     ReasoningMode,
+    infer_model_id_from_ollama_model,
+    get_profile,
     get_profile_for_filename,
     get_retrieval_top_k,
 )
@@ -250,3 +253,48 @@ class TestGetRetrievalTopK:
         expected_coverage = profile.rag_top_k_coverage or profile.coverage_top_k
         assert get_retrieval_top_k('focused') == expected_focused
         assert get_retrieval_top_k('coverage') == expected_coverage
+
+
+class TestProviderAwareProfileSelection:
+    def test_ollama_unknown_model_uses_ollama_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_provider', 'ollama')
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_model_id', 'custom-unknown:latest')
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_model_filename', '')
+        profile = get_profile()
+        assert profile is OLLAMA_DEFAULT_PROFILE
+        assert profile.reasoning_mode == ReasoningMode.NEVER
+        assert profile.no_think_token is None
+
+    def test_ollama_known_model_id_maps_to_existing_profile(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_provider', 'ollama')
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_model_id', 'qwen-14b')
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_model_filename', '')
+        profile = get_profile()
+        assert profile is QWEN3_14B_PROFILE
+
+    def test_ollama_qwen36_35b_maps_to_35b_profile(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_provider', 'ollama')
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_model_id', 'qwen3.6:35b')
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_model_filename', '')
+        profile = get_profile()
+        assert profile is QWEN3_6_35B_A3B_PROFILE
+
+    def test_ollama_qwen35_9b_maps_to_9b_profile(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_provider', 'ollama')
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_model_id', 'qwen3.5:9b')
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_model_filename', '')
+        profile = get_profile()
+        assert profile is QWEN3_5_9B_PROFILE
+
+
+class TestOllamaAliasInference:
+    def test_infer_model_id_from_ollama_model_exact(self) -> None:
+        assert infer_model_id_from_ollama_model('qwen3.6:35b') == 'qwen-35b-a3b'
+        assert infer_model_id_from_ollama_model('qwen3:14b') == 'qwen-14b'
+        assert infer_model_id_from_ollama_model('qwen3.5:9b') == 'qwen-9b'
+
+    def test_infer_model_id_from_ollama_model_variant_tag(self) -> None:
+        assert infer_model_id_from_ollama_model('qwen3.6:35b-q4_k_m') == 'qwen-35b-a3b'
+
+    def test_infer_model_id_from_ollama_model_unknown(self) -> None:
+        assert infer_model_id_from_ollama_model('mistral:latest') is None

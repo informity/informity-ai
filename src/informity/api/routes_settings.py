@@ -34,7 +34,7 @@ from informity.llm.model_adapter import (
     get_profile_for_filename,
     infer_model_id_from_filename,
 )
-from informity.llm.personas import list_role_profiles
+from informity.llm.roles import list_role_profiles
 from informity.scanner.watcher import invalidate_watcher_cache
 from informity.utils.directory_utils import ensure_file_directory, ensure_private_file
 from informity.utils.json_utils import serialize_config
@@ -216,6 +216,11 @@ _SETTINGS_RANGE_RULES: dict[str, tuple[float, float, str]] = {
         30,
         'web_search_timeout_seconds must be between 1 and 30',
     ),
+    'ollama_timeout_seconds': (
+        1,
+        1800,
+        'ollama_timeout_seconds must be between 1 and 1800',
+    ),
     'chat_trace_user_retention_days': (
         0,
         3650,
@@ -360,6 +365,8 @@ _UPDATABLE_FIELDS: set[str] = {
     'llm_provider',
     'llm_local_only',
     'llm_model_id',
+    'ollama_base_url',
+    'ollama_timeout_seconds',
     'llm_model_filename',
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (in ModelProfile, not updatable)
     'rag_minimal_mode',
@@ -495,6 +502,8 @@ async def get_settings() -> SettingsResponse:
         llm_provider         = str(getattr(s, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower(),
         llm_local_only          = s.llm_local_only,
         llm_model_id         = effective_llm_model_id,
+        ollama_base_url      = str(getattr(s, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip(),
+        ollama_timeout_seconds = float(getattr(s, 'ollama_timeout_seconds', 120.0) or 120.0),
         llm_model_filename   = effective_llm_model_filename,
         # rag_max_score and rag_context_ratio are now in model_profile (read-only, model-specific)
         rag_minimal_mode     = s.rag_minimal_mode,
@@ -634,6 +643,12 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                 value = (value or '').strip()
                 if not value:
                     raise HTTPException(status_code=400, detail='rag_reranker_model cannot be empty')
+            if field_name == 'ollama_base_url' and value is not None:
+                value = str(value).strip()
+                if not value:
+                    raise HTTPException(status_code=400, detail='ollama_base_url cannot be empty')
+                if not (value.startswith('http://') or value.startswith('https://')):
+                    raise HTTPException(status_code=400, detail='ollama_base_url must start with http:// or https://')
             if field_name == 'scan_file_timeout_seconds' and value is not None:
                 policy = config.settings.scan_timeout_policy
                 policy.default.max_seconds = int(value)

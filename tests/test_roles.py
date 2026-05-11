@@ -1,4 +1,4 @@
-from informity.llm.personas import (
+from informity.llm.roles import (
     MODE_REGISTRY,
     ROLE_REGISTRY,
     compose_prompt,
@@ -60,19 +60,19 @@ Task:
 Keep responses concise."""
 
 
-def test_registry_contains_core_default_personas() -> None:
+def test_registry_contains_core_default_role_profiles() -> None:
     assert 'assistant_default' in MODE_REGISTRY
     assert 'researcher_default' in MODE_REGISTRY
     assert 'researcher_rag' in MODE_REGISTRY
 
 
-def test_runtime_persona_resolution_by_mode() -> None:
+def test_runtime_role_resolution_by_mode() -> None:
     assert resolve_runtime_mode_id('assistant') == 'assistant_default'
     assert resolve_runtime_mode_id('researcher') == 'researcher_default'
     assert resolve_runtime_mode_id(None) == 'researcher_default'
 
 
-def test_rag_persona_composition_adds_assistant_mode_policy_only_for_assistant() -> None:
+def test_rag_role_composition_adds_assistant_mode_policy_only_for_assistant() -> None:
     assistant_prompt = compose_prompt(mode_id='researcher_rag', chat_mode='assistant')
     researcher_prompt = compose_prompt(mode_id='researcher_rag', chat_mode='researcher')
 
@@ -86,7 +86,7 @@ def test_legacy_prompt_exports_are_covered_by_registry_prompts() -> None:
     assert 'Summarize this chat conversation only.' in get_mode_prompt('chat_summary')
 
 
-def test_persona_prompts_match_golden_baseline_exactly() -> None:
+def test_role_prompts_match_golden_baseline_exactly() -> None:
     assert get_mode_prompt('assistant_default') == _EXPECTED_ASSISTANT_PROMPT
     assert get_mode_prompt('assistant_web_search_synthesis') == _EXPECTED_ASSISTANT_WEB_SYNTHESIS_PROMPT
     assert get_mode_prompt('researcher_default') == _EXPECTED_RESEARCHER_SIMPLE_PROMPT
