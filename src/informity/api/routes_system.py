@@ -286,16 +286,7 @@ def _probe_ollama_status() -> tuple[bool, bool, str | None]:
 
 
 def _is_setup_ready() -> bool:
-    # Setup is only complete when all required runtime assets are cached.
-    # local_gguf: selected GGUF + embedding/reranker/docling artifacts.
-    # ollama: embedding/reranker/docling artifacts + daemon/model readiness.
-    provider = str(getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
-    if provider == 'ollama':
-        base_ready = are_required_models_cached(include_llm=False)
-        if not base_ready:
-            return False
-        reachable, model_ready, _ = _probe_ollama_status()
-        return reachable and model_ready
+    # Setup gating remains local-model based to preserve the stable first-run flow.
     return are_required_models_cached(include_llm=True)
 
 
@@ -845,9 +836,8 @@ async def get_setup_status() -> SetupStatusResponse:
     provider = str(getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
     ollama_reachable: bool | None = None
     ollama_model_ready: bool | None = None
-    ollama_detail: str | None = None
     if provider == 'ollama':
-        ollama_reachable, ollama_model_ready, ollama_detail = _probe_ollama_status()
+        ollama_reachable, ollama_model_ready, _ = _probe_ollama_status()
     tier_options = list(_SETUP_TIER_OPTIONS)
 
     if required_models_ready:
@@ -896,8 +886,6 @@ async def get_setup_status() -> SetupStatusResponse:
     detail = None
     if _setup_runtime.get('error'):
         detail = str(_setup_runtime.get('error'))
-    elif provider == 'ollama' and ollama_detail:
-        detail = ollama_detail
     return SetupStatusResponse(
         state=state,
         required_models_ready=False,
