@@ -1810,7 +1810,13 @@ async def chat(
                 full_answer = ''.join(answer_parts).strip()
                 model_raw_answer = full_answer
                 if not full_answer:
-                    full_answer = 'I could not find enough information to answer your question.'
+                    if timeout_reason == TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT:
+                        full_answer = (
+                            'The model did not respond in time. '
+                            'Please try again or choose a faster/smaller model.'
+                        )
+                    else:
+                        full_answer = 'I could not find enough information to answer your question.'
                     model_raw_answer = full_answer
                     log.warning('chat_empty_after_cleaning', chat_id=chat_id)
                 requested_max_words = answer_sanitization.extract_requested_max_words(message_text)

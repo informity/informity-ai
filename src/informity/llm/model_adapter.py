@@ -505,6 +505,41 @@ _FILENAME_TO_MODEL_ID: dict[str, str] = {
     for filename in filenames
 }
 
+# Provider-side model aliases (e.g., Ollama tags) mapped to our stable profile IDs.
+# Keep this list conservative and explicit so tuning remains predictable.
+_OLLAMA_MODEL_ID_ALIASES: dict[str, str] = {
+    # 35B (Qwen 3.6 A3B family)
+    'qwen3.6:35b': MODEL_ID_QWEN_35B_A3B,
+    'qwen3.6:35b-instruct': MODEL_ID_QWEN_35B_A3B,
+    # 14B
+    'qwen3:14b': MODEL_ID_QWEN_14B,
+    'qwen3.5:14b': MODEL_ID_QWEN_14B,
+    # 9B
+    'qwen3.5:9b': MODEL_ID_QWEN_9B,
+}
+
+
+def _normalize_ollama_model_id(raw_model_id: str) -> str:
+    normalized = str(raw_model_id or '').strip().lower()
+    if not normalized:
+        return ''
+    # Preserve namespace/model style IDs (e.g., org/model:tag) but ignore digest/hash suffixes.
+    return normalized.split('@', 1)[0].strip()
+
+
+def infer_model_id_from_ollama_model(model_id: str) -> str | None:
+    normalized = _normalize_ollama_model_id(model_id)
+    if not normalized:
+        return None
+    direct = _OLLAMA_MODEL_ID_ALIASES.get(normalized)
+    if direct:
+        return direct
+    # Prefix-friendly handling for provider tags/variants (e.g., qwen3.6:35b-q4_k_m).
+    for alias, stable_model_id in _OLLAMA_MODEL_ID_ALIASES.items():
+        if normalized == alias or normalized.startswith(f'{alias}-'):
+            return stable_model_id
+    return None
+
 
 def get_profile_for_filename(filename: str) -> ModelProfile:
     """Match a GGUF filename to a ModelProfile. First match wins (ANY pattern)."""
@@ -544,6 +579,11 @@ def get_profile() -> ModelProfile:
         if not candidate:
             candidate = str(getattr(settings, 'llm_model_filename', '') or '').strip().lower()
         if candidate:
+            mapped_model_id = infer_model_id_from_ollama_model(candidate)
+            if mapped_model_id:
+                alias_filenames = get_model_alias_filenames(mapped_model_id)
+                if alias_filenames:
+                    return get_profile_for_filename(alias_filenames[0])
             matched = get_profile_for_filename(candidate)
             if matched is not DEFAULT_PROFILE:
                 return matched
