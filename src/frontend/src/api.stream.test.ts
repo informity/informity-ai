@@ -24,6 +24,7 @@ describe('streamChat SSE contract', () => {
       },
       { event: 'token', data: 'A' },
       { event: 'sources', data: JSON.stringify([{ filename: 'f', path: '/p' }]) },
+      { event: 'token', data: 'AB' }, // allowed before cleaned
       { event: 'cleaned', data: 'Final answer' },
       { event: 'token', data: 'B' }, // ignored after sources/cleaned
       {
@@ -71,7 +72,7 @@ describe('streamChat SSE contract', () => {
       },
     })
 
-    expect(tokens).toEqual(['A'])
+    expect(tokens).toEqual(['A', 'AB'])
     expect(cleaned).toBe('Final answer')
     expect(sourceCount).toBe(1)
     expect(done.message_id).toBe(123)

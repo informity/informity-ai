@@ -1017,6 +1017,37 @@ class XllamaCppProvider:
                     'timeout_seconds': wall_clock,
                 })
 
+            if token_count == 0 and not timeout_occurred and not cancel_event.is_set():
+                log.warning(
+                    'llm_stream_empty_completion_local_fallback',
+                    msg='Streaming returned zero output; attempting non-stream completion fallback',
+                )
+                fallback_response = self.chat_complete(
+                    messages=messages,
+                    max_tokens=max_tok,
+                    temperature=temp,
+                    stop=stop_seqs or None,
+                )
+                fallback_text = str(
+                    (
+                        (fallback_response.get('choices') or [{}])[0]
+                        .get('message', {})
+                        .get('content')
+                    ) or '',
+                )
+                if fallback_text:
+                    fallback_stripper = ThinkStrip()
+                    cleaned_fallback = fallback_stripper.feed(fallback_text) + fallback_stripper.flush()
+                    cleaned_fallback = cleaned_fallback.strip()
+                    if cleaned_fallback:
+                        if first_token_ms is None:
+                            first_token_ms = (time.perf_counter() - start) * 1000
+                        token_count += 1
+                        total_text += cleaned_fallback
+                        yield cleaned_fallback
+                if token_count == 0:
+                    raise LLMError('Local model returned no response tokens')
+
             if exception_holder:
                 exc = exception_holder[0]
                 if not isinstance(exc, Exception):
@@ -1075,6 +1106,7 @@ class XllamaCppProvider:
                 cancelled        = cancel_event.is_set(),
                 timeout_occurred = timeout_occurred,
                 timeout_reason   = timeout_reason,
+                provider         = 'local_gguf',
             )
 
 
