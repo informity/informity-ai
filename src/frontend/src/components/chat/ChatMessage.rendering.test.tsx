@@ -166,6 +166,28 @@ describe('ChatMessage markdown rendering', () => {
     expect(container.querySelector('.chat-message__block--metric')).not.toBeNull()
   })
 
+  it('renders disclaimer callouts as standardized header cards', () => {
+    const { container } = render(
+      <ChatMessage
+        role="assistant"
+        content={'fallback'}
+        displayBlocks={[
+          {
+            type: 'callout',
+            tone: 'info',
+            text: 'Disclaimer: Informity AI is not a lawyer and this is not legal advice.',
+          },
+        ]}
+        isStreaming={false}
+      />,
+    )
+
+    expect(screen.getByText('Disclaimer')).toBeInTheDocument()
+    expect(screen.getByText('Informity AI is not a lawyer and this is not legal advice.')).toBeInTheDocument()
+    expect(container.querySelector('.chat-message__disclaimer-card')).not.toBeNull()
+    expect(container.querySelector('.chat-message__disclaimer-body')).not.toBeNull()
+  })
+
   it('renders structured code blocks with copy action wrapper', () => {
     const { container } = render(
       <ChatMessage

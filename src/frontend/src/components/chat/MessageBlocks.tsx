@@ -75,7 +75,8 @@ function MessageBlocksComponent({ blocks, fallbackMarkdown, onCopyCode, codeBloc
           case 'callout':
             {
               const text = typeof block.text === 'string' ? block.text : ''
-              const isDisclaimer = /^disclaimer\s*:/i.test(text.trim())
+              const disclaimerBody = extractDisclaimerBody(text)
+              const isDisclaimer = disclaimerBody !== null
               const className = [
                 'chat-message__block',
                 'chat-message__block--callout',
@@ -85,7 +86,7 @@ function MessageBlocksComponent({ blocks, fallbackMarkdown, onCopyCode, codeBloc
               return (
                 <div key={key} className={className}>
                   {isDisclaimer ? (
-                    <span className="chat-message__disclaimer-inline">{text}</span>
+                    <DisclaimerCard text={disclaimerBody} />
                   ) : (
                     text
                   )}
@@ -253,6 +254,26 @@ function CodeCard({ language, code, codeBlockCopied, onCopyCode, codeClassName, 
       </div>
     </div>
   )
+}
+
+function DisclaimerCard({ text }: { text: string }) {
+  return (
+    <div className="chat-message__disclaimer-card">
+      <div className="chat-message__disclaimer-header">
+        <span className="chat-message__disclaimer-label">Disclaimer</span>
+      </div>
+      <div className="chat-message__disclaimer-body">
+        <p>{text}</p>
+      </div>
+    </div>
+  )
+}
+
+function extractDisclaimerBody(text: string): string | null {
+  const normalized = String(text || '').trim()
+  const match = normalized.match(/^disclaimer\s*:\s*(.+)$/i)
+  if (!match) return null
+  return match[1].trim()
 }
 
 function flattenNodeText(node: ReactNode): string {

@@ -12,7 +12,10 @@ _CODE_FENCE_OPEN_RE = re.compile(r'^```(?P<lang>[A-Za-z0-9_+\-]*)\s*$')
 _LIST_ITEM_RE = re.compile(r'^(?P<indent>\s*)(?P<marker>(?:[-*+])|(?:\d+[.)]))\s+(?P<body>.+)$')
 _CHECKBOX_RE = re.compile(r'^\[(?P<state>[xX ])\]\s+(?P<text>.+)$')
 _QUOTE_LINE_RE = re.compile(r'^\s*>\s?(?P<body>.*)$')
-_DISCLAIMER_LINE_RE = re.compile(r'^\s*(?:\*\*)?\s*Disclaimer\s*:\s*(?P<body>.+?)\s*$', re.IGNORECASE)
+_DISCLAIMER_LINE_RE = re.compile(
+    r'^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*Disclaimer\s*:\s*(?P<body>.*?)\s*(?:\*\*)?\s*$',
+    re.IGNORECASE,
+)
 _HORIZONTAL_RULE_RE = re.compile(r'^\s*(?:-{3,}|\*{3,}|_{3,})\s*$')
 _UNFENCED_CODE_LINE_HINT_RE = re.compile(
     r'^\s*(?:'
@@ -246,11 +249,13 @@ def build_display_blocks(cleaned_answer: str) -> list[dict[str, object]]:
             _trim_trailing_divider(text_buffer)
             _flush_text(text_buffer, blocks)
             disclaimer_body = disclaimer_match.group('body').strip()
-            if disclaimer_body.startswith('**'):
-                disclaimer_body = disclaimer_body[2:].lstrip()
-            if disclaimer_body.endswith('**'):
-                disclaimer_body = disclaimer_body[:-2].rstrip()
-            disclaimer_lines = [f"Disclaimer: {disclaimer_body}"]
+            disclaimer_lines: list[str] = []
+            if disclaimer_body:
+                if disclaimer_body.startswith('**'):
+                    disclaimer_body = disclaimer_body[2:].lstrip()
+                if disclaimer_body.endswith('**'):
+                    disclaimer_body = disclaimer_body[:-2].rstrip()
+                disclaimer_lines.append(disclaimer_body)
             i += 1
             while i < len(lines):
                 continuation = lines[i].strip()
@@ -263,10 +268,12 @@ def build_display_blocks(cleaned_answer: str) -> list[dict[str, object]]:
                     continue
                 disclaimer_lines.append(continuation)
                 i += 1
+            if not disclaimer_lines:
+                continue
             blocks.append({
                 'type': 'callout',
                 'tone': 'info',
-                'text': ' '.join(disclaimer_lines).strip(),
+                'text': f"Disclaimer: {' '.join(disclaimer_lines).strip()}",
             })
             continue
 
