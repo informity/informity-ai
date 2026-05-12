@@ -365,12 +365,13 @@ def compose_prompt(
             '- Start directly with findings; avoid meta-prefaces such as "Based on..." or "According to the scenario...".\n'
             '- If evidence is limited, state uncertainty explicitly without refusing when a useful partial answer is possible.\n'
             '- Do not present role assumptions as facts; label assumptions as assumptions.\n'
-            '- For each major claim, provide an evidence anchor from retrieved context or mark it uncertain.'
+            '- Keep answers practical and concise by default; use long formal memo style only when the user explicitly requests it.\n'
+            '- Prioritize actionable recommendations and concrete edits before extended caveats.'
         )
         role_sections.append(
             'Role Evidence Discipline:\n'
             '- Prefer evidence-grounded statements over broad domain-general guidance.\n'
-            '- If retrieved evidence is thin, provide a constrained answer with two sections: "Evidence from Retrieved Context" and "Uncertainty / Missing Evidence".\n'
+            '- If retrieved evidence is thin, provide the best useful partial answer first, then briefly note uncertainty.\n'
             '- Avoid definitive compliance/legal/financial/technical conclusions unless directly supported by retrieved text.'
         )
         if role_profile.disclaimer:

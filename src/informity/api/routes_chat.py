@@ -62,7 +62,6 @@ from informity.api.context_scope_manager import (
     resolve_retrieval_context_scope_key,
 )
 from informity.api.error_messages import to_client_error_message
-from informity.api.role_evidence_fallback import apply_role_evidence_fallback
 from informity.api.schemas import (
     ChatPreferencesUpdateRequest,
     ChatRequest,
@@ -98,7 +97,7 @@ from informity.db.sqlite import (
     update_chat_upload_attachment_state,
     upsert_chat_preferences,
 )
-from informity.diagnostics.observer import EvalMetrics, detect_issues
+from informity.diagnostics.observer import EvalMetrics, detect_issues, estimate_evidence_metrics
 from informity.diagnostics.resource_snapshot import build_resource_delta, capture_resource_snapshot
 from informity.indexer.pipeline import index_file, remove_file
 from informity.llm.chat_mode import resolve_chat_mode
@@ -1872,28 +1871,12 @@ async def chat(
                     completion_mode_override = CompletionMode.SCOPED_COMPLETE
                     if continuation_resolution_reason is None:
                         continuation_resolution_reason = structural_incomplete_reason
-                (
-                    finalized_answer_for_metrics,
-                    estimated_unsupported_claim_count,
-                    estimated_evidence_coverage_rate,
-                    estimated_not_found_count,
-                    role_fallback_applied,
-                ) = apply_role_evidence_fallback(
-                    answer=cleaned_answer if cleaned_answer else full_answer,
-                    source_items=source_dicts,
-                    chat_mode=resolved_chat_mode,
-                    role_id=resolved_role_id,
-                )
-                if role_fallback_applied:
-                    full_answer = finalized_answer_for_metrics
-                    cleaned_answer = finalized_answer_for_metrics
-                    log.info(
-                        'role_evidence_fallback_applied',
-                        chat_id=chat_id,
-                        role_id=resolved_role_id,
-                        unsupported_claim_count=estimated_unsupported_claim_count,
-                        evidence_coverage_rate=estimated_evidence_coverage_rate,
+                estimated_unsupported_claim_count, estimated_evidence_coverage_rate, estimated_not_found_count = (
+                    estimate_evidence_metrics(
+                        answer=cleaned_answer if cleaned_answer else full_answer,
+                        source_texts=[str(source.get('chunk_preview', '') or '') for source in source_dicts],
                     )
+                )
                 budget_metrics['unsupported_claim_count'] = estimated_unsupported_claim_count
                 budget_metrics['evidence_coverage_rate'] = estimated_evidence_coverage_rate
                 budget_metrics['not_found_count'] = estimated_not_found_count

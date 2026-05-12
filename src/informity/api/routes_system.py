@@ -290,6 +290,51 @@ def _is_setup_ready() -> bool:
     return are_required_models_cached(include_llm=True)
 
 
+def _pick_first_ready_local_model_filename() -> str | None:
+    # Prefer known setup tier models when available so auto-heal picks canonical
+    # SKUs first, then fall back to any installed GGUF.
+    preferred = [opt.model_filename for opt in _SETUP_TIER_OPTIONS]
+    for filename in preferred:
+        if _is_model_file_ready(filename):
+            return filename
+
+    try:
+        candidates = sorted(
+            path.name
+            for path in settings.models_dir.glob('*.gguf')
+            if path.is_file()
+        )
+    except OSError:
+        return None
+    return candidates[0] if candidates else None
+
+
+def _auto_heal_local_model_selection_if_invalid() -> bool:
+    provider = str(getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
+    if provider != 'local_gguf':
+        return False
+
+    current_filename = str(getattr(settings, 'llm_model_filename', '') or '').strip()
+    if current_filename and _is_model_file_ready(current_filename):
+        return False
+
+    replacement = _pick_first_ready_local_model_filename()
+    if not replacement:
+        return False
+
+    _apply_model_default_config(replacement)
+    settings.llm_model_filename = replacement
+    resolved_model_id = infer_model_id_from_filename(replacement)
+    if resolved_model_id:
+        settings.llm_model_id = resolved_model_id
+    log.warning(
+        'setup_model_selection_auto_healed',
+        previous_model_filename=current_filename or None,
+        replacement_model_filename=replacement,
+    )
+    return True
+
+
 def _update_setup_runtime(**updates: object) -> None:
     _setup_runtime.update(updates)
     _setup_runtime['updated_at'] = datetime.now(UTC).isoformat()
@@ -826,6 +871,8 @@ async def get_setup_status() -> SetupStatusResponse:
     setup_state_path = _setup_state_path()
     setup_state_payload, read_error = _load_setup_state_file(setup_state_path)
     provider = str(getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
+    if provider == 'local_gguf':
+        _auto_heal_local_model_selection_if_invalid()
     # Keep first-run onboarding stable: setup gate applies to local provider only.
     # Ollama is treated as a post-setup integration path and should not redirect
     # users back into local-model setup.
