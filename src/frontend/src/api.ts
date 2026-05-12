@@ -379,7 +379,10 @@ function handleEvent(
   const { onToken, onChatId, onStreamId, onRequestId, onSources, onCleaned, onStatus, onPlanStep } = callbacks
   switch (event) {
     case 'token':
-      if (state.seenCleaned || state.seenSources) return undefined
+      // Keep accepting tokens after `sources`; backend may emit sources before
+      // the final token burst. Only suppress token rendering once `cleaned`
+      // has arrived (cleaned becomes the canonical final display text).
+      if (state.seenCleaned) return undefined
       if (data != null && typeof data === 'string') {
         onToken?.(data)
       }
