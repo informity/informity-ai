@@ -11,7 +11,7 @@
   --chat-code-card-border: 1px solid var(--chat-message-divider-color);
   --chat-code-content-padding: 0.9rem;
   --chat-code-header-gap: 0.5rem;
-  --chat-code-header-padding: 0.45rem 0.65rem 0.35rem;
+  --chat-code-header-padding: 0.45rem var(--chat-code-content-padding) 0.35rem;
   --chat-code-copy-size: 26px;
   --chat-code-copy-icon-size: 0.875rem;
   margin-bottom: 1rem;
@@ -467,19 +467,61 @@ html[data-accent='light'] .chat-message__block--code pre .hljs * {
 .chat-message__block--disclaimer {
   margin-top: 1.3rem;
   margin-bottom: 0.125rem;
-  padding-block: 0.75rem;
-  padding-inline: 0.75rem;
+  padding: 0;
   box-sizing: border-box;
-  line-height: 1.4;
-  border-color: var(--chat-message-divider-color);
-  border-radius: var(--border-radius);
+  border: none;
   background: transparent;
-  color: var(--chat-message-muted-fg);
 }
 
 .chat-message__disclaimer-inline {
   display: block;
   width: 100%;
+}
+
+.chat-message__disclaimer-card {
+  min-width: 0;
+  max-width: 100%;
+  width: 100%;
+  border: var(--chat-code-card-border);
+  border-radius: var(--chat-code-card-radius);
+  background: transparent;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.chat-message__disclaimer-header {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: var(--chat-code-header-gap);
+  padding: var(--chat-code-header-padding);
+  background: transparent;
+  border-bottom: 1px solid var(--chat-message-divider-color);
+}
+
+.chat-message__disclaimer-label {
+  font-size: inherit;
+  color: var(--color-text-dimmed);
+  font-family: inherit;
+  line-height: 1.6;
+  letter-spacing: 0.01em;
+}
+
+.chat-message__disclaimer-body {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  padding: var(--chat-code-content-padding);
+  box-sizing: border-box;
+}
+
+.chat-message__disclaimer-body p {
+  margin: 0;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.55;
+  color: var(--chat-message-muted-fg);
 }
 
 .chat-message__block--warning {

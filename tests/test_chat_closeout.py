@@ -165,3 +165,33 @@ def test_build_display_blocks_normalizes_bold_disclaimer_with_continuation_line(
             ),
         },
     ]
+
+
+def test_build_display_blocks_normalizes_heading_disclaimer_with_body_on_next_line() -> None:
+    answer = (
+        '### Disclaimer:\n'
+        'Informity AI is not a lawyer and this is not legal advice.\n'
+    )
+    blocks = build_display_blocks(answer)
+    assert blocks == [
+        {
+            'type': 'callout',
+            'tone': 'info',
+            'text': 'Disclaimer: Informity AI is not a lawyer and this is not legal advice.',
+        },
+    ]
+
+
+def test_build_display_blocks_normalizes_plain_disclaimer_label_with_next_line_body() -> None:
+    answer = (
+        'Disclaimer:\n'
+        'Informity AI is not a lawyer and this is not legal advice.\n'
+    )
+    blocks = build_display_blocks(answer)
+    assert blocks == [
+        {
+            'type': 'callout',
+            'tone': 'info',
+            'text': 'Disclaimer: Informity AI is not a lawyer and this is not legal advice.',
+        },
+    ]
