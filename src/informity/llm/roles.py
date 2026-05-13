@@ -267,10 +267,12 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
             'Prefer control-gap style findings with concrete evidence references.',
             'When useful, group findings by Preventive, Detective, and Corrective controls.',
             'Call out unknowns that block a formal compliance conclusion.',
+            'Map framework controls only when explicit evidence exists; otherwise mark as "Missing control evidence."',
         ),
         overlay_prompt=(
             'Prioritize security and compliance analysis: controls, data flows, retention, access, '
-            'auditability, and policy gaps. Map findings to common frameworks when evidence supports it.'
+            'auditability, and policy gaps. Map findings to common frameworks when evidence supports it. '
+            'Avoid inferring controls that are not described in retrieved text.'
         ),
         disclaimer='Informity AI is not a compliance auditor. This is not a formal compliance attestation.',
         capabilities=('security', 'compliance'),
@@ -297,10 +299,14 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
             'Use implementation-oriented language and concrete risk statements.',
             'When useful, structure output as Architecture, Feasibility Risks, Operations Risks, and Test Gaps.',
             'Highlight unknown technical details that affect feasibility.',
+            'Anchor implementation claims in explicit mechanisms from retrieved text; avoid invented architecture.',
+            'Keep output concise and prioritized: focus on the top 3-5 feasibility and operational risks by default.',
         ),
         overlay_prompt=(
             'Prioritize technical clarity: architecture tradeoffs, feasibility, implementation details, '
-            'dependencies, operational risk, and testing implications.'
+            'dependencies, operational risk, and testing implications. '
+            'When sources are contractual rather than system-design documents, avoid introducing '
+            'new architecture details not present in evidence.'
         ),
         capabilities=('technical',),
         retrieval_hints=('architecture', 'dependency', 'latency', 'scalability', 'implementation'),
@@ -368,12 +374,21 @@ def compose_prompt(
             '- Keep answers practical and concise by default; use long formal memo style only when the user explicitly requests it.\n'
             '- Prioritize actionable recommendations and concrete edits before extended caveats.'
         )
-        role_sections.append(
-            'Role Evidence Discipline:\n'
-            '- Prefer evidence-grounded statements over broad domain-general guidance.\n'
-            '- If retrieved evidence is thin, provide the best useful partial answer first, then briefly note uncertainty.\n'
-            '- Avoid definitive compliance/legal/financial/technical conclusions unless directly supported by retrieved text.'
-        )
+        if role_profile.id != 'financial':
+            role_sections.append(
+                'Role Evidence Discipline:\n'
+                '- Prefer evidence-grounded statements over broad domain-general guidance.\n'
+                '- If retrieved evidence is thin, provide the best useful partial answer first, then briefly note uncertainty.\n'
+                '- Avoid definitive compliance/legal/financial/technical conclusions unless directly supported by retrieved text.'
+            )
+        if role_profile.id != 'financial':
+            role_sections.append(
+                'Role Output Guardrails:\n'
+                '- Use this certainty taxonomy where helpful: Known, Likely, Unknown, Out of scope.\n'
+                '- For domain-risk findings, pair each finding with an "Evidence" line (quote or close paraphrase).\n'
+                '- If a framework/control/outcome is not explicitly present in evidence, state that it is missing evidence instead of inferring.\n'
+                '- Keep output scoped to the retrieved material; do not import external playbooks unless the user explicitly asks.'
+            )
         if role_profile.disclaimer:
             role_sections.append(
                 'Disclaimer Placement Rule:\n'
@@ -386,6 +401,14 @@ def compose_prompt(
             prompt = f'{prompt}\n\n' + '\n\n'.join(role_sections)
         if role_profile.disclaimer:
             prompt = f'{prompt}\n\nRole Disclaimer:\n{role_profile.disclaimer}'
+
+        if role_profile.id == 'technical':
+            prompt = (
+                f'{prompt}\n\nTechnical Output Contract:\n'
+                '- Limit default output to top 3-5 technical risks by delivery impact.\n'
+                '- Use compact entries: Risk | Evidence | Operational consequence | Mitigation.\n'
+                '- Do not add architecture details not present in retrieved evidence.'
+            )
 
     return prompt
 

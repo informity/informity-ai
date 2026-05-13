@@ -195,7 +195,7 @@
     0 16px 38px rgba(0, 0, 0, 0.62);
 }
 
-html[data-accent='light'] .chat-view__scroll-to-bottom {
+html[data-accent='sand'] .chat-view__scroll-to-bottom {
   color: var(--color-control-icon);
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--color-accent) 42%, var(--color-control-ring)),
@@ -203,7 +203,7 @@ html[data-accent='light'] .chat-view__scroll-to-bottom {
     0 10px 22px rgba(122, 84, 56, 0.24);
 }
 
-html[data-accent='light'] .chat-view__scroll-to-bottom:hover {
+html[data-accent='sand'] .chat-view__scroll-to-bottom:hover {
   box-shadow:
     0 0 0 1px color-mix(in srgb, var(--color-accent) 52%, var(--color-control-ring)),
     0 0 12px rgba(139, 94, 63, 0.24),
@@ -831,7 +831,7 @@ html[data-accent='light'] .chat-view__scroll-to-bottom:hover {
   color: var(--color-text-dimmed);
 }
 
-html[data-accent='light'] .chat-view {
+html[data-accent='sand'] .chat-view {
   --chat-view-muted-fg: var(--color-placeholder);
   --chat-view-toggle-hover-bg: var(--chat-view-toggle-active-bg);
   --chat-view-toggle-hover-border: transparent;
@@ -839,9 +839,9 @@ html[data-accent='light'] .chat-view {
   --chat-view-toggle-active-border: transparent;
 }
 
-html[data-accent='light'] .chat-view__mode-option:hover,
-html[data-accent='light'] .chat-view__mode-option--active,
-html[data-accent='light'] .chat-view__mode-option--active:hover {
+html[data-accent='sand'] .chat-view__mode-option:hover,
+html[data-accent='sand'] .chat-view__mode-option--active,
+html[data-accent='sand'] .chat-view__mode-option--active:hover {
   background: var(--chat-view-toggle-active-bg);
   color: var(--color-text);
 }

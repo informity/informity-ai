@@ -69,7 +69,22 @@ _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT = (
     'Keep the same structure and avoid repeating completed sections.'
 )
 LOG_LEVEL_ALLOWED_VALUES: tuple[str, ...] = ('debug', 'info', 'warning', 'error')
-UI_THEME_ALLOWED_VALUES: tuple[str, ...] = ('light', 'gray', 'purple', 'blue', 'green', 'orange', 'mono')
+UI_THEME_ALLOWED_VALUES: tuple[str, ...] = (
+    'sand',
+    'linen',
+    'overcast',
+    'mono',
+)
+# Theme migration map for legacy persisted values.
+UI_THEME_ALIAS_MAP: dict[str, str] = {
+    'light': 'sand',
+    'linen-dark': 'linen',
+    'gray': 'overcast',
+    'purple': 'overcast',
+    'blue': 'overcast',
+    'green': 'overcast',
+    'orange': 'overcast',
+}
 _DEFAULT_LOG_LEVEL = 'info'
 _DEFAULT_UI_THEME = 'mono'
 
@@ -239,8 +254,12 @@ def _load_config_file_values() -> dict:
         # Guard against invalid theme values in persisted config.json.
         raw_theme = data.get('ui_theme')
         if raw_theme is not None:
-            if isinstance(raw_theme, str) and raw_theme in UI_THEME_ALLOWED_VALUES:
-                pass
+            if isinstance(raw_theme, str):
+                normalized_theme = UI_THEME_ALIAS_MAP.get(raw_theme, raw_theme)
+                if normalized_theme in UI_THEME_ALLOWED_VALUES:
+                    data['ui_theme'] = normalized_theme
+                else:
+                    data['ui_theme'] = _DEFAULT_UI_THEME
             else:
                 data['ui_theme'] = _DEFAULT_UI_THEME
         return data
@@ -521,8 +540,8 @@ class Settings(BaseSettings):
     diagnostics_alert_max_rss_delta_mb: float = 1024.0
 
     # -- UI (frontend-only; persisted so theme survives restarts) -------------
-    # Color theme for the app UI: light, gray, purple, blue, green, orange, mono.
-    ui_theme: Literal['light', 'gray', 'purple', 'blue', 'green', 'orange', 'mono'] = _DEFAULT_UI_THEME
+    # Color theme for the app UI: sand, linen, overcast, mono.
+    ui_theme: Literal['sand', 'linen', 'overcast', 'mono'] = _DEFAULT_UI_THEME
     # When true, show the macOS menu bar icon while the app is running.
     enable_menu_bar_icon: bool = False
     # -- Pydantic Settings Config ---------------------------------------------
@@ -1007,3 +1026,12 @@ def are_required_models_cached(*, include_llm: bool = True) -> bool:
             return False
 
     return True
+_UI_THEME_ALIAS_MAP: dict[str, str] = {
+    'light': 'sand',
+    'linen-dark': 'linen',
+    'gray': 'overcast',
+    'purple': 'overcast',
+    'blue': 'overcast',
+    'green': 'overcast',
+    'orange': 'overcast',
+}

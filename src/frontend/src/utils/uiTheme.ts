@@ -2,31 +2,35 @@ export const UI_THEME_STORAGE_KEY = 'informity-ui-theme'
 export const UI_THEME_DEFAULT = 'mono'
 
 export const UI_THEME_VALUES = [
-  'light',
+  'sand',
+  'linen',
   'mono',
-  'gray',
-  'purple',
-  'blue',
-  'green',
-  'orange',
+  'overcast',
 ] as const
 
 export type UiThemeValue = (typeof UI_THEME_VALUES)[number]
 
 export const UI_THEME_OPTIONS: Array<{ value: UiThemeValue; label: string }> = [
   { value: 'mono', label: 'Mono' },
-  { value: 'gray', label: 'Gray' },
-  { value: 'purple', label: 'Purple' },
-  { value: 'blue', label: 'Blue' },
-  { value: 'green', label: 'Green' },
-  { value: 'orange', label: 'Orange' },
-  { value: 'light', label: 'Light' },
+  { value: 'overcast', label: 'Overcast' },
+  { value: 'linen', label: 'Linen' },
+  { value: 'sand', label: 'Sand' },
 ]
 
 export function normalizeUiTheme(theme: string | null | undefined): UiThemeValue | undefined {
   if (!theme) return undefined
-  const normalized = theme
-  return UI_THEME_VALUES.includes(normalized as UiThemeValue)
-    ? (normalized as UiThemeValue)
+  const normalized = theme.trim().toLowerCase()
+  const aliasMap: Record<string, UiThemeValue> = {
+    light: 'sand',
+    'linen-dark': 'linen',
+    gray: 'overcast',
+    purple: 'overcast',
+    blue: 'overcast',
+    green: 'overcast',
+    orange: 'overcast',
+  }
+  const canonical = aliasMap[normalized] ?? normalized
+  return UI_THEME_VALUES.includes(canonical as UiThemeValue)
+    ? (canonical as UiThemeValue)
     : undefined
 }
