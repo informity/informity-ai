@@ -72,18 +72,18 @@ LOG_LEVEL_ALLOWED_VALUES: tuple[str, ...] = ('debug', 'info', 'warning', 'error'
 UI_THEME_ALLOWED_VALUES: tuple[str, ...] = (
     'sand',
     'linen',
-    'overcast',
+    'graphite',
     'mono',
 )
 # Theme migration map for legacy persisted values.
 UI_THEME_ALIAS_MAP: dict[str, str] = {
     'light': 'sand',
     'linen-dark': 'linen',
-    'gray': 'overcast',
-    'purple': 'overcast',
-    'blue': 'overcast',
-    'green': 'overcast',
-    'orange': 'overcast',
+    'gray': 'graphite',
+    'purple': 'graphite',
+    'blue': 'graphite',
+    'green': 'graphite',
+    'orange': 'graphite',
 }
 _DEFAULT_LOG_LEVEL = 'info'
 _DEFAULT_UI_THEME = 'mono'
@@ -540,8 +540,8 @@ class Settings(BaseSettings):
     diagnostics_alert_max_rss_delta_mb: float = 1024.0
 
     # -- UI (frontend-only; persisted so theme survives restarts) -------------
-    # Color theme for the app UI: sand, linen, overcast, mono.
-    ui_theme: Literal['sand', 'linen', 'overcast', 'mono'] = _DEFAULT_UI_THEME
+    # Color theme for the app UI: sand, linen, graphite, mono.
+    ui_theme: Literal['sand', 'linen', 'graphite', 'mono'] = _DEFAULT_UI_THEME
     # When true, show the macOS menu bar icon while the app is running.
     enable_menu_bar_icon: bool = False
     # -- Pydantic Settings Config ---------------------------------------------
@@ -1029,9 +1029,9 @@ def are_required_models_cached(*, include_llm: bool = True) -> bool:
 _UI_THEME_ALIAS_MAP: dict[str, str] = {
     'light': 'sand',
     'linen-dark': 'linen',
-    'gray': 'overcast',
-    'purple': 'overcast',
-    'blue': 'overcast',
-    'green': 'overcast',
-    'orange': 'overcast',
+    'gray': 'graphite',
+    'purple': 'graphite',
+    'blue': 'graphite',
+    'green': 'graphite',
+    'orange': 'graphite',
 }

@@ -73,6 +73,8 @@
   --color-bg-hover: #2a2a2a;
   --color-border: #2e2e2e;
   --color-border-subtle: #222222;
+  --color-input-border: var(--color-border);
+  --color-input-border-chat: var(--color-primary-border);
   --color-text: #e8e8e8;
   --color-text-muted: #7a7a7a;
   --color-text-dimmed: #707070;
@@ -174,7 +176,7 @@ input,
 textarea,
 select {
   background-color: var(--surface-control);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-input-border, var(--color-border));
   border-radius: var(--border-radius);
   padding: var(--space-sm) var(--space-md);
   color: var(--color-text);
@@ -261,14 +263,39 @@ input[type='checkbox']:disabled {
 }
 
 /* Accent colors (ui_theme from Settings). Set via data-accent on <html>. Default: mono. */
-:root,
-html[data-accent='overcast'] {
+:root {
   --color-accent: #8f8f8f;
   --color-primary: #8f8f8f;
   --color-accent-subtle: rgba(143, 143, 143, 0.12);
   --color-primary-bg: rgba(143, 143, 143, 0.16);
   --color-primary-bg-strong: rgba(143, 143, 143, 0.22);
   --color-primary-border: rgba(143, 143, 143, 0.3);
+}
+html[data-accent='graphite'] {
+  color-scheme: dark;
+  --color-accent: #9ea8b7;
+  --color-primary: #9ea8b7;
+  --color-accent-subtle: rgba(158, 168, 183, 0.12);
+  --color-primary-bg: rgba(158, 168, 183, 0.16);
+  --color-primary-bg-strong: rgba(158, 168, 183, 0.22);
+  --color-primary-border: rgba(158, 168, 183, 0.36);
+  --color-bg: #0f1115;
+  --color-bg-surface: #171a1f;
+  --color-bg-elevated: #20252c;
+  --color-bg-hover: #282e37;
+  --color-border: #4d5561;
+  --color-border-subtle: #383f4a;
+  --color-input-border: #4d5561;
+  --color-input-border-chat: rgba(158, 168, 183, 0.36);
+  --surface-nav: #171a1f;
+  --surface-control: #2b313a;
+  --surface-readonly: color-mix(in srgb, var(--color-bg-elevated) 84%, var(--color-bg-surface));
+  --surface-table-head: color-mix(in srgb, var(--surface-nav) 88%, #0a0d12);
+  --surface-table-row-hover: var(--color-bg-hover);
+  --surface-tooltip: #1f242b;
+  --layout-divider-color: #444c58;
+  --color-control-ring: #687486;
+  --color-accent-hover: color-mix(in srgb, var(--color-accent) 84%, white);
 }
 html[data-accent='sand'] {
   color-scheme: light;
@@ -284,6 +311,8 @@ html[data-accent='sand'] {
   --color-bg-hover: #efe3d2;
   --color-border: #d9cbb8;
   --color-border-subtle: #e9dccb;
+  --color-input-border: #d9cbb8;
+  --color-input-border-chat: rgba(171, 106, 67, 0.28);
   --color-text: #3a2f25;
   --color-text-muted: #5e4f40;
   --color-text-dimmed: #625340;
@@ -340,6 +369,8 @@ html[data-accent='linen'] {
   --color-bg-hover: #3a3127;
   --color-border: #453a2f;
   --color-border-subtle: #362d24;
+  --color-input-border: #453a2f;
+  --color-input-border-chat: rgba(188, 123, 67, 0.26);
   --color-text: #f3e9d8;
   --color-text-muted: #b4a998;
   --color-text-dimmed: #9f9483;
@@ -397,6 +428,8 @@ html[data-accent='mono'] {
   --color-bg-hover: #2a2a2a;
   --color-border: #4a4a4a;
   --color-border-subtle: #3a3a3a;
+  --color-input-border: #4a4a4a;
+  --color-input-border-chat: rgba(118, 118, 118, 0.3);
   --surface-nav: #1a1a1a;
   --surface-control: #303030;
   --surface-readonly: color-mix(in srgb, var(--color-bg-elevated) 84%, var(--color-bg-surface));
