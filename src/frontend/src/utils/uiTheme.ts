@@ -4,6 +4,7 @@ export const UI_THEME_DEFAULT = 'mono'
 export const UI_THEME_VALUES = [
   'sand',
   'linen',
+  'sage',
   'mono',
   'graphite',
 ] as const
@@ -13,7 +14,8 @@ export type UiThemeValue = (typeof UI_THEME_VALUES)[number]
 export const UI_THEME_OPTIONS: Array<{ value: UiThemeValue; label: string }> = [
   { value: 'mono', label: 'Mono' },
   { value: 'graphite', label: 'Graphite' },
-  { value: 'linen', label: 'Linen' },
+  { value: 'linen', label: 'Ember' },
+  { value: 'sage', label: 'Sage' },
   { value: 'sand', label: 'Sand' },
 ]
 

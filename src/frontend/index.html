@@ -5,7 +5,7 @@
     <meta name="color-scheme" content="dark light" />
     <script>
       try {
-        const allowed = new Set(['sand', 'linen', 'graphite', 'mono'])
+        const allowed = new Set(['sand', 'linen', 'sage', 'graphite', 'mono'])
         const aliases = {
           light: 'sand',
           'linen-dark': 'linen',
@@ -43,6 +43,11 @@
         --boot-bg: #1b1713;
         --boot-accent: #bc7b43;
         --boot-text: #b4a998;
+      }
+      html[data-accent='sage'] {
+        --boot-bg: #121713;
+        --boot-accent: #7a9a6c;
+        --boot-text: #aebaa8;
       }
       html[data-accent='mono'] {
         --boot-accent: #8f8f8f;
