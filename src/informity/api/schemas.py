@@ -361,7 +361,7 @@ class SettingsResponse(BaseModel):
     file_type_options:      list[FileTypeOption] = Field(default_factory=list)  # Canonical list for UI
     config_file_path:       str               = ''
     model_profile:          ModelProfileInfo | None = None  # Main model profile (read-only)
-    ui_theme:               str               = 'mono'     # Color theme: sand, linen, graphite, mono
+    ui_theme:               str               = 'mono'     # Color theme: sand, linen, sage, graphite, mono
     enable_menu_bar_icon:   bool              = False      # Show menu bar icon while app is running (macOS desktop runtime)
     cpu_priority_nice:      int = 10  # 0 = off, >0 lowers process priority at startup
 
@@ -439,7 +439,7 @@ class SettingsUpdateRequest(BaseModel):
     chat_trace_user_retention_days: int | None = None
     chat_trace_evaluation_retention_days: int | None = None
     enable_raw_output_control: bool | None = None   # Show control to fetch raw model output per assistant message
-    ui_theme:             str | None  = None  # Color theme: sand, linen, graphite, mono
+    ui_theme:             str | None  = None  # Color theme: sand, linen, sage, graphite, mono
     enable_menu_bar_icon: bool | None = None  # Show menu bar icon while app is running (macOS desktop runtime)
     cpu_priority_nice:    int | None = None
 
