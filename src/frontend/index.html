@@ -5,9 +5,19 @@
     <meta name="color-scheme" content="dark light" />
     <script>
       try {
-        const allowed = new Set(['light', 'gray', 'purple', 'blue', 'green', 'orange', 'mono'])
+        const allowed = new Set(['sand', 'linen', 'overcast', 'mono'])
+        const aliases = {
+          light: 'sand',
+          'linen-dark': 'linen',
+          gray: 'overcast',
+          purple: 'overcast',
+          blue: 'overcast',
+          green: 'overcast',
+          orange: 'overcast',
+        }
         const saved = localStorage.getItem('informity-ui-theme')
-        document.documentElement.setAttribute('data-accent', allowed.has(saved) ? saved : 'mono')
+        const normalized = aliases[saved] || saved
+        document.documentElement.setAttribute('data-accent', allowed.has(normalized) ? normalized : 'mono')
       } catch {
         document.documentElement.setAttribute('data-accent', 'mono')
       }
@@ -20,30 +30,19 @@
         --boot-accent: #8f8f8f;
         --boot-text: #9a9a9a;
       }
-      html[data-accent='gray'] {
+      html[data-accent='overcast'] {
         --boot-accent: #8f8f8f;
         --boot-text: #a8a8a8;
       }
-      html[data-accent='light'] {
+      html[data-accent='sand'] {
         --boot-bg: #faf6ef;
         --boot-accent: #ab6a43;
         --boot-text: #6a5a4a;
       }
-      html[data-accent='blue'] {
-        --boot-accent: #6b9ec9;
-        --boot-text: #8fb8db;
-      }
-      html[data-accent='purple'] {
-        --boot-accent: #9d7bd8;
-        --boot-text: #b59ae5;
-      }
-      html[data-accent='green'] {
-        --boot-accent: #6b9e6b;
-        --boot-text: #89b989;
-      }
-      html[data-accent='orange'] {
-        --boot-accent: #d4854a;
-        --boot-text: #e0a477;
+      html[data-accent='linen'] {
+        --boot-bg: #1b1713;
+        --boot-accent: #bc7b43;
+        --boot-text: #b4a998;
       }
       html[data-accent='mono'] {
         --boot-accent: #8f8f8f;
