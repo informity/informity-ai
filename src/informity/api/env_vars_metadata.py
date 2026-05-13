@@ -95,7 +95,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         'Appearance',
         'Frontend UI customization settings.',
         [
-            ('ui_theme', 'Color theme for the app UI. Options: sand, linen, sage, graphite, mono.'),
+            ('ui_theme', 'Color theme for the app UI. Options: canvas, ember, sage, graphite, onyx.'),
             ('enable_menu_bar_icon', 'When true, show the menu bar icon while the app is running (macOS desktop runtime).'),
         ],
     ),

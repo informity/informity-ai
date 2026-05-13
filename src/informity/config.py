@@ -70,24 +70,28 @@ _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT = (
 )
 LOG_LEVEL_ALLOWED_VALUES: tuple[str, ...] = ('debug', 'info', 'warning', 'error')
 UI_THEME_ALLOWED_VALUES: tuple[str, ...] = (
-    'sand',
-    'linen',
+    'canvas',
+    'ember',
     'sage',
     'graphite',
-    'mono',
+    'onyx',
 )
 # Theme migration map for legacy persisted values.
 UI_THEME_ALIAS_MAP: dict[str, str] = {
-    'light': 'sand',
-    'linen-dark': 'linen',
+    'light': 'canvas',
+    'sand': 'canvas',
+    'linen-dark': 'ember',
+    'linen': 'ember',
+    'mono': 'onyx',
     'gray': 'graphite',
+    'overcast': 'graphite',
     'purple': 'graphite',
     'blue': 'graphite',
     'green': 'graphite',
     'orange': 'graphite',
 }
 _DEFAULT_LOG_LEVEL = 'info'
-_DEFAULT_UI_THEME = 'mono'
+_DEFAULT_UI_THEME = 'onyx'
 
 
 # ==============================================================================
@@ -541,8 +545,8 @@ class Settings(BaseSettings):
     diagnostics_alert_max_rss_delta_mb: float = 1024.0
 
     # -- UI (frontend-only; persisted so theme survives restarts) -------------
-    # Color theme for the app UI: sand, linen, sage, graphite, mono.
-    ui_theme: Literal['sand', 'linen', 'sage', 'graphite', 'mono'] = _DEFAULT_UI_THEME
+    # Color theme for the app UI: canvas, ember, sage, graphite, onyx.
+    ui_theme: Literal['canvas', 'ember', 'sage', 'graphite', 'onyx'] = _DEFAULT_UI_THEME
     # When true, show the macOS menu bar icon while the app is running.
     enable_menu_bar_icon: bool = False
     # -- Pydantic Settings Config ---------------------------------------------
@@ -1027,12 +1031,3 @@ def are_required_models_cached(*, include_llm: bool = True) -> bool:
             return False
 
     return True
-_UI_THEME_ALIAS_MAP: dict[str, str] = {
-    'light': 'sand',
-    'linen-dark': 'linen',
-    'gray': 'graphite',
-    'purple': 'graphite',
-    'blue': 'graphite',
-    'green': 'graphite',
-    'orange': 'graphite',
-}

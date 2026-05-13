@@ -262,7 +262,7 @@ input[type='checkbox']:disabled {
   cursor: not-allowed;
 }
 
-/* Accent colors (ui_theme from Settings). Set via data-accent on <html>. Default: mono. */
+/* Accent colors (ui_theme from Settings). Set via data-accent on <html>. Default: onyx. */
 :root {
   --color-accent: #8f8f8f;
   --color-primary: #8f8f8f;
@@ -297,7 +297,7 @@ html[data-accent='graphite'] {
   --color-control-ring: #687486;
   --color-accent-hover: color-mix(in srgb, var(--color-accent) 84%, white);
 }
-html[data-accent='sand'] {
+html[data-accent='canvas'] {
   color-scheme: light;
   --color-accent: #ab6a43;
   --color-primary: #ab6a43;
@@ -355,7 +355,7 @@ html[data-accent='sand'] {
   --source-card-border: rgba(171, 106, 67, 0.24);
   --source-card-hover-border: rgba(171, 106, 67, 0.38);
 }
-html[data-accent='linen'] {
+html[data-accent='ember'] {
   color-scheme: dark;
   --color-accent: #bc7b43;
   --color-primary: #bc7b43;
@@ -473,8 +473,8 @@ html[data-accent='sage'] {
   --source-card-hover-border: rgba(122, 154, 108, 0.44);
   --color-accent-hover: color-mix(in srgb, var(--color-accent) 90%, black);
 }
-/* Mono Theme Start: black base + dotted separators */
-html[data-accent='mono'] {
+/* Onyx Theme Start: black base + dotted separators */
+html[data-accent='onyx'] {
   --color-accent: #767676;
   --color-primary: #767676;
   --color-accent-subtle: rgba(118, 118, 118, 0.1);
@@ -499,70 +499,70 @@ html[data-accent='mono'] {
   --layout-divider-style: dotted;
 }
 
-html[data-accent='mono'] body {
+html[data-accent='onyx'] body {
   background-color: var(--color-bg);
 }
 
-html[data-accent='mono'] .ui-subsection-head::before {
+html[data-accent='onyx'] .ui-subsection-head::before {
   background: var(--color-accent);
 }
 
-html[data-accent='mono'] .page-header {
+html[data-accent='onyx'] .page-header {
   border-bottom: 1px dotted #4a4a4a;
 }
 
-html[data-accent='mono'] .settings-tabs {
+html[data-accent='onyx'] .settings-tabs {
   border-bottom: 1px dotted #4a4a4a;
 }
 
-html[data-accent='mono'] .settings-tab + .settings-tab {
+html[data-accent='onyx'] .settings-tab + .settings-tab {
   border-left: 1px dotted #4a4a4a;
 }
 
-html[data-accent='mono'] .file-table__pagination,
-html[data-accent='mono'] .history-table__pagination {
+html[data-accent='onyx'] .file-table__pagination,
+html[data-accent='onyx'] .history-table__pagination {
   border-top: 1px dotted #4a4a4a;
 }
 
-html[data-accent='mono'] .settings-actions--sticky {
+html[data-accent='onyx'] .settings-actions--sticky {
   border-top: 1px dotted #4a4a4a;
 }
 
-html[data-accent='mono'] .page-footer {
+html[data-accent='onyx'] .page-footer {
   border-top: 1px dotted #4a4a4a;
 }
 
-html[data-accent='mono'] .data-table__th {
+html[data-accent='onyx'] .data-table__th {
   border-bottom: 1px dotted #4a4a4a;
 }
 
-html[data-accent='mono'] .data-table__td {
+html[data-accent='onyx'] .data-table__td {
   border-bottom: 1px dotted #3a3a3a;
 }
 
-html[data-accent='mono'] .ui-section-divider::before {
+html[data-accent='onyx'] .ui-section-divider::before {
   border-top: 1px dotted #4a4a4a;
 }
 
-html[data-accent='mono'] .settings-profile-row {
+html[data-accent='onyx'] .settings-profile-row {
   border-bottom: 1px dotted #4a4a4a;
 }
 
-html[data-accent='mono'] .settings-slider {
+html[data-accent='onyx'] .settings-slider {
   background: #303030;
   border: none;
 }
 
-html[data-accent='mono'] .settings-slider::-webkit-slider-thumb {
+html[data-accent='onyx'] .settings-slider::-webkit-slider-thumb {
   border: none;
   box-shadow: none;
 }
 
-html[data-accent='mono'] .settings-slider::-moz-range-thumb {
+html[data-accent='onyx'] .settings-slider::-moz-range-thumb {
   border: none;
   box-shadow: none;
 }
-/* Mono Theme End */
+/* Onyx Theme End */
 
 /* Accent hover (darker for buttons, links) */
 :root {

@@ -5,11 +5,15 @@
     <meta name="color-scheme" content="dark light" />
     <script>
       try {
-        const allowed = new Set(['sand', 'linen', 'sage', 'graphite', 'mono'])
+        const allowed = new Set(['canvas', 'ember', 'sage', 'graphite', 'onyx'])
         const aliases = {
-          light: 'sand',
-          'linen-dark': 'linen',
+          light: 'canvas',
+          sand: 'canvas',
+          'linen-dark': 'ember',
+          linen: 'ember',
+          mono: 'onyx',
           gray: 'graphite',
+          overcast: 'graphite',
           purple: 'graphite',
           blue: 'graphite',
           green: 'graphite',
@@ -17,9 +21,9 @@
         }
         const saved = localStorage.getItem('informity-ui-theme')
         const normalized = aliases[saved] || saved
-        document.documentElement.setAttribute('data-accent', allowed.has(normalized) ? normalized : 'mono')
+        document.documentElement.setAttribute('data-accent', allowed.has(normalized) ? normalized : 'onyx')
       } catch {
-        document.documentElement.setAttribute('data-accent', 'mono')
+        document.documentElement.setAttribute('data-accent', 'onyx')
       }
     </script>
     <style>
@@ -34,12 +38,12 @@
         --boot-accent: #8f8f8f;
         --boot-text: #a8a8a8;
       }
-      html[data-accent='sand'] {
+      html[data-accent='canvas'] {
         --boot-bg: #faf6ef;
         --boot-accent: #ab6a43;
         --boot-text: #6a5a4a;
       }
-      html[data-accent='linen'] {
+      html[data-accent='ember'] {
         --boot-bg: #1b1713;
         --boot-accent: #bc7b43;
         --boot-text: #b4a998;
@@ -49,7 +53,7 @@
         --boot-accent: #7a9a6c;
         --boot-text: #aebaa8;
       }
-      html[data-accent='mono'] {
+      html[data-accent='onyx'] {
         --boot-accent: #8f8f8f;
         --boot-text: #9a9a9a;
       }
