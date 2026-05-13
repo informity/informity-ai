@@ -275,14 +275,14 @@ class TestPromptBuilder:
         messages = build_messages('Question', [], chat_mode='researcher', role_id='legal')
         assert 'Role Identity:' in messages[0]['content']
         assert 'Role Disclaimer:' in messages[0]['content']
-        assert 'Role Output Guardrails:' in messages[0]['content']
+        assert 'Role Evidence Discipline:' in messages[0]['content']
 
     def test_builder_applies_role_specific_financial_numeric_discipline(self) -> None:
         messages = build_messages('Question', [], chat_mode='researcher', role_id='financial')
         assert 'Prioritize financial interpretation' in messages[0]['content']
         assert 'Role Output Guardrails:' not in messages[0]['content']
         assert 'Financial Output Contract:' not in messages[0]['content']
-        assert 'Role Evidence Discipline:' not in messages[0]['content']
+        assert 'Role Evidence Discipline:' in messages[0]['content']
 
     def test_builder_applies_role_specific_technical_non_invention_rule(self) -> None:
         messages = build_messages('Question', [], chat_mode='researcher', role_id='technical')
@@ -292,6 +292,7 @@ class TestPromptBuilder:
     def test_builder_applies_role_specific_legal_compact_contract(self) -> None:
         messages = build_messages('Question', [], chat_mode='researcher', role_id='legal')
         assert 'Prioritize legal risk identification' in messages[0]['content']
+        assert 'Legal Output Contract:' not in messages[0]['content']
 
     def test_preserves_assistant_history_verbatim(self) -> None:
         history = [
