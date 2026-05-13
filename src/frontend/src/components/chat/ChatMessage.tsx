@@ -1,4 +1,4 @@
-import { Fragment, memo, useCallback, useState, type ReactElement } from 'react'
+import { Fragment, memo, useCallback, useState, type KeyboardEvent, type ReactElement } from 'react'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { formatDuration } from '../../utils/formatDuration'
 import { getMessageRaw } from '../../api'
@@ -56,6 +56,9 @@ interface ChatMessageProps {
   onContinue?: (anchorMessageId?: number) => void
   onRegenerate?: () => void
   onAssistantSwitch?: () => void
+  canEdit?: boolean
+  onEditSubmit?: (text: string) => void | Promise<void>
+  onEditCancel?: () => void
   canContinue?: boolean
   canRegenerate?: boolean
   canAssistantSwitch?: boolean
@@ -91,6 +94,9 @@ function ChatMessageComponent({
   onContinue,
   onRegenerate,
   onAssistantSwitch,
+  canEdit = false,
+  onEditSubmit,
+  onEditCancel,
   canContinue = false,
   canRegenerate = false,
   canAssistantSwitch = false,
@@ -103,6 +109,9 @@ function ChatMessageComponent({
   const [rawContent, setRawContent] = useState<string | null>(null)
   const [rawLoading, setRawLoading] = useState(false)
   const [rawCopied, setRawCopied] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [editDraft, setEditDraft] = useState('')
+  const [isEditSubmitting, setIsEditSubmitting] = useState(false)
 
   const handleRawToggle = useCallback(() => {
     if (actionsDisabled) return
@@ -148,6 +157,8 @@ function ChatMessageComponent({
     ? streamSectionProgress.remaining.map((heading) => heading.replace(/^#{1,6}\s*/, '').trim()).join(' · ')
     : ''
   const showPlanSteps = !!streamPlanSteps && streamPlanSteps.length > 0
+  const canEnterEdit = isUser && canEdit && !actionsDisabled
+  const showEditControls = canEnterEdit || isEditing
   const assistantMetaItems = [] as Array<{ key: string; node: ReactElement }>
   if (generationSeconds != null) {
     assistantMetaItems.push({
@@ -364,6 +375,44 @@ function ChatMessageComponent({
     }
   }, [actionsDisabled, rawContent, rawLoading])
 
+  const handleBeginEdit = useCallback(() => {
+    if (!canEnterEdit) return
+    setEditDraft(safeContent)
+    setIsEditing(true)
+  }, [canEnterEdit, safeContent])
+
+  const handleCancelEdit = useCallback(() => {
+    if (isEditSubmitting) return
+    setIsEditing(false)
+    setEditDraft(safeContent)
+    onEditCancel?.()
+  }, [isEditSubmitting, onEditCancel, safeContent])
+
+  const handleSubmitEdit = useCallback(async () => {
+    if (!onEditSubmit || isEditSubmitting) return
+    const trimmed = editDraft.trim()
+    if (!trimmed) return
+    setIsEditSubmitting(true)
+    try {
+      await onEditSubmit(trimmed)
+      setIsEditing(false)
+    } finally {
+      setIsEditSubmitting(false)
+    }
+  }, [editDraft, isEditSubmitting, onEditSubmit])
+
+  const handleEditKeyDown = useCallback((event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault()
+      void handleCancelEdit()
+      return
+    }
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault()
+      void handleSubmitEdit()
+    }
+  }, [handleCancelEdit, handleSubmitEdit])
+
   if (isUser && isInternal) return null
 
   return (
@@ -371,7 +420,22 @@ function ChatMessageComponent({
       <div className="chat-message__inner">
         <div className="chat-message__content">
           {isUser ? (
-            <p className="chat-message__text">{safeContent}</p>
+            isEditing ? (
+              <div className="chat-message__edit">
+                <textarea
+                  className="chat-message__edit-input"
+                  value={editDraft}
+                  onChange={(event) => setEditDraft(event.target.value)}
+                  onKeyDown={handleEditKeyDown}
+                  aria-label="Edit message"
+                  autoFocus
+                  rows={3}
+                  disabled={actionsDisabled || isEditSubmitting}
+                />
+              </div>
+            ) : (
+              <p className="chat-message__text">{safeContent}</p>
+            )
           ) : (
             <>
               <div className="chat-message__markdown">
@@ -465,6 +529,43 @@ function ChatMessageComponent({
           <div className="chat-message__actions-right">
             {createdAt && (
               <span className="chat-message__time">{formatRelativeTime(createdAt)}</span>
+            )}
+            {showEditControls && (
+              isEditing ? (
+                <>
+                  <button
+                    type="button"
+                    className="chat-message__copy-full"
+                    onClick={() => void handleSubmitEdit()}
+                    disabled={actionsDisabled || isEditSubmitting || !editDraft.trim()}
+                    title="Submit edited message"
+                    aria-label="Submit edited message"
+                  >
+                    <i className="ri-arrow-up-line" aria-hidden style={{ fontSize: '0.875rem' }} />
+                  </button>
+                  <button
+                    type="button"
+                    className="chat-message__copy-full"
+                    onClick={() => void handleCancelEdit()}
+                    disabled={actionsDisabled || isEditSubmitting}
+                    title="Cancel edit"
+                    aria-label="Cancel edit"
+                  >
+                    <i className="ri-close-line" aria-hidden style={{ fontSize: '0.875rem' }} />
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  className="chat-message__copy-full"
+                  onClick={handleBeginEdit}
+                  disabled={actionsDisabled}
+                  title="Edit message"
+                  aria-label="Edit message"
+                >
+                  <i className="ri-edit-2-line" aria-hidden style={{ fontSize: '0.875rem' }} />
+                </button>
+              )
             )}
             {((isUser && safeContent) || (!isUser && hasVisibleContent)) && (
               <button
@@ -562,6 +663,9 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.onContinue === next.onContinue &&
     prev.onRegenerate === next.onRegenerate &&
     prev.onAssistantSwitch === next.onAssistantSwitch &&
+    prev.canEdit === next.canEdit &&
+    prev.onEditSubmit === next.onEditSubmit &&
+    prev.onEditCancel === next.onEditCancel &&
     prev.canContinue === next.canContinue &&
     prev.canRegenerate === next.canRegenerate &&
     prev.canAssistantSwitch === next.canAssistantSwitch &&
