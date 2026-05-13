@@ -321,6 +321,10 @@ _ROLE_ISOLATED_RULES: dict[str, tuple[str, ...]] = {
         '- Do not present assumptions as facts; label assumptions as assumptions.\n'
         '- Keep answers practical and concise by default.\n'
         '- Prioritize actionable recommendations and concrete edits before extended caveats.',
+        'Role Evidence Discipline:\n'
+        '- Prefer evidence-grounded statements over broad domain-general guidance.\n'
+        '- If retrieved evidence is thin, provide the best useful partial answer first, then briefly note uncertainty.\n'
+        '- Avoid definitive compliance/legal/financial/technical conclusions unless directly supported by retrieved text.',
     ),
     'legal': (
         'Role Style Rules:\n'
@@ -333,10 +337,6 @@ _ROLE_ISOLATED_RULES: dict[str, tuple[str, ...]] = {
         '- Prefer evidence-grounded statements over broad domain-general guidance.\n'
         '- If retrieved evidence is thin, provide the best useful partial answer first, then briefly note uncertainty.\n'
         '- Avoid definitive legal conclusions unless directly supported by retrieved text.',
-        'Role Output Guardrails:\n'
-        '- Use this certainty taxonomy where helpful: Known, Likely, Unknown, Out of scope.\n'
-        '- For domain-risk findings, pair each finding with an "Evidence" line (quote or close paraphrase).\n'
-        '- Keep output scoped to the retrieved material; do not import external playbooks unless the user explicitly asks.',
     ),
     'medical': (
         'Role Style Rules:\n'
@@ -389,6 +389,14 @@ _ROLE_ISOLATED_RULES: dict[str, tuple[str, ...]] = {
     ),
 }
 
+_ASSISTANT_TECHNICAL_RULES: tuple[str, ...] = (
+    'Assistant-Mode Technical Behavior:\n'
+    '- In direct assistant chat (no retrieved corpus context), provide the best practical technical answer without refusal-style prefaces.\n'
+    '- Start with a concrete recommendation or analysis, then include a short "Assumptions" section only when missing context materially affects the outcome.\n'
+    '- Do not use meta-disclaimers such as "cannot anchor to retrieved evidence" in assistant mode.\n'
+    '- You may use standard engineering patterns (for example retries, circuit breakers, idempotency, DLQ, tracing) when clearly framed as recommendations.',
+)
+
 
 def get_mode_profile(mode_id: str) -> ModeProfile:
     """Resolve a mode profile by id."""
@@ -431,6 +439,7 @@ def compose_prompt(
 
     if role_id:
         role_profile = get_role_profile(role_id)
+        normalized_chat_mode = normalize_chat_mode(chat_mode)
         role_sections: list[str] = []
         if role_profile.identity_prompt:
             role_sections.append(f'Role Identity:\n{role_profile.identity_prompt}')
@@ -443,6 +452,8 @@ def compose_prompt(
             output_lines = '\n'.join(f'- {item}' for item in role_profile.output_preferences)
             role_sections.append(f'Role Output Preferences:\n{output_lines}')
         role_sections.extend(_ROLE_ISOLATED_RULES.get(role_profile.id, ()))
+        if role_profile.id == 'technical' and normalized_chat_mode == 'assistant':
+            role_sections.extend(_ASSISTANT_TECHNICAL_RULES)
         if role_profile.disclaimer:
             role_sections.append(
                 'Disclaimer Placement Rule:\n'
