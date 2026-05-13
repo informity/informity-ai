@@ -18,19 +18,19 @@
   width: 100%;
 }
 
-html[data-accent='sand'] .chat-message {
+html[data-accent='canvas'] .chat-message {
   --chat-message-muted-fg: color-mix(in srgb, var(--color-text-dimmed) 84%, white);
   --chat-copy-code-bg: transparent;
   --chat-copy-code-bg-hover: color-mix(in srgb, var(--color-bg-surface) 98%, black 10%);
   --chat-code-fg: var(--color-parameter-value);
 }
 
-html[data-accent='sand'] .chat-message__copy-code {
+html[data-accent='canvas'] .chat-message__copy-code {
   border-color: transparent;
 }
 
-html[data-accent='sand'] .chat-message__copy-code:hover,
-html[data-accent='sand'] .chat-message__copy-code:focus-visible {
+html[data-accent='canvas'] .chat-message__copy-code:hover,
+html[data-accent='canvas'] .chat-message__copy-code:focus-visible {
   background: transparent;
   color: var(--color-text-muted);
   box-shadow: none;
@@ -371,13 +371,13 @@ html[data-accent='sand'] .chat-message__copy-code:focus-visible {
   background: transparent !important;
 }
 
-html[data-accent='sand'] .chat-message__markdown pre .hljs,
-html[data-accent='sand'] .chat-message__block--code pre .hljs {
+html[data-accent='canvas'] .chat-message__markdown pre .hljs,
+html[data-accent='canvas'] .chat-message__block--code pre .hljs {
   color: var(--chat-code-fg) !important;
 }
 
-html[data-accent='sand'] .chat-message__markdown pre .hljs *,
-html[data-accent='sand'] .chat-message__block--code pre .hljs * {
+html[data-accent='canvas'] .chat-message__markdown pre .hljs *,
+html[data-accent='canvas'] .chat-message__block--code pre .hljs * {
   color: inherit !important;
 }
 
@@ -584,13 +584,13 @@ html[data-accent='sand'] .chat-message__block--code pre .hljs * {
   margin: 0;
 }
 
-html:not([data-accent='sand']) .chat-message__copy-code {
+html:not([data-accent='canvas']) .chat-message__copy-code {
   background: transparent;
   border-color: transparent;
 }
 
-html:not([data-accent='sand']) .chat-message__copy-code:hover,
-html:not([data-accent='sand']) .chat-message__copy-code:focus-visible {
+html:not([data-accent='canvas']) .chat-message__copy-code:hover,
+html:not([data-accent='canvas']) .chat-message__copy-code:focus-visible {
   background: transparent;
   border-color: transparent;
   color: var(--color-text-muted);
@@ -803,7 +803,7 @@ html:not([data-accent='sand']) .chat-message__copy-code:focus-visible {
   border-top: 1px solid var(--chat-message-divider-color);
 }
 
-html[data-accent='sand'] .chat-message--assistant .chat-message__actions {
+html[data-accent='canvas'] .chat-message--assistant .chat-message__actions {
   --chat-message-divider-color: var(--color-border);
 }
 

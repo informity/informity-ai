@@ -51,7 +51,7 @@
     border-color: var(--color-text-secondary);
 }
 
-html[data-accent='sand'] .settings-btn--secondary {
+html[data-accent='canvas'] .settings-btn--secondary {
     color: var(--color-secondary-btn-text);
     border-color: var(--color-secondary-btn-border);
 }

@@ -35,7 +35,7 @@
   animation: confirm-dialog-slide-in 0.2s ease-out;
 }
 
-html[data-accent='sand'] .confirm-dialog {
+html[data-accent='canvas'] .confirm-dialog {
   box-shadow: 0 14px 28px rgba(122, 84, 56, 0.2);
 }
 
