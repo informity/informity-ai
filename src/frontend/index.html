@@ -5,15 +5,15 @@
     <meta name="color-scheme" content="dark light" />
     <script>
       try {
-        const allowed = new Set(['sand', 'linen', 'overcast', 'mono'])
+        const allowed = new Set(['sand', 'linen', 'graphite', 'mono'])
         const aliases = {
           light: 'sand',
           'linen-dark': 'linen',
-          gray: 'overcast',
-          purple: 'overcast',
-          blue: 'overcast',
-          green: 'overcast',
-          orange: 'overcast',
+          gray: 'graphite',
+          purple: 'graphite',
+          blue: 'graphite',
+          green: 'graphite',
+          orange: 'graphite',
         }
         const saved = localStorage.getItem('informity-ui-theme')
         const normalized = aliases[saved] || saved
@@ -30,7 +30,7 @@
         --boot-accent: #8f8f8f;
         --boot-text: #9a9a9a;
       }
-      html[data-accent='overcast'] {
+      html[data-accent='graphite'] {
         --boot-accent: #8f8f8f;
         --boot-text: #a8a8a8;
       }
