@@ -102,6 +102,30 @@ html[data-accent='canvas'] .chat-message__copy-code:focus-visible {
   word-break: break-word;
 }
 
+.chat-message__edit {
+  width: 100%;
+}
+
+.chat-message__edit-input {
+  width: 100%;
+  min-height: 84px;
+  resize: vertical;
+  border: 1px solid var(--color-primary-border);
+  border-radius: 8px;
+  background: var(--color-bg-surface);
+  color: var(--color-text);
+  font: inherit;
+  line-height: 1.5;
+  padding: 0.6rem 0.7rem;
+  box-sizing: border-box;
+}
+
+.chat-message__edit-input:focus-visible {
+  outline: none;
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-primary) 22%, transparent);
+}
+
 .chat-message__text--muted {
   color: var(--chat-message-muted-fg);
 }
@@ -961,11 +985,15 @@ html[data-accent='canvas'] .chat-message--assistant .chat-message__actions {
 .chat-message__actions-right {
   display: flex;
   align-items: center;
-  gap: var(--chat-meta-pair-gap);
+  gap: 0.25rem;
   margin-left: auto;
 }
 
 .chat-message__time {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  margin-right: 0.35rem;
   font-size: var(--font-size-description);
   color: var(--chat-message-muted-fg);
 }

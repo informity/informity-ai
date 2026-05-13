@@ -663,6 +663,39 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     lockedMode,
   ])
 
+  const lastEditableUserMessageIndex = (() => {
+    for (let i = messages.length - 1; i >= 0; i -= 1) {
+      const candidate = messages[i]
+      if (candidate.role === 'user' && !candidate.isInternal && String(candidate.content || '').trim()) {
+        return i
+      }
+    }
+    return -1
+  })()
+
+  const handleEditSubmit = useCallback(async (editedText: string) => {
+    if (offline) return
+    if (isStreaming) return
+    if (loadingChat) return
+    await sendMessage(editedText, {
+      mode: effectiveChatMode,
+      roleId: requestRoleId,
+      fileScope: chatFileScope,
+      chatWebSearchEnabled,
+      chatWebSearchPrivacyOverride,
+    })
+  }, [
+    offline,
+    isStreaming,
+    loadingChat,
+    sendMessage,
+    effectiveChatMode,
+    requestRoleId,
+    chatFileScope,
+    chatWebSearchEnabled,
+    chatWebSearchPrivacyOverride,
+  ])
+
   const handleNewChat = useCallback(() => {
     if (offline) return
     newChatRequestedRef.current = true
@@ -1031,6 +1064,13 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       onContinue={handleContinue}
                       onRegenerate={() => handleRegenerate(i)}
                       onAssistantSwitch={hideAssistantSwitch ? undefined : (() => handleAskInAssistant(i))}
+                      canEdit={
+                        i === lastEditableUserMessageIndex
+                        && !offline
+                        && !isStreaming
+                        && !loadingChat
+                      }
+                      onEditSubmit={handleEditSubmit}
                       canContinue={!offline && !isStreaming}
                       canRegenerate={!offline && !isStreaming}
                       canAssistantSwitch={!offline && !isStreaming && !hideAssistantSwitch}
