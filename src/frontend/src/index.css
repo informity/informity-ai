@@ -262,15 +262,7 @@ input[type='checkbox']:disabled {
 
 /* Accent colors (ui_theme from Settings). Set via data-accent on <html>. Default: mono. */
 :root,
-html[data-accent='blue'] {
-  --color-accent: #6b9ec9;
-  --color-primary: #6b9ec9;
-  --color-accent-subtle: rgba(107, 158, 201, 0.1);
-  --color-primary-bg: rgba(107, 158, 201, 0.12);
-  --color-primary-bg-strong: rgba(107, 158, 201, 0.18);
-  --color-primary-border: rgba(107, 158, 201, 0.25);
-}
-html[data-accent='gray'] {
+html[data-accent='overcast'] {
   --color-accent: #8f8f8f;
   --color-primary: #8f8f8f;
   --color-accent-subtle: rgba(143, 143, 143, 0.12);
@@ -278,31 +270,7 @@ html[data-accent='gray'] {
   --color-primary-bg-strong: rgba(143, 143, 143, 0.22);
   --color-primary-border: rgba(143, 143, 143, 0.3);
 }
-html[data-accent='purple'] {
-  --color-accent: #9d7bd8;
-  --color-primary: #9d7bd8;
-  --color-accent-subtle: rgba(157, 123, 216, 0.1);
-  --color-primary-bg: rgba(157, 123, 216, 0.12);
-  --color-primary-bg-strong: rgba(157, 123, 216, 0.18);
-  --color-primary-border: rgba(157, 123, 216, 0.25);
-}
-html[data-accent='green'] {
-  --color-accent: #6b9e6b;
-  --color-primary: #6b9e6b;
-  --color-accent-subtle: rgba(107, 158, 107, 0.1);
-  --color-primary-bg: rgba(107, 158, 107, 0.12);
-  --color-primary-bg-strong: rgba(107, 158, 107, 0.18);
-  --color-primary-border: rgba(107, 158, 107, 0.25);
-}
-html[data-accent='orange'] {
-  --color-accent: #d4854a;
-  --color-primary: #d4854a;
-  --color-accent-subtle: rgba(212, 133, 74, 0.1);
-  --color-primary-bg: rgba(212, 133, 74, 0.12);
-  --color-primary-bg-strong: rgba(212, 133, 74, 0.18);
-  --color-primary-border: rgba(212, 133, 74, 0.2);
-}
-html[data-accent='light'] {
+html[data-accent='sand'] {
   color-scheme: light;
   --color-accent: #ab6a43;
   --color-primary: #ab6a43;
@@ -357,6 +325,63 @@ html[data-accent='light'] {
   --chat-source-border: rgba(171, 106, 67, 0.26);
   --source-card-border: rgba(171, 106, 67, 0.24);
   --source-card-hover-border: rgba(171, 106, 67, 0.38);
+}
+html[data-accent='linen'] {
+  color-scheme: dark;
+  --color-accent: #bc7b43;
+  --color-primary: #bc7b43;
+  --color-accent-subtle: rgba(188, 123, 67, 0.1);
+  --color-primary-bg: rgba(188, 123, 67, 0.14);
+  --color-primary-bg-strong: rgba(188, 123, 67, 0.2);
+  --color-primary-border: rgba(188, 123, 67, 0.26);
+  --color-bg: #1b1713;
+  --color-bg-surface: #26201a;
+  --color-bg-elevated: #302820;
+  --color-bg-hover: #3a3127;
+  --color-border: #453a2f;
+  --color-border-subtle: #362d24;
+  --color-text: #f3e9d8;
+  --color-text-muted: #b4a998;
+  --color-text-dimmed: #9f9483;
+  --color-placeholder: var(--color-text-dimmed);
+  --placeholder-opacity: 0.7;
+  --color-text-secondary: #c7b9a4;
+  --color-danger: #c96a5d;
+  --color-danger-solid: #c96a5d;
+  --color-danger-bg: rgba(201, 106, 93, 0.12);
+  --color-danger-bg-strong: rgba(201, 106, 93, 0.16);
+  --color-danger-border: rgba(201, 106, 93, 0.34);
+  --color-danger-border-strong: rgba(201, 106, 93, 0.42);
+  --color-danger-subtle: rgba(201, 106, 93, 0.08);
+  --color-danger-text: #dd8173;
+  --color-success: #6fa07a;
+  --color-success-bg: rgba(111, 160, 122, 0.16);
+  --color-success-border: rgba(111, 160, 122, 0.34);
+  --color-success-light: #88bb92;
+  --color-success-score-bg: rgba(111, 160, 122, 0.22);
+  --color-info: #87a2c4;
+  --color-info-bg: rgba(135, 162, 196, 0.14);
+  --color-info-border: rgba(135, 162, 196, 0.32);
+  --color-warning-bright: #e0ac63;
+  --color-warning-bg: rgba(224, 172, 99, 0.18);
+  --color-warning-border: rgba(224, 172, 99, 0.34);
+  --surface-nav: #221d18;
+  --surface-control: #382f26;
+  --surface-readonly: color-mix(in srgb, var(--color-bg-elevated) 84%, var(--color-bg-surface));
+  --surface-table-head: color-mix(in srgb, var(--surface-nav) 88%, #16110d);
+  --surface-table-row-hover: var(--color-bg-hover);
+  --surface-tooltip: #2a221b;
+  --text-tooltip: var(--color-text);
+  --color-parameter-value: #d19a66;
+  --color-secondary-btn-text: #c4b29d;
+  --color-secondary-btn-border: #6b5644;
+  --color-control-icon: #c28a58;
+  --color-control-ring: #7a624c;
+  --shadow-modal: 0 18px 36px rgba(10, 7, 5, 0.48);
+  --chat-source-border: rgba(188, 123, 67, 0.34);
+  --source-card-border: rgba(188, 123, 67, 0.28);
+  --source-card-hover-border: rgba(188, 123, 67, 0.44);
+  --color-accent-hover: color-mix(in srgb, var(--color-accent) 90%, black);
 }
 /* Mono Theme Start: black base + dotted separators */
 html[data-accent='mono'] {
