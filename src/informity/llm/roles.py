@@ -313,6 +313,82 @@ ROLE_REGISTRY: dict[str, RoleProfile] = {
     ),
 }
 
+_ROLE_ISOLATED_RULES: dict[str, tuple[str, ...]] = {
+    'financial': (
+        'Role Style Rules:\n'
+        '- Start directly with findings; avoid meta-prefaces such as "Based on..." or "According to the scenario...".\n'
+        '- If evidence is limited, state uncertainty explicitly without refusing when a useful partial answer is possible.\n'
+        '- Do not present assumptions as facts; label assumptions as assumptions.\n'
+        '- Keep answers practical and concise by default.\n'
+        '- Prioritize actionable recommendations and concrete edits before extended caveats.',
+    ),
+    'legal': (
+        'Role Style Rules:\n'
+        '- Start directly with findings; avoid meta-prefaces such as "Based on..." or "According to the scenario...".\n'
+        '- If evidence is limited, state uncertainty explicitly without refusing when a useful partial answer is possible.\n'
+        '- Do not present assumptions as facts; label assumptions as assumptions.\n'
+        '- Keep answers practical and concise by default.\n'
+        '- Prioritize actionable recommendations and concrete edits before extended caveats.',
+        'Role Evidence Discipline:\n'
+        '- Prefer evidence-grounded statements over broad domain-general guidance.\n'
+        '- If retrieved evidence is thin, provide the best useful partial answer first, then briefly note uncertainty.\n'
+        '- Avoid definitive legal conclusions unless directly supported by retrieved text.',
+        'Role Output Guardrails:\n'
+        '- Use this certainty taxonomy where helpful: Known, Likely, Unknown, Out of scope.\n'
+        '- For domain-risk findings, pair each finding with an "Evidence" line (quote or close paraphrase).\n'
+        '- Keep output scoped to the retrieved material; do not import external playbooks unless the user explicitly asks.',
+    ),
+    'medical': (
+        'Role Style Rules:\n'
+        '- Start directly with findings; avoid meta-prefaces such as "Based on..." or "According to the scenario...".\n'
+        '- If evidence is limited, state uncertainty explicitly without refusing when a useful partial answer is possible.\n'
+        '- Do not present assumptions as facts; label assumptions as assumptions.\n'
+        '- Keep answers practical and concise by default.\n'
+        '- Prioritize actionable recommendations and concrete edits before extended caveats.',
+        'Role Evidence Discipline:\n'
+        '- Prefer evidence-grounded statements over broad domain-general guidance.\n'
+        '- If retrieved evidence is thin, provide the best useful partial answer first, then briefly note uncertainty.\n'
+        '- Avoid definitive medical conclusions unless directly supported by retrieved text.',
+    ),
+    'security_compliance': (
+        'Role Style Rules:\n'
+        '- Start directly with findings; avoid meta-prefaces such as "Based on..." or "According to the scenario...".\n'
+        '- If evidence is limited, state uncertainty explicitly without refusing when a useful partial answer is possible.\n'
+        '- Do not present assumptions as facts; label assumptions as assumptions.\n'
+        '- Keep answers practical and concise by default.\n'
+        '- Prioritize actionable recommendations and concrete edits before extended caveats.',
+        'Role Evidence Discipline:\n'
+        '- Prefer evidence-grounded statements over broad domain-general guidance.\n'
+        '- If retrieved evidence is thin, provide the best useful partial answer first, then briefly note uncertainty.\n'
+        '- Avoid definitive security/compliance conclusions unless directly supported by retrieved text.',
+        'Role Output Guardrails:\n'
+        '- Use this certainty taxonomy where helpful: Known, Likely, Unknown, Out of scope.\n'
+        '- For domain-risk findings, pair each finding with an "Evidence" line (quote or close paraphrase).\n'
+        '- If a framework/control/outcome is not explicitly present in evidence, state that it is missing evidence instead of inferring.\n'
+        '- Keep output scoped to the retrieved material; do not import external playbooks unless the user explicitly asks.',
+    ),
+    'technical': (
+        'Role Style Rules:\n'
+        '- Start directly with findings; avoid meta-prefaces such as "Based on..." or "According to the scenario...".\n'
+        '- If evidence is limited, state uncertainty explicitly without refusing when a useful partial answer is possible.\n'
+        '- Do not present assumptions as facts; label assumptions as assumptions.\n'
+        '- Keep answers practical and concise by default.\n'
+        '- Prioritize actionable recommendations and concrete edits before extended caveats.',
+        'Role Evidence Discipline:\n'
+        '- Prefer evidence-grounded statements over broad domain-general guidance.\n'
+        '- If retrieved evidence is thin, provide the best useful partial answer first, then briefly note uncertainty.\n'
+        '- Avoid definitive technical conclusions unless directly supported by retrieved text.',
+        'Role Output Guardrails:\n'
+        '- Use this certainty taxonomy where helpful: Known, Likely, Unknown, Out of scope.\n'
+        '- For domain-risk findings, pair each finding with an "Evidence" line (quote or close paraphrase).\n'
+        '- Keep output scoped to the retrieved material; do not import external playbooks unless the user explicitly asks.',
+        'Technical Output Contract:\n'
+        '- Limit default output to top 3-5 technical risks by delivery impact.\n'
+        '- Use compact entries: Risk | Evidence | Operational consequence | Mitigation.\n'
+        '- Do not add architecture details not present in retrieved evidence.',
+    ),
+}
+
 
 def get_mode_profile(mode_id: str) -> ModeProfile:
     """Resolve a mode profile by id."""
@@ -366,29 +442,7 @@ def compose_prompt(
         if role_profile.output_preferences:
             output_lines = '\n'.join(f'- {item}' for item in role_profile.output_preferences)
             role_sections.append(f'Role Output Preferences:\n{output_lines}')
-        role_sections.append(
-            'Role Style Rules:\n'
-            '- Start directly with findings; avoid meta-prefaces such as "Based on..." or "According to the scenario...".\n'
-            '- If evidence is limited, state uncertainty explicitly without refusing when a useful partial answer is possible.\n'
-            '- Do not present role assumptions as facts; label assumptions as assumptions.\n'
-            '- Keep answers practical and concise by default; use long formal memo style only when the user explicitly requests it.\n'
-            '- Prioritize actionable recommendations and concrete edits before extended caveats.'
-        )
-        if role_profile.id != 'financial':
-            role_sections.append(
-                'Role Evidence Discipline:\n'
-                '- Prefer evidence-grounded statements over broad domain-general guidance.\n'
-                '- If retrieved evidence is thin, provide the best useful partial answer first, then briefly note uncertainty.\n'
-                '- Avoid definitive compliance/legal/financial/technical conclusions unless directly supported by retrieved text.'
-            )
-        if role_profile.id != 'financial':
-            role_sections.append(
-                'Role Output Guardrails:\n'
-                '- Use this certainty taxonomy where helpful: Known, Likely, Unknown, Out of scope.\n'
-                '- For domain-risk findings, pair each finding with an "Evidence" line (quote or close paraphrase).\n'
-                '- If a framework/control/outcome is not explicitly present in evidence, state that it is missing evidence instead of inferring.\n'
-                '- Keep output scoped to the retrieved material; do not import external playbooks unless the user explicitly asks.'
-            )
+        role_sections.extend(_ROLE_ISOLATED_RULES.get(role_profile.id, ()))
         if role_profile.disclaimer:
             role_sections.append(
                 'Disclaimer Placement Rule:\n'
@@ -401,14 +455,6 @@ def compose_prompt(
             prompt = f'{prompt}\n\n' + '\n\n'.join(role_sections)
         if role_profile.disclaimer:
             prompt = f'{prompt}\n\nRole Disclaimer:\n{role_profile.disclaimer}'
-
-        if role_profile.id == 'technical':
-            prompt = (
-                f'{prompt}\n\nTechnical Output Contract:\n'
-                '- Limit default output to top 3-5 technical risks by delivery impact.\n'
-                '- Use compact entries: Risk | Evidence | Operational consequence | Mitigation.\n'
-                '- Do not add architecture details not present in retrieved evidence.'
-            )
 
     return prompt
 
