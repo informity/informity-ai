@@ -11,6 +11,15 @@ export default defineConfig({
   },
   build: {
     chunkSizeWarningLimit: 800,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          markdown: ['react-markdown', 'remark-gfm', 'remark-math', 'rehype-highlight', 'rehype-katex'],
+          math: ['katex'],
+        },
+      },
+    },
   },
   server: {
     host: '127.0.0.1',

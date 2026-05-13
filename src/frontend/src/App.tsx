@@ -1,5 +1,5 @@
 import { BrowserRouter, HashRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { useCallback, useEffect, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useState } from 'react'
 import { ToastProvider } from './context/ToastProvider'
 import { ConfirmProvider } from './context/ConfirmProvider'
 import { ChatProvider } from './context/ChatProvider'
@@ -16,16 +16,17 @@ import {
   type SetupEventResponse,
   type SetupStatusResponse,
 } from './api'
-import { ChatPage } from './pages/ChatPage'
-import { HistoryPage } from './pages/HistoryPage'
-import { FilesPage } from './pages/FilesPage'
-import { DashboardPage } from './pages/DashboardPage'
-import { SettingsPage } from './pages/SettingsPage'
-import { ConfigurationPage } from './pages/ConfigurationPage'
-import { SetupRequiredPage } from './pages/SetupRequiredPage'
 import { type SetupState, isSetupBlockingState } from './types/setupState'
 import { extractErrorMessage } from './utils/errorMessages'
 import './App.css'
+
+const ChatPage = lazy(async () => ({ default: (await import('./pages/ChatPage')).ChatPage }))
+const HistoryPage = lazy(async () => ({ default: (await import('./pages/HistoryPage')).HistoryPage }))
+const FilesPage = lazy(async () => ({ default: (await import('./pages/FilesPage')).FilesPage }))
+const DashboardPage = lazy(async () => ({ default: (await import('./pages/DashboardPage')).DashboardPage }))
+const SettingsPage = lazy(async () => ({ default: (await import('./pages/SettingsPage')).SettingsPage }))
+const ConfigurationPage = lazy(async () => ({ default: (await import('./pages/ConfigurationPage')).ConfigurationPage }))
+const SetupRequiredPage = lazy(async () => ({ default: (await import('./pages/SetupRequiredPage')).SetupRequiredPage }))
 
 interface AppProps {
   startupError?: string | null
@@ -131,89 +132,99 @@ function App({ startupError = null }: AppProps) {
           <ChatProvider>
             <BackendStatusProvider>
               <Router>
-                <Routes>
-                  {isSetupBlocking ? (
-                    <>
-                      <Route
-                        path="/setup"
-                        element={(
-                          <SetupRequiredPage
-                            state={setupBlockingState ?? 'setup_required'}
-                            tierOptions={setupStatus.tier_options}
-                            machineRamGb={setupStatus.machine_ram_gb}
-                            recommendedTier={setupStatus.recommended_tier}
-                            recommendedReason={setupStatus.recommended_reason}
-                            event={setupEvent}
-                            isStarting={setupStartPending}
-                            isActing={setupActionPending}
-                            onStartSetup={(tier, modelFilename) => {
-                              setSetupStartPending(true)
-                              void startSetup(tier, modelFilename)
-                                .then(() => refreshSetupStatus())
-                                .catch((error) => {
-                                  const message = extractErrorMessage(error, 'Setup start failed.')
-                                  setSetupError(message)
-                                })
-                                .finally(() => setSetupStartPending(false))
-                            }}
-                            onRetrySetup={() => {
-                              setSetupActionPending(true)
-                              void retrySetup()
-                                .then(() => Promise.all([refreshSetupStatus(), getSetupEvents().then(setSetupEvent)]))
-                                .catch((error) => {
-                                  const message = extractErrorMessage(error, 'Setup retry failed.')
-                                  setSetupError(message)
-                                })
-                                .finally(() => setSetupActionPending(false))
-                            }}
-                            onCancelDownload={() => {
-                              setSetupActionPending(true)
-                              void cancelSetup()
-                                .then(() => Promise.all([refreshSetupStatus(), getSetupEvents().then(setSetupEvent)]))
-                                .catch((error) => {
-                                  const message = extractErrorMessage(error, 'Cancel download failed.')
-                                  setSetupError(message)
-                                })
-                                .finally(() => setSetupActionPending(false))
-                            }}
-                            onCancel={() => {
-                              setSetupActionPending(true)
-                              void cancelSetup()
-                                .then(() => {
-                                  if (window.__INFORMITY_DESKTOP__) {
-                                    setSetupCancelled(true)
-                                    window.close()
-                                    return
-                                  }
-                                  setSetupCancelled(true)
-                                })
-                                .catch((error) => {
-                                  const message = extractErrorMessage(error, 'Setup cancel failed.')
-                                  setSetupError(message)
-                                })
-                                .finally(() => setSetupActionPending(false))
-                            }}
-                          />
-                        )}
-                      />
-                      <Route path="*" element={<Navigate to="/setup" replace />} />
-                    </>
-                  ) : (
-                    <>
-                      <Route path="/setup" element={<Navigate to="/chat" replace />} />
-                      <Route path="/" element={<Layout />}>
-                        <Route index element={<Navigate to="/chat" replace />} />
-                        <Route path="chat" element={<ChatPage />} />
-                        <Route path="history" element={<HistoryPage />} />
-                        <Route path="files" element={<FilesPage />} />
-                        <Route path="dashboard" element={<DashboardPage />} />
-                        <Route path="settings" element={<SettingsPage />} />
-                        <Route path="settings/configuration" element={<ConfigurationPage />} />
-                      </Route>
-                      <Route path="*" element={<Navigate to="/chat" replace />} />
-                    </>
+                <Suspense
+                  fallback={(
+                    <CenteredState
+                      icon="ri-loader-4-line"
+                      title="Loading page..."
+                      description="Preparing application view."
+                    />
                   )}
-                </Routes>
+                >
+                  <Routes>
+                    {isSetupBlocking ? (
+                      <>
+                        <Route
+                          path="/setup"
+                          element={(
+                            <SetupRequiredPage
+                              state={setupBlockingState ?? 'setup_required'}
+                              tierOptions={setupStatus.tier_options}
+                              machineRamGb={setupStatus.machine_ram_gb}
+                              recommendedTier={setupStatus.recommended_tier}
+                              recommendedReason={setupStatus.recommended_reason}
+                              event={setupEvent}
+                              isStarting={setupStartPending}
+                              isActing={setupActionPending}
+                              onStartSetup={(tier, modelFilename) => {
+                                setSetupStartPending(true)
+                                void startSetup(tier, modelFilename)
+                                  .then(() => refreshSetupStatus())
+                                  .catch((error) => {
+                                    const message = extractErrorMessage(error, 'Setup start failed.')
+                                    setSetupError(message)
+                                  })
+                                  .finally(() => setSetupStartPending(false))
+                              }}
+                              onRetrySetup={() => {
+                                setSetupActionPending(true)
+                                void retrySetup()
+                                  .then(() => Promise.all([refreshSetupStatus(), getSetupEvents().then(setSetupEvent)]))
+                                  .catch((error) => {
+                                    const message = extractErrorMessage(error, 'Setup retry failed.')
+                                    setSetupError(message)
+                                  })
+                                  .finally(() => setSetupActionPending(false))
+                              }}
+                              onCancelDownload={() => {
+                                setSetupActionPending(true)
+                                void cancelSetup()
+                                  .then(() => Promise.all([refreshSetupStatus(), getSetupEvents().then(setSetupEvent)]))
+                                  .catch((error) => {
+                                    const message = extractErrorMessage(error, 'Cancel download failed.')
+                                    setSetupError(message)
+                                  })
+                                  .finally(() => setSetupActionPending(false))
+                              }}
+                              onCancel={() => {
+                                setSetupActionPending(true)
+                                void cancelSetup()
+                                  .then(() => {
+                                    if (window.__INFORMITY_DESKTOP__) {
+                                      setSetupCancelled(true)
+                                      window.close()
+                                      return
+                                    }
+                                    setSetupCancelled(true)
+                                  })
+                                  .catch((error) => {
+                                    const message = extractErrorMessage(error, 'Setup cancel failed.')
+                                    setSetupError(message)
+                                  })
+                                  .finally(() => setSetupActionPending(false))
+                              }}
+                            />
+                          )}
+                        />
+                        <Route path="*" element={<Navigate to="/setup" replace />} />
+                      </>
+                    ) : (
+                      <>
+                        <Route path="/setup" element={<Navigate to="/chat" replace />} />
+                        <Route path="/" element={<Layout />}>
+                          <Route index element={<Navigate to="/chat" replace />} />
+                          <Route path="chat" element={<ChatPage />} />
+                          <Route path="history" element={<HistoryPage />} />
+                          <Route path="files" element={<FilesPage />} />
+                          <Route path="dashboard" element={<DashboardPage />} />
+                          <Route path="settings" element={<SettingsPage />} />
+                          <Route path="settings/configuration" element={<ConfigurationPage />} />
+                        </Route>
+                        <Route path="*" element={<Navigate to="/chat" replace />} />
+                      </>
+                    )}
+                  </Routes>
+                </Suspense>
               </Router>
             </BackendStatusProvider>
           </ChatProvider>
