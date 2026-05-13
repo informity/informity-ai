@@ -73,11 +73,11 @@
   flex-shrink: 0;
 }
 
-html[data-accent='light'] .sidebar__logo {
+html[data-accent='sand'] .sidebar__logo {
   filter: brightness(0) saturate(100%);
 }
 
-html[data-accent='light'] .sidebar__logo-shell {
+html[data-accent='sand'] .sidebar__logo-shell {
   background: transparent;
 }
 
@@ -162,7 +162,7 @@ html[data-accent='light'] .sidebar__logo-shell {
   width: calc(100% - 2px);
 }
 
-html[data-accent='light'] .sidebar__link:hover:not(.sidebar__link--active) {
+html[data-accent='sand'] .sidebar__link:hover:not(.sidebar__link--active) {
   background: var(--color-primary-bg);
 }
 

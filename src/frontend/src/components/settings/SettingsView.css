@@ -685,7 +685,7 @@
   border-color: var(--color-text-secondary);
 }
 
-html[data-accent='light'] .settings-btn--add-cancel {
+html[data-accent='sand'] .settings-btn--add-cancel {
   color: var(--color-secondary-btn-text);
   border-color: var(--color-secondary-btn-border);
 }
@@ -960,31 +960,31 @@ html[data-accent='light'] .settings-btn--add-cancel {
   word-break: break-word;
 }
 
-html[data-accent='light'] .settings-profile-row__value {
+html[data-accent='sand'] .settings-profile-row__value {
   color: var(--settings-light-value);
 }
 
-html[data-accent='light'] .settings-select,
-html[data-accent='light'] .settings-input,
-html[data-accent='light'] .settings-input--readonly {
+html[data-accent='sand'] .settings-select,
+html[data-accent='sand'] .settings-input,
+html[data-accent='sand'] .settings-input--readonly {
   color: var(--settings-light-input);
 }
 
-html[data-accent='light'] .settings-subsection-field-label,
-html[data-accent='light'] .settings-checkbox-row-label,
-html[data-accent='light'] .settings-file-type,
-html[data-accent='light'] .settings-list__text {
+html[data-accent='sand'] .settings-subsection-field-label,
+html[data-accent='sand'] .settings-checkbox-row-label,
+html[data-accent='sand'] .settings-file-type,
+html[data-accent='sand'] .settings-list__text {
   color: var(--settings-light-label);
 }
 
-html[data-accent='light'] .settings-model-progress-inline,
-html[data-accent='light'] .settings-count,
-html[data-accent='light'] .settings-status,
-html[data-accent='light'] .settings-subsection-description {
+html[data-accent='sand'] .settings-model-progress-inline,
+html[data-accent='sand'] .settings-count,
+html[data-accent='sand'] .settings-status,
+html[data-accent='sand'] .settings-subsection-description {
   color: var(--settings-light-meta);
 }
 
-html[data-accent='light'] {
+html[data-accent='sand'] {
   --settings-light-label: var(--color-text);
   --settings-light-value: var(--color-parameter-value);
   --settings-light-input: var(--color-text);
