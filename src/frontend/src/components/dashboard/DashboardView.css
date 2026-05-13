@@ -269,7 +269,7 @@
   user-select: none;
 }
 
-html[data-accent='light'] .dashboard-errors-modal {
+html[data-accent='sand'] .dashboard-errors-modal {
   box-shadow: 0 14px 28px rgba(122, 84, 56, 0.2);
 }
 
