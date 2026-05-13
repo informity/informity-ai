@@ -198,10 +198,12 @@ def build_display_blocks(cleaned_answer: str) -> list[dict[str, object]]:
                     break
                 candidate_marker = candidate_match.group('marker')
                 candidate_ordered = candidate_marker[0].isdigit()
-                if candidate_ordered != ordered:
+                indent_spaces = len(candidate_match.group('indent') or '')
+                # Allow nested list markers under an ordered list item (e.g. "1. ...", then "    * ...")
+                # by keeping them as part of the same logical list block.
+                if candidate_ordered != ordered and indent_spaces == 0:
                     break
                 body = candidate_match.group('body').strip()
-                indent_spaces = len(candidate_match.group('indent') or '')
                 # Treat 2-space indentation as one nested list level.
                 level = max(0, indent_spaces // 2)
                 checked: bool | None = None
@@ -215,6 +217,21 @@ def build_display_blocks(cleaned_answer: str) -> list[dict[str, object]]:
                     'checked': checked,
                 })
                 i += 1
+                # Consume indented continuation lines as part of the current list item.
+                while i < len(lines):
+                    continuation_line = lines[i]
+                    if not continuation_line.strip():
+                        i += 1
+                        continue
+                    continuation_indent = len(continuation_line) - len(continuation_line.lstrip(' '))
+                    if continuation_indent == 0:
+                        break
+                    next_list = _LIST_ITEM_RE.match(continuation_line)
+                    if next_list is not None:
+                        # Nested list items are handled by the main list loop.
+                        break
+                    items[-1]['text'] = f"{items[-1]['text']}\n{continuation_line.strip()}"
+                    i += 1
             if items:
                 blocks.append({
                     'type': 'list',
