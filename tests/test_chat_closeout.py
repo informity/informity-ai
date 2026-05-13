@@ -131,6 +131,25 @@ def test_build_display_blocks_extracts_quote_block() -> None:
     assert blocks[2] == {'type': 'text', 'markdown': 'After quote.'}
 
 
+def test_build_display_blocks_keeps_indented_list_continuations_out_of_code_blocks() -> None:
+    answer = (
+        '1. **Refinancing is usually superior if rates drop significantly.**\n'
+        '    If you can refinance to a shorter term at a lower rate, this is typically cheaper.\n'
+        '    * Risk: closing costs can erase short-term savings.\n'
+        '2. **Extra payments are superior if rates are stable or rising.**\n'
+        '    If rates are not favorable, extra principal reduces interest without refinance fees.\n'
+    )
+    blocks = build_display_blocks(answer)
+    assert any(block.get('type') == 'list' for block in blocks)
+    assert not any(block.get('type') == 'code' for block in blocks)
+    list_block = next(block for block in blocks if block.get('type') == 'list')
+    assert 'If you can refinance to a shorter term' in list_block['items'][0]['text']
+    assert any(
+        'Risk: closing costs can erase short-term savings.' in item['text']
+        for item in list_block['items']
+    )
+
+
 def test_build_display_blocks_normalizes_disclaimer_with_consistent_callout() -> None:
     answer = (
         'Findings summary paragraph.\n'
