@@ -25,11 +25,11 @@
   object-fit: cover;
 }
 
-html[data-accent='sand'] .setup-required__logo {
+html[data-accent='canvas'] .setup-required__logo {
   filter: brightness(0) saturate(100%);
 }
 
-html[data-accent='sand'] .setup-required__logo-shell {
+html[data-accent='canvas'] .setup-required__logo-shell {
   background: transparent;
 }
 
