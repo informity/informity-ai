@@ -72,6 +72,7 @@ LOG_LEVEL_ALLOWED_VALUES: tuple[str, ...] = ('debug', 'info', 'warning', 'error'
 UI_THEME_ALLOWED_VALUES: tuple[str, ...] = (
     'sand',
     'linen',
+    'sage',
     'graphite',
     'mono',
 )
@@ -540,8 +541,8 @@ class Settings(BaseSettings):
     diagnostics_alert_max_rss_delta_mb: float = 1024.0
 
     # -- UI (frontend-only; persisted so theme survives restarts) -------------
-    # Color theme for the app UI: sand, linen, graphite, mono.
-    ui_theme: Literal['sand', 'linen', 'graphite', 'mono'] = _DEFAULT_UI_THEME
+    # Color theme for the app UI: sand, linen, sage, graphite, mono.
+    ui_theme: Literal['sand', 'linen', 'sage', 'graphite', 'mono'] = _DEFAULT_UI_THEME
     # When true, show the macOS menu bar icon while the app is running.
     enable_menu_bar_icon: bool = False
     # -- Pydantic Settings Config ---------------------------------------------
