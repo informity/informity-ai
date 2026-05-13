@@ -1,7 +1,10 @@
 import { Children, isValidElement, memo, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkMath from 'remark-math'
 import rehypeHighlight from 'rehype-highlight'
+import rehypeKatex from 'rehype-katex'
+import 'katex/dist/katex.min.css'
 import { formatCodeLanguageLabel } from '../../utils/codeLanguageLabel'
 import type {
   DisplayBlock,
@@ -171,10 +174,39 @@ interface MarkdownBlockProps {
 }
 
 function MarkdownBlock({ markdown, onCopyCode, codeBlockCopied }: MarkdownBlockProps) {
+  const segments = useMemo(() => splitDisplayMathSegments(markdown), [markdown])
+
+  if (segments.length === 0) {
+    return (
+      <MarkdownRenderer markdown={markdown} onCopyCode={onCopyCode} codeBlockCopied={codeBlockCopied} />
+    )
+  }
+
+  return (
+    <>
+      {segments.map((segment, index) => {
+        const key = `seg-${index}`
+        if (segment.type === 'formula') {
+          return <FormulaCard key={key} latex={segment.latex} />
+        }
+        return (
+          <MarkdownRenderer
+            key={key}
+            markdown={segment.markdown}
+            onCopyCode={onCopyCode}
+            codeBlockCopied={codeBlockCopied}
+          />
+        )
+      })}
+    </>
+  )
+}
+
+function MarkdownRenderer({ markdown, onCopyCode, codeBlockCopied }: MarkdownBlockProps) {
   return (
     <ReactMarkdown
-      remarkPlugins={[remarkGfm]}
-      rehypePlugins={[rehypeHighlight]}
+      remarkPlugins={[remarkGfm, remarkMath]}
+      rehypePlugins={[rehypeHighlight, rehypeKatex]}
       components={{
         table: ({ children }) => (
           <div className="chat-message__table-scroll">
@@ -205,6 +237,64 @@ function MarkdownBlock({ markdown, onCopyCode, codeBlockCopied }: MarkdownBlockP
       {markdown}
     </ReactMarkdown>
   )
+}
+
+function FormulaCard({ latex }: { latex: string }) {
+  const formulaMarkdown = `$$\n${latex}\n$$`
+  return (
+    <div className="chat-message__code-wrapper chat-message__formula-wrapper">
+      <div className="chat-message__code-header">
+        <span className="chat-message__code-language">Formula</span>
+      </div>
+      <div className="chat-message__code-body">
+        <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+          {formulaMarkdown}
+        </ReactMarkdown>
+      </div>
+    </div>
+  )
+}
+
+type DisplayMathSegment =
+  | { type: 'markdown'; markdown: string }
+  | { type: 'formula'; latex: string }
+
+function splitDisplayMathSegments(markdown: string): DisplayMathSegment[] {
+  const source = String(markdown || '')
+  if (!source.includes('$$')) return []
+
+  const pattern = /\$\$([\s\S]*?)\$\$/g
+  const segments: DisplayMathSegment[] = []
+  let cursor = 0
+  let match: RegExpExecArray | null
+
+  while ((match = pattern.exec(source)) !== null) {
+    const fullMatch = match[0]
+    const inner = (match[1] || '').trim()
+    const start = match.index
+    const end = start + fullMatch.length
+
+    if (start > cursor) {
+      const before = source.slice(cursor, start)
+      if (before.trim().length > 0) {
+        segments.push({ type: 'markdown', markdown: before.trim() })
+      }
+    }
+
+    if (inner.length > 0) {
+      segments.push({ type: 'formula', latex: inner })
+    }
+    cursor = end
+  }
+
+  if (cursor < source.length) {
+    const tail = source.slice(cursor)
+    if (tail.trim().length > 0) {
+      segments.push({ type: 'markdown', markdown: tail.trim() })
+    }
+  }
+
+  return segments.length > 0 ? segments : []
 }
 
 interface CodeCardProps {

@@ -991,3 +991,23 @@ html[data-accent='canvas'] .chat-message--assistant .chat-message__actions {
   opacity: 1;
   background: rgba(255, 255, 255, 0.05);
 }
+
+/* Formula card typography tuning: align spacing and typography with code cards. */
+.chat-message__formula-wrapper .chat-message__code-body {
+  padding: var(--chat-code-content-padding);
+  box-sizing: border-box;
+}
+
+.chat-message__formula-wrapper .katex-display {
+  margin: 0;
+}
+
+.chat-message__formula-wrapper .katex {
+  font-size: 0.96rem;
+  line-height: 1.5;
+  color: var(--chat-code-fg);
+}
+
+.chat-message__formula-wrapper .katex .mfrac .frac-line {
+  border-bottom-width: 0.08em;
+}
