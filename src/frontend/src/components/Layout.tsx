@@ -4,6 +4,7 @@ import { Sidebar } from './Sidebar'
 import { KeyboardShortcutsModal } from './KeyboardShortcutsModal'
 import { NetworkBanner } from './NetworkBanner'
 import { PageFooter } from './PageFooter'
+import { UpdateCheckModal } from './UpdateCheckModal'
 import { useBackendStatus } from '../context/useBackendStatus'
 import { listenDesktopMenuActions, openExternalUrl } from '../tauriRuntime'
 import {
@@ -11,6 +12,12 @@ import {
   MENU_SCAN_NOW_PENDING_KEY,
   SIDEBAR_COLLAPSED_KEY,
 } from '../utils/storageKeys'
+import {
+  checkForUpdates,
+  persistUpdateCheckResult,
+  UPDATE_CHECK_EVENT,
+  type UpdateCheckResult,
+} from '../utils/updateCheck'
 import '../pages/PlaceholderPage.css'
 import './Layout.css'
 
@@ -22,6 +29,11 @@ export function Layout() {
     const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
     return stored === 'true'
   })
+  const [updateModalOpen, setUpdateModalOpen] = useState(false)
+  const [updateModalState, setUpdateModalState] = useState<'checking' | 'up_to_date' | 'update_available' | 'error'>('checking')
+  const [updateCheckPending, setUpdateCheckPending] = useState(false)
+  const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null)
+  const [updateError, setUpdateError] = useState<string | null>(null)
 
   const queuePendingNewChat = useCallback(() => {
     try {
@@ -125,6 +137,30 @@ export function Layout() {
   }, [dispatchNewChat, pathname])
 
   useEffect(() => {
+    const runUpdateCheck = async () => {
+      if (updateCheckPending) return
+      setUpdateModalOpen(true)
+      setUpdateModalState('checking')
+      setUpdateError(null)
+      setUpdateCheckPending(true)
+      try {
+        const result = await checkForUpdates()
+        setUpdateResult(result)
+        persistUpdateCheckResult(result)
+        setUpdateModalState(result.updateAvailable ? 'update_available' : 'up_to_date')
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        setUpdateError(message)
+        setUpdateModalState('error')
+      } finally {
+        setUpdateCheckPending(false)
+      }
+    }
+
+    const onRequest = () => {
+      void runUpdateCheck()
+    }
+
     const isVisible = (element: HTMLElement) => {
       const style = window.getComputedStyle(element)
       return style.display !== 'none' && style.visibility !== 'hidden'
@@ -168,6 +204,9 @@ export function Layout() {
         case 'focus-search':
           focusPrimaryInput()
           break
+        case 'check-updates':
+          void runUpdateCheck()
+          break
         default:
           break
       }
@@ -179,12 +218,15 @@ export function Layout() {
         // ignore desktop listener setup failures
       })
 
+    window.addEventListener(UPDATE_CHECK_EVENT, onRequest as EventListener)
+
     return () => {
+      window.removeEventListener(UPDATE_CHECK_EVENT, onRequest as EventListener)
       if (unlisten) {
         unlisten()
       }
     }
-  }, [navigate, requestNewChat])
+  }, [navigate, requestNewChat, updateCheckPending])
 
   return (
     <div className="layout">
@@ -199,6 +241,31 @@ export function Layout() {
           </div>
         </main>
       </div>
+      <UpdateCheckModal
+        open={updateModalOpen}
+        state={updateModalState}
+        checking={updateCheckPending}
+        currentVersion={updateResult?.currentVersion ?? null}
+        latestVersion={updateResult?.latestVersion ?? null}
+        releaseNotes={updateResult?.metadata?.release_notes ?? null}
+        errorMessage={updateError}
+        onClose={() => {
+          if (updateCheckPending) return
+          setUpdateModalOpen(false)
+        }}
+        onRetry={() => {
+          if (updateCheckPending) return
+          window.dispatchEvent(new CustomEvent(UPDATE_CHECK_EVENT))
+        }}
+        onDownload={() => {
+          if (updateCheckPending) return
+          const url = updateResult?.metadata?.download_url
+          if (url) {
+            void openExternalUrl(url)
+          }
+          setUpdateModalOpen(false)
+        }}
+      />
     </div>
   )
 }

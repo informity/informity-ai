@@ -262,6 +262,8 @@ interface SettingsViewProps {
   onDiscard?: () => void
   onResetSettings: () => void
   onResetIndex: () => void
+  onCheckForUpdates?: () => void
+  updateLastCheckedLabel?: string | null
   saving: boolean
 }
 
@@ -361,6 +363,8 @@ export function SettingsView({
   onDiscard,
   onResetSettings,
   onResetIndex,
+  onCheckForUpdates,
+  updateLastCheckedLabel,
   saving,
 }: SettingsViewProps) {
   const [form, setForm] = useState<FormState>(() => buildFormState(settings || {}))
@@ -857,6 +861,29 @@ export function SettingsView({
               />
               <div><span className="settings-checkbox-row-label">Enable menu bar icon</span></div>
             </label>
+          </div>
+          <div className="settings-subsection">
+            <div className="settings-subsection-head ui-subsection-head">
+              <div className="settings-subsection-title ui-subsection-title">
+                <i className="ri-download-cloud-2-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                Updates
+              </div>
+              <p className="settings-subsection-description ui-subsection-description">
+                Check for newer app versions using a public release metadata file.
+              </p>
+            </div>
+            <div className="settings-control-group">
+              <button
+                type="button"
+                className="settings-btn settings-btn--secondary"
+                onClick={() => onCheckForUpdates?.()}
+              >
+                Check for Updates
+              </button>
+              {updateLastCheckedLabel && (
+                <p className="settings-field-hint">Last checked: {updateLastCheckedLabel}</p>
+              )}
+            </div>
           </div>
         </section>
 
