@@ -39,6 +39,7 @@ const MENU_BAR_ICON_RELATIVE_PATH: &str = "../icons/trayTemplate.png";
 const MENU_BAR_ICON_BYTES: &[u8] = include_bytes!("../icons/trayTemplate.png");
 const MENU_ACTION_EVENT: &str = "informity://menu-action";
 const MENU_APP_PREFERENCES_ID: &str = "menu_app_preferences";
+const MENU_APP_CHECK_UPDATES_ID: &str = "menu_app_check_updates";
 const MENU_FILE_NEW_CHAT_ID: &str = "menu_file_new_chat";
 const MENU_FILE_SCAN_NOW_ID: &str = "menu_file_scan_now";
 const MENU_FILE_CLOSE_WINDOW_ID: &str = "menu_file_close_window";
@@ -1071,6 +1072,7 @@ fn main() {
         .enable_macos_default_menu(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
             MENU_APP_PREFERENCES_ID => emit_menu_action(app, "preferences"),
+            MENU_APP_CHECK_UPDATES_ID => emit_menu_action(app, "check-updates"),
             MENU_FILE_NEW_CHAT_ID => emit_menu_action(app, "new-chat"),
             MENU_FILE_SCAN_NOW_ID => emit_menu_action(app, "scan-now"),
             MENU_FILE_CLOSE_WINDOW_ID => app.exit(0),
@@ -1091,8 +1093,13 @@ fn main() {
                     MenuItemBuilder::with_id(MENU_APP_PREFERENCES_ID, "Preferences…")
                         .accelerator("Cmd+,")
                         .build(app)?;
+                let check_updates_item =
+                    MenuItemBuilder::with_id(MENU_APP_CHECK_UPDATES_ID, "Check for Updates…")
+                        .build(app)?;
                 let app_submenu = SubmenuBuilder::new(app, "Informity AI")
                     .about_with_text("About Informity AI", None)
+                    .separator()
+                    .item(&check_updates_item)
                     .separator()
                     .item(&preferences_item)
                     .separator()
@@ -1165,13 +1172,9 @@ fn main() {
                 docs_item.set_enabled(false)?;
                 let report_item = MenuItemBuilder::new("Report Issue (Coming Soon)").build(app)?;
                 report_item.set_enabled(false)?;
-                let updates_item =
-                    MenuItemBuilder::new("Check for Updates (Coming Soon)").build(app)?;
-                updates_item.set_enabled(false)?;
                 let help_submenu = SubmenuBuilder::new(app, "Help")
                     .item(&docs_item)
                     .item(&report_item)
-                    .item(&updates_item)
                     .build()?;
 
                 let menu = MenuBuilder::new(app)
