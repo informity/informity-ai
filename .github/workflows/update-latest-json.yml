@@ -1,0 +1,58 @@
+name: Update latest.json
+
+on:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  generate-latest-json:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate latest.json from project version
+        run: |
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import tomllib
+
+          root = pathlib.Path(".")
+          pyproject = root / "pyproject.toml"
+          latest_json = root / "latest.json"
+
+          with pyproject.open("rb") as f:
+            data = tomllib.load(f)
+
+          version = str(data.get("project", {}).get("version", "")).strip()
+          if not version:
+            raise SystemExit("Missing project.version in pyproject.toml")
+
+          payload = {
+            "version": version,
+            "release_notes": "",
+            "download_url": "https://www.informity.ai/download/Informity_AI_latest_aarch64.dmg",
+          }
+
+          latest_json.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+          PY
+
+      - name: Commit and push if changed
+        run: |
+          if git diff --quiet -- latest.json; then
+            echo "latest.json unchanged"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add latest.json
+          git commit -m "chore: update latest.json"
+          git push origin HEAD:develop
