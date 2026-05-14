@@ -1,0 +1,31 @@
+.update-check-modal {
+  min-height: 0;
+  height: auto;
+  max-width: 560px;
+}
+
+.update-check-modal .confirm-dialog__header {
+  padding: var(--space-lg) var(--space-lg) var(--space-sm);
+}
+
+.update-check-modal .confirm-dialog__header--centered {
+  gap: var(--space-xs);
+}
+
+.update-check-modal .confirm-dialog__body {
+  padding: var(--space-md) var(--space-lg) var(--space-lg);
+  flex: 0 1 auto;
+}
+
+.update-check-modal .confirm-dialog__message {
+  line-height: 1.45;
+}
+
+.update-check-modal .confirm-dialog__subtext {
+  margin-top: var(--space-sm);
+  color: var(--color-text-muted);
+}
+
+.update-check-modal .confirm-dialog__footer {
+  padding: var(--space-sm) var(--space-lg) var(--space-lg);
+}

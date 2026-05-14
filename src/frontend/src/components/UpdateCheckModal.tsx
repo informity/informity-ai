@@ -1,4 +1,5 @@
 import './ConfirmDialog.css'
+import './UpdateCheckModal.css'
 
 type UpdateCheckState = 'checking' | 'up_to_date' | 'update_available' | 'error'
 
@@ -50,12 +51,15 @@ export function UpdateCheckModal({
   return (
     <div
       className="confirm-dialog__backdrop"
+      onClick={() => {
+        if (!checking) onClose()
+      }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="update-check-modal-title"
       aria-describedby="update-check-modal-message"
     >
-      <div className="confirm-dialog confirm-dialog--centered" onClick={(e) => e.stopPropagation()}>
+      <div className="confirm-dialog confirm-dialog--centered update-check-modal" onClick={(e) => e.stopPropagation()}>
         <div className="confirm-dialog__header confirm-dialog__header--centered">
           <div className="confirm-dialog__icon confirm-dialog__icon--default">
             <i className={iconClass} aria-hidden style={{ fontSize: '2.5rem' }} />
