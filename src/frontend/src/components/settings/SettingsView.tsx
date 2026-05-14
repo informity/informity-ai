@@ -263,7 +263,6 @@ interface SettingsViewProps {
   onResetSettings: () => void
   onResetIndex: () => void
   onCheckForUpdates?: () => void
-  updateLastCheckedLabel?: string | null
   saving: boolean
 }
 
@@ -364,7 +363,6 @@ export function SettingsView({
   onResetSettings,
   onResetIndex,
   onCheckForUpdates,
-  updateLastCheckedLabel,
   saving,
 }: SettingsViewProps) {
   const [form, setForm] = useState<FormState>(() => buildFormState(settings || {}))
@@ -869,7 +867,7 @@ export function SettingsView({
                 Updates
               </div>
               <p className="settings-subsection-description ui-subsection-description">
-                Check for newer app versions using a public release metadata file.
+                Check if a new version of the app is available for download.
               </p>
             </div>
             <div className="settings-control-group">
@@ -880,9 +878,6 @@ export function SettingsView({
               >
                 Check for Updates
               </button>
-              {updateLastCheckedLabel && (
-                <p className="settings-field-hint">Last checked: {updateLastCheckedLabel}</p>
-              )}
             </div>
           </div>
         </section>
