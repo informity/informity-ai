@@ -33,7 +33,6 @@ export function Layout() {
   const [updateModalState, setUpdateModalState] = useState<'checking' | 'up_to_date' | 'update_available' | 'error'>('checking')
   const [updateCheckPending, setUpdateCheckPending] = useState(false)
   const [updateResult, setUpdateResult] = useState<UpdateCheckResult | null>(null)
-  const [updateError, setUpdateError] = useState<string | null>(null)
 
   const queuePendingNewChat = useCallback(() => {
     try {
@@ -141,16 +140,13 @@ export function Layout() {
       if (updateCheckPending) return
       setUpdateModalOpen(true)
       setUpdateModalState('checking')
-      setUpdateError(null)
       setUpdateCheckPending(true)
       try {
         const result = await checkForUpdates()
         setUpdateResult(result)
         persistUpdateCheckResult(result)
         setUpdateModalState(result.updateAvailable ? 'update_available' : 'up_to_date')
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        setUpdateError(message)
+      } catch {
         setUpdateModalState('error')
       } finally {
         setUpdateCheckPending(false)
@@ -247,8 +243,6 @@ export function Layout() {
         checking={updateCheckPending}
         currentVersion={updateResult?.currentVersion ?? null}
         latestVersion={updateResult?.latestVersion ?? null}
-        releaseNotes={updateResult?.metadata?.release_notes ?? null}
-        errorMessage={updateError}
         onClose={() => {
           if (updateCheckPending) return
           setUpdateModalOpen(false)

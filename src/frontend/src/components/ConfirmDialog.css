@@ -20,6 +20,14 @@
 }
 
 .confirm-dialog {
+  --confirm-dialog-icon-size: 3rem;
+  --confirm-dialog-header-top: calc(var(--space-xl) + var(--space-sm));
+  --confirm-dialog-header-bottom: var(--space-sm);
+  --confirm-dialog-header-gap: var(--space-md);
+  --confirm-dialog-body-top: var(--space-sm);
+  --confirm-dialog-body-bottom: var(--space-lg);
+  --confirm-dialog-footer-top: var(--space-sm);
+  --confirm-dialog-footer-bottom: var(--space-xl);
   background: var(--color-bg-elevated);
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius-lg);
@@ -55,25 +63,27 @@ html[data-accent='canvas'] .confirm-dialog {
   flex-direction: column;
   align-items: center;
   text-align: center;
-  gap: 0;
-  padding-bottom: var(--space-md);
+  gap: var(--confirm-dialog-header-gap);
+  padding-top: var(--confirm-dialog-header-top);
+  padding-bottom: var(--confirm-dialog-header-bottom);
 }
 
 .confirm-dialog--centered .confirm-dialog__body {
   text-align: center;
-  padding-top: calc(var(--space-md) + var(--space-xxs));
+  padding-top: var(--confirm-dialog-body-top);
+  padding-bottom: var(--confirm-dialog-body-bottom);
 }
 
 .confirm-dialog__icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-bottom: calc(var(--space-xxs) * -1);
 }
 
 .confirm-dialog__icon i {
   display: block;
   line-height: 1;
+  font-size: var(--confirm-dialog-icon-size);
 }
 
 .confirm-dialog__icon--default {
@@ -129,7 +139,7 @@ html[data-accent='canvas'] .confirm-dialog {
 }
 
 .confirm-dialog__footer::before {
-  content: '';
+  content: none;
   position: absolute;
   top: 0;
   left: 50%;
@@ -140,6 +150,8 @@ html[data-accent='canvas'] .confirm-dialog {
 
 .confirm-dialog--centered .confirm-dialog__footer {
   justify-content: center;
+  padding-top: var(--confirm-dialog-footer-top);
+  padding-bottom: var(--confirm-dialog-footer-bottom);
 }
 
 /* Button variants — match settings-btn (Discard, Save, Reset All) */

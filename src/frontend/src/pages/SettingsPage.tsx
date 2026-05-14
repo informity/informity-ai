@@ -23,9 +23,7 @@ import { isBackendConnectionError } from '../utils/networkErrors'
 import { extractErrorMessage } from '../utils/errorMessages'
 import { CHAT_MODE_STORAGE_KEY } from '../utils/storageKeys'
 import {
-  readLastCheckedAt,
   UPDATE_CHECK_EVENT,
-  UPDATE_CHECK_LAST_CHECKED_EVENT,
 } from '../utils/updateCheck'
 import { proxyWheelToContainer } from '../utils/wheelProxy'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_STORAGE_KEY } from '../utils/uiTheme'
@@ -189,23 +187,8 @@ export function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
-  const [updateLastCheckedLabel, setUpdateLastCheckedLabel] = useState<string | null>(null)
   const resetPollingCancelledRef = useRef(false)
   const pageScrollRef = useRef<HTMLDivElement>(null)
-
-  const refreshUpdateLastCheckedLabel = useCallback(() => {
-    const raw = readLastCheckedAt()
-    if (!raw) {
-      setUpdateLastCheckedLabel(null)
-      return
-    }
-    const parsed = new Date(raw)
-    if (Number.isNaN(parsed.getTime())) {
-      setUpdateLastCheckedLabel(null)
-      return
-    }
-    setUpdateLastCheckedLabel(parsed.toLocaleString())
-  }, [])
 
   useEffect(() => {
     resetPollingCancelledRef.current = false
@@ -236,15 +219,6 @@ export function SettingsPage() {
   useEffect(() => {
     load()
   }, [load])
-
-  useEffect(() => {
-    refreshUpdateLastCheckedLabel()
-    const handleLastCheckedChanged = () => refreshUpdateLastCheckedLabel()
-    window.addEventListener(UPDATE_CHECK_LAST_CHECKED_EVENT, handleLastCheckedChanged as EventListener)
-    return () => {
-      window.removeEventListener(UPDATE_CHECK_LAST_CHECKED_EVENT, handleLastCheckedChanged as EventListener)
-    }
-  }, [refreshUpdateLastCheckedLabel])
 
   const handleSave = async (form: FormState) => {
     setSaving(true)
@@ -509,7 +483,6 @@ export function SettingsPage() {
           onResetSettings={handleResetSettings}
           onResetIndex={handleResetIndex}
           onCheckForUpdates={() => window.dispatchEvent(new CustomEvent(UPDATE_CHECK_EVENT))}
-          updateLastCheckedLabel={updateLastCheckedLabel}
           saving={saving}
         />
       </div>
