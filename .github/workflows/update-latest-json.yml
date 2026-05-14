@@ -20,6 +20,7 @@ jobs:
       - name: Generate latest.json from project version
         run: |
           python3 - <<'PY'
+          from datetime import datetime, timezone
           import json
           import pathlib
           import tomllib
@@ -35,10 +36,13 @@ jobs:
           if not version:
             raise SystemExit("Missing project.version in pyproject.toml")
 
+          published_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
           payload = {
             "version": version,
             "release_notes": "",
             "download_url": "https://www.informity.ai/download/Informity_AI_latest_aarch64.dmg",
+            "published_at": published_at,
           }
 
           latest_json.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
