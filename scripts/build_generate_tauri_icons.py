@@ -6,7 +6,7 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageDraw
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_SOURCE = ROOT / ".archive" / "informity-logo-white.png"
@@ -43,6 +43,12 @@ def parse_args() -> argparse.Namespace:
         "--skip-tray",
         action="store_true",
         help="Do not regenerate trayTemplate.png.",
+    )
+    parser.add_argument(
+        "--dmg-corner-radius",
+        type=int,
+        default=220,
+        help="Corner radius for DMG volume icon mask at 1024px.",
     )
     return parser.parse_args()
 
@@ -95,6 +101,21 @@ def build_tray_icon(logo_mask: Image.Image, size: int = 64, scale: float = 0.88)
     offset = ((size - logo_size) // 2, (size - logo_size) // 2)
     image.paste(symbol, offset, symbol_mask)
     return image
+
+
+def build_dmg_volume_icon(app_icon_1024: Image.Image, corner_radius: int = 220) -> Image.Image:
+    if app_icon_1024.size != (1024, 1024):
+        raise ValueError("DMG volume icon expects a 1024x1024 app icon input")
+    if corner_radius <= 0:
+        raise ValueError(f"Invalid DMG corner radius {corner_radius}; expected > 0")
+
+    mask = Image.new("L", (1024, 1024), 0)
+    draw = ImageDraw.Draw(mask)
+    draw.rounded_rectangle((0, 0, 1023, 1023), radius=corner_radius, fill=255)
+
+    rounded = Image.new("RGBA", (1024, 1024), (0, 0, 0, 0))
+    rounded.paste(app_icon_1024, (0, 0), mask)
+    return rounded
 
 
 def write_png(icon: Image.Image, path: Path) -> None:
@@ -166,8 +187,20 @@ def main() -> None:
         sizes=[(16, 16), (32, 32), (64, 64), (128, 128), (256, 256), (512, 512), (1024, 1024)],
     )
 
+    dmg_icon_1024 = build_dmg_volume_icon(
+        rendered[1024],
+        corner_radius=args.dmg_corner_radius,
+    )
+    write_png(dmg_icon_1024, ICONS_DIR / "dmg-volume-icon-1024.png")
+    dmg_icon_1024.save(
+        ICONS_DIR / "dmg-volume-icon.icns",
+        format="ICNS",
+        sizes=[(16, 16), (32, 32), (64, 64), (128, 128), (256, 256), (512, 512), (1024, 1024)],
+    )
+
     print(f"Generated Tauri icons from: {source_path}")
     print(f"Updated app logo scale: {args.app_logo_scale:.2f}")
+    print(f"Updated DMG icon corner radius: {args.dmg_corner_radius}")
     if args.skip_tray:
         print("Tray icon preserved (not regenerated).")
     else:

@@ -86,6 +86,29 @@ export function DashboardView() {
   const previousScanStatusRef = useRef<string | undefined>(undefined)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
+  const buildScanSuccessMessage = useCallback((status: ScanStatus | null, fallbackStartedMessage: string): string => {
+    if (!status) {
+      return fallbackStartedMessage
+    }
+    if (status?.status === 'running') {
+      return fallbackStartedMessage
+    }
+
+    const scanned = Number(status?.files_scanned ?? 0)
+    const indexed = Number(status?.files_indexed ?? 0)
+    const errors = Number(status?.errors ?? 0)
+    const timeoutErrors = Number(status?.timeout_errors ?? 0)
+
+    if (scanned === 0 && indexed === 0) {
+      return 'Scan completed: no eligible files found'
+    }
+
+    const errorSuffix = errors > 0 || timeoutErrors > 0
+      ? `, ${errors + timeoutErrors} issue${errors + timeoutErrors === 1 ? '' : 's'}`
+      : ''
+    return `Scan completed: ${indexed} indexed, ${scanned} scanned${errorSuffix}`
+  }, [])
+
   const loadIndexStatus = useCallback(async () => {
     try {
       const data = (await getIndexStatus()) as IndexStatus
@@ -95,18 +118,18 @@ export function DashboardView() {
     }
   }, [])
 
-  const loadScanStatus = useCallback(async (): Promise<boolean> => {
+  const loadScanStatus = useCallback(async (): Promise<ScanStatus | null> => {
     try {
       const data = (await getScanStatus()) as ScanStatus
       setScanStatus(data)
       if (data?.status !== 'running') {
         setCancelling(false)
       }
-      return data?.status === 'running'
+      return data
     } catch {
       setScanStatus(null)
       setCancelling(false)
-      return false
+      return null
     }
   }, [])
 
@@ -152,7 +175,8 @@ export function DashboardView() {
     const poll = async () => {
       if (cancelled || pollInFlight) return
       pollInFlight = true
-      const isRunning = await loadScanStatus()
+      const latest = await loadScanStatus()
+      const isRunning = latest?.status === 'running'
       if (isRunning) {
         await loadIndexStatus()
       } else {
@@ -189,6 +213,18 @@ export function DashboardView() {
     previousScanStatusRef.current = currentStatus
   }, [scanStatus])
 
+  const showStatusAwareSuccess = useCallback(async (fallbackMessage: string) => {
+    const latest = await loadScanStatus()
+    const isRunning = latest?.status === 'running'
+    if (isRunning) {
+      await loadIndexStatus()
+    } else {
+      await loadIndexStatus()
+      await loadRecentFiles()
+    }
+    showToast('success', buildScanSuccessMessage(latest, fallbackMessage))
+  }, [loadScanStatus, loadIndexStatus, loadRecentFiles, buildScanSuccessMessage])
+
   const runScan = useCallback(async (force: boolean, failureFallbackMessage: string, successMessage: string) => {
     if (offline) return
     setScanning(true)
@@ -201,11 +237,7 @@ export function DashboardView() {
         if (fresh) setSettings(fresh)
       }
       await scanFiles(dirs ?? undefined, force)
-      const isRunning = await loadScanStatus()
-      if (isRunning) {
-        await loadIndexStatus()
-      }
-      showToast('success', successMessage)
+      await showStatusAwareSuccess(successMessage)
     } catch (err) {
       const msg = extractErrorMessage(err, failureFallbackMessage)
       setScanError(msg)
@@ -213,7 +245,7 @@ export function DashboardView() {
     } finally {
       setScanning(false)
     }
-  }, [offline, settings?.watched_directories, loadScanStatus, loadIndexStatus])
+  }, [offline, settings?.watched_directories, showStatusAwareSuccess])
 
   const handleScanNow = useCallback(async () => {
     await runScan(false, 'Scan failed', 'Scan started')
@@ -295,11 +327,7 @@ export function DashboardView() {
     setScanError(null)
     try {
       await rebuildIndex(false)
-      const isRunning = await loadScanStatus()
-      if (isRunning) {
-        await loadIndexStatus()
-      }
-      showToast('success', 'Index rebuild started')
+      await showStatusAwareSuccess('Index rebuild started')
     } catch (err) {
       const is409 = err instanceof ApiError && err.status === 409
       if (
@@ -314,11 +342,7 @@ export function DashboardView() {
       ) {
         try {
           await rebuildIndex(true)
-          const isRunning = await loadScanStatus()
-          if (isRunning) {
-            await loadIndexStatus()
-          }
-          showToast('success', 'Index rebuild started')
+          await showStatusAwareSuccess('Index rebuild started')
         } catch (forceErr) {
           const msg = extractErrorMessage(forceErr, 'Rebuild failed')
           setScanError(msg)

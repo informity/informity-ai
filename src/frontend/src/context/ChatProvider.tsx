@@ -960,7 +960,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
           || (data?.budget_metrics != null
             && typeof data.budget_metrics === 'object'
             && (data.budget_metrics as Record<string, unknown>).web_search_used === true)
-        const webSearchUsedResolved = webSearchUsed
         const recoveryCallout = buildRecoveryCallout(nextAction, nextActionReason)
         const displayBlocks = Array.isArray(data?.display_blocks) ? data?.display_blocks : undefined
         const extraBlocks: DisplayBlock[] = [recoveryCallout].filter((v): v is DisplayBlock => v != null)
@@ -1005,7 +1004,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           nextActionReason,
           continuationPasses,
           continueLabel,
-          webSearchUsed: webSearchUsedResolved,
+          webSearchUsed,
         }
         if (isViewingGeneratingChat()) {
           setMessages((prev) => {
@@ -1033,7 +1032,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 nextActionReason,
                 continuationPasses,
                 continueLabel,
-                webSearchUsed: webSearchUsedResolved,
+                webSearchUsed,
               }
             }
             return next

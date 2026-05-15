@@ -635,4 +635,8 @@ def main() -> None:
 
 
 if __name__ == '__main__':
+    # Required for frozen executables (PyInstaller) that use multiprocessing.
+    # Without freeze_support, spawned worker processes can re-enter the main
+    # application entrypoint and become orphaned long-lived backend processes.
+    multiprocessing.freeze_support()
     main()
