@@ -21,6 +21,25 @@ vi.mock('../api', () => {
     ApiError: MockApiError,
     getChat: vi.fn(),
     getSettings: vi.fn(async () => ({ enable_raw_output_control: false })),
+    listChatUploads: vi.fn(async () => ({
+      attachments: [
+        {
+          upload_id: 'up-1',
+          chat_id: 'chat-uploaded',
+          file_id: 42,
+          filename_at_upload: 'template.docx',
+          size_bytes: 2048,
+          state: 'ready',
+        },
+      ],
+    })),
+    uploadChatFile: vi.fn(async () => ({
+      chat_id: 'chat-uploaded',
+      upload_id: 'up-1',
+      file_id: 42,
+      filename: 'template.docx',
+      state: 'ready',
+    })),
     stopChatStream: vi.fn(async () => ({ stopped: true, status: 'stopped_now' })),
     updateCurrentChat: vi.fn(async () => ({})),
     streamChat: vi.fn(async (_message, _chatId, callbacks) => {
@@ -46,7 +65,17 @@ import { stopChatStream, streamChat } from '../api'
 import { useChatContext } from './useChatContext'
 
 function ChatProbe() {
-  const { messages, isStreaming, error, sendMessage, continueLastScope, setCurrentChatId, stopStreaming } = useChatContext()
+  const {
+    messages,
+    isStreaming,
+    error,
+    sendMessage,
+    continueLastScope,
+    setCurrentChatId,
+    stopStreaming,
+    uploadFiles,
+    chatUploads,
+  } = useChatContext()
   const assistant = [...messages].reverse().find((m) => m.role === 'assistant')
 
   return (
@@ -56,6 +85,12 @@ function ChatProbe() {
       </button>
       <button onClick={() => void sendMessage('test query')} type="button">
         Send
+      </button>
+      <button
+        onClick={() => void uploadFiles([new File(['content'], 'template.docx')])}
+        type="button"
+      >
+        Upload
       </button>
       <button onClick={() => void continueLastScope(undefined, { mode: 'assistant' })} type="button">
         ContinueAssistant
@@ -69,6 +104,7 @@ function ChatProbe() {
       <div data-testid="assistant-streaming">{assistant?.isStreaming ? 'yes' : 'no'}</div>
       <div data-testid="assistant-id">{assistant?.id ?? ''}</div>
       <div data-testid="assistant-seconds">{assistant?.generationSeconds ?? ''}</div>
+      <div data-testid="upload-count">{chatUploads.length}</div>
     </div>
   )
 }
@@ -151,6 +187,26 @@ describe('ChatProvider streaming lifecycle', () => {
     await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
     expect(streamChatMock.mock.calls[0][3]).toEqual(expect.objectContaining({ mode: 'assistant' }))
     expect(typeof streamChatMock.mock.calls[0][3]?.requestId).toBe('string')
+
+    await act(async () => {
+      finishStream?.()
+      await Promise.resolve()
+    })
+  })
+
+  it('uses upload-resolved chat id for stream request and scoped upload ids', async () => {
+    finishStream = null
+    const streamChatMock = vi.mocked(streamChat)
+    streamChatMock.mockClear()
+    render(<Harness />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+    await waitFor(() => expect(screen.getByTestId('upload-count')).toHaveTextContent('1'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }))
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
+    expect(streamChatMock.mock.calls[0][1]).toBe('chat-uploaded')
+    expect(streamChatMock.mock.calls[0][3]).toEqual(expect.objectContaining({ scopedUploadIds: ['up-1'] }))
 
     await act(async () => {
       finishStream?.()

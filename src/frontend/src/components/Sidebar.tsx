@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { NavLink } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { getScanStatus, listFileReindexOperations } from '../api'
 import { useChatContext } from '../context/useChatContext'
 import './Sidebar.css'
@@ -20,6 +20,8 @@ interface SidebarProps {
 }
 
 export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
+  const navigate = useNavigate()
+  const { pathname } = useLocation()
   const {
     isStreaming,
   } = useChatContext()
@@ -94,12 +96,12 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
 
       <nav className="sidebar__nav">
         {NAV_ITEMS.map(({ path, label, icon }) => (
-          <NavLink
+          <button
             key={path}
-            to={path}
-            className={({ isActive }) =>
-              `sidebar__link ${isActive ? 'sidebar__link--active' : ''}`
-            }
+            type="button"
+            className={`sidebar__link ${pathname === path ? 'sidebar__link--active' : ''}`}
+            onClick={() => navigate(path)}
+            aria-current={pathname === path ? 'page' : undefined}
           >
             <i className={`${icon} sidebar__icon`} aria-hidden />
             {!collapsed && (
@@ -120,7 +122,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                 ) : null}
               </span>
             )}
-          </NavLink>
+          </button>
         ))}
       </nav>
     </aside>

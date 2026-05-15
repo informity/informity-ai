@@ -163,6 +163,8 @@ export interface ChatMessageApi {
   generation_seconds?: number
   chat_mode?: ChatMode
   role_id?: string | null
+  retrieval_scope_kind?: string | null
+  retrieval_scope_key?: string | null
 }
 
 export interface ChatMessageDisplay {

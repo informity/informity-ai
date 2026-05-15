@@ -8,7 +8,6 @@ import {
   ApiError,
   deleteChatUpload,
   getChat,
-  getFiles,
   getSettings,
   listChatUploads,
   stopChatStream,
@@ -237,76 +236,37 @@ function createChatRequestId(): string {
   return `req-${Date.now()}-${Math.random().toString(16).slice(2)}`
 }
 
-function inferSingleFileScopeCandidateFromHistory(messages: ChatMessageApi[]): { path: string; filename: string } | null {
-  const assistantMessages = messages.filter(
-    (m) => m.role === 'assistant' && Array.isArray(m.sources) && m.sources.length > 0,
-  )
-  if (assistantMessages.length === 0) return null
-
-  let candidatePath: string | null = null
-  let candidateFilename: string | null = null
-
-  for (const message of assistantMessages) {
-    const paths = new Set(
-      (message.sources || [])
-        .map((s) => String(s?.path || '').trim())
-        .filter((v) => v.length > 0),
-    )
-    const filenames = new Set(
-      (message.sources || [])
-        .map((s) => String(s?.filename || '').trim())
-        .filter((v) => v.length > 0),
-    )
-    if (paths.size !== 1 || filenames.size !== 1) {
-      return null
-    }
-    const [messagePath] = [...paths]
-    const [messageFilename] = [...filenames]
-    if (!messagePath || !messageFilename) return null
-    if (candidatePath == null) {
-      candidatePath = messagePath
-      candidateFilename = messageFilename
-      continue
-    }
-    if (candidatePath !== messagePath || candidateFilename !== messageFilename) {
-      return null
-    }
-  }
-
-  if (!candidatePath || !candidateFilename) return null
-  return { path: candidatePath, filename: candidateFilename }
-}
-
 async function resolveFileScopeFromHistory(messages: ChatMessageApi[]): Promise<ChatFileScope | null> {
-  const candidate = inferSingleFileScopeCandidateFromHistory(messages)
-  if (!candidate) return null
-  try {
-    const response = (await getFiles({
-      search: candidate.path,
-      limit: 25,
-      offset: 0,
-      sort: 'indexed_at',
-      order: 'desc',
-    })) as { files?: Array<{ id?: number; path?: string; filename?: string }> }
-    const files = Array.isArray(response?.files) ? response.files : []
-    const exactPathMatch = files.find((file) => String(file?.path || '').trim() === candidate.path)
-    if (exactPathMatch && Number.isFinite(exactPathMatch.id) && Number(exactPathMatch.id) > 0) {
-      const fileId = Math.trunc(Number(exactPathMatch.id))
-      const filename = String(exactPathMatch.filename || candidate.filename || '').trim() || `File ${fileId}`
-      return { fileId, filename }
+  const indexedFileScopeKeys = new Set(
+    messages
+      .map((message) => ({
+        kind: String(message.retrieval_scope_kind || '').trim(),
+        key: String(message.retrieval_scope_key || '').trim(),
+      }))
+      .filter((item) => item.kind === 'indexed_files' && item.key.length > 0)
+      .map((item) => item.key),
+  )
+  if (indexedFileScopeKeys.size !== 1) return null
+  const [scopeKey] = [...indexedFileScopeKeys]
+  const fileIds = scopeKey
+    .split(',')
+    .map((value) => Number.parseInt(value.trim(), 10))
+    .filter((value) => Number.isFinite(value) && value > 0)
+  if (fileIds.length !== 1) return null
+
+  const fileId = Math.trunc(fileIds[0])
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i]
+    if (message.role !== 'assistant' || !Array.isArray(message.sources) || message.sources.length === 0) continue
+    for (const source of message.sources) {
+      if (Number(source?.file_id) !== fileId) continue
+      const filename = String(source?.filename || '').trim()
+      if (filename) {
+        return { fileId, filename }
+      }
     }
-    const exactFilenameMatches = files.filter(
-      (file) => String(file?.filename || '').trim() === candidate.filename && Number.isFinite(file?.id),
-    )
-    if (exactFilenameMatches.length === 1) {
-      const fileId = Math.trunc(Number(exactFilenameMatches[0].id))
-      const filename = String(exactFilenameMatches[0].filename || candidate.filename || '').trim() || `File ${fileId}`
-      return { fileId, filename }
-    }
-  } catch {
-    // best-effort recovery only; keep null on lookup failure
   }
-  return null
+  return { fileId, filename: `File ${fileId}` }
 }
 
 export function ChatProvider({ children }: ChatProviderProps) {
@@ -776,7 +736,21 @@ export function ChatProvider({ children }: ChatProviderProps) {
       return
     }
     const hasActiveUploads = chatUploads.some((item) => ['uploading', 'indexing', 'ready'].includes(String(item.state)))
-    const requestChatId = currentChatIdRef.current
+    let requestChatId = currentChatIdRef.current
+    const readyUploads = chatUploads.filter((item) => item.state === 'ready')
+    const readyUploadChatIds = Array.from(
+      new Set(
+        readyUploads
+          .map((item) => String(item.chat_id || '').trim())
+          .filter((id) => id.length > 0),
+      ),
+    )
+    if (!requestChatId && readyUploadChatIds.length === 1) {
+      requestChatId = readyUploadChatIds[0]
+      currentChatIdRef.current = requestChatId
+      setCurrentChatIdState(requestChatId)
+      updateCurrentChat(requestChatId).catch((err) => logApiError(err, 'ChatProvider.sendMessage.resolveRequestChatId'))
+    }
     const effectiveFileScope = providedScope ?? resolveDraftOrChatFileScope(requestChatId)
     if (chatMode !== 'researcher' && (hasActiveUploads || effectiveFileScope)) {
       const modeError = 'Document-scoped chat is available only in Researcher mode.'
@@ -790,8 +764,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
     }
     sendInFlightRef.current = true
     const readyUploadIdSet = new Set(
-      chatUploads
-        .filter((item) => item.state === 'ready')
+      readyUploads
+        .filter((item) => !requestChatId || String(item.chat_id || '').trim() === requestChatId)
         .map((item) => String(item.upload_id)),
     )
     const effectiveScopedUploadIds = effectiveFileScope
