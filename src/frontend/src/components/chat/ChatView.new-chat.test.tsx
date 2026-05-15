@@ -832,6 +832,115 @@ describe('ChatView new chat behavior', () => {
     expect(screen.getByRole('button', { name: 'Role: General Assistant' })).toBeDisabled()
   })
 
+  it('keeps send and upload controls active for history chats while mode/role remain locked', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getRolesMock.mockResolvedValue([
+      {
+        id: 'legal',
+        name: 'Legal',
+        description: 'Legal role',
+        icon: 'ri-scales-3-line',
+      },
+    ])
+    streamChatMock.mockResolvedValue(undefined)
+    getChatMock.mockResolvedValue({
+      messages: [
+        {
+          id: 9401,
+          role: 'user',
+          content: 'Researcher history question',
+          role_id: null,
+          chat_mode: 'researcher',
+          sources: [],
+          created_at: '2026-02-23T12:00:00.000Z',
+        },
+        {
+          id: 9402,
+          role: 'assistant',
+          content: 'Researcher history answer.',
+          role_id: null,
+          chat_mode: 'researcher',
+          sources: [],
+          created_at: '2026-02-23T12:00:02.000Z',
+        },
+      ],
+    })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialChatId="chat-history-researcher-1" />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-history-researcher-1'))
+    expect(screen.getByRole('button', { name: 'Select chat mode' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Upload files' })).toBeEnabled()
+
+    fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'Follow-up in same history chat' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(1))
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ mode: 'researcher' })
+  })
+
+  it('keeps history file-scope controls active while mode remains locked', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getRolesMock.mockResolvedValue([])
+    streamChatMock.mockResolvedValue(undefined)
+    getChatMock.mockResolvedValue({
+      messages: [
+        {
+          id: 9501,
+          role: 'user',
+          content: 'Scoped history question',
+          role_id: null,
+          chat_mode: 'researcher',
+          sources: [],
+          created_at: '2026-02-23T12:00:00.000Z',
+        },
+        {
+          id: 9502,
+          role: 'assistant',
+          content: 'Scoped history answer.',
+          role_id: null,
+          chat_mode: 'researcher',
+          sources: [],
+          created_at: '2026-02-23T12:00:02.000Z',
+        },
+      ],
+    })
+    window.localStorage.setItem(CHAT_FILE_SCOPE_MAP_STORAGE_KEY, JSON.stringify({
+      'chat-history-scope-1': { fileId: 77, filename: 'The Ethics of Aristotle.txt' },
+    }))
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialChatId="chat-history-scope-1" />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-history-scope-1'))
+    expect(screen.getByRole('button', { name: 'Select chat mode' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Clear file scope' })).toBeEnabled()
+
+    fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'Scoped follow-up' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(1))
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ fileId: 77, mode: 'researcher' })
+  })
+
   it('locks assistant mode and legal role across send and history reopen', async () => {
     getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
