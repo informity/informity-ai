@@ -1,5 +1,6 @@
 import './ConfirmDialog.css'
 import './UpdateCheckModal.css'
+import { openExternalUrl } from '../tauriRuntime'
 
 type UpdateCheckState = 'checking' | 'up_to_date' | 'update_available' | 'error'
 
@@ -29,6 +30,11 @@ function getIconClass(state: UpdateCheckState, checking: boolean): string {
 }
 
 const RELEASE_NOTES_URL = 'https://github.com/informity/informity-ai/releases'
+
+function handleReleaseNotesClick(event: React.MouseEvent<HTMLAnchorElement>) {
+  event.preventDefault()
+  void openExternalUrl(RELEASE_NOTES_URL)
+}
 
 export function UpdateCheckModal({
   open,
@@ -77,7 +83,12 @@ export function UpdateCheckModal({
               </p>
               <p className="confirm-dialog__message">
                 Review the latest{' '}
-                <a href={RELEASE_NOTES_URL} target="_blank" rel="noopener noreferrer">
+                <a
+                  href={RELEASE_NOTES_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={handleReleaseNotesClick}
+                >
                   release notes
                 </a>
                 .
@@ -91,7 +102,12 @@ export function UpdateCheckModal({
               </p>
               <p className="confirm-dialog__message">
                 Review the latest{' '}
-                <a href={RELEASE_NOTES_URL} target="_blank" rel="noopener noreferrer">
+                <a
+                  href={RELEASE_NOTES_URL}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={handleReleaseNotesClick}
+                >
                   release notes
                 </a>
                 .
