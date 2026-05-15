@@ -28,6 +28,8 @@ function getIconClass(state: UpdateCheckState, checking: boolean): string {
   return 'ri-error-warning-line'
 }
 
+const RELEASE_NOTES_URL = 'https://github.com/informity/informity-ai/releases'
+
 export function UpdateCheckModal({
   open,
   state,
@@ -69,14 +71,30 @@ export function UpdateCheckModal({
             </p>
           )}
           {state === 'up_to_date' && (
-            <p id="update-check-modal-message" className="confirm-dialog__message">
-              Informity AI is up to date (version {currentVersion || '--'}).
-            </p>
+            <>
+              <p id="update-check-modal-message" className="confirm-dialog__message">
+                Informity AI is up to date (version {currentVersion || '--'}).
+              </p>
+              <p className="confirm-dialog__message">
+                Review the latest{' '}
+                <a href={RELEASE_NOTES_URL} target="_blank" rel="noopener noreferrer">
+                  release notes
+                </a>
+                .
+              </p>
+            </>
           )}
           {state === 'update_available' && (
             <>
               <p id="update-check-modal-message" className="confirm-dialog__message">
                 New version {latestVersion || '--'} is available for download.
+              </p>
+              <p className="confirm-dialog__message">
+                Review the latest{' '}
+                <a href={RELEASE_NOTES_URL} target="_blank" rel="noopener noreferrer">
+                  release notes
+                </a>
+                .
               </p>
             </>
           )}
