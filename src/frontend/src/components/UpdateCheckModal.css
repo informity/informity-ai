@@ -11,6 +11,16 @@
   color: var(--color-text-muted);
 }
 
+.update-check-modal .confirm-dialog__message a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.update-check-modal .confirm-dialog__message a:hover {
+  color: var(--color-accent-hover);
+  text-decoration: underline;
+}
+
 .update-check-modal .confirm-dialog__btn {
   width: var(--action-btn-width);
   flex: 0 0 var(--action-btn-width);

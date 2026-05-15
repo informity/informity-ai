@@ -23,6 +23,11 @@ describe('UpdateCheckModal', () => {
 
     expect(screen.getByText('Update Available')).toBeInTheDocument()
     expect(screen.getByText('New version 9.9.9 is available for download.')).toBeInTheDocument()
+    expect(screen.getByText('Review the latest', { exact: false })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'release notes' })).toHaveAttribute(
+      'href',
+      'https://github.com/informity/informity-ai/releases',
+    )
     expect(screen.getByRole('button', { name: 'Later' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Download Update' })).toBeInTheDocument()
   })
@@ -42,6 +47,11 @@ describe('UpdateCheckModal', () => {
 
     expect(screen.getByText("You're up to date")).toBeInTheDocument()
     expect(screen.getByText('Informity AI is up to date (version 0.12.0).')).toBeInTheDocument()
+    expect(screen.getByText('Review the latest', { exact: false })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'release notes' })).toHaveAttribute(
+      'href',
+      'https://github.com/informity/informity-ai/releases',
+    )
   })
 
   it('renders generic error copy and supports retry action', () => {
