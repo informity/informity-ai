@@ -153,6 +153,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const uploadChipMeasureRefs = useRef<Record<string, HTMLSpanElement | null>>({})
   const uploadOverflowMeasureRef = useRef<HTMLSpanElement>(null)
   const uploadPendingMeasureRef = useRef<HTMLSpanElement>(null)
+  const roleSelectionExplicitRef = useRef(false)
   const [visibleUploadCount, setVisibleUploadCount] = useState(chatUploads.length)
   const [pendingUploadCountsByChat, setPendingUploadCountsByChat] = useState<Record<string, number>>({})
   const [isDragOverComposer, setIsDragOverComposer] = useState(false)
@@ -299,6 +300,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     if (messages.length > 0) return
     if (!roles.some((role) => role.id === selectedRoleId)) {
       setSelectedRoleId(null)
+      roleSelectionExplicitRef.current = false
       try {
         window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
       } catch {
@@ -311,6 +313,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       : roles.map((role) => role.id)
     if (normalizedEnabledRoleIds.includes(selectedRoleId)) return
     setSelectedRoleId(null)
+    roleSelectionExplicitRef.current = false
     try {
       window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
     } catch {
@@ -319,7 +322,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   }, [roles, selectedRoleId, rolesLoaded, messages.length, enabledRoleIds, hasConfiguredEnabledRoleIds])
 
   useEffect(() => {
-    if (isForceNewChatRequested()) return
     // Route-selected chat id should be consumed once per incoming value.
     // Re-applying it on every context mismatch prevents explicit "New Chat".
     if (initialChatId) {
@@ -337,6 +339,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       selectChat(contextChatId)
       return
     }
+    if (isForceNewChatRequested()) return
     // Skip getCurrentChat when user explicitly requested a New Chat (avoids race with
     // updateCurrentChat(null) still in flight returning stale chat id)
     if (newChatRequestedRef.current) {
@@ -375,24 +378,32 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const hasUploadAttachments = chatUploads.length > 0
   const hasActiveUploadAttachments = chatUploads.some((item) => ['uploading', 'indexing', 'ready'].includes(String(item.state)))
   const hasPendingUploads = pendingUploadCount > 0
-  const hasUploadChipRow = hasUploadAttachments || hasPendingUploads
-  const hasScopedInputPill = !!chatFileScope || hasUploadChipRow
-  const hideAssistantSwitch = hasScopedInputPill
   const lockedMode = currentChatLockedMode ?? resolveLockedMode(messages)
   const lockedRoleId = currentChatLockedRoleId ?? resolveLockedRoleId(messages)
+  const effectiveChatMode: ChatMode = lockedMode ?? chatMode
+  const hasUploadChipRow = effectiveChatMode === 'researcher' && (hasUploadAttachments || hasPendingUploads)
+  const hasScopedInputPill = effectiveChatMode === 'researcher' && (!!chatFileScope || hasUploadChipRow)
+  const hideAssistantSwitch = effectiveChatMode === 'researcher' && hasScopedInputPill
   const chatSessionLocked = (
     !!contextChatId
     && messages.some((msg) => (msg.role === 'user' && !msg.isInternal) || msg.role === 'assistant')
   )
-  const effectiveChatMode: ChatMode = lockedMode ?? chatMode
   const effectiveRoleId = lockedRoleId ?? selectedRoleId
+  const hasRoleDocContext = !!chatFileScope || chatUploads.some((item) => item.state === 'ready')
   const effectiveEnabledRoleIds = (
     hasConfiguredEnabledRoleIds
       ? enabledRoleIds
       : roles.map((role) => role.id)
   )
   const rolesSelectable = effectiveEnabledRoleIds.length > 0
-  const requestRoleId = lockedRoleId ?? (rolesSelectable ? effectiveRoleId : null)
+  const requestRoleId = (() => {
+    if (lockedRoleId != null) return lockedRoleId
+    if (!rolesSelectable) return null
+    if (effectiveChatMode !== 'researcher') return effectiveRoleId
+    if (!hasRoleDocContext) return null
+    if (roleSelectionExplicitRef.current) return effectiveRoleId
+    return null
+  })()
   const hiddenUploadCount = Math.max(0, chatUploads.length - visibleUploadCount)
   const visibleUploads = hiddenUploadCount > 0 ? chatUploads.slice(0, visibleUploadCount) : chatUploads
   const recomputeVisibleUploadCount = useCallback(() => {
@@ -702,6 +713,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     setInputValue('')
     setChatMode('researcher')
     setSelectedRoleId(null)
+    roleSelectionExplicitRef.current = false
     try {
       window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'researcher')
       window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
@@ -827,7 +839,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const modeSelectorDisabled = offline || isStreaming || chatSessionLocked
   const roleSelectorDisabled = offline || isStreaming || enabledRoles.length === 0 || chatSessionLocked
   const roleButtonLabel = selectedRole?.name || GENERAL_ROLE_LABEL
-  const hasRoleDocContext = !!chatFileScope || chatUploads.some((item) => item.state === 'ready')
   const showRoleSelector = (
     (rolesSelectable || lockedRoleId != null || !rolesLoaded)
     && (enabledRoles.length > 0 || lockedRoleId != null || !rolesLoaded)
@@ -1282,6 +1293,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                 disabled={roleSelectorDisabled}
                                 onClick={() => {
                                   setSelectedRoleId(null)
+                                  roleSelectionExplicitRef.current = true
                                   setRoleMenuOpen(false)
                                   try {
                                     window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
@@ -1318,6 +1330,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                   disabled={roleSelectorDisabled}
                                   onClick={() => {
                                     setSelectedRoleId(role.id)
+                                    roleSelectionExplicitRef.current = true
                                     setRoleMenuOpen(false)
                                     try {
                                       window.localStorage.setItem(CHAT_ROLE_ID_STORAGE_KEY, role.id)
@@ -1395,6 +1408,17 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                     if (modeSelectorDisabled) return
                                     if (scopedModeLocked) return
                                     setChatMode(mode)
+                                    if (mode === 'researcher' && lockedRoleId == null) {
+                                      // Prevent assistant-role carryover into researcher drafts:
+                                      // researcher should start from General unless user picks a role in that mode context.
+                                      setSelectedRoleId(null)
+                                      roleSelectionExplicitRef.current = false
+                                      try {
+                                        window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
+                                      } catch {
+                                        // ignore storage errors
+                                      }
+                                    }
                                     setModeMenuOpen(false)
                                     try {
                                       window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, mode)

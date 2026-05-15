@@ -116,6 +116,11 @@ def test_role_overlay_is_additive_and_keeps_mode_prompt_prefix() -> None:
     assert 'Role Output Preferences:' in legal
     assert 'Role Evidence Discipline:' in legal
     assert 'Role Overlay:' in legal
+    assert 'Role Disclaimer:' not in legal
+
+
+def test_role_disclaimer_included_for_non_rag_prompt() -> None:
+    legal = compose_prompt(mode_id='assistant_default', chat_mode='assistant', role_id='legal')
     assert 'Role Disclaimer:' in legal
 
 

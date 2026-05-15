@@ -131,6 +131,38 @@ describe('ChatView new chat behavior', () => {
     expect(updateCurrentChatMock).toHaveBeenCalledWith(null)
   })
 
+  it('honors initial history chat even when force-new-chat flag is set', async () => {
+    window.localStorage.setItem(FORCE_NEW_CHAT_KEY, '1')
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockResolvedValue(undefined)
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({
+      messages: [
+        {
+          id: 111,
+          role: 'assistant',
+          content: 'Loaded from history despite force-new-chat',
+          sources: [],
+          created_at: '2026-02-23T12:00:00.000Z',
+        },
+      ],
+    })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialChatId="chat-history-force-1" />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-history-force-1'))
+    expect(await screen.findByText('Loaded from history despite force-new-chat')).toBeInTheDocument()
+  })
+
   it('disables New Chat while a response is streaming', async () => {
     getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
@@ -187,6 +219,50 @@ describe('ChatView new chat behavior', () => {
     await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
     expect(streamChatMock.mock.calls[0][3]).toMatchObject({ mode: 'assistant' })
     expect(streamChatMock.mock.calls[0][3]).toMatchObject({ requestId: expect.any(String) })
+  })
+
+  it('clears draft role when switching from assistant back to researcher', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockResolvedValue(undefined)
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({ messages: [] })
+    getRolesMock.mockResolvedValue([
+      {
+        id: 'legal',
+        name: 'Legal',
+        description: 'Legal role',
+        icon: 'ri-scales-3-line',
+      },
+    ])
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    await waitFor(() => expect(getRolesMock).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'Select chat mode' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Assistant' }))
+    expect(screen.getByRole('button', { name: 'Role: General Assistant' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Role: General Assistant' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Legal' }))
+    expect(screen.getByRole('button', { name: 'Role: Legal' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select chat mode' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Researcher' }))
+    expect(screen.queryByRole('button', { name: /Role:/i })).not.toBeInTheDocument()
+    expect(window.localStorage.getItem(CHAT_ROLE_ID_STORAGE_KEY)).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select chat mode' }))
+    fireEvent.click(screen.getByRole('menuitemradio', { name: 'Assistant' }))
+    expect(screen.getByRole('button', { name: 'Role: General Assistant' })).toBeInTheDocument()
   })
 
   it('accepts trailing inline selection on Tab without sending message', async () => {
@@ -378,7 +454,7 @@ describe('ChatView new chat behavior', () => {
     expect(screen.getByText('File-B.txt')).toBeInTheDocument()
   })
 
-  it('recovers scope for legacy chats from single-file source history when map is missing', async () => {
+  it('does not infer scope for corpus-wide history chats from sources alone', async () => {
     getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
     getMessageRawMock.mockResolvedValue({ raw_content: null })
@@ -390,7 +466,7 @@ describe('ChatView new chat behavior', () => {
         {
           id: 410,
           role: 'assistant',
-          content: 'Legacy scoped response',
+          content: 'Corpus-wide response',
           sources: [
             {
               filename: 'LegacyFile.txt',
@@ -405,16 +481,9 @@ describe('ChatView new chat behavior', () => {
               relevance_score: 0.8,
             },
           ],
+          retrieval_scope_kind: 'indexed_corpus',
+          retrieval_scope_key: 'indexed_corpus',
           created_at: '2026-02-23T12:00:00.000Z',
-        },
-      ],
-    })
-    getFilesMock.mockResolvedValue({
-      files: [
-        {
-          id: 91,
-          path: '/corpus/LegacyFile.txt',
-          filename: 'LegacyFile.txt',
         },
       ],
     })
@@ -428,13 +497,13 @@ describe('ChatView new chat behavior', () => {
     )
 
     await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('legacy-chat-1'))
-    await waitFor(() => expect(getFilesMock).toHaveBeenCalled())
-    expect(screen.getByRole('button', { name: 'Clear file scope' })).toBeInTheDocument()
+    expect(getFilesMock).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Clear file scope' })).not.toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'Continue on legacy file' } })
+    fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'Continue corpus-wide' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
-    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ fileId: 91 })
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ fileId: null, mode: 'researcher', roleId: null })
   })
 
   it('locks mode to Researcher when file scope is active', async () => {
@@ -502,6 +571,40 @@ describe('ChatView new chat behavior', () => {
     await waitFor(() => expect(getRolesMock).toHaveBeenCalled())
     expect(screen.getByRole('button', { name: 'Select chat mode' })).toHaveTextContent('Researcher')
     expect(screen.queryByRole('button', { name: /Role:/i })).not.toBeInTheDocument()
+  })
+
+  it('forces General role for corpus-wide Researcher first turn even when a role is stored', async () => {
+    window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'researcher')
+    window.localStorage.setItem(CHAT_ROLE_ID_STORAGE_KEY, 'legal')
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({ messages: [] })
+    getRolesMock.mockResolvedValue([
+      {
+        id: 'legal',
+        name: 'Legal',
+        description: 'Legal role',
+        icon: 'ri-scales-3-line',
+      },
+    ])
+    streamChatMock.mockResolvedValue(undefined)
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    await waitFor(() => expect(getRolesMock).toHaveBeenCalled())
+    fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'Corpus question' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ roleId: null, mode: 'researcher' })
   })
 
   it('restores mode and locked role selection when opening a chat from history', async () => {

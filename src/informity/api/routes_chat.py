@@ -637,6 +637,28 @@ async def upload_chat_file(
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
     resolved_chat_id = str(chat_id or '').strip() or str(uuid.uuid4())
+    existing_history = await get_chat(db, resolved_chat_id)
+    if existing_history:
+        first_user_message = next(
+            (message for message in existing_history if message.role == ChatRole.USER and not bool(message.is_internal)),
+            None,
+        )
+        first_user_chat_mode = (
+            resolve_chat_mode(first_user_message.chat_mode)
+            if first_user_message is not None
+            else None
+        )
+        first_assistant_chat_mode = next(
+            (
+                resolve_chat_mode(str(message.chat_mode or '').strip())
+                for message in existing_history
+                if message.role == ChatRole.ASSISTANT and (str(message.chat_mode or '').strip())
+            ),
+            None,
+        )
+        locked_chat_mode = first_user_chat_mode or first_assistant_chat_mode
+        if locked_chat_mode == 'assistant':
+            raise HTTPException(status_code=409, detail='Uploaded files are available only in Researcher mode.')
     filename = _sanitize_upload_filename(file.filename or '')
     if not is_allowed_extension(filename):
         raise HTTPException(status_code=400, detail='Unsupported file type for chat upload.')
