@@ -303,11 +303,11 @@ html[data-accent='canvas'] .chat-message__copy-code:focus-visible {
   padding: var(--chat-code-content-padding);
   border-radius: var(--chat-code-card-radius);
   display: block;
-  width: 100%;
+  width: max-content;
   min-width: 100%;
-  max-width: 100%;
+  max-width: none;
   box-sizing: border-box;
-  overflow: visible;
+  overflow: hidden;
   white-space: pre !important;
   word-break: normal !important;
   overflow-wrap: normal !important;
@@ -335,11 +335,11 @@ html[data-accent='canvas'] .chat-message__copy-code:focus-visible {
   border: 0;
   border-radius: 0;
   display: block;
-  width: 100%;
+  width: max-content;
   min-width: 100%;
-  max-width: 100%;
+  max-width: none;
   box-sizing: border-box;
-  overflow: visible;
+  overflow: hidden;
   white-space: pre !important;
   word-break: normal !important;
   overflow-wrap: normal !important;
@@ -354,6 +354,7 @@ html[data-accent='canvas'] .chat-message__copy-code:focus-visible {
   overflow-y: hidden;
   width: 100%;
   max-width: 100%;
+  contain: paint;
 }
 
 .chat-message__markdown pre code {
@@ -388,7 +389,7 @@ html[data-accent='canvas'] .chat-message__copy-code:focus-visible {
   width: max-content;
   min-width: 100%;
   padding: 0 !important;
-  overflow: visible !important;
+  overflow: hidden !important;
   white-space: pre !important;
   word-break: normal !important;
   overflow-wrap: normal !important;
@@ -869,11 +870,13 @@ html[data-accent='canvas'] .chat-message--assistant .chat-message__actions {
   margin: 0;
   padding: 0.8rem;
   max-height: 14rem;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: auto;
   font-size: 0.8rem;
   line-height: 1.5;
-  white-space: pre-wrap;
-  word-break: break-word;
+  white-space: pre;
+  word-break: normal;
+  overflow-wrap: normal;
   background: color-mix(in srgb, var(--chat-code-inline-bg) 85%, black);
   border: 1px solid color-mix(in srgb, var(--chat-source-border, rgba(255, 255, 255, 0.1)) 85%, white);
   border-radius: var(--border-radius);
