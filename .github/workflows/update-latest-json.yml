@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   generate-latest-json:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -36,7 +37,21 @@ jobs:
           if not version:
             raise SystemExit("Missing project.version in pyproject.toml")
 
-          published_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+          prev = {}
+          if latest_json.exists():
+            try:
+              prev = json.loads(latest_json.read_text(encoding="utf-8"))
+            except Exception:
+              prev = {}
+
+          same_release_payload = (
+            str(prev.get("version", "")).strip() == version
+            and str(prev.get("release_notes", "")).strip() == ""
+            and str(prev.get("download_url", "")).strip() == "https://www.informity.ai/download/Informity_AI_latest_aarch64.dmg"
+          )
+          published_at = str(prev.get("published_at", "")).strip() if same_release_payload else ""
+          if not published_at:
+            published_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
           payload = {
             "version": version,
@@ -58,5 +73,5 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add latest.json
-          git commit -m "chore: update latest.json"
+          git commit -m "chore: update latest.json [skip ci]"
           git push origin HEAD:develop
