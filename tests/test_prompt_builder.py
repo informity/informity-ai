@@ -274,7 +274,7 @@ class TestPromptBuilder:
     def test_builder_applies_role_overlay_when_role_present(self) -> None:
         messages = build_messages('Question', [], chat_mode='researcher', role_id='legal')
         assert 'Role Identity:' in messages[0]['content']
-        assert 'Role Disclaimer:' in messages[0]['content']
+        assert 'Role Disclaimer:' not in messages[0]['content']
         assert 'Role Evidence Discipline:' in messages[0]['content']
 
     def test_builder_applies_role_specific_financial_numeric_discipline(self) -> None:

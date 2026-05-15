@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 
 import pytest
+from fastapi import UploadFile
 from fastapi import HTTPException
+from starlette.datastructures import Headers
 
 from informity.api import routes_chat
 from informity.api.schemas import ChatRequest
@@ -65,6 +68,44 @@ async def test_chat_rejects_uploads_in_assistant_mode(
         with pytest.raises(HTTPException) as exc_info:
             await routes_chat.chat(
                 request=ChatRequest(message='hello', chat_id=chat_id, mode='assistant'),
+                db=db,
+            )
+        assert exc_info.value.status_code == 409
+        assert exc_info.value.detail == 'Uploaded files are available only in Researcher mode.'
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_upload_endpoint_rejects_uploads_for_assistant_locked_chat(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    monkeypatch.setattr(settings, 'app_data_dir', tmp_path / 'app-data')
+    monkeypatch.setattr(settings, 'db_path', tmp_path / 'policy-upload-assistant-locked.db')
+    await init_db()
+    db = await get_connection()
+    try:
+        chat_id = 'policy-upload-assistant-locked'
+        await insert_chat_message(
+            db,
+            ChatMessage(
+                chat_id=chat_id,
+                role=ChatRole.USER,
+                content='Assistant-only chat',
+                chat_mode='assistant',
+            ),
+        )
+        upload = UploadFile(
+            filename='note.txt',
+            file=BytesIO(b'hello world'),
+            headers=Headers({'content-type': 'text/plain'}),
+        )
+
+        with pytest.raises(HTTPException) as exc_info:
+            await routes_chat.upload_chat_file(
+                chat_id=chat_id,
+                file=upload,
                 db=db,
             )
         assert exc_info.value.status_code == 409

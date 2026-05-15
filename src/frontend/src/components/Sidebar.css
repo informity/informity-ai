@@ -18,8 +18,14 @@
   overflow-y: auto;
   overflow-x: hidden;
   transition: width 0.2s ease, min-width 0.2s ease;
-  z-index: 100;
+  z-index: 1100;
+  isolation: isolate;
+  pointer-events: auto;
   box-sizing: border-box;
+}
+
+.sidebar * {
+  pointer-events: auto;
 }
 
 .sidebar--collapsed {
@@ -138,6 +144,10 @@ html[data-accent='canvas'] .sidebar__logo-shell {
   align-items: center;
   gap: var(--space-xs);
   width: 100%;
+  border: none;
+  background: transparent;
+  font: inherit;
+  text-align: left;
   box-sizing: border-box;
   padding: var(--space-sm) var(--sidebar-link-padding-x);
   margin: 0 0 2px 0;

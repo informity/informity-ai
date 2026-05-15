@@ -433,6 +433,7 @@ def compose_prompt(
 ) -> str:
     """Compose final prompt from mode profile + optional role overlay."""
     mode_profile = get_mode_profile(mode_id)
+    suppress_role_disclaimer = 'rag' in mode_profile.capabilities
     prompt = mode_profile.identity_prompt
     if mode_profile.mode_policy and normalize_chat_mode(chat_mode) == 'assistant':
         prompt += mode_profile.mode_policy
@@ -454,7 +455,7 @@ def compose_prompt(
         role_sections.extend(_ROLE_ISOLATED_RULES.get(role_profile.id, ()))
         if role_profile.id == 'technical' and normalized_chat_mode == 'assistant':
             role_sections.extend(_ASSISTANT_TECHNICAL_RULES)
-        if role_profile.disclaimer:
+        if role_profile.disclaimer and not suppress_role_disclaimer:
             role_sections.append(
                 'Disclaimer Placement Rule:\n'
                 '- Include the disclaimer at the end of the answer under a "Disclaimer:" line.\n'
@@ -464,7 +465,7 @@ def compose_prompt(
             role_sections.append(f'Role Overlay:\n{role_profile.overlay_prompt}')
         if role_sections:
             prompt = f'{prompt}\n\n' + '\n\n'.join(role_sections)
-        if role_profile.disclaimer:
+        if role_profile.disclaimer and not suppress_role_disclaimer:
             prompt = f'{prompt}\n\nRole Disclaimer:\n{role_profile.disclaimer}'
 
     return prompt
