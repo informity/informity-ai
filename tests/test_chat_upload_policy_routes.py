@@ -5,8 +5,7 @@ from io import BytesIO
 from pathlib import Path
 
 import pytest
-from fastapi import UploadFile
-from fastapi import HTTPException
+from fastapi import HTTPException, UploadFile
 from starlette.datastructures import Headers
 
 from informity.api import routes_chat
