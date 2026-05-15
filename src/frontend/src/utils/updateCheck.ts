@@ -2,9 +2,7 @@ import { getHealth } from '../api'
 
 export const UPDATE_METADATA_URL = 'https://raw.githubusercontent.com/informity/informity-ai/develop/latest.json'
 export const UPDATE_CHECK_LAST_CHECKED_KEY = 'informity.update.last_checked_at'
-export const UPDATE_CHECK_LAST_RESULT_KEY = 'informity.update.last_result'
 export const UPDATE_CHECK_EVENT = 'informity:update-check'
-export const UPDATE_CHECK_LAST_CHECKED_EVENT = 'informity:update-check-last-checked-changed'
 
 const REQUEST_TIMEOUT_MS = 8000
 
@@ -97,17 +95,9 @@ export async function checkForUpdates(): Promise<UpdateCheckResult> {
 export function persistUpdateCheckResult(result: UpdateCheckResult): void {
   try {
     localStorage.setItem(UPDATE_CHECK_LAST_CHECKED_KEY, result.checkedAtIso)
-    localStorage.setItem(
-      UPDATE_CHECK_LAST_RESULT_KEY,
-      JSON.stringify({
-        latestVersion: result.latestVersion,
-        updateAvailable: result.updateAvailable,
-      }),
-    )
   } catch {
     // Ignore storage errors in restricted environments.
   }
-  window.dispatchEvent(new CustomEvent(UPDATE_CHECK_LAST_CHECKED_EVENT))
 }
 
 export function readLastCheckedAt(): string | null {

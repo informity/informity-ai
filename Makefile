@@ -4,7 +4,7 @@
 # ==============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help run dev kill-server dev-restart test lint format reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build tauri-build-mac tauri-build-linux tauri-build-appstore app qa-quick qa-full qa-security qa-lint qa-typecheck
+.PHONY: help run dev kill-server dev-restart test lint format reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build tauri-build-mac tauri-build-linux tauri-build-appstore app qa-quick qa-full qa-security qa-lint qa-typecheck qa-tauri-quit-smoke
 
 # ==============================================================================
 # Configuration
@@ -111,17 +111,20 @@ qa-full: ## On-demand full quality gate (all backend tests + frontend type/test/
 	cd src/frontend && npm run typecheck && npm run test && npm run build
 
 qa-lint: ## On-demand code style checks (non-release-blocking while baseline debt exists)
-	uv run ruff check src/ tests/
+	uv run ruff check src/informity src/frontend/src tests
 
 qa-typecheck: ## On-demand TypeScript strict checks (tracked separately from release gate)
 	cd src/frontend && npm run typecheck
+
+qa-tauri-quit-smoke: ## Maintainers: sidecar quit smoke test (scan/no-scan matrix + lingering-process guard)
+	uv run python tools/diagnostics/tauri_backend_quit_smoke.py
 
 qa-security: ## On-demand security gate (dependency vulnerability audit)
 	@echo "Running pip-audit (CVE-2025-69872 ignored until upstream diskcache fix is available)."
 	uv run --with pip-audit pip-audit --ignore-vuln CVE-2025-69872
 
 lint: ## Run linter checks (ruff)
-	uv run ruff check src/ tests/
+	uv run ruff check src/informity src/frontend/src tests
 
 format: ## Auto-format code (ruff)
 	uv run ruff format src/ tests/

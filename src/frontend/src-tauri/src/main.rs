@@ -15,6 +15,8 @@ use tauri::image::Image as TauriImage;
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, RunEvent, State};
+#[cfg(target_os = "macos")]
+use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 use tokio::time::sleep;
 use uuid::Uuid;
 
@@ -633,12 +635,15 @@ fn cleanup_orphaned_managed_backends(
         let protected_pid = read_managed_backend_pid(managed_pid_file).ok().flatten();
         let marker = format!("INFORMITY_APP_DATA_DIR={}", app_data_dir.display());
         let process_list = Command::new("ps")
-            .args(["-axo", "pid=,command="])
+            .args(["-axo", "pid=,ppid=,command="])
             .output()
             .map_err(|error| format!("failed to enumerate processes: {error}"))?;
         if !process_list.status.success() {
             return Ok(());
         }
+
+        let mut cleaned_count: u32 = 0;
+        let mut skipped_count: u32 = 0;
 
         for line in String::from_utf8_lossy(&process_list.stdout).lines() {
             let trimmed = line.trim_start();
@@ -646,12 +651,18 @@ fn cleanup_orphaned_managed_backends(
                 continue;
             }
 
-            let mut parts = trimmed.splitn(2, char::is_whitespace);
+            let mut parts = trimmed.splitn(3, char::is_whitespace);
             let Some(pid_str) = parts.next() else {
+                continue;
+            };
+            let Some(ppid_str) = parts.next() else {
                 continue;
             };
             let command = parts.next().unwrap_or_default().trim();
             let Ok(pid) = pid_str.parse::<u32>() else {
+                continue;
+            };
+            let Ok(ppid) = ppid_str.parse::<u32>() else {
                 continue;
             };
             if Some(pid) == protected_pid {
@@ -661,20 +672,51 @@ fn cleanup_orphaned_managed_backends(
                 continue;
             }
 
-            let env_output = Command::new("ps")
+            // Primary match: process was launched by Informity with matching app-data marker.
+            let mut matched_for_cleanup = false;
+            let mut matched_reason = String::new();
+
+            if let Ok(env_output) = Command::new("ps")
                 .args(["eww", "-p", &pid.to_string()])
                 .output()
-                .map_err(|error| format!("failed to inspect process environment for pid {pid}: {error}"))?;
-            if !env_output.status.success() {
-                continue;
+            {
+                if env_output.status.success() {
+                    let env_text = String::from_utf8_lossy(&env_output.stdout);
+                    if env_text.contains(&marker) {
+                        matched_for_cleanup = true;
+                        matched_reason = "app_data_marker_match".to_string();
+                    }
+                }
             }
-            let env_text = String::from_utf8_lossy(&env_output.stdout);
-            if !env_text.contains(&marker) {
+
+            // Legacy fallback: packaged sidecar orphan re-parented to launchd (ppid=1).
+            if !matched_for_cleanup
+                && ppid == 1
+                && command.contains("informity-backend-bundle/informity-backend")
+            {
+                matched_for_cleanup = true;
+                matched_reason = "legacy_packaged_orphan_ppid1".to_string();
+            }
+
+            if !matched_for_cleanup {
+                skipped_count += 1;
                 continue;
             }
             if is_managed_backend_process(pid)? {
+                eprintln!(
+                    "[backend-cleanup] terminating orphan backend pid={} ppid={} reason={}",
+                    pid, ppid, matched_reason
+                );
                 terminate_process(pid)?;
+                cleaned_count += 1;
             }
+        }
+
+        if cleaned_count > 0 || skipped_count > 0 {
+            eprintln!(
+                "[backend-cleanup] orphan cleanup summary: cleaned={} skipped={}",
+                cleaned_count, skipped_count
+            );
         }
     }
 
@@ -1068,6 +1110,7 @@ fn set_menu_bar_icon_enabled(app: AppHandle, enabled: bool) -> Result<(), String
 fn main() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_shell::init())
         .enable_macos_default_menu(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -1087,6 +1130,31 @@ fn main() {
             _ => {}
         })
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            {
+                let app_handle = app.handle().clone();
+                let raise_shortcut = Shortcut::new(
+                    Some(Modifiers::SUPER | Modifiers::ALT | Modifiers::CONTROL),
+                    Code::Semicolon,
+                );
+                if let Err(error) =
+                    app.global_shortcut()
+                        .on_shortcut(raise_shortcut, move |_app, _shortcut, event| {
+                            if event.state() == ShortcutState::Pressed {
+                                show_main_window(&app_handle);
+                            }
+                        })
+                {
+                    eprintln!(
+                        "[global-shortcut] failed to install Cmd+Alt+Ctrl+; handler: {error}"
+                    );
+                } else if let Err(error) = app.global_shortcut().register(raise_shortcut) {
+                    eprintln!("[global-shortcut] failed to register Cmd+Alt+Ctrl+;: {error}");
+                } else {
+                    eprintln!("[global-shortcut] registered Cmd+Alt+Ctrl+;");
+                }
+            }
+
             #[cfg(target_os = "macos")]
             {
                 let preferences_item =

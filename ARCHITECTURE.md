@@ -2,7 +2,7 @@
 
 This file is the **single source of truth** for types, interfaces, and module responsibilities. When generating code for any module, consult this file first.
 
-**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `upload_policy.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, security, chat_completion_policy, chat_out_of_corpus, chat_sources, error_messages, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils, file_utils, number_utils); `sources/` (base, filesystem_adapter, registry, orchestrator); `scanner/` (crawler, watcher, extractors — docling unified extractor + EPUB extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, model_adapter, rag, query_classifier, query_patterns, nlp_heuristics, types, retrieval, prompt_builder, streaming, metadata_filters, intent_router, classification_policy, promptcue_adapter, term_dictionary, chat_mode, contract_gate, contract_prompt_parser, metrics_payload, system_prompts, timeout_policy, user_messages, web_search, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics runtime modules: `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
+**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `upload_policy.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, security, chat_completion_policy, chat_out_of_corpus, chat_sources, error_messages, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry, context_scope_manager); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils, file_utils, number_utils); `sources/` (base, filesystem_adapter, registry, orchestrator); `scanner/` (crawler, watcher, extractors — docling unified extractor + EPUB extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, model_adapter, rag, query_classifier, query_patterns, rag_patterns, nlp_heuristics, roles, promptcue_signals, types, retrieval, prompt_builder, streaming, metadata_filters, intent_router, classification_policy, promptcue_adapter, term_dictionary, chat_mode, contract_gate, contract_prompt_parser, metrics_payload, system_prompts, timeout_policy, user_messages, web_search, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics runtime modules: `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
 
 ---
 
@@ -568,12 +568,24 @@ class HealthResponse(BaseModel):
 - **Imports:** re
 - **Imported by:** llm.query_classifier
 
+### `llm/rag_patterns.py`
+- Shared RAG intent and topic-shift cue patterns that coordinate classifier/runtime behaviors.
+- Keeps RAG-specific pattern ownership centralized (separate from generic query-pattern inventory).
+- **Imports:** llm.promptcue_signals (plus stdlib helpers)
+- **Imported by:** llm handlers/runtime modules and context-scope logic
+
 ### `llm/promptcue_signals.py`
 - App-side adapter for prompt-shape cues. Uses precomputed PromptCue outputs when available, otherwise evaluates centralized PromptCue pattern constants directly (no extra model/classification pass).
 - Exposes `extract_prompt_signals()` returning normalized cue snapshot (`has_topic_shift_cue`, `has_referential_followup`, `requests_continuation`, output-format cues, etc.).
 - Keeps policy decisions in app modules (`context_scope_manager`, `query_classifier`, handlers) while avoiding duplicated generic cue regex ownership.
 - **Imports:** re (+ optional `promptcue.patterns`)
 - **Imported by:** llm.query_classifier, llm.rag_patterns, api.context_scope_manager
+
+### `llm/roles.py`
+- Defines chat role profiles and role registry helpers used for role-scoped behavior and settings exposure.
+- Provides visibility filtering and stable role lookup by ID.
+- **Imports:** dataclasses/typing utilities
+- **Imported by:** API routes and chat/runtime role-selection paths
 
 ### `llm/retrieval.py`
 - Unified retrieval pipeline (v2): embed query → vector search with WHERE clauses (year, category, extension filters, upload-source exclusion for unscoped corpus turns) → rerank (when enabled by settings) → top-k. For coverage queries, uses file-anchored retrieval (one chunk per file, exhaustive). Supports summary-oriented substantive-section preference to de-prioritize structural sections (appendix/contents/etc.) when synthesis intent is detected.
@@ -657,7 +669,13 @@ class HealthResponse(BaseModel):
 - Upload lifecycle endpoints:
   - `GET /api/chat/chats/{chat_id}/uploads` — list chat-scoped uploads
   - `POST /api/chat/uploads` — upload + index a temporary chat attachment
-  - `DELETE /api/chat/uploads/{upload_id}` — delete one chat attachment (bytes + index artifacts)
+- `DELETE /api/chat/uploads/{upload_id}` — delete one chat attachment (bytes + index artifacts)
+
+### `api/context_scope_manager.py`
+- Resolves retrieval/generation scope continuity across turns (topic shift vs referential follow-up cues).
+- Tracks scoped pass progression and “remaining scope” semantics used by continuation flows.
+- **Imports:** llm.promptcue_signals, llm.query_classifier, config/runtime helpers
+- **Imported by:** api.routes_chat and chat orchestration flows
 - `POST /api/chat/stop` — stop active stream by stream/request/chat identifiers
 - `GET /api/chat/chats` — list chats (chat_id, last_message_preview, title, etc.)
 - `GET /api/chat/chats/{chat_id}` — chat messages for one chat
