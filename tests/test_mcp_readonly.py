@@ -107,12 +107,12 @@ async def test_mcp_tools_call_times_out(monkeypatch: pytest.MonkeyPatch) -> None
 
     class _SlowServer:
         async def execute_tool(self, **_kwargs):
-            await asyncio.sleep(1.2)
+            await asyncio.sleep(5.2)
             return {'ok': True}
 
     monkeypatch.setattr(mod, '_mcp_readonly_server', _SlowServer())
     monkeypatch.setattr(mod, '_mcp_tool_not_found_error', KeyError)
-    monkeypatch.setattr(mod.settings, 'mcp_tool_call_timeout_seconds', 1.0)
+    monkeypatch.setattr(mod.settings, 'mcp_tool_call_timeout_seconds', 5.0)
 
     response = await handle_jsonrpc_request(
         {
