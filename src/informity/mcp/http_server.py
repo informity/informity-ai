@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+import json
 
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from informity.config import settings
 from informity.mcp.protocol import error_response, handle_jsonrpc_request
 
 log = structlog.get_logger(__name__)
@@ -32,8 +34,29 @@ def create_http_app() -> FastAPI:
     @app.post('/')
     @app.post('/mcp')
     async def mcp_rpc(request: Request) -> JSONResponse:
+        max_body_bytes = max(16_384, int(getattr(settings, 'mcp_http_max_body_bytes', 512 * 1024) or (512 * 1024)))
+        content_length = str(request.headers.get('content-length') or '').strip()
+        if content_length:
+            try:
+                if int(content_length) > max_body_bytes:
+                    return JSONResponse(
+                        status_code=413,
+                        content=error_response(None, -32600, 'Request body too large'),
+                    )
+            except ValueError:
+                pass
+
         try:
-            payload = await request.json()
+            raw_body = await request.body()
+        except Exception:
+            return JSONResponse(error_response(None, -32700, 'Parse error'))
+        if len(raw_body) > max_body_bytes:
+            return JSONResponse(
+                status_code=413,
+                content=error_response(None, -32600, 'Request body too large'),
+            )
+        try:
+            payload = json.loads(raw_body)
         except Exception:
             return JSONResponse(error_response(None, -32700, 'Parse error'))
         if not isinstance(payload, Mapping):

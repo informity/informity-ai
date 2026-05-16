@@ -163,6 +163,7 @@ async def test_mcp_settings_update_restarts_lifecycle(
     )
 
     assert updated.mcp_enabled is True
+    assert updated.mcp_auto_start is True
     assert calls == ['restart']
 
 

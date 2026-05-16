@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::env;
+use std::fs;
 use std::fs::OpenOptions;
 use std::io::Write;
 use std::net::TcpListener;
@@ -34,6 +35,8 @@ const LOGS_DIRNAME: &str = "logs";
 const ERROR_LOG_FILENAME: &str = "app.error.log";
 const CONFIG_FILENAME: &str = "config.json";
 const APP_DATA_DIRNAME: &str = ".informity";
+const MCP_LAUNCHER_DIRNAME: &str = "bin";
+const MCP_LAUNCHER_FILENAME: &str = "informity-mcp";
 const MENU_BAR_TRAY_ID: &str = "informity_menu_bar";
 const MENU_BAR_OPEN_MENU_ID: &str = "menu_bar_open";
 const MENU_BAR_QUIT_MENU_ID: &str = "menu_bar_quit";
@@ -158,6 +161,12 @@ async fn backend_start(
     let app_data_dir = resolve_managed_app_data_dir(&app)?;
     std::fs::create_dir_all(&app_data_dir)
         .map_err(|error| format!("failed to create app data directory: {error}"))?;
+    if let Err(error) = ensure_mcp_stdio_launcher(&app, &app_data_dir) {
+        append_backend_startup_error(
+            &app,
+            &format!("mcp launcher install warning: {error}"),
+        );
+    }
     let pid_file_path = managed_backend_pid_file_path(&app_data_dir);
 
     emit_backend_startup_status(&app, "Initializing application...");
@@ -523,6 +532,75 @@ fn resolve_packaged_sidecar_program(resource_dir: &Path) -> Result<PathBuf, Stri
         "backend sidecar not found (checked: {})",
         bundle_dir.display(),
     ))
+}
+
+fn shell_escape_double_quotes(value: &str) -> String {
+    value
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"")
+        .replace('$', "\\$")
+        .replace('`', "\\`")
+}
+
+fn ensure_mcp_stdio_launcher(app: &AppHandle, app_data_dir: &Path) -> Result<(), String> {
+    #[cfg(not(unix))]
+    {
+        let _ = app;
+        let _ = app_data_dir;
+        return Ok(());
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let resource_dir = app
+            .path()
+            .resource_dir()
+            .map_err(|error| format!("failed to resolve resource directory: {error}"))?;
+        let sidecar = resolve_packaged_sidecar_program(&resource_dir)?;
+
+        let launcher_dir = app_data_dir.join(MCP_LAUNCHER_DIRNAME);
+        fs::create_dir_all(&launcher_dir).map_err(|error| {
+            format!(
+                "failed to create MCP launcher directory {}: {error}",
+                launcher_dir.display()
+            )
+        })?;
+
+        let launcher_path = launcher_dir.join(MCP_LAUNCHER_FILENAME);
+        let escaped_sidecar = shell_escape_double_quotes(&sidecar.to_string_lossy());
+        let escaped_app_data = shell_escape_double_quotes(&app_data_dir.to_string_lossy());
+        let content = format!(
+            "#!/usr/bin/env bash\nset -euo pipefail\nexport INFORMITY_APP_DATA_DIR=\"{escaped_app_data}\"\nexec \"{escaped_sidecar}\" --mcp-stdio \"$@\"\n"
+        );
+
+        let needs_write = match fs::read_to_string(&launcher_path) {
+            Ok(existing) => existing != content,
+            Err(_) => true,
+        };
+        if needs_write {
+            fs::write(&launcher_path, content).map_err(|error| {
+                format!(
+                    "failed to write MCP launcher {}: {error}",
+                    launcher_path.display()
+                )
+            })?;
+        }
+
+        let mut permissions = fs::metadata(&launcher_path)
+            .map_err(|error| format!("failed to stat MCP launcher {}: {error}", launcher_path.display()))?
+            .permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&launcher_path, permissions).map_err(|error| {
+            format!(
+                "failed to set MCP launcher permissions {}: {error}",
+                launcher_path.display()
+            )
+        })?;
+    }
+
+    Ok(())
 }
 
 fn resolve_repo_root_from_manifest() -> Option<PathBuf> {

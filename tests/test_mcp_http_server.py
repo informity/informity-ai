@@ -62,3 +62,17 @@ def test_http_tools_list_with_bearer_token_succeeds(http_client: TestClient, mon
     payload = response.json()
     names = {tool['name'] for tool in payload['result']['tools']}
     assert 'informity_health' in names
+
+
+def test_http_rejects_oversized_body(http_client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv('INFORMITY_MCP_TOKEN', 'expected-token')
+    large = 'x' * (600 * 1024)
+    response = http_client.post(
+        '/mcp',
+        headers={'Authorization': 'Bearer expected-token'},
+        content=large,
+    )
+    assert response.status_code == 413
+    payload = response.json()
+    assert payload['error']['code'] == -32600
+    assert payload['error']['message'] == 'Request body too large'

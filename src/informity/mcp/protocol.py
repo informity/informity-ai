@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
 import structlog
 
+from informity.config import settings
 from informity.mcp.authorization import McpAuthorizationError, authorize_mcp_request
 from informity.mcp.tool_registry import TOOLS
 
@@ -109,12 +111,16 @@ async def handle_jsonrpc_request(
         if not tool_name:
             return error_response(request_id, -32602, 'Missing tool name')
         try:
-            result = await tool_server.execute_tool(
-                tool_name=tool_name,
-                args=args_obj,
-                transport=transport,
-                bearer_token=bearer_token,
-                skip_authorization=(transport == 'http'),
+            timeout_seconds = max(1.0, float(getattr(settings, 'mcp_tool_call_timeout_seconds', 30.0) or 30.0))
+            result = await asyncio.wait_for(
+                tool_server.execute_tool(
+                    tool_name=tool_name,
+                    args=args_obj,
+                    transport=transport,
+                    bearer_token=bearer_token,
+                    skip_authorization=(transport == 'http'),
+                ),
+                timeout=timeout_seconds,
             )
             return {
                 'jsonrpc': '2.0',
@@ -133,6 +139,8 @@ async def handle_jsonrpc_request(
             return error_response(request_id, -32601, f'Unknown tool: {tool_name}')
         except McpAuthorizationError as exc:
             return error_response(request_id, -32001, str(exc))
+        except asyncio.TimeoutError:
+            return error_response(request_id, -32001, 'MCP tool call timed out')
         except ValueError as exc:
             return error_response(request_id, -32602, str(exc))
         except Exception as exc:  # pragma: no cover - defensive server boundary

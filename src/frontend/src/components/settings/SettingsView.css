@@ -692,8 +692,6 @@
   background: var(--surface-readonly);
   border-color: var(--color-border-subtle);
   color: var(--color-text-muted);
-  max-width: var(--settings-narrow-width);
-  width: min(100%, var(--settings-narrow-width));
 }
 
 .settings-select {

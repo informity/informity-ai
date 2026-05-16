@@ -20,6 +20,7 @@ import asyncio
 import atexit
 import multiprocessing
 import signal
+import sys
 import time
 import types
 import uuid
@@ -620,6 +621,16 @@ else:
 # ==============================================================================
 
 def main() -> None:
+    # MCP stdio mode is used by external AI clients (Claude Desktop, etc.)
+    # through the installed `informity-mcp` launcher.
+    argv = [str(arg) for arg in sys.argv[1:]]
+    program_name = Path(str(sys.argv[0] or '')).name.lower()
+    if '--mcp-stdio' in argv or program_name == 'informity-mcp':
+        from informity.mcp.stdio_server import main as mcp_stdio_main
+
+        mcp_stdio_main()
+        return
+
     # Run the application with uvicorn.
     # reload=True only when dev_reload is set (e.g. make dev); never in production.
     # access_log=False because we have custom RequestLoggingMiddleware that provides structured logging.
