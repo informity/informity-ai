@@ -187,6 +187,11 @@
   opacity: 0.75;
 }
 
+.settings-subsection-suffix {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
 /* Consistent gap between description and next element */
 .settings-subsection-description {
   max-width: var(--page-content-width);

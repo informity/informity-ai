@@ -1901,10 +1901,10 @@ export function SettingsView({
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
               <i className="ri-plug-3-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              MCP Integration
+              MCP Server <span className="settings-subsection-suffix">(Experimental)</span>
             </div>
             <p className="settings-subsection-description ui-subsection-description">
-              Allows external AI clients (like Claude Desktop) to query your document library. Disabled by default.
+              Allows external AI clients, such as Claude Desktop, to query your document library. Disabled by default.
             </p>
           </div>
           <label className="settings-checkbox-row">
