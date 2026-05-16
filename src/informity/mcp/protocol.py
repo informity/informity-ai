@@ -139,7 +139,7 @@ async def handle_jsonrpc_request(
             return error_response(request_id, -32601, f'Unknown tool: {tool_name}')
         except McpAuthorizationError as exc:
             return error_response(request_id, -32001, str(exc))
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return error_response(request_id, -32001, 'MCP tool call timed out')
         except ValueError as exc:
             return error_response(request_id, -32602, str(exc))
