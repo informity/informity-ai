@@ -163,6 +163,28 @@ Security notes:
 - `http` transport requires a bearer token.
 - External clients operate outside Informity's internal Full Privacy controls, so only connect trusted local clients.
 
+### HTTP transport quick test (`curl`)
+
+After enabling MCP with `http` transport in Settings, test from a terminal:
+
+```bash
+curl -sS http://127.0.0.1:8431/mcp \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer imcp_YOUR_TOKEN_HERE" \
+  -d '{
+    "jsonrpc":"2.0",
+    "id":3,
+    "method":"tools/call",
+    "params":{
+      "name":"informity_search_semantic",
+      "arguments":{
+        "query":"artificial intelligence",
+        "limit":3
+      }
+    }
+  }'
+```
+
 ### Claude Desktop config
 
 For local development from this repository, use `uv run` so Claude starts the MCP server in your project environment:
