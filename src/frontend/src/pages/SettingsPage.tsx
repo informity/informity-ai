@@ -68,6 +68,14 @@ const UPDATABLE_KEYS = [
   'chat_trace_redaction_mode',
   'chat_trace_user_retention_days',
   'chat_trace_evaluation_retention_days',
+  'mcp_enabled',
+  'mcp_auto_start',
+  'mcp_transport',
+  'mcp_http_host',
+  'mcp_http_port',
+  'mcp_auth_mode',
+  'mcp_scope_mode',
+  'mcp_access_token',
   'enable_raw_output_control',
   'log_level',
   'ui_theme',
@@ -109,6 +117,14 @@ interface FormState {
   chat_trace_redaction_mode?: string
   chat_trace_user_retention_days?: number
   chat_trace_evaluation_retention_days?: number
+  mcp_enabled?: boolean
+  mcp_auto_start?: boolean
+  mcp_transport?: 'stdio' | 'http'
+  mcp_http_host?: string
+  mcp_http_port?: number
+  mcp_auth_mode?: 'token_required'
+  mcp_scope_mode?: 'metadata_only' | 'search_snippets' | 'full_chunks'
+  mcp_access_token?: string
   enable_raw_output_control?: boolean
   log_level?: string
   ui_theme?: string
@@ -160,6 +176,9 @@ function buildPayload(form: FormState, current: SettingsData | null): Record<str
         payload[key] = nextValue
       }
     }
+  }
+  if (typeof form.mcp_enabled === 'boolean') {
+    payload.mcp_auto_start = form.mcp_enabled
   }
   return payload
 }
@@ -437,6 +456,27 @@ export function SettingsPage() {
     proxyWheelToContainer(e, target)
   }, [])
 
+  const handleConfirmEnableMcp = useCallback(async (): Promise<boolean> => {
+    return confirm({
+      title: 'Privacy Warning',
+      message:
+        'You are about to allow external AI clients to access your document library. This may bypass Full Privacy protections. Do you want to proceed?',
+      confirmLabel: 'Enable MCP',
+      cancelLabel: 'Cancel',
+      icon: 'ri-error-warning-line',
+    })
+  }, [confirm])
+
+  const handleConfirmClearMcpToken = useCallback(async (): Promise<boolean> => {
+    return confirm({
+      title: 'Clear MCP Token',
+      message: 'Switching to STDIO will remove the MCP HTTP access token. Continue?',
+      confirmLabel: 'Switch to STDIO',
+      cancelLabel: 'Cancel',
+      icon: 'ri-plug-3-line',
+    })
+  }, [confirm])
+
   if (loading) {
     return (
       <div className="page" onWheel={handlePageWheel}>
@@ -482,6 +522,8 @@ export function SettingsPage() {
           onDiscard={handleDiscard}
           onResetSettings={handleResetSettings}
           onResetIndex={handleResetIndex}
+          onRequestEnableMcpConfirm={handleConfirmEnableMcp}
+          onRequestClearMcpTokenConfirm={handleConfirmClearMcpToken}
           onCheckForUpdates={() => window.dispatchEvent(new CustomEvent(UPDATE_CHECK_EVENT))}
           saving={saving}
         />

@@ -122,3 +122,45 @@ async def test_web_search_provider_settings_support_dual_keys(
     assert updated.web_search_primary_provider == 'linkup'
     assert config.settings.tavily_api_key == 'tvly-test'
     assert config.settings.linkup_api_key == 'lk-test'
+
+
+@pytest.mark.asyncio
+async def test_mcp_http_host_rejects_non_loopback_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config.settings, 'app_data_dir', tmp_path)
+    monkeypatch.setattr(routes_settings, '_list_available_models', lambda: [])
+
+    with pytest.raises(HTTPException) as exc_info:
+        await routes_settings.update_settings(SettingsUpdateRequest(mcp_http_host='192.168.1.10'))
+    assert exc_info.value.status_code == 400
+    assert 'mcp_http_host must be loopback only' in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_mcp_settings_update_restarts_lifecycle(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config.settings, 'app_data_dir', tmp_path)
+    monkeypatch.setattr(routes_settings, '_list_available_models', lambda: [])
+
+    calls: list[str] = []
+
+    async def _fake_restart() -> None:
+        calls.append('restart')
+
+    monkeypatch.setattr(routes_settings.mcp_lifecycle, 'restart_from_settings', _fake_restart)
+
+    updated = await routes_settings.update_settings(
+        SettingsUpdateRequest(
+            mcp_enabled=True,
+            mcp_auto_start=False,
+            mcp_transport='stdio',
+            mcp_scope_mode='metadata_only',
+        ),
+    )
+
+    assert updated.mcp_enabled is True
+    assert calls == ['restart']

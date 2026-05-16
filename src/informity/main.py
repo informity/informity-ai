@@ -70,6 +70,7 @@ from informity.indexer.embedder import embedder
 from informity.indexer.reranker import reranker
 from informity.llm.engine import llm_engine, remove_models_dir_cache
 from informity.logging_config import configure_logging
+from informity.mcp.lifecycle import mcp_lifecycle
 from informity.scanner.watcher import start_watcher, stop_watcher
 
 # ==============================================================================
@@ -365,6 +366,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     loop = asyncio.get_running_loop()
     start_watcher(loop)
 
+    if settings.mcp_enabled and settings.mcp_auto_start:
+        await mcp_lifecycle.start_from_settings()
+
     log.info('application_started')
 
     yield
@@ -374,6 +378,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     _remove_managed_pid_file()
 
     stop_watcher()
+    await mcp_lifecycle.stop()
     _cleanup_models()
 
     # Kill any lingering child processes (tokenizers, embedder workers)
