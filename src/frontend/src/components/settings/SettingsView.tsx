@@ -2039,7 +2039,9 @@ export function SettingsView({
                         if (!mcpTokenValue) return
                         try {
                           await navigator.clipboard.writeText(mcpTokenValue)
-                        } catch {}
+                        } catch {
+                          // Clipboard copy failures are non-blocking for settings editing.
+                        }
                       }}
                     >
                       <i className="ri-file-copy-line" aria-hidden="true" />
