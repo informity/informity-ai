@@ -41,8 +41,10 @@ class InformityMcpReadOnlyServer:
         args: dict[str, Any] | None = None,
         transport: str = 'stdio',
         bearer_token: str | None = None,
+        skip_authorization: bool = False,
     ) -> dict[str, Any]:
-        authorize_mcp_request(transport=transport, bearer_token=bearer_token)
+        if not skip_authorization:
+            authorize_mcp_request(transport=transport, bearer_token=bearer_token)
         payload = args or {}
         normalized_tool_name = LEGACY_TOOL_ALIASES.get(tool_name, tool_name)
         scope = McpReadScope(mode=settings.mcp_scope_mode).normalize()
