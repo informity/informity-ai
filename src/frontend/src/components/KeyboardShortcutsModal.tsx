@@ -10,6 +10,7 @@ const MOD_KEY = typeof navigator !== 'undefined' && navigator.platform?.toLowerC
   : 'Ctrl'
 
 const SHORTCUTS = [
+  { keys: 'Command+Alt+Ctrl+;', desc: 'Focus app window' },
   { keys: 'Ctrl+1', desc: 'Go to Chat' },
   { keys: 'Ctrl+2', desc: 'Go to History' },
   { keys: 'Ctrl+3', desc: 'Go to Files' },
