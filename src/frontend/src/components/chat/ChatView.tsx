@@ -25,7 +25,6 @@ const UPLOAD_OVERFLOW_CHIP_FALLBACK_WIDTH = 52
 const UPLOAD_PENDING_CHIP_FALLBACK_WIDTH = 116
 const ALL_CHAT_MODES: ChatMode[] = ['assistant', 'researcher']
 const GENERAL_ROLE_LABEL = 'General Assistant'
-const GENERAL_ROLE_DESCRIPTION = 'No domain bias. Works across all document types and questions.'
 
 interface ChatViewProps {
   prefillMessage?: string
@@ -1306,19 +1305,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                               >
                                 <i className="ri-user-settings-line" aria-hidden />
                                 <span className="chat-view__mode-option-label">{GENERAL_ROLE_LABEL}</span>
-                                <span
-                                  className="chat-view__role-info ui-tooltip-trigger"
-                                  onClick={(e) => {
-                                    e.preventDefault()
-                                    e.stopPropagation()
-                                  }}
-                                  onMouseDown={(e) => e.stopPropagation()}
-                                >
-                                  <i className="ri-information-line" aria-hidden="true" />
-                                  <span className="ui-tooltip ui-tooltip--side-right">
-                                    {GENERAL_ROLE_DESCRIPTION}
-                                  </span>
-                                </span>
                               </button>
                             </span>
                             {enabledRoles.map((role) => (
@@ -1343,19 +1329,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                 >
                                   <i className={role.icon || 'ri-user-settings-line'} aria-hidden />
                                   <span className="chat-view__mode-option-label">{role.name}</span>
-                                  <span
-                                    className="chat-view__role-info ui-tooltip-trigger"
-                                    onClick={(e) => {
-                                      e.preventDefault()
-                                      e.stopPropagation()
-                                    }}
-                                    onMouseDown={(e) => e.stopPropagation()}
-                                  >
-                                    <i className="ri-information-line" aria-hidden="true" />
-                                    <span className="ui-tooltip ui-tooltip--side-right">
-                                      {role.description}
-                                    </span>
-                                  </span>
                                 </button>
                               </span>
                             ))}

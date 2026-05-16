@@ -751,9 +751,14 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
 }
 
 .chat-view__mode-menu--role {
-  left: -3px;
+  left: 0;
   right: auto;
   transform: none;
+}
+
+.chat-view__mode-menu--role .chat-view__mode-option {
+  padding-left: 0.625rem;
+  padding-right: 0.625rem;
 }
 
 .chat-view__mode-option {
@@ -773,24 +778,6 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
 
 .chat-view__mode-option-label {
   margin-right: auto;
-}
-
-.chat-view__role-info {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-muted);
-  margin-left: 0.35rem;
-}
-
-.chat-view__role-info > i {
-  font-size: 0.9rem;
-  line-height: 1;
-}
-
-.chat-view__mode-option:hover .chat-view__role-info {
-  color: var(--color-text);
 }
 
 .chat-view__mode-button i,

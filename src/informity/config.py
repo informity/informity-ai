@@ -538,6 +538,17 @@ class Settings(BaseSettings):
     # for each assistant message. Useful for debugging. Disabled by default.
     enable_raw_output_control: bool = False
 
+    # -- MCP (Model Context Protocol) ----------------------------------------
+    # Optional local MCP server exposure for external clients.
+    mcp_enabled: bool = False
+    mcp_auto_start: bool = False
+    mcp_transport: Literal['stdio', 'http'] = 'stdio'
+    mcp_http_host: str = '127.0.0.1'
+    mcp_http_port: int = 8431
+    mcp_auth_mode: Literal['token_required'] = 'token_required'
+    mcp_scope_mode: Literal['metadata_only', 'search_snippets', 'full_chunks'] = 'metadata_only'
+    mcp_access_token: str = ''
+
     # Diagnostics performance/resource alert budgets for run artifacts.
     diagnostics_alert_max_elapsed_seconds: float = 120.0
     diagnostics_alert_analysis_max_elapsed_seconds: float = 150.0
