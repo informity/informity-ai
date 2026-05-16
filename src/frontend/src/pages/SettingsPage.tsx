@@ -187,6 +187,7 @@ interface SettingsData extends FormState {
   tavily_api_key_set?: boolean
   linkup_api_key_set?: boolean
   web_search_configured?: boolean
+  config_file_path?: string
   file_type_options?: { id: string; label: string; extensions: string[] }[]
 }
 

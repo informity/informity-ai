@@ -823,6 +823,9 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
         if should_clear_mcp_token:
             config.settings.mcp_access_token = ''
             config_data['mcp_access_token'] = ''
+        # MCP auto-start is coupled to MCP enabled state in desktop UX.
+        config.settings.mcp_auto_start = mcp_enabled
+        config_data['mcp_auto_start'] = mcp_enabled
 
         # Timeout policy internals are backend-managed and derived from scalar cap.
         config_data.pop('scan_timeout_policy', None)

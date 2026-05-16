@@ -548,6 +548,9 @@ class Settings(BaseSettings):
     mcp_auth_mode: Literal['token_required'] = 'token_required'
     mcp_scope_mode: Literal['metadata_only', 'search_snippets', 'full_chunks'] = 'metadata_only'
     mcp_access_token: str = ''
+    # MCP hardening controls (advanced, env-driven; not exposed in regular Settings UI).
+    mcp_tool_call_timeout_seconds: float = 30.0
+    mcp_http_max_body_bytes: int = 524288
 
     # Diagnostics performance/resource alert budgets for run artifacts.
     diagnostics_alert_max_elapsed_seconds: float = 120.0
@@ -604,6 +607,9 @@ class Settings(BaseSettings):
         self.scan_timeout_policy.default.max_seconds = timeout_cap
         if 'filesystem:file' in self.scan_timeout_policy.overrides:
             self.scan_timeout_policy.overrides['filesystem:file'].max_seconds = timeout_cap
+
+        self.mcp_tool_call_timeout_seconds = max(1.0, min(120.0, float(self.mcp_tool_call_timeout_seconds)))
+        self.mcp_http_max_body_bytes = max(16384, min(2_097_152, int(self.mcp_http_max_body_bytes)))
 
         return self
 

@@ -125,6 +125,18 @@ function parseMcpHttpEndpoint(raw: string): { host: string; port: number } | nul
   }
 }
 
+function buildMcpStdioCommandPath(configFilePath: string): string {
+  const raw = String(configFilePath || '').trim()
+  if (!raw) return '~/.informity/bin/informity-mcp'
+  const normalized = raw.replace(/\\/g, '/')
+  const marker = '/config.json'
+  const idx = normalized.lastIndexOf(marker)
+  if (idx === -1) return '~/.informity/bin/informity-mcp'
+  const appDataDir = normalized.slice(0, idx)
+  if (!appDataDir) return '~/.informity/bin/informity-mcp'
+  return `${appDataDir}/bin/informity-mcp`
+}
+
 function canonicalizeModelFilename(filename: string | null | undefined): string {
   const value = String(filename || '').trim()
   if (!value) return ''
@@ -239,6 +251,7 @@ interface SettingsData {
   rag_reranker_model?: string
   model_profile?: ModelProfile
   file_type_options?: FileTypeOption[]
+  config_file_path?: string
 }
 
 interface FormState {
@@ -665,6 +678,7 @@ export function SettingsView({
   const mcpTokenValue = String(mcpGeneratedToken || form.mcp_access_token || settings.mcp_access_token || '').trim()
   const hasMcpToken = settings.mcp_token_configured || Boolean(mcpTokenValue)
   const mcpTokenDisplayValue = mcpTokenValue || (hasMcpToken ? MASKED_MCP_TOKEN_FALLBACK : '')
+  const mcpStdioCommand = buildMcpStdioCommandPath(String(settings.config_file_path || ''))
 
   const speedVal = threadsToSpeed(form.embedding_max_threads ?? 6)
   const handleSpeedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1997,15 +2011,30 @@ export function SettingsView({
                   <span className="settings-tooltip ui-tooltip">Use this command in your AI client configuration to connect via STDIO.</span>
                 </span>
               </label>
-              <div className="settings-input-wrap settings-input-wrap--narrow">
+              <div className="settings-input-wrap settings-input-wrap--token">
                 <input
                   id="settings-mcp-stdio-command-system"
                   type="text"
-                  className="settings-input settings-input--narrow settings-input--readonly"
-                  value="informity-mcp"
+                  className="settings-input settings-input--with-copy settings-input--readonly"
+                  value={mcpStdioCommand}
                   readOnly
                   disabled={!form.mcp_enabled}
                 />
+                <button
+                  type="button"
+                  className="settings-input-copy"
+                  aria-label="Copy MCP command"
+                  disabled={!form.mcp_enabled}
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(mcpStdioCommand)
+                    } catch {
+                      // Clipboard copy failures are non-blocking for settings editing.
+                    }
+                  }}
+                >
+                  <i className="ri-file-copy-line" aria-hidden="true" />
+                </button>
               </div>
             </div>
           )}
