@@ -21,6 +21,7 @@
 
 .confirm-dialog {
   --confirm-dialog-icon-size: 3rem;
+  --confirm-dialog-content-width: calc(var(--modal-divider-width) + 4rem);
   --confirm-dialog-header-top: calc(var(--space-xl) + var(--space-sm));
   --confirm-dialog-header-bottom: var(--space-sm);
   --confirm-dialog-header-gap: var(--space-md);
@@ -106,7 +107,7 @@ html[data-accent='canvas'] .confirm-dialog {
 }
 
 .confirm-dialog__body {
-  width: min(100%, var(--modal-divider-width));
+  width: min(100%, var(--confirm-dialog-content-width));
   margin: 0 auto;
   padding: var(--space-lg);
   padding-bottom: var(--space-xl);
