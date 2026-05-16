@@ -80,6 +80,8 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('mcp_auth_mode', 'HTTP authentication mode. Current value: token_required.'),
             ('mcp_scope_mode', 'Access level for exposed MCP content: metadata_only, search_snippets, or full_chunks.'),
             ('mcp_access_token', 'Saved MCP HTTP bearer token used when INFORMITY_MCP_TOKEN is not set.'),
+            ('mcp_tool_call_timeout_seconds', 'Maximum MCP tool execution time in seconds before request timeout is returned (clamped: 1-120).'),
+            ('mcp_http_max_body_bytes', 'Maximum allowed MCP HTTP request body size in bytes (clamped: 16KB-2MB).'),
         ],
     ),
     (
