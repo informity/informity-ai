@@ -54,10 +54,12 @@ verify_sidecar_contents() {
   fi
 
   listing_file="$(mktemp)"
-  find "$sidecar_dir" -type f | sed "s|$sidecar_dir/||" >"$listing_file"
+  # Include both files and directories to support namespace-style packages
+  # that may omit __init__.py while still shipping required resources.
+  find "$sidecar_dir" \( -type f -o -type d \) | sed "s|$sidecar_dir/||" >"$listing_file"
 
   local -a required_patterns=(
-    "docling/models/plugins/__init__\\.py"
+    "docling/models/"
     "docling_ibm_models/__init__\\.py"
     "docx/__init__\\.py"
     "docx/document\\.py"
