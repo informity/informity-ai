@@ -356,6 +356,15 @@ class SettingsResponse(BaseModel):
     chat_trace_redaction_mode: str = 'minimal'  # off, minimal, strict
     chat_trace_user_retention_days: int = 30
     chat_trace_evaluation_retention_days: int = 30
+    mcp_enabled: bool = False
+    mcp_auto_start: bool = False
+    mcp_transport: Literal['stdio', 'http'] = 'stdio'
+    mcp_http_host: str = '127.0.0.1'
+    mcp_http_port: int = 8431
+    mcp_auth_mode: Literal['token_required'] = 'token_required'
+    mcp_scope_mode: Literal['metadata_only', 'search_snippets', 'full_chunks'] = 'metadata_only'
+    mcp_access_token: str = ''
+    mcp_token_configured: bool = False
     enable_raw_output_control: bool = False   # Show control to fetch raw model output per assistant message
     available_models:       list[str]        = Field(default_factory=list)
     file_type_options:      list[FileTypeOption] = Field(default_factory=list)  # Canonical list for UI
@@ -438,10 +447,22 @@ class SettingsUpdateRequest(BaseModel):
     chat_trace_redaction_mode: str | None = None  # off, minimal, strict
     chat_trace_user_retention_days: int | None = None
     chat_trace_evaluation_retention_days: int | None = None
+    mcp_enabled: bool | None = None
+    mcp_auto_start: bool | None = None
+    mcp_transport: Literal['stdio', 'http'] | None = None
+    mcp_http_host: str | None = None
+    mcp_http_port: int | None = None
+    mcp_auth_mode: Literal['token_required'] | None = None
+    mcp_scope_mode: Literal['metadata_only', 'search_snippets', 'full_chunks'] | None = None
+    mcp_access_token: str | None = None
     enable_raw_output_control: bool | None = None   # Show control to fetch raw model output per assistant message
     ui_theme:             str | None  = None  # Color theme: canvas, ember, sage, graphite, onyx
     enable_menu_bar_icon: bool | None = None  # Show menu bar icon while app is running (macOS desktop runtime)
     cpu_priority_nice:    int | None = None
+
+
+class McpTokenGenerateResponse(BaseModel):
+    token: str
 
 
 class CurrentChatResponse(BaseModel):

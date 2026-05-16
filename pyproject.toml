@@ -52,6 +52,9 @@ dependencies = [
     "xllamacpp>=0.2.13",
 ]
 
+[project.scripts]
+informity-mcp = "informity.mcp.stdio_server:main"
+
 # ==============================================================================
 # Optional dependency groups
 # ==============================================================================
