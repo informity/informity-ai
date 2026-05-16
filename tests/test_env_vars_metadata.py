@@ -34,4 +34,4 @@ def test_env_vars_metadata_redacts_runtime_secrets(monkeypatch) -> None:  # type
     assert runtime_group is not None
     token_item = next((item for item in runtime_group.variables if item.name == 'INFORMITY_TAURI_SESSION_TOKEN'), None)
     assert token_item is not None
-    assert token_item.current_value == '***set***'
+    assert token_item.current_value == '(set, redacted)'
