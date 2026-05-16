@@ -579,6 +579,10 @@ export async function resetSettings(): Promise<unknown> {
   return request('POST', '/api/settings/reset')
 }
 
+export async function generateMcpToken(): Promise<{ token: string }> {
+  return request<{ token: string }>('POST', '/api/settings/mcp/token/generate')
+}
+
 export async function getCurrentChat(): Promise<unknown> {
   return request('GET', '/api/settings/current-chat')
 }

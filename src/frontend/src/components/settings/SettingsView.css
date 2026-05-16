@@ -4,9 +4,10 @@
    ============================================================================== */
 
 .settings-view {
-  --page-content-width: 58rem;
+  --page-content-width: 100%;
   --settings-narrow-width: 20rem;
-  max-width: var(--page-content-width);
+  --settings-control-max-width: 48rem;
+  max-width: none;
   width: 100%;
   flex: 1;
   margin: 0;
@@ -36,6 +37,8 @@
   margin-bottom: var(--space-lg);
   padding-bottom: 0;
   border-bottom: 1px solid var(--color-border);
+  width: 100%;
+  max-width: 66rem;
   overflow-x: hidden;
   overflow-y: hidden;
 }
@@ -205,9 +208,18 @@
   margin-top: 0;
 }
 
+.settings-disabled-block {
+  opacity: 0.58;
+}
+
+.settings-disabled-block .settings-control-label,
+.settings-disabled-block .settings-field-hint {
+  color: var(--color-text-muted);
+}
+
 .settings-control-group {
   margin-bottom: var(--space-md);
-  max-width: var(--page-content-width);
+  max-width: var(--settings-control-max-width);
 }
 
 .settings-control-label {
@@ -225,7 +237,7 @@
 
 .settings-field {
   margin-top: var(--space-md);
-  max-width: var(--page-content-width);
+  max-width: var(--settings-control-max-width);
 }
 
 .settings-label {
@@ -243,6 +255,29 @@
   color: var(--color-text-muted);
   max-width: var(--page-content-width);
   user-select: none;
+}
+
+.settings-status-pill {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-pill);
+  padding: 0.15rem 0.5rem;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-muted);
+  background: var(--color-bg-elevated);
+}
+
+.settings-status-pill--ok {
+  border-color: var(--color-success-border);
+  color: var(--color-success);
+  background: var(--color-success-bg);
+}
+
+.settings-status-pill--error {
+  border-color: var(--color-danger-border);
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
 }
 
 @keyframes settings-spin {
@@ -513,7 +548,7 @@
 
 .settings-input-wrap {
   position: relative;
-  max-width: var(--page-content-width);
+  max-width: var(--settings-control-max-width);
 }
 
 .settings-input-wrap--narrow {
@@ -527,6 +562,10 @@
 
 .settings-input--with-status {
   padding-right: 2rem;
+}
+
+.settings-input--with-copy {
+  padding-right: 3.75rem;
 }
 
 .settings-input-clear {
@@ -544,6 +583,42 @@
   background: transparent;
   color: var(--color-text-dimmed);
   cursor: pointer;
+}
+
+.settings-input-wrap--token {
+  flex: 1;
+  min-width: 0;
+}
+
+.settings-input-copy {
+  position: absolute;
+  top: 50%;
+  right: var(--space-sm);
+  transform: translateY(-50%);
+  width: 1.25rem;
+  height: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--border-radius-sm);
+  background: transparent;
+  color: var(--color-text-dimmed);
+  cursor: pointer;
+}
+
+.settings-input-copy:hover {
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+}
+
+.settings-input-copy:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.settings-input-copy--eye {
+  right: calc(var(--space-sm) + 1.5rem);
 }
 
 .settings-status-indicator {
@@ -653,7 +728,7 @@
   display: flex;
   gap: var(--space-sm);
   margin-bottom: var(--space-sm);
-  max-width: var(--page-content-width);
+  max-width: var(--settings-control-max-width);
 }
 
 .settings-add-row .settings-input {
@@ -716,7 +791,7 @@ html[data-accent='canvas'] .settings-btn--add-cancel {
 }
 
 .settings-list-scroll {
-  max-width: var(--page-content-width);
+  max-width: var(--settings-control-max-width);
   max-height: 9rem;
   overflow-y: auto;
   overflow-x: hidden;
@@ -838,7 +913,7 @@ html[data-accent='canvas'] .settings-btn--add-cancel {
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
   margin-bottom: 0;
-  max-width: var(--page-content-width);
+  max-width: var(--settings-control-max-width);
 }
 
 .settings-slider-min,
@@ -877,7 +952,7 @@ html[data-accent='canvas'] .settings-btn--add-cancel {
 .settings-slider {
   display: block;
   width: 100%;
-  max-width: var(--page-content-width);
+  max-width: var(--settings-control-max-width);
   margin-bottom: 0;
   margin-left: 0;
   padding: 0;
@@ -928,7 +1003,7 @@ html[data-accent='canvas'] .settings-btn--add-cancel {
   display: grid;
   grid-template-columns: 1fr;
   gap: 0;
-  max-width: var(--page-content-width);
+  max-width: var(--settings-control-max-width);
   margin-top: var(--space-md);
 }
 
@@ -1051,7 +1126,7 @@ html[data-accent='canvas'] {
 .settings-reset-card {
   padding: var(--space-lg);
   margin-top: var(--space-2xl);
-  max-width: var(--page-content-width);
+  max-width: var(--settings-control-max-width);
 }
 
 .settings-reset-card-title {
@@ -1070,7 +1145,7 @@ html[data-accent='canvas'] {
   padding: var(--space-lg);
   margin-top: var(--space-md);
   margin-bottom: 0;
-  max-width: var(--page-content-width);
+  max-width: var(--settings-control-max-width);
 }
 
 .settings-danger-card-title {

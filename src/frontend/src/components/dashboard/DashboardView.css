@@ -3,7 +3,7 @@
    ----------------------------------------------------------------------------- */
 
 .page--dashboard {
-  --page-content-width: 58rem;
+  --page-content-width: 66rem;
   --ui-section-divider-max-width: var(--page-content-width);
   --dashboard-inline-gap: var(--space-sm);
   padding-bottom: 2rem;
