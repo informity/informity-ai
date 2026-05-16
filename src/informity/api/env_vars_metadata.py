@@ -69,6 +69,20 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         ],
     ),
     (
+        'MCP Server',
+        'Model Context Protocol server configuration for external AI clients. Use STDIO for widest client compatibility; HTTP is loopback-only.',
+        [
+            ('mcp_enabled', 'Enable or disable the local MCP server integration.'),
+            ('mcp_auto_start', 'When true, start MCP server automatically with the application (when MCP is enabled).'),
+            ('mcp_transport', 'MCP transport mode: stdio (recommended) or http (loopback only).'),
+            ('mcp_http_host', 'Loopback host for HTTP transport (127.0.0.1, localhost, or ::1).'),
+            ('mcp_http_port', 'Port for HTTP MCP transport.'),
+            ('mcp_auth_mode', 'HTTP authentication mode. Current value: token_required.'),
+            ('mcp_scope_mode', 'Access level for exposed MCP content: metadata_only, search_snippets, or full_chunks.'),
+            ('mcp_access_token', 'Saved MCP HTTP bearer token used when INFORMITY_MCP_TOKEN is not set.'),
+        ],
+    ),
+    (
         'Paths and Storage',
         'Where the application stores database, model files, cache, and logs. Default: ~/.informity. Override via INFORMITY_APP_DATA_DIR.',
         [
@@ -203,9 +217,18 @@ _RUNTIME_ENV_VARS: list[tuple[str, str]] = [
         'INFORMITY_TAURI_SESSION_TOKEN',
         'Desktop runtime session token for local API authorization (managed by the desktop shell).',
     ),
+    (
+        'INFORMITY_MCP_TOKEN',
+        'Optional MCP HTTP bearer-token override. If set, this value is used instead of the saved MCP access token.',
+    ),
 ]
-_SENSITIVE_ENV_VALUE_MARKER = '***set***'
+_SENSITIVE_ENV_VALUE_MARKER = '(set, redacted)'
 _SENSITIVE_ENV_NAME_HINTS = ('TOKEN', 'SECRET', 'PASSWORD', 'KEY')
+
+
+def _should_redact_setting_field(field: str) -> bool:
+    upper = str(field or '').upper()
+    return any(hint in upper for hint in _SENSITIVE_ENV_NAME_HINTS)
 
 
 def _describe_unmapped_field(field: str) -> str:
@@ -276,6 +299,8 @@ def get_env_vars_response(settings: object) -> EnvVarsResponse:
                 if field == 'supported_extensions':
                     value = _normalize_supported_extensions_display(value)
                 current_value = _format_value(value, app_dir)
+                if _should_redact_setting_field(field):
+                    current_value = _SENSITIVE_ENV_VALUE_MARKER if str(current_value).strip() else ''
             except (AttributeError, TypeError):
                 current_value = '(unset)'
             items.append(EnvVarItem(name=_env_name(field), current_value=current_value, description=desc))
@@ -297,6 +322,8 @@ def get_env_vars_response(settings: object) -> EnvVarsResponse:
         try:
             value        = getattr(settings, field)
             current_display = _format_value(value, app_dir)
+            if _should_redact_setting_field(field):
+                current_display = _SENSITIVE_ENV_VALUE_MARKER if str(current_display).strip() else ''
         except (AttributeError, TypeError):
             current_display = '(unset)'
         item = EnvVarItem(

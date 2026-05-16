@@ -1916,6 +1916,9 @@ export function SettingsView({
                 if (!checked) {
                   update('mcp_enabled', false)
                   update('mcp_auto_start', false)
+                  update('mcp_access_token', '')
+                  setMcpGeneratedToken('')
+                  setMcpTokenVisible(false)
                   return
                 }
                 void (async () => {

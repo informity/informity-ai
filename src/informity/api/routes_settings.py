@@ -814,6 +814,16 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
             config.settings.diagnostics_profile = _DIAG_PROFILE_CUSTOM
             config_data['diagnostics_profile'] = _DIAG_PROFILE_CUSTOM
 
+        # Enforce MCP token lifecycle invariants on persisted settings.
+        # 1) Disabling MCP always clears any persisted token.
+        # 2) STDIO transport never retains an HTTP auth token.
+        mcp_enabled = bool(getattr(config.settings, 'mcp_enabled', False))
+        mcp_transport = str(getattr(config.settings, 'mcp_transport', 'stdio') or 'stdio').strip().lower()
+        should_clear_mcp_token = (not mcp_enabled) or mcp_transport == 'stdio'
+        if should_clear_mcp_token:
+            config.settings.mcp_access_token = ''
+            config_data['mcp_access_token'] = ''
+
         # Timeout policy internals are backend-managed and derived from scalar cap.
         config_data.pop('scan_timeout_policy', None)
 
