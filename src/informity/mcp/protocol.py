@@ -111,7 +111,7 @@ async def handle_jsonrpc_request(
         if not tool_name:
             return error_response(request_id, -32602, 'Missing tool name')
         try:
-            timeout_seconds = max(1.0, float(getattr(settings, 'mcp_tool_call_timeout_seconds', 30.0) or 30.0))
+            timeout_seconds = max(5.0, float(getattr(settings, 'mcp_tool_call_timeout_seconds', 30.0) or 30.0))
             result = await asyncio.wait_for(
                 tool_server.execute_tool(
                     tool_name=tool_name,

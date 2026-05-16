@@ -608,7 +608,7 @@ class Settings(BaseSettings):
         if 'filesystem:file' in self.scan_timeout_policy.overrides:
             self.scan_timeout_policy.overrides['filesystem:file'].max_seconds = timeout_cap
 
-        self.mcp_tool_call_timeout_seconds = max(1.0, min(120.0, float(self.mcp_tool_call_timeout_seconds)))
+        self.mcp_tool_call_timeout_seconds = max(5.0, min(120.0, float(self.mcp_tool_call_timeout_seconds)))
         self.mcp_http_max_body_bytes = max(16384, min(2_097_152, int(self.mcp_http_max_body_bytes)))
 
         return self
