@@ -21,6 +21,7 @@ Informity scans and indexes local files, then answers questions with a local RAG
 - [Data Location](#data-location)
 - [PDF Processing](#pdf-processing)
 - [Offline Mode](#offline-mode)
+- [MCP Server (Read-only)](#mcp-server-read-only)
 - [Chat Scope Contract](#chat-scope-contract)
 - [Tech Stack](#tech-stack)
 - [Project Structure](#project-structure)
@@ -135,6 +136,70 @@ The app is **offline-first by default**. With **Full Privacy Mode** on (Settings
   Note: the optional installer seed in `scripts/install.conf.json` points to Qwen3.6 35B A3B.
 
 After models are in place, the app runs fully offline with no internet required.
+
+## MCP Server (Read-only)
+
+Informity includes a built-in read-only MCP server so external AI clients (for example Claude Desktop) can query your indexed library.
+
+Enable it in the app at **Settings -> System -> MCP Server**.
+
+Current read-only tools:
+
+- `informity_health`
+- `informity_files_list`
+- `informity_search_semantic`
+- `informity_index_status`
+- `informity_scan_status`
+
+Access levels:
+
+- `metadata_only` (recommended default)
+- `search_snippets`
+- `full_chunks`
+
+Security notes:
+
+- Keep MCP disabled unless you need it.
+- `http` transport requires a bearer token.
+- External clients operate outside Informity's internal Full Privacy controls, so only connect trusted local clients.
+
+### Claude Desktop config
+
+For local development from this repository, use `uv run` so Claude starts the MCP server in your project environment:
+
+```json
+{
+  "mcpServers": {
+    "informity": {
+      "command": "/Users/<you>/.local/bin/uv",
+      "args": [
+        "run",
+        "--project",
+        "/absolute/path/to/informity-ai",
+        "informity-mcp"
+      ]
+    }
+  }
+}
+```
+
+For packaged installs (when `informity-mcp` is on `PATH`), use:
+
+```json
+{
+  "mcpServers": {
+    "informity": {
+      "command": "informity-mcp"
+    }
+  }
+}
+```
+
+Quick validation prompts in Claude Desktop:
+
+- "Use `informity_health` and return raw JSON."
+- "Use `informity_index_status` and summarize counts in one sentence."
+- "Use `informity_search_semantic` with query `termination clause` and limit `3`."
 
 ## Provider Selection
 

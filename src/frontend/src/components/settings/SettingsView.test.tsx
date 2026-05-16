@@ -96,7 +96,7 @@ const baseSettings = {
   rag_reranker_model: 'reranker.gguf',
 }
 
-function renderSettingsView() {
+function renderSettingsView(options?: { onRequestClearMcpTokenConfirm?: () => Promise<boolean> }) {
   const onSave = vi.fn()
   const onDiscard = vi.fn()
   const onResetSettings = vi.fn()
@@ -108,6 +108,7 @@ function renderSettingsView() {
         settings={baseSettings}
         fileTypeOptions={[{ id: 'docs', label: 'Docs', extensions: ['.md', '.txt'] }]}
         onSave={onSave}
+        onRequestClearMcpTokenConfirm={options?.onRequestClearMcpTokenConfirm}
         onDiscard={onDiscard}
         onResetSettings={onResetSettings}
         onResetIndex={onResetIndex}
@@ -153,7 +154,7 @@ describe('SettingsView tabs and action bar behavior', () => {
     expect(localStorage.getItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY)).toBe('system')
   })
 
-  it('shows Save/Discard on non-System tabs and hides them on System', async () => {
+  it('shows Save/Discard on both non-System and System tabs', async () => {
     renderSettingsView()
 
     expect(screen.getByRole('button', { name: 'Save Settings' })).toBeInTheDocument()
@@ -161,8 +162,8 @@ describe('SettingsView tabs and action bar behavior', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'System' }))
 
-    expect(screen.queryByRole('button', { name: 'Save Settings' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: 'Discard Changes' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Discard Changes' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Reset Settings/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Reset All/i })).toBeInTheDocument()
   })
@@ -280,10 +281,10 @@ describe('SettingsView tabs and action bar behavior', () => {
     )
   })
 
-  it('shows CPU responsiveness in System and not in Chat', () => {
+  it('shows CPU responsiveness in Chat', () => {
     renderSettingsView()
     const cpuLabel = screen.getByText('CPU Responsiveness')
-    expect(sectionHeaderFor(cpuLabel)).toContain('System')
+    expect(sectionHeaderFor(cpuLabel)).toContain('Chat')
   })
 
   it('shows chat activity logs toggle in Chat and not in Diagnostics', () => {
@@ -300,5 +301,81 @@ describe('SettingsView tabs and action bar behavior', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Indexing' }))
     expect(screen.getByText('File Processing Timeout')).toBeInTheDocument()
+  })
+
+  it('clears MCP token when switching HTTP to STDIO after confirmation', async () => {
+    const onSave = vi.fn()
+    const confirmClear = vi.fn(async () => true)
+    const settings = {
+      ...baseSettings,
+      mcp_enabled: true,
+      mcp_transport: 'http' as const,
+      mcp_http_host: '127.0.0.1',
+      mcp_http_port: 8431,
+      mcp_scope_mode: 'metadata_only' as const,
+      mcp_access_token: 'imcp_abcdefghijklmnopqrstuvwxyzABCDEF',
+      mcp_token_configured: true,
+    }
+
+    render(
+      <MemoryRouter>
+        <SettingsView
+          settings={settings}
+          fileTypeOptions={[{ id: 'docs', label: 'Docs', extensions: ['.md', '.txt'] }]}
+          onSave={onSave}
+          onRequestClearMcpTokenConfirm={confirmClear}
+          onDiscard={vi.fn()}
+          onResetSettings={vi.fn()}
+          onResetIndex={vi.fn()}
+          saving={false}
+        />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: 'System' }))
+    const transport = screen.getByLabelText('Transport') as HTMLSelectElement
+    fireEvent.change(transport, { target: { value: 'stdio' } })
+    await waitFor(() => expect(confirmClear).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Settings' }))
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      mcp_transport: 'stdio',
+      mcp_access_token: '',
+    }))
+  })
+
+  it('keeps MCP HTTP transport when token-clear confirmation is canceled', async () => {
+    const confirmClear = vi.fn(async () => false)
+    const settings = {
+      ...baseSettings,
+      mcp_enabled: true,
+      mcp_transport: 'http' as const,
+      mcp_http_host: '127.0.0.1',
+      mcp_http_port: 8431,
+      mcp_scope_mode: 'metadata_only' as const,
+      mcp_access_token: 'imcp_abcdefghijklmnopqrstuvwxyzABCDEF',
+      mcp_token_configured: true,
+    }
+
+    render(
+      <MemoryRouter>
+        <SettingsView
+          settings={settings}
+          fileTypeOptions={[{ id: 'docs', label: 'Docs', extensions: ['.md', '.txt'] }]}
+          onSave={vi.fn()}
+          onRequestClearMcpTokenConfirm={confirmClear}
+          onDiscard={vi.fn()}
+          onResetSettings={vi.fn()}
+          onResetIndex={vi.fn()}
+          saving={false}
+        />
+      </MemoryRouter>,
+    )
+
+    fireEvent.click(screen.getByRole('tab', { name: 'System' }))
+    const transport = screen.getByLabelText('Transport') as HTMLSelectElement
+    fireEvent.change(transport, { target: { value: 'stdio' } })
+    await waitFor(() => expect(confirmClear).toHaveBeenCalledTimes(1))
+    expect((screen.getByLabelText('Transport') as HTMLSelectElement).value).toBe('http')
   })
 })

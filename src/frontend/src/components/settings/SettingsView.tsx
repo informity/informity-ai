@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom'
 import {
   cancelModelDownload,
   downloadModel,
+  generateMcpToken,
   getRoles,
   getModelOperationEvents,
   getModelProfile,
@@ -77,6 +78,7 @@ const CHAT_CPU_RESPONSIVENESS_LABELS = ['', 'Most Responsive', 'Balanced', 'Fast
 const CHAT_CPU_RESPONSIVENESS_TO_THREADS = [2, 4, 6]
 const MASKED_TAVILY_KEY = '••••••••••••••••••••••••••••••••••••••••••••••••••'
 const MASKED_LINKUP_KEY = '••••••••••••••••••••••••••••••••••••••••••••••••••'
+const MASKED_MCP_TOKEN_FALLBACK = '********'
 const MODEL_FILENAME_ALIASES: Record<string, string> = {
   'Qwen3.6-35B-A3B-Q4_K_M.gguf': 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf',
 }
@@ -99,6 +101,28 @@ function parseInteger(raw: string, fallback: number): number {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value))
+}
+
+function buildMcpHttpEndpoint(host: string, port: number): string {
+  return `http://${host}:${port}`
+}
+
+function parseMcpHttpEndpoint(raw: string): { host: string; port: number } | null {
+  const value = raw.trim()
+  if (!value) return null
+  const normalized = value.includes('://') ? value : `http://${value}`
+  try {
+    const url = new URL(normalized)
+    if (url.protocol !== 'http:') return null
+    const host = String(url.hostname || '').trim()
+    if (!host) return null
+    const portValue = url.port ? Number.parseInt(url.port, 10) : 8431
+    if (!Number.isFinite(portValue)) return null
+    const port = clamp(portValue, 1, 65535)
+    return { host, port }
+  } catch {
+    return null
+  }
 }
 
 function canonicalizeModelFilename(filename: string | null | undefined): string {
@@ -193,6 +217,15 @@ interface SettingsData {
   chat_trace_redaction_mode?: string
   chat_trace_user_retention_days?: number
   chat_trace_evaluation_retention_days?: number
+  mcp_enabled?: boolean
+  mcp_auto_start?: boolean
+  mcp_transport?: 'stdio' | 'http'
+  mcp_http_host?: string
+  mcp_http_port?: number
+  mcp_auth_mode?: 'token_required'
+  mcp_scope_mode?: 'metadata_only' | 'search_snippets' | 'full_chunks'
+  mcp_access_token?: string
+  mcp_token_configured?: boolean
   enable_raw_output_control?: boolean
   ui_theme?: string
   enable_menu_bar_icon?: boolean
@@ -245,6 +278,14 @@ interface FormState {
   chat_trace_redaction_mode: string
   chat_trace_user_retention_days: number
   chat_trace_evaluation_retention_days: number
+  mcp_enabled: boolean
+  mcp_auto_start: boolean
+  mcp_transport: 'stdio' | 'http'
+  mcp_http_host: string
+  mcp_http_port: number
+  mcp_auth_mode: 'token_required'
+  mcp_scope_mode: 'metadata_only' | 'search_snippets' | 'full_chunks'
+  mcp_access_token: string
   enable_raw_output_control: boolean
   ui_theme: string
   enable_menu_bar_icon: boolean
@@ -259,6 +300,8 @@ interface SettingsViewProps {
   settings: SettingsData | null
   fileTypeOptions?: FileTypeOption[]
   onSave: (form: FormState) => void | Promise<void>
+  onRequestEnableMcpConfirm?: () => Promise<boolean>
+  onRequestClearMcpTokenConfirm?: () => Promise<boolean>
   onDiscard?: () => void
   onResetSettings: () => void
   onResetIndex: () => void
@@ -305,6 +348,18 @@ function buildFormState(settings: SettingsData): FormState {
     chat_trace_redaction_mode: settings.chat_trace_redaction_mode ?? 'minimal',
     chat_trace_user_retention_days: settings.chat_trace_user_retention_days ?? 30,
     chat_trace_evaluation_retention_days: settings.chat_trace_evaluation_retention_days ?? 30,
+    mcp_enabled: settings.mcp_enabled ?? false,
+    mcp_auto_start: settings.mcp_auto_start ?? false,
+    mcp_transport: settings.mcp_transport === 'http' ? 'http' : 'stdio',
+    mcp_http_host: String(settings.mcp_http_host || '127.0.0.1'),
+    mcp_http_port: Number(settings.mcp_http_port ?? 8431),
+    mcp_auth_mode: 'token_required',
+    mcp_scope_mode: settings.mcp_scope_mode === 'full_chunks'
+      ? 'full_chunks'
+      : settings.mcp_scope_mode === 'search_snippets'
+        ? 'search_snippets'
+        : 'metadata_only',
+    mcp_access_token: String(settings.mcp_access_token || ''),
     enable_raw_output_control: settings.enable_raw_output_control ?? false,
     ui_theme: normalizedTheme ?? UI_THEME_DEFAULT,
     enable_menu_bar_icon: settings.enable_menu_bar_icon ?? false,
@@ -359,6 +414,8 @@ export function SettingsView({
   settings,
   fileTypeOptions,
   onSave,
+  onRequestEnableMcpConfirm,
+  onRequestClearMcpTokenConfirm,
   onDiscard,
   onResetSettings,
   onResetIndex,
@@ -371,6 +428,12 @@ export function SettingsView({
   const [modelProfileNames, setModelProfileNames] = useState<Map<string, string>>(new Map())
   const [dirInput, setDirInput] = useState('')
   const [ignoreInput, setIgnoreInput] = useState('')
+  const [mcpEndpointInput, setMcpEndpointInput] = useState(
+    buildMcpHttpEndpoint(
+      String(form.mcp_http_host || '127.0.0.1'),
+      Number(form.mcp_http_port ?? 8431),
+    ),
+  )
   const [modelsCatalog, setModelsCatalog] = useState<ModelsCatalogResponse | null>(null)
   const [availableRoles, setAvailableRoles] = useState<ChatRoleDefinition[]>([])
   const [modelDownloadPending, setModelDownloadPending] = useState(false)
@@ -378,6 +441,10 @@ export function SettingsView({
   const [modelEvent, setModelEvent] = useState<ModelOperationEventResponse | null>(null)
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatusResponse | null>(null)
   const [ollamaValidationPending, setOllamaValidationPending] = useState(false)
+  const [mcpTokenGeneratePending, setMcpTokenGeneratePending] = useState(false)
+  const [mcpGeneratedToken, setMcpGeneratedToken] = useState('')
+  const [mcpTokenError, setMcpTokenError] = useState<string | null>(null)
+  const [mcpTokenVisible, setMcpTokenVisible] = useState(false)
   const modelEventStateRef = useRef<ModelOperationEventResponse['state'] | null>(null)
   const persistedModel = canonicalizeModelFilename(settings?.llm_model_filename ?? '')
 
@@ -402,8 +469,18 @@ export function SettingsView({
     if (settings) {
       setForm(buildFormState(settings))
       setPreviewProfile(null)
+      setMcpGeneratedToken(String(settings.mcp_access_token || ''))
     }
   }, [settings])
+
+  useEffect(() => {
+    setMcpEndpointInput(
+      buildMcpHttpEndpoint(
+        String(form.mcp_http_host || '127.0.0.1'),
+        Number(form.mcp_http_port ?? 8431),
+      ),
+    )
+  }, [form.mcp_http_host, form.mcp_http_port])
 
   useEffect(() => {
     try {
@@ -518,6 +595,20 @@ export function SettingsView({
   const update = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }))
 
+  const confirmEnableMcp = async (): Promise<boolean> => {
+    if (onRequestEnableMcpConfirm) {
+      return onRequestEnableMcpConfirm()
+    }
+    return true
+  }
+
+  const confirmClearMcpToken = async (): Promise<boolean> => {
+    if (onRequestClearMcpTokenConfirm) {
+      return onRequestClearMcpTokenConfirm()
+    }
+    return true
+  }
+
   const applyDiagnosticsProfile = (profile: string) => {
     setForm((prev) => {
       const preset = diagnosticsPresetValues[profile]
@@ -571,6 +662,9 @@ export function SettingsView({
 
   const canAddDir = dirInput.trim().length > 0
   const canAddIgnore = ignoreInput.trim().length > 0
+  const mcpTokenValue = String(mcpGeneratedToken || form.mcp_access_token || settings.mcp_access_token || '').trim()
+  const hasMcpToken = settings.mcp_token_configured || Boolean(mcpTokenValue)
+  const mcpTokenDisplayValue = mcpTokenValue || (hasMcpToken ? MASKED_MCP_TOKEN_FALLBACK : '')
 
   const speedVal = threadsToSpeed(form.embedding_max_threads ?? 6)
   const handleSpeedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -978,6 +1072,35 @@ export function SettingsView({
             step={1}
             value={form.chat_history_messages ?? 5}
             onChange={(e) => update('chat_history_messages', clamp(parseInteger(e.target.value, 5), 0, 10))}
+          />
+        </div>
+
+        <div className="settings-subsection">
+          <div className="settings-subsection-head ui-subsection-head">
+            <div className="settings-subsection-title ui-subsection-title">
+              <i className="ri-cpu-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              CPU Responsiveness
+            </div>
+            <p className="settings-subsection-description ui-subsection-description">
+              Controls CPU threads used by chat generation. Lower values keep the system more responsive. Requires restart.
+            </p>
+          </div>
+          <div className="settings-slider-row">
+            <span className="settings-slider-min">Responsive</span>
+            <span className="settings-slider-label">
+              <span className="settings-slider-current">{CHAT_CPU_RESPONSIVENESS_LABELS[chatCpuVal] || 'Balanced'}</span>
+              {' '}({form.llm_cpu_threads ?? 4} threads)
+            </span>
+            <span className="settings-slider-max">Fastest</span>
+          </div>
+          <input
+            type="range"
+            className="settings-slider"
+            min={1}
+            max={3}
+            step={1}
+            value={chatCpuVal}
+            onChange={handleChatCpuChange}
           />
         </div>
 
@@ -1777,30 +1900,178 @@ export function SettingsView({
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-cpu-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              CPU Responsiveness
+              <i className="ri-plug-3-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              MCP Server <span className="settings-subsection-suffix">(Experimental)</span>
             </div>
             <p className="settings-subsection-description ui-subsection-description">
-              Controls CPU threads used by chat generation. Lower values keep the system more responsive. Requires restart.
+              Allows external AI clients, such as Claude Desktop, to query your document library. Disabled by default.
             </p>
           </div>
-          <div className="settings-slider-row">
-            <span className="settings-slider-min">Responsive</span>
-            <span className="settings-slider-label">
-              <span className="settings-slider-current">{CHAT_CPU_RESPONSIVENESS_LABELS[chatCpuVal] || 'Balanced'}</span>
-              {' '}({form.llm_cpu_threads ?? 4} threads)
-            </span>
-            <span className="settings-slider-max">Fastest</span>
+          <label className="settings-checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.mcp_enabled}
+              onChange={(e) => {
+                const checked = e.target.checked
+                if (!checked) {
+                  update('mcp_enabled', false)
+                  update('mcp_auto_start', false)
+                  return
+                }
+                void (async () => {
+                  const approved = await confirmEnableMcp()
+                  if (!approved) return
+                  update('mcp_enabled', true)
+                  update('mcp_auto_start', true)
+                })()
+              }}
+            />
+            <div>
+              <span className="settings-checkbox-row-label">Enable MCP server</span>
+              <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                <i className="ri-information-line" aria-hidden="true" />
+                <span className="settings-tooltip ui-tooltip">Warning! This may bypass Full Privacy protections.</span>
+              </span>
+            </div>
+          </label>
+          <div className={!form.mcp_enabled ? 'settings-disabled-block' : undefined}>
+          <div className="settings-control-group">
+            <label className="settings-control-label" htmlFor="settings-mcp-scope-mode-system">Access Level</label>
+            <select
+              id="settings-mcp-scope-mode-system"
+              className="settings-select"
+              value={form.mcp_scope_mode}
+              onChange={(e) => {
+                const value = e.target.value
+                update(
+                  'mcp_scope_mode',
+                  value === 'full_chunks'
+                    ? 'full_chunks'
+                    : value === 'search_snippets'
+                      ? 'search_snippets'
+                      : 'metadata_only',
+                )
+              }}
+              disabled={!form.mcp_enabled}
+            >
+              <option value="metadata_only">Metadata Only (Default)</option>
+              <option value="search_snippets">Search Snippets</option>
+              <option value="full_chunks">Full Content</option>
+            </select>
           </div>
-          <input
-            type="range"
-            className="settings-slider"
-            min={1}
-            max={3}
-            step={1}
-            value={chatCpuVal}
-            onChange={handleChatCpuChange}
-          />
+          <div className="settings-control-group">
+            <label className="settings-control-label" htmlFor="settings-mcp-transport-system">Transport</label>
+            <select
+              id="settings-mcp-transport-system"
+              className="settings-select"
+              value={form.mcp_transport}
+              onChange={(e) => {
+                const nextTransport = e.target.value === 'http' ? 'http' : 'stdio'
+                if (nextTransport === 'stdio' && form.mcp_transport === 'http' && hasMcpToken) {
+                  void (async () => {
+                    const approved = await confirmClearMcpToken()
+                    if (!approved) return
+                    update('mcp_transport', 'stdio')
+                    update('mcp_access_token', '')
+                    setMcpGeneratedToken('')
+                  })()
+                  return
+                }
+                update('mcp_transport', nextTransport)
+              }}
+              disabled={!form.mcp_enabled}
+            >
+              <option value="stdio">STDIO (Recommended)</option>
+              <option value="http">HTTP (Loopback only)</option>
+            </select>
+          </div>
+          {form.mcp_transport === 'http' && (
+            <>
+              <div className="settings-control-group">
+                <label className="settings-control-label" htmlFor="settings-mcp-http-endpoint-system">HTTP endpoint URL</label>
+                <div className="settings-input-wrap settings-input-wrap--narrow">
+                  <input
+                    id="settings-mcp-http-endpoint-system"
+                    type="text"
+                    className="settings-input settings-input--narrow"
+                    value={mcpEndpointInput}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setMcpEndpointInput(value)
+                      const parsed = parseMcpHttpEndpoint(value)
+                      if (!parsed) return
+                      update('mcp_http_host', parsed.host)
+                      update('mcp_http_port', parsed.port)
+                    }}
+                    disabled={!form.mcp_enabled}
+                  />
+                </div>
+              </div>
+              <div className="settings-control-group">
+                <label className="settings-control-label" htmlFor="settings-mcp-access-token-system">Access Token</label>
+                <div className="settings-add-row">
+                  <div className="settings-input-wrap settings-input-wrap--token">
+                    <input
+                      id="settings-mcp-access-token-system"
+                      type={mcpTokenVisible ? 'text' : 'password'}
+                      className="settings-input settings-input--with-copy"
+                      value={mcpTokenDisplayValue}
+                      placeholder={hasMcpToken ? '' : 'Not generated yet'}
+                      readOnly
+                      aria-label="MCP access token"
+                    />
+                    <button
+                      type="button"
+                      className="settings-input-copy settings-input-copy--eye"
+                      aria-label={mcpTokenVisible ? 'Hide MCP access token' : 'Show MCP access token'}
+                      onClick={async () => {
+                        setMcpTokenVisible((prev) => !prev)
+                      }}
+                    >
+                      <i className={mcpTokenVisible ? 'ri-eye-off-line' : 'ri-eye-line'} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-input-copy"
+                      aria-label="Copy MCP access token"
+                      disabled={!mcpTokenValue}
+                      onClick={async () => {
+                        if (!mcpTokenValue) return
+                        try {
+                          await navigator.clipboard.writeText(mcpTokenValue)
+                        } catch {}
+                      }}
+                    >
+                      <i className="ri-file-copy-line" aria-hidden="true" />
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn--add"
+                    disabled={mcpTokenGeneratePending || !form.mcp_enabled}
+                    onClick={async () => {
+                      setMcpTokenError(null)
+                      setMcpTokenGeneratePending(true)
+                      try {
+                        const result = await generateMcpToken()
+                        const token = String(result?.token || '')
+                        setMcpGeneratedToken(token)
+                        update('mcp_access_token', token)
+                      } catch (err) {
+                        setMcpTokenError(err instanceof Error ? err.message : 'Failed to generate token')
+                      } finally {
+                        setMcpTokenGeneratePending(false)
+                      }
+                    }}
+                  >
+                    {mcpTokenGeneratePending ? 'Generating...' : 'Generate'}
+                  </button>
+                </div>
+                {mcpTokenError && <p className="settings-field-hint">{mcpTokenError}</p>}
+              </div>
+            </>
+          )}
+          </div>
         </div>
 
         <div className="settings-subsection">
@@ -1862,21 +2133,19 @@ export function SettingsView({
         )}
       </div>
 
-      {activeTab !== 'system' && (
-        <div className="settings-actions settings-actions--sticky">
-          <button
-            type="button"
-            className="settings-btn settings-btn--primary"
-            onClick={handleSave}
-            disabled={!canSaveSettings}
-          >
-            {saving ? 'Saving…' : 'Save Settings'}
-          </button>
-          <button type="button" className="settings-btn settings-btn--secondary" onClick={handleDiscard}>
-            Discard Changes
-          </button>
-        </div>
-      )}
+      <div className="settings-actions settings-actions--sticky">
+        <button
+          type="button"
+          className="settings-btn settings-btn--primary"
+          onClick={handleSave}
+          disabled={!canSaveSettings}
+        >
+          {saving ? 'Saving…' : 'Save Settings'}
+        </button>
+        <button type="button" className="settings-btn settings-btn--secondary" onClick={handleDiscard}>
+          Discard Changes
+        </button>
+      </div>
     </div>
   )
 }

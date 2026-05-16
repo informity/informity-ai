@@ -7,6 +7,7 @@
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -24,10 +25,12 @@ from informity.api.schemas import (
     DiagnosticsProfilePreset,
     EnvVarsResponse,
     FileTypeOption,
+    McpTokenGenerateResponse,
     ModelProfileInfo,
     SettingsResponse,
     SettingsUpdateRequest,
 )
+from informity.api.security import is_loopback_host
 from informity.file_types import get_file_type_options
 from informity.llm.model_adapter import (
     discover_available_models,
@@ -35,6 +38,8 @@ from informity.llm.model_adapter import (
     infer_model_id_from_filename,
 )
 from informity.llm.roles import list_role_profiles
+from informity.mcp.constants import generate_mcp_access_token
+from informity.mcp.lifecycle import mcp_lifecycle
 from informity.scanner.watcher import invalidate_watcher_cache
 from informity.utils.directory_utils import ensure_file_directory, ensure_private_file
 from informity.utils.json_utils import serialize_config
@@ -232,6 +237,7 @@ _SETTINGS_RANGE_RULES: dict[str, tuple[float, float, str]] = {
         'chat_trace_evaluation_retention_days must be between 0 and 3650',
     ),
     'cpu_priority_nice': (0, 19, 'cpu_priority_nice must be between 0 and 19'),
+    'mcp_http_port': (1, 65535, 'mcp_http_port must be between 1 and 65535'),
 }
 _SETTINGS_ALLOWED_VALUE_RULES: dict[str, tuple[tuple[str, ...], bool, str]] = {
     'scan_hash_pool': (
@@ -273,6 +279,21 @@ _SETTINGS_ALLOWED_VALUE_RULES: dict[str, tuple[tuple[str, ...], bool, str]] = {
         config.UI_THEME_ALLOWED_VALUES,
         False,
         _allowed_values_detail('ui_theme', config.UI_THEME_ALLOWED_VALUES),
+    ),
+    'mcp_transport': (
+        ('stdio', 'http'),
+        True,
+        'mcp_transport must be one of: stdio, http',
+    ),
+    'mcp_auth_mode': (
+        ('token_required',),
+        True,
+        'mcp_auth_mode must be: token_required',
+    ),
+    'mcp_scope_mode': (
+        ('metadata_only', 'search_snippets', 'full_chunks'),
+        True,
+        'mcp_scope_mode must be one of: metadata_only, search_snippets, full_chunks',
     ),
 }
 
@@ -404,6 +425,14 @@ _UPDATABLE_FIELDS: set[str] = {
     'ui_theme',
     'enable_menu_bar_icon',
     'cpu_priority_nice',
+    'mcp_enabled',
+    'mcp_auto_start',
+    'mcp_transport',
+    'mcp_http_host',
+    'mcp_http_port',
+    'mcp_auth_mode',
+    'mcp_scope_mode',
+    'mcp_access_token',
 }
 # NOTE: Profile-controlled fields removed from _UPDATABLE_FIELDS:
 #   llm_max_tokens, coverage_top_k,
@@ -541,6 +570,18 @@ async def get_settings() -> SettingsResponse:
         chat_trace_redaction_mode = s.chat_trace_redaction_mode,
         chat_trace_user_retention_days = s.chat_trace_user_retention_days,
         chat_trace_evaluation_retention_days = s.chat_trace_evaluation_retention_days,
+        mcp_enabled           = s.mcp_enabled,
+        mcp_auto_start        = s.mcp_auto_start,
+        mcp_transport         = s.mcp_transport,
+        mcp_http_host         = s.mcp_http_host,
+        mcp_http_port         = s.mcp_http_port,
+        mcp_auth_mode         = s.mcp_auth_mode,
+        mcp_scope_mode        = s.mcp_scope_mode,
+        mcp_access_token      = str(getattr(s, 'mcp_access_token', '') or ''),
+        mcp_token_configured  = bool(
+            str(os.environ.get('INFORMITY_MCP_TOKEN') or '').strip()
+            or str(getattr(s, 'mcp_access_token', '') or '').strip()
+        ),
         enable_raw_output_control = s.enable_raw_output_control,
         available_models      = await asyncio.to_thread(_list_available_models),
         file_type_options     = [FileTypeOption(**o) for o in get_file_type_options()],
@@ -661,6 +702,17 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
             if field_name == 'diagnostics_profile' and value is not None:
                 diagnostics_profile_value = value
                 continue
+            if field_name == 'mcp_http_host' and value is not None:
+                value = str(value).strip()
+                if not value:
+                    raise HTTPException(status_code=400, detail='mcp_http_host cannot be empty')
+                if not is_loopback_host(value):
+                    raise HTTPException(
+                        status_code=400,
+                        detail='mcp_http_host must be loopback only (127.0.0.1, localhost, or ::1)',
+                    )
+            if field_name == 'mcp_access_token' and value is not None:
+                value = str(value).strip()
             if field_name == 'enable_chat_roles':
                 # Compatibility field: canonical source of truth is enabled_chat_role_ids.
                 enabled = bool(value)
@@ -817,8 +869,35 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
 
     log.info('settings_updated', fields=list(updates.keys()))
 
+    mcp_fields = {
+        'mcp_enabled',
+        'mcp_auto_start',
+        'mcp_transport',
+        'mcp_http_host',
+        'mcp_http_port',
+        'mcp_auth_mode',
+        'mcp_scope_mode',
+    }
+    if any(field in updates for field in mcp_fields):
+        await mcp_lifecycle.restart_from_settings()
+
     # Return the full updated settings
     return await get_settings()
+
+
+# ==============================================================================
+# POST /api/settings/mcp/token/generate — generate and persist MCP access token
+# ==============================================================================
+
+@router.post('/api/settings/mcp/token/generate', response_model=McpTokenGenerateResponse)
+async def generate_mcp_token() -> McpTokenGenerateResponse:
+    token = generate_mcp_access_token()
+    async with _CONFIG_FILE_ASYNC_LOCK:
+        config_data = await asyncio.to_thread(_read_config_file)
+        config.settings.mcp_access_token = token
+        config_data['mcp_access_token'] = token
+        await asyncio.to_thread(_write_config_file, config_data)
+    return McpTokenGenerateResponse(token=token)
 
 
 # ==============================================================================
