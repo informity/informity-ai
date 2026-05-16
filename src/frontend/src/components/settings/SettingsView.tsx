@@ -1988,6 +1988,27 @@ export function SettingsView({
               <option value="http">HTTP (Loopback only)</option>
             </select>
           </div>
+          {form.mcp_transport === 'stdio' && (
+            <div className="settings-control-group">
+              <label className="settings-control-label" htmlFor="settings-mcp-stdio-command-system">
+                Command
+                <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                  <i className="ri-information-line" aria-hidden="true" />
+                  <span className="settings-tooltip ui-tooltip">Use this command in your AI client configuration to connect via STDIO.</span>
+                </span>
+              </label>
+              <div className="settings-input-wrap settings-input-wrap--narrow">
+                <input
+                  id="settings-mcp-stdio-command-system"
+                  type="text"
+                  className="settings-input settings-input--narrow settings-input--readonly"
+                  value="informity-mcp"
+                  readOnly
+                  disabled={!form.mcp_enabled}
+                />
+              </div>
+            </div>
+          )}
           {form.mcp_transport === 'http' && (
             <>
               <div className="settings-control-group">
