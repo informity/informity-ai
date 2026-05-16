@@ -164,3 +164,59 @@ async def test_mcp_settings_update_restarts_lifecycle(
 
     assert updated.mcp_enabled is True
     assert calls == ['restart']
+
+
+@pytest.mark.asyncio
+async def test_mcp_disabling_clears_access_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config.settings, 'app_data_dir', tmp_path)
+    monkeypatch.setattr(routes_settings, '_list_available_models', lambda: [])
+
+    await routes_settings.update_settings(
+        SettingsUpdateRequest(
+            mcp_enabled=True,
+            mcp_transport='http',
+            mcp_access_token='imcp_12345678901234567890123456789012',
+        ),
+    )
+    updated = await routes_settings.update_settings(
+        SettingsUpdateRequest(
+            mcp_enabled=False,
+        ),
+    )
+
+    assert updated.mcp_enabled is False
+    assert updated.mcp_access_token == ''
+
+    payload = json.loads((tmp_path / 'config.json').read_text(encoding='utf-8'))
+    assert payload.get('mcp_access_token', None) == ''
+
+
+@pytest.mark.asyncio
+async def test_mcp_switching_to_stdio_clears_access_token(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config.settings, 'app_data_dir', tmp_path)
+    monkeypatch.setattr(routes_settings, '_list_available_models', lambda: [])
+
+    await routes_settings.update_settings(
+        SettingsUpdateRequest(
+            mcp_enabled=True,
+            mcp_transport='http',
+            mcp_access_token='imcp_abcdefghijklmnopqrstuvwxyz123456',
+        ),
+    )
+    updated = await routes_settings.update_settings(
+        SettingsUpdateRequest(
+            mcp_transport='stdio',
+        ),
+    )
+
+    assert updated.mcp_transport == 'stdio'
+    assert updated.mcp_access_token == ''
+
+    payload = json.loads((tmp_path / 'config.json').read_text(encoding='utf-8'))
+    assert payload.get('mcp_access_token', None) == ''
