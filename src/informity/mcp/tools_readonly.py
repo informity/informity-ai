@@ -236,21 +236,22 @@ async def tool_search_semantic(
             result['preview'] = preview
         results.append(result)
 
-    return _coerce_response_size(
-        _with_no_result_hints(
-            {
-            'query': query_text,
-            'total': len(results),
-            'results': results,
-            'scope_mode': normalized_scope.mode,
-            },
+    response_payload = {
+        'query': query_text,
+        'total': len(results),
+        'results': results,
+        'scope_mode': normalized_scope.mode,
+    }
+    if len(results) == 0 and (normalized_category or normalized_file_types):
+        filter_options = await _get_filter_options(db)
+        response_payload = _with_no_result_hints(
+            response_payload,
             normalized_category=normalized_category,
             normalized_file_types=normalized_file_types,
-            had_filters=bool(normalized_category or normalized_file_types),
-            total_results=len(results),
-        ),
-        normalized_scope.max_total_response_bytes,
-    )
+            filter_options=filter_options,
+        )
+
+    return _coerce_response_size(response_payload, normalized_scope.max_total_response_bytes)
 
 
 def _with_no_result_hints(
@@ -258,25 +259,46 @@ def _with_no_result_hints(
     *,
     normalized_category: str | None,
     normalized_file_types: set[str] | None,
-    had_filters: bool,
-    total_results: int,
+    filter_options: dict[str, Any],
 ) -> dict[str, Any]:
-    if total_results > 0 or not had_filters:
-        return payload
     result = dict(payload)
+    available_categories = list(filter_options.get('categories', []))
+    available_file_types = list(filter_options.get('file_types', []))
+    category_set = {str(item).strip().lower() for item in available_categories}
+    file_type_set = {str(item).strip().lower() for item in available_file_types}
+    unknown_file_types = sorted(
+        [item for item in (normalized_file_types or set()) if item not in file_type_set]
+    )
     result['hints'] = {
         'reason': 'No results matched current filters',
         'applied_filters': {
             'category': normalized_category,
             'file_types': sorted(normalized_file_types) if normalized_file_types else [],
         },
-        'valid_categories': sorted(VALID_FILE_CATEGORIES),
+        'valid_categories': available_categories,
+        'valid_file_types': available_file_types,
+        'unknown_filters': {
+            'unknown_category': bool(normalized_category and normalized_category not in category_set),
+            'unknown_file_types': unknown_file_types,
+        },
         'guidance': 'Try removing filters or use informity_filter_options for valid values.',
     }
     return result
 
 
 async def tool_filter_options(db: aiosqlite.Connection) -> dict[str, Any]:
+    filter_options = await _get_filter_options(db)
+    return {
+        'categories': filter_options['categories'],
+        'file_types': filter_options['file_types'],
+        'notes': {
+            'category': 'Optional filter for informity_search_semantic.',
+            'file_types': 'Optional filter. Use dot extensions like .pdf.',
+        },
+    }
+
+
+async def _get_filter_options(db: aiosqlite.Connection) -> dict[str, list[str]]:
     categories_cursor = await db.execute(
         '''
         SELECT DISTINCT LOWER(category) AS category
@@ -302,14 +324,9 @@ async def tool_filter_options(db: aiosqlite.Connection) -> dict[str, Any]:
     )
     extension_rows = await extension_cursor.fetchall()
     file_types = [str(row['extension']) for row in extension_rows if row and row['extension']]
-
     return {
         'categories': categories,
         'file_types': file_types,
-        'notes': {
-            'category': 'Optional filter for informity_search_semantic.',
-            'file_types': 'Optional filter. Use dot extensions like .pdf.',
-        },
     }
 
 
