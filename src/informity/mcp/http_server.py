@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import time
+from collections import deque
 from collections.abc import Mapping
 
 import structlog
@@ -11,6 +13,9 @@ from informity.config import settings
 from informity.mcp.protocol import error_response, handle_jsonrpc_request
 
 log = structlog.get_logger(__name__)
+_RATE_LIMIT_WINDOW_SECONDS = 60.0
+_RATE_LIMIT_MAX_REQUESTS = 120
+_rate_limit_buckets: dict[str, deque[float]] = {}
 
 
 def _extract_bearer_token(request: Request) -> str | None:
@@ -34,6 +39,23 @@ def create_http_app() -> FastAPI:
     @app.post('/')
     @app.post('/mcp')
     async def mcp_rpc(request: Request) -> JSONResponse:
+        client_host = str((request.client.host if request.client else '') or 'unknown')
+        now = time.monotonic()
+        bucket = _rate_limit_buckets.get(client_host)
+        if bucket is None:
+            bucket = deque()
+            _rate_limit_buckets[client_host] = bucket
+        cutoff = now - _RATE_LIMIT_WINDOW_SECONDS
+        while bucket and bucket[0] < cutoff:
+            bucket.popleft()
+        if len(bucket) >= _RATE_LIMIT_MAX_REQUESTS:
+            log.warning('mcp_http_rate_limited', client_host=client_host, window_seconds=_RATE_LIMIT_WINDOW_SECONDS)
+            return JSONResponse(
+                status_code=429,
+                content=error_response(None, -32001, 'Rate limit exceeded'),
+            )
+        bucket.append(now)
+
         max_body_bytes = max(16_384, int(getattr(settings, 'mcp_http_max_body_bytes', 512 * 1024) or (512 * 1024)))
         content_length = str(request.headers.get('content-length') or '').strip()
         if content_length:

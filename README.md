@@ -168,6 +168,7 @@ Security notes:
 - Informity MCP is strictly read-only: only an allowlisted set of read tools can be executed.
 - `http` transport requires a bearer token.
 - External clients operate outside Informity's internal Full Privacy controls, so only connect trusted local clients.
+- MCP interaction logs are written to `~/.informity/logs/app.mcp.log` (or your configured `logs_dir`).
 
 ### HTTP transport quick test (`curl`)
 
