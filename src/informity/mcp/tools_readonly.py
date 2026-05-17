@@ -20,6 +20,25 @@ from informity.scanner.extractors.base import MAX_EXTRACTED_TEXT_PREVIEW
 MAX_MCP_RESULTS = 200
 MAX_SNIPPET_CHARS = 1200
 MAX_TOTAL_RESPONSE_BYTES = 500_000
+VALID_FILE_CATEGORIES = {'document', 'plaintext', 'data', 'web', 'other'}
+FILE_TYPE_ALIASES: dict[str, str] = {
+    'pdf': '.pdf',
+    'docx': '.docx',
+    'pptx': '.pptx',
+    'epub': '.epub',
+    'txt': '.txt',
+    'md': '.md',
+    'rst': '.rst',
+    'log': '.log',
+    'csv': '.csv',
+    'xlsx': '.xlsx',
+    'html': '.html',
+    'htm': '.htm',
+    'json': '.json',
+    'yaml': '.yaml',
+    'yml': '.yml',
+    'toml': '.toml',
+}
 
 
 @dataclass(slots=True)
@@ -42,12 +61,32 @@ class McpReadScope:
 
 
 def _coerce_response_size(payload: dict[str, Any], max_bytes: int) -> dict[str, Any]:
-    raw = str(payload)
-    if len(raw.encode('utf-8', errors='ignore')) <= max_bytes:
+    if len(str(payload).encode('utf-8', errors='ignore')) <= max_bytes:
         return payload
-    truncated = dict(payload)
-    truncated['truncated'] = True
-    return truncated
+    results = payload.get('results')
+    if not isinstance(results, list):
+        truncated = dict(payload)
+        truncated['truncated'] = True
+        return truncated
+
+    trimmed = dict(payload)
+    original_total = len(results)
+    trimmed_results: list[Any] = list(results)
+    while trimmed_results:
+        candidate = dict(trimmed)
+        candidate['results'] = trimmed_results
+        candidate['truncated'] = True
+        candidate['returned'] = len(trimmed_results)
+        candidate['total_before_truncation'] = original_total
+        if len(str(candidate).encode('utf-8', errors='ignore')) <= max_bytes:
+            return candidate
+        trimmed_results = trimmed_results[:-1]
+
+    return {
+        'truncated': True,
+        'returned': 0,
+        'total_before_truncation': original_total,
+    }
 
 
 def _apply_scope_to_preview(preview: str, scope: McpReadScope) -> str | None:
@@ -56,6 +95,28 @@ def _apply_scope_to_preview(preview: str, scope: McpReadScope) -> str | None:
     if scope.mode == 'search_snippets':
         return (preview or '')[:scope.max_snippet_chars]
     return preview
+
+
+def _normalize_category(category: str | None) -> str | None:
+    if category is None:
+        return None
+    normalized = str(category).strip().lower()
+    return normalized if normalized in VALID_FILE_CATEGORIES else normalized or None
+
+
+def _normalize_file_types(file_types: list[str] | None) -> set[str] | None:
+    if not file_types:
+        return None
+    normalized: set[str] = set()
+    for raw in file_types:
+        item = str(raw or '').strip().lower()
+        if not item:
+            continue
+        canonical = FILE_TYPE_ALIASES.get(item, item)
+        if not canonical.startswith('.'):
+            canonical = f'.{canonical}'
+        normalized.add(canonical)
+    return normalized or None
 
 
 async def tool_health() -> dict[str, Any]:
@@ -119,8 +180,10 @@ async def tool_search_semantic(
     query_text = str(query or '').strip()
     if not query_text:
         raise ValueError('query cannot be empty')
+    normalized_category = _normalize_category(category)
+    normalized_file_types = _normalize_file_types(file_types)
     effective_limit = max(1, min(int(limit), normalized_scope.max_results))
-    fetch_limit = effective_limit * 3 if (category or file_types) else effective_limit
+    fetch_limit = effective_limit * 3 if (normalized_category or normalized_file_types) else effective_limit
 
     query_vector = await asyncio.to_thread(embedder.embed_query, query_text)
     raw_results = await asyncio.to_thread(vector_store.search_similar, query_vector, fetch_limit)
@@ -140,9 +203,9 @@ async def tool_search_semantic(
             continue
         if str(getattr(indexed_file, 'source_provider', '') or '').strip().lower() == 'upload.local':
             continue
-        if category and indexed_file.category.value != category:
+        if normalized_category and indexed_file.category.value != normalized_category:
             continue
-        if file_types and indexed_file.extension not in file_types:
+        if normalized_file_types and str(indexed_file.extension or '').strip().lower() not in normalized_file_types:
             continue
         content_hash = str(getattr(indexed_file, 'content_hash', '') or '').strip().lower()
         if content_hash:
