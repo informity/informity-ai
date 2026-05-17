@@ -362,7 +362,7 @@ class SettingsResponse(BaseModel):
     mcp_http_host: str = '127.0.0.1'
     mcp_http_port: int = 8431
     mcp_auth_mode: Literal['token_required'] = 'token_required'
-    mcp_scope_mode: Literal['metadata_only', 'search_snippets', 'full_chunks'] = 'metadata_only'
+    mcp_scope_mode: Literal['metadata_only', 'search_snippets', 'full_content'] = 'metadata_only'
     mcp_access_token: str = ''
     mcp_token_configured: bool = False
     enable_raw_output_control: bool = False   # Show control to fetch raw model output per assistant message
@@ -453,7 +453,7 @@ class SettingsUpdateRequest(BaseModel):
     mcp_http_host: str | None = None
     mcp_http_port: int | None = None
     mcp_auth_mode: Literal['token_required'] | None = None
-    mcp_scope_mode: Literal['metadata_only', 'search_snippets', 'full_chunks'] | None = None
+    mcp_scope_mode: Literal['metadata_only', 'search_snippets', 'full_content'] | None = None
     mcp_access_token: str | None = None
     enable_raw_output_control: bool | None = None   # Show control to fetch raw model output per assistant message
     ui_theme:             str | None  = None  # Color theme: canvas, ember, sage, graphite, onyx

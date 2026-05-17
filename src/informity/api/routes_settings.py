@@ -291,9 +291,9 @@ _SETTINGS_ALLOWED_VALUE_RULES: dict[str, tuple[tuple[str, ...], bool, str]] = {
         'mcp_auth_mode must be: token_required',
     ),
     'mcp_scope_mode': (
-        ('metadata_only', 'search_snippets', 'full_chunks'),
+        ('metadata_only', 'search_snippets', 'full_content'),
         True,
-        'mcp_scope_mode must be one of: metadata_only, search_snippets, full_chunks',
+        'mcp_scope_mode must be one of: metadata_only, search_snippets, full_content',
     ),
 }
 

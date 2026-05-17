@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 
 import pytest
@@ -52,3 +53,17 @@ def test_write_message_uses_newline_delimited_json_framing() -> None:
     raw = b''.join(buffer.parts)
     expected = json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
     assert raw == expected + b'\n'
+
+
+def test_read_message_tolerates_non_json_noise_before_valid_json_line() -> None:
+    stream = io.BytesIO(
+        b'INFO noisy startup log\n'
+        b'{"jsonrpc":"2.0","id":1,"method":"ping"}\n'
+    )
+
+    first = stdio_server._read_message(stream)
+    second = stdio_server._read_message(stream)
+
+    assert first is None
+    assert second is not None
+    assert second['method'] == 'ping'

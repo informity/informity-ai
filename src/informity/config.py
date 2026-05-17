@@ -546,7 +546,7 @@ class Settings(BaseSettings):
     mcp_http_host: str = '127.0.0.1'
     mcp_http_port: int = 8431
     mcp_auth_mode: Literal['token_required'] = 'token_required'
-    mcp_scope_mode: Literal['metadata_only', 'search_snippets', 'full_chunks'] = 'metadata_only'
+    mcp_scope_mode: Literal['metadata_only', 'search_snippets', 'full_content'] = 'metadata_only'
     mcp_access_token: str = ''
     # MCP hardening controls (advanced, env-driven; not exposed in regular Settings UI).
     mcp_tool_call_timeout_seconds: float = 30.0

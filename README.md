@@ -151,11 +151,16 @@ Current read-only tools:
 - `informity_index_status`
 - `informity_scan_status`
 
+Tool behavior notes:
+
+- `informity_files_list` and `informity_search_semantic` default to `limit=50` and allow explicit values up to `200`.
+- `informity_index_status` reports corpus counts with chat-upload records (`upload.local`) excluded, matching MCP corpus visibility.
+
 Access levels:
 
 - `metadata_only` (recommended default)
 - `search_snippets`
-- `full_chunks`
+- `full_content`
 
 Security notes:
 

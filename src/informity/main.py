@@ -8,6 +8,7 @@
 # CPU thread limits are applied by config._apply_thread_limits_early() at import time.
 # Do not duplicate them here — config.py is the single source of truth.
 import os as _os
+import sys as _sys
 
 # Suppress SyntaxWarnings from third-party libraries (e.g., pysbd) before any imports
 # These warnings are emitted at import time and are harmless
@@ -16,11 +17,20 @@ import warnings
 
 warnings.filterwarnings('ignore', category=SyntaxWarning)
 
+# IMPORTANT: MCP stdio mode must short-circuit before normal app imports/startup,
+# otherwise structured/colorized logs can leak into stdout and corrupt JSON-RPC framing.
+_PROGRAM_NAME = _os.path.basename(str(_sys.argv[0] or '')).lower()
+_MCP_STDIO_MODE = '--mcp-stdio' in {str(arg) for arg in _sys.argv[1:]} or _PROGRAM_NAME == 'informity-mcp'
+if _MCP_STDIO_MODE:
+    from informity.mcp.stdio_server import main as _mcp_stdio_main
+
+    _mcp_stdio_main()
+    raise SystemExit(0)
+
 import asyncio
 import atexit
 import multiprocessing
 import signal
-import sys
 import time
 import types
 import uuid
@@ -621,16 +631,6 @@ else:
 # ==============================================================================
 
 def main() -> None:
-    # MCP stdio mode is used by external AI clients (Claude Desktop, etc.)
-    # through the installed `informity-mcp` launcher.
-    argv = [str(arg) for arg in sys.argv[1:]]
-    program_name = Path(str(sys.argv[0] or '')).name.lower()
-    if '--mcp-stdio' in argv or program_name == 'informity-mcp':
-        from informity.mcp.stdio_server import main as mcp_stdio_main
-
-        mcp_stdio_main()
-        return
-
     # Run the application with uvicorn.
     # reload=True only when dev_reload is set (e.g. make dev); never in production.
     # access_log=False because we have custom RequestLoggingMiddleware that provides structured logging.

@@ -9,7 +9,12 @@ import pytest
 from informity.mcp.authorization import McpAuthorizationError, authorize_mcp_request
 from informity.mcp.protocol import handle_jsonrpc_request
 from informity.mcp.server import mcp_readonly_server
-from informity.mcp.tools_readonly import McpReadScope, tool_files_list, tool_search_semantic
+from informity.mcp.tools_readonly import (
+    McpReadScope,
+    tool_files_list,
+    tool_index_status,
+    tool_search_semantic,
+)
 
 
 def test_mcp_authorization_allows_stdio() -> None:
@@ -102,6 +107,67 @@ async def test_mcp_server_health_tool_works() -> None:
 
 
 @pytest.mark.asyncio
+async def test_tool_search_semantic_excludes_upload_local_and_deduplicates_content_hash(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from informity.mcp import tools_readonly as mod
+
+    monkeypatch.setattr(mod.embedder, 'embed_query', lambda _q: [0.1, 0.2, 0.3])
+    monkeypatch.setattr(
+        mod.vector_store,
+        'search_similar',
+        lambda *_args, **_kwargs: [
+            {'file_id': 10, 'chunk_text': 'termination clause A', 'score': 0.1},
+            {'file_id': 11, 'chunk_text': 'termination clause A duplicate', 'score': 0.11},
+            {'file_id': 12, 'chunk_text': 'upload copy should be hidden', 'score': 0.12},
+        ],
+    )
+
+    file_a = SimpleNamespace(
+        id=10,
+        filename='Agreement.docx',
+        path='/docs/Agreement.docx',
+        category=SimpleNamespace(value='document'),
+        extension='.docx',
+        source_provider='filesystem',
+        content_hash='hash-1',
+    )
+    file_a_dup = SimpleNamespace(
+        id=11,
+        filename='Agreement copy.docx',
+        path='/docs/Agreement copy.docx',
+        category=SimpleNamespace(value='document'),
+        extension='.docx',
+        source_provider='filesystem',
+        content_hash='hash-1',
+    )
+    file_upload = SimpleNamespace(
+        id=12,
+        filename='Agreement upload.docx',
+        path='/Users/me/.informity/storage/uploads/chat/upload.docx',
+        category=SimpleNamespace(value='document'),
+        extension='.docx',
+        source_provider='upload.local',
+        content_hash='hash-2',
+    )
+
+    async def _fake_get_files_by_ids(*_args, **_kwargs):
+        return {10: file_a, 11: file_a_dup, 12: file_upload}
+
+    monkeypatch.setattr(mod, 'get_files_by_ids', _fake_get_files_by_ids)
+
+    payload = await tool_search_semantic(
+        db=SimpleNamespace(),
+        scope=McpReadScope(mode='search_snippets'),
+        query='termination',
+        limit=5,
+    )
+    assert payload['total'] == 1
+    assert len(payload['results']) == 1
+    assert payload['results'][0]['file_id'] == 10
+
+
+@pytest.mark.asyncio
 async def test_mcp_tools_call_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
     from informity.mcp import protocol as mod
 
@@ -127,3 +193,64 @@ async def test_mcp_tools_call_times_out(monkeypatch: pytest.MonkeyPatch) -> None
     assert response is not None
     assert response['error']['code'] == -32001
     assert response['error']['message'] == 'MCP tool call timed out'
+
+
+@pytest.mark.asyncio
+async def test_tool_files_list_default_limit_is_50_and_explicit_limit_allows_200(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from informity.mcp import tools_readonly as mod
+
+    calls: list[int] = []
+
+    async def _fake_get_files(*_args, **kwargs):
+        calls.append(int(kwargs.get('limit', 0)))
+        return [], 0
+
+    monkeypatch.setattr(mod, 'get_files', _fake_get_files)
+
+    await tool_files_list(
+        db=SimpleNamespace(),
+        scope=McpReadScope(mode='metadata_only'),
+    )
+    await tool_files_list(
+        db=SimpleNamespace(),
+        scope=McpReadScope(mode='metadata_only'),
+        limit=200,
+    )
+    await tool_files_list(
+        db=SimpleNamespace(),
+        scope=McpReadScope(mode='metadata_only'),
+        limit=500,
+    )
+
+    assert calls[0] == 50
+    assert calls[1] == 200
+    assert calls[2] == 200
+
+
+@pytest.mark.asyncio
+async def test_tool_index_status_excludes_upload_local_counts() -> None:
+    class _FakeCursor:
+        def __init__(self, count: int) -> None:
+            self._count = count
+
+        async def fetchone(self):
+            return {'count': self._count}
+
+    class _FakeDb:
+        def __init__(self) -> None:
+            self.queries: list[str] = []
+
+        async def execute(self, sql: str, _params: tuple[str, ...]):
+            self.queries.append(sql)
+            if 'FROM files' in sql:
+                return _FakeCursor(115)
+            return _FakeCursor(37756)
+
+    db = _FakeDb()
+    payload = await tool_index_status(db)  # type: ignore[arg-type]
+
+    assert payload['total_files'] == 115
+    assert payload['total_chunks'] == 37756
+    assert all("source_provider != ?" in query for query in db.queries)
