@@ -334,6 +334,19 @@ async def test_tool_search_semantic_no_results_returns_hints_for_filtered_query(
 ) -> None:
     from informity.mcp import tools_readonly as mod
 
+    class _FakeCursor:
+        def __init__(self, rows):
+            self._rows = rows
+
+        async def fetchall(self):
+            return self._rows
+
+    class _FakeDb:
+        async def execute(self, sql: str, _params):
+            if 'category' in sql:
+                return _FakeCursor([{'category': 'document'}])
+            return _FakeCursor([{'extension': '.pdf'}, {'extension': '.docx'}])
+
     monkeypatch.setattr(mod.embedder, 'embed_query', lambda _q: [0.1, 0.2, 0.3])
     monkeypatch.setattr(mod.vector_store, 'search_similar', lambda *_args, **_kwargs: [])
     async def _fake_get_files_by_ids(*_args, **_kwargs):
@@ -342,7 +355,7 @@ async def test_tool_search_semantic_no_results_returns_hints_for_filtered_query(
     monkeypatch.setattr(mod, 'get_files_by_ids', _fake_get_files_by_ids)
 
     payload = await tool_search_semantic(
-        db=SimpleNamespace(),
+        db=_FakeDb(),
         scope=McpReadScope(mode='search_snippets'),
         query='contract',
         limit=5,
@@ -353,6 +366,50 @@ async def test_tool_search_semantic_no_results_returns_hints_for_filtered_query(
     assert 'hints' in payload
     assert payload['hints']['applied_filters']['category'] == 'document'
     assert payload['hints']['applied_filters']['file_types'] == ['.pdf']
+    assert payload['hints']['valid_categories'] == ['document']
+    assert payload['hints']['valid_file_types'] == ['.pdf', '.docx']
+    assert payload['hints']['unknown_filters']['unknown_category'] is False
+    assert payload['hints']['unknown_filters']['unknown_file_types'] == []
+
+
+@pytest.mark.asyncio
+async def test_tool_search_semantic_hints_include_unknown_filter_details(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from informity.mcp import tools_readonly as mod
+
+    class _FakeCursor:
+        def __init__(self, rows):
+            self._rows = rows
+
+        async def fetchall(self):
+            return self._rows
+
+    class _FakeDb:
+        async def execute(self, sql: str, _params):
+            if 'category' in sql:
+                return _FakeCursor([{'category': 'document'}])
+            return _FakeCursor([{'extension': '.pdf'}])
+
+    monkeypatch.setattr(mod.embedder, 'embed_query', lambda _q: [0.1, 0.2, 0.3])
+    monkeypatch.setattr(mod.vector_store, 'search_similar', lambda *_args, **_kwargs: [])
+
+    async def _fake_get_files_by_ids(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(mod, 'get_files_by_ids', _fake_get_files_by_ids)
+
+    payload = await tool_search_semantic(
+        db=_FakeDb(),
+        scope=McpReadScope(mode='search_snippets'),
+        query='contract',
+        limit=5,
+        category='other',
+        file_types=['zzz'],
+    )
+    assert payload['total'] == 0
+    assert payload['hints']['unknown_filters']['unknown_category'] is True
+    assert payload['hints']['unknown_filters']['unknown_file_types'] == ['.zzz']
 
 
 def test_coerce_response_size_trims_results_list() -> None:
