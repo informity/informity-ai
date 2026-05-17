@@ -27,6 +27,7 @@ from informity.llm.query_patterns import (
     build_global_entity_listing_pattern,
     build_person_entity_listing_pattern,
 )
+from informity.llm.query_rewrite import build_history_aware_retrieval_query
 from informity.llm.rag_patterns import (
     SUMMARY_BLOCK_TYPE_EXCLUDE,
     evaluate_substantive_evidence,
@@ -215,44 +216,23 @@ def _build_history_aware_retrieval_query_with_classification(
             return normalized_question, False
         if classification.intent not in {QueryType.FOCUSED, QueryType.COVERAGE}:
             return normalized_question, False
-    if not bool(settings.rag_query_rewrite_enabled):
-        return normalized_question, False
-    if not history:
-        return normalized_question, False
-    if has_topic_shift_cue(normalized_question):
-        return normalized_question, False
-    has_referential_language = has_referential_followup_language(normalized_question)
-    has_topical_overlap = has_topic_overlap_with_previous_user(
+    rewritten_query, applied = build_history_aware_retrieval_query(
         question=normalized_question,
         history=history,
+        rag_query_rewrite_enabled=bool(settings.rag_query_rewrite_enabled),
+        allow_intent=True,
+        is_scope_reset=False,
+        has_topic_shift_cue=has_topic_shift_cue(normalized_question),
+        has_referential_followup=has_referential_followup_language(normalized_question),
+        has_topical_overlap_fn=lambda q, h: has_topic_overlap_with_previous_user(question=q, history=h),
+        normalize_text_fn=normalize_query_text,
+        history_limit=max(0, int(settings.rag_query_rewrite_max_history_messages)),
+        max_chars_per_turn=max(1, int(settings.rag_query_rewrite_max_chars_per_turn)),
+        max_query_chars=max(64, int(settings.rag_query_rewrite_max_query_chars)),
     )
-    if not has_referential_language and not has_topical_overlap:
+    if not applied or not rewritten_query:
         return normalized_question, False
-
-    previous_user = ''
-    history_limit = max(0, int(settings.rag_query_rewrite_max_history_messages))
-    if history_limit == 0:
-        return normalized_question, False
-    max_chars_per_turn = max(1, int(settings.rag_query_rewrite_max_chars_per_turn))
-    max_query_chars = max(64, int(settings.rag_query_rewrite_max_query_chars))
-
-    for message in reversed(history[-history_limit:]):
-        content = normalize_query_text(message.content or '')
-        if not content:
-            continue
-        if not previous_user and message.role == 'user':
-            previous_user = content
-        if previous_user:
-            break
-
-    if not previous_user:
-        return normalized_question, False
-
-    rewritten_query = (
-        f"{normalized_question}\n\nFollow-up context:\n"
-        f"- Previous user question: {previous_user[:max_chars_per_turn]}"
-    )
-    return rewritten_query[:max_query_chars], True
+    return rewritten_query, True
 
 
 def _resolve_minimal_query_type(classification: QueryClassification) -> QueryType:
