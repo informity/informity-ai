@@ -9,6 +9,15 @@ TOOL_FILES_LIST = 'informity_files_list'
 TOOL_SEARCH_SEMANTIC = 'informity_search_semantic'
 TOOL_INDEX_STATUS = 'informity_index_status'
 TOOL_SCAN_STATUS = 'informity_scan_status'
+READONLY_TOOL_NAMES: frozenset[str] = frozenset(
+    {
+        TOOL_HEALTH,
+        TOOL_FILES_LIST,
+        TOOL_SEARCH_SEMANTIC,
+        TOOL_INDEX_STATUS,
+        TOOL_SCAN_STATUS,
+    }
+)
 
 LEGACY_TOOL_ALIASES: dict[str, str] = {
     'informity.health': TOOL_HEALTH,
