@@ -43,6 +43,7 @@ const UPDATABLE_KEYS = [
   'embedding_max_threads',
   'llm_cpu_threads',
   'enable_ocr_for_images',
+  'max_indexable_file_size_mb',
   'scan_file_timeout_seconds',
   'full_privacy',
   'tavily_api_key',
@@ -95,6 +96,7 @@ interface FormState {
   embedding_max_threads?: number
   llm_cpu_threads?: number
   enable_ocr_for_images?: boolean
+  max_indexable_file_size_mb?: number
   scan_file_timeout_seconds?: number
   full_privacy?: boolean
   tavily_api_key?: string
