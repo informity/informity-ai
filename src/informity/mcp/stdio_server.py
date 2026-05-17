@@ -86,6 +86,14 @@ async def _handle_request(payload: JSON) -> JSON | None:
 
 
 def main() -> None:
+    # Ensure STDIO launcher writes MCP events to file logs without polluting stdout.
+    # MCP protocol frames are written via protocol_stdout; normal stdout is redirected
+    # to stderr below to keep framing clean for clients like Claude Desktop.
+    os.environ['INFORMITY_SUPPRESS_CONSOLE_LOGS'] = '1'
+    from informity.logging_config import configure_logging
+
+    configure_logging()
+
     # Keep a dedicated binary handle to original stdout for MCP frames only.
     protocol_stdout = os.fdopen(os.dup(1), 'wb', closefd=True)
     # Redirect process stdout to stderr so incidental logs/prints cannot corrupt MCP framing.
