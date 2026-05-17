@@ -9,8 +9,6 @@ import aiosqlite
 
 from informity.api.schemas import SearchResult
 from informity.db.sqlite import (
-    get_chunk_count,
-    get_file_count,
     get_files,
     get_files_by_ids,
     get_latest_scan,
@@ -27,13 +25,13 @@ MAX_TOTAL_RESPONSE_BYTES = 500_000
 @dataclass(slots=True)
 class McpReadScope:
     mode: str = 'metadata_only'
-    max_results: int = 50
+    max_results: int = MAX_MCP_RESULTS
     max_snippet_chars: int = 320
     max_total_response_bytes: int = MAX_TOTAL_RESPONSE_BYTES
 
     def normalize(self) -> McpReadScope:
         mode = str(self.mode or 'metadata_only').strip().lower()
-        if mode not in {'metadata_only', 'search_snippets', 'full_chunks'}:
+        if mode not in {'metadata_only', 'search_snippets', 'full_content'}:
             mode = 'metadata_only'
         return McpReadScope(
             mode=mode,
@@ -72,7 +70,7 @@ async def tool_files_list(
     db: aiosqlite.Connection,
     *,
     scope: McpReadScope,
-    limit: int = 20,
+    limit: int = 50,
     offset: int = 0,
     search: str | None = None,
 ) -> dict[str, Any]:
@@ -83,6 +81,7 @@ async def tool_files_list(
         search=search,
         limit=effective_limit,
         offset=max(0, int(offset)),
+        excluded_source_providers=['upload.local'],
     )
     results = []
     for item in files:
@@ -112,7 +111,7 @@ async def tool_search_semantic(
     *,
     scope: McpReadScope,
     query: str,
-    limit: int = 20,
+    limit: int = 50,
     category: str | None = None,
     file_types: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -129,6 +128,7 @@ async def tool_search_semantic(
     files_by_id = await get_files_by_ids(db, all_file_ids)
 
     results: list[dict[str, Any]] = []
+    seen_content_hashes: set[str] = set()
     for hit in raw_results:
         if len(results) >= effective_limit:
             break
@@ -138,10 +138,17 @@ async def tool_search_semantic(
         indexed_file = files_by_id.get(file_id)
         if indexed_file is None:
             continue
+        if str(getattr(indexed_file, 'source_provider', '') or '').strip().lower() == 'upload.local':
+            continue
         if category and indexed_file.category.value != category:
             continue
         if file_types and indexed_file.extension not in file_types:
             continue
+        content_hash = str(getattr(indexed_file, 'content_hash', '') or '').strip().lower()
+        if content_hash:
+            if content_hash in seen_content_hashes:
+                continue
+            seen_content_hashes.add(content_hash)
         preview = (hit.get('chunk_text', '') or '')[:MAX_EXTRACTED_TEXT_PREVIEW]
         scoped_preview = _apply_scope_to_preview(preview, normalized_scope)
 
@@ -173,8 +180,28 @@ async def tool_search_semantic(
 
 
 async def tool_index_status(db: aiosqlite.Connection) -> dict[str, Any]:
-    total_files = await get_file_count(db)
-    total_chunks = await get_chunk_count(db)
+    files_cursor = await db.execute(
+        '''
+        SELECT COUNT(*) as count
+        FROM files
+        WHERE source_provider != ?
+        ''',
+        ('upload.local',),
+    )
+    files_row = await files_cursor.fetchone()
+    total_files = int(files_row['count']) if files_row else 0
+
+    chunks_cursor = await db.execute(
+        '''
+        SELECT COUNT(*) as count
+        FROM chunks c
+        JOIN files f ON c.file_id = f.id
+        WHERE f.source_provider != ?
+        ''',
+        ('upload.local',),
+    )
+    chunks_row = await chunks_cursor.fetchone()
+    total_chunks = int(chunks_row['count']) if chunks_row else 0
     return {
         'total_files': int(total_files),
         'total_chunks': int(total_chunks),
@@ -194,4 +221,3 @@ async def tool_scan_status(db: aiosqlite.Connection) -> dict[str, Any]:
         'started_at': latest.started_at.isoformat() if latest.started_at else None,
         'completed_at': latest.completed_at.isoformat() if latest.completed_at else None,
     }
-

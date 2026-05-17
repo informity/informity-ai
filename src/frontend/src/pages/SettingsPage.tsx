@@ -123,7 +123,7 @@ interface FormState {
   mcp_http_host?: string
   mcp_http_port?: number
   mcp_auth_mode?: 'token_required'
-  mcp_scope_mode?: 'metadata_only' | 'search_snippets' | 'full_chunks'
+  mcp_scope_mode?: 'metadata_only' | 'search_snippets' | 'full_content'
   mcp_access_token?: string
   enable_raw_output_control?: boolean
   log_level?: string

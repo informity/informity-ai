@@ -7,11 +7,8 @@ import sys
 from collections.abc import Mapping
 from typing import Any
 
-from informity.mcp.protocol import SERVER_NAME as PROTOCOL_SERVER_NAME
-from informity.mcp.protocol import error_response, handle_jsonrpc_request
-
 JSON = dict[str, Any]
-SERVER_NAME = PROTOCOL_SERVER_NAME
+SERVER_NAME = 'informity-mcp'
 
 
 def _read_message(stdin: Any) -> JSON | None:
@@ -33,9 +30,10 @@ def _read_message(stdin: Any) -> JSON | None:
 
     # Compatibility fallback: Content-Length framed payload.
     headers: dict[str, str] = {}
-    if ':' in decoded:
-        name, value = decoded.split(':', 1)
-        headers[name.strip().lower()] = value.strip()
+    if ':' not in decoded:
+        return None
+    name, value = decoded.split(':', 1)
+    headers[name.strip().lower()] = value.strip()
     while True:
         line = stdin.readline()
         if not line:
@@ -78,6 +76,8 @@ def _write_message(stdout: Any, payload: Mapping[str, Any]) -> None:
 
 
 async def _handle_request(payload: JSON) -> JSON | None:
+    from informity.mcp.protocol import error_response, handle_jsonrpc_request
+
     try:
         return await handle_jsonrpc_request(payload, transport='stdio', bearer_token=None)
     except Exception:
