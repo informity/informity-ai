@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from informity.mcp.categories import MCP_FILE_CATEGORIES
+
 JSON = dict[str, Any]
 
 TOOL_HEALTH = 'informity_health'
@@ -71,7 +73,7 @@ TOOLS: list[JSON] = [
                 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 200},
                 'category': {
                     'type': 'string',
-                    'enum': ['document', 'plaintext', 'data', 'web', 'other'],
+                    'enum': list(MCP_FILE_CATEGORIES),
                     'description': 'Optional filter. Leave unset to search all categories.',
                 },
                 'file_types': {

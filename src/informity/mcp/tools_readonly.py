@@ -16,12 +16,12 @@ from informity.db.sqlite import (
 )
 from informity.db.vectors import vector_store
 from informity.indexer.embedder import embedder
+from informity.mcp.categories import MCP_FILE_CATEGORIES, MCP_FILE_CATEGORIES_SET
 from informity.scanner.extractors.base import MAX_EXTRACTED_TEXT_PREVIEW
 
 MAX_MCP_RESULTS = 200
 MAX_SNIPPET_CHARS = 1200
 MAX_TOTAL_RESPONSE_BYTES = 500_000
-VALID_FILE_CATEGORIES = {'document', 'plaintext', 'data', 'web', 'other'}
 FILE_TYPE_ALIASES: dict[str, str] = {
     'pdf': '.pdf',
     'docx': '.docx',
@@ -106,7 +106,7 @@ def _normalize_category(category: str | None) -> str | None:
     if category is None:
         return None
     normalized = str(category).strip().lower()
-    return normalized if normalized in VALID_FILE_CATEGORIES else normalized or None
+    return normalized if normalized in MCP_FILE_CATEGORIES_SET else normalized or None
 
 
 def _normalize_file_types(file_types: list[str] | None) -> set[str] | None:
@@ -311,7 +311,7 @@ async def _get_filter_options(db: aiosqlite.Connection) -> dict[str, list[str]]:
     category_rows = await categories_cursor.fetchall()
     categories = [str(row['category']) for row in category_rows if row and row['category']]
     if not categories:
-        categories = sorted(VALID_FILE_CATEGORIES)
+        categories = sorted(MCP_FILE_CATEGORIES)
 
     extension_cursor = await db.execute(
         '''

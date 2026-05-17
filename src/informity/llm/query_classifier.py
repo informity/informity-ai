@@ -47,6 +47,7 @@ from informity.llm.query_patterns import (
     build_supported_filename_extension_pattern,
     build_year_aggregate_cue_pattern,
 )
+from informity.llm.query_rewrite import build_history_aware_retrieval_query
 from informity.llm.term_dictionary import expand_query_for_routing
 from informity.llm.types import (
     BlockType,
@@ -217,53 +218,21 @@ def _build_history_aware_retrieval_query(
     has_referential_followup: bool,
     preferred_previous_user: str | None = None,
 ) -> tuple[str | None, bool]:
-    normalized_question = _normalize_text(question)
-    if not normalized_question:
-        return None, False
-    if not bool(settings.rag_query_rewrite_enabled):
-        return None, False
-    if not history:
-        return None, False
-    if has_topic_shift_cue:
-        return None, False
-    if is_scope_reset:
-        return None, False
-    if filename_filter is not None:
-        return None, False
-    if intent not in {IntentLabel.FOCUSED, IntentLabel.COVERAGE}:
-        return None, False
-
-    has_topical_overlap = _has_topic_overlap_with_previous_user(
-        question=normalized_question,
+    return build_history_aware_retrieval_query(
+        question=question,
         history=history,
+        rag_query_rewrite_enabled=bool(settings.rag_query_rewrite_enabled),
+        allow_intent=bool(intent in {IntentLabel.FOCUSED, IntentLabel.COVERAGE} and filename_filter is None),
+        is_scope_reset=is_scope_reset,
+        has_topic_shift_cue=has_topic_shift_cue,
+        has_referential_followup=has_referential_followup,
+        has_topical_overlap_fn=lambda q, h: _has_topic_overlap_with_previous_user(question=q, history=h),
+        normalize_text_fn=_normalize_text,
+        history_limit=max(0, int(settings.rag_query_rewrite_max_history_messages)),
+        max_chars_per_turn=max(1, int(settings.rag_query_rewrite_max_chars_per_turn)),
+        max_query_chars=max(64, int(settings.rag_query_rewrite_max_query_chars)),
+        preferred_previous_user=preferred_previous_user,
     )
-    if not has_referential_followup and not has_topical_overlap:
-        return None, False
-
-    history_limit = max(0, int(settings.rag_query_rewrite_max_history_messages))
-    if history_limit == 0:
-        return None, False
-    max_chars_per_turn = max(1, int(settings.rag_query_rewrite_max_chars_per_turn))
-    max_query_chars = max(64, int(settings.rag_query_rewrite_max_query_chars))
-
-    previous_user = _normalize_text(preferred_previous_user or '')
-    if not previous_user:
-        for message in reversed(history[-history_limit:]):
-            content = _normalize_text(message.content or '')
-            if not content:
-                continue
-            if not previous_user and message.role == 'user':
-                previous_user = content
-            if previous_user:
-                break
-    if not previous_user:
-        return None, False
-
-    rewritten_query = (
-        f"{normalized_question}\n\nFollow-up context:\n"
-        f"- Previous user question: {previous_user[:max_chars_per_turn]}"
-    )
-    return rewritten_query[:max_query_chars], True
 
 
 def _decompose_content_query(text: str) -> tuple[str, float, list[str]]:
