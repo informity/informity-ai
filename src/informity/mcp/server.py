@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import urllib.parse
 from typing import Any
 
+import aiosqlite
+
 from informity.config import settings
-from informity.db.sqlite import get_connection
 from informity.mcp.authorization import authorize_mcp_request
 from informity.mcp.tool_registry import (
     LEGACY_TOOL_ALIASES,
@@ -52,7 +54,7 @@ class InformityMcpReadOnlyServer:
         if normalized_tool_name == TOOL_HEALTH:
             return await tool_health()
 
-        db = await get_connection()
+        db = await self._get_readonly_connection()
         try:
             if normalized_tool_name == TOOL_FILES_LIST:
                 return await tool_files_list(
@@ -80,6 +82,16 @@ class InformityMcpReadOnlyServer:
             await db.close()
 
         raise McpToolNotFoundError(f'Unknown MCP tool: {tool_name}')
+
+    async def _get_readonly_connection(self) -> aiosqlite.Connection:
+        db_path = str(settings.db_path)
+        uri = f"file:{urllib.parse.quote(db_path, safe='/')}" + '?mode=ro'
+        conn = await aiosqlite.connect(uri, uri=True)
+        conn.row_factory = aiosqlite.Row
+        await conn.execute('PRAGMA query_only=ON')
+        await conn.execute('PRAGMA foreign_keys=ON')
+        await conn.execute('PRAGMA busy_timeout=5000')
+        return conn
 
 
 mcp_readonly_server = InformityMcpReadOnlyServer()
