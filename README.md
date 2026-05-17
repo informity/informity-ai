@@ -148,6 +148,7 @@ Current read-only tools:
 - `informity_health`
 - `informity_files_list`
 - `informity_search_semantic`
+- `informity_filter_options`
 - `informity_index_status`
 - `informity_scan_status`
 
@@ -155,12 +156,19 @@ Tool behavior notes:
 
 - `informity_files_list` and `informity_search_semantic` default to `limit=50` and allow explicit values up to `200`.
 - `informity_index_status` reports corpus counts with chat-upload records (`upload.local`) excluded, matching MCP corpus visibility.
+- `informity_filter_options` returns currently available categories and file type extensions from the index.
+- For `informity_search_semantic`, `category` and `file_types` are optional filters; start with only `query` + `limit` unless you specifically need filtering.
+- `category` values are: `document`, `plaintext`, `data`, `web`, `other`.
+- `file_types` accepts both dot extensions (`.pdf`) and common aliases (`pdf`, `docx`, `md`), case-insensitive.
+- If a filtered semantic search returns zero results, the tool includes `hints` with applied filters and recovery guidance.
 
 Access levels:
 
 - `metadata_only` (recommended default)
 - `search_snippets`
 - `full_content`
+
+For external MCP clients, `search_snippets` is generally the best balance of privacy and answer quality.
 
 Security notes:
 
