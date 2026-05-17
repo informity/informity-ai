@@ -232,14 +232,80 @@ async def tool_search_semantic(
         results.append(result)
 
     return _coerce_response_size(
-        {
+        _with_no_result_hints(
+            {
             'query': query_text,
             'total': len(results),
             'results': results,
             'scope_mode': normalized_scope.mode,
-        },
+            },
+            normalized_category=normalized_category,
+            normalized_file_types=normalized_file_types,
+            had_filters=bool(normalized_category or normalized_file_types),
+            total_results=len(results),
+        ),
         normalized_scope.max_total_response_bytes,
     )
+
+
+def _with_no_result_hints(
+    payload: dict[str, Any],
+    *,
+    normalized_category: str | None,
+    normalized_file_types: set[str] | None,
+    had_filters: bool,
+    total_results: int,
+) -> dict[str, Any]:
+    if total_results > 0 or not had_filters:
+        return payload
+    result = dict(payload)
+    result['hints'] = {
+        'reason': 'No results matched current filters',
+        'applied_filters': {
+            'category': normalized_category,
+            'file_types': sorted(normalized_file_types) if normalized_file_types else [],
+        },
+        'valid_categories': sorted(VALID_FILE_CATEGORIES),
+        'guidance': 'Try removing filters or use informity_filter_options for valid values.',
+    }
+    return result
+
+
+async def tool_filter_options(db: aiosqlite.Connection) -> dict[str, Any]:
+    categories_cursor = await db.execute(
+        '''
+        SELECT DISTINCT LOWER(category) AS category
+        FROM files
+        WHERE source_provider != ?
+        ORDER BY category ASC
+        ''',
+        ('upload.local',),
+    )
+    category_rows = await categories_cursor.fetchall()
+    categories = [str(row['category']) for row in category_rows if row and row['category']]
+    if not categories:
+        categories = sorted(VALID_FILE_CATEGORIES)
+
+    extension_cursor = await db.execute(
+        '''
+        SELECT DISTINCT LOWER(extension) AS extension
+        FROM files
+        WHERE source_provider != ? AND extension IS NOT NULL AND TRIM(extension) != ''
+        ORDER BY extension ASC
+        ''',
+        ('upload.local',),
+    )
+    extension_rows = await extension_cursor.fetchall()
+    file_types = [str(row['extension']) for row in extension_rows if row and row['extension']]
+
+    return {
+        'categories': categories,
+        'file_types': file_types,
+        'notes': {
+            'category': 'Optional filter for informity_search_semantic.',
+            'file_types': 'Optional filter. Use dot extensions like .pdf.',
+        },
+    }
 
 
 async def tool_index_status(db: aiosqlite.Connection) -> dict[str, Any]:
