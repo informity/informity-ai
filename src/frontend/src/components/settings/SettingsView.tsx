@@ -235,7 +235,7 @@ interface SettingsData {
   mcp_http_host?: string
   mcp_http_port?: number
   mcp_auth_mode?: 'token_required'
-  mcp_scope_mode?: 'metadata_only' | 'search_snippets' | 'full_chunks'
+  mcp_scope_mode?: 'metadata_only' | 'search_snippets' | 'full_content'
   mcp_access_token?: string
   mcp_token_configured?: boolean
   enable_raw_output_control?: boolean
@@ -297,7 +297,7 @@ interface FormState {
   mcp_http_host: string
   mcp_http_port: number
   mcp_auth_mode: 'token_required'
-  mcp_scope_mode: 'metadata_only' | 'search_snippets' | 'full_chunks'
+  mcp_scope_mode: 'metadata_only' | 'search_snippets' | 'full_content'
   mcp_access_token: string
   enable_raw_output_control: boolean
   ui_theme: string
@@ -367,8 +367,8 @@ function buildFormState(settings: SettingsData): FormState {
     mcp_http_host: String(settings.mcp_http_host || '127.0.0.1'),
     mcp_http_port: Number(settings.mcp_http_port ?? 8431),
     mcp_auth_mode: 'token_required',
-    mcp_scope_mode: settings.mcp_scope_mode === 'full_chunks'
-      ? 'full_chunks'
+    mcp_scope_mode: settings.mcp_scope_mode === 'full_content'
+      ? 'full_content'
       : settings.mcp_scope_mode === 'search_snippets'
         ? 'search_snippets'
         : 'metadata_only',
@@ -1962,8 +1962,8 @@ export function SettingsView({
                 const value = e.target.value
                 update(
                   'mcp_scope_mode',
-                  value === 'full_chunks'
-                    ? 'full_chunks'
+                  value === 'full_content'
+                    ? 'full_content'
                     : value === 'search_snippets'
                       ? 'search_snippets'
                       : 'metadata_only',
@@ -1973,7 +1973,7 @@ export function SettingsView({
             >
               <option value="metadata_only">Metadata Only (Default)</option>
               <option value="search_snippets">Search Snippets</option>
-              <option value="full_chunks">Full Content</option>
+              <option value="full_content">Full Content</option>
             </select>
           </div>
           <div className="settings-control-group">

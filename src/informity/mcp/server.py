@@ -58,7 +58,7 @@ class InformityMcpReadOnlyServer:
                 return await tool_files_list(
                     db,
                     scope=scope,
-                    limit=int(payload.get('limit', 20)),
+                    limit=int(payload.get('limit', 50)),
                     offset=int(payload.get('offset', 0)),
                     search=str(payload.get('search')) if payload.get('search') is not None else None,
                 )
@@ -68,7 +68,7 @@ class InformityMcpReadOnlyServer:
                     db,
                     scope=scope,
                     query=str(payload.get('query') or ''),
-                    limit=int(payload.get('limit', 20)),
+                    limit=int(payload.get('limit', 50)),
                     category=str(payload.get('category')) if payload.get('category') is not None else None,
                     file_types=list(file_types) if isinstance(file_types, list) else None,
                 )
