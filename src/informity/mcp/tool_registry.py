@@ -52,15 +52,33 @@ TOOLS: list[JSON] = [
     },
     {
         'name': TOOL_SEARCH_SEMANTIC,
-        'description': 'Performs semantic search across indexed files.',
+        'description': (
+            'Performs semantic search across indexed files. '
+            'Use query (required) and optionally limit/category/file_types. '
+            'category/file_types are optional filters, not required.'
+        ),
         'inputSchema': {
             'type': 'object',
             'additionalProperties': False,
             'properties': {
-                'query': {'type': 'string'},
+                'query': {
+                    'type': 'string',
+                    'description': 'Natural-language search query.',
+                },
                 'limit': {'type': 'integer', 'minimum': 1, 'maximum': 200},
-                'category': {'type': 'string'},
-                'file_types': {'type': 'array', 'items': {'type': 'string'}},
+                'category': {
+                    'type': 'string',
+                    'enum': ['document', 'plaintext', 'data', 'web', 'other'],
+                    'description': 'Optional filter. Leave unset to search all categories.',
+                },
+                'file_types': {
+                    'type': 'array',
+                    'items': {'type': 'string'},
+                    'description': (
+                        'Optional filter by extension. '
+                        'Accepts dot extensions like .pdf or aliases like pdf/docx.'
+                    ),
+                },
             },
             'required': ['query'],
         },
