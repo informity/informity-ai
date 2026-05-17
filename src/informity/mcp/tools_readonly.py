@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
@@ -61,7 +62,7 @@ class McpReadScope:
 
 
 def _coerce_response_size(payload: dict[str, Any], max_bytes: int) -> dict[str, Any]:
-    if len(str(payload).encode('utf-8', errors='ignore')) <= max_bytes:
+    if _serialized_size_bytes(payload) <= max_bytes:
         return payload
     results = payload.get('results')
     if not isinstance(results, list):
@@ -78,7 +79,7 @@ def _coerce_response_size(payload: dict[str, Any], max_bytes: int) -> dict[str, 
         candidate['truncated'] = True
         candidate['returned'] = len(trimmed_results)
         candidate['total_before_truncation'] = original_total
-        if len(str(candidate).encode('utf-8', errors='ignore')) <= max_bytes:
+        if _serialized_size_bytes(candidate) <= max_bytes:
             return candidate
         trimmed_results = trimmed_results[:-1]
 
@@ -87,6 +88,10 @@ def _coerce_response_size(payload: dict[str, Any], max_bytes: int) -> dict[str, 
         'returned': 0,
         'total_before_truncation': original_total,
     }
+
+
+def _serialized_size_bytes(payload: dict[str, Any]) -> int:
+    return len(json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8', errors='ignore'))
 
 
 def _apply_scope_to_preview(preview: str, scope: McpReadScope) -> str | None:
