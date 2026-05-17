@@ -41,8 +41,8 @@ _LOG_RETENTION_LABEL = f'{_LOG_RETENTION_DAYS}_days'
 # Log File Paths
 # ==============================================================================
 
-def _get_log_paths() -> tuple[Path, Path]:
-    # Returns (app_log_path, error_log_path) based on settings.
+def _get_log_paths() -> tuple[Path, Path, Path]:
+    # Returns (app_log_path, error_log_path, mcp_log_path) based on settings.
     # Ensures logs_dir exists before returning paths.
     logs_dir = settings.logs_dir
     if logs_dir is None:
@@ -53,7 +53,8 @@ def _get_log_paths() -> tuple[Path, Path]:
     app_log   = logs_dir / 'app.log'
     error_log = logs_dir / 'app.error.log'
 
-    return app_log, error_log
+    mcp_log = logs_dir / 'app.mcp.log'
+    return app_log, error_log, mcp_log
 
 
 # ==============================================================================
@@ -143,6 +144,14 @@ class _SuppressDoclingWarningsFilter(logging.Filter):
             if 'strict_text' in message and 'deprecated' in message:
                 return False
         return True
+
+
+class _McpOnlyFilter(logging.Filter):
+    """Allow only MCP namespace records into dedicated MCP log file."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        name = str(getattr(record, 'name', '') or '')
+        return name.startswith('informity.mcp')
 
 
 # ==============================================================================
@@ -256,7 +265,7 @@ def configure_logging() -> None:
         module='docling_core',
     )
 
-    app_log_path, error_log_path = _get_log_paths()
+    app_log_path, error_log_path, mcp_log_path = _get_log_paths()
 
     # Resolve application log level from config (default: INFO to reduce noise).
     level_name = (settings.log_level or 'info').strip().lower()
@@ -287,6 +296,17 @@ def configure_logging() -> None:
     error_handler.setLevel(logging.ERROR)  # Only ERROR and CRITICAL
     # Formatter will be set after structlog configuration
 
+    # MCP log handler (INFO and above, MCP namespace only)
+    mcp_handler = TimedRotatingFileHandler(
+        filename=str(mcp_log_path),
+        when=_LOG_ROTATION_WHEN,
+        interval=_LOG_ROTATION_INTERVAL_DAYS,
+        backupCount=_LOG_RETENTION_DAYS,
+        encoding='utf-8',
+    )
+    mcp_handler.setLevel(logging.INFO)
+    mcp_handler.addFilter(_McpOnlyFilter())
+
     # Console handler (INFO and above for readability) - skip if suppressed
     console_handler = None
     if not suppress_console:
@@ -304,6 +324,7 @@ def configure_logging() -> None:
     # - app.error.log for fast error-only triage
     root_logger.addHandler(general_handler)
     root_logger.addHandler(error_handler)
+    root_logger.addHandler(mcp_handler)
     if console_handler:
         root_logger.addHandler(console_handler)
 
@@ -383,6 +404,7 @@ def configure_logging() -> None:
     # Apply formatters to handlers
     general_handler.setFormatter(file_formatter)
     error_handler.setFormatter(file_formatter)
+    mcp_handler.setFormatter(file_formatter)
     if console_handler:
         console_handler.setFormatter(console_formatter)
 

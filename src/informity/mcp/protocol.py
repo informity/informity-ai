@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from typing import Any
 
 import structlog
@@ -112,7 +113,13 @@ async def handle_jsonrpc_request(
         if not tool_name:
             return error_response(request_id, -32602, 'Missing tool name')
         if normalized_tool_name not in READONLY_TOOL_NAMES:
+            log.warning(
+                'mcp_tool_call_blocked_non_allowlisted',
+                transport=transport,
+                requested_tool=tool_name,
+            )
             return error_response(request_id, -32601, f'Unknown tool: {tool_name}')
+        started = time.monotonic()
         try:
             timeout_seconds = max(5.0, float(getattr(settings, 'mcp_tool_call_timeout_seconds', 30.0) or 30.0))
             result = await asyncio.wait_for(
@@ -124,6 +131,13 @@ async def handle_jsonrpc_request(
                     skip_authorization=(transport == 'http'),
                 ),
                 timeout=timeout_seconds,
+            )
+            log.info(
+                'mcp_tool_call_completed',
+                transport=transport,
+                tool_name=normalized_tool_name,
+                duration_ms=round((time.monotonic() - started) * 1000.0, 2),
+                status='ok',
             )
             return {
                 'jsonrpc': '2.0',
@@ -139,12 +153,31 @@ async def handle_jsonrpc_request(
                 },
             }
         except tool_not_found_error:
+            log.warning('mcp_tool_call_unknown_tool', transport=transport, requested_tool=tool_name)
             return error_response(request_id, -32601, f'Unknown tool: {tool_name}')
         except McpAuthorizationError as exc:
+            log.warning(
+                'mcp_tool_call_auth_failed',
+                transport=transport,
+                tool_name=normalized_tool_name,
+                error=str(exc),
+            )
             return error_response(request_id, -32001, str(exc))
         except TimeoutError:
+            log.warning(
+                'mcp_tool_call_timeout',
+                transport=transport,
+                tool_name=normalized_tool_name,
+                duration_ms=round((time.monotonic() - started) * 1000.0, 2),
+            )
             return error_response(request_id, -32001, 'MCP tool call timed out')
         except ValueError as exc:
+            log.warning(
+                'mcp_tool_call_validation_failed',
+                transport=transport,
+                tool_name=normalized_tool_name,
+                error=str(exc),
+            )
             return error_response(request_id, -32602, str(exc))
         except Exception as exc:  # pragma: no cover - defensive server boundary
             log.exception('mcp_tool_call_failed', tool_name=tool_name, transport=transport, error=str(exc))

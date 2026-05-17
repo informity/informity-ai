@@ -8,7 +8,7 @@ import pytest
 
 from informity.mcp.authorization import McpAuthorizationError, authorize_mcp_request
 from informity.mcp.protocol import handle_jsonrpc_request
-from informity.mcp.server import mcp_readonly_server
+from informity.mcp.server import InformityMcpReadOnlyServer, mcp_readonly_server
 from informity.mcp.tools_readonly import (
     McpReadScope,
     tool_files_list,
@@ -252,6 +252,38 @@ async def test_mcp_tools_call_dispatches_legacy_alias_for_readonly_tool(
     assert response is not None
     assert response['result']['isError'] is False
     assert captured_tool_names == ['informity_search_semantic']
+
+
+@pytest.mark.asyncio
+async def test_mcp_server_uses_readonly_sqlite_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    from informity.mcp import server as mod
+
+    class _FakeConn:
+        def __init__(self) -> None:
+            self.row_factory = None
+            self.pragmas: list[str] = []
+
+        async def execute(self, sql: str):
+            self.pragmas.append(sql)
+
+    captured: dict[str, object] = {}
+
+    async def _fake_connect(path: str, *, uri: bool):
+        captured['path'] = path
+        captured['uri'] = uri
+        return _FakeConn()
+
+    monkeypatch.setattr(mod.aiosqlite, 'connect', _fake_connect)
+
+    server = InformityMcpReadOnlyServer()
+    conn = await server._get_readonly_connection()
+    assert captured['uri'] is True
+    assert 'mode=ro' in str(captured['path'])
+    assert conn.pragmas == [
+        'PRAGMA query_only=ON',
+        'PRAGMA foreign_keys=ON',
+        'PRAGMA busy_timeout=5000',
+    ]
 
 
 @pytest.mark.asyncio
