@@ -196,6 +196,65 @@ async def test_mcp_tools_call_times_out(monkeypatch: pytest.MonkeyPatch) -> None
 
 
 @pytest.mark.asyncio
+async def test_mcp_tools_call_rejects_non_allowlisted_tool_before_dispatch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from informity.mcp import protocol as mod
+
+    class _ExplodingServer:
+        async def execute_tool(self, **_kwargs):
+            raise AssertionError('dispatch should not be reached for non-allowlisted tools')
+
+    monkeypatch.setattr(mod, '_mcp_readonly_server', _ExplodingServer())
+    monkeypatch.setattr(mod, '_mcp_tool_not_found_error', KeyError)
+
+    response = await handle_jsonrpc_request(
+        {
+            'jsonrpc': '2.0',
+            'id': 21,
+            'method': 'tools/call',
+            'params': {'name': 'informity_delete_file', 'arguments': {'file_id': 1}},
+        },
+        transport='stdio',
+        bearer_token=None,
+    )
+    assert response is not None
+    assert response['error']['code'] == -32601
+    assert response['error']['message'] == 'Unknown tool: informity_delete_file'
+
+
+@pytest.mark.asyncio
+async def test_mcp_tools_call_dispatches_legacy_alias_for_readonly_tool(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from informity.mcp import protocol as mod
+
+    captured_tool_names: list[str] = []
+
+    class _CaptureServer:
+        async def execute_tool(self, **kwargs):
+            captured_tool_names.append(str(kwargs.get('tool_name', '')))
+            return {'ok': True}
+
+    monkeypatch.setattr(mod, '_mcp_readonly_server', _CaptureServer())
+    monkeypatch.setattr(mod, '_mcp_tool_not_found_error', KeyError)
+
+    response = await handle_jsonrpc_request(
+        {
+            'jsonrpc': '2.0',
+            'id': 22,
+            'method': 'tools/call',
+            'params': {'name': 'informity.search.semantic', 'arguments': {'query': 'test'}},
+        },
+        transport='stdio',
+        bearer_token=None,
+    )
+    assert response is not None
+    assert response['result']['isError'] is False
+    assert captured_tool_names == ['informity_search_semantic']
+
+
+@pytest.mark.asyncio
 async def test_tool_files_list_default_limit_is_50_and_explicit_limit_allows_200(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

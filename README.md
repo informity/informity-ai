@@ -165,6 +165,7 @@ Access levels:
 Security notes:
 
 - Keep MCP disabled unless you need it.
+- Informity MCP is strictly read-only: only an allowlisted set of read tools can be executed.
 - `http` transport requires a bearer token.
 - External clients operate outside Informity's internal Full Privacy controls, so only connect trusted local clients.
 

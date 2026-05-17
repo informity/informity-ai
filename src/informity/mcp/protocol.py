@@ -8,7 +8,7 @@ import structlog
 
 from informity.config import settings
 from informity.mcp.authorization import McpAuthorizationError, authorize_mcp_request
-from informity.mcp.tool_registry import TOOLS
+from informity.mcp.tool_registry import LEGACY_TOOL_ALIASES, READONLY_TOOL_NAMES, TOOLS
 
 log = structlog.get_logger(__name__)
 
@@ -106,15 +106,18 @@ async def handle_jsonrpc_request(
     if method == 'tools/call':
         tool_server, tool_not_found_error = _get_tool_dispatch()
         tool_name = str(params_obj.get('name') or '').strip()
+        normalized_tool_name = LEGACY_TOOL_ALIASES.get(tool_name, tool_name)
         arguments = params_obj.get('arguments')
         args_obj = arguments if isinstance(arguments, dict) else {}
         if not tool_name:
             return error_response(request_id, -32602, 'Missing tool name')
+        if normalized_tool_name not in READONLY_TOOL_NAMES:
+            return error_response(request_id, -32601, f'Unknown tool: {tool_name}')
         try:
             timeout_seconds = max(5.0, float(getattr(settings, 'mcp_tool_call_timeout_seconds', 30.0) or 30.0))
             result = await asyncio.wait_for(
                 tool_server.execute_tool(
-                    tool_name=tool_name,
+                    tool_name=normalized_tool_name,
                     args=args_obj,
                     transport=transport,
                     bearer_token=bearer_token,
