@@ -10,6 +10,7 @@ from informity.mcp.authorization import authorize_mcp_request
 from informity.mcp.tool_registry import (
     LEGACY_TOOL_ALIASES,
     TOOL_FILES_LIST,
+    TOOL_FILTER_OPTIONS,
     TOOL_HEALTH,
     TOOL_INDEX_STATUS,
     TOOL_SCAN_STATUS,
@@ -18,6 +19,7 @@ from informity.mcp.tool_registry import (
 from informity.mcp.tools_readonly import (
     McpReadScope,
     tool_files_list,
+    tool_filter_options,
     tool_health,
     tool_index_status,
     tool_scan_status,
@@ -76,6 +78,8 @@ class InformityMcpReadOnlyServer:
                 )
             if normalized_tool_name == TOOL_INDEX_STATUS:
                 return await tool_index_status(db)
+            if normalized_tool_name == TOOL_FILTER_OPTIONS:
+                return await tool_filter_options(db)
             if normalized_tool_name == TOOL_SCAN_STATUS:
                 return await tool_scan_status(db)
         finally:

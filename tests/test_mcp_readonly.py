@@ -13,6 +13,7 @@ from informity.mcp.tools_readonly import (
     McpReadScope,
     _coerce_response_size,
     tool_files_list,
+    tool_filter_options,
     tool_index_status,
     tool_search_semantic,
 )
@@ -327,6 +328,33 @@ async def test_tool_search_semantic_normalizes_category_and_file_types(
     assert payload['results'][0]['file_id'] == 8
 
 
+@pytest.mark.asyncio
+async def test_tool_search_semantic_no_results_returns_hints_for_filtered_query(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from informity.mcp import tools_readonly as mod
+
+    monkeypatch.setattr(mod.embedder, 'embed_query', lambda _q: [0.1, 0.2, 0.3])
+    monkeypatch.setattr(mod.vector_store, 'search_similar', lambda *_args, **_kwargs: [])
+    async def _fake_get_files_by_ids(*_args, **_kwargs):
+        return {}
+
+    monkeypatch.setattr(mod, 'get_files_by_ids', _fake_get_files_by_ids)
+
+    payload = await tool_search_semantic(
+        db=SimpleNamespace(),
+        scope=McpReadScope(mode='search_snippets'),
+        query='contract',
+        limit=5,
+        category='Document',
+        file_types=['pdf'],
+    )
+    assert payload['total'] == 0
+    assert 'hints' in payload
+    assert payload['hints']['applied_filters']['category'] == 'document'
+    assert payload['hints']['applied_filters']['file_types'] == ['.pdf']
+
+
 def test_coerce_response_size_trims_results_list() -> None:
     payload = {
         'results': [
@@ -341,6 +369,36 @@ def test_coerce_response_size_trims_results_list() -> None:
     assert coerced['returned'] < 3
     assert coerced['total_before_truncation'] == 3
     assert len(str(coerced).encode('utf-8', errors='ignore')) <= 220
+
+
+@pytest.mark.asyncio
+async def test_tool_filter_options_returns_distinct_categories_and_file_types() -> None:
+    class _FakeCursor:
+        def __init__(self, rows):
+            self._rows = rows
+
+        async def fetchall(self):
+            return self._rows
+
+    class _FakeDb:
+        async def execute(self, sql: str, _params):
+            if 'category' in sql:
+                return _FakeCursor(
+                    [
+                        {'category': 'document'},
+                        {'category': 'web'},
+                    ]
+                )
+            return _FakeCursor(
+                [
+                    {'extension': '.docx'},
+                    {'extension': '.pdf'},
+                ]
+            )
+
+    payload = await tool_filter_options(_FakeDb())
+    assert payload['categories'] == ['document', 'web']
+    assert payload['file_types'] == ['.docx', '.pdf']
 
 
 @pytest.mark.asyncio
