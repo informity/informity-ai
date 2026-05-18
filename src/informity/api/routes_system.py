@@ -43,6 +43,7 @@ from informity.config import (
     DirNames,
     are_required_models_cached,
     configure_hf_environment,
+    ensure_docling_rapidocr_cache_compat,
     get_docling_download_options,
     settings,
 )
@@ -537,6 +538,7 @@ def _cache_required_runtime_dependencies() -> None:
         output_dir=docling_cache,
         **get_docling_download_options(progress=False),
     )
+    ensure_docling_rapidocr_cache_compat(settings.cache_dir)
 
 
 def _apply_model_default_config(model_filename: str) -> None:
