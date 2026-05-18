@@ -1011,6 +1011,20 @@ def get_docling_download_options(*, progress: bool) -> dict[str, bool]:
     }
 
 
+def ensure_docling_rapidocr_cache_compat(cache_dir: Path | None = None) -> None:
+    """Normalize RapidOCR cache filenames for docling/runtime compatibility."""
+    docling_cache = (cache_dir if cache_dir is not None else settings.cache_dir) / DirNames.DOCLING
+    src = docling_cache / 'RapidOcr' / 'onnx' / 'PP-OCRv4' / 'det' / 'ch_PP-OCRv4_det_infer.onnx'
+    dst = docling_cache / 'RapidOcr' / 'onnx' / 'PP-OCRv4' / 'det' / 'ch_PP-OCRv4_det_mobile.onnx'
+    try:
+        if src.exists() and not dst.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(src.read_bytes())
+            log.info('docling_rapidocr_cache_compat_applied', source=str(src), target=str(dst))
+    except OSError:
+        log.warning('docling_rapidocr_cache_compat_failed', source=str(src), target=str(dst), exc_info=True)
+
+
 def are_required_models_cached(*, include_llm: bool = True) -> bool:
     """
     Check if all required models are cached.

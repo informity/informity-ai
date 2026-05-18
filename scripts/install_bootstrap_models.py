@@ -152,9 +152,14 @@ def _download_docling_models(app_data: Path) -> None:
     docling_cache = cache_dir / DirNames.DOCLING
     docling_cache.mkdir(parents=True, exist_ok=True)
 
-    from informity.config import _is_docling_cached, get_docling_download_options
+    from informity.config import (
+        _is_docling_cached,
+        ensure_docling_rapidocr_cache_compat,
+        get_docling_download_options,
+    )
 
     if _is_docling_cached(cache_dir):
+        ensure_docling_rapidocr_cache_compat(cache_dir)
         print(f'Docling models already cached: {docling_cache}')
         return
 
@@ -176,6 +181,7 @@ def _download_docling_models(app_data: Path) -> None:
         print(f'⚠️  Failed to download docling models: {e}')
         print('   Docling will download models on first use (may show warnings in Full Privacy mode).')
     else:
+        ensure_docling_rapidocr_cache_compat(cache_dir)
         print('Docling models cached.')
 
 
