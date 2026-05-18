@@ -44,7 +44,7 @@ verify_docling_runtime_imports() {
   # Fail fast before PyInstaller if docling runtime modules are not importable
   # in the exact interpreter context used by the build.
   uv run python - <<'PY'
-import importlib.util
+import importlib
 import sys
 
 required = (
@@ -56,10 +56,8 @@ required = (
 missing = []
 for module_name in required:
     try:
-        spec = importlib.util.find_spec(module_name)
-    except ModuleNotFoundError:
-        spec = None
-    if spec is None:
+        importlib.import_module(module_name)
+    except Exception:
         missing.append(module_name)
 
 if missing:

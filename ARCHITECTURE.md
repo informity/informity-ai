@@ -481,7 +481,7 @@ class HealthResponse(BaseModel):
 
 ### `scanner/extractors/*.py`
 - Extractors: TextExtractor (.txt, .md, .rst, .log), DoclingExtractor (unified: .pdf, .docx, .pptx, .xlsx, .html, .csv), EpubExtractor (.epub). Registry in `base.py`: `register_extractors()`, `get_extractor(path)`.
-- **DoclingExtractor** uses docling's `DocumentConverter` to convert documents to markdown. Docling provides superior structure preservation including tables, formulas, reading order detection, and built-in OCR support. The converter handles all document types (text-based, scanned, image-only) automatically without requiring external OCR tools.
+- **DoclingExtractor** uses docling's `DocumentConverter` to convert documents to markdown (runtime provided by the `docling-slim` dependency). Docling provides superior structure preservation including tables, formulas, reading order detection, and built-in OCR support. The converter handles all document types (text-based, scanned, image-only) automatically without requiring external OCR tools.
 - **text_utils.py:** shared utilities: `elapsed_ms()`, `decode_bytes()` (UTF-8 then chardet), `repair_hyphenation()` (rejoin hyphenated line breaks); used by extractors and by indexer/post_process.
 - All extractors implement `BaseExtractor` protocol; must never raise — return errors in `ExtractedDocument.error`.
 - **Imports:** docling, base, text_utils where needed
