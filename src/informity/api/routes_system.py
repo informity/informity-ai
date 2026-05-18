@@ -43,6 +43,7 @@ from informity.config import (
     DirNames,
     are_required_models_cached,
     configure_hf_environment,
+    get_docling_download_options,
     settings,
 )
 from informity.db.sqlite import (
@@ -534,21 +535,7 @@ def _cache_required_runtime_dependencies() -> None:
 
     download_models(
         output_dir=docling_cache,
-        force=False,
-        progress=False,
-        with_layout=True,
-        with_tableformer=True,
-        with_code_formula=True,
-        with_picture_classifier=False,
-        with_smolvlm=False,
-        with_granitedocling=False,
-        with_granitedocling_mlx=False,
-        with_smoldocling=False,
-        with_smoldocling_mlx=False,
-        with_granite_vision=False,
-        with_granite_chart_extraction=False,
-        with_rapidocr=True,
-        with_easyocr=False,
+        **get_docling_download_options(progress=False),
     )
 
 

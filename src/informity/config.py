@@ -990,6 +990,27 @@ def _is_docling_cached(cache_dir: Path | None = None) -> bool:
     return False
 
 
+def get_docling_download_options(*, progress: bool) -> dict[str, bool]:
+    """Centralized docling model download options for bootstrap and runtime setup."""
+    return {
+        'force': False,
+        'progress': progress,
+        'with_layout': True,
+        'with_tableformer': True,
+        'with_code_formula': True,
+        'with_picture_classifier': False,
+        'with_smolvlm': False,
+        'with_granitedocling': False,
+        'with_granitedocling_mlx': False,
+        'with_smoldocling': False,
+        'with_smoldocling_mlx': False,
+        'with_granite_vision': False,
+        'with_granite_chart_extraction': False,
+        'with_rapidocr': True,
+        'with_easyocr': False,
+    }
+
+
 def are_required_models_cached(*, include_llm: bool = True) -> bool:
     """
     Check if all required models are cached.
