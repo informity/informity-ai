@@ -92,6 +92,7 @@ verify_sidecar_contents() {
     "docling_core-[0-9].*\\.dist-info/METADATA"
     "docling_parse/.*\\.(so|dylib|pyd)"
     "docling_parse/pdf_resources/"
+    "rapidocr/default_models\\.yaml"
     "pandas/_libs/algos\\.cpython-"
     "sqlite_vec/__init__\\.py"
     "sqlite_vec/vec0\\.(so|dylib|dll)"
@@ -178,6 +179,8 @@ uv run --with pyinstaller pyinstaller \
   --collect-submodules docling.datamodel \
   --collect-all docling_parse \
   --collect-all docling_ibm_models \
+  --collect-all rapidocr \
+  --collect-all rapidocr_onnxruntime \
   --collect-all docx \
   --collect-all promptcue \
   --collect-all thinkstrip \
