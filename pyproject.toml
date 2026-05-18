@@ -21,7 +21,7 @@ dependencies = [
     "aiosqlite>=0.22.1",
     "charset-normalizer==3.4.7",
     "dateparser==1.4.0",
-    "docling==2.90.0",
+    "docling-slim[standard]==2.93.0",
     "EbookLib>=0.20",
     "einops>=0.8.2",
     "fastapi>=0.136.1",
