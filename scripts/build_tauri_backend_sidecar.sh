@@ -59,7 +59,6 @@ verify_sidecar_contents() {
   find "$sidecar_dir" \( -type f -o -type d \) | sed "s|$sidecar_dir/||" >"$listing_file"
 
   local -a required_patterns=(
-    "docling/models/"
     "docling_ibm_models/__init__\\.py"
     "docx/__init__\\.py"
     "docx/document\\.py"
@@ -91,6 +90,16 @@ verify_sidecar_contents() {
       return 1
     fi
   done
+
+  # PyInstaller analysis check: ensure docling modules were resolved (even if packed in PYZ).
+  local warn_file="$WORK_DIR/informity-backend/warn-informity-backend.txt"
+  if [[ -f "$warn_file" ]]; then
+    if grep -Eq "missing module named 'docling\\.datamodel'|missing module named 'docling\\.document_converter'" "$warn_file"; then
+      echo "ERROR: sidecar verification failed (pyinstaller missing docling modules)" >&2
+      rm -f "$listing_file"
+      return 1
+    fi
+  fi
 
   rm -f "$listing_file"
 }
@@ -137,6 +146,8 @@ uv run --with pyinstaller pyinstaller \
   --collect-data xllamacpp \
   --collect-data tiktoken \
   --collect-all docling \
+  --collect-submodules docling \
+  --collect-submodules docling.datamodel \
   --collect-all docling_parse \
   --collect-all docling_ibm_models \
   --collect-all docx \
