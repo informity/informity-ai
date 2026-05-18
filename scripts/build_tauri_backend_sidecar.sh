@@ -40,6 +40,34 @@ else
   echo "WARN: charset-normalizer mypyc helper module was not detected; continuing without explicit hidden import."
 fi
 
+verify_docling_runtime_imports() {
+  # Fail fast before PyInstaller if docling runtime modules are not importable
+  # in the exact interpreter context used by the build.
+  uv run python - <<'PY'
+import importlib.util
+import sys
+
+required = (
+    "docling",
+    "docling.document_converter",
+    "docling.datamodel.base_models",
+)
+
+missing = []
+for module_name in required:
+    try:
+        spec = importlib.util.find_spec(module_name)
+    except ModuleNotFoundError:
+        spec = None
+    if spec is None:
+        missing.append(module_name)
+
+if missing:
+    print(f"ERROR: missing required docling modules: {', '.join(missing)}", file=sys.stderr)
+    sys.exit(1)
+PY
+}
+
 verify_sidecar_contents() {
   local sidecar_dir="$1"
   local listing_file
@@ -62,7 +90,7 @@ verify_sidecar_contents() {
     "docling_ibm_models/__init__\\.py"
     "docx/__init__\\.py"
     "docx/document\\.py"
-    "docling-[0-9].*\\.dist-info/METADATA"
+    "docling_slim-[0-9].*\\.dist-info/METADATA"
     "docling_core-[0-9].*\\.dist-info/METADATA"
     "docling_parse/.*\\.(so|dylib|pyd)"
     "docling_parse/pdf_resources/"
@@ -130,6 +158,7 @@ sign_sidecar_macho_files() {
 }
 
 echo "Building Tauri backend sidecar (${BACKEND_NAME})..."
+verify_docling_runtime_imports
 uv run --with pyinstaller pyinstaller \
   --noconfirm \
   --clean \
@@ -146,6 +175,7 @@ uv run --with pyinstaller pyinstaller \
   --collect-data xllamacpp \
   --collect-data tiktoken \
   --collect-all docling \
+  --collect-all docling_slim \
   --collect-submodules docling \
   --collect-submodules docling.datamodel \
   --collect-all docling_parse \
@@ -156,7 +186,7 @@ uv run --with pyinstaller pyinstaller \
   --collect-binaries xllamacpp \
   --collect-all charset_normalizer \
   --collect-all PIL \
-  --copy-metadata docling \
+  --copy-metadata docling-slim \
   --copy-metadata docling-core \
   --copy-metadata docling-parse \
   --copy-metadata docling-ibm-models \
