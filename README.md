@@ -123,7 +123,7 @@ Informity uses **only** the app data cache directory (`cache/` under app data). 
 
 ## PDF Processing
 
-PDFs are processed using **docling**, which provides superior structure preservation including tables, formulas, reading order detection, and built-in OCR support. Scanned and image-only PDFs are handled automatically without requiring external OCR tools.
+PDFs are processed using **Docling** (packaged via `docling-slim`), which provides superior structure preservation including tables, formulas, reading order detection, and built-in OCR support. Scanned and image-only PDFs are handled automatically without requiring external OCR tools.
 
 
 ## Offline Mode
