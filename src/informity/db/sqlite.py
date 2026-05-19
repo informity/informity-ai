@@ -10,7 +10,7 @@ import json
 import re
 from collections.abc import AsyncGenerator
 from contextlib import suppress
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import aiosqlite
 import structlog
@@ -66,13 +66,35 @@ _CHAT_TITLE_WHITESPACE_RE = re.compile(r'\s+')
 # Schema — DDL statements for all tables
 # ==============================================================================
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 DIAGNOSTICS_TYPE_USER = 'user'
 DIAGNOSTICS_TYPE_EVALUATION = 'evaluation'
 CANONICAL_DIAGNOSTICS_TYPES = (DIAGNOSTICS_TYPE_USER, DIAGNOSTICS_TYPE_EVALUATION)
 CANONICAL_DIAGNOSTICS_QUERY_TYPES = tuple(item.value for item in DiagnosticsQueryType)
 CANONICAL_DIAGNOSTICS_ISSUE_TYPES = tuple(sorted(issue.value for issue in IssueType))
+LOG_EVENT_CHANNEL_APPLICATION = 'application'
+LOG_EVENT_CHANNEL_ERRORS = 'errors'
+LOG_EVENT_CHANNEL_INTEGRATIONS = 'integrations'
+LOG_EVENT_CHANNELS = (
+    LOG_EVENT_CHANNEL_APPLICATION,
+    LOG_EVENT_CHANNEL_ERRORS,
+    LOG_EVENT_CHANNEL_INTEGRATIONS,
+)
+LOG_EVENT_TYPE_DEBUG = 'debug'
+LOG_EVENT_TYPE_INFO = 'info'
+LOG_EVENT_TYPE_WARNING = 'warning'
+LOG_EVENT_TYPE_ERROR = 'error'
+LOG_EVENT_TYPE_CRITICAL = 'critical'
+LOG_EVENT_TYPES = (
+    LOG_EVENT_TYPE_DEBUG,
+    LOG_EVENT_TYPE_INFO,
+    LOG_EVENT_TYPE_WARNING,
+    LOG_EVENT_TYPE_ERROR,
+    LOG_EVENT_TYPE_CRITICAL,
+)
+LOG_EVENTS_RETENTION_DAYS_DEFAULT = 30
+LOG_EVENTS_MAX_ROWS_DEFAULT = 10_000
 
 _FTS_TRIGGERS_SQL = """
 CREATE TRIGGER IF NOT EXISTS fts_chunks_ai AFTER INSERT ON vec_chunks BEGIN
@@ -200,6 +222,34 @@ CREATE TABLE IF NOT EXISTS scan_errors (
 
 CREATE INDEX IF NOT EXISTS idx_scan_errors_scan_id ON scan_errors(scan_id);
 CREATE INDEX IF NOT EXISTS idx_scan_errors_created_at ON scan_errors(created_at);
+
+CREATE TABLE IF NOT EXISTS log_events (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_id       TEXT NOT NULL UNIQUE,
+    created_at     TEXT NOT NULL,
+    channel        TEXT NOT NULL CHECK (channel IN ('application', 'errors', 'integrations')),
+    event_type     TEXT NOT NULL CHECK (event_type IN ('debug', 'info', 'warning', 'error', 'critical')),
+    event_name     TEXT NOT NULL,
+    source         TEXT NOT NULL,
+    message        TEXT NOT NULL,
+    details_json   TEXT,
+    scope          TEXT,
+    correlation_id TEXT,
+    file_id        INTEGER,
+    scan_id        INTEGER,
+    created_by     TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_log_events_channel_created_at
+    ON log_events(channel, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_log_events_event_type_created_at
+    ON log_events(event_type, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_log_events_source_created_at
+    ON log_events(source, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_log_events_event_name_created_at
+    ON log_events(event_name, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_log_events_correlation_id
+    ON log_events(correlation_id);
 
 CREATE TABLE IF NOT EXISTS chat_messages (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -589,6 +639,8 @@ async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
             await _migrate_to_v2(conn)
         elif next_version == 3:
             await _migrate_to_v3(conn)
+        elif next_version == 4:
+            await _migrate_to_v4(conn)
         else:
             raise RuntimeError(f'No migration path defined for schema version {next_version}')
         await conn.execute('UPDATE schema_version SET version = ?', (next_version,))
@@ -625,6 +677,46 @@ async def _migrate_to_v3(conn: aiosqlite.Connection) -> None:
         )
     if 'pre_first_yield_stage' not in column_names:
         await conn.execute('ALTER TABLE response_diagnostics_metrics ADD COLUMN pre_first_yield_stage TEXT')
+
+
+async def _migrate_to_v4(conn: aiosqlite.Connection) -> None:
+    """
+    v4 migration:
+    - add log_events table and supporting indexes for user-facing activity logs.
+    """
+    await conn.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS log_events (
+            id             INTEGER PRIMARY KEY AUTOINCREMENT,
+            event_id       TEXT NOT NULL UNIQUE,
+            created_at     TEXT NOT NULL,
+            channel        TEXT NOT NULL CHECK (channel IN ('application', 'errors', 'integrations')),
+            event_type     TEXT NOT NULL CHECK (event_type IN ('debug', 'info', 'warning', 'error', 'critical')),
+            event_name     TEXT NOT NULL,
+            source         TEXT NOT NULL,
+            message        TEXT NOT NULL,
+            details_json   TEXT,
+            scope          TEXT,
+            correlation_id TEXT,
+            file_id        INTEGER,
+            scan_id        INTEGER,
+            created_by     TEXT
+        )
+        '''
+    )
+    await conn.execute(
+        'CREATE INDEX IF NOT EXISTS idx_log_events_channel_created_at ON log_events(channel, created_at DESC, id DESC)'
+    )
+    await conn.execute(
+        'CREATE INDEX IF NOT EXISTS idx_log_events_event_type_created_at ON log_events(event_type, created_at DESC, id DESC)'
+    )
+    await conn.execute(
+        'CREATE INDEX IF NOT EXISTS idx_log_events_source_created_at ON log_events(source, created_at DESC, id DESC)'
+    )
+    await conn.execute(
+        'CREATE INDEX IF NOT EXISTS idx_log_events_event_name_created_at ON log_events(event_name, created_at DESC, id DESC)'
+    )
+    await conn.execute('CREATE INDEX IF NOT EXISTS idx_log_events_correlation_id ON log_events(correlation_id)')
 
 
 async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
@@ -1887,6 +1979,46 @@ async def prune_continuation_artifacts(db: aiosqlite.Connection) -> int:
     return pruned
 
 
+async def prune_log_events(
+    db: aiosqlite.Connection,
+    *,
+    retention_days: int = 30,
+    max_rows: int = 10_000,
+) -> dict[str, int]:
+    normalized_days = max(1, int(retention_days))
+    normalized_max_rows = max(1, int(max_rows))
+    cutoff_dt = datetime.now(UTC) - timedelta(days=normalized_days)
+    cutoff_iso = cutoff_dt.isoformat().replace('+00:00', 'Z')
+
+    delete_old_cursor = await db.execute(
+        'DELETE FROM log_events WHERE created_at < ?',
+        (cutoff_iso,),
+    )
+    deleted_by_age = int(delete_old_cursor.rowcount or 0)
+
+    delete_overflow_cursor = await db.execute(
+        '''
+        DELETE FROM log_events
+        WHERE id IN (
+            SELECT id
+            FROM log_events
+            ORDER BY created_at DESC, id DESC
+            LIMIT -1 OFFSET ?
+        )
+        ''',
+        (normalized_max_rows,),
+    )
+    deleted_by_count = int(delete_overflow_cursor.rowcount or 0)
+    await db.commit()
+
+    return {
+        'deleted_by_age': deleted_by_age,
+        'deleted_by_count': deleted_by_count,
+        'retention_days': normalized_days,
+        'max_rows': normalized_max_rows,
+    }
+
+
 async def insert_continuation_pass_artifact(
     db: aiosqlite.Connection,
     artifact: ContinuationPassArtifact,
@@ -2868,6 +3000,159 @@ async def repair_index_integrity_issues(db: aiosqlite.Connection) -> dict[str, i
         results[key] = cursor.rowcount if cursor.rowcount is not None else 0
     await db.commit()
     return results
+
+
+async def insert_log_event(
+    db: aiosqlite.Connection,
+    *,
+    event_id: str,
+    created_at: datetime,
+    channel: str,
+    event_type: str,
+    event_name: str,
+    source: str,
+    message: str,
+    details: dict[str, object] | None = None,
+    scope: str | None = None,
+    correlation_id: str | None = None,
+    file_id: int | None = None,
+    scan_id: int | None = None,
+    created_by: str | None = None,
+) -> int:
+    channel_value = str(channel or '').strip().lower()
+    event_type_value = str(event_type or '').strip().lower()
+    if channel_value not in LOG_EVENT_CHANNELS:
+        raise ValueError(f'Unsupported log event channel: {channel}')
+    if event_type_value not in LOG_EVENT_TYPES:
+        raise ValueError(f'Unsupported log event type: {event_type}')
+
+    details_json = json.dumps(details, ensure_ascii=False, separators=(',', ':')) if details else None
+    created_at_iso = created_at.astimezone(UTC).isoformat().replace('+00:00', 'Z')
+    cursor = await db.execute(
+        '''
+        INSERT OR IGNORE INTO log_events (
+            event_id,
+            created_at,
+            channel,
+            event_type,
+            event_name,
+            source,
+            message,
+            details_json,
+            scope,
+            correlation_id,
+            file_id,
+            scan_id,
+            created_by
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''',
+        (
+            event_id,
+            created_at_iso,
+            channel_value,
+            event_type_value,
+            event_name,
+            source,
+            message,
+            details_json,
+            scope,
+            correlation_id,
+            file_id,
+            scan_id,
+            created_by,
+        ),
+    )
+    await db.commit()
+    return int(cursor.lastrowid or 0)
+
+
+async def get_log_events(
+    db: aiosqlite.Connection,
+    *,
+    channel: str,
+    limit: int = 50,
+    cursor_created_at: str | None = None,
+    cursor_id: int | None = None,
+    event_type: str | None = None,
+    source: str | None = None,
+) -> list[dict[str, object]]:
+    channel_value = str(channel or '').strip().lower()
+    if channel_value not in LOG_EVENT_CHANNELS:
+        raise ValueError(f'Unsupported log event channel: {channel}')
+
+    normalized_limit = max(1, min(int(limit), 200))
+    query = '''
+        SELECT
+            id,
+            event_id,
+            created_at,
+            channel,
+            event_type,
+            event_name,
+            source,
+            message,
+            details_json,
+            scope,
+            correlation_id,
+            file_id,
+            scan_id,
+            created_by
+        FROM log_events
+        WHERE channel = ?
+    '''
+    params: list[object] = [channel_value]
+
+    event_type_value = str(event_type or '').strip().lower()
+    if event_type_value:
+        if event_type_value not in LOG_EVENT_TYPES:
+            raise ValueError(f'Unsupported log event type: {event_type}')
+        query += ' AND event_type = ?'
+        params.append(event_type_value)
+
+    source_value = str(source or '').strip()
+    if source_value:
+        query += ' AND source = ?'
+        params.append(source_value)
+
+    if cursor_created_at and cursor_id is not None:
+        query += ' AND (created_at < ? OR (created_at = ? AND id < ?))'
+        params.extend((cursor_created_at, cursor_created_at, int(cursor_id)))
+
+    query += ' ORDER BY created_at DESC, id DESC LIMIT ?'
+    params.append(normalized_limit)
+    cursor = await db.execute(query, tuple(params))
+    rows = await cursor.fetchall()
+    events: list[dict[str, object]] = []
+    for row in rows:
+        details_raw = row['details_json']
+        details_value: dict[str, object] | None = None
+        if details_raw:
+            try:
+                parsed = json.loads(str(details_raw))
+                if isinstance(parsed, dict):
+                    details_value = parsed
+            except (json.JSONDecodeError, TypeError, ValueError):
+                details_value = None
+        events.append(
+            {
+                'id': int(row['id']),
+                'event_id': str(row['event_id']),
+                'created_at': str(row['created_at']),
+                'channel': str(row['channel']),
+                'event_type': str(row['event_type']),
+                'event_name': str(row['event_name']),
+                'source': str(row['source']),
+                'message': str(row['message']),
+                'details': details_value,
+                'scope': row['scope'],
+                'correlation_id': row['correlation_id'],
+                'file_id': row['file_id'],
+                'scan_id': row['scan_id'],
+                'created_by': row['created_by'],
+            }
+        )
+    return events
 
 
 async def reset_all_data(db: aiosqlite.Connection) -> dict[str, object]:

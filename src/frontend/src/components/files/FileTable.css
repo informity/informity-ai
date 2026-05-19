@@ -60,6 +60,16 @@
   white-space: nowrap;
 }
 
+.file-table__category-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--pill-width-files-logs);
+  padding-left: 10px;
+  padding-right: 10px;
+  box-sizing: border-box;
+}
+
 .file-table__th--size {
   text-align: right;
 }
