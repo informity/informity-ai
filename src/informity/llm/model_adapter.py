@@ -249,7 +249,7 @@ class ModelProfile:
 QWEN3_14B_PROFILE = ModelProfile(
     name              = 'Qwen3 14B',
     family            = ModelFamily.CHATML,
-    filename_patterns = ('qwen3-14b', 'qwen-3-14b', 'qwen-14b'),
+    filename_patterns = ('qwen3-14b',),
 
     supports_think_blocks         = True,
     reasoning_mode                = ReasoningMode.NEVER,
@@ -292,7 +292,7 @@ QWEN3_14B_PROFILE = ModelProfile(
 QWEN3_5_9B_PROFILE = ModelProfile(
     name              = 'Qwen3.5 9B',
     family            = ModelFamily.CHATML,
-    filename_patterns = ('qwen3.5-9b', 'qwen-3.5-9b', 'qwen3-5-9b', 'qwen-9b'),
+    filename_patterns = ('qwen3.5-9b',),
 
     # Qwen3.5 uses enable_thinking template variable, not /no_think user token.
     # Thinking disabled via chat_template_kwargs; reasoning_mode=NEVER because
@@ -386,7 +386,7 @@ def _build_qwen_35b_a3b_profile(*, name: str, filename_patterns: tuple[str, ...]
 # -- Qwen3.6 35B A3B ----------------------------------------------------------
 QWEN3_6_35B_A3B_PROFILE = _build_qwen_35b_a3b_profile(
     name='Qwen3.6 35B A3B',
-    filename_patterns=('qwen3.6-35b-a3b', 'qwen-3.6-35b-a3b', 'qwen3-6-35b-a3b', 'qwen-35b-a3b'),
+    filename_patterns=('qwen3.6-35b-a3b',),
 )
 
 
@@ -480,9 +480,9 @@ _PROFILE_REGISTRY: list[ModelProfile] = [
 ]
 
 # Stable model IDs + alias mapping for backward-compatible filename migrations.
-MODEL_ID_QWEN_9B = 'qwen-9b'
-MODEL_ID_QWEN_14B = 'qwen-14b'
-MODEL_ID_QWEN_35B_A3B = 'qwen-35b-a3b'
+MODEL_ID_QWEN_9B = 'qwen3.5:9b'
+MODEL_ID_QWEN_14B = 'qwen3:14b'
+MODEL_ID_QWEN_35B_A3B = 'qwen3.6:35b'
 
 MODEL_ID_TO_FILENAMES: dict[str, tuple[str, ...]] = {
     MODEL_ID_QWEN_9B: (
@@ -493,9 +493,6 @@ MODEL_ID_TO_FILENAMES: dict[str, tuple[str, ...]] = {
     ),
     MODEL_ID_QWEN_35B_A3B: (
         'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf',
-        # Legacy naming variants kept for migration compatibility.
-        'Qwen3.5-35B-A3B-Q4_K_M.gguf',
-        'Qwen3.5-35B-A3B-UD-Q4_K_M.gguf',
     ),
 }
 
@@ -505,16 +502,10 @@ _FILENAME_TO_MODEL_ID: dict[str, str] = {
     for filename in filenames
 }
 
-# Provider-side model aliases (e.g., Ollama tags) mapped to our stable profile IDs.
-# Keep this list conservative and explicit so tuning remains predictable.
+# Provider-side canonical Ollama model IDs.
 _OLLAMA_MODEL_ID_ALIASES: dict[str, str] = {
-    # 35B (Qwen 3.6 A3B family)
     'qwen3.6:35b': MODEL_ID_QWEN_35B_A3B,
-    'qwen3.6:35b-instruct': MODEL_ID_QWEN_35B_A3B,
-    # 14B
     'qwen3:14b': MODEL_ID_QWEN_14B,
-    'qwen3.5:14b': MODEL_ID_QWEN_14B,
-    # 9B
     'qwen3.5:9b': MODEL_ID_QWEN_9B,
 }
 
@@ -531,14 +522,7 @@ def infer_model_id_from_ollama_model(model_id: str) -> str | None:
     normalized = _normalize_ollama_model_id(model_id)
     if not normalized:
         return None
-    direct = _OLLAMA_MODEL_ID_ALIASES.get(normalized)
-    if direct:
-        return direct
-    # Prefix-friendly handling for provider tags/variants (e.g., qwen3.6:35b-q4_k_m).
-    for alias, stable_model_id in _OLLAMA_MODEL_ID_ALIASES.items():
-        if normalized == alias or normalized.startswith(f'{alias}-'):
-            return stable_model_id
-    return None
+    return _OLLAMA_MODEL_ID_ALIASES.get(normalized)
 
 
 def get_profile_for_filename(filename: str) -> ModelProfile:
