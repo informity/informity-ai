@@ -119,13 +119,6 @@ SCAN_FILE_TIMEOUT_MAX_SECONDS = 600
 # ==============================================================================
 
 
-def _clamp_scan_file_timeout_seconds(timeout_seconds: int) -> int:
-    return max(
-        SCAN_FILE_TIMEOUT_MIN_SECONDS,
-        min(timeout_seconds, SCAN_FILE_TIMEOUT_MAX_SECONDS),
-    )
-
-
 def _resolve_scan_timeout_seconds_for_file(sf: ScannedFile) -> int:
     # Resolve timeout using scope-aware policy + item size.
     scope_key = normalize_scope_key(FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE)
@@ -717,7 +710,7 @@ async def _run_scan_task(
         async def _run_handler_with_cancel_polling() -> IndexResult:
             # Poll for scan cancellation while a single file is being processed so
             # cancel requests don't wait for full file timeout windows.
-            handler_task = asyncio.create_task(handler(db, sf))
+            handler_task = asyncio.create_task(handler(db, sf, timeout_seconds_effective))
             deadline: float | None = None
             if timeout_seconds_effective > 0:
                 deadline = asyncio.get_running_loop().time() + float(timeout_seconds_effective)
@@ -1062,7 +1055,15 @@ async def _run_scan_task(
                 if await _cancel_requested('index_new'):
                     return
                 try:
-                    result = await _process_file(sf, 'indexing_file', index_file)
+                    result = await _process_file(
+                        sf,
+                        'indexing_file',
+                        lambda conn, scanned_file, timeout_seconds: index_file(
+                            conn,
+                            scanned_file,
+                            extraction_timeout_seconds=timeout_seconds,
+                        ),
+                    )
                 except _ScanCancelledInFlightError:
                     if await _cancel_requested('index_new_inflight'):
                         return
@@ -1100,7 +1101,17 @@ async def _run_scan_task(
                 if await _cancel_requested('index_changed'):
                     return
                 try:
-                    result = await _process_file(sf, 'reindexing_file', reindex_file)
+                    result = await _process_file(
+                        sf,
+                        'reindexing_file',
+                        lambda conn, scanned_file, timeout_seconds: reindex_file(
+                            conn,
+                            scanned_file,
+                            source_provider=FILESYSTEM_PROVIDER,
+                            entity_type=SOURCE_ENTITY_FILE,
+                            extraction_timeout_seconds=timeout_seconds,
+                        ),
+                    )
                 except _ScanCancelledInFlightError:
                     if await _cancel_requested('index_changed_inflight'):
                         return
@@ -1138,7 +1149,17 @@ async def _run_scan_task(
                     if await _cancel_requested('index_unchanged'):
                         return
                     try:
-                        result = await _process_file(sf, 'reindexing_unchanged', reindex_file)
+                        result = await _process_file(
+                            sf,
+                            'reindexing_unchanged',
+                            lambda conn, scanned_file, timeout_seconds: reindex_file(
+                                conn,
+                                scanned_file,
+                                source_provider=FILESYSTEM_PROVIDER,
+                                entity_type=SOURCE_ENTITY_FILE,
+                                extraction_timeout_seconds=timeout_seconds,
+                            ),
+                        )
                     except _ScanCancelledInFlightError:
                         if await _cancel_requested('index_unchanged_inflight'):
                             return

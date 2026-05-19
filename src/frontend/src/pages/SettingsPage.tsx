@@ -45,6 +45,7 @@ const UPDATABLE_KEYS = [
   'enable_ocr_for_images',
   'max_indexable_file_size_mb',
   'scan_file_timeout_seconds',
+  'pdf_extraction_strategy_order',
   'full_privacy',
   'tavily_api_key',
   'linkup_api_key',
@@ -98,6 +99,7 @@ interface FormState {
   enable_ocr_for_images?: boolean
   max_indexable_file_size_mb?: number
   scan_file_timeout_seconds?: number
+  pdf_extraction_strategy_order?: string[]
   full_privacy?: boolean
   tavily_api_key?: string
   clear_tavily_api_key?: boolean

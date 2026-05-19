@@ -374,6 +374,7 @@ _UPDATABLE_FIELDS: set[str] = {
     'enable_ocr_for_images',
     'max_indexable_file_size_mb',
     'scan_file_timeout_seconds',
+    'pdf_extraction_strategy_order',
     'scan_hash_pool',
     'scan_hash_workers',
     'full_privacy',
@@ -511,6 +512,7 @@ async def get_settings() -> SettingsResponse:
         enable_ocr_for_images        = s.enable_ocr_for_images,
         max_indexable_file_size_mb   = s.max_indexable_file_size_mb,
         scan_file_timeout_seconds    = s.scan_file_timeout_seconds,
+        pdf_extraction_strategy_order = list(s.pdf_extraction_strategy_order),
         scan_hash_pool          = s.scan_hash_pool,
         scan_hash_workers       = s.scan_hash_workers,
         full_privacy            = s.full_privacy,
@@ -698,6 +700,25 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                 config.settings.scan_timeout_policy = policy
                 config.settings.scan_file_timeout_seconds = int(value)
                 config_data[field_name] = int(value)
+                continue
+            if field_name == 'pdf_extraction_strategy_order' and value is not None:
+                if not isinstance(value, list):
+                    raise HTTPException(status_code=400, detail='pdf_extraction_strategy_order must be a list')
+                allowed = set(config.PDF_EXTRACTION_STRATEGIES)
+                normalized: list[str] = []
+                for item in value:
+                    strategy = str(item or '').strip().lower()
+                    if strategy not in allowed:
+                        raise HTTPException(
+                            status_code=400,
+                            detail='pdf_extraction_strategy_order contains unsupported strategy',
+                        )
+                    if strategy not in normalized:
+                        normalized.append(strategy)
+                if not normalized:
+                    raise HTTPException(status_code=400, detail='pdf_extraction_strategy_order cannot be empty')
+                config.settings.pdf_extraction_strategy_order = normalized
+                config_data[field_name] = normalized
                 continue
             if field_name == 'diagnostics_profile' and value is not None:
                 diagnostics_profile_value = value
