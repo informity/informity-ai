@@ -758,6 +758,12 @@ export async function cancelModelDownload(): Promise<ModelActionResponse> {
   return request<ModelActionResponse>('POST', '/api/models/cancel')
 }
 
+export async function removeModel(modelFilename: string): Promise<ModelActionResponse> {
+  return request<ModelActionResponse>('POST', '/api/models/remove', {
+    body: { model_filename: modelFilename },
+  })
+}
+
 export async function getModelOperationEvents(): Promise<ModelOperationEventResponse> {
   return request<ModelOperationEventResponse>('GET', '/api/models/events')
 }
