@@ -24,6 +24,7 @@ const ChatPage = lazy(async () => ({ default: (await import('./pages/ChatPage'))
 const HistoryPage = lazy(async () => ({ default: (await import('./pages/HistoryPage')).HistoryPage }))
 const FilesPage = lazy(async () => ({ default: (await import('./pages/FilesPage')).FilesPage }))
 const DashboardPage = lazy(async () => ({ default: (await import('./pages/DashboardPage')).DashboardPage }))
+const LogsPage = lazy(async () => ({ default: (await import('./pages/LogsPage')).LogsPage }))
 const SettingsPage = lazy(async () => ({ default: (await import('./pages/SettingsPage')).SettingsPage }))
 const ConfigurationPage = lazy(async () => ({ default: (await import('./pages/ConfigurationPage')).ConfigurationPage }))
 const SetupRequiredPage = lazy(async () => ({ default: (await import('./pages/SetupRequiredPage')).SetupRequiredPage }))
@@ -217,6 +218,7 @@ function App({ startupError = null }: AppProps) {
                           <Route path="history" element={<HistoryPage />} />
                           <Route path="files" element={<FilesPage />} />
                           <Route path="dashboard" element={<DashboardPage />} />
+                          <Route path="logs" element={<LogsPage />} />
                           <Route path="settings" element={<SettingsPage />} />
                           <Route path="settings/configuration" element={<ConfigurationPage />} />
                         </Route>
