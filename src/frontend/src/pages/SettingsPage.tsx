@@ -482,6 +482,18 @@ export function SettingsPage() {
     })
   }, [confirm])
 
+  const handleConfirmRemoveModel = useCallback(async (modelName: string, modelSizeLabel?: string): Promise<boolean> => {
+    const sizeNote = modelSizeLabel ? ` and free up about ${modelSizeLabel}` : ''
+    return confirm({
+      title: 'Remove Model',
+      message: `Remove ${modelName} from local disk? This will delete the model file${sizeNote}. You can always re-download it later.`,
+      confirmLabel: 'Remove Model',
+      cancelLabel: 'Cancel',
+      variant: 'danger',
+      icon: 'ri-delete-bin-line',
+    })
+  }, [confirm])
+
   if (loading) {
     return (
       <div className="page" onWheel={handlePageWheel}>
@@ -529,6 +541,7 @@ export function SettingsPage() {
           onResetIndex={handleResetIndex}
           onRequestEnableMcpConfirm={handleConfirmEnableMcp}
           onRequestClearMcpTokenConfirm={handleConfirmClearMcpToken}
+          onRequestRemoveModelConfirm={handleConfirmRemoveModel}
           onCheckForUpdates={() => window.dispatchEvent(new CustomEvent(UPDATE_CHECK_EVENT))}
           saving={saving}
         />

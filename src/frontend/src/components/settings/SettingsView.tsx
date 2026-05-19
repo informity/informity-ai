@@ -14,6 +14,7 @@ import {
   getModelProfile,
   getModelsCatalog,
   getOllamaStatus,
+  removeModel,
   type ModelOperationEventResponse,
   type ModelsCatalogResponse,
   type OllamaStatusResponse,
@@ -317,6 +318,7 @@ interface SettingsViewProps {
   onSave: (form: FormState) => void | Promise<void>
   onRequestEnableMcpConfirm?: () => Promise<boolean>
   onRequestClearMcpTokenConfirm?: () => Promise<boolean>
+  onRequestRemoveModelConfirm?: (modelName: string, modelSizeLabel?: string) => Promise<boolean>
   onDiscard?: () => void
   onResetSettings: () => void
   onResetIndex: () => void
@@ -432,6 +434,7 @@ export function SettingsView({
   onSave,
   onRequestEnableMcpConfirm,
   onRequestClearMcpTokenConfirm,
+  onRequestRemoveModelConfirm,
   onDiscard,
   onResetSettings,
   onResetIndex,
@@ -453,6 +456,7 @@ export function SettingsView({
   const [modelsCatalog, setModelsCatalog] = useState<ModelsCatalogResponse | null>(null)
   const [availableRoles, setAvailableRoles] = useState<ChatRoleDefinition[]>([])
   const [modelDownloadPending, setModelDownloadPending] = useState(false)
+  const [modelRemovePending, setModelRemovePending] = useState(false)
   const [modelDownloadError, setModelDownloadError] = useState<string | null>(null)
   const [modelEvent, setModelEvent] = useState<ModelOperationEventResponse | null>(null)
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatusResponse | null>(null)
@@ -758,9 +762,13 @@ export function SettingsView({
     : false
   const modelEventMatchesSelected = modelEvent?.model_filename === resolvedSelectedModelFilename
   const modelDownloadInProgress = modelEventMatchesSelected && modelEvent?.state === 'in_progress'
+  const modelActionPending = modelDownloadPending || modelRemovePending
+  const selectedModelIsActive = resolvedSelectedModelFilename
+    ? canonicalizeModelFilename(persistedModel) === resolvedSelectedModelFilename
+    : false
   const isOllamaProvider = String(form.llm_provider || '').trim().toLowerCase() === 'ollama'
   const providerAllowsSave = isOllamaProvider || selectedModelInstalledResolved
-  const canSaveSettings = !saving && !ollamaValidationPending && providerAllowsSave && !modelDownloadInProgress && !modelDownloadPending
+  const canSaveSettings = !saving && !ollamaValidationPending && providerAllowsSave && !modelDownloadInProgress && !modelActionPending
   const orderedFileTypeOptions = [...(fileTypeOptions || [])].sort((a, b) => {
     const ai = FILE_TYPE_DISPLAY_ORDER.indexOf(a.id as (typeof FILE_TYPE_DISPLAY_ORDER)[number])
     const bi = FILE_TYPE_DISPLAY_ORDER.indexOf(b.id as (typeof FILE_TYPE_DISPLAY_ORDER)[number])
@@ -793,7 +801,7 @@ export function SettingsView({
   })()
 
   const handleDownloadSelectedModel = async (): Promise<void> => {
-    if (!resolvedSelectedModelFilename || selectedModelInstalledResolved || modelDownloadPending) return
+    if (!resolvedSelectedModelFilename || selectedModelInstalledResolved || modelActionPending) return
     setModelDownloadPending(true)
     setModelDownloadError(null)
     setModelEvent((prev) => ({
@@ -821,7 +829,7 @@ export function SettingsView({
   }
 
   const handleCancelModelDownload = async (): Promise<void> => {
-    if (!modelDownloadInProgress || modelDownloadPending) return
+    if (!modelDownloadInProgress || modelActionPending) return
     setModelDownloadPending(true)
     setModelDownloadError(null)
     setModelEvent((prev) => ({
@@ -846,6 +854,32 @@ export function SettingsView({
       setModelDownloadError(getFriendlyModelDownloadError(message))
     } finally {
       setModelDownloadPending(false)
+    }
+  }
+
+  const handleRemoveSelectedModel = async (): Promise<void> => {
+    if (!resolvedSelectedModelFilename || !selectedModelInstalledResolved || selectedModelIsActive || modelActionPending) return
+    const modelName = selectedCatalogEntry?.display_name || modelProfileNames.get(resolvedSelectedModelFilename) || resolvedSelectedModelFilename
+    const modelSizeLabel = formatModelSizeGb(selectedCatalogEntry?.model_size_bytes)
+    if (onRequestRemoveModelConfirm) {
+      const approved = await onRequestRemoveModelConfirm(modelName, modelSizeLabel)
+      if (!approved) return
+    }
+    setModelRemovePending(true)
+    setModelDownloadError(null)
+    try {
+      const response = await removeModel(resolvedSelectedModelFilename)
+      if (!response.accepted) {
+        setModelDownloadError(response.detail || 'Model removal was not accepted')
+      } else {
+        await refreshModelsCatalog()
+        setModelDownloadError(null)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      setModelDownloadError(getFriendlyModelDownloadError(message))
+    } finally {
+      setModelRemovePending(false)
     }
   }
 
@@ -1766,7 +1800,7 @@ export function SettingsView({
                             }
                             void handleDownloadSelectedModel()
                           }}
-                          disabled={modelDownloadPending || !resolvedSelectedModelFilename}
+                          disabled={modelActionPending || !resolvedSelectedModelFilename}
                         >
                           {modelDownloadPending ? 'Working...' : (modelDownloadInProgress ? 'Cancel' : '+ Add')}
                         </button>
@@ -1774,6 +1808,17 @@ export function SettingsView({
                           <span className="settings-model-progress-inline">{modelProgressSummary}</span>
                         )}
                       </>
+                    )}
+                    {selectedModelInstalledResolved && (
+                      <button
+                        type="button"
+                        className="settings-btn settings-btn--danger"
+                        onClick={() => { void handleRemoveSelectedModel() }}
+                        disabled={modelActionPending || selectedModelIsActive}
+                        title={selectedModelIsActive ? 'Select another installed model before removing this one' : 'Remove model'}
+                      >
+                        {modelRemovePending ? 'Working...' : 'Remove'}
+                      </button>
                     )}
                   </div>
                   {modelDownloadError && (

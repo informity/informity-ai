@@ -542,6 +542,69 @@ async def test_model_cancel_reflect_runtime_state(monkeypatch: pytest.MonkeyPatc
     assert cancelled.accepted is True
     assert routes_system._model_runtime['state'] == 'cancelled'
 
+
+@pytest.mark.asyncio
+async def test_remove_model_rejects_active_model(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    models_dir = tmp_path / 'models'
+    models_dir.mkdir(parents=True)
+    (models_dir / 'Qwen3-14B-Q5_K_M.gguf').write_bytes(b'x')
+    monkeypatch.setattr(routes_system.settings, 'models_dir', models_dir)
+    monkeypatch.setattr(routes_system.settings, 'llm_model_filename', 'Qwen3-14B-Q5_K_M.gguf')
+    monkeypatch.setattr(routes_system, '_model_task', None)
+    monkeypatch.setattr(routes_system, '_setup_task', None)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await routes_system.remove_model(ModelActionRequest(model_filename='Qwen3-14B-Q5_K_M.gguf'))
+    assert exc_info.value.status_code == 400
+    assert 'Cannot remove the active model' in str(exc_info.value.detail)
+
+
+@pytest.mark.asyncio
+async def test_remove_model_rejects_while_setup_task_in_progress(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    models_dir = tmp_path / 'models'
+    models_dir.mkdir(parents=True)
+    (models_dir / 'Qwen_Qwen3.5-9B-Q4_K_M.gguf').write_bytes(b'x')
+    monkeypatch.setattr(routes_system.settings, 'models_dir', models_dir)
+    monkeypatch.setattr(routes_system.settings, 'llm_model_filename', 'Qwen3-14B-Q5_K_M.gguf')
+
+    class _DummyTask:
+        def done(self) -> bool:
+            return False
+
+    monkeypatch.setattr(routes_system, '_model_task', None)
+    monkeypatch.setattr(routes_system, '_setup_task', _DummyTask())
+
+    response = await routes_system.remove_model(ModelActionRequest(model_filename='Qwen_Qwen3.5-9B-Q4_K_M.gguf'))
+    assert response.accepted is False
+    assert response.detail == 'Another model operation is already in progress'
+    assert (models_dir / 'Qwen_Qwen3.5-9B-Q4_K_M.gguf').exists()
+
+
+@pytest.mark.asyncio
+async def test_remove_model_deletes_installed_file(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    models_dir = tmp_path / 'models'
+    models_dir.mkdir(parents=True)
+    target = models_dir / 'Qwen_Qwen3.5-9B-Q4_K_M.gguf'
+    target.write_bytes(b'x')
+    monkeypatch.setattr(routes_system.settings, 'models_dir', models_dir)
+    monkeypatch.setattr(routes_system.settings, 'llm_model_filename', 'Qwen3-14B-Q5_K_M.gguf')
+    monkeypatch.setattr(routes_system, '_model_task', None)
+    monkeypatch.setattr(routes_system, '_setup_task', None)
+
+    response = await routes_system.remove_model(ModelActionRequest(model_filename='Qwen_Qwen3.5-9B-Q4_K_M.gguf'))
+    assert response.accepted is True
+    assert response.detail == 'Model removed'
+    assert not target.exists()
+
 @pytest.mark.asyncio
 async def test_get_diagnostics_summary_aggregates_rows(monkeypatch: pytest.MonkeyPatch) -> None:
     rows = [

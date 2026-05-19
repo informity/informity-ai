@@ -53,6 +53,7 @@ vi.mock('../../api', () => ({
   })),
   downloadModel: vi.fn(async () => ({ accepted: true, detail: 'ok' })),
   cancelModelDownload: vi.fn(async () => ({ accepted: true, detail: 'ok' })),
+  removeModel: vi.fn(async () => ({ accepted: true, detail: 'ok' })),
 }))
 
 afterEach(() => {
@@ -96,7 +97,10 @@ const baseSettings = {
   rag_reranker_model: 'reranker.gguf',
 }
 
-function renderSettingsView(options?: { onRequestClearMcpTokenConfirm?: () => Promise<boolean> }) {
+function renderSettingsView(options?: {
+  onRequestClearMcpTokenConfirm?: () => Promise<boolean>
+  onRequestRemoveModelConfirm?: (modelName: string, modelSizeLabel?: string) => Promise<boolean>
+}) {
   const onSave = vi.fn()
   const onDiscard = vi.fn()
   const onResetSettings = vi.fn()
@@ -109,6 +113,7 @@ function renderSettingsView(options?: { onRequestClearMcpTokenConfirm?: () => Pr
         fileTypeOptions={[{ id: 'docs', label: 'Docs', extensions: ['.md', '.txt'] }]}
         onSave={onSave}
         onRequestClearMcpTokenConfirm={options?.onRequestClearMcpTokenConfirm}
+        onRequestRemoveModelConfirm={options?.onRequestRemoveModelConfirm}
         onDiscard={onDiscard}
         onResetSettings={onResetSettings}
         onResetIndex={onResetIndex}
@@ -377,5 +382,27 @@ describe('SettingsView tabs and action bar behavior', () => {
     fireEvent.change(transport, { target: { value: 'stdio' } })
     await waitFor(() => expect(confirmClear).toHaveBeenCalledTimes(1))
     expect((screen.getByLabelText('Transport') as HTMLSelectElement).value).toBe('http')
+  })
+
+  it('shows remove button disabled for the currently active installed model', async () => {
+    localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, 'models')
+    renderSettingsView()
+    const removeButton = await screen.findByRole('button', { name: 'Remove' })
+    expect(removeButton).toBeDisabled()
+  })
+
+  it('removes a non-active installed model after confirmation', async () => {
+    localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, 'models')
+    const confirmRemove = vi.fn(async () => true)
+    renderSettingsView({ onRequestRemoveModelConfirm: confirmRemove })
+    fireEvent.change(screen.getByLabelText('Main model'), { target: { value: 'alt.gguf' } })
+
+    const removeButton = await screen.findByRole('button', { name: 'Remove' })
+    expect(removeButton).toBeEnabled()
+    fireEvent.click(removeButton)
+
+    const api = await import('../../api')
+    await waitFor(() => expect(confirmRemove).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(api.removeModel).toHaveBeenCalledWith('alt.gguf'))
   })
 })
