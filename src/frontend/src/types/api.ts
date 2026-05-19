@@ -259,6 +259,28 @@ export interface IndexStatus {
   source_scope_stats?: Array<Record<string, unknown>>
 }
 
+export type LogChannel = 'application' | 'errors' | 'integrations'
+export type LogEventType = 'debug' | 'info' | 'warning' | 'error' | 'critical'
+
+export interface LogEventItem {
+  id: number
+  timestamp: string
+  created_at: string
+  channel: LogChannel
+  event_type: LogEventType
+  event_name: string
+  source: string
+  message: string
+  scope?: string | null
+  details?: Record<string, unknown> | null
+}
+
+export interface LogEventsResponse {
+  items: LogEventItem[]
+  next_cursor?: string | null
+  has_more: boolean
+}
+
 export interface ScanRecentError {
   path?: string
   filename?: string

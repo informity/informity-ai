@@ -6,6 +6,8 @@
 import type {
   ChatUploadAttachment,
   ChatMode,
+  LogChannel,
+  LogEventsResponse,
   ChatRoleDefinition,
   FileReindexOperation,
   PlanStepPayload,
@@ -237,6 +239,23 @@ export async function rebuildIndex(force = false): Promise<unknown> {
 export async function resetIndex(force = false): Promise<unknown> {
   return request('POST', '/api/index/reset', {
     params: { force },
+  })
+}
+
+// -----------------------------------------------------------------------------
+// Logs
+// -----------------------------------------------------------------------------
+
+export async function getLogEvents(params: {
+  channel: LogChannel
+  limit?: number
+  cursor?: string
+  event_type?: 'debug' | 'info' | 'warning' | 'error' | 'critical'
+  source?: string
+}): Promise<LogEventsResponse> {
+  const { channel, limit = 50, cursor, event_type, source } = params
+  return request<LogEventsResponse>('GET', '/api/logs/events', {
+    params: { channel, limit, cursor, event_type, source },
   })
 }
 
