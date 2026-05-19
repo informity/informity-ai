@@ -92,6 +92,8 @@ UI_THEME_ALIAS_MAP: dict[str, str] = {
 }
 _DEFAULT_LOG_LEVEL = 'info'
 _DEFAULT_UI_THEME = 'onyx'
+PDF_EXTRACTION_STRATEGIES: tuple[str, ...] = ('docling_full', 'docling_fast', 'pdf_text_layer')
+DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER: tuple[str, ...] = PDF_EXTRACTION_STRATEGIES
 
 
 # ==============================================================================
@@ -307,6 +309,9 @@ class Settings(BaseSettings):
     # User-facing timeout cap (seconds) for single-item processing.
     # Runtime timeout policy uses this value as the default/override hard cap.
     scan_file_timeout_seconds: int = 600
+    # Ordered PDF extraction strategies (centralized orchestrator).
+    # Allowed values: docling_full, docling_fast, pdf_text_layer
+    pdf_extraction_strategy_order: list[str] = Field(default_factory=lambda: list(DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER))
     # Shared per-item timeout policy by source scope.
     scan_timeout_policy: ScopedTimeoutPolicy = Field(default_factory=default_scoped_timeout_policy)
     # Running-scan stale detection threshold (seconds) used when a new scan/rebuild
@@ -604,6 +609,15 @@ class Settings(BaseSettings):
         timeout_cap = int(self.scan_file_timeout_seconds)
         timeout_cap = max(1, min(600, timeout_cap))
         self.scan_file_timeout_seconds = timeout_cap
+        allowed_pdf_strategies = set(PDF_EXTRACTION_STRATEGIES)
+        normalized_pdf_strategies = [
+            str(item).strip().lower()
+            for item in list(self.pdf_extraction_strategy_order or [])
+            if str(item).strip().lower() in allowed_pdf_strategies
+        ]
+        if not normalized_pdf_strategies:
+            normalized_pdf_strategies = list(DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER)
+        self.pdf_extraction_strategy_order = normalized_pdf_strategies
         self.scan_timeout_policy.default.max_seconds = timeout_cap
         if 'filesystem:file' in self.scan_timeout_policy.overrides:
             self.scan_timeout_policy.overrides['filesystem:file'].max_seconds = timeout_cap
@@ -988,6 +1002,41 @@ def _is_docling_cached(cache_dir: Path | None = None) -> bool:
     except OSError:
         pass
     return False
+
+
+def get_docling_download_options(*, progress: bool) -> dict[str, bool]:
+    """Centralized docling model download options for bootstrap and runtime setup."""
+    return {
+        'force': False,
+        'progress': progress,
+        'with_layout': True,
+        'with_tableformer': True,
+        'with_code_formula': True,
+        'with_picture_classifier': False,
+        'with_smolvlm': False,
+        'with_granitedocling': False,
+        'with_granitedocling_mlx': False,
+        'with_smoldocling': False,
+        'with_smoldocling_mlx': False,
+        'with_granite_vision': False,
+        'with_granite_chart_extraction': False,
+        'with_rapidocr': True,
+        'with_easyocr': False,
+    }
+
+
+def ensure_docling_rapidocr_cache_compat(cache_dir: Path | None = None) -> None:
+    """Normalize RapidOCR cache filenames for docling/runtime compatibility."""
+    docling_cache = (cache_dir if cache_dir is not None else settings.cache_dir) / DirNames.DOCLING
+    src = docling_cache / 'RapidOcr' / 'onnx' / 'PP-OCRv4' / 'det' / 'ch_PP-OCRv4_det_infer.onnx'
+    dst = docling_cache / 'RapidOcr' / 'onnx' / 'PP-OCRv4' / 'det' / 'ch_PP-OCRv4_det_mobile.onnx'
+    try:
+        if src.exists() and not dst.exists():
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            dst.write_bytes(src.read_bytes())
+            log.info('docling_rapidocr_cache_compat_applied', source=str(src), target=str(dst))
+    except OSError:
+        log.warning('docling_rapidocr_cache_compat_failed', source=str(src), target=str(dst), exc_info=True)
 
 
 def are_required_models_cached(*, include_llm: bool = True) -> bool:

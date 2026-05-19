@@ -14,7 +14,12 @@ from typing import TYPE_CHECKING
 
 import structlog
 
-from informity.config import DirNames, configure_hf_environment, settings
+from informity.config import (
+    DirNames,
+    configure_hf_environment,
+    ensure_docling_rapidocr_cache_compat,
+    settings,
+)
 from informity.scanner.extractors.base import MAX_EXTRACTED_TEXT_PREVIEW, ExtractedDocument
 from informity.scanner.extractors.text_utils import elapsed_ms, get_max_file_size_bytes
 from informity.utils.directory_utils import ensure_directory
@@ -111,6 +116,7 @@ class DoclingExtractor:
             # Ensure HF environment is configured (for docling's HuggingFace dependencies)
             # This will raise ConfigurationError if Full Privacy is enabled but models aren't cached
             configure_hf_environment()
+            ensure_docling_rapidocr_cache_compat(settings.cache_dir)
 
             try:
                 # Import only after DOCLING_ARTIFACTS_PATH is set so docling's settings see it
