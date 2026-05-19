@@ -13,6 +13,14 @@ import './FileTable.css'
 
 const PAGE_SIZE = 50
 const SORT_COLUMNS = ['filename', 'category', 'extension', 'size_bytes', 'modified_at', 'indexed_at']
+const FILES_FILENAME_MAX_CHARS = 70
+
+function truncateWithEllipsis(value: string, maxChars: number): string {
+  const text = String(value || '')
+  if (text.length <= maxChars) return text
+  if (maxChars <= 1) return '…'
+  return `${text.slice(0, maxChars - 1)}…`
+}
 
 type SortColumn = (typeof SORT_COLUMNS)[number]
 type SortOrder = 'asc' | 'desc'
@@ -196,11 +204,11 @@ export function FileTable({
                   </td>
                   <td className="file-table__td file-table__td--filename data-table__td">
                     <span className="file-table__filename-text" title={file.filename || '—'}>
-                      {file.filename || '—'}
+                      {file.filename ? truncateWithEllipsis(file.filename, FILES_FILENAME_MAX_CHARS) : '—'}
                     </span>
                   </td>
                   <td className="file-table__td file-table__td--category data-table__td">
-                    <span className="file-table__category-badge data-table__badge">{formatCategory(file.category)}</span>
+                    <span className="file-table__category-badge data-table__badge">{formatCategory(file.category, file.extension)}</span>
                   </td>
                   <td className="file-table__td file-table__td--size file-table__td--right data-table__td data-table__td--right">
                     {formatFileSize(file.size_bytes)}

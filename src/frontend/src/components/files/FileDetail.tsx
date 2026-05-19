@@ -185,7 +185,7 @@ export function FileDetail({
               <div className="file-detail__profile-grid">
                 <div className="file-detail__profile-row">
                   <span className="file-detail__profile-row__label">Category</span>
-                  <span className="file-detail__profile-row__value">{formatCategory(file.category)}</span>
+                  <span className="file-detail__profile-row__value">{formatCategory(file.category, file.extension)}</span>
                 </div>
                 <div className="file-detail__profile-row">
                   <span className="file-detail__profile-row__label">Size</span>
