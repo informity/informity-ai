@@ -59,6 +59,7 @@
   --page-content-width: 44rem;
   --content-max-width: 936px;
   --color-on-primary: #ffffff;
+  --pill-width-files-logs: calc(10.5ch + 18px);
   --color-checkbox-accent: var(--color-accent);
   --transition-fast: 150ms ease;
   --shadow-modal: 0 20px 40px rgba(0, 0, 0, 0.4);

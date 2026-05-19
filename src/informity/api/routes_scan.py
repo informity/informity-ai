@@ -64,6 +64,7 @@ from informity.indexer.pipeline import (
     remove_file,
 )
 from informity.indexer.term_dictionary_builder import rebuild_term_dictionary
+from informity.log_events import emit_log_event
 from informity.scanner.crawler import (
     ScannedFile,
     compare_with_db,
@@ -183,6 +184,15 @@ async def trigger_scan(
             scan_id=scan_record.id,
             directories=directories,
             force=request.force,
+        )
+        await emit_log_event(
+            event_name='scan_started',
+            source='Scanner',
+            message=f'Scan started for {len(directories)} source director{"y" if len(directories) == 1 else "ies"}.',
+            scan_id=scan_record.id,
+            correlation_id=f'scan:{scan_record.id}',
+            details={'directories': [str(d) for d in directories], 'force': bool(request.force)},
+            db=db,
         )
 
         return {
@@ -823,6 +833,20 @@ async def _run_scan_task(
                 timeout_seconds=timeout_seconds_effective,
                 size_bytes=int(sf.size_bytes),
             )
+            await emit_log_event(
+                event_name='indexing_timeout',
+                source='Indexer',
+                message=f'File processing timed out for {sf.filename}.',
+                scan_id=scan_id,
+                correlation_id=f'scan:{scan_id}',
+                details={
+                    'path': str(sf.path),
+                    'timeout_seconds': timeout_seconds_effective,
+                    'operation': action,
+                },
+                dedupe_bucket_seconds=60,
+                db=db,
+            )
             result = IndexResult(
                 success=False,
                 chunks_created=0,
@@ -936,6 +960,15 @@ async def _run_scan_task(
             return False
         log.info('scan_cancelled', scan_id=scan_id, stage=stage)
         await _finalize_cancelled()
+        await emit_log_event(
+            event_name='scan_cancelled',
+            source='Scanner',
+            message='Scan cancelled before completion.',
+            scan_id=scan_id,
+            correlation_id=f'scan:{scan_id}',
+            details={'stage': stage},
+            db=db,
+        )
         return True
 
     try:
@@ -1233,6 +1266,20 @@ async def _run_scan_task(
             errors   = errors,
             deleted  = len(changes.deleted),
         )
+        await emit_log_event(
+            event_name='scan_completed',
+            source='Scanner',
+            message=f'Scan completed. {files_scanned} files checked, {files_indexed} indexed.',
+            scan_id=scan_id,
+            correlation_id=f'scan:{scan_id}',
+            details={
+                'files_scanned': files_scanned,
+                'files_indexed': files_indexed,
+                'errors': errors,
+                'deleted': len(changes.deleted),
+            },
+            db=db,
+        )
 
         log.info(
             'scan_metrics_summary',
@@ -1279,6 +1326,14 @@ async def _run_scan_task(
         if await op_state.is_scan_cancel_requested(scan_id):
             log.info('scan_cancelled', scan_id=scan_id, stage='inflight_fallback')
             await _finalize_cancelled()
+            await emit_log_event(
+                event_name='scan_cancelled',
+                source='Scanner',
+                message='Scan cancelled before completion.',
+                scan_id=scan_id,
+                correlation_id=f'scan:{scan_id}',
+                db=db,
+            )
             return
         raise
     except _SCAN_RUNTIME_EXCEPTIONS as exc:
@@ -1294,6 +1349,15 @@ async def _run_scan_task(
             scan_record,
             context='failed_terminal',
             terminal=True,
+        )
+        await emit_log_event(
+            event_name='scan_failed',
+            source='Scanner',
+            message='Scan failed before completion.',
+            scan_id=scan_id,
+            correlation_id=f'scan:{scan_id}',
+            details={'error': str(exc)},
+            db=db,
         )
     except _SCAN_UNHANDLED_GUARD_EXCEPTIONS as exc:
         # Last-resort guard: ensure scan status does not remain "running"
@@ -1316,6 +1380,15 @@ async def _run_scan_task(
             scan_record,
             context='failed_terminal_unhandled',
             terminal=True,
+        )
+        await emit_log_event(
+            event_name='scan_failed',
+            source='Scanner',
+            message='Scan failed due to an unexpected error.',
+            scan_id=scan_id,
+            correlation_id=f'scan:{scan_id}',
+            details={'error': str(exc), 'exception_type': type(exc).__name__},
+            db=db,
         )
 
     finally:

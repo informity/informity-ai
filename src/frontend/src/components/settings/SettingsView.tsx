@@ -1847,9 +1847,23 @@ export function SettingsView({
         <section className={sectionClass(activeTab === 'diagnostics')}>
         <div className="settings-section-header ui-title ui-title--section">
           <i className="ri-pulse-line section-icon" aria-hidden="true" />
-          Diagnostics & Observability
+          Monitoring & Diagnostics
         </div>
-        <p className="settings-section-description ui-description">Logging and diagnostics settings. Use these if something seems off or you need to share details with support.</p>
+        <p className="settings-section-description ui-description">Monitor application events and adjust diagnostics settings when troubleshooting.</p>
+
+        <div className="settings-subsection">
+          <div className="settings-subsection-head ui-subsection-head">
+            <div className="settings-subsection-title ui-subsection-title">
+              <i className="ri-file-list-2-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              Activity Logs
+            </div>
+            <p className="settings-subsection-description ui-subsection-description">
+              Review <Link to="/logs?tab=application" className="settings-link">application</Link>,{' '}
+              <Link to="/logs?tab=errors" className="settings-link">errors</Link>, and{' '}
+              <Link to="/logs?tab=integrations" className="settings-link">integrations</Link> events.
+            </p>
+          </div>
+        </div>
 
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
