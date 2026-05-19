@@ -35,6 +35,8 @@ from informity.scanner.extractors.base import (
     BaseExtractor,
     get_extractor,
 )
+from informity.scanner.extractors.docling import DoclingExtractor
+from informity.scanner.extractors.pdf_orchestrator import extract_pdf_with_orchestrator
 from informity.scanner.extractors.text_utils import get_max_file_size_bytes
 from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE, IngestionItem
 from informity.utils.file_utils import normalize_extension
@@ -430,6 +432,7 @@ async def index_file(
     *,
     source_provider: str = FILESYSTEM_PROVIDER,
     entity_type: str = SOURCE_ENTITY_FILE,
+    extraction_timeout_seconds: int | None = None,
 ) -> IndexResult:
     # Index a single file: extract → chunk → embed → store.
     # Accepts either (db, file_path, extractor) or (db, scanned: ScannedFile).
@@ -557,7 +560,19 @@ async def index_file(
                         retryable=False,
                     )
             # 1. Extract (run in thread pool to avoid blocking and help with memory)
-            doc = await asyncio.to_thread(extractor.extract, file_path)
+            if (
+                isinstance(extractor, DoclingExtractor)
+                and extension.lower() == '.pdf'
+                and extraction_timeout_seconds is not None
+                and extraction_timeout_seconds > 0
+            ):
+                doc = await asyncio.to_thread(
+                    extract_pdf_with_orchestrator,
+                    file_path,
+                    timeout_seconds=int(extraction_timeout_seconds),
+                )
+            else:
+                doc = await asyncio.to_thread(extractor.extract, file_path)
             if doc.error:
                 retryable = doc.metadata.get('retryable', 'true').lower() != 'false'
                 error_code = doc.metadata.get('error_code')
@@ -796,6 +811,7 @@ async def reindex_file(
     *,
     source_provider: str = FILESYSTEM_PROVIDER,
     entity_type: str = SOURCE_ENTITY_FILE,
+    extraction_timeout_seconds: int | None = None,
 ) -> IndexResult:
     # Re-index a file that has changed on disk.
     # Removes old chunks and embeddings, then runs the full pipeline.
@@ -834,6 +850,7 @@ async def reindex_file(
                 extractor,
                 source_provider=source_provider,
                 entity_type=entity_type,
+                extraction_timeout_seconds=extraction_timeout_seconds,
             )
 
         file_id = existing.id
@@ -858,7 +875,19 @@ async def reindex_file(
             )
             return _no_extractor_result(scanned.extension)
 
-        doc = await asyncio.to_thread(extractor.extract, path)
+        if (
+            isinstance(extractor, DoclingExtractor)
+            and scanned.extension.lower() == '.pdf'
+            and extraction_timeout_seconds is not None
+            and extraction_timeout_seconds > 0
+        ):
+            doc = await asyncio.to_thread(
+                extract_pdf_with_orchestrator,
+                path,
+                timeout_seconds=int(extraction_timeout_seconds),
+            )
+        else:
+            doc = await asyncio.to_thread(extractor.extract, path)
         if doc.error:
             retryable = doc.metadata.get('retryable', 'true').lower() != 'false'
             error_code = doc.metadata.get('error_code')

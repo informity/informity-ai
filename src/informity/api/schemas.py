@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from informity.api.setup_state import SetupState
 from informity.config import (
     APP_DISPLAY_NAME,
+    DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER,
     DEFAULT_RERANKER_MODEL,
 )
 from informity.db.sqlite import CANONICAL_DIAGNOSTICS_QUERY_TYPES, CANONICAL_DIAGNOSTICS_TYPES
@@ -307,6 +308,7 @@ class SettingsResponse(BaseModel):
     enable_ocr_for_images:        bool  = True  # Enable OCR fallback for image-only PDFs by default
     max_indexable_file_size_mb:   int   = 100
     scan_file_timeout_seconds:    int   = 600
+    pdf_extraction_strategy_order: list[str] = Field(default_factory=lambda: list(DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER))
     scan_hash_pool:          Literal['thread', 'process'] = 'thread'
     scan_hash_workers:       int = 0  # 0 = auto
     full_privacy:            bool  = True
@@ -400,6 +402,7 @@ class SettingsUpdateRequest(BaseModel):
     enable_ocr_for_images:        bool | None = None  # Enable OCR for image-only PDFs when regular extraction fails
     max_indexable_file_size_mb:   int | None  = None
     scan_file_timeout_seconds:    int | None  = None
+    pdf_extraction_strategy_order: list[str] | None = None
     scan_hash_pool:         Literal['thread', 'process'] | None = None
     scan_hash_workers:      int | None = None
     full_privacy:           bool | None = None

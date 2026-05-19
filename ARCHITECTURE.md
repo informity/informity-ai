@@ -109,6 +109,11 @@ class Settings(BaseSettings):
 
 **Helper:** `get_effective_ignore_patterns(settings)` — combines preset patterns (when enabled) with custom `ignore_patterns`. Used by crawler.
 
+**PDF extraction policy:** PDF processing is orchestrated via ordered strategies
+(`docling_full`, `docling_fast`, `pdf_text_layer`) configured by
+`settings.pdf_extraction_strategy_order`. Strategy values are centralized in
+`config.py` (`PDF_EXTRACTION_STRATEGIES`, `DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER`).
+
 ### Extractor Types
 
 ```python
