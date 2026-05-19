@@ -70,6 +70,7 @@ from informity.llm.model_adapter import (
     infer_model_id_from_filename,
 )
 from informity.llm.types import DiagnosticsQueryType
+from informity.log_events import emit_log_event
 from informity.version import APP_VERSION
 
 # ==============================================================================
@@ -948,6 +949,14 @@ async def get_ollama_status(
     resolved_base_url = str(base_url if base_url is not None else getattr(settings, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip()
     resolved_model = str(model if model is not None else getattr(settings, 'llm_model_id', '') or '').strip()
     reachable, model_ready, detail = _probe_ollama_status(base_url=resolved_base_url, model=resolved_model)
+    if not reachable:
+        await emit_log_event(
+            event_name='ollama_unavailable',
+            source='Ollama',
+            message='Ollama is unreachable.',
+            details={'base_url': resolved_base_url, 'detail': detail},
+            dedupe_bucket_seconds=300,
+        )
     return OllamaStatusResponse(
         reachable=reachable,
         model_ready=model_ready,

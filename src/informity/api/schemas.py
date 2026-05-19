@@ -221,6 +221,33 @@ class FileListResponse(BaseModel):
 
 
 # ==============================================================================
+# Logs
+# ==============================================================================
+
+LogChannel = Literal['application', 'errors', 'integrations']
+LogEventType = Literal['debug', 'info', 'warning', 'error', 'critical']
+
+
+class LogEventItem(BaseModel):
+    id: int
+    timestamp: str
+    created_at: str
+    channel: LogChannel
+    event_type: LogEventType
+    event_name: str
+    source: str
+    message: str
+    scope: str | None = None
+    details: dict[str, object] | None = None
+
+
+class LogEventsResponse(BaseModel):
+    items: list[LogEventItem] = Field(default_factory=list)
+    next_cursor: str | None = None
+    has_more: bool = False
+
+
+# ==============================================================================
 # Index
 # ==============================================================================
 
