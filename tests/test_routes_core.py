@@ -436,31 +436,31 @@ async def test_get_models_catalog_marks_installed_and_default(
 
     catalog = await routes_system.get_models_catalog()
     assert catalog.default_model_filename == 'Qwen_Qwen3.5-9B-Q4_K_M.gguf'
-    assert catalog.default_model_id == 'qwen-9b'
+    assert catalog.default_model_id == 'qwen3.5:9b'
     installed = {item.model_filename: item.installed for item in catalog.models}
     assert installed['Qwen_Qwen3.5-9B-Q4_K_M.gguf'] is True
     assert installed['Qwen3-14B-Q5_K_M.gguf'] is False
 
 
 @pytest.mark.asyncio
-async def test_get_models_catalog_marks_quality_installed_for_legacy_35b_alias(
+async def test_get_models_catalog_marks_quality_installed_for_canonical_35b(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
     models_dir = tmp_path / 'models'
     models_dir.mkdir(parents=True)
-    legacy_name = 'Qwen3.5-35B-A3B-Q4_K_M.gguf'
-    (models_dir / legacy_name).write_bytes(b'x')
+    model_name = 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'
+    (models_dir / model_name).write_bytes(b'x')
     monkeypatch.setattr(routes_system.settings, 'models_dir', models_dir)
-    monkeypatch.setattr(routes_system.settings, 'llm_model_filename', legacy_name)
+    monkeypatch.setattr(routes_system.settings, 'llm_model_filename', model_name)
     monkeypatch.setattr(routes_system.settings, 'llm_model_id', '')
 
     catalog = await routes_system.get_models_catalog()
     quality_entry = next(item for item in catalog.models if item.tier == 'quality')
     assert quality_entry.installed is True
     assert quality_entry.is_default is True
-    # Legacy 35B filename aliases still canonicalize to the historical model-id.
-    assert catalog.default_model_id == 'qwen-35b-a3b'
+    # Canonical 35B filename resolves to canonical model-id.
+    assert catalog.default_model_id == 'qwen3.6:35b'
 
 
 @pytest.mark.asyncio
@@ -509,10 +509,10 @@ async def test_set_default_model_requires_installed_file_and_updates_config(
 
     response = await routes_system.set_default_model(ModelActionRequest(model_filename='Qwen3-14B-Q5_K_M.gguf'))
     assert response.accepted is True
-    assert routes_system.settings.llm_model_id == 'qwen-14b'
+    assert routes_system.settings.llm_model_id == 'qwen3:14b'
     assert routes_system.settings.llm_model_filename == 'Qwen3-14B-Q5_K_M.gguf'
     config_text = (app_data_dir / 'config.json').read_text(encoding='utf-8')
-    assert '"llm_model_id": "qwen-14b"' in config_text
+    assert '"llm_model_id": "qwen3:14b"' in config_text
     assert '"llm_model_filename": "Qwen3-14B-Q5_K_M.gguf"' in config_text
 
 

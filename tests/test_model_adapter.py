@@ -267,7 +267,7 @@ class TestProviderAwareProfileSelection:
 
     def test_ollama_known_model_id_maps_to_existing_profile(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setattr('informity.llm.model_adapter.settings.llm_provider', 'ollama')
-        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_model_id', 'qwen-14b')
+        monkeypatch.setattr('informity.llm.model_adapter.settings.llm_model_id', 'qwen3:14b')
         monkeypatch.setattr('informity.llm.model_adapter.settings.llm_model_filename', '')
         profile = get_profile()
         assert profile is QWEN3_14B_PROFILE
@@ -289,12 +289,12 @@ class TestProviderAwareProfileSelection:
 
 class TestOllamaAliasInference:
     def test_infer_model_id_from_ollama_model_exact(self) -> None:
-        assert infer_model_id_from_ollama_model('qwen3.6:35b') == 'qwen-35b-a3b'
-        assert infer_model_id_from_ollama_model('qwen3:14b') == 'qwen-14b'
-        assert infer_model_id_from_ollama_model('qwen3.5:9b') == 'qwen-9b'
+        assert infer_model_id_from_ollama_model('qwen3.6:35b') == 'qwen3.6:35b'
+        assert infer_model_id_from_ollama_model('qwen3:14b') == 'qwen3:14b'
+        assert infer_model_id_from_ollama_model('qwen3.5:9b') == 'qwen3.5:9b'
 
     def test_infer_model_id_from_ollama_model_variant_tag(self) -> None:
-        assert infer_model_id_from_ollama_model('qwen3.6:35b-q4_k_m') == 'qwen-35b-a3b'
+        assert infer_model_id_from_ollama_model('qwen3.6:35b-q4_k_m') is None
 
     def test_infer_model_id_from_ollama_model_unknown(self) -> None:
         assert infer_model_id_from_ollama_model('mistral:latest') is None

@@ -250,11 +250,11 @@ Informity supports two LLM runtime providers:
 - `local_gguf` (default): in-process `xllamacpp` with GGUF models in `models/llm/`.
 - `ollama`: uses an Ollama daemon (default URL `http://127.0.0.1:11434`) and `llm_model_id` (for example `qwen3.6:35b`).
 
-Known Ollama model aliases are mapped to Informity tuned profiles:
+Known Ollama model IDs mapped to Informity tuned profiles:
 
-- `qwen3.6:35b*` -> Qwen3.6 35B A3B profile
-- `qwen3:14b*`, `qwen3.5:14b*` -> Qwen3 14B profile
-- `qwen3.5:9b*` -> Qwen3.5 9B profile
+- `qwen3.6:35b` -> Qwen3.6 35B A3B profile
+- `qwen3:14b` -> Qwen3 14B profile
+- `qwen3.5:9b` -> Qwen3.5 9B profile
 
 Unknown model IDs use a conservative Ollama default profile.
 
