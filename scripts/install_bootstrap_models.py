@@ -152,7 +152,14 @@ def _download_docling_models(app_data: Path) -> None:
     docling_cache = cache_dir / DirNames.DOCLING
     docling_cache.mkdir(parents=True, exist_ok=True)
 
+    from informity.config import (
+        _is_docling_cached,
+        ensure_docling_rapidocr_cache_compat,
+        get_docling_download_options,
+    )
+
     if _is_docling_cached(cache_dir):
+        ensure_docling_rapidocr_cache_compat(cache_dir)
         print(f'Docling models already cached: {docling_cache}')
         return
 
@@ -165,21 +172,7 @@ def _download_docling_models(app_data: Path) -> None:
         from docling.utils.model_downloader import download_models
         download_models(
             output_dir=docling_cache,
-            force=False,
-            progress=True,
-            with_layout=True,
-            with_tableformer=True,
-            with_code_formula=True,
-            with_picture_classifier=False,
-            with_smolvlm=False,
-            with_granitedocling=False,
-            with_granitedocling_mlx=False,
-            with_smoldocling=False,
-            with_smoldocling_mlx=False,
-            with_granite_vision=False,
-            with_granite_chart_extraction=False,
-            with_rapidocr=True,
-            with_easyocr=False,
+            **get_docling_download_options(progress=True),
         )
     except ImportError:
         print('⚠️  docling.utils.model_downloader not available; docling models will download on first use.')
@@ -188,6 +181,7 @@ def _download_docling_models(app_data: Path) -> None:
         print(f'⚠️  Failed to download docling models: {e}')
         print('   Docling will download models on first use (may show warnings in Full Privacy mode).')
     else:
+        ensure_docling_rapidocr_cache_compat(cache_dir)
         print('Docling models cached.')
 
 
@@ -272,23 +266,6 @@ def _is_hf_model_cached(model_name: str, hf_hub_cache: Path) -> bool:
         return False
 
 
-def _is_docling_cached(cache_dir: Path) -> bool:
-    """Check if docling runtime artifacts are cached (standalone for bootstrap)."""
-    from informity.config import DirNames
-    docling_cache = cache_dir / DirNames.DOCLING
-    try:
-        if docling_cache.exists():
-            for item in docling_cache.iterdir():
-                if item.is_dir():
-                    if any(item.rglob('*.bin')) or any(item.rglob('*.safetensors')) or any(item.rglob('*.onnx')):
-                        return True
-                elif item.suffix in ('.bin', '.safetensors', '.onnx', '.pt', '.pth'):
-                    return True
-    except Exception:
-        pass
-    return False
-
-
 def _verify_models_cached(install_config: dict) -> bool:
     """Verify that all required models are cached before enabling Full Privacy."""
     from informity.config import DirNames
@@ -303,6 +280,8 @@ def _verify_models_cached(install_config: dict) -> bool:
     reranker_model = install_config.get('reranker_model') or _DEFAULT_RERANKER_MODEL
     if not _is_hf_model_cached(reranker_model, hf_hub_cache):
         return False
+
+    from informity.config import _is_docling_cached
 
     if not _is_docling_cached(cache_dir):
         return False
