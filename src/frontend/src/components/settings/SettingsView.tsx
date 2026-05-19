@@ -208,6 +208,7 @@ interface SettingsData {
   enable_ocr_for_images?: boolean
   max_indexable_file_size_mb?: number
   scan_file_timeout_seconds?: number
+  pdf_extraction_strategy_order?: string[]
   full_privacy?: boolean
   tavily_api_key_set?: boolean
   linkup_api_key_set?: boolean
@@ -269,6 +270,7 @@ interface FormState {
   enable_ocr_for_images: boolean
   max_indexable_file_size_mb: number
   scan_file_timeout_seconds: number
+  pdf_extraction_strategy_order: string[]
   full_privacy: boolean
   tavily_api_key: string
   clear_tavily_api_key: boolean
@@ -339,6 +341,7 @@ function buildFormState(settings: SettingsData): FormState {
     enable_ocr_for_images: settings.enable_ocr_for_images ?? true,
     max_indexable_file_size_mb: settings.max_indexable_file_size_mb ?? 100,
     scan_file_timeout_seconds: settings.scan_file_timeout_seconds ?? 600,
+    pdf_extraction_strategy_order: settings.pdf_extraction_strategy_order ?? ['docling_full', 'docling_fast', 'pdf_text_layer'],
     full_privacy: settings.full_privacy ?? true,
     tavily_api_key: settings.tavily_api_key_set ? MASKED_TAVILY_KEY : '',
     clear_tavily_api_key: false,

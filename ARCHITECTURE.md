@@ -109,6 +109,11 @@ class Settings(BaseSettings):
 
 **Helper:** `get_effective_ignore_patterns(settings)` — combines preset patterns (when enabled) with custom `ignore_patterns`. Used by crawler.
 
+**PDF extraction policy:** PDF processing is orchestrated via ordered strategies
+(`docling_full`, `docling_fast`, `pdf_text_layer`) configured by
+`settings.pdf_extraction_strategy_order`. Strategy values are centralized in
+`config.py` (`PDF_EXTRACTION_STRATEGIES`, `DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER`).
+
 ### Extractor Types
 
 ```python
@@ -481,7 +486,7 @@ class HealthResponse(BaseModel):
 
 ### `scanner/extractors/*.py`
 - Extractors: TextExtractor (.txt, .md, .rst, .log), DoclingExtractor (unified: .pdf, .docx, .pptx, .xlsx, .html, .csv), EpubExtractor (.epub). Registry in `base.py`: `register_extractors()`, `get_extractor(path)`.
-- **DoclingExtractor** uses docling's `DocumentConverter` to convert documents to markdown. Docling provides superior structure preservation including tables, formulas, reading order detection, and built-in OCR support. The converter handles all document types (text-based, scanned, image-only) automatically without requiring external OCR tools.
+- **DoclingExtractor** uses docling's `DocumentConverter` to convert documents to markdown (runtime provided by the `docling-slim` dependency). Docling provides superior structure preservation including tables, formulas, reading order detection, and built-in OCR support. The converter handles all document types (text-based, scanned, image-only) automatically without requiring external OCR tools.
 - **text_utils.py:** shared utilities: `elapsed_ms()`, `decode_bytes()` (UTF-8 then chardet), `repair_hyphenation()` (rejoin hyphenated line breaks); used by extractors and by indexer/post_process.
 - All extractors implement `BaseExtractor` protocol; must never raise — return errors in `ExtractedDocument.error`.
 - **Imports:** docling, base, text_utils where needed
