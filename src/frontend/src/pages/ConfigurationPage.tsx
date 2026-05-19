@@ -23,7 +23,7 @@ const CONFIG_SECTION_ICONS: Record<string, string> = {
   'Web Search':                'ri-global-line',
   'Embeddings':                'ri-ai-generate-3d-line',
   'LLM and RAG':               'ri-robot-2-line',
-  'Logging':                   'ri-file-list-3-line',
+  'Logging':                   'ri-file-list-2-line',
   'Diagnostics':               'ri-pulse-line',
   'MCP Server':                'ri-plug-3-line',
   'Retrieval Tuning':          'ri-equalizer-line',
