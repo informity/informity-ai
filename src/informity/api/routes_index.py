@@ -45,6 +45,7 @@ from informity.indexer.term_dictionary_builder import (
     get_term_dictionary_build_status,
     rebuild_term_dictionary,
 )
+from informity.log_events import emit_log_event
 from informity.scanner.crawler import scanned_file_for_path
 from informity.scanner.extractors.base import register_extractors
 from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE
@@ -106,6 +107,15 @@ async def rebuild_index(
         background_tasks.add_task(
             _run_rebuild_task,
             scan_id=scan_record.id,
+        )
+        await emit_log_event(
+            event_name='index_refresh_started',
+            source='Indexer',
+            message='Index refresh started.',
+            scan_id=scan_record.id,
+            correlation_id=f'rebuild:{scan_record.id}',
+            details={'force': bool(req.force)},
+            db=db,
         )
 
         return {
@@ -416,6 +426,15 @@ async def _run_reset_task(
                 db_counts['compaction_error'] = None
             elif post_compaction.get('compaction_error'):
                 db_counts['compaction_error'] = post_compaction.get('compaction_error')
+            if db_counts.get('compaction_error'):
+                await emit_log_event(
+                    event_name='database_compaction_failed',
+                    source='Storage',
+                    message='Database compaction failed during reset.',
+                    details={'error': db_counts.get('compaction_error')},
+                    dedupe_bucket_seconds=120,
+                    db=db,
+                )
 
         # Invalidate adaptive top-k cache (corpus is empty)
         invalidate_tuning_cache()
@@ -613,6 +632,15 @@ async def _run_rebuild_task(scan_id: int) -> None:
             indexed = files_indexed,
             errors  = errors,
         )
+        await emit_log_event(
+            event_name='index_refresh_completed',
+            source='Indexer',
+            message=f'Index refresh completed. {files_scanned} files checked, {files_indexed} indexed.',
+            scan_id=scan_id,
+            correlation_id=f'rebuild:{scan_id}',
+            details={'files_scanned': files_scanned, 'files_indexed': files_indexed, 'errors': errors},
+            db=db,
+        )
 
         log.info(
             'rebuild_metrics_summary',
@@ -640,6 +668,15 @@ async def _run_rebuild_task(scan_id: int) -> None:
             completed_at = datetime.now(UTC),
         )
         await update_scan_record(db, scan_record)
+        await emit_log_event(
+            event_name='index_refresh_failed',
+            source='Indexer',
+            message='Index refresh failed before completion.',
+            scan_id=scan_id,
+            correlation_id=f'rebuild:{scan_id}',
+            details={'error': str(exc)},
+            db=db,
+        )
 
     finally:
         await db.close()

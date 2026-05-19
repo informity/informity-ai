@@ -50,6 +50,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from informity.api.routes_chat import router as chat_router
 from informity.api.routes_index import router as index_router
+from informity.api.routes_logs import router as logs_router
 from informity.api.routes_scan import router as scan_router
 from informity.api.routes_search import router as search_router
 from informity.api.routes_settings import router as settings_router
@@ -71,10 +72,13 @@ from informity.version import APP_VERSION
 configure_hf_environment(fail_on_missing_full_privacy_models=False)
 
 from informity.db.sqlite import (
+    LOG_EVENTS_MAX_ROWS_DEFAULT,
+    LOG_EVENTS_RETENTION_DAYS_DEFAULT,
     clear_stale_running_scans,
     get_connection,
     init_db,
     prune_continuation_artifacts,
+    prune_log_events,
 )
 from informity.indexer.adaptive_tuning import update_tuning_cache
 from informity.indexer.embedder import embedder
@@ -354,6 +358,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     except _STARTUP_RUNTIME_EXCEPTIONS as exc:
         log.warning('continuation_artifact_startup_prune_failed', error=str(exc))
 
+    # Prune log_events retention window and row cap.
+    try:
+        conn = await get_connection()
+        try:
+            prune_result = await prune_log_events(
+                conn,
+                retention_days=LOG_EVENTS_RETENTION_DAYS_DEFAULT,
+                max_rows=LOG_EVENTS_MAX_ROWS_DEFAULT,
+            )
+            if int(prune_result.get('deleted_by_age', 0)) > 0 or int(prune_result.get('deleted_by_count', 0)) > 0:
+                log.info('log_events_pruned', **prune_result)
+        finally:
+            await conn.close()
+    except _STARTUP_RUNTIME_EXCEPTIONS as exc:
+        log.warning('log_events_startup_prune_failed', error=str(exc))
+
     # Populate adaptive top-k cache from corpus stats (if enabled).
     # Startup is an explicit lifecycle event, so force recompute now.
     try:
@@ -591,6 +611,7 @@ app.include_router(chat_router)
 app.include_router(search_router)
 app.include_router(settings_router)
 app.include_router(system_router)
+app.include_router(logs_router)
 
 
 # ==============================================================================

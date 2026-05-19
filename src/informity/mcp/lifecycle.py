@@ -9,6 +9,7 @@ import uvicorn
 
 from informity.api.security import is_loopback_host
 from informity.config import settings
+from informity.log_events import emit_log_event
 from informity.mcp.http_server import create_http_app
 
 log = structlog.get_logger(__name__)
@@ -51,6 +52,13 @@ class McpLifecycleManager:
                     f'Configured: {settings.mcp_http_host}'
                 )
                 log.warning('mcp_start_denied_non_loopback_host', host=settings.mcp_http_host)
+                await emit_log_event(
+                    event_name='mcp_scope_denied',
+                    source='MCP Server',
+                    message='MCP server start denied because host is not loopback.',
+                    details={'host': settings.mcp_http_host},
+                    dedupe_bucket_seconds=300,
+                )
                 return
 
             if settings.mcp_transport == 'http':
@@ -65,6 +73,13 @@ class McpLifecycleManager:
                         port=settings.mcp_http_port,
                         error=str(exc),
                     )
+                    await emit_log_event(
+                        event_name='mcp_server_failed',
+                        source='MCP Server',
+                        message='MCP server failed to start.',
+                        details={'error': str(exc), 'host': settings.mcp_http_host, 'port': settings.mcp_http_port},
+                        dedupe_bucket_seconds=120,
+                    )
                     return
 
             self._running = True
@@ -76,6 +91,17 @@ class McpLifecycleManager:
                 port=settings.mcp_http_port,
                 scope_mode=settings.mcp_scope_mode,
             )
+            await emit_log_event(
+                event_name='mcp_server_started',
+                source='MCP Server',
+                message='MCP server started successfully.',
+                details={
+                    'transport': settings.mcp_transport,
+                    'host': settings.mcp_http_host,
+                    'port': settings.mcp_http_port,
+                    'scope_mode': settings.mcp_scope_mode,
+                },
+            )
 
     async def stop(self) -> None:
         async with self._lock:
@@ -84,6 +110,11 @@ class McpLifecycleManager:
             await self._stop_http_server_locked()
             self._running = False
             log.info('mcp_lifecycle_stopped')
+            await emit_log_event(
+                event_name='mcp_server_stopped',
+                source='MCP Server',
+                message='MCP server stopped.',
+            )
 
     async def restart_from_settings(self) -> None:
         async with self._lock:

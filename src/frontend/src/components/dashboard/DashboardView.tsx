@@ -4,11 +4,10 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { WheelEvent } from 'react'
-import { useLocation } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import {
   cancelScan,
   getIndexStatus,
-  getScanErrors,
   getScanStatus,
   scanFiles,
   getFiles,
@@ -28,7 +27,7 @@ import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { extractErrorMessage } from '../../utils/errorMessages'
 import { MENU_SCAN_NOW_PENDING_KEY } from '../../utils/storageKeys'
 import { proxyWheelToContainer } from '../../utils/wheelProxy'
-import type { IndexedFile, IndexStatus, ScanErrorsResponse, ScanStatus } from '../../types/api'
+import type { IndexedFile, IndexStatus, ScanStatus } from '../../types/api'
 import '../../styles/shared/buttons.css'
 import './DashboardView.css'
 
@@ -60,17 +59,11 @@ interface SettingsData {
   watched_directories?: string[]
 }
 
-function formatScanErrorTimestamp(value?: string | null): string {
-  if (!value) return '—'
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString()
-}
-
 export function DashboardView() {
   const confirm = useConfirm()
   const { offline } = useBackendStatus()
   const location = useLocation()
+  const navigate = useNavigate()
   const [indexStatus, setIndexStatus] = useState<IndexStatus | null>(null)
   const [scanStatus, setScanStatus] = useState<ScanStatus | null>(null)
   const [recentFiles, setRecentFiles] = useState<IndexedFile[]>([])
@@ -80,9 +73,6 @@ export function DashboardView() {
   const [cancelling, setCancelling] = useState(false)
   const [rebuilding, setRebuilding] = useState(false)
   const [scanError, setScanError] = useState<string | null>(null)
-  const [showErrorsModal, setShowErrorsModal] = useState(false)
-  const [errorsLoading, setErrorsLoading] = useState(false)
-  const [allScanErrors, setAllScanErrors] = useState<NonNullable<ScanErrorsResponse['errors']>>([])
   const previousScanStatusRef = useRef<string | undefined>(undefined)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
@@ -338,19 +328,6 @@ export function DashboardView() {
     proxyWheelToContainer(e, scrollContainerRef.current)
   }, [])
 
-  const openErrorsModal = useCallback(async () => {
-    setShowErrorsModal(true)
-    setErrorsLoading(true)
-    try {
-      const response = (await getScanErrors({ limit: 1000, offset: 0 })) as ScanErrorsResponse
-      setAllScanErrors(response.errors ?? [])
-    } catch {
-      setAllScanErrors([])
-    } finally {
-      setErrorsLoading(false)
-    }
-  }, [])
-
   if (loading && !indexStatus) {
     return <DashboardSkeleton />
   }
@@ -409,7 +386,7 @@ export function DashboardView() {
                   <button
                     type="button"
                     className="dashboard__hero-meta-link dashboard__hero-meta-link--danger"
-                    onClick={() => void openErrorsModal()}
+                    onClick={() => navigate('/logs?tab=errors')}
                   >
                     Errors: {scanStatus?.errors ?? 0}
                   </button>
@@ -568,59 +545,6 @@ export function DashboardView() {
           </div>
         </div>
       </div>
-      {showErrorsModal && (
-        <div className="dashboard-errors-modal__backdrop" onClick={() => setShowErrorsModal(false)}>
-          <div className="dashboard-errors-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="dashboard-errors-modal__header">
-              <h3>
-                <span className="dashboard-errors-modal__title-icon">
-                  <i className="ri-alert-line" aria-hidden />
-                </span>
-                <span>Scan Errors ({scanStatus?.errors ?? 0})</span>
-              </h3>
-              <button
-                type="button"
-                className="dashboard-errors-modal__close"
-                aria-label="Close errors modal"
-                onClick={() => setShowErrorsModal(false)}
-              >
-                <i className="ri-close-line" aria-hidden />
-              </button>
-            </div>
-            <div className="dashboard-errors-modal__body">
-              <p className="dashboard-errors-modal__description">
-                Below are the errors encountered during the most recent scan.
-              </p>
-              <div className="dashboard-errors-modal__list-wrap">
-              {errorsLoading ? (
-                <p className="dashboard-errors-modal__empty">Loading…</p>
-              ) : allScanErrors.length === 0 ? (
-                <p className="dashboard-errors-modal__empty">No errors found for this scan.</p>
-              ) : (
-                <table className="dashboard-errors-modal__table">
-                  <thead>
-                    <tr>
-                      <th>Date/Time</th>
-                      <th>File</th>
-                      <th>Error</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {allScanErrors.map((err, idx) => (
-                      <tr key={`${err.created_at ?? 'time'}-${err.path ?? err.filename ?? idx}-${idx}`}>
-                        <td>{formatScanErrorTimestamp(err.created_at)}</td>
-                        <td title={err.path || err.filename || ''}>{err.filename || err.path || 'Unknown file'}</td>
-                        <td title={err.error_message || ''}>{err.error_message || err.error_code || 'Unknown error'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
