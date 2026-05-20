@@ -80,6 +80,7 @@ from informity.db.sqlite import (
     get_chat_count,
     get_chat_message_by_id,
     get_chat_preferences,
+    get_chat_title,
     get_chat_upload_attachment_by_upload_id,
     get_chat_upload_attachments,
     get_chat_upload_size_bytes,
@@ -120,6 +121,12 @@ from informity.llm.types import (
     StreamSignalTag,
     StructuralGapReason,
     TimeoutReason,
+)
+from informity.markdown_export import (
+    MarkdownExportOptions,
+    build_markdown_filename,
+    render_current_answer_markdown,
+    render_full_chat_markdown,
 )
 from informity.scanner.crawler import scanned_file_for_path
 from informity.upload_policy import (
@@ -2534,6 +2541,164 @@ async def get_chat_messages(
         'role_id':                           locked_role_id,
         'chat_web_search_enabled':           bool(chat_preferences.get('chat_web_search_enabled')),
         'chat_web_search_privacy_override':  bool(chat_preferences.get('chat_web_search_privacy_override')),
+    }
+
+
+def _resolve_markdown_export_payload(
+    *,
+    chat_id: str,
+    chat_title: str | None,
+    messages: list[ChatMessage],
+    scope: str,
+    message_id: int | None,
+    include_frontmatter: bool,
+    template: str,
+) -> dict[str, object]:
+    assistant_messages = [message for message in messages if message.role == ChatRole.ASSISTANT]
+    latest_mode = next(
+        (str(message.chat_mode or '').strip() for message in reversed(messages) if str(message.chat_mode or '').strip()),
+        None,
+    )
+    opts = MarkdownExportOptions(
+        include_frontmatter=bool(include_frontmatter),
+        template=template if template in {'full_transcript', 'concise_summary'} else 'full_transcript',
+    )
+    if scope == 'current_answer':
+        if not assistant_messages:
+            raise HTTPException(status_code=409, detail='No assistant answer is available to export in this chat.')
+        target_message = assistant_messages[-1] if message_id is None else next(
+            (message for message in assistant_messages if message.id == message_id),
+            None,
+        )
+        if target_message is None:
+            raise HTTPException(status_code=404, detail='Assistant message not found for export.')
+        markdown = render_current_answer_markdown(
+            chat_title=chat_title,
+            chat_id=chat_id,
+            answer_message=target_message,
+            chat_mode=latest_mode,
+            options=opts,
+        )
+        return {
+            'chat_id': chat_id,
+            'scope': scope,
+            'message_id': target_message.id,
+            'filename': build_markdown_filename(chat_title=chat_title),
+            'markdown': markdown,
+            'template': opts.template,
+            'include_frontmatter': opts.include_frontmatter,
+        }
+    markdown = render_full_chat_markdown(
+        chat_title=chat_title,
+        chat_id=chat_id,
+        messages=messages,
+        chat_mode=latest_mode,
+        options=opts,
+    )
+    return {
+        'chat_id': chat_id,
+        'scope': scope,
+        'filename': build_markdown_filename(chat_title=chat_title),
+        'markdown': markdown,
+        'template': opts.template,
+        'include_frontmatter': opts.include_frontmatter,
+    }
+
+
+def _resolve_chat_export_payload(
+    *,
+    chat_id: str,
+    chat_title: str | None,
+    messages: list[ChatMessage],
+    scope: str,
+    message_id: int | None,
+    include_frontmatter: bool,
+    template: str,
+    export_format: str,
+) -> dict[str, object]:
+    resolved_format = str(export_format or '').strip().lower() or 'markdown'
+    if resolved_format not in {'markdown', 'pdf'}:
+        raise HTTPException(status_code=400, detail='format must be "markdown" or "pdf".')
+    if resolved_format == 'pdf':
+        raise HTTPException(status_code=501, detail='PDF export is not implemented yet.')
+
+    markdown_payload = _resolve_markdown_export_payload(
+        chat_id=chat_id,
+        chat_title=chat_title,
+        messages=messages,
+        scope=scope,
+        message_id=message_id,
+        include_frontmatter=include_frontmatter,
+        template=template,
+    )
+    return {
+        'chat_id': markdown_payload['chat_id'],
+        'scope': markdown_payload['scope'],
+        'message_id': markdown_payload.get('message_id'),
+        'filename': markdown_payload['filename'],
+        'format': 'markdown',
+        'mime_type': 'text/markdown; charset=utf-8',
+        'content': markdown_payload['markdown'],
+        'template': markdown_payload.get('template'),
+        'include_frontmatter': markdown_payload.get('include_frontmatter'),
+    }
+
+
+@router.get('/api/chat/chats/{chat_id}/export')
+async def export_chat(
+    chat_id: str,
+    scope: str = Query(default='full_chat'),
+    message_id: int | None = Query(default=None, ge=1),
+    include_frontmatter: bool = Query(default=False),
+    template: str = Query(default='full_transcript'),
+    format: str = Query(default='markdown'),
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict[str, object]:
+    resolved_scope = str(scope or '').strip().lower()
+    if resolved_scope not in {'full_chat', 'current_answer'}:
+        raise HTTPException(status_code=400, detail='scope must be "full_chat" or "current_answer".')
+    messages = await get_chat(db, chat_id)
+    if not messages:
+        raise HTTPException(status_code=404, detail='Chat not found')
+    chat_title = await get_chat_title(db, chat_id)
+    return _resolve_chat_export_payload(
+        chat_id=chat_id,
+        chat_title=chat_title,
+        messages=messages,
+        scope=resolved_scope,
+        message_id=message_id,
+        include_frontmatter=include_frontmatter,
+        template=template,
+        export_format=format,
+    )
+
+
+@router.get('/api/chat/chats/{chat_id}/export/markdown')
+async def export_chat_markdown(
+    chat_id: str,
+    scope: str = Query(default='full_chat'),
+    message_id: int | None = Query(default=None, ge=1),
+    include_frontmatter: bool = Query(default=False),
+    template: str = Query(default='full_transcript'),
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict[str, object]:
+    unified_payload = await export_chat(
+        chat_id=chat_id,
+        scope=scope,
+        message_id=message_id,
+        include_frontmatter=include_frontmatter,
+        template=template,
+        format='markdown',
+        db=db,
+    )
+    return {
+        'chat_id': unified_payload['chat_id'],
+        'scope': unified_payload['scope'],
+        'message_id': unified_payload.get('message_id'),
+        'filename': unified_payload['filename'],
+        'markdown': unified_payload['content'],
+        'template': unified_payload.get('template'),
+        'include_frontmatter': unified_payload.get('include_frontmatter'),
     }
 
 

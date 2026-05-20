@@ -2101,6 +2101,18 @@ async def get_chat_message_by_id(db: aiosqlite.Connection, message_id: int) -> C
     return _row_to_chat_message(row)
 
 
+async def get_chat_title(db: aiosqlite.Connection, chat_id: str) -> str | None:
+    cursor = await db.execute(
+        'SELECT title FROM chats WHERE chat_id = ?',
+        (chat_id,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    title = str(row['title'] or '').strip()
+    return title or None
+
+
 async def get_chats(
     db: aiosqlite.Connection,
     limit: int = 50,
