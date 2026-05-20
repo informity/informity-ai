@@ -5,6 +5,7 @@
 .file-table__table {
   width: 100%;
   border-collapse: collapse;
+  table-layout: fixed;
   font-size: var(--font-size-body);
 }
 
@@ -48,6 +49,7 @@
 
 .file-table__filename-text {
   display: block;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

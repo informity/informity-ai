@@ -519,6 +519,7 @@ html[data-accent='canvas'] .dashboard-errors-modal {
 
 .dashboard__recent-filename {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
