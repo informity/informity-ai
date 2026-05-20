@@ -51,7 +51,6 @@ _SQLITE_EXTENSION_LOAD_EXCEPTIONS = (
     aiosqlite.Error,
 )
 _SQLITE_BUSY_TIMEOUT_MS = 5000
-_CHAT_PREVIEW_TRUNCATE_LENGTH = 100
 _RESET_SCHEMA_RETRY_ATTEMPTS = 15
 _RESET_SCHEMA_RETRY_BASE_DELAY_SECONDS = 0.2
 _RESET_COMPACTION_RETRY_ATTEMPTS = 10
@@ -2188,8 +2187,8 @@ async def get_chats(
             'title': row['title'],
             'created_at': parse_timestamp(row['created_at']),
             'updated_at': parse_timestamp(row['updated_at']),
-            'last_message_preview': row['last_message'][:_CHAT_PREVIEW_TRUNCATE_LENGTH] if row['last_message'] else None,
-            'first_user_message': row['first_user_message'][:_CHAT_PREVIEW_TRUNCATE_LENGTH] if row['first_user_message'] else None,
+            'last_message_preview': row['last_message'] if row['last_message'] else None,
+            'first_user_message': row['first_user_message'] if row['first_user_message'] else None,
             'message_count': row['message_count'] or 0,
             'last_message_at': parse_timestamp(row['last_message_at']) if row['last_message_at'] else None,
             'last_generation_seconds': row['last_generation_seconds'],

@@ -502,7 +502,7 @@ export function DashboardView() {
               {recentFiles.map((f) => (
                 <div key={f.id} className="dashboard__recent-row">
                   <i className="ri-file-text-line dashboard__recent-icon" aria-hidden />
-                  <span className="dashboard__recent-filename">{f.filename}</span>
+                  <span className="dashboard__recent-filename" title={f.filename}>{f.filename}</span>
                   <span className="dashboard__recent-time">{formatRelativeTime(f.indexed_at)}</span>
                 </div>
               ))}

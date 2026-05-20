@@ -8,6 +8,7 @@
 
 .history-table__table {
   width: 100%;
+  table-layout: fixed;
 }
 
 .history-table__th--actions {

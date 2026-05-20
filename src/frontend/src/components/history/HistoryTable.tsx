@@ -122,7 +122,7 @@ export function HistoryTable({
   const handleStartRename = useCallback((chat: ChatListItem, e?: React.MouseEvent) => {
     if (offline) return
     e?.stopPropagation()
-    const title = normalizeHistoryTitle(chat.title || chat.last_message_preview?.substring(0, 60) || '') || 'Untitled'
+    const title = normalizeHistoryTitle(chat.title || chat.last_message_preview || '') || 'Untitled'
     setEditingChatId(chat.chat_id)
     setEditValue(title)
     setTimeout(() => editInputRef.current?.focus(), 0)
@@ -133,7 +133,7 @@ export function HistoryTable({
       if (offline) return
       const newTitle = editValue.trim()
       const chat = chats.find((c) => c.chat_id === chatId)
-      const currentTitle = normalizeHistoryTitle(chat?.title || chat?.last_message_preview?.substring(0, 60) || '') || 'Untitled'
+      const currentTitle = normalizeHistoryTitle(chat?.title || chat?.last_message_preview || '') || 'Untitled'
 
       if (!newTitle || newTitle === currentTitle) {
         setEditingChatId(null)
@@ -273,7 +273,7 @@ export function HistoryTable({
               const normalizedStoredTitle = normalizeHistoryTitle(chat.title || '')
               const normalizedPreviewTitle = normalizeHistoryTitle(preview)
               const title =
-                normalizedStoredTitle || (normalizedPreviewTitle.length > 60 ? normalizedPreviewTitle.substring(0, 60) + '…' : normalizedPreviewTitle) || 'Untitled'
+                normalizedStoredTitle || normalizedPreviewTitle || 'Untitled'
               const isEditing = editingChatId === chat.chat_id
 
               return (
@@ -316,7 +316,7 @@ export function HistoryTable({
                             <span className="history-table__title-text" title={title}>{title}</span>
                           </div>
                           {chat.first_user_message && (
-                            <div className="history-table__title-preview">{chat.first_user_message}</div>
+                            <div className="history-table__title-preview" title={chat.first_user_message}>{chat.first_user_message}</div>
                           )}
                         </>
                       )}
