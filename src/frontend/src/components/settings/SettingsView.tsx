@@ -1008,7 +1008,7 @@ export function SettingsView({
           <div className="settings-subsection">
             <div className="settings-subsection-head ui-subsection-head">
               <div className="settings-subsection-title ui-subsection-title">
-                <i className="ri-download-cloud-2-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                <i className="ri-download-cloud-line subsection-icon ui-subsection-icon" aria-hidden="true" />
                 Updates
               </div>
               <p className="settings-subsection-description ui-subsection-description">

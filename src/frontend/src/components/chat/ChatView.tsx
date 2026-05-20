@@ -9,7 +9,8 @@ import { PageHeader } from '../PageHeader'
 import { ServiceUnavailableState } from '../ServiceUnavailableState'
 import { useChatContext } from '../../context/useChatContext'
 import { useBackendStatus } from '../../context/useBackendStatus'
-import { getCurrentChat, getRoles, getSettings } from '../../api'
+import { exportChatMarkdown, getCurrentChat, getRoles, getSettings } from '../../api'
+import { showToast } from '../../context/useToast'
 import { isChatMode, type ChatFileScope, type ChatMessageDisplay, type ChatMode, type ChatRoleDefinition } from '../../types/api'
 import { logApiError } from '../../utils/logApiError'
 import { CHAT_MODE_STORAGE_KEY, CHAT_ROLE_ID_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
@@ -44,6 +45,18 @@ interface ChatSettingsResponse {
 
 interface SettingsUpdatedEvent extends Event {
   detail?: ChatSettingsResponse
+}
+
+function triggerMarkdownDownload(filename: string, markdown: string): void {
+  const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = String(filename || 'chat-export.md').trim() || 'chat-export.md'
+  document.body.appendChild(anchor)
+  anchor.click()
+  document.body.removeChild(anchor)
+  URL.revokeObjectURL(url)
 }
 
 function resolveFileIconFromFilename(filename: string): string {
@@ -726,6 +739,47 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     newChat().catch((err) => logApiError(err, 'ChatView.handleNewChat'))
   }, [offline, clearError, newChat, setChatWebSearchPreferences])
 
+  const handleExportFullChat = useCallback(async () => {
+    if (offline || isStreaming) return
+    if (!contextChatId) {
+      showToast('error', 'No active chat to export.')
+      return
+    }
+    try {
+      const payload = await exportChatMarkdown(contextChatId, {
+        scope: 'full_chat',
+        includeFrontmatter: false,
+        template: 'full_transcript',
+      })
+      triggerMarkdownDownload(payload.filename, payload.markdown)
+      showToast('success', 'Chat exported as Markdown.')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to export chat.'
+      showToast('error', msg)
+    }
+  }, [contextChatId, isStreaming, offline])
+
+  const handleExportAnswer = useCallback(async (messageId?: number) => {
+    if (offline || isStreaming) return
+    if (!contextChatId) {
+      showToast('error', 'No active chat to export.')
+      return
+    }
+    try {
+      const payload = await exportChatMarkdown(contextChatId, {
+        scope: 'current_answer',
+        messageId,
+        includeFrontmatter: false,
+        template: 'concise_summary',
+      })
+      triggerMarkdownDownload(payload.filename, payload.markdown)
+      showToast('success', 'Answer exported as Markdown.')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to export answer.'
+      showToast('error', msg)
+    }
+  }, [contextChatId, isStreaming, offline])
+
   useEffect(() => {
     const handleNewChatEvent = () => handleNewChat()
     window.addEventListener('new-chat', handleNewChatEvent)
@@ -1009,21 +1063,34 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         icon="ri-chat-ai-4-line"
         className="chat-view__header"
         action={
-          <button
-            type="button"
-            className="chat-view__new-chat"
-            onClick={handleNewChat}
-            disabled={offline || isStreaming}
-            title={
-              isStreaming
-                ? 'Stop current response to start a new chat'
-                : 'New Chat (Cmd+N)'
-            }
-            aria-label="Start New Chat"
-          >
-            <i className="ri-chat-new-line" aria-hidden style={{ fontSize: '1.125rem' }} />
-            <span>New Chat</span>
-          </button>
+          <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <button
+              type="button"
+              className="chat-view__new-chat"
+              onClick={handleExportFullChat}
+              disabled={offline || isStreaming || !contextChatId}
+              title="Export full chat as Markdown"
+              aria-label="Export full chat as Markdown"
+            >
+              <i className="ri-download-2-line" aria-hidden style={{ fontSize: '1.125rem' }} />
+              <span>Export Chat</span>
+            </button>
+            <button
+              type="button"
+              className="chat-view__new-chat"
+              onClick={handleNewChat}
+              disabled={offline || isStreaming}
+              title={
+                isStreaming
+                  ? 'Stop current response to start a new chat'
+                  : 'New Chat (Cmd+N)'
+              }
+              aria-label="Start New Chat"
+            >
+              <i className="ri-chat-new-line" aria-hidden style={{ fontSize: '1.125rem' }} />
+              <span>New Chat</span>
+            </button>
+          </div>
         }
       />
 
@@ -1076,6 +1143,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       onContinue={handleContinue}
                       onRegenerate={() => handleRegenerate(i)}
                       onAssistantSwitch={hideAssistantSwitch ? undefined : (() => handleAskInAssistant(i))}
+                      onExport={handleExportAnswer}
                       canEdit={
                         i === lastEditableUserMessageIndex
                         && !offline

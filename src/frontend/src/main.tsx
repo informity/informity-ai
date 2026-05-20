@@ -6,13 +6,33 @@ import App from './App'
 import { bootstrapDesktopBackend } from './tauriRuntime'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_STORAGE_KEY } from './utils/uiTheme'
 
-// Apply saved ui_theme (accent color) before first paint
-try {
-  const saved = localStorage.getItem(UI_THEME_STORAGE_KEY)
-  const normalized = normalizeUiTheme(saved) ?? UI_THEME_DEFAULT
+function applyTheme(theme: string | null | undefined) {
+  const normalized = normalizeUiTheme(theme) ?? UI_THEME_DEFAULT
   document.documentElement.setAttribute('data-accent', normalized)
-} catch {
-  // ignore
+  try {
+    localStorage.setItem(UI_THEME_STORAGE_KEY, normalized)
+  } catch {
+    // ignore
+  }
+}
+
+async function initializeTheme() {
+  try {
+    const response = await fetch('/api/settings', { cache: 'no-store' })
+    if (response.ok) {
+      const payload = await response.json() as { ui_theme?: string }
+      applyTheme(payload?.ui_theme)
+      return
+    }
+  } catch {
+    // fallback to local cache below
+  }
+  try {
+    const saved = localStorage.getItem(UI_THEME_STORAGE_KEY)
+    applyTheme(saved)
+  } catch {
+    applyTheme(UI_THEME_DEFAULT)
+  }
 }
 
 function setBootStatus(message: string) {
@@ -30,6 +50,7 @@ function hideBootOverlay() {
 async function renderApp() {
   let startupError: string | null = null
   setBootStatus('Starting Informity AI...')
+  await initializeTheme()
   const longStartTimerId = window.setTimeout(() => {
     setBootStatus('Still working, this may take a moment...')
   }, 20000)
