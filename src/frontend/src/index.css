@@ -46,6 +46,7 @@
   --space-xl: 2rem;
   --space-2xl: 2.5rem;
   --space-step: 0.75rem;
+  --table-icon-title-gap: var(--space-xs);
   --min-touch-height: 2rem;
   --icon-size-sm: 16px;
   --icon-size-md: 24px;
