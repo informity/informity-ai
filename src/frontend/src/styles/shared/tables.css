@@ -72,7 +72,7 @@
 
 .data-table__th--icon {
   width: 32px;
-  padding-right: 0;
+  padding-right: var(--table-icon-title-gap);
 }
 
 .data-table__row {
@@ -108,7 +108,7 @@
 
 .data-table__td--icon {
   width: 32px;
-  padding-right: 0.25rem;
+  padding-right: var(--table-icon-title-gap);
 }
 
 .data-table__td--right {

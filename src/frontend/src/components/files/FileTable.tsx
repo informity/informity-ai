@@ -128,7 +128,6 @@ export function FileTable({
         <table className="file-table__table data-table__table">
           <thead>
             <tr>
-              <th className="file-table__th file-table__th--icon data-table__th data-table__th--icon" />
               <th
                 className={`file-table__th file-table__th--filename file-table__th--sortable data-table__th data-table__th--sortable ${
                   sort === 'filename' ? 'data-table__th--sorted' : ''
@@ -189,15 +188,13 @@ export function FileTable({
                   className={`file-table__row data-table__row ${isSelected ? 'file-table__row--selected' : ''}`}
                   onClick={(e) => !offline && handleRowClick(file, index, e)}
                 >
-                  <td className="file-table__td file-table__td--icon data-table__td data-table__td--icon">
-                    <div className="file-table__icon data-table__icon">
-                      <i className={iconClass} aria-hidden style={{ fontSize: '1rem' }} />
-                    </div>
-                  </td>
                   <td className="file-table__td file-table__td--filename data-table__td">
-                    <span className="file-table__filename-text" title={file.filename || '—'}>
-                      {file.filename || '—'}
-                    </span>
+                    <div className="file-table__filename-row">
+                      <i className={`${iconClass} file-table__filename-icon`} aria-hidden style={{ fontSize: '1rem' }} />
+                      <span className="file-table__filename-text" title={file.filename || '—'}>
+                        {file.filename || '—'}
+                      </span>
+                    </div>
                   </td>
                   <td className="file-table__td file-table__td--category data-table__td">
                     <span className="file-table__category-badge data-table__badge">{formatCategory(file.category, file.extension)}</span>

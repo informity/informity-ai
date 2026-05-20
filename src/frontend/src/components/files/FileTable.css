@@ -23,11 +23,27 @@
 
 .file-table__td--filename {
   font-weight: 500;
-  padding-left: 0;
+  padding-left: 0.75rem;
 }
 
 .file-table__th--filename {
-  padding-left: 0;
+  padding-left: calc(28px + var(--table-icon-title-gap) + 0.75rem);
+}
+
+.file-table__filename-row {
+  display: flex;
+  align-items: center;
+  gap: var(--table-icon-title-gap);
+  min-width: 0;
+}
+
+.file-table__filename-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  color: var(--color-text-muted);
 }
 
 .file-table__th--category,
@@ -48,6 +64,7 @@
 }
 
 .file-table__filename-text {
+  flex: 1;
   display: block;
   min-width: 0;
   white-space: nowrap;
