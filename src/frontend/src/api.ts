@@ -523,6 +523,73 @@ export async function getMessageRaw(messageId: number): Promise<{ content: strin
   return request('GET', `/api/chat/messages/${messageId}/raw`) as Promise<{ content: string }>
 }
 
+export interface ChatMarkdownExportResponse {
+  chat_id: string
+  scope: 'full_chat' | 'current_answer'
+  message_id?: number
+  filename: string
+  markdown: string
+  template?: 'full_transcript' | 'concise_summary'
+  include_frontmatter?: boolean
+}
+
+export interface ChatExportResponse {
+  chat_id: string
+  scope: 'full_chat' | 'current_answer'
+  message_id?: number
+  filename: string
+  format: 'markdown' | 'pdf'
+  mime_type: string
+  content: string
+  template?: 'full_transcript' | 'concise_summary'
+  include_frontmatter?: boolean
+}
+
+export async function exportChat(
+  chatId: string,
+  options: {
+    scope: 'full_chat' | 'current_answer'
+    messageId?: number
+    includeFrontmatter?: boolean
+    template?: 'full_transcript' | 'concise_summary'
+    format?: 'markdown' | 'pdf'
+  },
+): Promise<ChatExportResponse> {
+  return request<ChatExportResponse>('GET', `/api/chat/chats/${chatId}/export`, {
+    params: {
+      scope: options.scope,
+      message_id: options.messageId,
+      include_frontmatter: options.includeFrontmatter ?? false,
+      template: options.template ?? 'full_transcript',
+      format: options.format ?? 'markdown',
+    },
+  })
+}
+
+export async function exportChatMarkdown(
+  chatId: string,
+  options: {
+    scope: 'full_chat' | 'current_answer'
+    messageId?: number
+    includeFrontmatter?: boolean
+    template?: 'full_transcript' | 'concise_summary'
+  },
+): Promise<ChatMarkdownExportResponse> {
+  const payload = await exportChat(chatId, {
+    ...options,
+    format: 'markdown',
+  })
+  return {
+    chat_id: payload.chat_id,
+    scope: payload.scope,
+    message_id: payload.message_id,
+    filename: payload.filename,
+    markdown: payload.content,
+    template: payload.template,
+    include_frontmatter: payload.include_frontmatter,
+  }
+}
+
 export async function setChatTitle(chatId: string, title: string): Promise<unknown> {
   return request('PUT', `/api/chat/chats/${chatId}/title`, {
     params: { title } as Record<string, string>,

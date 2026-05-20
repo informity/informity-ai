@@ -9,6 +9,7 @@ import { CHAT_FILE_SCOPE_MAP_STORAGE_KEY, CHAT_MODE_STORAGE_KEY, CHAT_ROLE_ID_ST
     getFilesMock,
     getChatMock,
     getCurrentChatMock,
+    exportChatMarkdownMock,
     getRolesMock,
     listChatUploadsMock,
     getMessageRawMock,
@@ -20,6 +21,7 @@ import { CHAT_FILE_SCOPE_MAP_STORAGE_KEY, CHAT_MODE_STORAGE_KEY, CHAT_ROLE_ID_ST
   getFilesMock: vi.fn(),
   getChatMock: vi.fn(),
   getCurrentChatMock: vi.fn(),
+  exportChatMarkdownMock: vi.fn(),
   getRolesMock: vi.fn(),
   listChatUploadsMock: vi.fn(),
   getMessageRawMock: vi.fn(),
@@ -47,6 +49,7 @@ vi.mock('../../api', () => {
     getFiles: getFilesMock,
     getChat: getChatMock,
     getCurrentChat: getCurrentChatMock,
+    exportChatMarkdown: exportChatMarkdownMock,
     getRoles: getRolesMock,
     listChatUploads: listChatUploadsMock,
     getMessageRaw: getMessageRawMock,
@@ -79,6 +82,14 @@ describe('ChatView new chat behavior', () => {
     getFilesMock.mockResolvedValue({ files: [] })
     listChatUploadsMock.mockResolvedValue({ chat_id: 'test-chat', attachments: [] })
     getRolesMock.mockResolvedValue([])
+    exportChatMarkdownMock.mockResolvedValue({
+      chat_id: 'test-chat',
+      scope: 'full_chat',
+      filename: 'test-chat.md',
+      markdown: '# Export',
+      template: 'full_transcript',
+      include_frontmatter: true,
+    })
   })
 
   afterEach(() => {
@@ -1197,5 +1208,78 @@ describe('ChatView new chat behavior', () => {
 
     await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(2))
     expect(streamChatMock.mock.calls[1]?.[0]).toBe('Edited prompt')
+  })
+
+  it('exports full chat markdown from header action', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockResolvedValue(undefined)
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({
+      messages: [
+        {
+          id: 222,
+          role: 'assistant',
+          content: 'Ready to export',
+          sources: [],
+          created_at: '2026-02-23T12:00:00.000Z',
+        },
+      ],
+    })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialChatId="chat-export-1" />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-export-1'))
+    fireEvent.click(screen.getByRole('button', { name: 'Export full chat as Markdown' }))
+    await waitFor(() => expect(exportChatMarkdownMock).toHaveBeenCalledWith('chat-export-1', expect.objectContaining({
+      scope: 'full_chat',
+      template: 'full_transcript',
+      includeFrontmatter: false,
+    })))
+  })
+
+  it('exports assistant answer markdown from message action', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockResolvedValue(undefined)
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({
+      messages: [
+        {
+          id: 333,
+          role: 'assistant',
+          content: 'Message export target',
+          sources: [],
+          created_at: '2026-02-23T12:00:00.000Z',
+        },
+      ],
+    })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialChatId="chat-export-2" />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-export-2'))
+    fireEvent.click(screen.getByRole('button', { name: 'Export answer as Markdown' }))
+    await waitFor(() => expect(exportChatMarkdownMock).toHaveBeenCalledWith('chat-export-2', expect.objectContaining({
+      scope: 'current_answer',
+      messageId: 333,
+      template: 'concise_summary',
+      includeFrontmatter: false,
+    })))
   })
 })

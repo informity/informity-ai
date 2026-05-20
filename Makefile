@@ -71,7 +71,7 @@ kill-server: ## Kill any process listening on $(HOST):$(PORT)
 dev-restart: kill-server dev ## Kill existing server on $(PORT), then start dev server
 
 frontend: ## Run Vite dev server (hot reload) — use with backend: make run or make dev in another terminal
-	cd src/frontend && npm run dev
+	cd src/frontend && npm run dev -- --host 127.0.0.1 --port 5173 --strictPort
 
 frontend-build: ## Build frontend for production (output: src/frontend/dist/)
 	cd src/frontend && npm run build
