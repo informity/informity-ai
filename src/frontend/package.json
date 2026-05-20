@@ -8,7 +8,7 @@
     "build": "vite build",
     "tauri:dev": "tauri dev",
     "tauri:build": "../../scripts/build_tauri_backend_sidecar.sh && tauri build",
-    "tauri:build:mac": "rm -f src-tauri/target/release/bundle/dmg/*.dmg src-tauri/target/release/bundle/macos/*.dmg src-tauri/target/release/bundle/macos/rw.*.dmg && npm run tauri:build && ../../scripts/build_set_dmg_volume_icon.sh && ../../scripts/build_rename_tauri_dmg_artifacts.sh",
+    "tauri:build:mac": "rm -f src-tauri/target/release/bundle/dmg/*.dmg src-tauri/target/release/bundle/macos/*.dmg || true; rm -f src-tauri/target/release/bundle/macos/rw.*.dmg || true; npm run tauri:build && ../../scripts/build_set_dmg_volume_icon.sh && ../../scripts/build_rename_tauri_dmg_artifacts.sh",
     "tauri:build:linux": "npm run tauri:build -- --bundles deb,appimage",
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",

@@ -17,7 +17,7 @@
 }
 
 .history-table__th--title {
-  padding-left: calc(28px + 0.25rem);
+  padding-left: calc(28px + var(--table-icon-title-gap));
 }
 
 .history-table__td--title {
@@ -54,7 +54,7 @@
 .history-table__title-row {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: var(--table-icon-title-gap);
   line-height: 1;
   margin: 0;
 }
@@ -85,7 +85,7 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  padding-left: calc(28px + 0.25rem);
+  padding-left: calc(28px + var(--table-icon-title-gap));
   margin: 0;
   padding-top: 0;
   padding-bottom: var(--space-sm);
@@ -113,7 +113,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 0.25rem;
+  gap: var(--space-xs);
 }
 
 .history-table__action-btn--danger:hover {

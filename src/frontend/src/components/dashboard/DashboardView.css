@@ -496,7 +496,7 @@ html[data-accent='canvas'] .dashboard-errors-modal {
 .dashboard__recent-row {
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  gap: var(--table-icon-title-gap);
   padding: 0.5rem 0.75rem;
   border-bottom: 1px solid var(--color-border-subtle);
   font-size: var(--font-size-sm);
