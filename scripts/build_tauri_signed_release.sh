@@ -65,6 +65,13 @@ if [[ -z "$DMG_PATH" ]]; then
   exit 1
 fi
 
+DMG_DIR="$(dirname "$DMG_PATH")"
+DMG_BASENAME="$(basename "$DMG_PATH")"
+LATEST_DMG_NAME=""
+if [[ "$DMG_BASENAME" =~ ^Informity_AI_[0-9]+\.[0-9]+\.[0-9]+_arm64\.dmg$ ]]; then
+  LATEST_DMG_NAME="Informity_AI_latest_aarch64.dmg"
+fi
+
 echo "Notarizing app: $APP_PATH"
 rm -f "$APP_ZIP_PATH"
 ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "$APP_ZIP_PATH"
@@ -95,6 +102,16 @@ echo "Verifying Gatekeeper acceptance..."
 spctl -a -t exec -vv "$APP_PATH"
 spctl -a -t open --context context:primary-signature -vv "$DMG_PATH"
 
+if [[ -n "$LATEST_DMG_NAME" ]]; then
+  cp -f "$DMG_PATH" "$DMG_DIR/$LATEST_DMG_NAME"
+  echo "Created latest DMG alias: $DMG_DIR/$LATEST_DMG_NAME"
+else
+  echo "Skipped latest DMG alias copy: DMG name does not match expected versioned arm64 pattern."
+fi
+
 echo "Signed + notarized release artifacts ready:"
 echo "  APP: $APP_PATH"
 echo "  DMG: $DMG_PATH"
+if [[ -n "$LATEST_DMG_NAME" ]]; then
+  echo "  DMG (latest alias): $DMG_DIR/$LATEST_DMG_NAME"
+fi
