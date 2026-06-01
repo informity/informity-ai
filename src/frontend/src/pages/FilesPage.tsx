@@ -229,6 +229,17 @@ export function FilesPage() {
     })
   }, [navigate])
 
+  const handleTranslateFile = useCallback((file: IndexedFile) => {
+    if (!file?.id) return
+    navigate('/translate', {
+      state: {
+        scopedFileId: file.id,
+        scopedFileName: file.filename,
+        scopedFileSourceProvider: 'filesystem',
+      },
+    })
+  }, [navigate])
+
   const handleReindex = useCallback(
     async (file: IndexedFile) => {
       if (!file?.id) return
@@ -324,6 +335,7 @@ export function FilesPage() {
                   onPageChange={handlePageChange}
                   onSelectFile={handleSelectFile}
                   onChatAboutFile={handleChatAboutFile}
+                  onTranslate={import.meta.env.DEV ? handleTranslateFile : undefined}
                   onReindex={handleReindex}
                   onRemove={handleRemove}
                   selectedFileId={selectedFileId}

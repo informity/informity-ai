@@ -1,9 +1,11 @@
+@import 'flag-icons/css/flag-icons.min.css';
 @import './styles/shared/cards.css';
 @import './styles/shared/buttons.css';
 @import './styles/shared/filters.css';
 @import './styles/shared/sections.css';
 @import './styles/shared/tables.css';
 @import './styles/shared/tooltips.css';
+@import './styles/shared/composer.css';
 
 :root {
   font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;

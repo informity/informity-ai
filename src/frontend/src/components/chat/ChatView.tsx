@@ -1162,13 +1162,13 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
 
               <div
                 className={
-                  `chat-view__input-area${isCenteredComposer ? ' chat-view__input-area--centered' : ''}${animateToDocked ? ' chat-view__input-area--docking' : ''}`
+                  `chat-view__input-area composer-wrap${isCenteredComposer ? ' chat-view__input-area--centered' : ''}${animateToDocked ? ' chat-view__input-area--docking composer-wrap--docking' : ''}`
                 }
               >
                 {error && <div className="chat-view__error">{error}</div>}
                 <div
                   className={
-                    `chat-view__input-wrapper${textareaCanScroll ? ' chat-view__input-wrapper--scrollable' : ''}${textareaHasTopScroll ? ' chat-view__input-wrapper--top-scrolled' : ''}${hasScopedInputPill ? ' chat-view__input-wrapper--scoped' : ''}${isDragOverComposer ? ' chat-view__input-wrapper--drag-active' : ''}`
+                    `chat-view__input-wrapper composer__input-wrapper${textareaCanScroll ? ' chat-view__input-wrapper--scrollable composer__input-wrapper--scrollable' : ''}${textareaHasTopScroll ? ' chat-view__input-wrapper--top-scrolled composer__input-wrapper--top-scrolled' : ''}${hasScopedInputPill ? ' chat-view__input-wrapper--scoped composer__input-wrapper--scoped' : ''}${isDragOverComposer ? ' chat-view__input-wrapper--drag-active composer__input-wrapper--drag-active' : ''}`
                   }
                   onDragEnter={handleComposerDragEnter}
                   onDragOver={handleComposerDragOver}
@@ -1293,7 +1293,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                   )}
                   <textarea
                     ref={textareaRef}
-                    className={`chat-view__textarea${hasScopedInputPill ? ' chat-view__textarea--scoped' : ''}`}
+                    className={`chat-view__textarea composer__textarea${hasScopedInputPill ? ' chat-view__textarea--scoped composer__textarea--scoped' : ''}`}
                     placeholder={
                       offline
                         ? 'Service unavailable'
@@ -1311,7 +1311,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                     rows={1}
                     disabled={offline || isStreaming}
                   />
-                  <div className="chat-view__controls-row">
+                  <div className="chat-view__controls-row composer__controls-row">
                     <div className="chat-view__controls-left">
                       {effectiveChatMode === 'researcher' && !chatFileScope && (
                         <button
@@ -1493,7 +1493,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       ) : (
                         <button
                           type="button"
-                          className="chat-view__send"
+                          className="chat-view__send composer__send composer__send--active"
                           onClick={handleSend}
                           disabled={offline || !inputValue.trim()}
                           title="Send (Enter)"

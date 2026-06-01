@@ -2,17 +2,18 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { getScanStatus, listFileReindexOperations } from '../api'
 import { useChatContext } from '../context/useChatContext'
-import { useTranslateContext } from '../context/useTranslateContext'
+import { useOptionalTranslateContext } from '../context/useTranslateContext'
 import './Sidebar.css'
 
 const SCAN_STATUS_POLL_MS = 3000
 
 const NAV_ITEMS = [
-  { path: '/chat', label: 'Chat', icon: 'ri-chat-ai-4-line' },
-  { path: '/history', label: 'History', icon: 'ri-history-line' },
-  { path: '/files', label: 'Files', icon: 'ri-folder-line' },
-  { path: '/dashboard', label: 'Dashboard', icon: 'ri-layout-grid-line' },
-  { path: '/settings', label: 'Settings', icon: 'ri-settings-3-line' },
+  { path: '/chat',      label: 'Chat',      icon: 'ri-chat-ai-4-line',  devOnly: false },
+  { path: '/translate', label: 'Translate', icon: 'ri-translate-2',     devOnly: true  },
+  { path: '/history',   label: 'History',   icon: 'ri-history-line',    devOnly: false },
+  { path: '/files',     label: 'Files',     icon: 'ri-folder-line',     devOnly: false },
+  { path: '/dashboard', label: 'Dashboard', icon: 'ri-layout-grid-line',devOnly: false },
+  { path: '/settings',  label: 'Settings',  icon: 'ri-settings-3-line', devOnly: false },
 ]
 
 interface SidebarProps {
@@ -24,7 +25,8 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   const navigate = useNavigate()
   const { pathname } = useLocation()
   const { isStreaming } = useChatContext()
-  const { isTranslating } = useTranslateContext()
+  const translateCtx = useOptionalTranslateContext()
+  const isTranslating = translateCtx?.isTranslating ?? false
   const [isScanRunning, setIsScanRunning] = useState(false)
   const [isFileReindexRunning, setIsFileReindexRunning] = useState(false)
 
@@ -95,57 +97,41 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
       </div>
 
       <nav className="sidebar__nav">
-        {NAV_ITEMS.map(({ path, label, icon }) => (
-          <button
-            key={path}
-            type="button"
-            className={`sidebar__link ${pathname === path ? 'sidebar__link--active' : ''}`}
-            onClick={() => navigate(path)}
-            aria-current={pathname === path ? 'page' : undefined}
-          >
-            <i className={`${icon} sidebar__icon`} aria-hidden />
-            {!collapsed && (
-              <span className="sidebar__label">
-                <span>{label}</span>
-                {(path === '/chat' && isStreaming)
-                  || (path === '/dashboard' && isScanRunning)
-                  || (path === '/files' && isFileReindexRunning) ? (
-                  <span className="sidebar__status-slot">
-                    <span
-                      className="sidebar__status"
-                      aria-live="polite"
-                      aria-label={path === '/chat' ? 'Generating' : path === '/dashboard' ? 'Scanning' : 'Indexing'}
-                    >
-                      <i className="ri-loader-4-line sidebar__status-spinner" aria-hidden />
+        {NAV_ITEMS.filter(({ devOnly }) => !devOnly || import.meta.env.DEV).map(({ path, label, icon }) => {
+          const showSpinner =
+            (path === '/chat' && isStreaming)
+            || (path === '/dashboard' && isScanRunning)
+            || (path === '/files' && isFileReindexRunning)
+            || (path === '/translate' && isTranslating)
+          const spinnerLabel =
+            path === '/chat' ? 'Generating'
+            : path === '/dashboard' ? 'Scanning'
+            : path === '/files' ? 'Indexing'
+            : 'Translating'
+          return (
+            <button
+              key={path}
+              type="button"
+              className={`sidebar__link ${pathname === path ? 'sidebar__link--active' : ''}`}
+              onClick={() => navigate(path)}
+              aria-current={pathname === path ? 'page' : undefined}
+            >
+              <i className={`${icon} sidebar__icon`} aria-hidden />
+              {!collapsed && (
+                <span className="sidebar__label">
+                  <span>{label}</span>
+                  {showSpinner ? (
+                    <span className="sidebar__status-slot">
+                      <span className="sidebar__status" aria-live="polite" aria-label={spinnerLabel}>
+                        <i className="ri-loader-4-line sidebar__status-spinner" aria-hidden />
+                      </span>
                     </span>
-                  </span>
-                ) : null}
-              </span>
-            )}
-          </button>
-        ))}
-        {import.meta.env.DEV && (
-          <button
-            type="button"
-            className={`sidebar__link ${pathname === '/translate' ? 'sidebar__link--active' : ''}`}
-            onClick={() => navigate('/translate')}
-            aria-current={pathname === '/translate' ? 'page' : undefined}
-          >
-            <i className="ri-translate-2 sidebar__icon" aria-hidden />
-            {!collapsed && (
-              <span className="sidebar__label">
-                <span>Translate</span>
-                {isTranslating ? (
-                  <span className="sidebar__status-slot">
-                    <span className="sidebar__status" aria-live="polite" aria-label="Translating">
-                      <i className="ri-loader-4-line sidebar__status-spinner" aria-hidden />
-                    </span>
-                  </span>
-                ) : null}
-              </span>
-            )}
-          </button>
-        )}
+                  ) : null}
+                </span>
+              )}
+            </button>
+          )
+        })}
       </nav>
     </aside>
   )

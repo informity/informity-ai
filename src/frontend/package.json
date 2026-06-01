@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@tauri-apps/plugin-dialog": "^2.4.0",
+    "flag-icons": "^7.5.0",
     "highlight.js": "^11.11.1",
     "katex": "^0.16.46",
     "react": "^19.2.0",

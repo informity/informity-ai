@@ -28,6 +28,7 @@ interface FileTableProps {
   onPageChange?: (offset: number) => void
   onSelectFile?: (file: IndexedFile) => void
   onChatAboutFile?: (file: IndexedFile) => void
+  onTranslate?: (file: IndexedFile) => void
   onReindex?: (file: IndexedFile) => void
   onRemove?: (file: IndexedFile, e: React.MouseEvent) => void
   selectedFileId?: number | null
@@ -46,6 +47,7 @@ export function FileTable({
   onPageChange,
   onSelectFile,
   onChatAboutFile,
+  onTranslate,
   onReindex,
   onRemove,
   selectedFileId = null,
@@ -218,6 +220,20 @@ export function FileTable({
                         </button>
                         <span className="data-table__action-tooltip ui-tooltip ui-tooltip--nowrap">Chat with this file</span>
                       </span>
+                      {onTranslate && (
+                        <span className="data-table__action-wrap ui-tooltip-trigger">
+                          <button
+                            type="button"
+                            className="file-table__action-btn data-table__action-btn"
+                            onClick={() => onTranslate(file)}
+                            disabled={offline}
+                            title="Translate this file"
+                          >
+                            <i className="ri-translate-2" aria-hidden style={{ fontSize: '0.875rem' }} />
+                          </button>
+                          <span className="data-table__action-tooltip ui-tooltip ui-tooltip--nowrap">Translate this file</span>
+                        </span>
+                      )}
                       <span className="data-table__action-wrap ui-tooltip-trigger">
                         <button
                           type="button"
