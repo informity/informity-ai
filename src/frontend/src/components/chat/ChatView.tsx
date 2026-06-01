@@ -802,6 +802,25 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     }
   }, [contextChatId, isStreaming, offline])
 
+  const handleExportAnswerText = useCallback(async (messageId?: number) => {
+    if (offline || isStreaming) return
+    if (!contextChatId) return
+    try {
+      const payload = await exportChatMarkdown(contextChatId, {
+        scope: 'current_answer',
+        messageId,
+        includeFrontmatter: false,
+        template: 'concise_summary',
+      })
+      const txtFilename = String(payload.filename || 'answer').replace(/\.md$/, '') + '.txt'
+      downloadTextFile(txtFilename, markdownToPlainText(payload.markdown))
+      showToast('success', 'Answer exported as plain text.')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to export answer.'
+      showToast('error', msg)
+    }
+  }, [contextChatId, isStreaming, offline])
+
   useEffect(() => {
     const handleNewChatEvent = () => handleNewChat()
     window.addEventListener('new-chat', handleNewChatEvent)
@@ -1180,6 +1199,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       onRegenerate={() => handleRegenerate(i)}
                       onAssistantSwitch={hideAssistantSwitch ? undefined : (() => handleAskInAssistant(i))}
                       onExport={handleExportAnswer}
+                      onExportText={handleExportAnswerText}
                       canEdit={
                         i === lastEditableUserMessageIndex
                         && !offline
@@ -1457,15 +1477,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       )}
                     </div>
                     <div className="chat-view__controls-right">
-                      {isTranslating && (
-                        <button
-                          type="button"
-                          className="chat-view__busy-hint"
-                          onClick={() => translateCtx?.cancelTranslation()}
-                        >
-                          Stop translation ·
-                        </button>
-                      )}
                       <div ref={modeMenuRef} className="chat-view__mode-selector">
                         <button
                           type="button"
@@ -1535,13 +1546,24 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                         >
                           <i className="ri-stop-circle-line" aria-hidden style={{ fontSize: '1.125rem' }} />
                         </button>
+                      ) : isTranslating ? (
+                        <button
+                          type="button"
+                          className="chat-view__send chat-view__send--busy"
+                          onClick={() => translateCtx?.cancelTranslation()}
+                          title="Stop translation"
+                          aria-label="Stop translation"
+                        >
+                          <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1rem' }} />
+                          <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>Stop translation</span>
+                        </button>
                       ) : (
                         <button
                           type="button"
                           className="chat-view__send"
                           onClick={handleSend}
-                          disabled={offline || !inputValue.trim() || isTranslating}
-                          title={isTranslating ? 'Stop translation to send' : 'Send (Enter)'}
+                          disabled={offline || !inputValue.trim()}
+                          title="Send (Enter)"
                           aria-label="Send message"
                         >
                           <i className="ri-arrow-up-line" aria-hidden style={{ fontSize: '1.125rem' }} />

@@ -57,6 +57,7 @@ interface ChatMessageProps {
   onRegenerate?: () => void
   onAssistantSwitch?: () => void
   onExport?: (messageId?: number) => void
+  onExportText?: (messageId?: number) => void
   canEdit?: boolean
   onEditSubmit?: (text: string) => void | Promise<void>
   onEditCancel?: () => void
@@ -96,6 +97,7 @@ function ChatMessageComponent({
   onRegenerate,
   onAssistantSwitch,
   onExport,
+  onExportText,
   canEdit = false,
   onEditSubmit,
   onEditCancel,
@@ -573,8 +575,20 @@ function ChatMessageComponent({
                 className="chat-message__copy-full"
                 onClick={() => onExport?.(messageId)}
                 disabled={actionsDisabled}
-                title="Export answer as Markdown"
-                aria-label="Export answer as Markdown"
+                title="Export as Markdown"
+                aria-label="Export as Markdown"
+              >
+                <i className="ri-markdown-line" aria-hidden style={{ fontSize: '0.875rem' }} />
+              </button>
+            )}
+            {!isUser && hasVisibleContent && onExportText && (
+              <button
+                type="button"
+                className="chat-message__copy-full"
+                onClick={() => onExportText?.(messageId)}
+                disabled={actionsDisabled}
+                title="Export as plain text"
+                aria-label="Export as plain text"
               >
                 <i className="ri-download-line" aria-hidden style={{ fontSize: '0.875rem' }} />
               </button>
@@ -676,6 +690,7 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.onRegenerate === next.onRegenerate &&
     prev.onAssistantSwitch === next.onAssistantSwitch &&
     prev.onExport === next.onExport &&
+    prev.onExportText === next.onExportText &&
     prev.canEdit === next.canEdit &&
     prev.onEditSubmit === next.onEditSubmit &&
     prev.onEditCancel === next.onEditCancel &&

@@ -98,7 +98,7 @@ export function TranslatePage() {
   const resultsContainerRef = useRef<HTMLDivElement>(null)
 
   const selectedLang = LANGUAGE_OPTIONS.find(l => l.label === targetLanguage) ?? LANGUAGE_OPTIONS.find(l => l.label === 'Spanish')!
-  const canTranslate = !!fileId && !isTranslating && !isStreaming
+  const canTranslate = !!fileId && !isTranslating && !isStreaming  // button morphs to Stop when streaming/translating
 
   // Load default language from settings
   useEffect(() => {
@@ -530,17 +530,6 @@ export function TranslatePage() {
               {/* RIGHT: language selector, translate/stop button */}
               <div className="composer__controls-right">
 
-                {/* Inline hint when chat is streaming — no warning box, stays in controls row */}
-                {isStreaming && (
-                  <button
-                    type="button"
-                    className="chat-view__busy-hint"
-                    onClick={() => void stopStreaming()}
-                  >
-                    Stop chat ·
-                  </button>
-                )}
-
                 {/* Language selector — mirrors chat-view__mode-selector */}
                 <div ref={langMenuRef} className="translate-page__mode-selector">
                   <button
@@ -576,12 +565,24 @@ export function TranslatePage() {
                 {isTranslating ? (
                   <button
                     type="button"
-                    className="translate-page__send"
+                    className="translate-page__send translate-page__send--busy"
                     onClick={cancelTranslation}
                     title="Stop translation"
                     aria-label="Stop translation"
                   >
-                    <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1.125rem' }} />
+                    <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1rem' }} />
+                    <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>Stop</span>
+                  </button>
+                ) : isStreaming ? (
+                  <button
+                    type="button"
+                    className="translate-page__send translate-page__send--busy"
+                    onClick={() => void stopStreaming()}
+                    title="Stop chat to translate"
+                    aria-label="Stop chat"
+                  >
+                    <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1rem' }} />
+                    <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>Stop chat</span>
                   </button>
                 ) : (
                   <button
@@ -589,7 +590,7 @@ export function TranslatePage() {
                     className="translate-page__send"
                     disabled={!canTranslate}
                     onClick={() => void handleTranslate()}
-                    title={canTranslate ? 'Translate (⌘↵)' : isStreaming ? 'LLM busy' : 'Select a file first'}
+                    title={canTranslate ? 'Translate (⌘↵)' : 'Select a file first'}
                     aria-label="Translate"
                   >
                     <i className="ri-translate-2" aria-hidden style={{ fontSize: '1.125rem' }} />

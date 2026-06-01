@@ -651,6 +651,12 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
   border-color: var(--color-border);
 }
 
+/* Send button morphed into "Stop [action]" — wider to fit text label */
+.chat-view__send--busy {
+  gap: var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+}
+
 .chat-view__controls-row {
   position: absolute;
   left: var(--chat-view-controls-left-inset);

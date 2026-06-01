@@ -342,6 +342,12 @@
 
 .translate-page__send:disabled { opacity: 0.5; cursor: not-allowed; }
 
+/* Send morphed to Stop — wider to fit icon + text label */
+.translate-page__send--busy {
+  gap: var(--space-xs);
+  padding: var(--space-xxs) var(--space-sm);
+}
+
 /* Tone trigger wrapper */
 .translate-page__options-trigger { position: relative; z-index: 9; }
 
@@ -420,10 +426,16 @@
   overflow-y: auto;
 }
 
-/* Tone menu — left-anchored, sized to content (same approach as export menu) */
+/* Tone menu — left-anchored, sized to content */
 .translate-page__mode-menu--left {
   right: auto;
   left: 0;
+  min-width: 0;
+  width: max-content;
+}
+
+/* Language menu — sized to content, not forced to button width */
+.translate-page__mode-selector .translate-page__mode-menu {
   min-width: 0;
   width: max-content;
 }
