@@ -89,12 +89,17 @@
 
 .translate-run__section--streaming { display: flex; align-items: center; gap: var(--space-sm); min-height: 1.5rem; }
 
+/* Blinking cursor — matches chat-message__cursor: same step-end animation, currentColor */
 .translate-run__cursor {
-  display: inline-block; width: 2px; height: 1.1em;
-  background: var(--color-accent); border-radius: 1px;
-  animation: translate-blink 1s step-end infinite; flex-shrink: 0;
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  background: currentColor;
+  animation: chat-message-blink 1s step-end infinite;
+  vertical-align: text-bottom;
+  flex-shrink: 0;
 }
-@keyframes translate-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 
 .translate-run__progress { font-size: var(--font-size-sm); color: var(--color-text-muted); }
 
@@ -372,7 +377,7 @@
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.translate-page__mode-button > .translate-page__mode-label { margin-right: auto; }
+/* No margin-right: auto — ▾ sits immediately after the label text */
 
 .translate-page__mode-button:hover:not(:disabled) {
   background: var(--translate-page-toggle-hover-bg);

@@ -38,6 +38,12 @@ const LANGUAGE_OPTIONS: LanguageOption[] = [
 const TONES = ['natural', 'formal', 'literal'] as const
 type Tone = typeof TONES[number]
 
+const TONE_ICONS: Record<Tone, string> = {
+  natural: 'ri-leaf-line',      // organic, flowing
+  formal:  'ri-building-line',  // professional/institutional
+  literal: 'ri-brackets-line',  // exact/precise syntax
+}
+
 interface RunRecord {
   sections: TranslateSection[]
   language: string
@@ -186,14 +192,12 @@ export function TranslatePage() {
     }
   }, [jobStatus])
 
-  // Scroll to bottom after every run update so the Section X/Y indicator stays visible.
-  // useLayoutEffect fires after DOM commits (new section content is present) but before paint,
-  // ensuring scrollTop = scrollHeight sees the fully updated DOM height.
+  // Scroll to bottom after run updates AND when job completes (footer appears).
+  // useLayoutEffect fires after DOM commits so scrollHeight is accurate.
   useLayoutEffect(() => {
-    if (!isTranslating) return
     const el = resultsContainerRef.current
-    if (el) el.scrollTop = el.scrollHeight
-  }, [runs, isTranslating])
+    if (el && (isTranslating || jobStatus === 'done')) el.scrollTop = el.scrollHeight
+  }, [runs, isTranslating, jobStatus])
 
   // Close export menu on outside click
   useEffect(() => {
@@ -426,7 +430,7 @@ export function TranslatePage() {
           {/* Input wrapper — uses shared composer__ classes (globally loaded via index.css) */}
           <div
             ref={inputWrapperRef}
-            className={`composer__input-wrapper${fileId ? ' composer__input-wrapper--scoped' : ''}`}
+            className={`composer__input-wrapper${(fileId || uploadLoading) ? ' composer__input-wrapper--scoped' : ''}`}
           >
             {/* Hidden file input */}
             <input
@@ -466,7 +470,7 @@ export function TranslatePage() {
             {/* Textarea — uses shared composer__textarea */}
             <textarea
               ref={textareaRef}
-              className={`composer__textarea${fileId ? ' composer__textarea--scoped' : ''}`}
+              className={`composer__textarea${(fileId || uploadLoading) ? ' composer__textarea--scoped' : ''}`}
               rows={1}
               placeholder={translatePlaceholder}
               value={steering}
@@ -523,7 +527,8 @@ export function TranslatePage() {
                           className={`translate-page__mode-option${tone === t ? ' translate-page__mode-option--active' : ''}`}
                           onClick={() => { setTone(t); setMenuOpen(null) }}
                         >
-                          {t.charAt(0).toUpperCase() + t.slice(1)}
+                          <i className={TONE_ICONS[t]} aria-hidden />
+                          {capitalize(t)}
                         </button>
                       ))}
                     </div>

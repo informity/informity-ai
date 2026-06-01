@@ -443,9 +443,7 @@ function ChatMessageComponent({
               <div className="chat-message__markdown">
                 {showBouncingDots ? (
                   <span className="chat-message__typing-indicator" aria-label="Thinking">
-                    <span className="chat-message__typing-dot" />
-                    <span className="chat-message__typing-dot" />
-                    <span className="chat-message__typing-dot" />
+                    <span className="chat-message__cursor" />
                     {streamStatusText && (
                       <span className="chat-message__typing-status">
                         <span>{streamStatusText}</span>

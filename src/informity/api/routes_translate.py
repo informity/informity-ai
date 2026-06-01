@@ -228,7 +228,13 @@ async def get_translate_job_status(
 
 
 @router.delete('/api/translate/jobs/{job_id}')
-async def cancel_translate_job(job_id: str) -> dict:
+async def cancel_translate_job(
+    job_id: str,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> dict:
+    # Mark cancelled in DB so the worker stops between sections
+    await update_translate_job(db, job_id, status='stalled', error='Cancelled by user')
+    # Signal the SSE stream to close
     q = _job_queues.get(job_id)
     if q:
         await q.put(_SENTINEL)
@@ -411,6 +417,12 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                 glossary_block = _build_glossary_block(glossary_json)
 
                 for s_idx, (section, row) in enumerate(zip(sections, section_rows)):
+                    # Check for user cancellation between sections
+                    job_row = await get_translate_job(db, job_id)
+                    if job_row and str(job_row['status']) == 'stalled':
+                        log.info('translate_job_cancelled', job_id=job_id, section=s_idx)
+                        return
+
                     section_id = str(row['section_id'])
                     # Reset stall deadline at section start — active work is not a stall
                     stall_deadline = time.monotonic() + TRANSLATE_JOB_STALL_S

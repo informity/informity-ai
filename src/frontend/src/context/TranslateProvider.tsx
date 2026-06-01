@@ -114,7 +114,10 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
 
   const cancelTranslation = useCallback(() => {
     abortRef.current?.abort()
-    if (jobId) cancelTranslateJob(jobId).catch(() => { /* best-effort */ })
+    if (jobId) {
+      showToast('info', 'Stopping translation…')
+      cancelTranslateJob(jobId).catch(() => { /* best-effort */ })
+    }
     setJobStatus(null)
   }, [jobId])
 
