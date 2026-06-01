@@ -11,10 +11,12 @@ import { uploadTranslateFile, deleteTranslateUpload, getSettings } from '../api'
 import { extractErrorMessage } from '../utils/errorMessages'
 import { showToast } from '../context/useToast'
 import { resizeComposerTextarea, applyComposerScopedPadding } from '../utils/composerSizing'
+import { markdownToPlainText, downloadTextFile, downloadMarkdownFile } from '../utils/downloadHelpers'
 import type { TranslateSection } from '../api'
 import './TranslatePage.css'
 
-/** Strip raw HTML tags and convert <br> to newlines before markdown rendering. */
+/** Strip raw HTML tags and convert <br> to newlines before markdown rendering.
+ *  markdownToPlainText from downloadHelpers is used for save-as-txt export. */
 function sanitizeTranslationText(text: string): string {
   return text
     .replace(/<br\s*\/?>/gi, '\n')
@@ -252,19 +254,14 @@ export function TranslatePage() {
   }, [])
 
   const handleSaveRun = useCallback((run: RunRecord, fmt: 'md' | 'txt') => {
-    let content = run.sections.map(s => s.text).join('\n\n')
-    if (fmt === 'txt') {
-      content = content
-        .replace(/^#{1,6}\s+/gm, '').replace(/\*\*(.+?)\*\*/gs, '$1')
-        .replace(/[*_]{1,2}(.+?)[*_]{1,2}/gs, '$1')
-    }
-    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
+    const markdown = run.sections.map(s => s.text).join('\n\n')
     const base = run.fileLabel.replace(/\.[^.]+$/, '')
     const lang = run.language.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-    a.href = url; a.download = `${base}.${lang}.${fmt}`
-    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
+    if (fmt === 'txt') {
+      downloadTextFile(`${base}.${lang}.txt`, markdownToPlainText(markdown))
+    } else {
+      downloadMarkdownFile(`${base}.${lang}.md`, markdown)
+    }
   }, [])
 
   const subtitle = 'Translate a document. Select from your indexed files or upload.'

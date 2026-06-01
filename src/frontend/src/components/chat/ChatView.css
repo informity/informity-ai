@@ -263,6 +263,17 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
   border-radius: var(--border-radius-md);
 }
 
+.chat-view__error-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+  font-weight: var(--font-weight-heading);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
 .chat-view__auto-continue-status {
   display: inline-flex;
   align-items: center;

@@ -567,6 +567,18 @@ function ChatMessageComponent({
                 </button>
               )
             )}
+            {!isUser && hasVisibleContent && onExport && (
+              <button
+                type="button"
+                className="chat-message__copy-full"
+                onClick={() => onExport?.(messageId)}
+                disabled={actionsDisabled}
+                title="Export answer as Markdown"
+                aria-label="Export answer as Markdown"
+              >
+                <i className="ri-download-line" aria-hidden style={{ fontSize: '0.875rem' }} />
+              </button>
+            )}
             {((isUser && safeContent) || (!isUser && hasVisibleContent)) && (
               <button
                 type="button"
@@ -577,18 +589,6 @@ function ChatMessageComponent({
                 aria-label="Copy message"
               >
                 {copied ? <i className="ri-check-line" aria-hidden style={{ fontSize: '0.875rem' }} /> : <i className="ri-file-copy-line" aria-hidden style={{ fontSize: '0.875rem' }} />}
-              </button>
-            )}
-            {!isUser && hasVisibleContent && onExport && (
-              <button
-                type="button"
-                className="chat-message__copy-full"
-                onClick={() => onExport?.(messageId)}
-                disabled={actionsDisabled}
-                title="Export answer as Markdown"
-                aria-label="Export answer as Markdown"
-              >
-                <i className="ri-download-2-line" aria-hidden style={{ fontSize: '0.875rem' }} />
               </button>
             )}
           </div>
