@@ -6,7 +6,7 @@
 .file-detail {
   position: fixed;
   inset: 0;
-  z-index: 2000;
+  z-index: var(--z-dialog);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -307,13 +307,7 @@ html[data-accent='canvas'] .file-detail__panel {
 }
 
 .file-detail__spinner {
-  animation: file-detail-spin 1s linear infinite;
-}
-
-@keyframes file-detail-spin {
-  100% {
-    transform: rotate(360deg);
-  }
+  animation: spin 1s linear infinite;
 }
 
 .file-detail__btn--secondary {

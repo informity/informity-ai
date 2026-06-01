@@ -725,16 +725,11 @@ html:not([data-accent='canvas']) .chat-message__copy-code:focus-visible {
   width: 2px;
   height: 1em;
   margin-left: 2px;
-  background: currentColor;
-  animation: chat-message-blink 1s step-end infinite;
+  background: var(--color-accent);
+  animation: cursor-blink 1s step-end infinite;
   vertical-align: text-bottom;
 }
 
-@keyframes chat-message-blink {
-  50% {
-    opacity: 0;
-  }
-}
 
 .chat-message__sources {
   user-select: none;
@@ -1021,6 +1016,49 @@ html[data-accent='canvas'] .chat-message--assistant .chat-message__actions {
 .chat-message__copy-full:hover {
   opacity: 1;
   background: rgba(255, 255, 255, 0.05);
+}
+
+/* Export dropdown — same pattern as translate's export trigger */
+.chat-message__export-trigger {
+  position: relative;
+}
+
+.chat-message__export-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.25rem);
+  padding: 0.25rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background: var(--color-bg-elevated);
+  box-shadow: var(--shadow-menu, var(--shadow-md));
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+  z-index: var(--z-overlay);
+  min-width: 8rem;
+}
+
+.chat-message__export-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-dimmed);
+  text-align: left;
+  border-radius: var(--border-radius-sm);
+  padding: 0.3rem 0.75rem;
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.chat-message__export-option:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
 }
 
 /* Formula card typography tuning: align spacing and typography with code cards. */

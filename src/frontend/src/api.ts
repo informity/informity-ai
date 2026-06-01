@@ -853,3 +853,154 @@ export async function removeModel(modelFilename: string): Promise<ModelActionRes
 export async function getModelOperationEvents(): Promise<ModelOperationEventResponse> {
   return request<ModelOperationEventResponse>('GET', '/api/models/events')
 }
+
+// =============================================================================
+// Translate API
+// =============================================================================
+
+export interface TranslateSection {
+  section_index: number
+  section_title: string | null
+  text: string
+}
+
+export interface TranslateJobStatus {
+  job_id: string
+  file_id: number
+  target_language: string
+  tone: string
+  output_mode: string
+  status: 'queued' | 'running' | 'done' | 'failed' | 'stalled'
+  glossary_json: string | null
+  section_count: number | null
+  completed_sections: number
+  failed_sections: number
+  error: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface TranslateEstimate {
+  page_count: number
+  token_estimate: number
+  section_count_estimate: number
+  estimated_minutes: number
+  exceeds_soft_limit: boolean
+}
+
+export interface TranslateUploadResponse {
+  file_id: number
+  filename: string
+  page_count: number | null
+  size_bytes: number
+}
+
+export async function uploadTranslateFile(file: File): Promise<TranslateUploadResponse> {
+  const formData = new FormData()
+  formData.append('file', file)
+  const sessionToken = getSessionToken()
+  const response = await fetch(`${getApiBase()}/api/translate/upload`, {
+    method: 'POST',
+    headers: sessionToken ? { 'X-Informity-Session': sessionToken } : {},
+    body: formData,
+  })
+  if (!response.ok) {
+    const detail = await extractErrorDetail(response)
+    throw new ApiError(detail || `Upload failed: HTTP ${response.status}`, response.status, detail)
+  }
+  return response.json()
+}
+
+export async function deleteTranslateUpload(fileId: number): Promise<void> {
+  await request('DELETE', `/api/translate/upload/${fileId}`)
+}
+
+export async function createTranslateJob(params: {
+  file_id: number
+  target_language: string
+  tone: string
+}): Promise<{ job_id: string }> {
+  return request<{ job_id: string }>('POST', '/api/translate/jobs', { body: params })
+}
+
+export async function getTranslateJob(jobId: string): Promise<TranslateJobStatus> {
+  return request<TranslateJobStatus>('GET', `/api/translate/jobs/${jobId}`)
+}
+
+export async function cancelTranslateJob(jobId: string): Promise<void> {
+  await request('DELETE', `/api/translate/jobs/${jobId}`)
+}
+
+export async function estimateTranslateJob(fileId: number): Promise<TranslateEstimate> {
+  return request<TranslateEstimate>('POST', '/api/translate/jobs/estimate', { body: { file_id: fileId } })
+}
+
+export interface TranslateJobCallbacks {
+  onGlossaryDone?: (termCount: number) => void
+  onSectionsReady?: (sectionCount: number) => void
+  onSectionStarted?: (sectionIndex: number, title: string | null) => void
+  onSectionDone?: (section: TranslateSection) => void
+  onSectionFailed?: (sectionIndex: number, error: string) => void
+  onJobDone?: (completedSections: number, failedSections: number) => void
+  onJobFailed?: (error: string) => void
+  onJobStalled?: () => void
+  signal?: AbortSignal
+}
+
+export async function streamTranslateJob(jobId: string, callbacks: TranslateJobCallbacks): Promise<void> {
+  const { onGlossaryDone, onSectionsReady, onSectionStarted, onSectionDone,
+    onSectionFailed, onJobDone, onJobFailed, onJobStalled, signal } = callbacks
+
+  const sessionToken = getSessionToken()
+  const response = await fetch(`${getApiBase()}/api/translate/jobs/${jobId}/events`, {
+    headers: sessionToken ? { 'X-Informity-Session': sessionToken } : {},
+    signal,
+  })
+  if (!response.ok) {
+    const detail = await extractErrorDetail(response)
+    throw new ApiError(detail || `Stream failed: HTTP ${response.status}`, response.status, detail)
+  }
+
+  const reader = response.body?.getReader()
+  if (!reader) throw new ApiError('No response body', 502, '')
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let currentEvent = ''
+  const currentData: string[] = []
+
+  const dispatch = (event: string, raw: string) => {
+    try {
+      const data = JSON.parse(raw)
+      if (event === 'glossary_done') onGlossaryDone?.(data.term_count ?? 0)
+      else if (event === 'sections_ready') onSectionsReady?.(data.section_count ?? 0)
+      else if (event === 'section_started') onSectionStarted?.(data.section_index, data.section_title ?? null)
+      else if (event === 'section_done') onSectionDone?.({ section_index: data.section_index, section_title: data.section_title ?? null, text: data.text ?? '' })
+      else if (event === 'section_failed') onSectionFailed?.(data.section_index, data.error ?? 'unknown')
+      else if (event === 'job_done') onJobDone?.(data.completed_sections ?? 0, data.failed_sections ?? 0)
+      else if (event === 'job_failed') onJobFailed?.(data.error ?? 'Translation failed')
+      else if (event === 'job_stalled') onJobStalled?.()
+    } catch { /* ignore parse errors */ }
+  }
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+    for (const line of lines) {
+      const clean = line.replace(/\r$/, '')
+      if (clean.startsWith('event:')) {
+        if (currentData.length > 0 && currentEvent) dispatch(currentEvent, currentData.join('\n').trim())
+        currentData.length = 0
+        currentEvent = clean.slice(6).trim()
+      } else if (clean.startsWith('data:')) {
+        currentData.push(clean.slice(5).replace(/^ /, ''))
+      } else if (clean === '') {
+        if (currentData.length > 0 && currentEvent) dispatch(currentEvent, currentData.join('\n').trim())
+        currentData.length = 0
+      }
+    }
+  }
+  if (currentData.length > 0 && currentEvent) dispatch(currentEvent, currentData.join('\n').trim())
+}

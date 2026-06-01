@@ -1,0 +1,461 @@
+/* =============================================================================
+   TranslatePage — mirrors ChatView design language.
+   Uses chat-view__* classes for the composer area (textarea, chip, controls row,
+   send button) so appearance is pixel-identical to Chat.
+   Translate-specific classes only for things Chat doesn't have:
+   mode-selector, mode-menu, icon-btn, flag, and the result area above.
+   ============================================================================= */
+
+/* Page shell — same top/side padding as .page so PageHeader aligns with other pages */
+.translate-page {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  width: 100%;
+  padding: var(--space-md) var(--space-xl) 0;
+
+  /* composer__ variables are defined globally in composer.css — nothing to redeclare here */
+
+  /* Mirror chat-view's design tokens so icon buttons and menus match exactly */
+  --translate-page-control-min-size:  var(--composer-control-min-size);
+  --translate-page-mode-emphasis:     var(--color-text-dimmed);   /* = chat-view-mode-emphasis */
+  --translate-page-toggle-hover-bg:   var(--color-bg-hover);      /* = chat-view-toggle-hover-bg */
+  --translate-page-toggle-active-bg:  var(--color-bg-hover);      /* = chat-view-toggle-active-bg */
+  --translate-page-control-bg:        var(--composer-control-bg);
+  --translate-page-control-fg:        var(--composer-control-fg);
+  --translate-page-control-border:    var(--composer-control-border);
+}
+
+/* Body — flex column */
+.translate-page__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 0;
+  overflow: hidden;
+  width: 100%;
+}
+
+/* Centered state: hide results, center composer vertically */
+.translate-page__body--centered .translate-results {
+  display: none;
+}
+
+.translate-page__body--centered {
+  justify-content: center;
+}
+
+/* No margin-bottom — justify-content:center without offset aligns to Chat's position (measured) */
+
+/* --------------------------------------------------------------------------
+   Result area — scrollable, above the composer
+   -------------------------------------------------------------------------- */
+.translate-results {
+  flex: 1;
+  width: 100%;
+  max-width: 900px;
+  margin-inline: auto;
+  overflow-y: auto;
+  padding: var(--space-lg) var(--space-xl) var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2xl);
+  min-height: 0;
+  box-sizing: border-box;
+}
+
+/* Translation run */
+.translate-run { display: flex; flex-direction: column; gap: var(--space-md); }
+
+.translate-run__sections { display: flex; flex-direction: column; gap: var(--space-md); }
+
+.translate-run__section {
+  font-size: var(--font-size-base);
+  line-height: 1.7;
+  color: var(--color-text);
+}
+
+.translate-run__section h1, .translate-run__section h2,
+.translate-run__section h3, .translate-run__section h4 {
+  margin: var(--space-md) 0 var(--space-xs);
+  font-weight: var(--font-weight-heading);
+}
+
+.translate-run__section p { margin: 0 0 var(--space-sm); }
+.translate-run__section p:last-child { margin-bottom: 0; }
+
+.translate-run__section--streaming { display: flex; align-items: center; gap: var(--space-sm); min-height: 1.5rem; }
+
+/* Blinking cursor — identical to chat-message__cursor: same accent color, same animation */
+.translate-run__cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  margin-left: 2px;
+  background: var(--color-accent);
+  animation: cursor-blink 1s step-end infinite;
+  vertical-align: text-bottom;
+  flex-shrink: 0;
+}
+
+.translate-run__progress { font-size: var(--font-size-sm); color: var(--color-text-muted); }
+
+/* ── Run footer — matches feature/translate meta design ── */
+.translate-page__meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-sm);
+  margin-top: var(--space-sm);
+  padding-top: 0.375rem;
+  border-top: 1px solid var(--color-border-subtle);
+  font-size: var(--font-size-description);
+  color: var(--color-text-muted);
+}
+
+.translate-page__meta-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.translate-page__meta-item {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.translate-page__meta-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1em;
+  width: 1em;
+  height: 1em;
+  line-height: 1;
+}
+
+.translate-page__meta-sep {
+  color: var(--color-text-muted);
+  opacity: 0.7;
+  user-select: none;
+}
+
+.translate-page__meta-right {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.translate-page__meta-copy {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.translate-page__meta-copy:hover {
+  color: var(--color-text);
+  background: var(--color-bg-hover);
+}
+
+/* Export trigger — relative container for the dropdown */
+.translate-page__export-trigger {
+  position: relative;
+}
+
+/* Export dropdown anchors to the right, opens upward */
+.translate-page__mode-menu--export {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.25rem);
+  min-width: 9rem;
+  left: auto;
+  transform: none;
+}
+
+/* --------------------------------------------------------------------------
+   Composer wrap — centering shell, matches chat-view__content width + padding
+   -------------------------------------------------------------------------- */
+.translate-page__composer-wrap {
+  width: 100%;
+  max-width: 900px;
+  margin-inline: auto;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: 0 var(--space-xl) var(--space-lg);
+  box-sizing: border-box;
+}
+
+.translate-page__composer-wrap--docking {
+  animation: composer-dock 1200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+/* Disclaimer — same visual weight and spacing as Chat's disclaimer */
+.translate-page__disclaimer {
+  margin: var(--space-sm) 0 0;
+  text-align: center;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-dimmed);
+}
+
+/* Chip styles moved to composer.css as .composer__scope-chip / .composer__scope-clear */
+
+/* "New Translation" button — same style as Chat's "New Chat" button */
+.translate-page__new-btn {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 2px var(--space-sm);
+  transform: translateY(4px);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  background: transparent;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+  user-select: none;
+}
+
+.translate-page__new-btn i {
+  font-size: var(--font-size-icon);
+  width: 1.5rem;
+  text-align: center;
+}
+
+.translate-page__new-btn:hover:not(:disabled) { color: var(--color-text); }
+.translate-page__new-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Inline error / warning */
+.translate-page__error {
+  margin: 0 0 var(--space-xs);
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-warning-text, #b45309);
+  background: color-mix(in srgb, var(--color-warning-text, #b45309) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning-text, #b45309) 22%, transparent);
+  border-radius: var(--border-radius-md);
+}
+
+/* Pending upload chip — spinner only, no text, matches Chat's upload-overflow-chip--pending */
+.translate-page__pending-chip {
+  justify-content: center;
+  gap: 0;
+  padding: 0.3rem calc(var(--composer-inline-inset, 0.875rem) * 0.5);
+}
+
+/* Spinner for upload pending */
+.translate-page__spinner {
+  animation: spin 0.95s linear infinite;
+}
+
+/* --------------------------------------------------------------------------
+   Icon buttons (+ and tone) — mirror chat-view__role-button exactly
+   -------------------------------------------------------------------------- */
+.translate-page__icon-btn {
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: -3px;
+  min-width: 2rem;
+  min-height: 2rem;
+  padding: 0.375rem 0.5rem;
+  background: transparent;
+  color: var(--translate-page-mode-emphasis);
+  border: 1px solid transparent;
+  border-radius: var(--border-radius);
+  font-size: var(--font-size-base);
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.translate-page__icon-btn i { font-size: 1rem; line-height: 1; }
+
+.translate-page__icon-btn:hover:not(:disabled) {
+  background: var(--translate-page-toggle-hover-bg);
+  color: var(--color-text);
+}
+
+.translate-page__icon-btn--active {
+  background: var(--translate-page-toggle-hover-bg);
+  color: var(--color-text);
+}
+
+.translate-page__icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Send / Stop button — same base size as icon buttons, distinct border style */
+.translate-page__send {
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  height: auto;
+  min-width: var(--translate-page-control-min-size);
+  min-height: var(--translate-page-control-min-size);
+  padding: 0.375rem 0.5rem;
+  border: 1px solid var(--translate-page-control-border);
+  border-radius: var(--border-radius);
+  background: var(--translate-page-control-bg);
+  color: var(--translate-page-control-fg);
+  font-size: var(--font-size-base);
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.translate-page__send:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.translate-page__send:disabled { opacity: 0.5; cursor: not-allowed; }
+
+
+/* Tone trigger wrapper */
+.translate-page__options-trigger { position: relative; z-index: 9; }
+
+/* --------------------------------------------------------------------------
+   Language mode selector — pixel-identical to chat-view__mode-selector
+   -------------------------------------------------------------------------- */
+.translate-page__mode-selector {
+  position: relative;
+  z-index: 9;
+  transform: translateX(-4px);
+  width: 8.9rem;
+}
+
+.translate-page__mode-button {
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 0.45rem;
+  width: 100%;
+  height: auto;
+  min-height: 2.25rem;
+  padding: 0.375rem 0.5rem 0.375rem 0.875rem;
+  border: none;
+  border-radius: var(--border-radius);
+  background: transparent;
+  color: var(--translate-page-mode-emphasis);
+  font-size: var(--font-size-base);
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+/* No margin-right: auto — ▾ sits immediately after the label text */
+
+.translate-page__mode-button:hover:not(:disabled) {
+  background: var(--translate-page-toggle-hover-bg);
+  color: var(--color-text);
+}
+
+.translate-page__mode-button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Flag icon inside buttons — inline, slightly muted to match feature/translate */
+.translate-page__flag {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1rem;
+  height: 0.75rem;
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+
+/* --------------------------------------------------------------------------
+   Dropdown menus — identical to chat-view__mode-menu
+   -------------------------------------------------------------------------- */
+.translate-page__mode-menu {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.375rem);
+  min-width: 100%;
+  padding: 0.375rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  background: var(--color-bg-elevated);
+  box-shadow: var(--shadow-menu, var(--shadow-md));
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  z-index: var(--z-overlay);
+  max-height: 16rem;
+  overflow-y: auto;
+}
+
+/* Tone menu — left-anchored, sized to content */
+.translate-page__mode-menu--left {
+  right: auto;
+  left: 0;
+  min-width: 0;
+  width: max-content;
+}
+
+/* Language menu — sized to content, not forced to button width */
+.translate-page__mode-selector .translate-page__mode-menu {
+  min-width: 0;
+  width: max-content;
+}
+
+/* Dropdown option — pixel-identical to chat-view__mode-option */
+.translate-page__mode-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-dimmed);   /* same as chat-view__mode-option */
+  text-align: left;
+  border-radius: var(--border-radius-sm);
+  padding: 0.375rem 0.75rem;
+  font-size: var(--font-size-base);
+  cursor: pointer;
+  user-select: none;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.translate-page__mode-option:hover:not(:disabled) {
+  background: var(--translate-page-toggle-hover-bg);
+  color: var(--color-text);
+}
+
+/* Active — background highlight matching chat-view__mode-option--active */
+.translate-page__mode-option--active,
+.translate-page__mode-option--active:hover {
+  background: var(--translate-page-toggle-active-bg);
+  color: var(--color-text);
+  font-weight: 500;
+}

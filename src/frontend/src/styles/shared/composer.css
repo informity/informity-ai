@@ -1,0 +1,412 @@
+/* =============================================================================
+   Informity AI — Shared Composer
+   Layout and appearance shared between Chat and Translate pages.
+   Both pages produce visually identical composers; only the controls differ.
+
+   Class reference:
+     .composer-wrap              outer shell: max-width, centering
+     .composer-wrap--docking     docking animation modifier
+     .composer__chips            absolute chip row above textarea
+     .composer__chip             individual file chip
+     .composer__chip-label       chip icon + filename button
+     .composer__chip-remove      × dismiss button
+     .composer__input-wrapper    relative container: textarea + controls overlay
+     .composer__textarea         the textarea itself
+     .composer__textarea--scoped extra top padding when chip present
+     .composer__controls-row     absolute bottom row for controls
+     .composer__send             primary action button (send / translate)
+   ============================================================================= */
+
+/* --------------------------------------------------------------------------
+   Shared custom properties (inherit from the host page's root vars)
+   These match the values set on .chat-view; Translate reads from its own root.
+   -------------------------------------------------------------------------- */
+:root {
+  --composer-control-min-size:  2rem;
+  --composer-control-bg:        color-mix(in srgb, var(--color-bg-elevated) 84%, white);
+  --composer-control-fg:        color-mix(in srgb, var(--color-text) 76%, white);
+  --composer-control-border:    color-mix(in srgb, var(--color-border) 82%, white);
+  --composer-inline-inset:      0.875rem;
+  --composer-controls-left-inset: calc(var(--composer-inline-inset) + 4px);
+  --composer-scoped-top-padding:  3.25rem;   /* overridden dynamically via JS */
+  --composer-scroll-clip-bottom:  3.3rem;
+  --composer-content-max-width:   900px;
+}
+
+/* --------------------------------------------------------------------------
+   Outer wrap — max-width + centering (both pages share this width)
+   -------------------------------------------------------------------------- */
+.composer-wrap {
+  width: 100%;
+  max-width: var(--composer-content-max-width);
+  margin-inline: auto;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+  padding: 0;
+  min-width: 0;
+  overflow: visible;
+  box-sizing: border-box;
+}
+
+/* Docking animation — added for one animation cycle then removed */
+.composer-wrap--docking {
+  animation: composer-dock 1200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes composer-dock {
+  from {
+    transform: translateY(clamp(-88px, -16vh, -220px));
+    opacity: 0.96;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+/* --------------------------------------------------------------------------
+   Chip row — absolute over top of textarea
+   -------------------------------------------------------------------------- */
+.composer__chips {
+  position: absolute;
+  top: calc(var(--composer-inline-inset) + 4px);
+  left: calc(var(--composer-inline-inset) + 4px);
+  right: calc(var(--composer-inline-inset) + 4px);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: calc(0.4rem + 2px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 0.15rem;
+  scrollbar-width: thin;
+  transition: opacity var(--transition-fast);
+}
+
+.composer__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  max-width: min(68vw, 24rem);
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--border-radius);
+  background: var(--color-bg-surface);
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.composer__chip-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  max-width: 100%;
+  padding: calc(var(--space-xs) + 4px);
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: var(--font-size-description);
+  line-height: 1;
+  cursor: default;
+}
+
+.composer__chip-label i {
+  font-size: 0.95rem;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.composer__chip-label span {
+  min-width: 0;
+  max-width: min(58vw, 18rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer__chip-label em {
+  font-style: normal;
+  font-size: 0.7rem;
+  opacity: 0.9;
+}
+
+.composer__chip-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-right: var(--space-xs);
+  margin-left: 0.2rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  background: transparent;
+  color: var(--color-text-dimmed);
+  cursor: pointer;
+}
+
+.composer__chip-remove:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.composer__chip-remove:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Hidden file input — zero size, invisible, pointer-events off */
+.composer__file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+   Scope chip — file selection chip inside the input wrapper.
+   Identical to chat-view__scope-chip but in the globally-loaded shared sheet
+   so it works on Translate even before Chat has lazy-loaded.
+   -------------------------------------------------------------------------- */
+.composer__scope-chip {
+  position: absolute;
+  top: calc(var(--composer-inline-inset) + 4px);
+  left: calc(var(--composer-inline-inset) + 4px);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: min(72vw, 36rem);
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--border-radius);
+  background: var(--color-bg-surface);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-description);
+  line-height: 1;
+}
+
+.composer__scope-chip i {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.composer__scope-chip span {
+  flex: 1;
+  min-width: 0;
+  max-width: min(72vw, 31rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer__scope-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-left: 0.15rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  background: transparent;
+  color: var(--color-text-dimmed);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.composer__scope-clear:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.composer__scope-clear:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* --------------------------------------------------------------------------
+   Input wrapper — relative container for textarea + control overlay
+   -------------------------------------------------------------------------- */
+.composer__input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  min-width: 0;
+  overflow: visible;
+}
+
+/* Scroll-fade clipping (identical in both pages) */
+.composer__input-wrapper--scrollable::before,
+.composer__input-wrapper--scrollable::after {
+  content: '';
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  background: var(--color-bg-surface);
+  pointer-events: none;
+  z-index: 3;
+}
+
+.composer__input-wrapper--scrollable::before {
+  top: 1px;
+  height: 0.95rem;
+  border-top-left-radius: calc(var(--border-radius) - 1px);
+  border-top-right-radius: calc(var(--border-radius) - 1px);
+}
+
+.composer__input-wrapper--scrollable::after {
+  bottom: 1px;
+  height: var(--composer-scroll-clip-bottom);
+  border-bottom-left-radius: calc(var(--border-radius) - 1px);
+  border-bottom-right-radius: calc(var(--border-radius) - 1px);
+}
+
+.composer__input-wrapper--top-scrolled.composer__input-wrapper--scoped::before {
+  height: var(--composer-scoped-top-padding);
+}
+
+/* Drag-over highlight */
+.composer__input-wrapper--drag-active .composer__textarea {
+  border-color: var(--color-accent);
+  background: color-mix(in srgb, var(--surface-control) 90%, var(--color-accent));
+}
+
+/* --------------------------------------------------------------------------
+   Textarea — identical appearance in both pages
+   -------------------------------------------------------------------------- */
+.composer__textarea {
+  flex: 1;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 104px;
+  max-height: 304px;
+  padding: 0.75rem var(--composer-inline-inset) 3.25rem calc(var(--composer-inline-inset) + 6px);
+  font-family: inherit;
+  font-size: var(--font-size-base);
+  line-height: 1.5;
+  border: 1px solid var(--color-input-border-chat, var(--color-primary-border));
+  border-radius: var(--border-radius);
+  background: var(--surface-control);
+  color: var(--color-text);
+  resize: none;
+  overflow-y: hidden;
+  transition: border-color var(--transition-fast);
+  scrollbar-gutter: stable;
+}
+
+.composer__textarea--scoped {
+  padding-top: var(--composer-scoped-top-padding);
+}
+
+.composer__textarea:focus,
+.composer__textarea:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.composer__textarea::placeholder {
+  color: var(--color-placeholder);
+  font-size: inherit;
+  line-height: inherit;
+}
+
+.composer__textarea:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* --------------------------------------------------------------------------
+   Controls row — absolute bottom overlay
+   -------------------------------------------------------------------------- */
+.composer__controls-row {
+  position: absolute;
+  left: var(--composer-controls-left-inset);
+  right: var(--composer-inline-inset);
+  bottom: 0.75rem;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  pointer-events: none;
+}
+
+.composer__controls-left,
+.composer__controls-right {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  pointer-events: auto;
+}
+
+/* --------------------------------------------------------------------------
+   Send / Translate button — same size and appearance
+   -------------------------------------------------------------------------- */
+.composer__send {
+  position: static;
+  width: auto;
+  height: auto;
+  min-width: var(--composer-control-min-size);
+  min-height: var(--composer-control-min-size);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xs);
+  background: var(--composer-control-bg);
+  color: var(--composer-control-fg);
+  border: 1px solid var(--composer-control-border);
+  border-radius: var(--border-radius);
+  font-size: var(--font-size-base);
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.composer__send:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+  border-color: var(--color-border);
+}
+
+.composer__send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Send enabled (active generation possible) */
+.composer__send--active {
+  background: var(--color-accent);
+  color: var(--color-on-primary);
+  border-color: var(--color-accent);
+}
+
+.composer__send--active:hover:not(:disabled) {
+  background: var(--color-accent-hover, var(--color-accent));
+  border-color: var(--color-accent-hover, var(--color-accent));
+  color: var(--color-on-primary);
+}
+
+/* --------------------------------------------------------------------------
+   Inline warning (large-doc warning, LLM-busy notice)
+   -------------------------------------------------------------------------- */
+.composer__warning {
+  margin: 0;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: var(--font-size-xs);
+  color: var(--color-warning-text, #b45309);
+  background: color-mix(in srgb, var(--color-warning-text, #b45309) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-warning-text, #b45309) 22%, transparent);
+  border-radius: var(--border-radius-md);
+}
+
+/* Shared keyframe — used by both Chat (chat-message__cursor) and Translate (translate-run__cursor) */
+@keyframes cursor-blink {
+  50% { opacity: 0; }
+}

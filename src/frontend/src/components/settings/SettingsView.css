@@ -285,10 +285,6 @@
   background: var(--color-danger-bg);
 }
 
-@keyframes settings-spin {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
 
 .settings-subsection--profile .settings-input,
 .settings-subsection--profile .settings-control-group {
@@ -490,7 +486,7 @@
 
 .settings-status-icon--pending {
   color: var(--color-text-muted);
-  animation: settings-spin 1s linear infinite;
+  animation: spin 1s linear infinite;
 }
 
 .settings-subsection-field-unit {

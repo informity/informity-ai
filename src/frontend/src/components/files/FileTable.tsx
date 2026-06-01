@@ -28,6 +28,7 @@ interface FileTableProps {
   onPageChange?: (offset: number) => void
   onSelectFile?: (file: IndexedFile) => void
   onChatAboutFile?: (file: IndexedFile) => void
+  onTranslate?: (file: IndexedFile) => void
   onReindex?: (file: IndexedFile) => void
   onRemove?: (file: IndexedFile, e: React.MouseEvent) => void
   selectedFileId?: number | null
@@ -46,6 +47,7 @@ export function FileTable({
   onPageChange,
   onSelectFile,
   onChatAboutFile,
+  onTranslate,
   onReindex,
   onRemove,
   selectedFileId = null,
@@ -139,12 +141,12 @@ export function FileTable({
               </th>
               <th
                 className={`file-table__th file-table__th--category file-table__th--sortable data-table__th data-table__th--sortable ${
-                  sort === 'category' ? 'data-table__th--sorted' : ''
+                  sort === 'extension' ? 'data-table__th--sorted' : ''
                 }`}
-                onClick={() => handleHeaderClick('category')}
+                onClick={() => handleHeaderClick('extension')}
               >
                 Category
-                <SortIcon sort={sort} order={order} column="category" />
+                <SortIcon sort={sort} order={order} column="extension" />
               </th>
               <th
                 className={`file-table__th file-table__th--size file-table__th--sortable file-table__th--right data-table__th data-table__th--sortable data-table__th--right ${
@@ -156,15 +158,6 @@ export function FileTable({
                 <SortIcon sort={sort} order={order} column="size_bytes" />
               </th>
               <th
-                className={`file-table__th file-table__th--modified file-table__th--sortable file-table__th--right data-table__th data-table__th--sortable data-table__th--right ${
-                  sort === 'modified_at' ? 'data-table__th--sorted' : ''
-                }`}
-                onClick={() => handleHeaderClick('modified_at')}
-              >
-                Modified
-                <SortIcon sort={sort} order={order} column="modified_at" />
-              </th>
-              <th
                 className={`file-table__th file-table__th--indexed file-table__th--sortable file-table__th--right data-table__th data-table__th--sortable data-table__th--right ${
                   sort === 'indexed_at' ? 'data-table__th--sorted' : ''
                 }`}
@@ -172,6 +165,15 @@ export function FileTable({
               >
                 Indexed
                 <SortIcon sort={sort} order={order} column="indexed_at" />
+              </th>
+              <th
+                className={`file-table__th file-table__th--modified file-table__th--sortable file-table__th--right data-table__th data-table__th--sortable data-table__th--right ${
+                  sort === 'modified_at' ? 'data-table__th--sorted' : ''
+                }`}
+                onClick={() => handleHeaderClick('modified_at')}
+              >
+                Modified
+                <SortIcon sort={sort} order={order} column="modified_at" />
               </th>
               <th className="file-table__th file-table__th--actions data-table__th" />
             </tr>
@@ -202,8 +204,8 @@ export function FileTable({
                   <td className="file-table__td file-table__td--size file-table__td--right data-table__td data-table__td--right">
                     {formatFileSize(file.size_bytes)}
                   </td>
-                  <td className="file-table__td file-table__td--modified file-table__td--right data-table__td data-table__td--right">{formatDate(file.modified_at)}</td>
                   <td className="file-table__td file-table__td--indexed file-table__td--right data-table__td data-table__td--right">{formatDate(file.indexed_at)}</td>
+                  <td className="file-table__td file-table__td--modified file-table__td--right data-table__td data-table__td--right">{formatDate(file.modified_at)}</td>
                   <td className="file-table__td file-table__td--actions data-table__td" onClick={(e) => e.stopPropagation()}>
                     <div className="file-table__actions">
                       <span className="data-table__action-wrap ui-tooltip-trigger">
@@ -218,6 +220,20 @@ export function FileTable({
                         </button>
                         <span className="data-table__action-tooltip ui-tooltip ui-tooltip--nowrap">Chat with this file</span>
                       </span>
+                      {onTranslate && (
+                        <span className="data-table__action-wrap ui-tooltip-trigger">
+                          <button
+                            type="button"
+                            className="file-table__action-btn data-table__action-btn"
+                            onClick={() => onTranslate(file)}
+                            disabled={offline}
+                            title="Translate this file"
+                          >
+                            <i className="ri-translate-2" aria-hidden style={{ fontSize: '0.875rem' }} />
+                          </button>
+                          <span className="data-table__action-tooltip ui-tooltip ui-tooltip--nowrap">Translate this file</span>
+                        </span>
+                      )}
                       <span className="data-table__action-wrap ui-tooltip-trigger">
                         <button
                           type="button"

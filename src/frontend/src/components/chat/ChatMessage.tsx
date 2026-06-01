@@ -1,4 +1,4 @@
-import { Fragment, memo, useCallback, useState, type KeyboardEvent, type ReactElement } from 'react'
+import { Fragment, memo, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { formatDuration } from '../../utils/formatDuration'
 import { getMessageRaw } from '../../api'
@@ -57,6 +57,7 @@ interface ChatMessageProps {
   onRegenerate?: () => void
   onAssistantSwitch?: () => void
   onExport?: (messageId?: number) => void
+  onExportText?: (messageId?: number) => void
   canEdit?: boolean
   onEditSubmit?: (text: string) => void | Promise<void>
   onEditCancel?: () => void
@@ -96,6 +97,7 @@ function ChatMessageComponent({
   onRegenerate,
   onAssistantSwitch,
   onExport,
+  onExportText,
   canEdit = false,
   onEditSubmit,
   onEditCancel,
@@ -114,6 +116,19 @@ function ChatMessageComponent({
   const [isEditing, setIsEditing] = useState(false)
   const [editDraft, setEditDraft] = useState('')
   const [isEditSubmitting, setIsEditSubmitting] = useState(false)
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  const exportMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!exportMenuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setExportMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [exportMenuOpen])
 
   const handleRawToggle = useCallback(() => {
     if (actionsDisabled) return
@@ -443,9 +458,7 @@ function ChatMessageComponent({
               <div className="chat-message__markdown">
                 {showBouncingDots ? (
                   <span className="chat-message__typing-indicator" aria-label="Thinking">
-                    <span className="chat-message__typing-dot" />
-                    <span className="chat-message__typing-dot" />
-                    <span className="chat-message__typing-dot" />
+                    <span className="chat-message__cursor" />
                     {streamStatusText && (
                       <span className="chat-message__typing-status">
                         <span>{streamStatusText}</span>
@@ -569,6 +582,44 @@ function ChatMessageComponent({
                 </button>
               )
             )}
+            {!isUser && hasVisibleContent && (onExport || onExportText) && (
+              <div ref={exportMenuRef} className="chat-message__export-trigger">
+                <button
+                  type="button"
+                  className="chat-message__copy-full"
+                  onClick={() => setExportMenuOpen(v => !v)}
+                  disabled={actionsDisabled}
+                  title="Export"
+                  aria-label="Export"
+                >
+                  <i className="ri-download-line" aria-hidden style={{ fontSize: '0.875rem' }} />
+                </button>
+                {exportMenuOpen && (
+                  <div className="chat-message__export-menu" role="menu">
+                    {onExport && (
+                      <button
+                        type="button"
+                        className="chat-message__export-option"
+                        onClick={() => { onExport(messageId); setExportMenuOpen(false) }}
+                      >
+                        <i className="ri-markdown-line" aria-hidden style={{ fontSize: '1rem' }} />
+                        Markdown
+                      </button>
+                    )}
+                    {onExportText && (
+                      <button
+                        type="button"
+                        className="chat-message__export-option"
+                        onClick={() => { onExportText(messageId); setExportMenuOpen(false) }}
+                      >
+                        <i className="ri-file-text-line" aria-hidden style={{ fontSize: '1rem' }} />
+                        Plain text
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
             {((isUser && safeContent) || (!isUser && hasVisibleContent)) && (
               <button
                 type="button"
@@ -579,18 +630,6 @@ function ChatMessageComponent({
                 aria-label="Copy message"
               >
                 {copied ? <i className="ri-check-line" aria-hidden style={{ fontSize: '0.875rem' }} /> : <i className="ri-file-copy-line" aria-hidden style={{ fontSize: '0.875rem' }} />}
-              </button>
-            )}
-            {!isUser && hasVisibleContent && onExport && (
-              <button
-                type="button"
-                className="chat-message__copy-full"
-                onClick={() => onExport?.(messageId)}
-                disabled={actionsDisabled}
-                title="Export answer as Markdown"
-                aria-label="Export answer as Markdown"
-              >
-                <i className="ri-download-2-line" aria-hidden style={{ fontSize: '0.875rem' }} />
               </button>
             )}
           </div>
@@ -678,6 +717,7 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.onRegenerate === next.onRegenerate &&
     prev.onAssistantSwitch === next.onAssistantSwitch &&
     prev.onExport === next.onExport &&
+    prev.onExportText === next.onExportText &&
     prev.canEdit === next.canEdit &&
     prev.onEditSubmit === next.onEditSubmit &&
     prev.onEditCancel === next.onEditCancel &&

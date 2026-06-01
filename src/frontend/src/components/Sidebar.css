@@ -17,8 +17,8 @@
   padding: 0;
   overflow-y: auto;
   overflow-x: hidden;
-  transition: width 0.2s ease, min-width 0.2s ease;
-  z-index: 1100;
+  transition: width var(--transition-normal), min-width var(--transition-normal);
+  z-index: var(--z-sidebar);
   isolation: isolate;
   pointer-events: auto;
   box-sizing: border-box;
@@ -211,16 +211,7 @@ html[data-accent='canvas'] .sidebar__link:hover:not(.sidebar__link--active) {
 .sidebar__status-spinner {
   font-size: var(--font-size-caption);
   line-height: 1;
-  animation: sidebar-status-spin 1s linear infinite;
-}
-
-@keyframes sidebar-status-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
+  animation: spin 1s linear infinite;
 }
 
 @media (max-width: 1024px) {

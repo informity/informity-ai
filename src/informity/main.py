@@ -50,6 +50,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from informity.api.routes_chat import router as chat_router
 from informity.api.routes_index import router as index_router
+from informity.api.routes_translate import router as translate_router
 from informity.api.routes_logs import router as logs_router
 from informity.api.routes_scan import router as scan_router
 from informity.api.routes_search import router as search_router
@@ -308,6 +309,66 @@ async def _run_intent_router_warmup() -> None:
         log.warning('intent_router_warmup_failed', error=str(exc))
 
 
+async def _backfill_page_counts(conn: object) -> None:
+    """
+    Populate page_count for indexed files where it is NULL.
+
+    Uses pypdfium2 for PDFs (fast — no Docling model loading required).
+    For non-PDF formats, estimates from total chunk token count:
+      page_count ≈ total_tokens / TRANSLATE_AVG_TOKENS_PER_PAGE.
+    Runs at startup; errors per-file are logged and skipped.
+    """
+    import aiosqlite
+    from informity.translate_policy import TRANSLATE_AVG_TOKENS_PER_PAGE
+    db: aiosqlite.Connection = conn  # type: ignore[assignment]
+
+    cursor = await db.execute(
+        """
+        SELECT f.id, f.path, f.extension,
+               COALESCE(SUM(c.token_count), 0) AS total_tokens
+        FROM files f
+        LEFT JOIN chunks c ON c.file_id = f.id AND c.parent_id IS NULL
+        WHERE f.page_count IS NULL AND f.source_provider = 'filesystem'
+        GROUP BY f.id
+        """,
+    )
+    rows = await cursor.fetchall()
+    if not rows:
+        return
+
+    updated = 0
+    for row in rows:
+        file_id  = int(row['id'])
+        path     = str(row['path'] or '')
+        ext      = str(row['extension'] or '').lower()
+        tokens   = int(row['total_tokens'] or 0)
+        page_count: int | None = None
+
+        if ext == '.pdf' and path:
+            try:
+                import pypdfium2 as pdfium  # already a dependency via docling
+                pdf_doc = pdfium.PdfDocument(path)
+                page_count = len(pdf_doc)
+                if hasattr(pdf_doc, 'close'):
+                    pdf_doc.close()
+            except Exception:
+                pass  # fall through to token estimate
+
+        if page_count is None and tokens > 0:
+            page_count = max(1, tokens // TRANSLATE_AVG_TOKENS_PER_PAGE)
+
+        if page_count:
+            await db.execute(
+                'UPDATE files SET page_count = ? WHERE id = ?',
+                (page_count, file_id),
+            )
+            updated += 1
+
+    if updated > 0:
+        await db.commit()
+        log.info('page_count_backfill_completed', files_updated=updated, files_checked=len(rows))
+
+
 # ==============================================================================
 # Lifespan — startup and shutdown logic
 # ==============================================================================
@@ -373,6 +434,34 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             await conn.close()
     except _STARTUP_RUNTIME_EXCEPTIONS as exc:
         log.warning('log_events_startup_prune_failed', error=str(exc))
+
+    # Sweep stale translate.local uploads older than TRANSLATE_CLEANUP_AGE_HOURS.
+    try:
+        from datetime import UTC, datetime, timedelta
+        from informity.translate_policy import TRANSLATE_CLEANUP_AGE_HOURS
+        from informity.db.sqlite import delete_translate_jobs_older_than
+        conn = await get_connection()
+        try:
+            cutoff = (datetime.now(UTC) - timedelta(hours=TRANSLATE_CLEANUP_AGE_HOURS)).isoformat()
+            deleted = await delete_translate_jobs_older_than(conn, cutoff)
+            if deleted > 0:
+                log.info('translate_jobs_startup_pruned', count=deleted)
+        finally:
+            await conn.close()
+    except _STARTUP_RUNTIME_EXCEPTIONS as exc:
+        log.warning('translate_jobs_startup_prune_failed', error=str(exc))
+
+    # Backfill page_count for indexed files that have NULL.
+    # Uses pypdfium2 for PDFs (fast, no Docling model needed) and token-count
+    # estimation for other formats. Runs quietly; errors are non-fatal.
+    try:
+        conn = await get_connection()
+        try:
+            await _backfill_page_counts(conn)
+        finally:
+            await conn.close()
+    except _STARTUP_RUNTIME_EXCEPTIONS as exc:
+        log.warning('page_count_backfill_failed', error=str(exc))
 
     # Populate adaptive top-k cache from corpus stats (if enabled).
     # Startup is an explicit lifecycle event, so force recompute now.
@@ -608,6 +697,7 @@ async def health_check() -> HealthResponse:
 app.include_router(scan_router)
 app.include_router(index_router)
 app.include_router(chat_router)
+app.include_router(translate_router)
 app.include_router(search_router)
 app.include_router(settings_router)
 app.include_router(system_router)

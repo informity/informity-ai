@@ -22,6 +22,7 @@ from informity.llm.metadata_filters import (
 from informity.llm.model_adapter import get_profile
 from informity.llm.term_dictionary import TermExpansion, expand_query_for_retrieval
 from informity.llm.types import BlockType, FilterOperator, QueryType
+from informity.translate_policy import TRANSLATE_ENTITY_TYPE, TRANSLATE_PROVIDER
 from informity.upload_policy import UPLOAD_ENTITY_TYPE, UPLOAD_PROVIDER
 from informity.utils.file_utils import normalize_extension
 
@@ -504,8 +505,16 @@ async def retrieve_chunks(
     vector_filters = [f for f in active_filters if f.field != 'block_type']
     where_clause, where_params = build_where_clause_and_params(vector_filters)
     if exclude_upload_sources:
-        upload_exclusion_clause = 'file_id NOT IN (SELECT id FROM files WHERE source_provider = ? AND entity_type = ?)'
-        upload_exclusion_params: list[int | str] = [UPLOAD_PROVIDER, UPLOAD_ENTITY_TYPE]
+        upload_exclusion_clause = (
+            'file_id NOT IN ('
+            'SELECT id FROM files WHERE (source_provider = ? AND entity_type = ?)'
+            ' OR (source_provider = ? AND entity_type = ?)'
+            ')'
+        )
+        upload_exclusion_params: list[int | str] = [
+            UPLOAD_PROVIDER, UPLOAD_ENTITY_TYPE,
+            TRANSLATE_PROVIDER, TRANSLATE_ENTITY_TYPE,
+        ]
         if where_clause:
             where_clause = f'({where_clause}) AND {upload_exclusion_clause}'
             where_params = [*where_params, *upload_exclusion_params]

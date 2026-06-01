@@ -426,6 +426,7 @@ _UPDATABLE_FIELDS: set[str] = {
     'ui_theme',
     'enable_menu_bar_icon',
     'cpu_priority_nice',
+    'translate_default_language',
     'mcp_enabled',
     'mcp_auto_start',
     'mcp_transport',
@@ -590,8 +591,9 @@ async def get_settings() -> SettingsResponse:
         config_file_path      = str(_config_file_path()),
         model_profile         = profile_info,
         ui_theme              = s.ui_theme,
-        enable_menu_bar_icon  = s.enable_menu_bar_icon,
-        cpu_priority_nice     = s.cpu_priority_nice,
+        enable_menu_bar_icon          = s.enable_menu_bar_icon,
+        cpu_priority_nice             = s.cpu_priority_nice,
+        translate_default_language    = s.translate_default_language,
     )
 
 

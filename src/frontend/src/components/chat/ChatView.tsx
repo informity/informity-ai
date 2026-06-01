@@ -9,18 +9,21 @@ import { PageHeader } from '../PageHeader'
 import { ServiceUnavailableState } from '../ServiceUnavailableState'
 import { useChatContext } from '../../context/useChatContext'
 import { useBackendStatus } from '../../context/useBackendStatus'
+import { useOptionalTranslateContext } from '../../context/useTranslateContext'
 import { exportChatMarkdown, getCurrentChat, getRoles, getSettings } from '../../api'
+import { markdownToPlainText, downloadTextFile } from '../../utils/downloadHelpers'
 import { showToast } from '../../context/useToast'
 import { isChatMode, type ChatFileScope, type ChatMessageDisplay, type ChatMode, type ChatRoleDefinition } from '../../types/api'
 import { logApiError } from '../../utils/logApiError'
 import { CHAT_MODE_STORAGE_KEY, CHAT_ROLE_ID_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
 import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
 import { getFileIcon } from '../../utils/fileFormatting'
+import {
+  COMPOSER_TEXTAREA_MIN_HEIGHT,
+  COMPOSER_TEXTAREA_MAX_HEIGHT,
+  COMPOSER_SCOPED_EXTRA_HEIGHT,
+} from '../../utils/composerSizing'
 import './ChatView.css'
-
-const CHAT_INPUT_MIN_HEIGHT = 104
-const CHAT_INPUT_MAX_HEIGHT = 304
-const CHAT_INPUT_SCOPED_EXTRA_HEIGHT = 52
 const UPLOAD_CHIP_FALLBACK_WIDTH = 180
 const UPLOAD_OVERFLOW_CHIP_FALLBACK_WIDTH = 52
 const UPLOAD_PENDING_CHIP_FALLBACK_WIDTH = 116
@@ -104,6 +107,10 @@ function formatRoleNameFromId(roleId: string): string {
 
 export function ChatView({ prefillMessage = '', initialChatId = null, initialScopedFile = null }: ChatViewProps) {
   const { offline } = useBackendStatus()
+  const translateCtx = useOptionalTranslateContext()
+  const isTranslating = translateCtx?.isTranslating ?? false
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  const exportMenuRef = useRef<HTMLDivElement>(null)
   const {
     currentChatId: contextChatId,
     currentChatLockedMode,
@@ -298,6 +305,15 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     document.addEventListener('mousedown', handlePointerDown)
     return () => document.removeEventListener('mousedown', handlePointerDown)
   }, [])
+
+  useEffect(() => {
+    if (!exportMenuOpen) return
+    const h = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) setExportMenuOpen(false)
+    }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [exportMenuOpen])
 
   useEffect(() => {
     if (offline || isStreaming) {
@@ -739,20 +755,27 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     newChat().catch((err) => logApiError(err, 'ChatView.handleNewChat'))
   }, [offline, clearError, newChat, setChatWebSearchPreferences])
 
-  const handleExportFullChat = useCallback(async () => {
+  const handleExportFullChat = useCallback(async (format: 'markdown' | 'text' = 'markdown') => {
     if (offline || isStreaming) return
     if (!contextChatId) {
       showToast('error', 'No active chat to export.')
       return
     }
+    setExportMenuOpen(false)
     try {
       const payload = await exportChatMarkdown(contextChatId, {
         scope: 'full_chat',
         includeFrontmatter: false,
         template: 'full_transcript',
       })
-      triggerMarkdownDownload(payload.filename, payload.markdown)
-      showToast('success', 'Chat exported as Markdown.')
+      if (format === 'text') {
+        const txtFilename = String(payload.filename || 'chat-export').replace(/\.md$/, '') + '.txt'
+        downloadTextFile(txtFilename, markdownToPlainText(payload.markdown))
+        showToast('success', 'Chat exported as plain text.')
+      } else {
+        triggerMarkdownDownload(payload.filename, payload.markdown)
+        showToast('success', 'Chat exported as Markdown.')
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to export chat.'
       showToast('error', msg)
@@ -780,6 +803,25 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     }
   }, [contextChatId, isStreaming, offline])
 
+  const handleExportAnswerText = useCallback(async (messageId?: number) => {
+    if (offline || isStreaming) return
+    if (!contextChatId) return
+    try {
+      const payload = await exportChatMarkdown(contextChatId, {
+        scope: 'current_answer',
+        messageId,
+        includeFrontmatter: false,
+        template: 'concise_summary',
+      })
+      const txtFilename = String(payload.filename || 'answer').replace(/\.md$/, '') + '.txt'
+      downloadTextFile(txtFilename, markdownToPlainText(payload.markdown))
+      showToast('success', 'Answer exported as plain text.')
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Failed to export answer.'
+      showToast('error', msg)
+    }
+  }, [contextChatId, isStreaming, offline])
+
   useEffect(() => {
     const handleNewChatEvent = () => handleNewChat()
     window.addEventListener('new-chat', handleNewChatEvent)
@@ -788,6 +830,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
 
   const handleSend = useCallback(async () => {
     if (offline) return
+    if (isTranslating) return
     const text = inputValue.trim()
     if (!text) return
 
@@ -831,9 +874,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   }
 
   const resizeTextarea = useCallback((ta: HTMLTextAreaElement) => {
-    const scopedExtra = hasScopedInputPill ? CHAT_INPUT_SCOPED_EXTRA_HEIGHT : 0
-    const minHeight = CHAT_INPUT_MIN_HEIGHT + scopedExtra
-    const maxHeight = CHAT_INPUT_MAX_HEIGHT + scopedExtra
+    const scopedExtra = hasScopedInputPill ? COMPOSER_SCOPED_EXTRA_HEIGHT : 0
+    const minHeight = COMPOSER_TEXTAREA_MIN_HEIGHT + scopedExtra
+    const maxHeight = COMPOSER_TEXTAREA_MAX_HEIGHT + scopedExtra
     ta.style.height = 'auto'
     const nextHeight = Math.min(Math.max(ta.scrollHeight, minHeight), maxHeight)
     ta.style.height = `${nextHeight}px`
@@ -1064,17 +1107,31 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         className="chat-view__header"
         action={
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <button
-              type="button"
-              className="chat-view__new-chat"
-              onClick={handleExportFullChat}
-              disabled={offline || isStreaming || !contextChatId}
-              title="Export full chat as Markdown"
-              aria-label="Export full chat as Markdown"
-            >
-              <i className="ri-download-2-line" aria-hidden style={{ fontSize: '1.125rem' }} />
-              <span>Export Chat</span>
-            </button>
+            <div ref={exportMenuRef} style={{ position: 'relative' }}>
+              <button
+                type="button"
+                className="chat-view__new-chat"
+                onClick={() => setExportMenuOpen(v => !v)}
+                disabled={offline || isStreaming || !contextChatId}
+                title="Export chat"
+                aria-label="Export chat"
+              >
+                <i className="ri-download-line" aria-hidden style={{ fontSize: '1.125rem' }} />
+                <span>Export</span>
+              </button>
+              {exportMenuOpen && (
+                <div className="chat-view__mode-menu" role="menu" style={{ left: 0, right: 'auto', minWidth: '9rem', bottom: 'auto', top: 'calc(100% + 0.375rem)' }}>
+                  <button type="button" className="chat-view__mode-option" onClick={() => handleExportFullChat('markdown')}>
+                    <i className="ri-markdown-line" aria-hidden style={{ fontSize: '1rem' }} />
+                    <span>Markdown</span>
+                  </button>
+                  <button type="button" className="chat-view__mode-option" onClick={() => handleExportFullChat('text')}>
+                    <i className="ri-file-text-line" aria-hidden style={{ fontSize: '1rem' }} />
+                    <span>Plain text</span>
+                  </button>
+                </div>
+              )}
+            </div>
             <button
               type="button"
               className="chat-view__new-chat"
@@ -1144,6 +1201,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       onRegenerate={() => handleRegenerate(i)}
                       onAssistantSwitch={hideAssistantSwitch ? undefined : (() => handleAskInAssistant(i))}
                       onExport={handleExportAnswer}
+                      onExportText={handleExportAnswerText}
                       canEdit={
                         i === lastEditableUserMessageIndex
                         && !offline
@@ -1162,13 +1220,13 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
 
               <div
                 className={
-                  `chat-view__input-area${isCenteredComposer ? ' chat-view__input-area--centered' : ''}${animateToDocked ? ' chat-view__input-area--docking' : ''}`
+                  `chat-view__input-area composer-wrap${isCenteredComposer ? ' chat-view__input-area--centered' : ''}${animateToDocked ? ' chat-view__input-area--docking composer-wrap--docking' : ''}`
                 }
               >
                 {error && <div className="chat-view__error">{error}</div>}
                 <div
                   className={
-                    `chat-view__input-wrapper${textareaCanScroll ? ' chat-view__input-wrapper--scrollable' : ''}${textareaHasTopScroll ? ' chat-view__input-wrapper--top-scrolled' : ''}${hasScopedInputPill ? ' chat-view__input-wrapper--scoped' : ''}${isDragOverComposer ? ' chat-view__input-wrapper--drag-active' : ''}`
+                    `chat-view__input-wrapper composer__input-wrapper${textareaCanScroll ? ' chat-view__input-wrapper--scrollable composer__input-wrapper--scrollable' : ''}${textareaHasTopScroll ? ' chat-view__input-wrapper--top-scrolled composer__input-wrapper--top-scrolled' : ''}${hasScopedInputPill ? ' chat-view__input-wrapper--scoped composer__input-wrapper--scoped' : ''}${isDragOverComposer ? ' chat-view__input-wrapper--drag-active composer__input-wrapper--drag-active' : ''}`
                   }
                   onDragEnter={handleComposerDragEnter}
                   onDragOver={handleComposerDragOver}
@@ -1293,7 +1351,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                   )}
                   <textarea
                     ref={textareaRef}
-                    className={`chat-view__textarea${hasScopedInputPill ? ' chat-view__textarea--scoped' : ''}`}
+                    className={`chat-view__textarea composer__textarea${hasScopedInputPill ? ' chat-view__textarea--scoped composer__textarea--scoped' : ''}`}
                     placeholder={
                       offline
                         ? 'Service unavailable'
@@ -1311,7 +1369,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                     rows={1}
                     disabled={offline || isStreaming}
                   />
-                  <div className="chat-view__controls-row">
+                  <div className="chat-view__controls-row composer__controls-row">
                     <div className="chat-view__controls-left">
                       {effectiveChatMode === 'researcher' && !chatFileScope && (
                         <button
@@ -1489,6 +1547,18 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                           aria-label="Stop generating response"
                         >
                           <i className="ri-stop-circle-line" aria-hidden style={{ fontSize: '1.125rem' }} />
+                        </button>
+                      ) : isTranslating ? (
+                        <button
+                          type="button"
+                          className="chat-view__send"
+                          onClick={() => translateCtx?.cancelTranslation()}
+                          title="Stop translation"
+                          aria-label="Stop translation"
+                          style={{ width: 'auto', gap: '0.375rem' }}
+                        >
+                          <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1.125rem' }} />
+                          <span style={{ fontSize: 'var(--font-size-sm)' }}>Stop translation</span>
                         </button>
                       ) : (
                         <button
