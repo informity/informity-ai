@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { PageHeader } from '../components/PageHeader'
@@ -116,8 +116,9 @@ export function TranslatePage() {
     resizeComposerTextarea(ta, !!fileId)
   }, [steering, fileId])
 
-  useEffect(() => {
-    // Use whichever chip is visible — file chip or uploading pending chip
+  // useLayoutEffect fires synchronously after DOM commit, before paint —
+  // ensures chip height is measured before the browser renders the frame.
+  useLayoutEffect(() => {
     const activeChip = chipRef.current ?? pendingChipRef.current
     applyComposerScopedPadding(inputWrapperRef.current, activeChip)
     const ta = textareaRef.current
@@ -138,26 +139,29 @@ export function TranslatePage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  // Accumulate sections into active run
+  // Create run entry IMMEDIATELY when translation starts — before sections arrive —
+  // so the results area shows a progress indicator from the first moment.
   useEffect(() => {
-    if (!isTranslating && !hasResult) return
-    if (sections.length === 0) return
-    if (!activeRunRef.current && isTranslating) {
-      const run: RunRecord = {
-        sections: [], language: targetLanguage, tone: tone as Tone,
-        steering, completedAt: null, totalSections: sectionCount,
-        elapsedSeconds: null, fileLabel: fileName ?? 'Document',
-      }
-      activeRunRef.current = run
-      runStartRef.current = Date.now()
-      setRuns(prev => [...prev, run])
+    if (!isTranslating) return
+    if (activeRunRef.current) return  // already created for this run
+    const run: RunRecord = {
+      sections: [], language: targetLanguage, tone: tone as Tone,
+      steering, completedAt: null, totalSections: sectionCount,
+      elapsedSeconds: null, fileLabel: fileName ?? 'Document',
     }
-    if (activeRunRef.current) {
-      activeRunRef.current.sections = [...sections]
-      activeRunRef.current.totalSections = sectionCount
-      setRuns(prev => [...prev])
-    }
-  }, [sections, sectionCount, isTranslating, hasResult, targetLanguage, tone, steering, fileName])
+    activeRunRef.current = run
+    runStartRef.current = Date.now()
+    setRuns(prev => [...prev, run])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isTranslating])
+
+  // Update active run as sections stream in
+  useEffect(() => {
+    if (!activeRunRef.current || sections.length === 0) return
+    activeRunRef.current.sections = [...sections]
+    activeRunRef.current.totalSections = sectionCount
+    setRuns(prev => [...prev])
+  }, [sections, sectionCount])
 
   useEffect(() => {
     if (jobStatus === 'done' && activeRunRef.current && activeRunRef.current.completedAt === null) {
@@ -267,51 +271,94 @@ export function TranslatePage() {
 
         {/* ── Result area (hidden when centered) ── */}
         <div className="translate-results">
-          {runs.map((run, ri) => (
-            <div key={ri} className="translate-run">
-              <div className="translate-run__header">
-                <span className="translate-run__label">
-                  {run.fileLabel} → {run.language}
-                  {run.tone !== 'natural' && ` · ${run.tone}`}
-                  {run.steering && ` · "${run.steering.slice(0, 50)}${run.steering.length > 50 ? '…' : ''}"`}
-                </span>
-              </div>
-              <div className="translate-run__sections">
-                {run.sections.map(s => (
-                  <div key={s.section_index} className="translate-run__section">
-                    <ReactMarkdown>{s.text}</ReactMarkdown>
-                  </div>
-                ))}
-                {ri === runs.length - 1 && isTranslating && (
-                  <div className="translate-run__section translate-run__section--streaming">
-                    <span className="translate-run__cursor" aria-label="Translating…" />
-                    <span className="translate-run__progress">
-                      {sectionCount ? `Section ${completedSections + 1} of ${sectionCount}` : 'Translating…'}
-                    </span>
+          {runs.map((run, ri) => {
+            const isActive = ri === runs.length - 1 && isTranslating
+            const elapsedLabel = run.elapsedSeconds !== null
+              ? `${Math.floor(run.elapsedSeconds / 60)}m ${run.elapsedSeconds % 60}s`
+              : null
+            return (
+              <div key={ri} className="translate-run">
+                {/* Run header */}
+                <div className="translate-run__header">
+                  <span className="translate-run__label">
+                    {run.fileLabel} → {run.language}
+                    {run.tone !== 'natural' && ` · ${run.tone}`}
+                    {run.steering && ` · "${run.steering.slice(0, 50)}${run.steering.length > 50 ? '…' : ''}"`}
+                  </span>
+                </div>
+
+                {/* Sections */}
+                <div className="translate-run__sections">
+                  {run.sections.map(s => (
+                    <div key={s.section_index} className="translate-run__section">
+                      <ReactMarkdown>{s.text}</ReactMarkdown>
+                    </div>
+                  ))}
+                  {/* Streaming indicator — visible from the moment translation starts */}
+                  {isActive && (
+                    <div className="translate-run__section translate-run__section--streaming">
+                      <span className="translate-run__cursor" aria-label="Translating…" />
+                      <span className="translate-run__progress">
+                        {sectionCount
+                          ? `Section ${completedSections + 1} of ${sectionCount}`
+                          : 'Preparing…'}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Footer — shown when run is complete; matches feature/translate meta design */}
+                {run.completedAt !== null && (
+                  <div className="translate-page__meta">
+                    <div className="translate-page__meta-left">
+                      {elapsedLabel && (
+                        <div className="translate-page__meta-item">
+                          <i className="ri-time-line translate-page__meta-icon" aria-hidden />
+                          <span>{elapsedLabel}</span>
+                        </div>
+                      )}
+                      {elapsedLabel && <span className="translate-page__meta-sep">|</span>}
+                      <div className="translate-page__meta-item">
+                        <i className="ri-global-line translate-page__meta-icon" aria-hidden />
+                        <span>{run.language}</span>
+                      </div>
+                      <span className="translate-page__meta-sep">|</span>
+                      <div className="translate-page__meta-item">
+                        <i className="ri-quill-pen-line translate-page__meta-icon" aria-hidden />
+                        <span>{run.tone}</span>
+                      </div>
+                    </div>
+                    <div className="translate-page__meta-right">
+                      <button
+                        type="button"
+                        className="translate-page__meta-copy"
+                        onClick={() => handleCopyRun(run)}
+                        title="Copy translation"
+                      >
+                        <i className="ri-file-copy-line" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        className="translate-page__meta-copy"
+                        onClick={() => handleSaveRun(run, 'md')}
+                        title="Save as Markdown"
+                      >
+                        <i className="ri-markdown-line" aria-hidden />
+                      </button>
+                      <button
+                        type="button"
+                        className="translate-page__meta-copy"
+                        onClick={() => handleSaveRun(run, 'txt')}
+                        title="Save as plain text"
+                      >
+                        <i className="ri-download-line" aria-hidden />
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
-              {run.completedAt !== null && (
-                <div className="translate-run__footer">
-                  <div className="translate-run__footer-actions">
-                    <button type="button" className="translate-run__action" onClick={() => handleCopyRun(run)}>
-                      <i className="ri-clipboard-line" aria-hidden /> Copy
-                    </button>
-                    <button type="button" className="translate-run__action" onClick={() => handleSaveRun(run, 'md')}>
-                      <i className="ri-download-line" aria-hidden /> .md
-                    </button>
-                    <button type="button" className="translate-run__action" onClick={() => handleSaveRun(run, 'txt')}>
-                      <i className="ri-download-line" aria-hidden /> .txt
-                    </button>
-                  </div>
-                  <span className="translate-run__footer-meta">
-                    {run.language} · {run.tone}
-                    {run.elapsedSeconds !== null && ` · ${Math.floor(run.elapsedSeconds / 60)}m ${run.elapsedSeconds % 60}s`}
-                  </span>
-                </div>
-              )}
-            </div>
-          ))}
+            )
+          })}
           <div ref={resultsEndRef} />
         </div>
 
