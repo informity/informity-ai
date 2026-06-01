@@ -30,7 +30,6 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
   const [fileInfo, setFileInfo] = useState<FileInfo | null>(null)
   const [targetLanguage, setTargetLanguage] = useState('Spanish')
   const [tone, setTone] = useState('natural')
-  const [outputMode, setOutputMode] = useState<'markdown' | 'text'>('markdown')
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -76,7 +75,6 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
           file_id: fileInfo.id,
           target_language: targetLanguage,
           tone,
-          output_mode: outputMode,
         })
         job_id = res.job_id
         break
@@ -115,7 +113,11 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
           if (isNew) setCompletedSections((n) => n + 1)
         },
         onSectionFailed: () => setFailedSections((n) => n + 1),
-        onJobDone: () => setJobStatus('done'),
+        onJobDone: (completed, failed) => {
+          setCompletedSections(completed)
+          setFailedSections(failed)
+          setJobStatus('done')
+        },
         onJobFailed: (error) => {
           setJobStatus('failed')
           showToast('error', `Translation failed: ${error}`)
@@ -131,7 +133,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
       setJobStatus('failed')
       showToast('error', msg)
     }
-  }, [fileInfo, targetLanguage, tone, outputMode])
+  }, [fileInfo, targetLanguage, tone])
 
   const cancelTranslation = useCallback(() => {
     abortRef.current?.abort()
@@ -163,8 +165,8 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     fileName: fileInfo?.name ?? null,
     pageCount: fileInfo?.pageCount ?? null,
     isUpload: fileInfo?.isUpload ?? false,
-    targetLanguage, tone, outputMode,
-    setFile, setTargetLanguage, setTone, setOutputMode,
+    targetLanguage, tone,
+    setFile, setTargetLanguage, setTone,
     startTranslation, cancelTranslation, clearResult,
     isTranslating, hasResult,
   }

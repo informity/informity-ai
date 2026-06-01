@@ -64,8 +64,9 @@ TRANSLATE_RETRY_TOKEN_CAP = 400
 # Upload / lifecycle
 # ---------------------------------------------------------------------------
 
-TRANSLATE_CLEANUP_AGE_HOURS = 24  # sweep deletes translate.local files older than this
-TRANSLATE_SOFT_PAGE_LIMIT   = 50  # warn user; does not block
+TRANSLATE_CLEANUP_AGE_HOURS  = 24  # sweep deletes translate.local files older than this
+TRANSLATE_SOFT_PAGE_LIMIT    = 50  # warn user; does not block
+TRANSLATE_SOFT_SECTION_LIMIT = 25  # also warn when section count exceeds this (for files lacking page_count)
 
 # ---------------------------------------------------------------------------
 # Timing estimate (for pre-flight estimate endpoint)
@@ -81,6 +82,6 @@ TRANSLATE_AVG_SECTION_SECONDS  = 20    # measured: ~17s/section at 1K tokens on 
 
 TONE_INSTRUCTIONS: dict[str, str] = {
     'natural': 'Use natural, fluent {language}. Prioritise readability over literal accuracy.',
-    'literal': 'Translate as literally as possible. Preserve sentence structure and word order where grammatically permissible.',
-    'formal':  'Use formal, professional register appropriate for business or academic contexts.',
+    'literal': 'Translate into {language} as literally as possible. Preserve sentence structure and word order where grammatically permissible.',
+    'formal':  'Use formal, professional {language} register appropriate for business or academic contexts.',
 }

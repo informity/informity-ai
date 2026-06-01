@@ -22,13 +22,11 @@ export interface TranslateContextValue {
   // Settings
   targetLanguage: string
   tone: string
-  outputMode: 'markdown' | 'text'
 
   // Actions
   setFile: (file: { id: number; name: string; pageCount: number | null; isUpload: boolean } | null) => void
   setTargetLanguage: (lang: string) => void
   setTone: (tone: string) => void
-  setOutputMode: (mode: 'markdown' | 'text') => void
   startTranslation: () => Promise<void>
   cancelTranslation: () => void
   clearResult: () => void

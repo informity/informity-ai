@@ -514,7 +514,11 @@ CREATE INDEX IF NOT EXISTS idx_translate_job_sections_job_index
     ON translate_job_sections(job_id, section_index);
 """
 
+# DDL to drop all tables for a full schema reset (index rebuild or dev reset).
+# WARNING: keep in sync with _SCHEMA_SQL — add new tables here when adding them to the schema.
 _RESET_DROP_SQL = '''
+DROP TABLE IF EXISTS translate_job_sections;
+DROP TABLE IF EXISTS translate_jobs;
 DROP TRIGGER IF EXISTS fts_chunks_ai;
 DROP TRIGGER IF EXISTS fts_chunks_ad;
 DROP TRIGGER IF EXISTS fts_chunks_au;
@@ -3473,7 +3477,7 @@ async def create_translate_job(
     file_id: int,
     target_language: str,
     tone: str,
-    output_mode: str,
+    output_mode: str = 'markdown',
 ) -> None:
     now = datetime.now(UTC).isoformat()
     await db.execute(

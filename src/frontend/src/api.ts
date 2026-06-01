@@ -882,6 +882,7 @@ export interface TranslateJobStatus {
 
 export interface TranslateEstimate {
   page_count: number
+  token_estimate: number
   section_count_estimate: number
   estimated_minutes: number
   exceeds_soft_limit: boolean
@@ -918,7 +919,6 @@ export async function createTranslateJob(params: {
   file_id: number
   target_language: string
   tone: string
-  output_mode: string
 }): Promise<{ job_id: string }> {
   return request<{ job_id: string }>('POST', '/api/translate/jobs', { body: params })
 }

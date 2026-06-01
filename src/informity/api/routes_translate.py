@@ -9,6 +9,7 @@ import asyncio
 import json
 import os
 import re
+import shutil
 import uuid
 from pathlib import Path
 
@@ -37,7 +38,6 @@ from informity.scanner.crawler import scanned_file_for_path
 from informity.translate_policy import (
     TONE_INSTRUCTIONS,
     TRANSLATE_BATCH_TARGET_TOKENS,
-    TRANSLATE_CALL_MAX_TOKENS,
     TRANSLATE_ENTITY_TYPE,
     TRANSLATE_GLOSSARY_INPUT_TOKENS,
     TRANSLATE_GLOSSARY_MAX_TOKENS,
@@ -47,6 +47,7 @@ from informity.translate_policy import (
     TRANSLATE_JOB_MAX_RUNTIME_S,
     TRANSLATE_JOB_STALL_S,
     TRANSLATE_PROVIDER,
+    TRANSLATE_SOFT_SECTION_LIMIT,
     TRANSLATE_RETRY_TOKEN_CAP,
     TRANSLATE_SECTION_RETRY_MAX,
     TRANSLATE_SECTION_TIMEOUT_S,
@@ -175,7 +176,9 @@ async def delete_translate_upload(
         raise HTTPException(status_code=404, detail='File not found.')
     if getattr(indexed, 'source_provider', '') != TRANSLATE_PROVIDER:
         raise HTTPException(status_code=403, detail='Not a translate upload.')
+    upload_dir = Path(indexed.path).parent
     await remove_file(db, indexed)
+    shutil.rmtree(upload_dir, ignore_errors=True)
     log.info('translate_upload_deleted', file_id=file_id)
     return {'deleted': True}
 
@@ -196,7 +199,6 @@ async def create_translate_job_endpoint(
     file_id = int(body.get('file_id') or 0)
     target_language = str(body.get('target_language') or 'Spanish').strip()
     tone = str(body.get('tone') or 'natural').strip()
-    output_mode = str(body.get('output_mode') or 'markdown').strip()
 
     if not file_id:
         raise HTTPException(status_code=400, detail='file_id is required.')
@@ -210,7 +212,7 @@ async def create_translate_job_endpoint(
     job_id = str(uuid.uuid4())
     await create_translate_job(
         db, job_id=job_id, file_id=file_id,
-        target_language=target_language, tone=tone, output_mode=output_mode,
+        target_language=target_language, tone=tone,
     )
 
     _job_queues[job_id] = asyncio.Queue()
@@ -291,7 +293,8 @@ async def translate_job_events(
 
         # If already terminal, close immediately.
         if job_status in ('done', 'failed', 'stalled'):
-            yield {'event': job_status == 'done' and 'job_done' or f'job_{job_status}', 'data': json.dumps({})}
+            event_name = 'job_done' if job_status == 'done' else f'job_{job_status}'
+            yield {'event': event_name, 'data': json.dumps({})}
             return
 
         # Wait for new events from the worker.
@@ -365,8 +368,8 @@ async def estimate_translate_job(
     estimated_minutes = round((section_count_estimate * TRANSLATE_AVG_SECTION_SECONDS) / 60, 1)
     exceeds_soft_limit = page_count > TRANSLATE_SOFT_PAGE_LIMIT
 
-    # Soft limit: also flag by token count for files without reliable page_count
-    exceeds_soft_limit = exceeds_soft_limit or section_count_estimate > 25
+    # Soft limit: also flag by section count for files without reliable page_count
+    exceeds_soft_limit = exceeds_soft_limit or section_count_estimate > TRANSLATE_SOFT_SECTION_LIMIT
 
     return {
         'page_count': page_count,
@@ -389,6 +392,20 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
         db = await get_connection()
 
         cancel_event = _job_cancel_events.get(job_id)
+
+        # Fast-fail if another job holds the lock. The endpoint-level .locked()
+        # check has a TOCTOU window: two near-simultaneous requests can both pass
+        # the check before either background task starts. Re-checking here (before
+        # any yields inside the lock block) closes that window — once this task
+        # resumes from `await get_connection()` above, the event loop is single-
+        # threaded and won't context-switch between this check and the acquire.
+        if _translate_lock.locked():
+            log.warning('translate_job_lock_busy', job_id=job_id)
+            if db:
+                await update_translate_job(db, job_id, status='failed',
+                                           error='LLM busy — another translation is already running.')
+            await _emit(job_id, 'job_failed', {'error': 'LLM busy — another translation is already running.'})
+            return
 
         async with asyncio.timeout(TRANSLATE_JOB_MAX_RUNTIME_S):
             async with _translate_lock:
@@ -442,6 +459,7 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                     # Reset stall deadline at section start — active work is not a stall
                     stall_deadline = time.monotonic() + TRANSLATE_JOB_STALL_S
                     await update_translate_section(db, section_id, status='running')
+                    await db.commit()
                     await _emit(job_id, 'section_started', {
                         'section_index': s_idx,
                         'section_title': section.get('title'),
@@ -449,7 +467,9 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
 
                     translated = None
                     last_error = None
+                    total_attempts = 0
                     for attempt in range(TRANSLATE_SECTION_RETRY_MAX + 1):
+                        total_attempts += 1
                         token_cap = TRANSLATE_RETRY_TOKEN_CAP if attempt > 0 else TRANSLATE_BATCH_TARGET_TOKENS
                         max_out   = int(token_cap * 1.35) + 100  # proportional output cap
                         source = section['text']
@@ -474,7 +494,7 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                                 'section_index': s_idx, 'attempt': attempt + 1, 'error': last_error,
                             })
 
-                    await update_translate_section(db, section_id, attempt_count=attempt + 1)
+                    await update_translate_section(db, section_id, attempt_count=total_attempts)
 
                     if translated:
                         await update_translate_section(db, section_id, status='done', result_text=translated)
@@ -576,6 +596,8 @@ async def _extract_glossary(
                 await gen.aclose()
                 return None
             if isinstance(item, tuple):
+                # Tuple signals end-of-stream from generate_stream; the first element
+                # is the final token (or '__timeout__'). Append if valid, then stop.
                 token, _ = item
                 if isinstance(token, str) and token and token != '__timeout__':
                     parts.append(token)
@@ -628,13 +650,28 @@ async def _build_sections(db: aiosqlite.Connection, file_id: int) -> list[dict]:
         parts = str(path).split('/')
         return parts[-1].strip() or None
 
+    def _first_sentence_label(text: str) -> str:
+        """
+        Derive a short title from the first sentence of a headerless section.
+        Takes up to 60 chars, trimming at the last word boundary, with an ellipsis.
+        Used as a fallback when Docling detected no section header (e.g. academic
+        PDFs, EPUBs, plain-text files).
+        """
+        first_line = text.strip().split('\n')[0].strip()
+        if len(first_line) <= 60:
+            return first_line
+        trimmed = first_line[:60].rsplit(' ', 1)[0]
+        return f'{trimmed}…'
+
     def _flush():
         if current_chunks:
             text = '\n\n'.join(current_chunks)
+            # Fall back to first-sentence label when Docling found no section header.
+            title = current_title or _first_sentence_label(text)
             # If section text exceeds budget, split at paragraph boundaries
             token_count = _count_tokens(text)
             if token_count <= TRANSLATE_BATCH_TARGET_TOKENS:
-                sections.append({'title': current_title, 'text': text})
+                sections.append({'title': title, 'text': text})
             else:
                 # Split by paragraphs into sub-sections
                 paragraphs = text.split('\n\n')
@@ -644,7 +681,7 @@ async def _build_sections(db: aiosqlite.Connection, file_id: int) -> list[dict]:
                 for para in paragraphs:
                     pt = _count_tokens(para)
                     if sub_tokens + pt > TRANSLATE_BATCH_TARGET_TOKENS and sub:
-                        sections.append({'title': f'{current_title} ({part + 1})' if current_title else None,
+                        sections.append({'title': f'{title} ({part + 1})',
                                          'text': '\n\n'.join(sub)})
                         sub = []
                         sub_tokens = 0
@@ -652,7 +689,7 @@ async def _build_sections(db: aiosqlite.Connection, file_id: int) -> list[dict]:
                     sub.append(para)
                     sub_tokens += pt
                 if sub:
-                    sections.append({'title': f'{current_title} ({part + 1})' if current_title and part > 0 else current_title,
+                    sections.append({'title': f'{title} ({part + 1})' if part > 0 else title,
                                      'text': '\n\n'.join(sub)})
 
     for row in rows:

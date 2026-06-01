@@ -96,7 +96,7 @@
   height: 1em;
   margin-left: 2px;
   background: var(--color-accent);
-  animation: chat-message-blink 1s step-end infinite;
+  animation: translate-cursor-blink 1s step-end infinite;
   vertical-align: text-bottom;
   flex-shrink: 0;
 }
@@ -253,11 +253,6 @@
   border-radius: var(--border-radius-md);
 }
 
-.translate-page__stop-chat {
-  background: none; border: none; padding: 0;
-  color: inherit; font-size: inherit; text-decoration: underline; cursor: pointer;
-}
-
 /* Pending upload chip — spinner only, no text, matches Chat's upload-overflow-chip--pending */
 .translate-page__pending-chip {
   justify-content: center;
@@ -270,6 +265,7 @@
   animation: translate-spin 0.95s linear infinite;
 }
 @keyframes translate-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes translate-cursor-blink { from { opacity: 1; } to { opacity: 0; } }
 
 /* --------------------------------------------------------------------------
    Icon buttons (+ and tone) — mirror chat-view__role-button exactly

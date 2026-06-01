@@ -38,7 +38,7 @@ export function resizeComposerTextarea(
  * element is null or has no chip children.  Used to compute the CSS custom
  * property `--composer-scoped-top-padding` dynamically.
  */
-export function getChipRowHeight(chipRowEl: HTMLElement | null): number {
+function getChipRowHeight(chipRowEl: HTMLElement | null): number {
   if (!chipRowEl) return 0
   if (chipRowEl.childElementCount === 0) return 0
   return chipRowEl.offsetHeight

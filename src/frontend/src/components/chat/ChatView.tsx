@@ -18,11 +18,12 @@ import { logApiError } from '../../utils/logApiError'
 import { CHAT_MODE_STORAGE_KEY, CHAT_ROLE_ID_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
 import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
 import { getFileIcon } from '../../utils/fileFormatting'
+import {
+  COMPOSER_TEXTAREA_MIN_HEIGHT,
+  COMPOSER_TEXTAREA_MAX_HEIGHT,
+  COMPOSER_SCOPED_EXTRA_HEIGHT,
+} from '../../utils/composerSizing'
 import './ChatView.css'
-
-const CHAT_INPUT_MIN_HEIGHT = 104
-const CHAT_INPUT_MAX_HEIGHT = 304
-const CHAT_INPUT_SCOPED_EXTRA_HEIGHT = 52
 const UPLOAD_CHIP_FALLBACK_WIDTH = 180
 const UPLOAD_OVERFLOW_CHIP_FALLBACK_WIDTH = 52
 const UPLOAD_PENDING_CHIP_FALLBACK_WIDTH = 116
@@ -873,9 +874,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   }
 
   const resizeTextarea = useCallback((ta: HTMLTextAreaElement) => {
-    const scopedExtra = hasScopedInputPill ? CHAT_INPUT_SCOPED_EXTRA_HEIGHT : 0
-    const minHeight = CHAT_INPUT_MIN_HEIGHT + scopedExtra
-    const maxHeight = CHAT_INPUT_MAX_HEIGHT + scopedExtra
+    const scopedExtra = hasScopedInputPill ? COMPOSER_SCOPED_EXTRA_HEIGHT : 0
+    const minHeight = COMPOSER_TEXTAREA_MIN_HEIGHT + scopedExtra
+    const maxHeight = COMPOSER_TEXTAREA_MAX_HEIGHT + scopedExtra
     ta.style.height = 'auto'
     const nextHeight = Math.min(Math.max(ta.scrollHeight, minHeight), maxHeight)
     ta.style.height = `${nextHeight}px`

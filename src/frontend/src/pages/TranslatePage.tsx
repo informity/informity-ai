@@ -260,6 +260,7 @@ export function TranslatePage() {
   }, [fileId, isTranslating, startTranslation])
 
   const handleNewTranslation = useCallback(async () => {
+    activeRunRef.current = null
     if (isTranslating) cancelTranslation()
     if (fileId && isUpload) {
       try { await deleteTranslateUpload(fileId) } catch { /* best-effort */ }
@@ -293,7 +294,7 @@ export function TranslatePage() {
 
   if (offline) {
     return (
-      <div className="page page--translate">
+      <div className="page">
         <PageHeader title="Translate" subtitle={subtitle} icon="ri-translate-2" />
         <div className="page__scroll"><ServiceUnavailableState /></div>
       </div>
