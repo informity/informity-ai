@@ -29,9 +29,7 @@ const LogsPage = lazy(async () => ({ default: (await import('./pages/LogsPage'))
 const SettingsPage = lazy(async () => ({ default: (await import('./pages/SettingsPage')).SettingsPage }))
 const ConfigurationPage = lazy(async () => ({ default: (await import('./pages/ConfigurationPage')).ConfigurationPage }))
 const SetupRequiredPage = lazy(async () => ({ default: (await import('./pages/SetupRequiredPage')).SetupRequiredPage }))
-const TranslatePage = import.meta.env.DEV
-  ? lazy(async () => ({ default: (await import('./pages/TranslatePage')).TranslatePage }))
-  : null
+const TranslatePage = lazy(async () => ({ default: (await import('./pages/TranslatePage')).TranslatePage }))
 
 interface AppProps {
   startupError?: string | null
@@ -226,9 +224,7 @@ function App({ startupError = null }: AppProps) {
                           <Route path="logs" element={<LogsPage />} />
                           <Route path="settings" element={<SettingsPage />} />
                           <Route path="settings/configuration" element={<ConfigurationPage />} />
-                          {import.meta.env.DEV && TranslatePage && (
-                            <Route path="translate" element={<TranslatePage />} />
-                          )}
+                          <Route path="translate" element={<TranslatePage />} />
                         </Route>
                         <Route path="*" element={<Navigate to="/chat" replace />} />
                       </>
