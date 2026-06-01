@@ -67,13 +67,31 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     setGlossaryTermCount(null)
     setJobStatus('queued')
 
+    // Retry job creation with backoff — the LLM lock takes ~100-500ms to
+    // release after a cancel, so a 409 immediately after Stop is expected.
+    let job_id: string | undefined
+    for (let attempt = 0; attempt < 5; attempt++) {
+      try {
+        const res = await createTranslateJob({
+          file_id: fileInfo.id,
+          target_language: targetLanguage,
+          tone,
+          output_mode: outputMode,
+        })
+        job_id = res.job_id
+        break
+      } catch (err: unknown) {
+        const status = (err as { status?: number })?.status
+        if (status === 409 && attempt < 4) {
+          await new Promise(r => setTimeout(r, 400 * (attempt + 1)))
+          continue
+        }
+        throw err
+      }
+    }
+    if (!job_id) return
+
     try {
-      const { job_id } = await createTranslateJob({
-        file_id: fileInfo.id,
-        target_language: targetLanguage,
-        tone,
-        output_mode: outputMode,
-      })
       setJobId(job_id)
       setJobStatus('running')
 

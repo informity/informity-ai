@@ -1549,13 +1549,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       ) : isTranslating ? (
                         <button
                           type="button"
-                          className="chat-view__send chat-view__send--busy"
+                          className="chat-view__send"
                           onClick={() => translateCtx?.cancelTranslation()}
                           title="Stop translation"
                           aria-label="Stop translation"
                         >
-                          <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1rem' }} />
-                          <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>Stop translation</span>
+                          <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1.125rem' }} />
                         </button>
                       ) : (
                         <button

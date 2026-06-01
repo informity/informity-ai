@@ -342,11 +342,6 @@
 
 .translate-page__send:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Send morphed to Stop — wider to fit icon + text label */
-.translate-page__send--busy {
-  gap: var(--space-xs);
-  padding: var(--space-xxs) var(--space-sm);
-}
 
 /* Tone trigger wrapper */
 .translate-page__options-trigger { position: relative; z-index: 9; }

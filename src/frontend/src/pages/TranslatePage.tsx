@@ -565,24 +565,22 @@ export function TranslatePage() {
                 {isTranslating ? (
                   <button
                     type="button"
-                    className="translate-page__send translate-page__send--busy"
+                    className="translate-page__send"
                     onClick={cancelTranslation}
                     title="Stop translation"
                     aria-label="Stop translation"
                   >
-                    <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1rem' }} />
-                    <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>Stop</span>
+                    <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1.125rem' }} />
                   </button>
                 ) : isStreaming ? (
                   <button
                     type="button"
-                    className="translate-page__send translate-page__send--busy"
+                    className="translate-page__send"
                     onClick={() => void stopStreaming()}
                     title="Stop chat to translate"
                     aria-label="Stop chat"
                   >
-                    <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1rem' }} />
-                    <span style={{ fontSize: 'var(--font-size-sm)', fontWeight: 500 }}>Stop chat</span>
+                    <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1.125rem' }} />
                   </button>
                 ) : (
                   <button
