@@ -725,7 +725,7 @@ html:not([data-accent='canvas']) .chat-message__copy-code:focus-visible {
   width: 2px;
   height: 1em;
   margin-left: 2px;
-  background: currentColor;
+  background: var(--color-accent);
   animation: chat-message-blink 1s step-end infinite;
   vertical-align: text-bottom;
 }

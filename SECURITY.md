@@ -2,10 +2,12 @@
 
 ## Supported Versions
 
-| Version | Supported |
-|---------|-----------|
-| 0.13.x  | ✅        |
-| < 0.13  | ❌        |
+Only the **latest release** receives security updates. Please upgrade to the current version before reporting a vulnerability.
+
+| Version        | Supported |
+|----------------|-----------|
+| Latest release | ✅        |
+| Older versions | ❌        |
 
 ## Reporting a Vulnerability
 

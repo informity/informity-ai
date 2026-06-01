@@ -67,6 +67,10 @@ _translate_lock = asyncio.Lock()
 # Sentinel value None signals the stream to close.
 _job_queues: dict[str, asyncio.Queue] = {}
 
+# Per-job cancel events: set() immediately closes the active generate_stream
+# generator so the LLM lock releases without waiting for section timeout.
+_job_cancel_events: dict[str, asyncio.Event] = {}
+
 _SENTINEL = None
 _MAX_UPLOAD_MB = 50
 
@@ -210,6 +214,7 @@ async def create_translate_job_endpoint(
     )
 
     _job_queues[job_id] = asyncio.Queue()
+    _job_cancel_events[job_id] = asyncio.Event()
     background_tasks.add_task(_run_translate_job, job_id, file_id, target_language, tone)
 
     log.info('translate_job_created', job_id=job_id, file_id=file_id, language=target_language)
@@ -232,8 +237,12 @@ async def cancel_translate_job(
     job_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
-    # Mark cancelled in DB so the worker stops between sections
+    # Mark cancelled in DB so the inter-section check stops the loop
     await update_translate_job(db, job_id, status='stalled', error='Cancelled by user')
+    # Immediately cancel the active generate_stream (releases LLM lock now)
+    cancel_ev = _job_cancel_events.get(job_id)
+    if cancel_ev:
+        cancel_ev.set()
     # Signal the SSE stream to close
     q = _job_queues.get(job_id)
     if q:
@@ -375,6 +384,8 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
         from informity.db.sqlite import get_connection
         db = await get_connection()
 
+        cancel_event = _job_cancel_events.get(job_id)
+
         async with asyncio.timeout(TRANSLATE_JOB_MAX_RUNTIME_S):
             async with _translate_lock:
                 await update_translate_job(db, job_id, status='running')
@@ -447,6 +458,7 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                             # a real cancel_event-backed timeout — no zombie threads.
                             translated = await _translate_section(
                                 source, target_language, tone, glossary_block, max_out,
+                                cancel_event=cancel_event,
                             )
                             if translated:
                                 break
@@ -504,6 +516,7 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
     finally:
         if db:
             await db.close()
+        _job_cancel_events.pop(job_id, None)
         q = _job_queues.pop(job_id, None)
         if q:
             await q.put(_SENTINEL)
@@ -650,6 +663,7 @@ async def _translate_section(
     tone: str,
     glossary_block: str,
     max_tokens: int,
+    cancel_event: asyncio.Event | None = None,
 ) -> str | None:
     """
     Async translation using generate_stream.
@@ -675,13 +689,19 @@ async def _translate_section(
     ]
 
     parts: list[str] = []
+    gen = llm_engine.generate_stream(
+        messages,
+        max_tokens=max_tokens,
+        temperature=TRANSLATE_TEMPERATURE,
+        timeout_seconds=float(TRANSLATE_SECTION_TIMEOUT_S),
+    )
     try:
-        async for item in llm_engine.generate_stream(
-            messages,
-            max_tokens=max_tokens,
-            temperature=TRANSLATE_TEMPERATURE,
-            timeout_seconds=float(TRANSLATE_SECTION_TIMEOUT_S),
-        ):
+        async for item in gen:
+            # Honour immediate cancellation — closes the generator which
+            # sets the engine's internal cancel_event, releasing the LLM.
+            if cancel_event and cancel_event.is_set():
+                await gen.aclose()
+                return None
             if isinstance(item, tuple):
                 token, _ = item
                 if isinstance(token, str) and token and token != '__timeout__':

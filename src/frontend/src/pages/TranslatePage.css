@@ -89,13 +89,13 @@
 
 .translate-run__section--streaming { display: flex; align-items: center; gap: var(--space-sm); min-height: 1.5rem; }
 
-/* Blinking cursor — matches chat-message__cursor: same step-end animation, currentColor */
+/* Blinking cursor — identical to chat-message__cursor: same accent color, same animation */
 .translate-run__cursor {
   display: inline-block;
   width: 2px;
   height: 1em;
   margin-left: 2px;
-  background: currentColor;
+  background: var(--color-accent);
   animation: chat-message-blink 1s step-end infinite;
   vertical-align: text-bottom;
   flex-shrink: 0;

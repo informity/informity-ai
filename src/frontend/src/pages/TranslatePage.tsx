@@ -279,7 +279,7 @@ export function TranslatePage() {
   }
 
   const translatePlaceholder = fileId
-    ? 'Steer the translation (optional) — e.g. focus on methodology, skip references…'
+    ? 'Add instructions (optional) — e.g. focus on the executive summary, preserve technical terms…'
     : 'Select or upload a document to translate…'
 
   return (
@@ -329,10 +329,9 @@ export function TranslatePage() {
                       <span className="translate-run__progress">
                         {sectionCount
                           ? `Section ${completedSections + 1} of ${sectionCount}`
-                          : 'Preparing…'}
-                        {estimatedMinutes && !sectionCount
-                          ? ` · ~${estimatedMinutes} min estimated`
-                          : null}
+                          : estimatedMinutes
+                            ? `Preparing… Estimated time: ~${estimatedMinutes} min`
+                            : 'Preparing…'}
                       </span>
                     </div>
                   )}
