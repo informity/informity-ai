@@ -214,6 +214,60 @@ html[data-accent='canvas'] .sidebar__link:hover:not(.sidebar__link--active) {
   animation: spin 1s linear infinite;
 }
 
+/* Settings sub-navigation — vertical list under the Settings link */
+.sidebar__subnav {
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 var(--space-xs) 0;
+}
+
+.sidebar__subnav-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+  border: none;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  box-sizing: border-box;
+  padding: 0.3rem var(--sidebar-link-padding-x) 0.3rem calc(var(--sidebar-link-padding-x) + 1.75rem);
+  margin: 0 0 1px;
+  border-radius: var(--border-radius);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+  white-space: nowrap;
+}
+
+.sidebar__subnav-item:hover:not(.sidebar__subnav-item--active) {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.sidebar__subnav-item--active {
+  background: var(--color-primary-bg);
+  color: var(--color-text);
+  font-weight: 500;
+}
+
+html[data-accent='canvas'] .sidebar__subnav-item:hover:not(.sidebar__subnav-item--active) {
+  background: var(--color-primary-bg);
+}
+
+.sidebar__subnav-icon {
+  font-size: var(--font-size-base);
+  width: 1rem;
+  text-align: center;
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+.sidebar__subnav-item--active .sidebar__subnav-icon {
+  opacity: 1;
+}
+
 @media (max-width: 1024px) {
   .sidebar {
     width: var(--sidebar-width-collapsed) !important;

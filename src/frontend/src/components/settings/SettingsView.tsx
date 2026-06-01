@@ -4,7 +4,7 @@
  * Chat, Diagnostics, Models, System. Save, Discard, Reset Settings, Danger Zone.
  */
 import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   cancelModelDownload,
   downloadModel,
@@ -441,8 +441,13 @@ export function SettingsView({
   onCheckForUpdates,
   saving,
 }: SettingsViewProps) {
+  const [searchParams, setSearchParams] = useSearchParams()
   const [form, setForm] = useState<FormState>(() => buildFormState(settings || {}))
-  const [activeTab, setActiveTab] = useState<SettingsTab>(getInitialActiveTab)
+  const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
+    const fromUrl = searchParams.get('tab')
+    if (fromUrl && SETTINGS_TAB_IDS.has(fromUrl as SettingsTab)) return fromUrl as SettingsTab
+    return getInitialActiveTab()
+  })
   const [previewProfile, setPreviewProfile] = useState<ModelProfile | null>(null)
   const [modelProfileNames, setModelProfileNames] = useState<Map<string, string>>(new Map())
   const [dirInput, setDirInput] = useState('')
@@ -502,13 +507,21 @@ export function SettingsView({
     )
   }, [form.mcp_http_host, form.mcp_http_port])
 
+  // Sync tab state → URL param + localStorage
   useEffect(() => {
-    try {
-      localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, activeTab)
-    } catch {
-      // Ignore localStorage errors.
-    }
+    setSearchParams({ tab: activeTab }, { replace: true })
+    try { localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, activeTab) } catch { /* ignore */ }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
+
+  // Sync URL param → tab state (handles sidebar sub-item clicks while on Settings)
+  useEffect(() => {
+    const fromUrl = searchParams.get('tab')
+    if (fromUrl && SETTINGS_TAB_IDS.has(fromUrl as SettingsTab) && fromUrl !== activeTab) {
+      setActiveTab(fromUrl as SettingsTab)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   useEffect(() => {
     const selected = canonicalizeModelFilename(form.llm_model_filename)

@@ -16,6 +16,16 @@ const NAV_ITEMS = [
   { path: '/settings',  label: 'Settings',  icon: 'ri-settings-3-line', devOnly: false },
 ]
 
+const SETTINGS_SUBNAV = [
+  { tab: 'general',     label: 'General',      icon: 'ri-home-gear-line'    },
+  { tab: 'chat',        label: 'Chat',         icon: 'ri-chat-ai-4-line'    },
+  { tab: 'models',      label: 'Models',       icon: 'ri-robot-2-line'      },
+  { tab: 'data',        label: 'Data Sources', icon: 'ri-folder-line'       },
+  { tab: 'indexing',    label: 'Indexing',     icon: 'ri-stack-line'        },
+  { tab: 'diagnostics', label: 'Diagnostics',  icon: 'ri-pulse-line'        },
+  { tab: 'system',      label: 'System',       icon: 'ri-server-line'       },
+]
+
 interface SidebarProps {
   collapsed: boolean
   onToggleCollapsed: () => void
@@ -23,7 +33,10 @@ interface SidebarProps {
 
 export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   const navigate = useNavigate()
-  const { pathname } = useLocation()
+  const { pathname, search } = useLocation()
+  const activeSettingsTab = pathname === '/settings'
+    ? (new URLSearchParams(search).get('tab') ?? 'general')
+    : null
   const { isStreaming } = useChatContext()
   const translateCtx = useOptionalTranslateContext()
   const isTranslating = translateCtx?.isTranslating ?? false
@@ -108,28 +121,45 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             : path === '/dashboard' ? 'Scanning'
             : path === '/files' ? 'Indexing'
             : 'Translating'
+          const isSettings = path === '/settings'
           return (
-            <button
-              key={path}
-              type="button"
-              className={`sidebar__link ${pathname === path ? 'sidebar__link--active' : ''}`}
-              onClick={() => navigate(path)}
-              aria-current={pathname === path ? 'page' : undefined}
-            >
-              <i className={`${icon} sidebar__icon`} aria-hidden />
-              {!collapsed && (
-                <span className="sidebar__label">
-                  <span>{label}</span>
-                  {showSpinner ? (
-                    <span className="sidebar__status-slot">
-                      <span className="sidebar__status" aria-live="polite" aria-label={spinnerLabel}>
-                        <i className="ri-loader-4-line sidebar__status-spinner" aria-hidden />
+            <div key={path}>
+              <button
+                type="button"
+                className={`sidebar__link ${pathname === path ? 'sidebar__link--active' : ''}`}
+                onClick={() => navigate(path)}
+                aria-current={pathname === path ? 'page' : undefined}
+              >
+                <i className={`${icon} sidebar__icon`} aria-hidden />
+                {!collapsed && (
+                  <span className="sidebar__label">
+                    <span>{label}</span>
+                    {showSpinner ? (
+                      <span className="sidebar__status-slot">
+                        <span className="sidebar__status" aria-live="polite" aria-label={spinnerLabel}>
+                          <i className="ri-loader-4-line sidebar__status-spinner" aria-hidden />
+                        </span>
                       </span>
-                    </span>
-                  ) : null}
-                </span>
+                    ) : null}
+                  </span>
+                )}
+              </button>
+              {isSettings && !collapsed && (
+                <div className="sidebar__subnav">
+                  {SETTINGS_SUBNAV.map(({ tab, label: subLabel, icon: subIcon }) => (
+                    <button
+                      key={tab}
+                      type="button"
+                      className={`sidebar__subnav-item${activeSettingsTab === tab ? ' sidebar__subnav-item--active' : ''}`}
+                      onClick={() => navigate(`/settings?tab=${tab}`)}
+                    >
+                      <i className={`${subIcon} sidebar__subnav-icon`} aria-hidden />
+                      <span>{subLabel}</span>
+                    </button>
+                  ))}
+                </div>
               )}
-            </button>
+            </div>
           )
         })}
       </nav>
