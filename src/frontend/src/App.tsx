@@ -4,6 +4,7 @@ import { ToastProvider } from './context/ToastProvider'
 import { ConfirmProvider } from './context/ConfirmProvider'
 import { ChatProvider } from './context/ChatProvider'
 import { BackendStatusProvider } from './context/BackendStatusProvider'
+import { TranslateProvider } from './context/TranslateProvider'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { CenteredState } from './components/CenteredState'
 import { Layout } from './components/Layout'
@@ -28,6 +29,9 @@ const LogsPage = lazy(async () => ({ default: (await import('./pages/LogsPage'))
 const SettingsPage = lazy(async () => ({ default: (await import('./pages/SettingsPage')).SettingsPage }))
 const ConfigurationPage = lazy(async () => ({ default: (await import('./pages/ConfigurationPage')).ConfigurationPage }))
 const SetupRequiredPage = lazy(async () => ({ default: (await import('./pages/SetupRequiredPage')).SetupRequiredPage }))
+const TranslatePage = import.meta.env.DEV
+  ? lazy(async () => ({ default: (await import('./pages/TranslatePage')).TranslatePage }))
+  : null
 
 interface AppProps {
   startupError?: string | null
@@ -131,6 +135,7 @@ function App({ startupError = null }: AppProps) {
       <ToastProvider>
         <ConfirmProvider>
           <ChatProvider>
+            <TranslateProvider>
             <BackendStatusProvider>
               <Router>
                 <Suspense
@@ -221,6 +226,9 @@ function App({ startupError = null }: AppProps) {
                           <Route path="logs" element={<LogsPage />} />
                           <Route path="settings" element={<SettingsPage />} />
                           <Route path="settings/configuration" element={<ConfigurationPage />} />
+                          {import.meta.env.DEV && TranslatePage && (
+                            <Route path="translate" element={<TranslatePage />} />
+                          )}
                         </Route>
                         <Route path="*" element={<Navigate to="/chat" replace />} />
                       </>
@@ -229,6 +237,7 @@ function App({ startupError = null }: AppProps) {
                 </Suspense>
               </Router>
             </BackendStatusProvider>
+            </TranslateProvider>
           </ChatProvider>
         </ConfirmProvider>
       </ToastProvider>

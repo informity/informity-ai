@@ -568,6 +568,8 @@ class Settings(BaseSettings):
     ui_theme: Literal['canvas', 'ember', 'sage', 'graphite', 'onyx'] = _DEFAULT_UI_THEME
     # When true, show the macOS menu bar icon while the app is running.
     enable_menu_bar_icon: bool = False
+    # Default target language for the translation screen.
+    translate_default_language: str = 'Spanish'
     # -- Pydantic Settings Config ---------------------------------------------
     model_config = {
         'env_prefix': 'INFORMITY_',

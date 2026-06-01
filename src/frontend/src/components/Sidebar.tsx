@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { getScanStatus, listFileReindexOperations } from '../api'
 import { useChatContext } from '../context/useChatContext'
+import { useTranslateContext } from '../context/useTranslateContext'
 import './Sidebar.css'
 
 const SCAN_STATUS_POLL_MS = 3000
@@ -22,9 +23,8 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   const navigate = useNavigate()
   const { pathname } = useLocation()
-  const {
-    isStreaming,
-  } = useChatContext()
+  const { isStreaming } = useChatContext()
+  const { isTranslating } = useTranslateContext()
   const [isScanRunning, setIsScanRunning] = useState(false)
   const [isFileReindexRunning, setIsFileReindexRunning] = useState(false)
 
@@ -124,6 +124,28 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             )}
           </button>
         ))}
+        {import.meta.env.DEV && (
+          <button
+            type="button"
+            className={`sidebar__link ${pathname === '/translate' ? 'sidebar__link--active' : ''}`}
+            onClick={() => navigate('/translate')}
+            aria-current={pathname === '/translate' ? 'page' : undefined}
+          >
+            <i className="ri-translate-2 sidebar__icon" aria-hidden />
+            {!collapsed && (
+              <span className="sidebar__label">
+                <span>Translate</span>
+                {isTranslating ? (
+                  <span className="sidebar__status-slot">
+                    <span className="sidebar__status" aria-live="polite" aria-label="Translating">
+                      <i className="ri-loader-4-line sidebar__status-spinner" aria-hidden />
+                    </span>
+                  </span>
+                ) : null}
+              </span>
+            )}
+          </button>
+        )}
       </nav>
     </aside>
   )

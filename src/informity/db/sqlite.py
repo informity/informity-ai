@@ -65,7 +65,7 @@ _CHAT_TITLE_WHITESPACE_RE = re.compile(r'\s+')
 # Schema — DDL statements for all tables
 # ==============================================================================
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 5
 
 DIAGNOSTICS_TYPE_USER = 'user'
 DIAGNOSTICS_TYPE_EVALUATION = 'evaluation'
@@ -471,6 +471,47 @@ CREATE INDEX IF NOT EXISTS idx_term_evidence_term_id
     ON term_evidence(term_id);
 CREATE INDEX IF NOT EXISTS idx_term_evidence_chunk_id
     ON term_evidence(chunk_id);
+
+CREATE TABLE IF NOT EXISTS translate_jobs (
+    job_id           TEXT PRIMARY KEY,
+    file_id          INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+    target_language  TEXT NOT NULL,
+    tone             TEXT NOT NULL DEFAULT 'natural',
+    output_mode      TEXT NOT NULL DEFAULT 'markdown',
+    status           TEXT NOT NULL DEFAULT 'queued'
+                         CHECK (status IN ('queued','running','done','failed','stalled')),
+    glossary_json    TEXT,
+    section_count    INTEGER,
+    completed_sections INTEGER NOT NULL DEFAULT 0,
+    failed_sections  INTEGER NOT NULL DEFAULT 0,
+    error            TEXT,
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_translate_jobs_file_id
+    ON translate_jobs(file_id);
+CREATE INDEX IF NOT EXISTS idx_translate_jobs_status
+    ON translate_jobs(status);
+
+CREATE TABLE IF NOT EXISTS translate_job_sections (
+    section_id     TEXT PRIMARY KEY,
+    job_id         TEXT NOT NULL REFERENCES translate_jobs(job_id) ON DELETE CASCADE,
+    section_index  INTEGER NOT NULL,
+    section_title  TEXT,
+    status         TEXT NOT NULL DEFAULT 'pending'
+                       CHECK (status IN ('pending','running','done','failed')),
+    result_text    TEXT,
+    attempt_count  INTEGER NOT NULL DEFAULT 0,
+    error          TEXT,
+    created_at     TEXT NOT NULL,
+    updated_at     TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_translate_job_sections_job_id
+    ON translate_job_sections(job_id);
+CREATE INDEX IF NOT EXISTS idx_translate_job_sections_job_index
+    ON translate_job_sections(job_id, section_index);
 """
 
 _RESET_DROP_SQL = '''
@@ -640,6 +681,8 @@ async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
             await _migrate_to_v3(conn)
         elif next_version == 4:
             await _migrate_to_v4(conn)
+        elif next_version == 5:
+            await _migrate_to_v5(conn)
         else:
             raise RuntimeError(f'No migration path defined for schema version {next_version}')
         await conn.execute('UPDATE schema_version SET version = ?', (next_version,))
@@ -716,6 +759,54 @@ async def _migrate_to_v4(conn: aiosqlite.Connection) -> None:
         'CREATE INDEX IF NOT EXISTS idx_log_events_event_name_created_at ON log_events(event_name, created_at DESC, id DESC)'
     )
     await conn.execute('CREATE INDEX IF NOT EXISTS idx_log_events_correlation_id ON log_events(correlation_id)')
+
+
+async def _migrate_to_v5(conn: aiosqlite.Connection) -> None:
+    """
+    v5 migration:
+    - add translate_jobs and translate_job_sections tables for document translation feature.
+    """
+    await conn.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS translate_jobs (
+            job_id           TEXT PRIMARY KEY,
+            file_id          INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+            target_language  TEXT NOT NULL,
+            tone             TEXT NOT NULL DEFAULT 'natural',
+            output_mode      TEXT NOT NULL DEFAULT 'markdown',
+            status           TEXT NOT NULL DEFAULT 'queued'
+                                 CHECK (status IN ('queued','running','done','failed','stalled')),
+            glossary_json    TEXT,
+            section_count    INTEGER,
+            completed_sections INTEGER NOT NULL DEFAULT 0,
+            failed_sections  INTEGER NOT NULL DEFAULT 0,
+            error            TEXT,
+            created_at       TEXT NOT NULL,
+            updated_at       TEXT NOT NULL
+        )
+        '''
+    )
+    await conn.execute('CREATE INDEX IF NOT EXISTS idx_translate_jobs_file_id ON translate_jobs(file_id)')
+    await conn.execute('CREATE INDEX IF NOT EXISTS idx_translate_jobs_status ON translate_jobs(status)')
+    await conn.execute(
+        '''
+        CREATE TABLE IF NOT EXISTS translate_job_sections (
+            section_id     TEXT PRIMARY KEY,
+            job_id         TEXT NOT NULL REFERENCES translate_jobs(job_id) ON DELETE CASCADE,
+            section_index  INTEGER NOT NULL,
+            section_title  TEXT,
+            status         TEXT NOT NULL DEFAULT 'pending'
+                               CHECK (status IN ('pending','running','done','failed')),
+            result_text    TEXT,
+            attempt_count  INTEGER NOT NULL DEFAULT 0,
+            error          TEXT,
+            created_at     TEXT NOT NULL,
+            updated_at     TEXT NOT NULL
+        )
+        '''
+    )
+    await conn.execute('CREATE INDEX IF NOT EXISTS idx_translate_job_sections_job_id ON translate_job_sections(job_id)')
+    await conn.execute('CREATE INDEX IF NOT EXISTS idx_translate_job_sections_job_index ON translate_job_sections(job_id, section_index)')
 
 
 async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
@@ -3369,3 +3460,152 @@ async def reset_index_data_scope(
         'vectors_deleted': vectors_deleted,
         'file_failures_deleted': file_failures_deleted,
     }
+
+
+# ==============================================================================
+# Translate Job Helpers
+# ==============================================================================
+
+async def create_translate_job(
+    db: aiosqlite.Connection,
+    *,
+    job_id: str,
+    file_id: int,
+    target_language: str,
+    tone: str,
+    output_mode: str,
+) -> None:
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        '''
+        INSERT INTO translate_jobs
+            (job_id, file_id, target_language, tone, output_mode, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)
+        ''',
+        (job_id, file_id, target_language, tone, output_mode, now, now),
+    )
+    await db.commit()
+
+
+async def get_translate_job(db: aiosqlite.Connection, job_id: str) -> aiosqlite.Row | None:
+    cursor = await db.execute('SELECT * FROM translate_jobs WHERE job_id = ?', (job_id,))
+    return await cursor.fetchone()
+
+
+async def update_translate_job(
+    db: aiosqlite.Connection,
+    job_id: str,
+    *,
+    status: str | None = None,
+    glossary_json: str | None = None,
+    section_count: int | None = None,
+    completed_sections: int | None = None,
+    failed_sections: int | None = None,
+    error: str | None = None,
+) -> None:
+    now = datetime.now(UTC).isoformat()
+    fields: list[str] = ['updated_at = ?']
+    params: list = [now]
+    if status is not None:
+        fields.append('status = ?')
+        params.append(status)
+    if glossary_json is not None:
+        fields.append('glossary_json = ?')
+        params.append(glossary_json)
+    if section_count is not None:
+        fields.append('section_count = ?')
+        params.append(section_count)
+    if completed_sections is not None:
+        fields.append('completed_sections = ?')
+        params.append(completed_sections)
+    if failed_sections is not None:
+        fields.append('failed_sections = ?')
+        params.append(failed_sections)
+    if error is not None:
+        fields.append('error = ?')
+        params.append(error)
+    params.append(job_id)
+    await db.execute(f'UPDATE translate_jobs SET {", ".join(fields)} WHERE job_id = ?', params)
+    await db.commit()
+
+
+async def create_translate_section(
+    db: aiosqlite.Connection,
+    *,
+    section_id: str,
+    job_id: str,
+    section_index: int,
+    section_title: str | None,
+) -> None:
+    now = datetime.now(UTC).isoformat()
+    await db.execute(
+        '''
+        INSERT INTO translate_job_sections
+            (section_id, job_id, section_index, section_title, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, 'pending', ?, ?)
+        ''',
+        (section_id, job_id, section_index, section_title, now, now),
+    )
+
+
+async def update_translate_section(
+    db: aiosqlite.Connection,
+    section_id: str,
+    *,
+    status: str | None = None,
+    result_text: str | None = None,
+    attempt_count: int | None = None,
+    error: str | None = None,
+) -> None:
+    now = datetime.now(UTC).isoformat()
+    fields: list[str] = ['updated_at = ?']
+    params: list = [now]
+    if status is not None:
+        fields.append('status = ?')
+        params.append(status)
+    if result_text is not None:
+        fields.append('result_text = ?')
+        params.append(result_text)
+    if attempt_count is not None:
+        fields.append('attempt_count = ?')
+        params.append(attempt_count)
+    if error is not None:
+        fields.append('error = ?')
+        params.append(error)
+    params.append(section_id)
+    await db.execute(f'UPDATE translate_job_sections SET {", ".join(fields)} WHERE section_id = ?', params)
+
+
+async def get_translate_sections(
+    db: aiosqlite.Connection, job_id: str
+) -> list[aiosqlite.Row]:
+    cursor = await db.execute(
+        'SELECT * FROM translate_job_sections WHERE job_id = ? ORDER BY section_index ASC',
+        (job_id,),
+    )
+    return await cursor.fetchall()
+
+
+async def get_translate_job_result(db: aiosqlite.Connection, job_id: str) -> list[str]:
+    cursor = await db.execute(
+        '''
+        SELECT result_text FROM translate_job_sections
+        WHERE job_id = ? AND status = 'done'
+        ORDER BY section_index ASC
+        ''',
+        (job_id,),
+    )
+    rows = await cursor.fetchall()
+    return [str(r['result_text']) for r in rows if r['result_text']]
+
+
+async def delete_translate_jobs_older_than(db: aiosqlite.Connection, cutoff_iso: str) -> int:
+    cursor = await db.execute(
+        "SELECT COUNT(*) FROM translate_jobs WHERE created_at < ?", (cutoff_iso,)
+    )
+    row = await cursor.fetchone()
+    count = int(row[0]) if row else 0
+    if count > 0:
+        await db.execute("DELETE FROM translate_jobs WHERE created_at < ?", (cutoff_iso,))
+        await db.commit()
+    return count

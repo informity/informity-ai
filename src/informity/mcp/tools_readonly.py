@@ -147,7 +147,7 @@ async def tool_files_list(
         search=search,
         limit=effective_limit,
         offset=max(0, int(offset)),
-        excluded_source_providers=['upload.local'],
+        excluded_source_providers=['upload.local', 'translate.local'],
     )
     results = []
     for item in files:
@@ -206,7 +206,7 @@ async def tool_search_semantic(
         indexed_file = files_by_id.get(file_id)
         if indexed_file is None:
             continue
-        if str(getattr(indexed_file, 'source_provider', '') or '').strip().lower() == 'upload.local':
+        if str(getattr(indexed_file, 'source_provider', '') or '').strip().lower() in {'upload.local', 'translate.local'}:
             continue
         if normalized_category and indexed_file.category.value != normalized_category:
             continue
@@ -303,10 +303,10 @@ async def _get_filter_options(db: aiosqlite.Connection) -> dict[str, list[str]]:
         '''
         SELECT DISTINCT LOWER(category) AS category
         FROM files
-        WHERE source_provider != ?
+        WHERE source_provider NOT IN ('upload.local', 'translate.local')
         ORDER BY category ASC
         ''',
-        ('upload.local',),
+        (),
     )
     category_rows = await categories_cursor.fetchall()
     categories = [str(row['category']) for row in category_rows if row and row['category']]
@@ -317,10 +317,11 @@ async def _get_filter_options(db: aiosqlite.Connection) -> dict[str, list[str]]:
         '''
         SELECT DISTINCT LOWER(extension) AS extension
         FROM files
-        WHERE source_provider != ? AND extension IS NOT NULL AND TRIM(extension) != ''
+        WHERE source_provider NOT IN ('upload.local', 'translate.local')
+          AND extension IS NOT NULL AND TRIM(extension) != ''
         ORDER BY extension ASC
         ''',
-        ('upload.local',),
+        (),
     )
     extension_rows = await extension_cursor.fetchall()
     file_types = [str(row['extension']) for row in extension_rows if row and row['extension']]
@@ -335,9 +336,9 @@ async def tool_index_status(db: aiosqlite.Connection) -> dict[str, Any]:
         '''
         SELECT COUNT(*) as count
         FROM files
-        WHERE source_provider != ?
+        WHERE source_provider NOT IN ('upload.local', 'translate.local')
         ''',
-        ('upload.local',),
+        (),
     )
     files_row = await files_cursor.fetchone()
     total_files = int(files_row['count']) if files_row else 0
@@ -347,9 +348,9 @@ async def tool_index_status(db: aiosqlite.Connection) -> dict[str, Any]:
         SELECT COUNT(*) as count
         FROM chunks c
         JOIN files f ON c.file_id = f.id
-        WHERE f.source_provider != ?
+        WHERE f.source_provider NOT IN ('upload.local', 'translate.local')
         ''',
-        ('upload.local',),
+        (),
     )
     chunks_row = await chunks_cursor.fetchone()
     total_chunks = int(chunks_row['count']) if chunks_row else 0

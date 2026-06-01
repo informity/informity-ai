@@ -242,6 +242,7 @@ export interface IndexedFile {
   modified_at: string
   created_at?: string
   chunk_count?: number
+  page_count?: number | null
 }
 
 export interface IndexStatus {
