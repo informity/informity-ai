@@ -43,7 +43,7 @@ type Tone = typeof TONES[number]
 const TONE_ICONS: Record<Tone, string> = {
   natural: 'ri-leaf-line',      // organic, flowing
   formal:  'ri-building-line',  // professional/institutional
-  literal: 'ri-brackets-line',  // exact/precise syntax
+  literal: 'ri-box-1-line',      // contained/fixed meaning
 }
 
 interface RunRecord {
