@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { PageHeader } from '../components/PageHeader'
 import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { useBackendStatus } from '../context/useBackendStatus'
@@ -12,6 +13,17 @@ import { showToast } from '../context/useToast'
 import { resizeComposerTextarea, applyComposerScopedPadding } from '../utils/composerSizing'
 import type { TranslateSection } from '../api'
 import './TranslatePage.css'
+
+/** Strip raw HTML tags and convert <br> to newlines before markdown rendering. */
+function sanitizeTranslationText(text: string): string {
+  return text
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+}
+
+function capitalize(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s
+}
 
 interface LanguageOption { label: string; countryCode: string }
 
@@ -52,6 +64,7 @@ export function TranslatePage() {
   const [runs, setRuns] = useState<RunRecord[]>([])
   const activeRunRef = useRef<RunRecord | null>(null)
   const runStartRef = useRef<number>(0)
+  const [exportMenuRun, setExportMenuRun] = useState<number | null>(null)
 
   // Composer state — matches ChatView
   const [animateToDocked, setAnimateToDocked] = useState(false)
@@ -172,9 +185,21 @@ export function TranslatePage() {
     }
   }, [jobStatus])
 
+  // Scroll to bottom on each new completed section so the Section X/Y indicator stays visible
   useEffect(() => {
     if (isTranslating) resultsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [sections.length, isTranslating])
+  }, [completedSections, isTranslating])
+
+  // Close export menu on outside click
+  useEffect(() => {
+    if (exportMenuRun === null) return
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement
+      if (!target.closest('.translate-page__export-trigger')) setExportMenuRun(null)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [exportMenuRun])
 
   const handleUpload = useCallback(async (file: File) => {
     setUploadLoading(true)
@@ -276,25 +301,28 @@ export function TranslatePage() {
             const elapsedLabel = run.elapsedSeconds !== null
               ? `${Math.floor(run.elapsedSeconds / 60)}m ${run.elapsedSeconds % 60}s`
               : null
+            const exportOpen = exportMenuRun === ri
             return (
               <div key={ri} className="translate-run">
                 {/* Run header */}
                 <div className="translate-run__header">
                   <span className="translate-run__label">
                     {run.fileLabel} → {run.language}
-                    {run.tone !== 'natural' && ` · ${run.tone}`}
+                    {run.tone !== 'natural' && ` · ${capitalize(run.tone)}`}
                     {run.steering && ` · "${run.steering.slice(0, 50)}${run.steering.length > 50 ? '…' : ''}"`}
                   </span>
                 </div>
 
-                {/* Sections */}
+                {/* Sections — remark-gfm for tables; sanitize raw HTML from model */}
                 <div className="translate-run__sections">
                   {run.sections.map(s => (
                     <div key={s.section_index} className="translate-run__section">
-                      <ReactMarkdown>{s.text}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                        {sanitizeTranslationText(s.text)}
+                      </ReactMarkdown>
                     </div>
                   ))}
-                  {/* Streaming indicator — visible from the moment translation starts */}
+                  {/* Streaming indicator — shows immediately when translation starts */}
                   {isActive && (
                     <div className="translate-run__section translate-run__section--streaming">
                       <span className="translate-run__cursor" aria-label="Translating…" />
@@ -302,22 +330,27 @@ export function TranslatePage() {
                         {sectionCount
                           ? `Section ${completedSections + 1} of ${sectionCount}`
                           : 'Preparing…'}
+                        {estimatedMinutes && !sectionCount
+                          ? ` · ~${estimatedMinutes} min estimated`
+                          : null}
                       </span>
                     </div>
                   )}
                 </div>
 
-                {/* Footer — shown when run is complete; matches feature/translate meta design */}
+                {/* Footer — feature/translate meta layout: metadata left, actions right */}
                 {run.completedAt !== null && (
                   <div className="translate-page__meta">
                     <div className="translate-page__meta-left">
                       {elapsedLabel && (
-                        <div className="translate-page__meta-item">
-                          <i className="ri-time-line translate-page__meta-icon" aria-hidden />
-                          <span>{elapsedLabel}</span>
-                        </div>
+                        <>
+                          <div className="translate-page__meta-item">
+                            <i className="ri-time-line translate-page__meta-icon" aria-hidden />
+                            <span>{elapsedLabel}</span>
+                          </div>
+                          <span className="translate-page__meta-sep">|</span>
+                        </>
                       )}
-                      {elapsedLabel && <span className="translate-page__meta-sep">|</span>}
                       <div className="translate-page__meta-item">
                         <i className="ri-global-line translate-page__meta-icon" aria-hidden />
                         <span>{run.language}</span>
@@ -325,10 +358,40 @@ export function TranslatePage() {
                       <span className="translate-page__meta-sep">|</span>
                       <div className="translate-page__meta-item">
                         <i className="ri-quill-pen-line translate-page__meta-icon" aria-hidden />
-                        <span>{run.tone}</span>
+                        <span>{capitalize(run.tone)}</span>
                       </div>
                     </div>
                     <div className="translate-page__meta-right">
+                      {/* Export dropdown — Markdown / Plain text */}
+                      <div className="translate-page__export-trigger">
+                        <button
+                          type="button"
+                          className="translate-page__meta-copy"
+                          onClick={() => setExportMenuRun(exportOpen ? null : ri)}
+                          title="Export"
+                        >
+                          <i className="ri-download-line" aria-hidden />
+                        </button>
+                        {exportOpen && (
+                          <div className="translate-page__mode-menu translate-page__mode-menu--export" role="menu">
+                            <button
+                              type="button"
+                              className="translate-page__mode-option"
+                              onClick={() => { handleSaveRun(run, 'md'); setExportMenuRun(null) }}
+                            >
+                              Markdown
+                            </button>
+                            <button
+                              type="button"
+                              className="translate-page__mode-option"
+                              onClick={() => { handleSaveRun(run, 'txt'); setExportMenuRun(null) }}
+                            >
+                              Plain text
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      {/* Copy — always last */}
                       <button
                         type="button"
                         className="translate-page__meta-copy"
@@ -336,22 +399,6 @@ export function TranslatePage() {
                         title="Copy translation"
                       >
                         <i className="ri-file-copy-line" aria-hidden />
-                      </button>
-                      <button
-                        type="button"
-                        className="translate-page__meta-copy"
-                        onClick={() => handleSaveRun(run, 'md')}
-                        title="Save as Markdown"
-                      >
-                        <i className="ri-markdown-line" aria-hidden />
-                      </button>
-                      <button
-                        type="button"
-                        className="translate-page__meta-copy"
-                        onClick={() => handleSaveRun(run, 'txt')}
-                        title="Save as plain text"
-                      >
-                        <i className="ri-download-line" aria-hidden />
                       </button>
                     </div>
                   </div>
@@ -413,10 +460,11 @@ export function TranslatePage() {
               </span>
             )}
 
-            {/* Upload pending chip — spinner only, no text */}
+            {/* Upload pending chip — spinner + text so chip has visible height */}
             {uploadLoading && !fileId && (
               <span ref={pendingChipRef} className="composer__scope-chip" aria-label="Uploading…">
                 <i className="ri-loader-4-line translate-page__spinner" aria-hidden />
+                <span>Uploading…</span>
               </span>
             )}
 

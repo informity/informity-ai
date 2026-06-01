@@ -176,6 +176,21 @@
   background: var(--color-bg-hover);
 }
 
+/* Export trigger — relative container for the dropdown */
+.translate-page__export-trigger {
+  position: relative;
+}
+
+/* Export dropdown anchors to the right, opens upward */
+.translate-page__mode-menu--export {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 0.25rem);
+  min-width: 9rem;
+  left: auto;
+  transform: none;
+}
+
 /* --------------------------------------------------------------------------
    Composer wrap — centering shell, matches chat-view__content width + padding
    -------------------------------------------------------------------------- */
