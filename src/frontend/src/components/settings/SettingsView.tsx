@@ -55,20 +55,24 @@ const LLM_PROVIDER_OPTIONS = [
 type SettingsTab =
   | 'general'
   | 'chat'
+  | 'translate'
   | 'data'
   | 'indexing'
+  | 'mcp'
   | 'diagnostics'
   | 'models'
   | 'system'
 
 const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; icon: string }> = [
-  { id: 'general', label: 'General', icon: 'ri-home-gear-line' },
-  { id: 'chat', label: 'Chat', icon: 'ri-chat-ai-4-line' },
-  { id: 'models', label: 'Models', icon: 'ri-robot-2-line' },
-  { id: 'data', label: 'Data Sources', icon: 'ri-folder-line' },
-  { id: 'indexing', label: 'Indexing', icon: 'ri-stack-line' },
-  { id: 'diagnostics', label: 'Diagnostics', icon: 'ri-pulse-line' },
-  { id: 'system', label: 'System', icon: 'ri-server-line' },
+  { id: 'general',     label: 'General',      icon: 'ri-home-gear-line' },
+  { id: 'chat',        label: 'Chat',         icon: 'ri-chat-ai-4-line' },
+  { id: 'translate',   label: 'Translate',    icon: 'ri-translate-2'    },
+  { id: 'models',      label: 'Models',       icon: 'ri-robot-2-line'   },
+  { id: 'data',        label: 'Data Sources', icon: 'ri-folder-line'    },
+  { id: 'indexing',    label: 'Indexing',     icon: 'ri-stack-line'     },
+  { id: 'mcp',         label: 'MCP Server',   icon: 'ri-plug-3-line'    },
+  { id: 'diagnostics', label: 'Diagnostics',  icon: 'ri-pulse-line'     },
+  { id: 'system',      label: 'System',       icon: 'ri-server-line'    },
 ]
 const SETTINGS_TAB_IDS = new Set<SettingsTab>(SETTINGS_TABS.map((tab) => tab.id))
 const FILE_TYPE_DISPLAY_ORDER = ['pdf', 'docx', 'spreadsheet', 'pptx', 'epub', 'web', 'text', 'data'] as const
@@ -243,6 +247,8 @@ interface SettingsData {
   enable_raw_output_control?: boolean
   ui_theme?: string
   enable_menu_bar_icon?: boolean
+  translate_default_language?: string
+  translate_default_tone?: string
   llm_provider?: 'local_gguf' | 'ollama'
   llm_model_id?: string
   ollama_base_url?: string
@@ -305,6 +311,8 @@ interface FormState {
   enable_raw_output_control: boolean
   ui_theme: string
   enable_menu_bar_icon: boolean
+  translate_default_language: string
+  translate_default_tone: string
   llm_provider: 'local_gguf' | 'ollama'
   llm_model_id: string
   ollama_base_url: string
@@ -381,6 +389,8 @@ function buildFormState(settings: SettingsData): FormState {
     enable_raw_output_control: settings.enable_raw_output_control ?? false,
     ui_theme: normalizedTheme ?? UI_THEME_DEFAULT,
     enable_menu_bar_icon: settings.enable_menu_bar_icon ?? false,
+    translate_default_language: settings.translate_default_language ?? 'Spanish',
+    translate_default_tone: settings.translate_default_tone ?? 'natural',
     llm_provider: settings.llm_provider === 'ollama' ? 'ollama' : 'local_gguf',
     llm_model_id: String(settings.llm_model_id || ''),
     ollama_base_url: String(settings.ollama_base_url || 'http://127.0.0.1:11434'),
@@ -926,32 +936,8 @@ export function SettingsView({
 
   return (
     <div className="settings-view">
-      <div className="settings-tabs" role="tablist" aria-label="Settings Sections">
-        {SETTINGS_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab.id}
-            className={`settings-tab${activeTab === tab.id ? ' settings-tab--active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            <i className={tab.icon} aria-hidden="true" />
-            <span>{tab.label}</span>
-          </button>
-        ))}
-      </div>
-
       <div className="settings-content">
         <section className={sectionClass(activeTab === 'general')}>
-          <div className="settings-section-header ui-title ui-title--section">
-            <i className="ri-home-gear-line section-icon" aria-hidden="true" />
-            General
-          </div>
-          <p className="settings-section-description ui-description">
-            Core application preferences including privacy and appearance.
-          </p>
-
           <div className="settings-subsection">
             <div className="settings-subsection-head ui-subsection-head">
               <div className="settings-subsection-title ui-subsection-title">
@@ -1041,12 +1027,6 @@ export function SettingsView({
         </section>
 
         <section className={sectionClass(activeTab === 'chat')}>
-        <div className="settings-section-header ui-title ui-title--section">
-          <i className="ri-chat-ai-4-line section-icon" aria-hidden="true" />
-          Chat
-        </div>
-        <p className="settings-section-description ui-description">Conversation context and default chat settings.</p>
-
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
@@ -1198,9 +1178,6 @@ export function SettingsView({
           </label>
         </div>
 
-        </section>
-
-        <section className={sectionClass(activeTab === 'chat')}>
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
@@ -1358,17 +1335,52 @@ export function SettingsView({
             />
           </div>
         </div>
+
+        </section>
+
+        <section className={sectionClass(activeTab === 'translate')}>
+        <div className="settings-subsection">
+          <div className="settings-subsection-head ui-subsection-head">
+            <div className="settings-subsection-title ui-subsection-title">
+              <i className="ri-translate-2 subsection-icon ui-subsection-icon" aria-hidden="true" />
+              Defaults
+            </div>
+            <p className="settings-subsection-description ui-subsection-description">
+              Applied when opening the Translate screen for the first time each session.
+            </p>
+          </div>
+          <div className="settings-control-group">
+            <label className="settings-control-label" htmlFor="settings-translate-default-language">Default Language</label>
+            <select
+              id="settings-translate-default-language"
+              className="settings-select"
+              value={form.translate_default_language ?? 'Spanish'}
+              onChange={(e) => update('translate_default_language', e.target.value)}
+            >
+              <option value="French">French</option>
+              <option value="German">German</option>
+              <option value="Italian">Italian</option>
+              <option value="Portuguese">Portuguese</option>
+              <option value="Spanish">Spanish</option>
+            </select>
+          </div>
+          <div className="settings-control-group">
+            <label className="settings-control-label" htmlFor="settings-translate-default-tone">Default Tone</label>
+            <select
+              id="settings-translate-default-tone"
+              className="settings-select"
+              value={form.translate_default_tone ?? 'natural'}
+              onChange={(e) => update('translate_default_tone', e.target.value)}
+            >
+              <option value="natural">Natural</option>
+              <option value="formal">Formal</option>
+              <option value="literal">Literal</option>
+            </select>
+          </div>
+        </div>
         </section>
 
         <section className={sectionClass(activeTab === 'data')}>
-        <div className="settings-section-header ui-title ui-title--section">
-          <i className="ri-folder-line section-icon" aria-hidden="true" />
-          Data Sources
-        </div>
-        <p className="settings-section-description ui-description">
-          Choose which folders and file types the application scans and makes searchable.
-        </p>
-
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
@@ -1538,14 +1550,6 @@ export function SettingsView({
         </section>
 
         <section className={sectionClass(activeTab === 'indexing')}>
-        <div className="settings-section-header ui-title ui-title--section">
-          <i className="ri-stack-line section-icon" aria-hidden="true" />
-          Indexing
-        </div>
-        <p className="settings-section-description ui-description">
-          Controls how the application reads and prepares your files for search and chat.
-        </p>
-
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
@@ -1657,13 +1661,221 @@ export function SettingsView({
 
         </section>
 
-        <section className={sectionClass(activeTab === 'models')}>
-        <div className="settings-section-header ui-title ui-title--section">
-          <i className="ri-robot-2-line section-icon" aria-hidden="true" />
-          Models
+        <section className={sectionClass(activeTab === 'mcp')}>
+        <div className="settings-subsection">
+          <div className="settings-subsection-head ui-subsection-head">
+            <div className="settings-subsection-title ui-subsection-title">
+              <i className="ri-plug-3-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              MCP Server <span className="settings-subsection-suffix">(Experimental)</span>
+            </div>
+            <p className="settings-subsection-description ui-subsection-description">
+              Allows external AI clients, such as Claude Desktop, to query your document library. Disabled by default.
+            </p>
+          </div>
+          <label className="settings-checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.mcp_enabled}
+              onChange={(e) => {
+                const checked = e.target.checked
+                if (!checked) {
+                  update('mcp_enabled', false)
+                  update('mcp_auto_start', false)
+                  update('mcp_access_token', '')
+                  setMcpGeneratedToken('')
+                  setMcpTokenVisible(false)
+                  return
+                }
+                void (async () => {
+                  const approved = await confirmEnableMcp()
+                  if (!approved) return
+                  update('mcp_enabled', true)
+                  update('mcp_auto_start', true)
+                })()
+              }}
+            />
+            <div>
+              <span className="settings-checkbox-row-label">Enable MCP server</span>
+              <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                <i className="ri-information-line" aria-hidden="true" />
+                <span className="settings-tooltip ui-tooltip">Warning! This may bypass Full Privacy protections.</span>
+              </span>
+            </div>
+          </label>
+          <div className={!form.mcp_enabled ? 'settings-disabled-block' : undefined}>
+          <div className="settings-control-group">
+            <label className="settings-control-label" htmlFor="settings-mcp-scope-mode">Access Level</label>
+            <select
+              id="settings-mcp-scope-mode"
+              className="settings-select"
+              value={form.mcp_scope_mode}
+              onChange={(e) => {
+                const value = e.target.value
+                update(
+                  'mcp_scope_mode',
+                  value === 'full_content'
+                    ? 'full_content'
+                    : value === 'search_snippets'
+                      ? 'search_snippets'
+                      : 'metadata_only',
+                )
+              }}
+              disabled={!form.mcp_enabled}
+            >
+              <option value="metadata_only">Metadata Only (Default)</option>
+              <option value="search_snippets">Search Snippets</option>
+              <option value="full_content">Full Content</option>
+            </select>
+          </div>
+          <div className="settings-control-group">
+            <label className="settings-control-label" htmlFor="settings-mcp-transport">Transport</label>
+            <select
+              id="settings-mcp-transport"
+              className="settings-select"
+              value={form.mcp_transport}
+              onChange={(e) => {
+                const nextTransport = e.target.value === 'http' ? 'http' : 'stdio'
+                if (nextTransport === 'stdio' && form.mcp_transport === 'http' && hasMcpToken) {
+                  void (async () => {
+                    const approved = await confirmClearMcpToken()
+                    if (!approved) return
+                    update('mcp_transport', 'stdio')
+                    update('mcp_access_token', '')
+                    setMcpGeneratedToken('')
+                  })()
+                  return
+                }
+                update('mcp_transport', nextTransport)
+              }}
+              disabled={!form.mcp_enabled}
+            >
+              <option value="stdio">STDIO (Recommended)</option>
+              <option value="http">HTTP (Loopback only)</option>
+            </select>
+          </div>
+          {form.mcp_transport === 'stdio' && (
+            <div className="settings-control-group">
+              <label className="settings-control-label" htmlFor="settings-mcp-stdio-command">
+                Command
+                <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                  <i className="ri-information-line" aria-hidden="true" />
+                  <span className="settings-tooltip ui-tooltip">Use this command in your AI client configuration to connect via STDIO.</span>
+                </span>
+              </label>
+              <div className="settings-input-wrap settings-input-wrap--token">
+                <input
+                  id="settings-mcp-stdio-command"
+                  type="text"
+                  className="settings-input settings-input--with-copy settings-input--readonly"
+                  value={mcpStdioCommand}
+                  readOnly
+                  disabled={!form.mcp_enabled}
+                />
+                <button
+                  type="button"
+                  className="settings-input-copy"
+                  aria-label="Copy MCP command"
+                  disabled={!form.mcp_enabled}
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard.writeText(mcpStdioCommand)
+                    } catch {
+                      // Clipboard copy failures are non-blocking for settings editing.
+                    }
+                  }}
+                >
+                  <i className="ri-file-copy-line" aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+          )}
+          {form.mcp_transport === 'http' && (
+            <>
+              <div className="settings-control-group">
+                <label className="settings-control-label" htmlFor="settings-mcp-http-endpoint">HTTP endpoint URL</label>
+                <div className="settings-input-wrap settings-input-wrap--narrow">
+                  <input
+                    id="settings-mcp-http-endpoint"
+                    type="text"
+                    className="settings-input settings-input--narrow"
+                    value={mcpEndpointInput}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      setMcpEndpointInput(value)
+                      const parsed = parseMcpHttpEndpoint(value)
+                      if (!parsed) return
+                      update('mcp_http_host', parsed.host)
+                      update('mcp_http_port', parsed.port)
+                    }}
+                    disabled={!form.mcp_enabled}
+                  />
+                </div>
+              </div>
+              <div className="settings-control-group">
+                <label className="settings-control-label" htmlFor="settings-mcp-access-token">Access Token</label>
+                <div className="settings-add-row">
+                  <div className="settings-input-wrap settings-input-wrap--token">
+                    <input
+                      id="settings-mcp-access-token"
+                      type={mcpTokenVisible ? 'text' : 'password'}
+                      className="settings-input settings-input--with-copy"
+                      value={mcpTokenDisplayValue}
+                      placeholder={hasMcpToken ? '' : 'Not generated yet'}
+                      readOnly
+                      aria-label="MCP access token"
+                    />
+                    <button
+                      type="button"
+                      className="settings-input-copy settings-input-copy--eye"
+                      aria-label={mcpTokenVisible ? 'Hide MCP access token' : 'Show MCP access token'}
+                      onClick={async () => { setMcpTokenVisible((prev) => !prev) }}
+                    >
+                      <i className={mcpTokenVisible ? 'ri-eye-off-line' : 'ri-eye-line'} aria-hidden="true" />
+                    </button>
+                    <button
+                      type="button"
+                      className="settings-input-copy"
+                      aria-label="Copy MCP access token"
+                      disabled={!mcpTokenValue}
+                      onClick={async () => {
+                        if (!mcpTokenValue) return
+                        try { await navigator.clipboard.writeText(mcpTokenValue) } catch { /* non-blocking */ }
+                      }}
+                    >
+                      <i className="ri-file-copy-line" aria-hidden="true" />
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn--add"
+                    disabled={mcpTokenGeneratePending || !form.mcp_enabled}
+                    onClick={async () => {
+                      setMcpTokenError(null)
+                      setMcpTokenGeneratePending(true)
+                      try {
+                        const result = await generateMcpToken()
+                        const token = String(result?.token || '')
+                        setMcpGeneratedToken(token)
+                        update('mcp_access_token', token)
+                      } catch (err) {
+                        setMcpTokenError(err instanceof Error ? err.message : 'Failed to generate token')
+                      } finally {
+                        setMcpTokenGeneratePending(false)
+                      }
+                    }}
+                  >
+                    {mcpTokenGeneratePending ? 'Generating...' : 'Generate'}
+                  </button>
+                </div>
+                {mcpTokenError && <p className="settings-field-hint">{mcpTokenError}</p>}
+              </div>
+            </>
+          )}
+          </div>
         </div>
-        <p className="settings-section-description ui-description">Select the AI model to use and view its capabilities.</p>
+        </section>
 
+        <section className={sectionClass(activeTab === 'models')}>
         {profile && (
           <>
             <div className="settings-subsection settings-subsection--profile">
@@ -1858,12 +2070,6 @@ export function SettingsView({
         </section>
 
         <section className={sectionClass(activeTab === 'diagnostics')}>
-        <div className="settings-section-header ui-title ui-title--section">
-          <i className="ri-pulse-line section-icon" aria-hidden="true" />
-          Monitoring & Diagnostics
-        </div>
-        <p className="settings-section-description ui-description">Monitor application events and adjust diagnostics settings when troubleshooting.</p>
-
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
@@ -1980,230 +2186,6 @@ export function SettingsView({
         </section>
 
         <section className={sectionClass(activeTab === 'system')}>
-        <div className="settings-section-header ui-title ui-title--section">
-          <i className="ri-server-line section-icon" aria-hidden="true" />
-          System
-        </div>
-        <p className="settings-section-description ui-description">General application utilities and configuration references.</p>
-
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-plug-3-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              MCP Server <span className="settings-subsection-suffix">(Experimental)</span>
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">
-              Allows external AI clients, such as Claude Desktop, to query your document library. Disabled by default.
-            </p>
-          </div>
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.mcp_enabled}
-              onChange={(e) => {
-                const checked = e.target.checked
-                if (!checked) {
-                  update('mcp_enabled', false)
-                  update('mcp_auto_start', false)
-                  update('mcp_access_token', '')
-                  setMcpGeneratedToken('')
-                  setMcpTokenVisible(false)
-                  return
-                }
-                void (async () => {
-                  const approved = await confirmEnableMcp()
-                  if (!approved) return
-                  update('mcp_enabled', true)
-                  update('mcp_auto_start', true)
-                })()
-              }}
-            />
-            <div>
-              <span className="settings-checkbox-row-label">Enable MCP server</span>
-              <span className="settings-checkbox-row-info ui-tooltip-trigger">
-                <i className="ri-information-line" aria-hidden="true" />
-                <span className="settings-tooltip ui-tooltip">Warning! This may bypass Full Privacy protections.</span>
-              </span>
-            </div>
-          </label>
-          <div className={!form.mcp_enabled ? 'settings-disabled-block' : undefined}>
-          <div className="settings-control-group">
-            <label className="settings-control-label" htmlFor="settings-mcp-scope-mode-system">Access Level</label>
-            <select
-              id="settings-mcp-scope-mode-system"
-              className="settings-select"
-              value={form.mcp_scope_mode}
-              onChange={(e) => {
-                const value = e.target.value
-                update(
-                  'mcp_scope_mode',
-                  value === 'full_content'
-                    ? 'full_content'
-                    : value === 'search_snippets'
-                      ? 'search_snippets'
-                      : 'metadata_only',
-                )
-              }}
-              disabled={!form.mcp_enabled}
-            >
-              <option value="metadata_only">Metadata Only (Default)</option>
-              <option value="search_snippets">Search Snippets</option>
-              <option value="full_content">Full Content</option>
-            </select>
-          </div>
-          <div className="settings-control-group">
-            <label className="settings-control-label" htmlFor="settings-mcp-transport-system">Transport</label>
-            <select
-              id="settings-mcp-transport-system"
-              className="settings-select"
-              value={form.mcp_transport}
-              onChange={(e) => {
-                const nextTransport = e.target.value === 'http' ? 'http' : 'stdio'
-                if (nextTransport === 'stdio' && form.mcp_transport === 'http' && hasMcpToken) {
-                  void (async () => {
-                    const approved = await confirmClearMcpToken()
-                    if (!approved) return
-                    update('mcp_transport', 'stdio')
-                    update('mcp_access_token', '')
-                    setMcpGeneratedToken('')
-                  })()
-                  return
-                }
-                update('mcp_transport', nextTransport)
-              }}
-              disabled={!form.mcp_enabled}
-            >
-              <option value="stdio">STDIO (Recommended)</option>
-              <option value="http">HTTP (Loopback only)</option>
-            </select>
-          </div>
-          {form.mcp_transport === 'stdio' && (
-            <div className="settings-control-group">
-              <label className="settings-control-label" htmlFor="settings-mcp-stdio-command-system">
-                Command
-                <span className="settings-checkbox-row-info ui-tooltip-trigger">
-                  <i className="ri-information-line" aria-hidden="true" />
-                  <span className="settings-tooltip ui-tooltip">Use this command in your AI client configuration to connect via STDIO.</span>
-                </span>
-              </label>
-              <div className="settings-input-wrap settings-input-wrap--token">
-                <input
-                  id="settings-mcp-stdio-command-system"
-                  type="text"
-                  className="settings-input settings-input--with-copy settings-input--readonly"
-                  value={mcpStdioCommand}
-                  readOnly
-                  disabled={!form.mcp_enabled}
-                />
-                <button
-                  type="button"
-                  className="settings-input-copy"
-                  aria-label="Copy MCP command"
-                  disabled={!form.mcp_enabled}
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(mcpStdioCommand)
-                    } catch {
-                      // Clipboard copy failures are non-blocking for settings editing.
-                    }
-                  }}
-                >
-                  <i className="ri-file-copy-line" aria-hidden="true" />
-                </button>
-              </div>
-            </div>
-          )}
-          {form.mcp_transport === 'http' && (
-            <>
-              <div className="settings-control-group">
-                <label className="settings-control-label" htmlFor="settings-mcp-http-endpoint-system">HTTP endpoint URL</label>
-                <div className="settings-input-wrap settings-input-wrap--narrow">
-                  <input
-                    id="settings-mcp-http-endpoint-system"
-                    type="text"
-                    className="settings-input settings-input--narrow"
-                    value={mcpEndpointInput}
-                    onChange={(e) => {
-                      const value = e.target.value
-                      setMcpEndpointInput(value)
-                      const parsed = parseMcpHttpEndpoint(value)
-                      if (!parsed) return
-                      update('mcp_http_host', parsed.host)
-                      update('mcp_http_port', parsed.port)
-                    }}
-                    disabled={!form.mcp_enabled}
-                  />
-                </div>
-              </div>
-              <div className="settings-control-group">
-                <label className="settings-control-label" htmlFor="settings-mcp-access-token-system">Access Token</label>
-                <div className="settings-add-row">
-                  <div className="settings-input-wrap settings-input-wrap--token">
-                    <input
-                      id="settings-mcp-access-token-system"
-                      type={mcpTokenVisible ? 'text' : 'password'}
-                      className="settings-input settings-input--with-copy"
-                      value={mcpTokenDisplayValue}
-                      placeholder={hasMcpToken ? '' : 'Not generated yet'}
-                      readOnly
-                      aria-label="MCP access token"
-                    />
-                    <button
-                      type="button"
-                      className="settings-input-copy settings-input-copy--eye"
-                      aria-label={mcpTokenVisible ? 'Hide MCP access token' : 'Show MCP access token'}
-                      onClick={async () => {
-                        setMcpTokenVisible((prev) => !prev)
-                      }}
-                    >
-                      <i className={mcpTokenVisible ? 'ri-eye-off-line' : 'ri-eye-line'} aria-hidden="true" />
-                    </button>
-                    <button
-                      type="button"
-                      className="settings-input-copy"
-                      aria-label="Copy MCP access token"
-                      disabled={!mcpTokenValue}
-                      onClick={async () => {
-                        if (!mcpTokenValue) return
-                        try {
-                          await navigator.clipboard.writeText(mcpTokenValue)
-                        } catch {
-                          // Clipboard copy failures are non-blocking for settings editing.
-                        }
-                      }}
-                    >
-                      <i className="ri-file-copy-line" aria-hidden="true" />
-                    </button>
-                  </div>
-                  <button
-                    type="button"
-                    className="settings-btn settings-btn--add"
-                    disabled={mcpTokenGeneratePending || !form.mcp_enabled}
-                    onClick={async () => {
-                      setMcpTokenError(null)
-                      setMcpTokenGeneratePending(true)
-                      try {
-                        const result = await generateMcpToken()
-                        const token = String(result?.token || '')
-                        setMcpGeneratedToken(token)
-                        update('mcp_access_token', token)
-                      } catch (err) {
-                        setMcpTokenError(err instanceof Error ? err.message : 'Failed to generate token')
-                      } finally {
-                        setMcpTokenGeneratePending(false)
-                      }
-                    }}
-                  >
-                    {mcpTokenGeneratePending ? 'Generating...' : 'Generate'}
-                  </button>
-                </div>
-                {mcpTokenError && <p className="settings-field-hint">{mcpTokenError}</p>}
-              </div>
-            </>
-          )}
-          </div>
-        </div>
-
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">

@@ -170,6 +170,11 @@
   margin-bottom: 0;
 }
 
+/* First subsection sits right under the page header — no extra top gap needed */
+.settings-section > .settings-subsection:first-child {
+  margin-top: 0;
+}
+
 /* Consistent spacing above subsections: last child must not add extra margin */
 .settings-subsection > *:last-child {
   margin-bottom: 0;

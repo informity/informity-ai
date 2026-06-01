@@ -570,6 +570,8 @@ class Settings(BaseSettings):
     enable_menu_bar_icon: bool = False
     # Default target language for the translation screen.
     translate_default_language: str = 'Spanish'
+    # Default tone for the translation screen (natural / formal / literal).
+    translate_default_tone: str = 'natural'
     # -- Pydantic Settings Config ---------------------------------------------
     model_config = {
         'env_prefix': 'INFORMITY_',

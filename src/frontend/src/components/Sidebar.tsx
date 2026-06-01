@@ -19,9 +19,11 @@ const NAV_ITEMS = [
 const SETTINGS_SUBNAV = [
   { tab: 'general',     label: 'General',      icon: 'ri-home-gear-line'    },
   { tab: 'chat',        label: 'Chat',         icon: 'ri-chat-ai-4-line'    },
+  { tab: 'translate',   label: 'Translate',    icon: 'ri-translate-2'       },
   { tab: 'models',      label: 'Models',       icon: 'ri-robot-2-line'      },
   { tab: 'data',        label: 'Data Sources', icon: 'ri-folder-line'       },
   { tab: 'indexing',    label: 'Indexing',     icon: 'ri-stack-line'        },
+  { tab: 'mcp',         label: 'MCP Server',   icon: 'ri-plug-3-line'       },
   { tab: 'diagnostics', label: 'Diagnostics',  icon: 'ri-pulse-line'        },
   { tab: 'system',      label: 'System',       icon: 'ri-server-line'       },
 ]

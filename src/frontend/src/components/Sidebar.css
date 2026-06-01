@@ -216,12 +216,25 @@ html[data-accent='canvas'] .sidebar__link:hover:not(.sidebar__link--active) {
 
 /* Settings sub-navigation — vertical list under the Settings link */
 .sidebar__subnav {
+  position: relative;
   display: flex;
   flex-direction: column;
   padding: 0 0 var(--space-xs) 0;
 }
 
+/* Vertical tree line — runs full height; last item masks the tail below its center */
+.sidebar__subnav::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--sidebar-link-padding-x) + 0.625rem);
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px var(--layout-divider-style, solid) var(--color-border);
+}
+
 .sidebar__subnav-item {
+  position: relative;
   display: flex;
   align-items: center;
   gap: var(--space-xs);
@@ -231,41 +244,43 @@ html[data-accent='canvas'] .sidebar__link:hover:not(.sidebar__link--active) {
   font: inherit;
   text-align: left;
   box-sizing: border-box;
-  padding: 0.3rem var(--sidebar-link-padding-x) 0.3rem calc(var(--sidebar-link-padding-x) + 1.75rem);
-  margin: 0 0 1px;
-  border-radius: var(--border-radius);
+  padding: var(--space-sm) var(--sidebar-link-padding-x) var(--space-sm) calc(var(--sidebar-link-padding-x) + 1.875rem);
+  margin: 0 0 2px;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
   white-space: nowrap;
 }
 
-.sidebar__subnav-item:hover:not(.sidebar__subnav-item--active) {
-  background: var(--color-bg-hover);
-  color: var(--color-text);
+/* Horizontal branch line */
+.sidebar__subnav-item::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--sidebar-link-padding-x) + 0.625rem);
+  top: 50%;
+  width: 1rem;
+  height: 0;
+  border-top: 1px var(--layout-divider-style, solid) var(--color-border);
 }
 
-.sidebar__subnav-item--active {
-  background: var(--color-primary-bg);
-  color: var(--color-text);
-  font-weight: 500;
-}
-
-html[data-accent='canvas'] .sidebar__subnav-item:hover:not(.sidebar__subnav-item--active) {
-  background: var(--color-primary-bg);
+/* Last item: mask the vertical line below the horizontal branch (L shape).
+   Always solid so it fully covers dotted lines on Onyx theme too. */
+.sidebar__subnav-item:last-child::after {
+  content: '';
+  position: absolute;
+  left: calc(var(--sidebar-link-padding-x) + 0.625rem);
+  top: 50%;
+  bottom: calc(-1 * var(--space-xs) - 2px);
+  width: 0;
+  border-left: 1px solid var(--color-bg-surface);
 }
 
 .sidebar__subnav-icon {
-  font-size: var(--font-size-base);
+  font-size: var(--font-size-sm);
   width: 1rem;
   text-align: center;
   flex-shrink: 0;
-  opacity: 0.75;
-}
-
-.sidebar__subnav-item--active .sidebar__subnav-icon {
-  opacity: 1;
+  opacity: 0.6;
 }
 
 @media (max-width: 1024px) {

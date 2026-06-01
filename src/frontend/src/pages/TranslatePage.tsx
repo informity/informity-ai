@@ -103,8 +103,11 @@ export function TranslatePage() {
   // Load default language from settings
   useEffect(() => {
     getSettings().then((s) => {
-      const lang = (s as Record<string, unknown>)?.translate_default_language as string | undefined
+      const settings = s as Record<string, unknown>
+      const lang = settings?.translate_default_language as string | undefined
       if (lang && LANGUAGE_OPTIONS.some(l => l.label === lang)) setTargetLanguage(lang)
+      const tone = settings?.translate_default_tone as string | undefined
+      if (tone && TONES.includes(tone as Tone)) setTone(tone as Tone)
     }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
