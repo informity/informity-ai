@@ -274,6 +274,23 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
   cursor: pointer;
 }
 
+/* Inline busy hint in the controls row — replaces warning boxes */
+.chat-view__busy-hint {
+  background: none;
+  border: none;
+  padding: 0 var(--space-xs) 0 0;
+  color: var(--color-text-dimmed);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  transition: color var(--transition-fast);
+}
+
+.chat-view__busy-hint:hover {
+  color: var(--color-text-muted);
+}
+
 .chat-view__auto-continue-status {
   display: inline-flex;
   align-items: center;

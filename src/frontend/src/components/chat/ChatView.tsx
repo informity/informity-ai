@@ -1202,19 +1202,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                 }
               >
                 {error && <div className="chat-view__error">{error}</div>}
-                {isTranslating && (
-                  <div className="chat-view__error">
-                    Translation in progress.{' '}
-                    <button
-                      type="button"
-                      className="chat-view__error-link"
-                      onClick={() => translateCtx?.cancelTranslation()}
-                    >
-                      Stop translation
-                    </button>
-                    {' '}to send a message.
-                  </div>
-                )}
                 <div
                   className={
                     `chat-view__input-wrapper composer__input-wrapper${textareaCanScroll ? ' chat-view__input-wrapper--scrollable composer__input-wrapper--scrollable' : ''}${textareaHasTopScroll ? ' chat-view__input-wrapper--top-scrolled composer__input-wrapper--top-scrolled' : ''}${hasScopedInputPill ? ' chat-view__input-wrapper--scoped composer__input-wrapper--scoped' : ''}${isDragOverComposer ? ' chat-view__input-wrapper--drag-active composer__input-wrapper--drag-active' : ''}`
@@ -1470,6 +1457,15 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       )}
                     </div>
                     <div className="chat-view__controls-right">
+                      {isTranslating && (
+                        <button
+                          type="button"
+                          className="chat-view__busy-hint"
+                          onClick={() => translateCtx?.cancelTranslation()}
+                        >
+                          Stop translation ·
+                        </button>
+                      )}
                       <div ref={modeMenuRef} className="chat-view__mode-selector">
                         <button
                           type="button"

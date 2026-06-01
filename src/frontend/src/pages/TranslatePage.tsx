@@ -277,7 +277,9 @@ export function TranslatePage() {
 
   const translatePlaceholder = fileId
     ? 'Add instructions (optional) — e.g. focus on the executive summary, preserve technical terms…'
-    : 'Select or upload a document to translate…'
+    : isStreaming
+      ? 'Chat is in progress. Please wait…'
+      : 'Select or upload a document to translate…'
 
   return (
     <div className="translate-page">
@@ -414,14 +416,7 @@ export function TranslatePage() {
               Large document (~{pageCount ?? '?'} pages) · ~{estimatedMinutes} min estimated
             </p>
           )}
-          {isStreaming && (
-            <p className="translate-page__error">
-              LLM in use by chat.{' '}
-              <button type="button" className="translate-page__stop-chat" onClick={() => void stopStreaming()}>
-                Stop Chat
-              </button>
-            </p>
-          )}
+          {/* isStreaming hint is now inline in the controls row — no warning box */}
 
           {/* Input wrapper — uses shared composer__ classes (globally loaded via index.css) */}
           <div
@@ -534,6 +529,17 @@ export function TranslatePage() {
 
               {/* RIGHT: language selector, translate/stop button */}
               <div className="composer__controls-right">
+
+                {/* Inline hint when chat is streaming — no warning box, stays in controls row */}
+                {isStreaming && (
+                  <button
+                    type="button"
+                    className="chat-view__busy-hint"
+                    onClick={() => void stopStreaming()}
+                  >
+                    Stop chat ·
+                  </button>
+                )}
 
                 {/* Language selector — mirrors chat-view__mode-selector */}
                 <div ref={langMenuRef} className="translate-page__mode-selector">
