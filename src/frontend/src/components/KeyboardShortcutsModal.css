@@ -6,7 +6,7 @@
 .keyboard-shortcuts-modal__backdrop {
   position: fixed;
   inset: 0;
-  z-index: 2000;
+  z-index: var(--z-dialog);
   display: flex;
   align-items: center;
   justify-content: center;

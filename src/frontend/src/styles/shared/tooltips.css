@@ -26,7 +26,7 @@
   width: 280px;
   max-width: calc(100vw - 2rem);
   text-align: left;
-  z-index: 1400;
+  z-index: var(--z-tooltip);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2), 0 1px 2px rgba(0, 0, 0, 0.1);
   transition: opacity var(--transition-fast), visibility var(--transition-fast), transform var(--transition-fast);
   pointer-events: none;

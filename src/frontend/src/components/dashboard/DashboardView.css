@@ -113,13 +113,7 @@
 }
 
 .dashboard__btn-icon--spin {
-  animation: dashboard-spin 1s linear infinite;
-}
-
-@keyframes dashboard-spin {
-  to {
-    transform: rotate(360deg);
-  }
+  animation: spin 1s linear infinite;
 }
 
 .dashboard__content-metrics {
@@ -253,7 +247,7 @@
   align-items: center;
   justify-content: center;
   padding: var(--space-lg);
-  z-index: 1200;
+  z-index: var(--z-overlay);
 }
 
 .dashboard-errors-modal {
@@ -413,7 +407,7 @@ html[data-accent='canvas'] .dashboard-errors-modal {
   height: 100%;
   background: var(--color-accent);
   border-radius: 4px;
-  transition: width 0.3s ease;
+  transition: width var(--transition-slow);
 }
 
 .dashboard__progress-fill--indeterminate {

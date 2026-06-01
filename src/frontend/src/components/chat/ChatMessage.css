@@ -726,15 +726,10 @@ html:not([data-accent='canvas']) .chat-message__copy-code:focus-visible {
   height: 1em;
   margin-left: 2px;
   background: var(--color-accent);
-  animation: chat-message-blink 1s step-end infinite;
+  animation: cursor-blink 1s step-end infinite;
   vertical-align: text-bottom;
 }
 
-@keyframes chat-message-blink {
-  50% {
-    opacity: 0;
-  }
-}
 
 .chat-message__sources {
   user-select: none;
@@ -1040,7 +1035,7 @@ html[data-accent='canvas'] .chat-message--assistant .chat-message__actions {
   display: flex;
   flex-direction: column;
   gap: 0.125rem;
-  z-index: 1200;
+  z-index: var(--z-overlay);
   min-width: 8rem;
 }
 

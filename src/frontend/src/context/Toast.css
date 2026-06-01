@@ -6,7 +6,7 @@
   position: fixed;
   top: 1.5rem;
   right: 2rem;
-  z-index: 1001;
+  z-index: var(--z-toast);
   display: flex;
   flex-direction: column;
   gap: 0.5rem;

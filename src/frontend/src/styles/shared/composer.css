@@ -82,7 +82,7 @@
   overflow-y: hidden;
   padding-bottom: 0.15rem;
   scrollbar-width: thin;
-  transition: opacity 120ms ease;
+  transition: opacity var(--transition-fast);
 }
 
 .composer__chip {
@@ -404,4 +404,9 @@
   background: color-mix(in srgb, var(--color-warning-text, #b45309) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-warning-text, #b45309) 22%, transparent);
   border-radius: var(--border-radius-md);
+}
+
+/* Shared keyframe — used by both Chat (chat-message__cursor) and Translate (translate-run__cursor) */
+@keyframes cursor-blink {
+  50% { opacity: 0; }
 }

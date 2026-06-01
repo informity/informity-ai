@@ -114,13 +114,7 @@
 }
 
 .file-table__spinner {
-  animation: file-table-spin 1s linear infinite;
-}
-
-@keyframes file-table-spin {
-  100% {
-    transform: rotate(360deg);
-  }
+  animation: spin 1s linear infinite;
 }
 
 .file-table__pagination {
