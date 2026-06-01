@@ -263,8 +263,7 @@ html[data-accent='canvas'] .sidebar__link:hover:not(.sidebar__link--active) {
   border-top: 1px var(--layout-divider-style, solid) var(--color-border);
 }
 
-/* Last item: mask the vertical line below the horizontal branch (L shape).
-   Always solid so it fully covers dotted lines on Onyx theme too. */
+/* Last item: mask the vertical line below the horizontal branch, making an L shape */
 .sidebar__subnav-item:last-child::after {
   content: '';
   position: absolute;

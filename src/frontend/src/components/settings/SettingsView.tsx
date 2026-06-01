@@ -1151,36 +1151,6 @@ export function SettingsView({
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-archive-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Activity Logs
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">
-              Save a local log of each chat session to help diagnose issues if something goes wrong.
-            </p>
-          </div>
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.chat_trace_logging ?? false}
-              onChange={(e) => update('chat_trace_logging', e.target.checked)}
-            />
-            <div>
-              <span className="settings-checkbox-row-label">
-                Save chat activity logs
-                <span className="settings-checkbox-row-info ui-tooltip-trigger">
-                  <i className="ri-information-line" aria-hidden="true" />
-                  <span className="settings-tooltip ui-tooltip">
-                    Saves chat diagnostics locally on your device to help with troubleshooting. Disabled by default.
-                  </span>
-                </span>
-              </span>
-            </div>
-          </label>
-        </div>
-
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
               <i className="ri-search-line subsection-icon ui-subsection-icon" aria-hidden="true" />
               Web Search Provider
             </div>
@@ -1342,8 +1312,8 @@ export function SettingsView({
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-translate-2 subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Defaults
+              <i className="ri-equalizer-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              Translator Configuration
             </div>
             <p className="settings-subsection-description ui-subsection-description">
               Applied when opening the Translate screen for the first time each session.
@@ -1603,7 +1573,31 @@ export function SettingsView({
               checked={form.entity_extract_acronym ?? true}
               onChange={(e) => update('entity_extract_acronym', e.target.checked)}
             />
-            <div><span className="settings-checkbox-row-label">Enable extraction of acronyms</span></div>
+            <div><span className="settings-checkbox-row-label">Extract acronyms</span></div>
+          </label>
+          <label className="settings-checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.entity_extract_location ?? false}
+              onChange={(e) => update('entity_extract_location', e.target.checked)}
+            />
+            <div><span className="settings-checkbox-row-label">Extract locations</span></div>
+          </label>
+          <label className="settings-checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.entity_extract_numeric_id ?? false}
+              onChange={(e) => update('entity_extract_numeric_id', e.target.checked)}
+            />
+            <div><span className="settings-checkbox-row-label">Extract numeric IDs</span></div>
+          </label>
+          <label className="settings-checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.entity_extract_organization ?? false}
+              onChange={(e) => update('entity_extract_organization', e.target.checked)}
+            />
+            <div><span className="settings-checkbox-row-label">Extract organizations</span></div>
           </label>
           <label className="settings-checkbox-row">
             <input
@@ -1611,7 +1605,7 @@ export function SettingsView({
               checked={form.entity_extract_person_name ?? false}
               onChange={(e) => update('entity_extract_person_name', e.target.checked)}
             />
-            <div><span className="settings-checkbox-row-label">Enable extraction of person names</span></div>
+            <div><span className="settings-checkbox-row-label">Extract person names</span></div>
           </label>
         </div>
 
@@ -2070,6 +2064,36 @@ export function SettingsView({
         </section>
 
         <section className={sectionClass(activeTab === 'diagnostics')}>
+        <div className="settings-subsection">
+          <div className="settings-subsection-head ui-subsection-head">
+            <div className="settings-subsection-title ui-subsection-title">
+              <i className="ri-archive-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              Chat Logs
+            </div>
+            <p className="settings-subsection-description ui-subsection-description">
+              Save a local log of each chat session to help diagnose issues if something goes wrong.
+            </p>
+          </div>
+          <label className="settings-checkbox-row">
+            <input
+              type="checkbox"
+              checked={form.chat_trace_logging ?? false}
+              onChange={(e) => update('chat_trace_logging', e.target.checked)}
+            />
+            <div>
+              <span className="settings-checkbox-row-label">
+                Save chat activity logs
+                <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                  <i className="ri-information-line" aria-hidden="true" />
+                  <span className="settings-tooltip ui-tooltip">
+                    Saves chat diagnostics locally on your device to help with troubleshooting. Disabled by default.
+                  </span>
+                </span>
+              </span>
+            </div>
+          </label>
+        </div>
+
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">

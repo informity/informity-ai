@@ -30,71 +30,6 @@
   padding-bottom: var(--space-md);
 }
 
-.settings-tabs {
-  display: flex;
-  flex-wrap: nowrap;
-  gap: 0;
-  margin-bottom: var(--space-lg);
-  padding-bottom: 0;
-  border-bottom: 1px solid var(--color-border);
-  width: 100%;
-  max-width: 66rem;
-  overflow-x: hidden;
-  overflow-y: hidden;
-}
-
-.settings-tab {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-xs);
-  height: var(--min-touch-height);
-  padding: 0 var(--space-lg) 3px;
-  border: none;
-  border-radius: 0;
-  background: transparent;
-  color: var(--color-text-muted);
-  font-size: var(--font-size-base);
-  font-weight: 500;
-  line-height: 1;
-  cursor: pointer;
-  transition: border-color var(--transition-fast), color var(--transition-fast);
-  white-space: nowrap;
-  flex: 1 1 0;
-  min-width: 0;
-  position: relative;
-}
-
-.settings-tab i {
-  font-size: var(--font-size-base);
-  line-height: 1;
-}
-
-.settings-tab + .settings-tab {
-  border-left: 1px solid var(--color-border);
-}
-
-.settings-tab + .settings-tab::before {
-  content: none;
-}
-
-.settings-tab:hover {
-  color: var(--color-text);
-}
-
-.settings-tab--active {
-  color: var(--color-text);
-}
-
-.settings-tab--active::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -1px;
-  height: 4px;
-  background: var(--color-accent);
-}
 
 .settings-section--hidden {
   display: none;
@@ -122,44 +57,6 @@
   display: none;
 }
 
-.settings-section-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-sm);
-  margin-top: var(--space-xs);
-  margin-bottom: var(--space-xs);
-  user-select: none;
-  font-size: var(--font-size-2xl);
-  font-weight: var(--font-weight-heading);
-  line-height: 1.2;
-  color: var(--color-text);
-}
-
-.settings-section-header .section-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--font-size-2xl);
-  height: var(--font-size-2xl);
-  font-size: var(--font-size-2xl);
-  line-height: 1;
-  opacity: 0.85;
-  flex-shrink: 0;
-}
-
-.settings-section-description {
-  font-size: var(--font-size-description);
-  color: var(--color-text-muted);
-  margin-top: var(--space-xxs);
-  margin-bottom: var(--space-lg);
-  max-width: var(--page-content-width);
-  user-select: none;
-}
-
-/* Less space above first content when it is a single checkbox */
-.settings-section-description:has(+ .settings-checkbox-row) {
-  margin-bottom: var(--space-md);
-}
 
 /* -----------------------------------------------------------------------------
    Subsections — accent left border
@@ -521,15 +418,21 @@
 }
 
 .settings-tooltip {
-  left: 0;
+  left: calc(100% + 8px);
   right: auto;
-  transform: none;
+  top: 50%;
+  bottom: auto;
+  transform: translateY(-50%);
 }
 
 .settings-tooltip::after {
-  left: 0.5rem;
+  top: 50%;
+  left: 0;
   right: auto;
-  transform: none;
+  transform: translate(-100%, -50%);
+  border-color: transparent;
+  border-right-color: var(--surface-tooltip);
+  border-top-color: transparent;
 }
 
 /* -----------------------------------------------------------------------------

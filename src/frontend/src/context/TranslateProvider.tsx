@@ -1,13 +1,17 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   cancelTranslateJob,
   createTranslateJob,
   estimateTranslateJob,
+  getSettings,
   streamTranslateJob,
   type TranslateSection,
 } from '../api'
 import { showToast } from './useToast'
 import { TranslateContext, type TranslateContextValue } from './translateContext'
+
+const TRANSLATE_LANGUAGE_OPTIONS = ['French', 'German', 'Italian', 'Portuguese', 'Spanish']
+const TRANSLATE_TONE_OPTIONS = ['natural', 'formal', 'literal']
 
 interface FileInfo {
   id: number
@@ -32,6 +36,19 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
   const [tone, setTone] = useState('natural')
 
   const abortRef = useRef<AbortController | null>(null)
+
+  // Load defaults from settings once on mount — lives here so navigation
+  // away and back doesn't reset manual language/tone changes mid-session.
+  useEffect(() => {
+    getSettings().then((s) => {
+      const settings = s as Record<string, unknown>
+      const lang = settings?.translate_default_language as string | undefined
+      if (lang && TRANSLATE_LANGUAGE_OPTIONS.includes(lang)) setTargetLanguage(lang)
+      const t = settings?.translate_default_tone as string | undefined
+      if (t && TRANSLATE_TONE_OPTIONS.includes(t)) setTone(t)
+    }).catch(() => {})
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   const setFile = useCallback(async (file: FileInfo | null) => {
     setFileInfo(file)

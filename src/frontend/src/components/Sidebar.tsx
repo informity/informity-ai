@@ -146,7 +146,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
                   </span>
                 )}
               </button>
-              {isSettings && !collapsed && (
+              {isSettings && !collapsed && pathname === '/settings' && (
                 <div className="sidebar__subnav">
                   {SETTINGS_SUBNAV.map(({ tab, label: subLabel, icon: subIcon }) => (
                     <button
