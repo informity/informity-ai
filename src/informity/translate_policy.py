@@ -26,10 +26,6 @@ TRANSLATE_STORAGE_DIRNAME = 'storage/translate'
 # Smaller than the original 6K target but reliably fits within hardware capacity.
 TRANSLATE_BATCH_TARGET_TOKENS = 1000
 
-# Maximum tokens the LLM is allowed to generate per section call.
-# 1800 = 360s timeout × 5 tok/s — output cannot exceed what fits in the wall-clock window.
-TRANSLATE_CALL_MAX_TOKENS = 1800
-
 # First N source tokens used for glossary extraction.
 TRANSLATE_GLOSSARY_INPUT_TOKENS = 2000
 

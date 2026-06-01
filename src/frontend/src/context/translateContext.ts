@@ -9,6 +9,7 @@ export interface TranslateContextValue {
   sectionCount: number | null
   completedSections: number
   failedSections: number
+  retryingSectionIndex: number | null  // section index currently being retried, null otherwise
   glossaryTermCount: number | null
   estimatedMinutes: number | null
   exceedsSoftLimit: boolean

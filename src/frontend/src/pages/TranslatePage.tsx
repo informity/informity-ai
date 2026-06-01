@@ -12,6 +12,12 @@ import { extractErrorMessage } from '../utils/errorMessages'
 import { showToast } from '../context/useToast'
 import { resizeComposerTextarea, applyComposerScopedPadding } from '../utils/composerSizing'
 import { markdownToPlainText, downloadTextFile, downloadMarkdownFile } from '../utils/downloadHelpers'
+import {
+  TRANSLATE_LANGUAGE_OPTIONS,
+  TRANSLATE_TONES,
+  TRANSLATE_TONE_ICONS,
+  type TranslateTone as Tone,
+} from '../utils/translateOptions'
 import type { TranslateSection } from '../api'
 import './TranslatePage.css'
 
@@ -27,30 +33,15 @@ function capitalize(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s
 }
 
-interface LanguageOption { label: string; countryCode: string }
-
-const LANGUAGE_OPTIONS: LanguageOption[] = [
-  { label: 'French',     countryCode: 'fr' },
-  { label: 'German',     countryCode: 'de' },
-  { label: 'Italian',    countryCode: 'it' },
-  { label: 'Portuguese', countryCode: 'pt' },
-  { label: 'Spanish',    countryCode: 'es' },
-]
-
-const TONES = ['natural', 'formal', 'literal'] as const
-type Tone = typeof TONES[number]
-
-const TONE_ICONS: Record<Tone, string> = {
-  natural: 'ri-leaf-line',      // organic, flowing
-  formal:  'ri-building-line',  // professional/institutional
-  literal: 'ri-box-1-line',      // contained/fixed meaning
-}
+// Keep local aliases so the rest of the file can use short names
+const LANGUAGE_OPTIONS = TRANSLATE_LANGUAGE_OPTIONS
+const TONES = TRANSLATE_TONES
+const TONE_ICONS = TRANSLATE_TONE_ICONS
 
 interface RunRecord {
   sections: TranslateSection[]
   language: string
   tone: Tone
-  steering: string
   completedAt: number | null
   totalSections: number | null
   elapsedSeconds: number | null
@@ -64,6 +55,7 @@ export function TranslatePage() {
   const {
     fileId, fileName, pageCount, isUpload, estimatedMinutes, exceedsSoftLimit,
     targetLanguage, tone, jobStatus, sections, sectionCount, completedSections,
+    retryingSectionIndex,
     isTranslating, hasResult,
     setFile, setTargetLanguage, setTone, startTranslation, cancelTranslation, clearResult,
   } = useTranslateContext()
@@ -78,9 +70,6 @@ export function TranslatePage() {
   const [animateToDocked, setAnimateToDocked] = useState(false)
   const wasDocked = useRef(false)
   const isCentered = !isTranslating && !hasResult && runs.length === 0
-
-  // Steering prompt
-  const [steering, setSteering] = useState('')
 
   // Menu state
   const [menuOpen, setMenuOpen] = useState<'language' | 'tone' | null>(null)
@@ -129,7 +118,7 @@ export function TranslatePage() {
     const ta = textareaRef.current
     if (!ta) return
     resizeComposerTextarea(ta, !!fileId)
-  }, [steering, fileId])
+  }, [fileId])
 
   // useLayoutEffect fires synchronously after DOM commit, before paint —
   // ensures chip height is measured before the browser renders the frame.
@@ -165,7 +154,6 @@ export function TranslatePage() {
       sections: [...sections],
       language: targetLanguage,
       tone: tone as Tone,
-      steering: '',
       completedAt: isTranslating ? null : Date.now(),
       totalSections: sectionCount,
       elapsedSeconds: null,
@@ -186,7 +174,7 @@ export function TranslatePage() {
     if (activeRunRef.current) return  // already created for this run
     const run: RunRecord = {
       sections: [], language: targetLanguage, tone: tone as Tone,
-      steering, completedAt: null, totalSections: sectionCount,
+      completedAt: null, totalSections: sectionCount,
       elapsedSeconds: null, fileLabel: fileName ?? 'Document',
     }
     activeRunRef.current = run
@@ -261,11 +249,8 @@ export function TranslatePage() {
     setFile(null)
     clearResult()
     setRuns([])
-    setSteering('')
-    setTargetLanguage(LANGUAGE_OPTIONS.find(l => l.label === 'Spanish')?.label ?? LANGUAGE_OPTIONS[0].label)
-    setTone('natural')
     wasDocked.current = false
-  }, [isTranslating, cancelTranslation, fileId, isUpload, setFile, clearResult, setTargetLanguage, setTone])
+  }, [isTranslating, cancelTranslation, fileId, isUpload, setFile, clearResult])
 
   const handleCopyRun = useCallback((run: RunRecord) => {
     navigator.clipboard.writeText(run.sections.map(s => s.text).join('\n\n'))
@@ -294,10 +279,10 @@ export function TranslatePage() {
     )
   }
 
-  const translatePlaceholder = fileId
-    ? 'Add instructions (optional) — e.g. focus on the executive summary, preserve technical terms…'
-    : isStreaming
-      ? 'Chat is in progress. Please wait…'
+  const translatePlaceholder = isStreaming
+    ? 'Chat is in progress. Please wait…'
+    : fileId
+      ? 'Ready to translate. Press ⌘↵ or click Translate to start.'
       : 'Select or upload a document to translate…'
 
   return (
@@ -345,11 +330,13 @@ export function TranslatePage() {
                     <div className="translate-run__section translate-run__section--streaming">
                       <span className="translate-run__cursor" aria-label="Translating…" />
                       <span className="translate-run__progress">
-                        {sectionCount
-                          ? `Section ${completedSections + 1} of ${sectionCount}`
-                          : estimatedMinutes
-                            ? `Preparing… Estimated time: ~${estimatedMinutes} min`
-                            : 'Preparing…'}
+                        {retryingSectionIndex !== null
+                          ? `Retrying section ${retryingSectionIndex + 1}…`
+                          : sectionCount
+                            ? `Section ${completedSections + 1} of ${sectionCount}`
+                            : estimatedMinutes
+                              ? `Preparing… Estimated time: ~${estimatedMinutes} min`
+                              : 'Preparing…'}
                       </span>
                     </div>
                   )}
@@ -479,14 +466,13 @@ export function TranslatePage() {
               </span>
             )}
 
-            {/* Textarea — uses shared composer__textarea */}
+            {/* Textarea — file drop zone and visual composer input */}
             <textarea
               ref={textareaRef}
               className={`composer__textarea${(fileId || uploadLoading) ? ' composer__textarea--scoped' : ''}`}
               rows={1}
               placeholder={translatePlaceholder}
-              value={steering}
-              onChange={(e) => setSteering(e.target.value)}
+              readOnly={!!fileId}
               disabled={isTranslating}
               onDragOver={(e) => { if (!fileId) e.preventDefault() }}
               onDrop={(e) => {

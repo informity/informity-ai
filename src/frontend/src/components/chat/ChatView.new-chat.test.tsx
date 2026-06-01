@@ -1238,7 +1238,9 @@ describe('ChatView new chat behavior', () => {
     )
 
     await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-export-1'))
-    fireEvent.click(screen.getByRole('button', { name: 'Export full chat as Markdown' }))
+    // Export is now a dropdown: click the header button to open it, then click Markdown
+    fireEvent.click(screen.getByRole('button', { name: 'Export chat' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Markdown' })[0])
     await waitFor(() => expect(exportChatMarkdownMock).toHaveBeenCalledWith('chat-export-1', expect.objectContaining({
       scope: 'full_chat',
       template: 'full_transcript',
@@ -1274,7 +1276,9 @@ describe('ChatView new chat behavior', () => {
     )
 
     await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-export-2'))
-    fireEvent.click(screen.getByRole('button', { name: 'Export answer as Markdown' }))
+    // Per-message export is now a dropdown: click the Export icon, then click Markdown
+    fireEvent.click(screen.getByRole('button', { name: 'Export' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Markdown' })[0])
     await waitFor(() => expect(exportChatMarkdownMock).toHaveBeenCalledWith('chat-export-2', expect.objectContaining({
       scope: 'current_answer',
       messageId: 333,

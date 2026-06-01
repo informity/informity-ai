@@ -10,6 +10,7 @@ import json
 import os
 import re
 import shutil
+import time
 import uuid
 from pathlib import Path
 
@@ -385,7 +386,6 @@ async def estimate_translate_job(
 # ==============================================================================
 
 async def _run_translate_job(job_id: str, file_id: int, target_language: str, tone: str) -> None:
-    import time
     db = None
     try:
         from informity.db.sqlite import get_connection

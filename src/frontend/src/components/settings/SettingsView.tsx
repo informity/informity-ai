@@ -5,6 +5,7 @@
  */
 import { useState, useEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
+import { TRANSLATE_LANGUAGE_OPTIONS, TRANSLATE_TONES } from '../../utils/translateOptions'
 import {
   cancelModelDownload,
   downloadModel,
@@ -1327,11 +1328,9 @@ export function SettingsView({
               value={form.translate_default_language ?? 'Spanish'}
               onChange={(e) => update('translate_default_language', e.target.value)}
             >
-              <option value="French">French</option>
-              <option value="German">German</option>
-              <option value="Italian">Italian</option>
-              <option value="Portuguese">Portuguese</option>
-              <option value="Spanish">Spanish</option>
+              {TRANSLATE_LANGUAGE_OPTIONS.map(l => (
+                <option key={l.label} value={l.label}>{l.label}</option>
+              ))}
             </select>
           </div>
           <div className="settings-control-group">
@@ -1342,9 +1341,9 @@ export function SettingsView({
               value={form.translate_default_tone ?? 'natural'}
               onChange={(e) => update('translate_default_tone', e.target.value)}
             >
-              <option value="natural">Natural</option>
-              <option value="formal">Formal</option>
-              <option value="literal">Literal</option>
+              {TRANSLATE_TONES.map(t => (
+                <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+              ))}
             </select>
           </div>
         </div>

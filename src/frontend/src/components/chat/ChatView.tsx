@@ -842,7 +842,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, inputValue, sendMessage, effectiveChatMode, requestRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, inputValue, isTranslating, sendMessage, effectiveChatMode, requestRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleStop = useCallback(() => {
     if (offline) return

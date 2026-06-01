@@ -186,9 +186,6 @@ function buildPayload(form: FormState, current: SettingsData | null): Record<str
       }
     }
   }
-  if (typeof form.mcp_enabled === 'boolean') {
-    payload.mcp_auto_start = form.mcp_enabled
-  }
   return payload
 }
 

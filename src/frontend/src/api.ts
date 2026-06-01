@@ -941,6 +941,7 @@ export interface TranslateJobCallbacks {
   onSectionStarted?: (sectionIndex: number, title: string | null) => void
   onSectionDone?: (section: TranslateSection) => void
   onSectionFailed?: (sectionIndex: number, error: string) => void
+  onSectionRetry?: (sectionIndex: number, attempt: number, error: string) => void
   onJobDone?: (completedSections: number, failedSections: number) => void
   onJobFailed?: (error: string) => void
   onJobStalled?: () => void
@@ -949,7 +950,7 @@ export interface TranslateJobCallbacks {
 
 export async function streamTranslateJob(jobId: string, callbacks: TranslateJobCallbacks): Promise<void> {
   const { onGlossaryDone, onSectionsReady, onSectionStarted, onSectionDone,
-    onSectionFailed, onJobDone, onJobFailed, onJobStalled, signal } = callbacks
+    onSectionFailed, onSectionRetry, onJobDone, onJobFailed, onJobStalled, signal } = callbacks
 
   const sessionToken = getSessionToken()
   const response = await fetch(`${getApiBase()}/api/translate/jobs/${jobId}/events`, {
@@ -976,6 +977,7 @@ export async function streamTranslateJob(jobId: string, callbacks: TranslateJobC
       else if (event === 'section_started') onSectionStarted?.(data.section_index, data.section_title ?? null)
       else if (event === 'section_done') onSectionDone?.({ section_index: data.section_index, section_title: data.section_title ?? null, text: data.text ?? '' })
       else if (event === 'section_failed') onSectionFailed?.(data.section_index, data.error ?? 'unknown')
+      else if (event === 'section_retry') onSectionRetry?.(data.section_index, data.attempt ?? 1, data.error ?? '')
       else if (event === 'job_done') onJobDone?.(data.completed_sections ?? 0, data.failed_sections ?? 0)
       else if (event === 'job_failed') onJobFailed?.(data.error ?? 'Translation failed')
       else if (event === 'job_stalled') onJobStalled?.()

@@ -9,9 +9,7 @@ import {
 } from '../api'
 import { showToast } from './useToast'
 import { TranslateContext, type TranslateContextValue } from './translateContext'
-
-const TRANSLATE_LANGUAGE_OPTIONS = ['French', 'German', 'Italian', 'Portuguese', 'Spanish']
-const TRANSLATE_TONE_OPTIONS = ['natural', 'formal', 'literal']
+import { TRANSLATE_LANGUAGE_LABELS, TRANSLATE_TONES } from '../utils/translateOptions'
 
 interface FileInfo {
   id: number
@@ -27,6 +25,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
   const [sectionCount, setSectionCount] = useState<number | null>(null)
   const [completedSections, setCompletedSections] = useState(0)
   const [failedSections, setFailedSections] = useState(0)
+  const [retryingSectionIndex, setRetryingSectionIndex] = useState<number | null>(null)
   const [glossaryTermCount, setGlossaryTermCount] = useState<number | null>(null)
   const [estimatedMinutes, setEstimatedMinutes] = useState<number | null>(null)
   const [exceedsSoftLimit, setExceedsSoftLimit] = useState(false)
@@ -43,11 +42,10 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     getSettings().then((s) => {
       const settings = s as Record<string, unknown>
       const lang = settings?.translate_default_language as string | undefined
-      if (lang && TRANSLATE_LANGUAGE_OPTIONS.includes(lang)) setTargetLanguage(lang)
+      if (lang && TRANSLATE_LANGUAGE_LABELS.includes(lang)) setTargetLanguage(lang)
       const t = settings?.translate_default_tone as string | undefined
-      if (t && TRANSLATE_TONE_OPTIONS.includes(t)) setTone(t)
+      if (t && (TRANSLATE_TONES as readonly string[]).includes(t)) setTone(t)
     }).catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const setFile = useCallback(async (file: FileInfo | null) => {
@@ -80,6 +78,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     setSectionCount(null)
     setCompletedSections(0)
     setFailedSections(0)
+    setRetryingSectionIndex(null)
     setGlossaryTermCount(null)
     setJobStatus('queued')
 
@@ -114,7 +113,8 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
         signal: controller.signal,
         onGlossaryDone: (count) => setGlossaryTermCount(count),
         onSectionsReady: (count) => setSectionCount(count),
-        onSectionStarted: () => { /* progress tracked via onSectionDone */ },
+        onSectionStarted: () => setRetryingSectionIndex(null),
+        onSectionRetry: (sectionIndex) => setRetryingSectionIndex(sectionIndex),
         onSectionDone: (section) => {
           let isNew = false
           setSections((prev) => {
@@ -128,6 +128,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
           })
           // Only count sections not already present — prevents double-counting on SSE reconnect.
           if (isNew) setCompletedSections((n) => n + 1)
+          setRetryingSectionIndex(null)
         },
         onSectionFailed: () => setFailedSections((n) => n + 1),
         onJobDone: (completed, failed) => {
@@ -177,6 +178,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
 
   const value: TranslateContextValue = {
     jobId, jobStatus, sections, sectionCount, completedSections, failedSections,
+    retryingSectionIndex,
     glossaryTermCount, estimatedMinutes, exceedsSoftLimit,
     fileId: fileInfo?.id ?? null,
     fileName: fileInfo?.name ?? null,

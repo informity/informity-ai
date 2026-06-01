@@ -97,7 +97,10 @@ const baseSettings = {
   rag_reranker_model: 'reranker.gguf',
 }
 
+// Render SettingsView with an optional ?tab= URL param (replaces old tab-click navigation)
 function renderSettingsView(options?: {
+  tab?: string
+  settings?: typeof baseSettings
   onRequestClearMcpTokenConfirm?: () => Promise<boolean>
   onRequestRemoveModelConfirm?: (modelName: string, modelSizeLabel?: string) => Promise<boolean>
 }) {
@@ -105,11 +108,13 @@ function renderSettingsView(options?: {
   const onDiscard = vi.fn()
   const onResetSettings = vi.fn()
   const onResetIndex = vi.fn()
+  const tab = options?.tab
+  const initialEntry = tab ? `/settings?tab=${tab}` : '/settings'
 
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <SettingsView
-        settings={baseSettings}
+        settings={options?.settings ?? baseSettings}
         fileTypeOptions={[{ id: 'docs', label: 'Docs', extensions: ['.md', '.txt'] }]}
         onSave={onSave}
         onRequestClearMcpTokenConfirm={options?.onRequestClearMcpTokenConfirm}
@@ -125,52 +130,43 @@ function renderSettingsView(options?: {
   return { onSave, onDiscard, onResetSettings, onResetIndex }
 }
 
-function sectionHeaderFor(element: HTMLElement): string {
-  const section = element.closest('section')
-  const header = section?.querySelector('.settings-section-header')
-  return (header?.textContent || '').trim()
-}
-
 describe('SettingsView tabs and action bar behavior', () => {
-  it('renders expected tabs and defaults to General tab selected', () => {
+  it('renders General tab content by default', () => {
     renderSettingsView()
-
-    expect(screen.getByRole('tab', { name: 'General' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tab', { name: 'Data Sources' })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: 'System' })).toBeInTheDocument()
+    // General section has Full Privacy Mode and Theme
+    expect(screen.getByText('Full Privacy Mode')).toBeInTheDocument()
+    expect(screen.getByText('Theme')).toBeInTheDocument()
   })
 
-  it('switches tabs when clicked', async () => {
-    renderSettingsView()
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Diagnostics' }))
-    expect(screen.getByRole('tab', { name: 'Diagnostics' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tab', { name: 'General' })).toHaveAttribute('aria-selected', 'false')
+  it('shows the correct section when tab param is set', () => {
+    renderSettingsView({ tab: 'diagnostics' })
+    expect(screen.getByText('Diagnostics Profile')).toBeInTheDocument()
+    // General content is in a hidden section (settings-section--hidden class applied via CSS)
+    const privacyLabel = screen.queryByText('Full Privacy Mode')
+    expect(privacyLabel?.closest('.settings-section--hidden')).toBeTruthy()
   })
 
-  it('restores active tab from localStorage and persists updates', async () => {
+  it('restores active tab from localStorage when no URL param is present', () => {
     localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, 'diagnostics')
     renderSettingsView()
-
-    expect(screen.getByRole('tab', { name: 'Diagnostics' })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tab', { name: 'General' })).toHaveAttribute('aria-selected', 'false')
-
-    fireEvent.click(screen.getByRole('tab', { name: 'System' }))
-    expect(localStorage.getItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY)).toBe('system')
+    expect(screen.getByText('Diagnostics Profile')).toBeInTheDocument()
+    const privacyLabel = screen.queryByText('Full Privacy Mode')
+    expect(privacyLabel?.closest('.settings-section--hidden')).toBeTruthy()
   })
 
-  it('shows Save/Discard on both non-System and System tabs', async () => {
-    renderSettingsView()
-
-    expect(screen.getByRole('button', { name: 'Save Settings' })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Discard Changes' })).toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('tab', { name: 'System' }))
+  it('shows Save/Discard on the System tab', () => {
+    renderSettingsView({ tab: 'system' })
 
     expect(screen.getByRole('button', { name: 'Save Settings' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Discard Changes' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Reset Settings/i })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Reset All/i })).toBeInTheDocument()
+  })
+
+  it('shows Save/Discard on the General tab', () => {
+    renderSettingsView({ tab: 'general' })
+    expect(screen.getByRole('button', { name: 'Save Settings' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Discard Changes' })).toBeInTheDocument()
   })
 
   it('keeps model selection editable and saves selected model when tab state is restored', async () => {
@@ -192,25 +188,12 @@ describe('SettingsView tabs and action bar behavior', () => {
   })
 
   it('includes installed models not present in catalog entries', async () => {
-    localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, 'models')
     const settingsWithExtraModel = {
       ...baseSettings,
       available_models: ['main.gguf', 'alt.gguf', 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'],
     }
 
-    render(
-      <MemoryRouter>
-        <SettingsView
-          settings={settingsWithExtraModel}
-          fileTypeOptions={[{ id: 'docs', label: 'Docs', extensions: ['.md', '.txt'] }]}
-          onSave={vi.fn()}
-          onDiscard={vi.fn()}
-          onResetSettings={vi.fn()}
-          onResetIndex={vi.fn()}
-          saving={false}
-        />
-      </MemoryRouter>,
-    )
+    renderSettingsView({ tab: 'models', settings: settingsWithExtraModel })
 
     await waitFor(() => {
       const modelSelect = screen.getByLabelText('Main model') as HTMLSelectElement
@@ -220,8 +203,7 @@ describe('SettingsView tabs and action bar behavior', () => {
   })
 
   it('hides advanced diagnostics controls when profile is not custom', () => {
-    localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, 'diagnostics')
-    renderSettingsView()
+    renderSettingsView({ tab: 'diagnostics' })
 
     expect(screen.queryByText('Advanced Diagnostics')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('Log level')).not.toBeInTheDocument()
@@ -229,22 +211,9 @@ describe('SettingsView tabs and action bar behavior', () => {
   })
 
   it('shows advanced diagnostics controls when profile is custom', () => {
-    localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, 'diagnostics')
     const settingsCustom = { ...baseSettings, diagnostics_profile: 'custom' as const }
 
-    render(
-      <MemoryRouter>
-        <SettingsView
-          settings={settingsCustom}
-          fileTypeOptions={[{ id: 'docs', label: 'Docs', extensions: ['.md', '.txt'] }]}
-          onSave={vi.fn()}
-          onDiscard={vi.fn()}
-          onResetSettings={vi.fn()}
-          onResetIndex={vi.fn()}
-          saving={false}
-        />
-      </MemoryRouter>,
-    )
+    renderSettingsView({ tab: 'diagnostics', settings: settingsCustom })
 
     expect(screen.getByText('Advanced Diagnostics')).toBeInTheDocument()
     expect(screen.getByLabelText('Log level')).toBeInTheDocument()
@@ -253,20 +222,17 @@ describe('SettingsView tabs and action bar behavior', () => {
     expect(screen.getByLabelText('Evaluation trace retention (days)')).toBeInTheDocument()
   })
 
-  it('does not render hidden advanced tuning controls in chat/indexing/diagnostics', () => {
-    renderSettingsView()
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
+  it('does not render hidden advanced tuning controls on the Chat tab', () => {
+    renderSettingsView({ tab: 'chat' })
     expect(screen.queryByLabelText('Enable adaptive passage retrieval')).not.toBeInTheDocument()
+  })
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Indexing' }))
+  it('does not render chunk size or embedding controls on the Indexing tab', () => {
+    renderSettingsView({ tab: 'indexing' })
     expect(screen.queryByText(/Chunk size:/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/Overlap:/i)).not.toBeInTheDocument()
     expect(screen.queryByLabelText('embedding-batch-size')).not.toBeInTheDocument()
     expect(screen.queryByText('Embedding Batch Size')).not.toBeInTheDocument()
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Diagnostics' }))
-    expect(screen.queryByLabelText('Enable raw output view')).not.toBeInTheDocument()
   })
 
   it('keeps hidden settings in save payload (no contract regression)', () => {
@@ -286,30 +252,33 @@ describe('SettingsView tabs and action bar behavior', () => {
     )
   })
 
-  it('shows CPU responsiveness in Chat', () => {
-    renderSettingsView()
-    const cpuLabel = screen.getByText('CPU Responsiveness')
-    expect(sectionHeaderFor(cpuLabel)).toContain('Chat')
+  it('shows CPU responsiveness on the Chat tab', () => {
+    renderSettingsView({ tab: 'chat' })
+    expect(screen.getByText('CPU Responsiveness')).toBeInTheDocument()
   })
 
-  it('shows chat activity logs toggle in Chat and not in Diagnostics', () => {
-    renderSettingsView()
-    const logsLabel = screen.getByText('Save chat activity logs')
-    expect(sectionHeaderFor(logsLabel)).toContain('Chat')
+  it('shows chat activity logs toggle on the Diagnostics tab (moved from Chat)', () => {
+    renderSettingsView({ tab: 'diagnostics' })
+    expect(screen.getByText('Save chat activity logs')).toBeInTheDocument()
   })
 
-  it('renders updated plain-language settings labels', () => {
-    renderSettingsView()
+  it('chat activity logs toggle is in a hidden section on the Chat tab', () => {
+    renderSettingsView({ tab: 'chat' })
+    const logsLabel = screen.queryByText('Save chat activity logs')
+    expect(logsLabel?.closest('.settings-section--hidden')).toBeTruthy()
+  })
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Chat' }))
+  it('renders updated plain-language settings labels on Chat and Indexing tabs', () => {
+    renderSettingsView({ tab: 'chat' })
     expect(screen.getByText('Conversation Memory')).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Indexing' }))
+    cleanup()
+
+    renderSettingsView({ tab: 'indexing' })
     expect(screen.getByText('File Processing Timeout')).toBeInTheDocument()
   })
 
   it('clears MCP token when switching HTTP to STDIO after confirmation', async () => {
-    const onSave = vi.fn()
     const confirmClear = vi.fn(async () => true)
     const settings = {
       ...baseSettings,
@@ -322,22 +291,8 @@ describe('SettingsView tabs and action bar behavior', () => {
       mcp_token_configured: true,
     }
 
-    render(
-      <MemoryRouter>
-        <SettingsView
-          settings={settings}
-          fileTypeOptions={[{ id: 'docs', label: 'Docs', extensions: ['.md', '.txt'] }]}
-          onSave={onSave}
-          onRequestClearMcpTokenConfirm={confirmClear}
-          onDiscard={vi.fn()}
-          onResetSettings={vi.fn()}
-          onResetIndex={vi.fn()}
-          saving={false}
-        />
-      </MemoryRouter>,
-    )
+    const { onSave } = renderSettingsView({ tab: 'mcp', settings, onRequestClearMcpTokenConfirm: confirmClear })
 
-    fireEvent.click(screen.getByRole('tab', { name: 'System' }))
     const transport = screen.getByLabelText('Transport') as HTMLSelectElement
     fireEvent.change(transport, { target: { value: 'stdio' } })
     await waitFor(() => expect(confirmClear).toHaveBeenCalledTimes(1))
@@ -362,22 +317,8 @@ describe('SettingsView tabs and action bar behavior', () => {
       mcp_token_configured: true,
     }
 
-    render(
-      <MemoryRouter>
-        <SettingsView
-          settings={settings}
-          fileTypeOptions={[{ id: 'docs', label: 'Docs', extensions: ['.md', '.txt'] }]}
-          onSave={vi.fn()}
-          onRequestClearMcpTokenConfirm={confirmClear}
-          onDiscard={vi.fn()}
-          onResetSettings={vi.fn()}
-          onResetIndex={vi.fn()}
-          saving={false}
-        />
-      </MemoryRouter>,
-    )
+    renderSettingsView({ tab: 'mcp', settings, onRequestClearMcpTokenConfirm: confirmClear })
 
-    fireEvent.click(screen.getByRole('tab', { name: 'System' }))
     const transport = screen.getByLabelText('Transport') as HTMLSelectElement
     fireEvent.change(transport, { target: { value: 'stdio' } })
     await waitFor(() => expect(confirmClear).toHaveBeenCalledTimes(1))
@@ -385,16 +326,14 @@ describe('SettingsView tabs and action bar behavior', () => {
   })
 
   it('shows remove button disabled for the currently active installed model', async () => {
-    localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, 'models')
-    renderSettingsView()
+    renderSettingsView({ tab: 'models' })
     const removeButton = await screen.findByRole('button', { name: 'Remove' })
     expect(removeButton).toBeDisabled()
   })
 
   it('removes a non-active installed model after confirmation', async () => {
-    localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, 'models')
     const confirmRemove = vi.fn(async () => true)
-    renderSettingsView({ onRequestRemoveModelConfirm: confirmRemove })
+    renderSettingsView({ tab: 'models', onRequestRemoveModelConfirm: confirmRemove })
     fireEvent.change(screen.getByLabelText('Main model'), { target: { value: 'alt.gguf' } })
 
     const removeButton = await screen.findByRole('button', { name: 'Remove' })
