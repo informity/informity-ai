@@ -1,4 +1,4 @@
-import { Fragment, memo, useCallback, useState, type KeyboardEvent, type ReactElement } from 'react'
+import { Fragment, memo, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { formatDuration } from '../../utils/formatDuration'
 import { getMessageRaw } from '../../api'
@@ -116,6 +116,19 @@ function ChatMessageComponent({
   const [isEditing, setIsEditing] = useState(false)
   const [editDraft, setEditDraft] = useState('')
   const [isEditSubmitting, setIsEditSubmitting] = useState(false)
+  const [exportMenuOpen, setExportMenuOpen] = useState(false)
+  const exportMenuRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!exportMenuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setExportMenuOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [exportMenuOpen])
 
   const handleRawToggle = useCallback(() => {
     if (actionsDisabled) return
@@ -569,29 +582,43 @@ function ChatMessageComponent({
                 </button>
               )
             )}
-            {!isUser && hasVisibleContent && onExport && (
-              <button
-                type="button"
-                className="chat-message__copy-full"
-                onClick={() => onExport?.(messageId)}
-                disabled={actionsDisabled}
-                title="Export as Markdown"
-                aria-label="Export as Markdown"
-              >
-                <i className="ri-markdown-line" aria-hidden style={{ fontSize: '0.875rem' }} />
-              </button>
-            )}
-            {!isUser && hasVisibleContent && onExportText && (
-              <button
-                type="button"
-                className="chat-message__copy-full"
-                onClick={() => onExportText?.(messageId)}
-                disabled={actionsDisabled}
-                title="Export as plain text"
-                aria-label="Export as plain text"
-              >
-                <i className="ri-download-line" aria-hidden style={{ fontSize: '0.875rem' }} />
-              </button>
+            {!isUser && hasVisibleContent && (onExport || onExportText) && (
+              <div ref={exportMenuRef} className="chat-message__export-trigger">
+                <button
+                  type="button"
+                  className="chat-message__copy-full"
+                  onClick={() => setExportMenuOpen(v => !v)}
+                  disabled={actionsDisabled}
+                  title="Export"
+                  aria-label="Export"
+                >
+                  <i className="ri-download-line" aria-hidden style={{ fontSize: '0.875rem' }} />
+                </button>
+                {exportMenuOpen && (
+                  <div className="chat-message__export-menu" role="menu">
+                    {onExport && (
+                      <button
+                        type="button"
+                        className="chat-message__export-option"
+                        onClick={() => { onExport(messageId); setExportMenuOpen(false) }}
+                      >
+                        <i className="ri-markdown-line" aria-hidden style={{ fontSize: '1rem' }} />
+                        Markdown
+                      </button>
+                    )}
+                    {onExportText && (
+                      <button
+                        type="button"
+                        className="chat-message__export-option"
+                        onClick={() => { onExportText(messageId); setExportMenuOpen(false) }}
+                      >
+                        <i className="ri-file-text-line" aria-hidden style={{ fontSize: '1rem' }} />
+                        Plain text
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
             )}
             {((isUser && safeContent) || (!isUser && hasVisibleContent)) && (
               <button

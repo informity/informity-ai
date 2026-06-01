@@ -161,6 +161,31 @@ export function TranslatePage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  // On mount: if the context already has sections (user navigated away and back),
+  // reconstruct the run display. TranslateProvider keeps sections across navigation;
+  // TranslatePage local state resets on unmount, so runs would be [] without this.
+  // Must be declared before the [isTranslating] effect so it fires first — that way
+  // activeRunRef is already set and the [isTranslating] effect sees it and skips.
+  useEffect(() => {
+    if (sections.length === 0 || runs.length > 0) return
+    const run: RunRecord = {
+      sections: [...sections],
+      language: targetLanguage,
+      tone: tone as Tone,
+      steering: '',
+      completedAt: isTranslating ? null : Date.now(),
+      totalSections: sectionCount,
+      elapsedSeconds: null,
+      fileLabel: fileName ?? 'Document',
+    }
+    if (isTranslating) {
+      activeRunRef.current = run
+      runStartRef.current = Date.now()
+    }
+    setRuns([run])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // Create run entry IMMEDIATELY when translation starts — before sections arrive —
   // so the results area shows a progress indicator from the first moment.
   useEffect(() => {
@@ -377,6 +402,7 @@ export function TranslatePage() {
                               className="translate-page__mode-option"
                               onClick={() => { handleSaveRun(run, 'md'); setExportMenuRun(null) }}
                             >
+                              <i className="ri-markdown-line" aria-hidden />
                               Markdown
                             </button>
                             <button
@@ -384,6 +410,7 @@ export function TranslatePage() {
                               className="translate-page__mode-option"
                               onClick={() => { handleSaveRun(run, 'txt'); setExportMenuRun(null) }}
                             >
+                              <i className="ri-file-text-line" aria-hidden />
                               Plain text
                             </button>
                           </div>
@@ -579,8 +606,10 @@ export function TranslatePage() {
                     onClick={() => void stopStreaming()}
                     title="Stop chat to translate"
                     aria-label="Stop chat"
+                    style={{ gap: '0.375rem' }}
                   >
                     <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1.125rem' }} />
+                    <span style={{ fontSize: 'var(--font-size-sm)' }}>Stop chat</span>
                   </button>
                 ) : (
                   <button

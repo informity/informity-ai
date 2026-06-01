@@ -829,6 +829,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
 
   const handleSend = useCallback(async () => {
     if (offline) return
+    if (isTranslating) return
     const text = inputValue.trim()
     if (!text) return
 
@@ -1115,10 +1116,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                 aria-label="Export chat"
               >
                 <i className="ri-download-line" aria-hidden style={{ fontSize: '1.125rem' }} />
-                <span>Export Chat</span>
+                <span>Export</span>
               </button>
               {exportMenuOpen && (
-                <div className="chat-view__mode-menu" role="menu" style={{ right: 0, left: 'auto', minWidth: '9rem' }}>
+                <div className="chat-view__mode-menu" role="menu" style={{ left: 0, right: 'auto', minWidth: '9rem', bottom: 'auto', top: 'calc(100% + 0.375rem)' }}>
                   <button type="button" className="chat-view__mode-option" onClick={() => handleExportFullChat('markdown')}>
                     <i className="ri-markdown-line" aria-hidden style={{ fontSize: '1rem' }} />
                     <span>Markdown</span>
@@ -1553,8 +1554,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                           onClick={() => translateCtx?.cancelTranslation()}
                           title="Stop translation"
                           aria-label="Stop translation"
+                          style={{ width: 'auto', gap: '0.375rem' }}
                         >
                           <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1.125rem' }} />
+                          <span style={{ fontSize: 'var(--font-size-sm)' }}>Stop translation</span>
                         </button>
                       ) : (
                         <button

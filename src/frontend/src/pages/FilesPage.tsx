@@ -335,7 +335,7 @@ export function FilesPage() {
                   onPageChange={handlePageChange}
                   onSelectFile={handleSelectFile}
                   onChatAboutFile={handleChatAboutFile}
-                  onTranslate={import.meta.env.DEV ? handleTranslateFile : undefined}
+                  onTranslate={handleTranslateFile}
                   onReindex={handleReindex}
                   onRemove={handleRemove}
                   selectedFileId={selectedFileId}

@@ -101,15 +101,18 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
         onSectionsReady: (count) => setSectionCount(count),
         onSectionStarted: () => { /* progress tracked via onSectionDone */ },
         onSectionDone: (section) => {
+          let isNew = false
           setSections((prev) => {
+            const idx = prev.findIndex((s) => s.section_index === section.section_index)
+            isNew = idx < 0
             const next = [...prev]
-            const idx = next.findIndex((s) => s.section_index === section.section_index)
             if (idx >= 0) next[idx] = section
             else next.push(section)
             next.sort((a, b) => a.section_index - b.section_index)
             return next
           })
-          setCompletedSections((n) => n + 1)
+          // Only count sections not already present — prevents double-counting on SSE reconnect.
+          if (isNew) setCompletedSections((n) => n + 1)
         },
         onSectionFailed: () => setFailedSections((n) => n + 1),
         onJobDone: () => setJobStatus('done'),

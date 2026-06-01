@@ -237,6 +237,10 @@ async def cancel_translate_job(
     job_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    # Guard: don't overwrite a job that already completed or failed.
+    row = await get_translate_job(db, job_id)
+    if row and str(row['status']) in ('done', 'failed'):
+        return {'cancelled': False}
     # Mark cancelled in DB so the inter-section check stops the loop
     await update_translate_job(db, job_id, status='stalled', error='Cancelled by user')
     # Immediately cancel the active generate_stream (releases LLM lock now)
@@ -391,7 +395,7 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                 await update_translate_job(db, job_id, status='running')
 
                 # --- Phase 2: Glossary extraction ---
-                glossary_json = await _extract_glossary(db, file_id, target_language)
+                glossary_json = await _extract_glossary(db, file_id, target_language, cancel_event)
                 if glossary_json:
                     await update_translate_job(db, job_id, glossary_json=glossary_json)
                 try:
@@ -522,7 +526,12 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
             await q.put(_SENTINEL)
 
 
-async def _extract_glossary(db: aiosqlite.Connection, file_id: int, target_language: str) -> str | None:
+async def _extract_glossary(
+    db: aiosqlite.Connection,
+    file_id: int,
+    target_language: str,
+    cancel_event: asyncio.Event | None = None,
+) -> str | None:
     """
     Extract a translation glossary using generate_stream with a simple line-delimited format.
 
@@ -556,12 +565,16 @@ async def _extract_glossary(db: aiosqlite.Connection, file_id: int, target_langu
 
     parts: list[str] = []
     try:
-        async for item in llm_engine.generate_stream(
+        gen = llm_engine.generate_stream(
             messages,
             max_tokens=TRANSLATE_GLOSSARY_MAX_TOKENS,
             temperature=TRANSLATE_GLOSSARY_TEMPERATURE,
             timeout_seconds=float(TRANSLATE_GLOSSARY_TIMEOUT_S),
-        ):
+        )
+        async for item in gen:
+            if cancel_event and cancel_event.is_set():
+                await gen.aclose()
+                return None
             if isinstance(item, tuple):
                 token, _ = item
                 if isinstance(token, str) and token and token != '__timeout__':
