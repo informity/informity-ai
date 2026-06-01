@@ -274,12 +274,21 @@ html[data-accent='canvas'] .sidebar__link:hover:not(.sidebar__link--active) {
   border-left: 1px solid var(--color-bg-surface);
 }
 
+.sidebar__subnav-item--active {
+  color: var(--color-text);
+  font-weight: 500;
+}
+
 .sidebar__subnav-icon {
   font-size: var(--font-size-sm);
   width: 1rem;
   text-align: center;
   flex-shrink: 0;
   opacity: 0.6;
+}
+
+.sidebar__subnav-item--active .sidebar__subnav-icon {
+  opacity: 1;
 }
 
 @media (max-width: 1024px) {
