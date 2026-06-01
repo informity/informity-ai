@@ -87,6 +87,7 @@ export function TranslatePage() {
   const pendingChipRef = useRef<HTMLSpanElement | null>(null)
   const inputWrapperRef = useRef<HTMLDivElement>(null)
   const resultsEndRef = useRef<HTMLDivElement>(null)
+  const resultsContainerRef = useRef<HTMLDivElement>(null)
 
   const selectedLang = LANGUAGE_OPTIONS.find(l => l.label === targetLanguage) ?? LANGUAGE_OPTIONS.find(l => l.label === 'Spanish')!
   const canTranslate = !!fileId && !isTranslating && !isStreaming
@@ -185,9 +186,12 @@ export function TranslatePage() {
     }
   }, [jobStatus])
 
-  // Scroll to bottom on each new completed section so the Section X/Y indicator stays visible
+  // Scroll to bottom on each new completed section so the Section X/Y indicator stays visible.
+  // Use scrollTop on the container directly (more reliable than scrollIntoView across themes).
   useEffect(() => {
-    if (isTranslating) resultsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (!isTranslating) return
+    const el = resultsContainerRef.current
+    if (el) el.scrollTop = el.scrollHeight
   }, [completedSections, isTranslating])
 
   // Close export menu on outside click
@@ -295,7 +299,7 @@ export function TranslatePage() {
       <div className={`translate-page__body${isCentered ? ' translate-page__body--centered' : ''}`}>
 
         {/* ── Result area (hidden when centered) ── */}
-        <div className="translate-results">
+        <div ref={resultsContainerRef} className="translate-results">
           {runs.map((run, ri) => {
             const isActive = ri === runs.length - 1 && isTranslating
             const elapsedLabel = run.elapsedSeconds !== null
@@ -304,15 +308,6 @@ export function TranslatePage() {
             const exportOpen = exportMenuRun === ri
             return (
               <div key={ri} className="translate-run">
-                {/* Run header */}
-                <div className="translate-run__header">
-                  <span className="translate-run__label">
-                    {run.fileLabel} → {run.language}
-                    {run.tone !== 'natural' && ` · ${capitalize(run.tone)}`}
-                    {run.steering && ` · "${run.steering.slice(0, 50)}${run.steering.length > 50 ? '…' : ''}"`}
-                  </span>
-                </div>
-
                 {/* Sections — remark-gfm for tables; sanitize raw HTML from model */}
                 <div className="translate-run__sections">
                   {run.sections.map(s => (

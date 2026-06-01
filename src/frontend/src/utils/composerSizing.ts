@@ -63,6 +63,10 @@ export function applyComposerScopedPadding(
     wrapperEl.style.removeProperty('--composer-scoped-top-padding')
     return
   }
-  const padding = chipHeight + baseGap
+  // Must account for the chip's offsetTop within the wrapper (the chip is
+  // absolutely positioned at ~18px from the wrapper top) so the textarea
+  // text starts below the chip bottom, not inside it.
+  const chipTop = chipRowEl ? chipRowEl.offsetTop : 0
+  const padding = chipTop + chipHeight + baseGap
   wrapperEl.style.setProperty('--composer-scoped-top-padding', `${padding}px`)
 }

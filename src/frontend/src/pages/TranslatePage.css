@@ -70,17 +70,6 @@
 /* Translation run */
 .translate-run { display: flex; flex-direction: column; gap: var(--space-md); }
 
-.translate-run__header {
-  padding-bottom: var(--space-sm);
-  border-bottom: 1px solid var(--color-border-subtle);
-}
-
-.translate-run__label {
-  font-size: var(--font-size-xs);
-  color: var(--color-text-muted);
-  user-select: none;
-}
-
 .translate-run__sections { display: flex; flex-direction: column; gap: var(--space-md); }
 
 .translate-run__section {
@@ -419,11 +408,12 @@
   overflow-y: auto;
 }
 
-/* Tone menu opens left-anchored, above the icon button */
+/* Tone menu — left-anchored, sized to content (same approach as export menu) */
 .translate-page__mode-menu--left {
   right: auto;
   left: 0;
-  min-width: 9rem;
+  min-width: 0;
+  width: max-content;
 }
 
 /* Dropdown option — pixel-identical to chat-view__mode-option */
