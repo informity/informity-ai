@@ -186,13 +186,14 @@ export function TranslatePage() {
     }
   }, [jobStatus])
 
-  // Scroll to bottom on each new completed section so the Section X/Y indicator stays visible.
-  // Use scrollTop on the container directly (more reliable than scrollIntoView across themes).
-  useEffect(() => {
+  // Scroll to bottom after every run update so the Section X/Y indicator stays visible.
+  // useLayoutEffect fires after DOM commits (new section content is present) but before paint,
+  // ensuring scrollTop = scrollHeight sees the fully updated DOM height.
+  useLayoutEffect(() => {
     if (!isTranslating) return
     const el = resultsContainerRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [completedSections, isTranslating])
+  }, [runs, isTranslating])
 
   // Close export menu on outside click
   useEffect(() => {
@@ -455,11 +456,10 @@ export function TranslatePage() {
               </span>
             )}
 
-            {/* Upload pending chip — spinner + text so chip has visible height */}
+            {/* Upload pending chip — spinner only, no text, matches Chat's pending upload chip */}
             {uploadLoading && !fileId && (
-              <span ref={pendingChipRef} className="composer__scope-chip" aria-label="Uploading…">
+              <span ref={pendingChipRef} className="composer__scope-chip translate-page__pending-chip" aria-label="Uploading…">
                 <i className="ri-loader-4-line translate-page__spinner" aria-hidden />
-                <span>Uploading…</span>
               </span>
             )}
 

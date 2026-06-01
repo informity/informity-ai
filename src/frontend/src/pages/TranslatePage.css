@@ -253,9 +253,16 @@
   color: inherit; font-size: inherit; text-decoration: underline; cursor: pointer;
 }
 
+/* Pending upload chip — spinner only, no text, matches Chat's upload-overflow-chip--pending */
+.translate-page__pending-chip {
+  justify-content: center;
+  gap: 0;
+  padding: 0.3rem calc(var(--composer-inline-inset, 0.875rem) * 0.5);
+}
+
 /* Spinner for upload pending */
 .translate-page__spinner {
-  animation: translate-spin 0.9s linear infinite;
+  animation: translate-spin 0.95s linear infinite;
 }
 @keyframes translate-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
 
