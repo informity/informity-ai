@@ -4,6 +4,7 @@
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { WheelEvent } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import {
   getSettings,
   getIndexStatus,
@@ -82,6 +83,8 @@ const UPDATABLE_KEYS = [
   'log_level',
   'ui_theme',
   'enable_menu_bar_icon',
+  'translate_default_language',
+  'translate_default_tone',
 ] as const
 
 interface FormState {
@@ -133,6 +136,8 @@ interface FormState {
   log_level?: string
   ui_theme?: string
   enable_menu_bar_icon?: boolean
+  translate_default_language?: string
+  translate_default_tone?: string
   llm_model_filename?: string
   llm_provider?: 'local_gguf' | 'ollama'
   llm_model_id?: string
@@ -198,6 +203,18 @@ interface SettingsData extends FormState {
 const RESET_POLL_INTERVAL_MS = 500
 const RESET_POLL_TIMEOUT_MS = 300000
 
+const SETTINGS_TAB_META: Record<string, { title: string; icon: string; subtitle: string }> = {
+  general:     { title: 'General',            icon: 'ri-home-gear-line', subtitle: 'Core application preferences including privacy and appearance.' },
+  chat:        { title: 'Chat',               icon: 'ri-chat-ai-4-line', subtitle: 'Conversation context and default chat settings.' },
+  translate:   { title: 'Translate',          icon: 'ri-translate-2',    subtitle: 'Configure default behaviour for document translation.' },
+  models:      { title: 'Models',             icon: 'ri-robot-2-line',   subtitle: 'Select the AI model to use and view its capabilities.' },
+  data:        { title: 'Data Sources',       icon: 'ri-folder-line',    subtitle: 'Choose which folders and file types the application scans and makes searchable.' },
+  indexing:    { title: 'Indexing',            icon: 'ri-stack-line',  subtitle: 'Controls how the application reads and prepares your files for search and chat.' },
+  mcp:         { title: 'MCP Server',          icon: 'ri-plug-3-line', subtitle: 'Allow external AI clients to query your document library via the Model Context Protocol.' },
+  diagnostics: { title: 'Diagnostics',         icon: 'ri-pulse-line',  subtitle: 'Monitor application events and adjust diagnostics settings when troubleshooting.' },
+  system:      { title: 'System',             icon: 'ri-server-line',    subtitle: 'General application utilities and configuration references.' },
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms)
@@ -207,6 +224,9 @@ function sleep(ms: number): Promise<void> {
 export function SettingsPage() {
   const confirm = useConfirm()
   const { offline } = useBackendStatus()
+  const [searchParams] = useSearchParams()
+  const activeTab = searchParams.get('tab') ?? 'general'
+  const tabMeta = SETTINGS_TAB_META[activeTab] ?? SETTINGS_TAB_META.general
   const [settings, setSettings] = useState<SettingsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -497,11 +517,7 @@ export function SettingsPage() {
   if (loading) {
     return (
       <div className="page" onWheel={handlePageWheel}>
-        <PageHeader
-          title="Settings"
-          subtitle="Loading settings..."
-          icon="ri-settings-3-line"
-        />
+        <PageHeader title={tabMeta.title} subtitle={tabMeta.subtitle} icon={tabMeta.icon} />
         <div className="page__scroll" ref={pageScrollRef}>
           <p>Loading settings...</p>
         </div>
@@ -512,11 +528,7 @@ export function SettingsPage() {
   if (offline || error) {
     return (
       <div className="page" onWheel={handlePageWheel}>
-        <PageHeader
-          title="Settings"
-          subtitle="Manage application preferences and behavior."
-          icon="ri-settings-3-line"
-        />
+        <PageHeader title={tabMeta.title} subtitle={tabMeta.subtitle} icon={tabMeta.icon} />
         <div className="page__scroll" ref={pageScrollRef}>
           {offline ? <ServiceUnavailableState /> : <p className="page__error">{error}</p>}
         </div>
@@ -526,11 +538,7 @@ export function SettingsPage() {
 
   return (
     <div className="page" onWheel={handlePageWheel}>
-      <PageHeader
-        title="Settings"
-        subtitle="Manage application preferences and behavior."
-        icon="ri-settings-3-line"
-      />
+      <PageHeader title={tabMeta.title} subtitle={tabMeta.subtitle} icon={tabMeta.icon} />
       <div className="page__scroll" ref={pageScrollRef}>
         <SettingsView
           settings={settings}

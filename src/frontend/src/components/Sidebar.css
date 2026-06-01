@@ -214,6 +214,74 @@ html[data-accent='canvas'] .sidebar__link:hover:not(.sidebar__link--active) {
   animation: spin 1s linear infinite;
 }
 
+/* Settings sub-navigation — vertical list under the Settings link */
+.sidebar__subnav {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: 0 0 var(--space-xs) 0;
+}
+
+/* Vertical tree line — runs full height; last item masks the tail below its center */
+.sidebar__subnav::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--sidebar-link-padding-x) + 0.625rem);
+  top: 0;
+  bottom: 0;
+  width: 0;
+  border-left: 1px var(--layout-divider-style, solid) var(--color-border);
+}
+
+.sidebar__subnav-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-xs);
+  width: 100%;
+  border: none;
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  box-sizing: border-box;
+  padding: var(--space-sm) var(--sidebar-link-padding-x) var(--space-sm) calc(var(--sidebar-link-padding-x) + 1.875rem);
+  margin: 0 0 2px;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* Horizontal branch line */
+.sidebar__subnav-item::before {
+  content: '';
+  position: absolute;
+  left: calc(var(--sidebar-link-padding-x) + 0.625rem);
+  top: 50%;
+  width: 1rem;
+  height: 0;
+  border-top: 1px var(--layout-divider-style, solid) var(--color-border);
+}
+
+/* Last item: mask the vertical line below the horizontal branch, making an L shape */
+.sidebar__subnav-item:last-child::after {
+  content: '';
+  position: absolute;
+  left: calc(var(--sidebar-link-padding-x) + 0.625rem);
+  top: 50%;
+  bottom: calc(-1 * var(--space-xs) - 2px);
+  width: 0;
+  border-left: 1px solid var(--color-bg-surface);
+}
+
+.sidebar__subnav-icon {
+  font-size: var(--font-size-sm);
+  width: 1rem;
+  text-align: center;
+  flex-shrink: 0;
+  opacity: 0.6;
+}
+
 @media (max-width: 1024px) {
   .sidebar {
     width: var(--sidebar-width-collapsed) !important;

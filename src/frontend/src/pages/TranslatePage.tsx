@@ -7,7 +7,7 @@ import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { useBackendStatus } from '../context/useBackendStatus'
 import { useTranslateContext } from '../context/useTranslateContext'
 import { useChatContext } from '../context/useChatContext'
-import { uploadTranslateFile, deleteTranslateUpload, getSettings } from '../api'
+import { uploadTranslateFile, deleteTranslateUpload } from '../api'
 import { extractErrorMessage } from '../utils/errorMessages'
 import { showToast } from '../context/useToast'
 import { resizeComposerTextarea, applyComposerScopedPadding } from '../utils/composerSizing'
@@ -101,13 +101,6 @@ export function TranslatePage() {
   const canTranslate = !!fileId && !isTranslating && !isStreaming  // button morphs to Stop when streaming/translating
 
   // Load default language from settings
-  useEffect(() => {
-    getSettings().then((s) => {
-      const lang = (s as Record<string, unknown>)?.translate_default_language as string | undefined
-      if (lang && LANGUAGE_OPTIONS.some(l => l.label === lang)) setTargetLanguage(lang)
-    }).catch(() => {})
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   // Pre-load file from Files page router state
   useEffect(() => {

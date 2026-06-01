@@ -391,7 +391,7 @@
   border-radius: 2px;
   overflow: hidden;
   flex-shrink: 0;
-  opacity: 0.8;
+  opacity: 0.75;
 }
 
 /* --------------------------------------------------------------------------
@@ -423,8 +423,10 @@
   width: max-content;
 }
 
-/* Language menu — sized to content, not forced to button width */
+/* Language menu — left-anchored so flags align with the button's flag */
 .translate-page__mode-selector .translate-page__mode-menu {
+  right: auto;
+  left: -0.25rem;
   min-width: 0;
   width: max-content;
 }

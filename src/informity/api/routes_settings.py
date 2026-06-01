@@ -427,6 +427,7 @@ _UPDATABLE_FIELDS: set[str] = {
     'enable_menu_bar_icon',
     'cpu_priority_nice',
     'translate_default_language',
+    'translate_default_tone',
     'mcp_enabled',
     'mcp_auto_start',
     'mcp_transport',
@@ -594,6 +595,7 @@ async def get_settings() -> SettingsResponse:
         enable_menu_bar_icon          = s.enable_menu_bar_icon,
         cpu_priority_nice             = s.cpu_priority_nice,
         translate_default_language    = s.translate_default_language,
+        translate_default_tone        = s.translate_default_tone,
     )
 
 
