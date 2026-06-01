@@ -1493,7 +1493,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       ) : (
                         <button
                           type="button"
-                          className="chat-view__send composer__send composer__send--active"
+                          className="chat-view__send"
                           onClick={handleSend}
                           disabled={offline || !inputValue.trim()}
                           title="Send (Enter)"

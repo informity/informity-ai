@@ -2,54 +2,34 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import { PageHeader } from '../components/PageHeader'
-import { CenteredState } from '../components/CenteredState'
 import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { useBackendStatus } from '../context/useBackendStatus'
 import { useTranslateContext } from '../context/useTranslateContext'
 import { useChatContext } from '../context/useChatContext'
-import { getFiles, uploadTranslateFile, deleteTranslateUpload, getSettings } from '../api'
+import { uploadTranslateFile, deleteTranslateUpload, getSettings } from '../api'
 import { extractErrorMessage } from '../utils/errorMessages'
 import { showToast } from '../context/useToast'
-import {
-  resizeComposerTextarea,
-  applyComposerScopedPadding,
-} from '../utils/composerSizing'
-import type { IndexedFile } from '../types/api'
+import { resizeComposerTextarea, applyComposerScopedPadding } from '../utils/composerSizing'
 import type { TranslateSection } from '../api'
 import './TranslatePage.css'
 
-// Language list with flag-icons country codes
-const LANGUAGES: { value: string; label: string; flag: string }[] = [
-  { value: 'Arabic',                  label: 'Arabic',                  flag: 'sa' },
-  { value: 'Chinese (Simplified)',    label: 'Chinese (Simplified)',    flag: 'cn' },
-  { value: 'Chinese (Traditional)',   label: 'Chinese (Traditional)',   flag: 'tw' },
-  { value: 'Czech',                   label: 'Czech',                   flag: 'cz' },
-  { value: 'Danish',                  label: 'Danish',                  flag: 'dk' },
-  { value: 'Dutch',                   label: 'Dutch',                   flag: 'nl' },
-  { value: 'Finnish',                 label: 'Finnish',                 flag: 'fi' },
-  { value: 'French',                  label: 'French',                  flag: 'fr' },
-  { value: 'German',                  label: 'German',                  flag: 'de' },
-  { value: 'Hindi',                   label: 'Hindi',                   flag: 'in' },
-  { value: 'Italian',                 label: 'Italian',                 flag: 'it' },
-  { value: 'Japanese',                label: 'Japanese',                flag: 'jp' },
-  { value: 'Korean',                  label: 'Korean',                  flag: 'kr' },
-  { value: 'Norwegian',               label: 'Norwegian',               flag: 'no' },
-  { value: 'Polish',                  label: 'Polish',                  flag: 'pl' },
-  { value: 'Portuguese',              label: 'Portuguese',              flag: 'pt' },
-  { value: 'Romanian',                label: 'Romanian',                flag: 'ro' },
-  { value: 'Russian',                 label: 'Russian',                 flag: 'ru' },
-  { value: 'Spanish',                 label: 'Spanish',                 flag: 'es' },
-  { value: 'Swedish',                 label: 'Swedish',                 flag: 'se' },
-  { value: 'Thai',                    label: 'Thai',                    flag: 'th' },
-  { value: 'Turkish',                 label: 'Turkish',                 flag: 'tr' },
-  { value: 'Ukrainian',               label: 'Ukrainian',               flag: 'ua' },
-  { value: 'Vietnamese',              label: 'Vietnamese',              flag: 'vn' },
+interface LanguageOption { label: string; countryCode: string }
+
+const LANGUAGE_OPTIONS: LanguageOption[] = [
+  { label: 'French',     countryCode: 'fr' },
+  { label: 'German',     countryCode: 'de' },
+  { label: 'Italian',    countryCode: 'it' },
+  { label: 'Portuguese', countryCode: 'pt' },
+  { label: 'Spanish',    countryCode: 'es' },
 ]
+
+const TONES = ['natural', 'formal', 'literal'] as const
+type Tone = typeof TONES[number]
 
 interface RunRecord {
   sections: TranslateSection[]
   language: string
-  tone: string
+  tone: Tone
   steering: string
   completedAt: number | null
   totalSections: number | null
@@ -65,64 +45,60 @@ export function TranslatePage() {
     fileId, fileName, pageCount, isUpload, estimatedMinutes, exceedsSoftLimit,
     targetLanguage, tone, jobStatus, sections, sectionCount, completedSections,
     isTranslating, hasResult,
-    setFile, setTargetLanguage, setTone, startTranslation, cancelTranslation,
+    setFile, setTargetLanguage, setTone, startTranslation, cancelTranslation, clearResult,
   } = useTranslateContext()
 
-  // Translation runs accumulate above composer
+  // Runs accumulate above composer
   const [runs, setRuns] = useState<RunRecord[]>([])
+  const activeRunRef = useRef<RunRecord | null>(null)
+  const runStartRef = useRef<number>(0)
 
-  // Composer state — mirrors ChatView
+  // Composer state — matches ChatView
   const [animateToDocked, setAnimateToDocked] = useState(false)
   const wasDocked = useRef(false)
   const isCentered = !isTranslating && !hasResult && runs.length === 0
-  const activeRunRef = useRef<RunRecord | null>(null)
-  const runStartRef = useRef<number>(0)
 
   // Steering prompt
   const [steering, setSteering] = useState('')
 
-  // File search combobox
-  const [query, setQuery] = useState('')
-  const [suggestions, setSuggestions] = useState<IndexedFile[]>([])
-  const [showSuggestions, setShowSuggestions] = useState(false)
+  // Menu state
+  const [menuOpen, setMenuOpen] = useState<'language' | 'tone' | null>(null)
+  const langMenuRef = useRef<HTMLDivElement>(null)
+  const toneMenuRef = useRef<HTMLDivElement>(null)
+
+  // Upload state
   const [uploadLoading, setUploadLoading] = useState(false)
-  const comboRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
-  const chipRowRef = useRef<HTMLDivElement>(null)
+  const chipRef = useRef<HTMLSpanElement | null>(null)
+  const pendingChipRef = useRef<HTMLSpanElement | null>(null)
   const inputWrapperRef = useRef<HTMLDivElement>(null)
   const resultsEndRef = useRef<HTMLDivElement>(null)
 
-  // Load default language from settings once
+  const selectedLang = LANGUAGE_OPTIONS.find(l => l.label === targetLanguage) ?? LANGUAGE_OPTIONS.find(l => l.label === 'Spanish')!
+  const canTranslate = !!fileId && !isTranslating && !isStreaming
+
+  // Load default language from settings
   useEffect(() => {
     getSettings().then((s) => {
       const lang = (s as Record<string, unknown>)?.translate_default_language as string | undefined
-      if (lang && LANGUAGES.some(l => l.value === lang)) {
-        setTargetLanguage(lang)
-      }
+      if (lang && LANGUAGE_OPTIONS.some(l => l.label === lang)) setTargetLanguage(lang)
     }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Pre-load file from router state (Files → Translate navigation)
+  // Pre-load file from Files page router state
   useEffect(() => {
     const state = location.state as { scopedFileId?: number; scopedFileName?: string } | null
     if (state?.scopedFileId && state.scopedFileName) {
-      setFile({
-        id: state.scopedFileId,
-        name: state.scopedFileName,
-        pageCount: null,
-        isUpload: false,
-      })
+      setFile({ id: state.scopedFileId, name: state.scopedFileName, pageCount: null, isUpload: false })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // Centered → docked transition
+  // Centered → docked transition (mirrors ChatView logic)
   useEffect(() => {
-    if (wasDocked.current && isCentered) {
-      // reset — new session
-    } else if (!isCentered && (isTranslating || hasResult || runs.length > 0)) {
+    if (!isCentered && (isTranslating || hasResult || runs.length > 0)) {
       if (!wasDocked.current) {
         setAnimateToDocked(true)
         const t = setTimeout(() => setAnimateToDocked(false), 1200)
@@ -130,51 +106,59 @@ export function TranslatePage() {
         return () => clearTimeout(t)
       }
     }
+    if (isCentered) wasDocked.current = false
   }, [isCentered, isTranslating, hasResult, runs.length])
 
-  // Resize textarea on steering input
+  // Resize textarea
   useEffect(() => {
     const ta = textareaRef.current
     if (!ta) return
     resizeComposerTextarea(ta, !!fileId)
   }, [steering, fileId])
 
-  // Update scoped padding when chip row changes
   useEffect(() => {
-    applyComposerScopedPadding(inputWrapperRef.current, chipRowRef.current)
+    // Use whichever chip is visible — file chip or uploading pending chip
+    const activeChip = chipRef.current ?? pendingChipRef.current
+    applyComposerScopedPadding(inputWrapperRef.current, activeChip)
     const ta = textareaRef.current
-    if (ta) resizeComposerTextarea(ta, !!fileId)
-  }, [fileId])
+    if (ta) resizeComposerTextarea(ta, !!(fileId || uploadLoading))
+  }, [fileId, uploadLoading])
 
-  // Accumulate sections into active run as they arrive
+  // Close menus on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (langMenuRef.current && !langMenuRef.current.contains(e.target as Node)) {
+        setMenuOpen(prev => prev === 'language' ? null : prev)
+      }
+      if (toneMenuRef.current && !toneMenuRef.current.contains(e.target as Node)) {
+        setMenuOpen(prev => prev === 'tone' ? null : prev)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  // Accumulate sections into active run
   useEffect(() => {
     if (!isTranslating && !hasResult) return
     if (sections.length === 0) return
-
     if (!activeRunRef.current && isTranslating) {
       const run: RunRecord = {
-        sections: [],
-        language: targetLanguage,
-        tone,
-        steering,
-        completedAt: null,
-        totalSections: sectionCount,
-        elapsedSeconds: null,
-        fileLabel: fileName ?? 'Document',
+        sections: [], language: targetLanguage, tone: tone as Tone,
+        steering, completedAt: null, totalSections: sectionCount,
+        elapsedSeconds: null, fileLabel: fileName ?? 'Document',
       }
       activeRunRef.current = run
       runStartRef.current = Date.now()
       setRuns(prev => [...prev, run])
     }
-
     if (activeRunRef.current) {
       activeRunRef.current.sections = [...sections]
       activeRunRef.current.totalSections = sectionCount
-      setRuns(prev => [...prev]) // trigger re-render
+      setRuns(prev => [...prev])
     }
   }, [sections, sectionCount, isTranslating, hasResult, targetLanguage, tone, steering, fileName])
 
-  // Mark run complete
   useEffect(() => {
     if (jobStatus === 'done' && activeRunRef.current && activeRunRef.current.completedAt === null) {
       activeRunRef.current.completedAt = Date.now()
@@ -184,45 +168,15 @@ export function TranslatePage() {
     }
   }, [jobStatus])
 
-  // Scroll to bottom as sections arrive
   useEffect(() => {
     if (isTranslating) resultsEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [sections.length, isTranslating])
-
-  // File search suggestions
-  useEffect(() => {
-    if (!query.trim()) { setSuggestions([]); return }
-    const t = setTimeout(async () => {
-      try {
-        const data = await getFiles({ search: query.trim(), limit: 12 }) as { files?: IndexedFile[] }
-        setSuggestions(data.files || [])
-      } catch { setSuggestions([]) }
-    }, 200)
-    return () => clearTimeout(t)
-  }, [query])
-
-  // Close suggestions on outside click
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (comboRef.current && !comboRef.current.contains(e.target as Node)) {
-        setShowSuggestions(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
-  const handleSelectFile = useCallback((f: IndexedFile) => {
-    setFile({ id: f.id, name: f.filename || f.path || `File #${f.id}`, pageCount: f.page_count ?? null, isUpload: false })
-    setQuery(''); setSuggestions([]); setShowSuggestions(false)
-  }, [setFile])
 
   const handleUpload = useCallback(async (file: File) => {
     setUploadLoading(true)
     try {
       const res = await uploadTranslateFile(file)
       setFile({ id: res.file_id, name: res.filename, pageCount: res.page_count ?? null, isUpload: true })
-      showToast('success', `Uploaded: ${res.filename}`)
     } catch (err) {
       showToast('error', extractErrorMessage(err, 'Upload failed'))
     } finally { setUploadLoading(false) }
@@ -240,17 +194,30 @@ export function TranslatePage() {
     await startTranslation()
   }, [fileId, isTranslating, startTranslation])
 
+  const handleNewTranslation = useCallback(async () => {
+    if (isTranslating) cancelTranslation()
+    if (fileId && isUpload) {
+      try { await deleteTranslateUpload(fileId) } catch { /* best-effort */ }
+    }
+    setFile(null)
+    clearResult()
+    setRuns([])
+    setSteering('')
+    setTargetLanguage(LANGUAGE_OPTIONS.find(l => l.label === 'Spanish')?.label ?? LANGUAGE_OPTIONS[0].label)
+    setTone('natural')
+    wasDocked.current = false
+  }, [isTranslating, cancelTranslation, fileId, isUpload, setFile, clearResult, setTargetLanguage, setTone])
+
   const handleCopyRun = useCallback((run: RunRecord) => {
-    const text = run.sections.map(s => s.text).join('\n\n')
-    navigator.clipboard.writeText(text).then(() => showToast('success', 'Copied'))
+    navigator.clipboard.writeText(run.sections.map(s => s.text).join('\n\n'))
+      .then(() => showToast('success', 'Copied'))
   }, [])
 
   const handleSaveRun = useCallback((run: RunRecord, fmt: 'md' | 'txt') => {
     let content = run.sections.map(s => s.text).join('\n\n')
     if (fmt === 'txt') {
       content = content
-        .replace(/^#{1,6}\s+/gm, '')
-        .replace(/\*\*(.+?)\*\*/gs, '$1')
+        .replace(/^#{1,6}\s+/gm, '').replace(/\*\*(.+?)\*\*/gs, '$1')
         .replace(/[*_]{1,2}(.+?)[*_]{1,2}/gs, '$1')
     }
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
@@ -260,70 +227,70 @@ export function TranslatePage() {
     const lang = run.language.toLowerCase().replace(/[^a-z0-9]+/g, '-')
     a.href = url; a.download = `${base}.${lang}.${fmt}`
     document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(url)
-    showToast('success', `Saved ${fmt === 'md' ? 'Markdown' : 'text'}`)
   }, [])
 
-  const selectedLang = LANGUAGES.find(l => l.value === targetLanguage)
-
-  const canTranslate = !!fileId && !isTranslating && !isStreaming
+  const subtitle = 'Translate a document. Select from your indexed files or upload.'
 
   if (offline) {
     return (
       <div className="page page--translate">
-        <PageHeader title="Translate" subtitle="Translate indexed documents locally" icon="ri-translate-2" />
+        <PageHeader title="Translate" subtitle={subtitle} icon="ri-translate-2" />
         <div className="page__scroll"><ServiceUnavailableState /></div>
       </div>
     )
   }
 
+  const translatePlaceholder = fileId
+    ? 'Steer the translation (optional) — e.g. focus on methodology, skip references…'
+    : 'Select or upload a document to translate…'
+
   return (
     <div className="translate-page">
+      <PageHeader
+        title="Translate"
+        subtitle={subtitle}
+        icon="ri-translate-2"
+        action={
+          <button
+            type="button"
+            className="translate-page__new-btn"
+            onClick={() => void handleNewTranslation()}
+            disabled={isTranslating}
+            title="New translation"
+          >
+            <i className="ri-translate-2" aria-hidden />
+            New Translation
+          </button>
+        }
+      />
       <div className={`translate-page__body${isCentered ? ' translate-page__body--centered' : ''}`}>
 
-        {/* ── Result area ── */}
+        {/* ── Result area (hidden when centered) ── */}
         <div className="translate-results">
-          {runs.length === 0 && !isTranslating && (
-            <div className="translate-results__empty">
-              <CenteredState
-                icon="ri-translate-2"
-                title="Select a document to translate"
-                description="Search your library or drop a file in the box below, then choose a language and press Translate."
-              />
-            </div>
-          )}
           {runs.map((run, ri) => (
             <div key={ri} className="translate-run">
-              {/* Run header */}
               <div className="translate-run__header">
                 <span className="translate-run__label">
                   {run.fileLabel} → {run.language}
                   {run.tone !== 'natural' && ` · ${run.tone}`}
-                  {run.steering && ` · "${run.steering.slice(0, 40)}${run.steering.length > 40 ? '…' : ''}"`}
+                  {run.steering && ` · "${run.steering.slice(0, 50)}${run.steering.length > 50 ? '…' : ''}"`}
                 </span>
               </div>
-              {/* Sections */}
               <div className="translate-run__sections">
-                {run.sections.map((s) => (
+                {run.sections.map(s => (
                   <div key={s.section_index} className="translate-run__section">
-                    {s.section_title && s.section_title !== '(untitled)' && (
-                      <p className="translate-run__section-title">{s.section_title}</p>
-                    )}
                     <ReactMarkdown>{s.text}</ReactMarkdown>
                   </div>
                 ))}
-                {/* Streaming cursor for active run */}
                 {ri === runs.length - 1 && isTranslating && (
                   <div className="translate-run__section translate-run__section--streaming">
                     <span className="translate-run__cursor" aria-label="Translating…" />
                     <span className="translate-run__progress">
-                      {sectionCount
-                        ? `Section ${completedSections + 1} of ${sectionCount}`
-                        : 'Translating…'}
+                      {sectionCount ? `Section ${completedSections + 1} of ${sectionCount}` : 'Translating…'}
                     </span>
                   </div>
                 )}
               </div>
-              {/* Run footer — shown when complete */}
               {run.completedAt !== null && (
                 <div className="translate-run__footer">
                   <div className="translate-run__footer-actions">
@@ -348,96 +315,76 @@ export function TranslatePage() {
           <div ref={resultsEndRef} />
         </div>
 
-        {/* ── Composer ── */}
-        <div className={`composer-wrap translate-composer${animateToDocked ? ' composer-wrap--docking' : ''}`}>
-
-          {/* File chip row */}
-          {fileId && (
-            <div ref={chipRowRef} className="composer__chips translate-composer__chips">
-              <span className="composer__chip translate-composer__chip">
-                <span className="composer__chip-label">
-                  <i className="ri-file-text-line" aria-hidden />
-                  <span title={fileName ?? ''}>{fileName}</span>
-                  {pageCount != null && <em>{pageCount}p</em>}
-                </span>
-                <button
-                  type="button"
-                  className="composer__chip-remove"
-                  onClick={handleDismiss}
-                  disabled={isTranslating}
-                  title="Remove file"
-                >
-                  <i className="ri-close-line" aria-hidden style={{ fontSize: '0.875rem' }} />
-                </button>
-              </span>
-            </div>
-          )}
+        {/* ── Composer — identical structure to ChatView ── */}
+        <div className={`translate-page__composer-wrap${animateToDocked ? ' translate-page__composer-wrap--docking' : ''}`}>
 
           {/* Warnings */}
           {exceedsSoftLimit && fileId && estimatedMinutes !== null && (
-            <p className="composer__warning">
-              Large document (~{pageCount ?? '?'} pages) · ~{estimatedMinutes} min estimated — you can still proceed.
+            <p className="translate-page__error">
+              Large document (~{pageCount ?? '?'} pages) · ~{estimatedMinutes} min estimated
             </p>
           )}
           {isStreaming && (
-            <p className="composer__warning">
+            <p className="translate-page__error">
               LLM in use by chat.{' '}
-              <button type="button" className="translate-composer__stop-chat" onClick={() => void stopStreaming()}>
+              <button type="button" className="translate-page__stop-chat" onClick={() => void stopStreaming()}>
                 Stop Chat
               </button>
             </p>
           )}
 
-          {/* Input wrapper */}
+          {/* Input wrapper — uses shared composer__ classes (globally loaded via index.css) */}
           <div
             ref={inputWrapperRef}
-            className="composer__input-wrapper translate-composer__input-wrapper"
+            className={`composer__input-wrapper${fileId ? ' composer__input-wrapper--scoped' : ''}`}
           >
-            {/* File search combobox — shown when no file selected */}
-            {!fileId && (
-              <div ref={comboRef} className="translate-composer__search">
-                <i className="ri-search-line translate-composer__search-icon" aria-hidden />
-                <input
-                  className="translate-composer__search-input"
-                  placeholder="Search library files… or drop a file below"
-                  value={query}
-                  onChange={(e) => { setQuery(e.target.value); setShowSuggestions(true) }}
-                  onFocus={() => query && setShowSuggestions(true)}
-                  aria-label="Search library files"
-                />
-                {showSuggestions && suggestions.length > 0 && (
-                  <ul className="translate-composer__suggestions" role="listbox">
-                    {suggestions.map(f => (
-                      <li key={f.id} className="translate-composer__suggestion" role="option"
-                        onMouseDown={(e) => { e.preventDefault(); handleSelectFile(f) }}>
-                        <i className="ri-file-text-line" aria-hidden />
-                        <span className="translate-composer__suggestion-name">{f.filename || f.path}</span>
-                        {f.page_count && <em className="translate-composer__suggestion-meta">{f.page_count}p</em>}
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
+            {/* Hidden file input */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="composer__file-input"
+              onChange={(e) => {
+                const f = e.target.files?.[0]
+                if (f) { void handleUpload(f); e.target.value = '' }
+              }}
+            />
+
+            {/* File chip — uses composer__scope-chip (globally loaded, same as Chat) */}
+            {fileId && fileName && (
+              <span ref={chipRef} className="composer__scope-chip" title={fileName}>
+                <i className="ri-file-text-line" aria-hidden />
+                <span>{fileName}{pageCount ? ` · ${pageCount}p` : ''}</span>
+                <button
+                  type="button"
+                  className="composer__scope-clear"
+                  aria-label="Remove file"
+                  disabled={isTranslating}
+                  onClick={() => void handleDismiss()}
+                >
+                  <i className="ri-close-line" aria-hidden />
+                </button>
+              </span>
             )}
 
-            {/* Steering textarea */}
+            {/* Upload pending chip — spinner only, no text */}
+            {uploadLoading && !fileId && (
+              <span ref={pendingChipRef} className="composer__scope-chip" aria-label="Uploading…">
+                <i className="ri-loader-4-line translate-page__spinner" aria-hidden />
+              </span>
+            )}
+
+            {/* Textarea — uses shared composer__textarea */}
             <textarea
               ref={textareaRef}
-              className={`composer__textarea translate-composer__textarea${fileId ? ' composer__textarea--scoped' : ''}`}
-              placeholder={fileId
-                ? 'Steer translation (optional) — e.g. focus on methodology, skip references…'
-                : 'Or drop a file here to upload…'}
+              className={`composer__textarea${fileId ? ' composer__textarea--scoped' : ''}`}
+              rows={1}
+              placeholder={translatePlaceholder}
               value={steering}
               onChange={(e) => setSteering(e.target.value)}
-              disabled={!fileId || isTranslating}
-              rows={1}
+              disabled={isTranslating}
               onDragOver={(e) => { if (!fileId) e.preventDefault() }}
               onDrop={(e) => {
-                if (!fileId) {
-                  e.preventDefault()
-                  const f = e.dataTransfer.files[0]
-                  if (f) void handleUpload(f)
-                }
+                if (!fileId) { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) void handleUpload(f) }
               }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && canTranslate) {
@@ -446,89 +393,118 @@ export function TranslatePage() {
               }}
             />
 
-            {/* Controls row */}
-            <div className="composer__controls-row translate-composer__controls-row">
-              <div className="composer__controls-left translate-composer__controls-left">
-                {/* Language selector */}
-                <div className="translate-composer__lang-wrap">
-                  {selectedLang && (
-                    <span className={`fi fi-${selectedLang.flag} translate-composer__flag`} aria-hidden />
-                  )}
-                  <select
-                    className="translate-composer__select"
-                    value={targetLanguage}
-                    onChange={(e) => setTargetLanguage(e.target.value)}
-                    disabled={isTranslating}
-                    title="Target language"
-                  >
-                    {LANGUAGES.map(l => (
-                      <option key={l.value} value={l.value}>{l.label}</option>
-                    ))}
-                  </select>
-                </div>
+            {/* Controls row — uses shared composer__ classes */}
+            <div className="composer__controls-row">
 
-                {/* Tone selector */}
-                <select
-                  className="translate-composer__select"
-                  value={tone}
-                  onChange={(e) => setTone(e.target.value)}
-                  disabled={isTranslating}
-                  title="Translation tone"
+              {/* LEFT: + upload, tone picker */}
+              <div className="composer__controls-left">
+
+                {/* + upload button */}
+                <button
+                  type="button"
+                  className="translate-page__icon-btn"
+                  onClick={() => { if (!fileId) fileInputRef.current?.click() }}
+                  disabled={!!fileId || uploadLoading || isTranslating}
+                  aria-label="Upload file"
+                  title="Upload file"
                 >
-                  <option value="natural">Natural</option>
-                  <option value="formal">Formal</option>
-                  <option value="literal">Literal</option>
-                </select>
+                  <i className="ri-add-line" aria-hidden />
+                </button>
 
-                {/* Upload button when no file */}
-                {!fileId && (
-                  <>
-                    <button
-                      type="button"
-                      className="translate-composer__upload-btn"
-                      onClick={() => fileInputRef.current?.click()}
-                      disabled={uploadLoading}
-                      title="Upload a file"
-                    >
-                      <i className={uploadLoading ? 'ri-loader-4-line translate-composer__spinner' : 'ri-upload-2-line'} aria-hidden />
-                    </button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      className="translate-composer__file-input"
-                      onChange={(e) => {
-                        const f = e.target.files?.[0]
-                        if (f) { void handleUpload(f); e.target.value = '' }
-                      }}
-                    />
-                  </>
-                )}
+                {/* Tone picker */}
+                <div ref={toneMenuRef} className="translate-page__options-trigger">
+                  <button
+                    type="button"
+                    className={`translate-page__icon-btn${menuOpen === 'tone' ? ' translate-page__icon-btn--active' : ''}`}
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen === 'tone'}
+                    disabled={isTranslating}
+                    title={`Tone: ${tone}`}
+                    onClick={() => setMenuOpen(prev => prev === 'tone' ? null : 'tone')}
+                  >
+                    <i className="ri-quill-pen-line" aria-hidden />
+                  </button>
+                  {menuOpen === 'tone' && (
+                    <div className="translate-page__mode-menu translate-page__mode-menu--left" role="menu">
+                      {TONES.map(t => (
+                        <button
+                          key={t}
+                          type="button"
+                          className={`translate-page__mode-option${tone === t ? ' translate-page__mode-option--active' : ''}`}
+                          onClick={() => { setTone(t); setMenuOpen(null) }}
+                        >
+                          {t.charAt(0).toUpperCase() + t.slice(1)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
 
+              {/* RIGHT: language selector, translate/stop button */}
               <div className="composer__controls-right">
+
+                {/* Language selector — mirrors chat-view__mode-selector */}
+                <div ref={langMenuRef} className="translate-page__mode-selector">
+                  <button
+                    type="button"
+                    className="translate-page__mode-button"
+                    aria-haspopup="menu"
+                    aria-expanded={menuOpen === 'language'}
+                    disabled={isTranslating}
+                    onClick={() => setMenuOpen(prev => prev === 'language' ? null : 'language')}
+                  >
+                    <span className={`fi fi-${selectedLang.countryCode} translate-page__flag`} aria-hidden />
+                    <span className="translate-page__mode-label">{targetLanguage}</span>
+                    <i className="ri-arrow-down-s-line" aria-hidden />
+                  </button>
+                  {menuOpen === 'language' && (
+                    <div className="translate-page__mode-menu" role="menu">
+                      {LANGUAGE_OPTIONS.map(l => (
+                        <button
+                          key={l.label}
+                          type="button"
+                          className={`translate-page__mode-option${targetLanguage === l.label ? ' translate-page__mode-option--active' : ''}`}
+                          onClick={() => { setTargetLanguage(l.label); setMenuOpen(null) }}
+                        >
+                          <span className={`fi fi-${l.countryCode} translate-page__flag`} aria-hidden />
+                          <span>{l.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Send / Stop button */}
                 {isTranslating ? (
                   <button
                     type="button"
-                    className="composer__send translate-composer__cancel"
+                    className="translate-page__send"
                     onClick={cancelTranslation}
-                    title="Cancel translation"
+                    title="Stop translation"
+                    aria-label="Stop translation"
                   >
-                    <i className="ri-stop-line" aria-hidden style={{ fontSize: '1rem' }} />
+                    <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1.125rem' }} />
                   </button>
                 ) : (
                   <button
                     type="button"
-                    className={`composer__send composer__send--active translate-composer__send${!canTranslate ? ' translate-composer__send--disabled' : ''}`}
-                    onClick={() => void handleTranslate()}
+                    className="translate-page__send"
                     disabled={!canTranslate}
-                    title={canTranslate ? 'Translate (⌘Enter)' : isStreaming ? 'LLM busy' : 'Select a file first'}
+                    onClick={() => void handleTranslate()}
+                    title={canTranslate ? 'Translate (⌘↵)' : isStreaming ? 'LLM busy' : 'Select a file first'}
+                    aria-label="Translate"
                   >
-                    <i className="ri-translate-2" aria-hidden style={{ fontSize: '1rem' }} />
+                    <i className="ri-translate-2" aria-hidden style={{ fontSize: '1.125rem' }} />
                   </button>
                 )}
               </div>
             </div>
           </div>
+
+          <p className="translate-page__disclaimer">
+            Informity AI translator can make mistakes. Please double-check the original source.
+          </p>
         </div>
       </div>
     </div>

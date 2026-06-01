@@ -157,6 +157,75 @@
   cursor: not-allowed;
 }
 
+/* Hidden file input — zero size, invisible, pointer-events off */
+.composer__file-input {
+  position: absolute;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* --------------------------------------------------------------------------
+   Scope chip — file selection chip inside the input wrapper.
+   Identical to chat-view__scope-chip but in the globally-loaded shared sheet
+   so it works on Translate even before Chat has lazy-loaded.
+   -------------------------------------------------------------------------- */
+.composer__scope-chip {
+  position: absolute;
+  top: calc(var(--composer-inline-inset) + 4px);
+  left: calc(var(--composer-inline-inset) + 4px);
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  max-width: min(72vw, 36rem);
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--color-primary-border);
+  border-radius: var(--border-radius);
+  background: var(--color-bg-surface);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-description);
+  line-height: 1;
+}
+
+.composer__scope-chip i {
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.composer__scope-chip span {
+  flex: 1;
+  min-width: 0;
+  max-width: min(72vw, 31rem);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.composer__scope-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  margin-left: 0.15rem;
+  padding: 0;
+  border: none;
+  border-radius: var(--border-radius-sm);
+  background: transparent;
+  color: var(--color-text-dimmed);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.composer__scope-clear:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text);
+}
+
+.composer__scope-clear:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* --------------------------------------------------------------------------
    Input wrapper — relative container for textarea + control overlay
    -------------------------------------------------------------------------- */

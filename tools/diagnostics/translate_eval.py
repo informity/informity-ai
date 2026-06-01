@@ -17,7 +17,7 @@
 #   --language LANG    Target language (default: Spanish)
 #   --tone TONE        Tone: natural, formal, literal (default: natural)
 #   --max-mb N         Max file size in MB (default: 2)
-#   --output PATH      Write report to this path (default: stdout + auto-saved)
+#   --output PATH      Write report to this path (default: tools/diagnostics/evals/translate_eval_TIMESTAMP.md)
 #   --timeout N        Per-job timeout in seconds (default: 1200)
 # ==============================================================================
 
@@ -593,7 +593,10 @@ def main() -> int:
 
     # Auto-save path
     ts = datetime.now(UTC).strftime('%Y%m%d_%H%M')
-    auto_path = Path(f'translate_eval_{ts}.md')
+    # Default: tools/diagnostics/evals/ (gitignored via tools/)
+    evals_dir = Path(__file__).parent / 'evals'
+    evals_dir.mkdir(parents=True, exist_ok=True)
+    auto_path = evals_dir / f'translate_eval_{ts}.md'
     output_path = Path(args.output) if args.output else auto_path
 
     output_path.write_text(report, encoding='utf-8')

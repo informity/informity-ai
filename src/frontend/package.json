@@ -20,6 +20,7 @@
     "flag-icons": "^7.5.0",
     "highlight.js": "^11.11.1",
     "katex": "^0.16.46",
+    "playwright": "^1.60.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",

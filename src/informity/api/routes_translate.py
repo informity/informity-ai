@@ -24,6 +24,7 @@ from informity.db.sqlite import (
     create_translate_section,
     get_db,
     get_file_by_id,
+    get_file_by_path,
     get_translate_job,
     get_translate_job_result,
     get_translate_sections,
@@ -144,12 +145,16 @@ async def upload_translate_file(
     if not result.success:
         raise HTTPException(status_code=422, detail=f'Indexing failed: {result.error or "unknown"}')
 
-    indexed = await get_file_by_id(db, result.file_id) if result.file_id else None
-    page_count = getattr(indexed, 'page_count', None) if indexed else None
+    # IndexResult has no file_id field — fetch the record by path after indexing.
+    indexed = await get_file_by_path(db, str(file_path))
+    if indexed is None or indexed.id is None:
+        raise HTTPException(status_code=500, detail='File indexed but record not found.')
 
-    log.info('translate_upload_indexed', file_id=result.file_id, filename=filename)
+    page_count = getattr(indexed, 'page_count', None)
+
+    log.info('translate_upload_indexed', file_id=indexed.id, filename=filename)
     return {
-        'file_id': result.file_id,
+        'file_id': indexed.id,
         'filename': filename,
         'page_count': page_count,
         'size_bytes': len(raw),
