@@ -203,7 +203,11 @@ export function TranslatePage() {
   useEffect(() => {
     if (jobStatus === 'done' && activeRunRef.current && activeRunRef.current.completedAt === null) {
       activeRunRef.current.completedAt = Date.now()
-      activeRunRef.current.elapsedSeconds = Math.round((Date.now() - runStartRef.current) / 1000)
+      // runStartRef is 0 during reload recovery (we don't know the real start).
+      // Guard to avoid displaying a ~56-year elapsed time.
+      activeRunRef.current.elapsedSeconds = runStartRef.current > 0
+        ? Math.round((Date.now() - runStartRef.current) / 1000)
+        : null
       setRuns(prev => [...prev])
       activeRunRef.current = null
     }
