@@ -44,7 +44,7 @@ export function TranslatePage() {
   const { isStreaming, stopStreaming } = useChatContext()
   const location = useLocation()
   const {
-    fileId, fileName, pageCount, isUpload, estimatedMinutes, exceedsSoftLimit, smallModelWarning,
+    fileId, fileName, pageCount, isUpload, estimatedMinutes, exceedsSoftLimit,
     targetLanguage, tone, jobStatus, sections, sectionCount, completedSections,
     retryingSectionIndex,
     isTranslating, hasResult,
@@ -432,12 +432,6 @@ export function TranslatePage() {
         {/* ── Composer — identical structure to ChatView ── */}
         <div className={`translate-page__composer-wrap${animateToDocked ? ' translate-page__composer-wrap--docking' : ''}`}>
 
-          {/* Warnings */}
-          {smallModelWarning && (
-            <p className="translate-page__error translate-page__error--info">
-              For best translation accuracy, a 14B or larger model is recommended
-            </p>
-          )}
           {exceedsSoftLimit && fileId && estimatedMinutes !== null && (
             <p className="translate-page__error">
               Large document (~{pageCount ?? '?'} pages) · ~{estimatedMinutes} min estimated

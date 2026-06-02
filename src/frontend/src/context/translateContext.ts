@@ -35,7 +35,6 @@ export interface TranslateContextValue {
   // Derived
   isTranslating: boolean
   hasResult: boolean
-  smallModelWarning: boolean  // true when active model is likely < 10B parameters
 }
 
 export const TranslateContext = createContext<TranslateContextValue | null>(null)

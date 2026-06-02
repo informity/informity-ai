@@ -61,7 +61,6 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
   const [fileInfo, setFileInfo] = useState<FileInfo | null>(null)
   const [targetLanguage, setTargetLanguage] = useState('Spanish')
   const [tone, setTone] = useState('natural')
-  const [smallModelWarning, setSmallModelWarning] = useState(false)
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -76,10 +75,6 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
       if (t && (TRANSLATE_TONES as readonly string[]).includes(t)) setTone(t)
       // Flag small models (< ~10B parameters) — translation quality may be lower.
       // Pattern matches common GGUF filenames: 9B, 8B, 7B, 4B, 3B, 1B etc.
-      const modelFile = settings?.llm_model_filename as string | undefined
-      if (modelFile) {
-        setSmallModelWarning(/\b[1-9]B\b/i.test(modelFile) && !/\b1[0-9]B\b/i.test(modelFile))
-      }
     }).catch(() => {})
   }, [])
 
@@ -315,7 +310,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     targetLanguage, tone,
     setFile, setTargetLanguage, setTone,
     startTranslation, cancelTranslation, clearResult,
-    isTranslating, hasResult, smallModelWarning,
+    isTranslating, hasResult,
   }
 
   return <TranslateContext.Provider value={value}>{children}</TranslateContext.Provider>
