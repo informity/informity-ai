@@ -22,6 +22,7 @@ The translation feature (feature/translate-v3, merged to develop) is functionall
 | Phase 3 | Cancel path — activity log event for user-initiated stops | ⏳ NOT STARTED |
 | Phase 4 | Output validation for translate | ⏸️ DEFERRED |
 | Phase 5 | LLM co-dependency — backend mutual exclusion | ⏸️ DEFERRED |
+| Phase 6 | Scan deferral during translation | ⏸️ DEFERRED |
 
 ---
 
@@ -192,6 +193,29 @@ Deferred to v2. The desktop app's single-user model makes this a low-risk gap. T
 
 ---
 
+## Phase 6 — Scan Deferral During Translation ⏸️ DEFERRED
+
+Deferred to v2. The current behaviour (scan runs concurrently with translation) works correctly but may cause resource contention on lower-end hardware.
+
+**Why translation, not chat:**
+Translation holds the LLM exclusively for 5–30+ minutes. Docling PDF extraction (the most CPU-intensive scan task) competes with LLM inference for RAM bandwidth and thermal headroom on Apple Silicon. Chat responses are 10–60 seconds — too short and too frequent to make scan pausing practical.
+
+**What it would cover:**
+- Before starting a new scan job, check if a translation job is active (query for `status IN ('queued', 'running')` in `translate_jobs`, or check `_translate_lock.locked()`)
+- If active: defer the scan start; queue a rescan trigger for when the translation completes
+- Do NOT interrupt a scan already in progress — only gate *new* scan starts
+- Resume normal scan scheduling when translation reaches a terminal state (`done`, `failed`, `stalled`, `cancelled`)
+- No change for chat streaming — scan proceeds as normal during chat
+
+**Implementation targets:**
+- `src/informity/scanner/` — scan scheduler / trigger point
+- `src/informity/api/routes_translate.py` — emit a signal or update a shared flag on job completion
+- Alternatively: scan scheduler polls `translate_jobs` table directly (no coupling to translate routes)
+
+**Decision gate:** Implement if users on 16GB or lower RAM machines report thermal throttling or significantly degraded translation speed when a scan runs concurrently.
+
+---
+
 ## Go / No-Go Criteria for Production v1
 
 ### Must fix before shipping (blocking):
@@ -213,6 +237,7 @@ Deferred to v2. The desktop app's single-user model makes this a low-risk gap. T
 - [ ] Phase 2 (chat structlog event)
 - [ ] Phase 4 (output validation)
 - [ ] Phase 5 (backend mutual exclusion)
+- [ ] Phase 6 (scan deferral during translation)
 
 ---
 
@@ -224,6 +249,7 @@ Deferred to v2. The desktop app's single-user model makes this a low-risk gap. T
 | 9B produces wrong-language output | No automated detection in v1; user sees the output immediately and can re-run with a better model |
 | Chat and translate fire concurrently at API level | C++ engine serialises internally; UI prevents it in normal use; deferred to Phase 5 |
 | Stale translate.local files accumulate | Cleanup runs on startup; for a desktop app this is acceptable — app restarts periodically |
+| Scan runs concurrently with translation, causing thermal throttling on low-RAM hardware | Phase 6 deferred; decision gate is user-reported throttling. Most users on 32GB+ will not see this. |
 | SSE connection lost mid-translation | Full replay on reconnect: `glossary_done`, `sections_ready`, all completed `section_done` events |
 
 ---
