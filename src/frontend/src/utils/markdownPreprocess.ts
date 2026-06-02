@@ -3,15 +3,21 @@
  * Cleans common LLM output artifacts before rendering or converting to plaintext.
  */
 
-/** True when the line looks like a GFM table row: | ... | */
-function isTableRow(line: string): boolean {
-  return /^\|.+/.test(line.trim())
-}
-
 /** True when the line is a GFM table separator: |---|:---:|--- */
 function isTableSeparator(line: string): boolean {
   const t = line.trim()
-  return /^\|?[\s]*[-:]+[\s|:-]*$/.test(t) && t.includes('-') && t.includes('|')
+  // Must start with | (optional) then only dashes, colons, pipes, and spaces
+  return /^\|[\s]*[-:][- |:]*$/.test(t) && t.includes('-')
+}
+
+/**
+ * True when the line looks like a GFM data/header row (starts with | and has
+ * non-separator content). Explicitly excludes separator rows so that consecutive
+ * separators don't count as "adjacent table rows" for each other.
+ */
+function isTableRow(line: string): boolean {
+  const t = line.trim()
+  return /^\|.+/.test(t) && !isTableSeparator(t)
 }
 
 /**

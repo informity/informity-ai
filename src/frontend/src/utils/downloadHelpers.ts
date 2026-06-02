@@ -37,7 +37,6 @@ function nodeToText(node: any): string {
       return (node.children as any[]).map(nodeToText).join('\n')
     case 'blockquote':
       return (node.children as any[]).map(nodeToText).join('\n')
-        .split('\n').map((l: string) => '> ' + l).join('\n')
     case 'table':
       return (node.children as any[]).map((row: any) =>
         (row.children as any[]).map((cell: any) =>
