@@ -62,23 +62,11 @@ function nodeToText(node: any): string {
 /**
  * Convert Markdown to readable plain text using an AST-based approach.
  * Tables are flattened to space-separated rows. Formatting markers are stripped.
- * Falls back to basic regex stripping if parsing fails.
  */
 export function markdownToPlainText(md: string): string {
   if (!md || typeof md !== 'string') return ''
-  try {
-    const tree = unified().use(remarkParse).use(remarkGfm).parse(md)
-    return nodeToText(tree)
-  } catch {
-    return md
-      .replace(/<[^>]+>/g, '')
-      .replace(/^#{1,6}\s+/gm, '')
-      .replace(/\*{1,2}(.+?)\*{1,2}/gs, '$1')
-      .replace(/`+([^`]+)`+/g, '$1')
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-      .replace(/\n{3,}/g, '\n\n')
-      .trim()
-  }
+  const tree = unified().use(remarkParse).use(remarkGfm).parse(md)
+  return nodeToText(tree)
 }
 
 /** Trigger a browser download of a text file. */

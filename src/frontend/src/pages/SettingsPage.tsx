@@ -206,8 +206,8 @@ const SETTINGS_TAB_META: Record<string, { title: string; icon: string; subtitle:
   translate:   { title: 'Translate',          icon: 'ri-translate-2',    subtitle: 'Configure default behaviour for document translation.' },
   models:      { title: 'Models',             icon: 'ri-robot-2-line',   subtitle: 'Select the AI model to use and view its capabilities.' },
   data:        { title: 'Data Sources',       icon: 'ri-folder-line',    subtitle: 'Choose which folders and file types the application scans and makes searchable.' },
-  indexing:    { title: 'Indexing',            icon: 'ri-stack-line',  subtitle: 'Controls how the application reads and prepares your files for search and chat.' },
-  mcp:         { title: 'MCP Server',          icon: 'ri-plug-3-line', subtitle: 'Allow external AI clients to query your document library via the Model Context Protocol.' },
+  indexing:      { title: 'Indexing',      icon: 'ri-stack-line',  subtitle: 'Controls how the application reads and prepares your files for search and chat.' },
+  integrations:  { title: 'Integrations',  icon: 'ri-puzzle-line', subtitle: 'Connect external search providers and allow third-party AI clients to access your library.' },
   diagnostics: { title: 'Diagnostics',         icon: 'ri-pulse-line',  subtitle: 'Monitor application events and adjust diagnostics settings when troubleshooting.' },
   system:      { title: 'System',             icon: 'ri-server-line',    subtitle: 'General application utilities and configuration references.' },
 }

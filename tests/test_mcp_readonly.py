@@ -516,4 +516,4 @@ async def test_tool_index_status_excludes_upload_local_counts() -> None:
 
     assert payload['total_files'] == 115
     assert payload['total_chunks'] == 37756
-    assert all("source_provider != ?" in query for query in db.queries)
+    assert all("source_provider NOT IN" in query for query in db.queries)

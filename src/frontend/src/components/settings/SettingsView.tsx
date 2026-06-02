@@ -59,19 +59,19 @@ type SettingsTab =
   | 'translate'
   | 'data'
   | 'indexing'
-  | 'mcp'
+  | 'integrations'
   | 'diagnostics'
   | 'models'
   | 'system'
 
 const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; icon: string }> = [
-  { id: 'general',     label: 'General',      icon: 'ri-home-gear-line' },
-  { id: 'chat',        label: 'Chat',         icon: 'ri-chat-ai-4-line' },
-  { id: 'translate',   label: 'Translate',    icon: 'ri-translate-2'    },
-  { id: 'models',      label: 'Models',       icon: 'ri-robot-2-line'   },
-  { id: 'data',        label: 'Data Sources', icon: 'ri-folder-line'    },
-  { id: 'indexing',    label: 'Indexing',     icon: 'ri-stack-line'     },
-  { id: 'mcp',         label: 'MCP Server',   icon: 'ri-plug-3-line'    },
+  { id: 'general',      label: 'General',       icon: 'ri-home-gear-line'  },
+  { id: 'chat',         label: 'Chat',          icon: 'ri-chat-ai-4-line'  },
+  { id: 'translate',    label: 'Translate',     icon: 'ri-translate-2'     },
+  { id: 'models',       label: 'Models',        icon: 'ri-robot-2-line'    },
+  { id: 'data',         label: 'Data Sources',  icon: 'ri-folder-line'     },
+  { id: 'indexing',     label: 'Indexing',      icon: 'ri-stack-line'      },
+  { id: 'integrations', label: 'Integrations',  icon: 'ri-puzzle-line'     },
   { id: 'diagnostics', label: 'Diagnostics',  icon: 'ri-pulse-line'     },
   { id: 'system',      label: 'System',       icon: 'ri-server-line'    },
 ]
@@ -1149,163 +1149,6 @@ export function SettingsView({
           />
         </div>
 
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-search-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Web Search Provider
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">
-              Assistant web search is powered by third-party services <a className="settings-link" href="https://app.tavily.com/" target="_blank" rel="noreferrer">Tavily</a> and <a className="settings-link" href="https://www.linkup.so/" target="_blank" rel="noreferrer">Linkup</a>.
-            </p>
-          </div>
-          <div className="settings-control-group">
-            <label className="settings-control-label" htmlFor="settings-tavily-api-key">
-              Tavily API key
-              <span className="settings-checkbox-row-info ui-tooltip-trigger">
-                <i className="ri-information-line" aria-hidden="true" />
-                <span className="settings-tooltip ui-tooltip ui-tooltip--up-right">
-                  1000 free queries per month. Pricing subject to change.
-                </span>
-              </span>
-            </label>
-            <div className="settings-input-wrap">
-              <input
-                id="settings-tavily-api-key"
-                type="password"
-                className="settings-input settings-input--with-clear"
-                placeholder="tvly-..."
-                value={form.tavily_api_key}
-                onChange={(e) => {
-                  update('tavily_api_key', e.target.value)
-                  if (form.clear_tavily_api_key) update('clear_tavily_api_key', false)
-                }}
-                onFocus={() => {
-                  if (isMaskedTavilyKey(form.tavily_api_key)) {
-                    update('tavily_api_key', '')
-                  }
-                }}
-                onBlur={() => {
-                  if (
-                    !String(form.tavily_api_key || '').trim()
-                    && settings.tavily_api_key_set
-                    && !form.clear_tavily_api_key
-                  ) {
-                    update('tavily_api_key', MASKED_TAVILY_KEY)
-                  }
-                }}
-                autoComplete="off"
-              />
-              {(settings.tavily_api_key_set || String(form.tavily_api_key || '').trim().length > 0) && (
-                <button
-                  type="button"
-                  className="settings-input-clear"
-                  aria-label="Clear Tavily API key"
-                  title="Clear API key"
-                  onClick={() => {
-                    update('tavily_api_key', '')
-                    update('clear_tavily_api_key', true)
-                  }}
-                >
-                  <i className="ri-close-line" aria-hidden />
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="settings-control-group">
-            <label className="settings-control-label" htmlFor="settings-linkup-api-key">
-              Linkup API key
-              <span className="settings-checkbox-row-info ui-tooltip-trigger">
-                <i className="ri-information-line" aria-hidden="true" />
-                <span className="settings-tooltip ui-tooltip ui-tooltip--up-right">
-                  1000 standard or 100 deep free queries per month. Pricing subject to change.
-                </span>
-              </span>
-            </label>
-            <div className="settings-input-wrap">
-              <input
-                id="settings-linkup-api-key"
-                type="password"
-                className="settings-input settings-input--with-clear"
-                placeholder="sk-..."
-                value={form.linkup_api_key}
-                onChange={(e) => {
-                  update('linkup_api_key', e.target.value)
-                  if (form.clear_linkup_api_key) update('clear_linkup_api_key', false)
-                }}
-                onFocus={() => {
-                  if (isMaskedLinkupKey(form.linkup_api_key)) {
-                    update('linkup_api_key', '')
-                  }
-                }}
-                onBlur={() => {
-                  if (
-                    !String(form.linkup_api_key || '').trim()
-                    && settings.linkup_api_key_set
-                    && !form.clear_linkup_api_key
-                  ) {
-                    update('linkup_api_key', MASKED_LINKUP_KEY)
-                  }
-                }}
-                autoComplete="off"
-              />
-              {(settings.linkup_api_key_set || String(form.linkup_api_key || '').trim().length > 0) && (
-                <button
-                  type="button"
-                  className="settings-input-clear"
-                  aria-label="Clear Linkup API key"
-                  title="Clear API key"
-                  onClick={() => {
-                    update('linkup_api_key', '')
-                    update('clear_linkup_api_key', true)
-                  }}
-                >
-                  <i className="ri-close-line" aria-hidden />
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-menu-search-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Web Search Performance
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">
-              Configure how many web search results to fetch and how long each request can run.
-            </p>
-          </div>
-          <div className="settings-control-group">
-            <label className="settings-control-label" htmlFor="settings-web-search-max-results">Results per search</label>
-            <input
-              id="settings-web-search-max-results"
-              type="number"
-              className="settings-input settings-input--number"
-              min={1}
-              max={10}
-              step={1}
-              value={form.web_search_max_results}
-              onChange={(e) => update('web_search_max_results', clamp(parseInteger(e.target.value, 5), 1, 10))}
-            />
-          </div>
-          <div className="settings-control-group">
-            <label className="settings-control-label" htmlFor="settings-web-search-timeout">
-              {renderLabelWithMutedParens('Search timeout (seconds)')}
-            </label>
-            <input
-              id="settings-web-search-timeout"
-              type="number"
-              className="settings-input settings-input--number"
-              min={1}
-              max={30}
-              step={1}
-              value={form.web_search_timeout_seconds}
-              onChange={(e) => update('web_search_timeout_seconds', clamp(parseInteger(e.target.value, 8), 1, 30))}
-            />
-          </div>
-        </div>
 
         </section>
 
@@ -1654,7 +1497,153 @@ export function SettingsView({
 
         </section>
 
-        <section className={sectionClass(activeTab === 'mcp')}>
+        <section className={sectionClass(activeTab === 'integrations')}>
+        <div className="settings-subsection">
+          <div className="settings-subsection-head ui-subsection-head">
+            <div className="settings-subsection-title ui-subsection-title">
+              <i className="ri-search-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              Web Search
+            </div>
+            <p className="settings-subsection-description ui-subsection-description">
+              Assistant web search is powered by third-party services <a className="settings-link" href="https://app.tavily.com/" target="_blank" rel="noreferrer">Tavily</a> and <a className="settings-link" href="https://www.linkup.so/" target="_blank" rel="noreferrer">Linkup</a>. Configure your API keys and request limits below.
+            </p>
+          </div>
+          <div className="settings-control-group">
+            <label className="settings-control-label" htmlFor="settings-tavily-api-key">
+              Tavily API key
+              <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                <i className="ri-information-line" aria-hidden="true" />
+                <span className="settings-tooltip ui-tooltip">
+                  1000 free queries per month. Pricing subject to change.
+                </span>
+              </span>
+            </label>
+            <div className="settings-input-wrap">
+              <input
+                id="settings-tavily-api-key"
+                type="password"
+                className="settings-input settings-input--with-clear"
+                placeholder="tvly-..."
+                value={form.tavily_api_key}
+                onChange={(e) => {
+                  update('tavily_api_key', e.target.value)
+                  if (form.clear_tavily_api_key) update('clear_tavily_api_key', false)
+                }}
+                onFocus={() => {
+                  if (isMaskedTavilyKey(form.tavily_api_key)) {
+                    update('tavily_api_key', '')
+                  }
+                }}
+                onBlur={() => {
+                  if (
+                    !String(form.tavily_api_key || '').trim()
+                    && settings.tavily_api_key_set
+                    && !form.clear_tavily_api_key
+                  ) {
+                    update('tavily_api_key', MASKED_TAVILY_KEY)
+                  }
+                }}
+                autoComplete="off"
+              />
+              {(settings.tavily_api_key_set || String(form.tavily_api_key || '').trim().length > 0) && (
+                <button
+                  type="button"
+                  className="settings-input-clear"
+                  aria-label="Clear Tavily API key"
+                  title="Clear API key"
+                  onClick={() => {
+                    update('tavily_api_key', '')
+                    update('clear_tavily_api_key', true)
+                  }}
+                >
+                  <i className="ri-close-line" aria-hidden />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="settings-control-group">
+            <label className="settings-control-label" htmlFor="settings-linkup-api-key">
+              Linkup API key
+              <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                <i className="ri-information-line" aria-hidden="true" />
+                <span className="settings-tooltip ui-tooltip">
+                  1000 standard or 100 deep free queries per month. Pricing subject to change.
+                </span>
+              </span>
+            </label>
+            <div className="settings-input-wrap">
+              <input
+                id="settings-linkup-api-key"
+                type="password"
+                className="settings-input settings-input--with-clear"
+                placeholder="sk-..."
+                value={form.linkup_api_key}
+                onChange={(e) => {
+                  update('linkup_api_key', e.target.value)
+                  if (form.clear_linkup_api_key) update('clear_linkup_api_key', false)
+                }}
+                onFocus={() => {
+                  if (isMaskedLinkupKey(form.linkup_api_key)) {
+                    update('linkup_api_key', '')
+                  }
+                }}
+                onBlur={() => {
+                  if (
+                    !String(form.linkup_api_key || '').trim()
+                    && settings.linkup_api_key_set
+                    && !form.clear_linkup_api_key
+                  ) {
+                    update('linkup_api_key', MASKED_LINKUP_KEY)
+                  }
+                }}
+                autoComplete="off"
+              />
+              {(settings.linkup_api_key_set || String(form.linkup_api_key || '').trim().length > 0) && (
+                <button
+                  type="button"
+                  className="settings-input-clear"
+                  aria-label="Clear Linkup API key"
+                  title="Clear API key"
+                  onClick={() => {
+                    update('linkup_api_key', '')
+                    update('clear_linkup_api_key', true)
+                  }}
+                >
+                  <i className="ri-close-line" aria-hidden />
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="settings-control-group">
+            <label className="settings-control-label" htmlFor="settings-web-search-max-results">Results per search</label>
+            <input
+              id="settings-web-search-max-results"
+              type="number"
+              className="settings-input settings-input--number"
+              min={1}
+              max={10}
+              step={1}
+              value={form.web_search_max_results}
+              onChange={(e) => update('web_search_max_results', clamp(parseInteger(e.target.value, 5), 1, 10))}
+            />
+          </div>
+          <div className="settings-control-group">
+            <label className="settings-control-label" htmlFor="settings-web-search-timeout">
+              {renderLabelWithMutedParens('Search timeout (seconds)')}
+            </label>
+            <input
+              id="settings-web-search-timeout"
+              type="number"
+              className="settings-input settings-input--number"
+              min={1}
+              max={30}
+              step={1}
+              value={form.web_search_timeout_seconds}
+              onChange={(e) => update('web_search_timeout_seconds', clamp(parseInteger(e.target.value, 8), 1, 30))}
+            />
+          </div>
+        </div>
+
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
@@ -1866,6 +1855,7 @@ export function SettingsView({
           )}
           </div>
         </div>
+
         </section>
 
         <section className={sectionClass(activeTab === 'models')}>

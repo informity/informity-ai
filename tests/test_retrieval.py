@@ -14,6 +14,7 @@ from informity.llm.retrieval import (
     _filter_structural_chunks_when_possible,
     retrieve_chunks,
 )
+from informity.translate_policy import TRANSLATE_ENTITY_TYPE, TRANSLATE_PROVIDER
 from informity.upload_policy import UPLOAD_ENTITY_TYPE, UPLOAD_PROVIDER
 
 
@@ -197,7 +198,12 @@ async def test_retrieve_chunks_can_exclude_upload_sources(mock_db):
         where_params = search_args[3]
         assert 'source_provider = ?' in where_clause
         assert 'entity_type = ?' in where_clause
-        assert where_params[-2:] == [UPLOAD_PROVIDER, UPLOAD_ENTITY_TYPE]
+        assert where_params[-4:] == [
+            UPLOAD_PROVIDER,
+            UPLOAD_ENTITY_TYPE,
+            TRANSLATE_PROVIDER,
+            TRANSLATE_ENTITY_TYPE,
+        ]
 
 
 @pytest.mark.asyncio

@@ -35,7 +35,7 @@ async def test_log_events_table_created_for_existing_v3_database(
     try:
         schema_row = await (await db.execute('SELECT version FROM schema_version LIMIT 1')).fetchone()
         assert schema_row is not None
-        assert int(schema_row['version']) == 4
+        assert int(schema_row['version']) == 5
 
         table_row = await (
             await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='log_events'")
