@@ -637,7 +637,10 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
     # silently dropped.
     updates = request.model_dump(exclude_unset=True)
     if not updates:
-        raise HTTPException(status_code=400, detail='No fields provided to update')
+        # Nothing recognised to update — return current settings silently.
+        # This is a no-op, not an error: the client may have sent fields that
+        # the schema doesn't expose, or the values matched what's already saved.
+        return await get_settings()
 
     async with _CONFIG_FILE_ASYNC_LOCK:
         # Read existing config file to merge
