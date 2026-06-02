@@ -1,23 +1,85 @@
 /**
  * Shared download utilities used by both Chat and Translate.
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { unified } from 'unified'
+import remarkParse from 'remark-parse'
+import remarkGfm from 'remark-gfm'
 
-/** Strip markdown formatting to produce readable plain text. */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function nodeToText(node: any): string {
+  if (!node) return ''
+  switch (node.type) {
+    case 'root':
+      return (node.children as any[]).map(nodeToText).join('\n\n').replace(/\n{3,}/g, '\n\n').trim()
+    case 'paragraph':
+      return (node.children as any[]).map(nodeToText).join('')
+    case 'text':
+      return node.value ?? ''
+    case 'strong': case 'emphasis': case 'delete':
+      return (node.children as any[]).map(nodeToText).join('')
+    case 'inlineCode':
+      return node.value ?? ''
+    case 'code':
+      return node.value ?? ''
+    case 'link':
+      return (node.children as any[]).map(nodeToText).join('')
+    case 'image':
+      return node.alt ?? ''
+    case 'heading':
+      return (node.children as any[]).map(nodeToText).join('')
+    case 'list':
+      return (node.children as any[]).map((item: any, i: number) => {
+        const bullet = node.ordered ? `${(node.start ?? 1) + i}. ` : '• '
+        return bullet + nodeToText(item).replace(/\n/g, '\n  ')
+      }).join('\n')
+    case 'listItem':
+      return (node.children as any[]).map(nodeToText).join('\n')
+    case 'blockquote':
+      return (node.children as any[]).map(nodeToText).join('\n')
+        .split('\n').map((l: string) => '> ' + l).join('\n')
+    case 'table':
+      return (node.children as any[]).map((row: any) =>
+        (row.children as any[]).map((cell: any) =>
+          (cell.children as any[]).map(nodeToText).join('').trim()
+        ).join('  ')
+      ).join('\n')
+    case 'tableRow':
+      return (node.children as any[]).map((cell: any) =>
+        (cell.children as any[]).map(nodeToText).join('').trim()
+      ).join('  ')
+    case 'tableCell':
+      return (node.children as any[]).map(nodeToText).join('')
+    case 'thematicBreak': case 'html': case 'definition': case 'footnoteDefinition':
+      return ''
+    case 'break':
+      return '\n'
+    default:
+      if (Array.isArray(node.children)) return (node.children as any[]).map(nodeToText).join('')
+      return node.value ?? ''
+  }
+}
+
+/**
+ * Convert Markdown to readable plain text using an AST-based approach.
+ * Tables are flattened to space-separated rows. Formatting markers are stripped.
+ * Falls back to basic regex stripping if parsing fails.
+ */
 export function markdownToPlainText(md: string): string {
-  return md
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/^#{1,6}\s+/gm, '')
-    .replace(/\*\*(.+?)\*\*/gs, '$1')
-    .replace(/[*_]{1,2}(.+?)[*_]{1,2}/gs, '$1')
-    .replace(/`{3}[\s\S]*?`{3}/g, '')
-    .replace(/`([^`]+)`/g, '$1')
-    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-    .replace(/^\s*[-*+]\s+/gm, '')
-    .replace(/^\s*\d+\.\s+/gm, '')
-    .replace(/^\s*>\s?/gm, '')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
+  if (!md || typeof md !== 'string') return ''
+  try {
+    const tree = unified().use(remarkParse).use(remarkGfm).parse(md)
+    return nodeToText(tree)
+  } catch {
+    return md
+      .replace(/<[^>]+>/g, '')
+      .replace(/^#{1,6}\s+/gm, '')
+      .replace(/\*{1,2}(.+?)\*{1,2}/gs, '$1')
+      .replace(/`+([^`]+)`+/g, '$1')
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  }
 }
 
 /** Trigger a browser download of a text file. */

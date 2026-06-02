@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { PageHeader } from '../components/PageHeader'
+import { MarkdownContent } from '../components/MarkdownContent'
 import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { useBackendStatus } from '../context/useBackendStatus'
 import { useTranslateContext } from '../context/useTranslateContext'
@@ -20,14 +19,6 @@ import {
 } from '../utils/translateOptions'
 import type { TranslateSection } from '../api'
 import './TranslatePage.css'
-
-/** Strip raw HTML tags and convert <br> to newlines before markdown rendering.
- *  markdownToPlainText from downloadHelpers is used for save-as-txt export. */
-function sanitizeTranslationText(text: string): string {
-  return text
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-}
 
 function capitalize(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s
@@ -316,13 +307,10 @@ export function TranslatePage() {
             const exportOpen = exportMenuRun === ri
             return (
               <div key={ri} className="translate-run">
-                {/* Sections — remark-gfm for tables; sanitize raw HTML from model */}
                 <div className="translate-run__sections">
                   {run.sections.map(s => (
                     <div key={s.section_index} className="translate-run__section">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                        {sanitizeTranslationText(s.text)}
-                      </ReactMarkdown>
+                      <MarkdownContent>{s.text}</MarkdownContent>
                     </div>
                   ))}
                   {/* Streaming indicator — shows immediately when translation starts */}

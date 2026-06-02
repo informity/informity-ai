@@ -1,6 +1,7 @@
 import { Children, isValidElement, memo, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { preprocessMarkdown } from '../../utils/markdownPreprocess'
 import remarkMath from 'remark-math'
 import rehypeHighlight from 'rehype-highlight'
 import rehypeKatex from 'rehype-katex'
@@ -234,7 +235,7 @@ function MarkdownRenderer({ markdown, onCopyCode, codeBlockCopied }: MarkdownBlo
         ),
       }}
     >
-      {markdown}
+      {preprocessMarkdown(markdown)}
     </ReactMarkdown>
   )
 }
@@ -415,7 +416,7 @@ function InlineMarkdown({ markdown }: { markdown: string }) {
         p: ({ children }) => <>{children}</>,
       }}
     >
-      {markdown}
+      {preprocessMarkdown(markdown)}
     </ReactMarkdown>
   )
 }

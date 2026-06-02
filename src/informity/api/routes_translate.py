@@ -727,7 +727,12 @@ async def _translate_section(
     system = (
         f'You are a professional translator. Translate the following text to {target_language}. '
         f'{tone_instr} '
-        'Preserve all Markdown formatting: headers (#, ##, ###), bold (**), italic (*), lists, and tables. '
+        'Preserve all Markdown formatting: headers (#, ##, ###), bold (**text**), italic (*text*), '
+        'bullet lists (- item), numbered lists (1. item), and code blocks (```). '
+        'For tables: reproduce them as valid GFM Markdown tables with a header row, a separator row '
+        '(|---|---|), and data rows. If the source table is ambiguous or malformed, render its '
+        'content as a bulleted list instead. Never output a standalone separator line (---|---) '
+        'without surrounding table rows — an orphaned separator line is a formatting error. '
         'Output ONLY the translated text. No commentary, no preamble, no explanations.'
     )
     if glossary_block:

@@ -1,0 +1,31 @@
+/* Shared markdown content styles — used by MarkdownContent.tsx */
+
+.md-content__table-scroll {
+  overflow-x: auto;
+  max-width: 100%;
+  margin: var(--space-sm) 0;
+}
+
+.md-content__table-scroll table {
+  border-collapse: collapse;
+  font-size: var(--font-size-sm);
+  min-width: max-content;
+}
+
+.md-content__table-scroll th,
+.md-content__table-scroll td {
+  border: 1px solid var(--color-border);
+  padding: 0.375rem 0.75rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.md-content__table-scroll th {
+  background: var(--color-bg-elevated);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.md-content__table-scroll tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--color-bg-elevated) 50%, transparent);
+}
