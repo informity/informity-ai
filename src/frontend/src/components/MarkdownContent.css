@@ -92,7 +92,9 @@
   color: var(--color-text-muted);
   background: transparent;
   border-bottom: 1px var(--layout-divider-style, solid) color-mix(in srgb, var(--color-border) 82%, white);
-  white-space: nowrap;
+  /* Allow th to wrap — document tables often have long category labels */
+  white-space: normal;
+  word-break: break-word;
 }
 
 .md-content__table-scroll td {
@@ -103,4 +105,43 @@
 
 .md-content__table-scroll tr:last-child td {
   border-bottom: none;
+}
+
+/* --------------------------------------------------------------------------
+   Headings — document-proportional sizes for translated academic/technical
+   content. PDF section headings (h1) often come out huge at browser defaults.
+   Capped to keep the document readable without overwhelming the body text.
+   -------------------------------------------------------------------------- */
+.md-content h1 {
+  font-size: 1.2rem;
+  font-weight: var(--font-weight-heading, 600);
+  line-height: 1.3;
+  margin: 1.25rem 0 0.5rem;
+  color: var(--color-text);
+}
+
+.md-content h2 {
+  font-size: 1.05rem;
+  font-weight: var(--font-weight-heading, 600);
+  line-height: 1.3;
+  margin: 1rem 0 0.4rem;
+  color: var(--color-text);
+}
+
+.md-content h3 {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0.85rem 0 0.35rem;
+  color: var(--color-text);
+}
+
+.md-content h4,
+.md-content h5,
+.md-content h6 {
+  font-size: var(--font-size-base);
+  font-weight: 600;
+  line-height: 1.3;
+  margin: 0.75rem 0 0.3rem;
+  color: var(--color-text-muted);
 }

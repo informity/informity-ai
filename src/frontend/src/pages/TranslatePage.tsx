@@ -174,12 +174,30 @@ export function TranslatePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isTranslating])
 
-  // Update active run as sections stream in
+  // Update active run as sections stream in.
+  // Also handles the reload-recovery case: if sections arrive from SSE replay
+  // but no run entry exists yet (activeRunRef is null and runs is empty),
+  // create one now so the footer and content display correctly.
   useEffect(() => {
-    if (!activeRunRef.current || sections.length === 0) return
-    activeRunRef.current.sections = [...sections]
-    activeRunRef.current.totalSections = sectionCount
-    setRuns(prev => [...prev])
+    if (sections.length === 0) return
+    if (activeRunRef.current) {
+      activeRunRef.current.sections = [...sections]
+      activeRunRef.current.totalSections = sectionCount
+      setRuns(prev => [...prev])
+    } else if (runs.length === 0) {
+      const run: RunRecord = {
+        sections: [...sections],
+        language: targetLanguage,
+        tone: tone as Tone,
+        completedAt: null,  // set by [jobStatus] effect when job_done arrives
+        totalSections: sectionCount,
+        elapsedSeconds: null,
+        fileLabel: fileName ?? 'Document',
+      }
+      activeRunRef.current = run
+      setRuns([run])
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sections, sectionCount])
 
   useEffect(() => {
