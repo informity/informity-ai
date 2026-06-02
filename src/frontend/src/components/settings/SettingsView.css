@@ -39,20 +39,23 @@
    Integration sub-tabs (Web Search / MCP Server within the Integrations page)
    ----------------------------------------------------------------------------- */
 
+/* display: inline-flex shrinks the container to the width of the tabs so the
+   bottom border ends exactly under the last tab, not across the full page. */
 .integration-tabs {
-  display: flex;
+  display: inline-flex;
   gap: 0;
   margin-bottom: var(--space-lg);
   border-bottom: 1px var(--layout-divider-style, solid) var(--color-border);
-  width: 100%;
 }
 
 .integration-tab {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-xs);
   height: var(--min-touch-height);
-  padding: 0 var(--space-lg) 3px;
+  min-width: 9rem;
+  padding: 0 var(--space-xl) 3px;
   border: none;
   border-radius: 0;
   background: transparent;
@@ -64,6 +67,11 @@
   transition: color var(--transition-fast);
   white-space: nowrap;
   position: relative;
+}
+
+/* Vertical divider between tabs */
+.integration-tab + .integration-tab {
+  border-left: 1px var(--layout-divider-style, solid) var(--color-border);
 }
 
 .integration-tab:hover {

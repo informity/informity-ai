@@ -1508,7 +1508,7 @@ export function SettingsView({
               className={`integration-tab${integrationTab === 'web-search' ? ' integration-tab--active' : ''}`}
               onClick={() => setIntegrationTab('web-search')}
             >
-              <i className="ri-search-line" aria-hidden="true" />
+              <i className="ri-global-line" aria-hidden="true" />
               <span>Web Search</span>
             </button>
             <button
