@@ -42,19 +42,6 @@ const TAB_HEADER: Record<LogsTab, { icon: string; title: string; description: st
   },
 }
 
-const SOURCE_ICONS: Record<string, string> = {
-  chat:      'ri-chat-ai-4-line',
-  translate: 'ri-translate-2',
-  scan:      'ri-database-2-line',
-  indexing:  'ri-database-2-line',
-  mcp:       'ri-plug-3-line',
-  ollama:    'ri-robot-2-line',
-  system:    'ri-settings-3-line',
-}
-
-function sourceIcon(source: string): string {
-  return SOURCE_ICONS[source?.toLowerCase()] ?? 'ri-circle-line'
-}
 
 function formatTimestampIso(value: string): string {
   const date = new Date(value)
@@ -204,7 +191,6 @@ export function LogsPage() {
                   <thead>
                     <tr>
                       <th className="data-table__th logs-col--time">Timestamp</th>
-                      <th className="data-table__th logs-col--icon" aria-label="Source" />
                       <th className="data-table__th logs-col--level">Type</th>
                       <th className="data-table__th">Message</th>
                     </tr>
@@ -213,13 +199,6 @@ export function LogsPage() {
                     {entries.map((entry) => (
                       <tr key={entry.id} className="data-table__row">
                         <td className="data-table__td logs-col--time">{formatTimestampIso(entry.timestamp)}</td>
-                        <td className="data-table__td logs-col--icon">
-                          <i
-                            className={`${sourceIcon(entry.source)} logs-source-icon`}
-                            aria-label={entry.source}
-                            title={entry.source}
-                          />
-                        </td>
                         <td className="data-table__td logs-col--level">
                           <span className={eventTypeBadgeClass(entry.level)}>{entry.level}</span>
                         </td>

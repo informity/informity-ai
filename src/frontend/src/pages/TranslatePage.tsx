@@ -595,7 +595,7 @@ export function TranslatePage() {
                     title="Stop Translation"
                     aria-label="Stop Translation"
                   >
-                    <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1.125rem' }} />
+                    <i className="ri-stop-circle-line" aria-hidden style={{ fontSize: '1.125rem' }} />
                   </button>
                 ) : isStreaming ? (
                   <button
@@ -606,7 +606,7 @@ export function TranslatePage() {
                     aria-label="Stop Chat"
                     style={{ gap: '0.375rem', padding: '0.375rem 0.75rem' }}
                   >
-                    <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1.125rem' }} />
+                    <i className="ri-stop-circle-line" aria-hidden style={{ fontSize: '1.125rem' }} />
                     <span style={{ fontSize: 'var(--font-size-sm)' }}>Stop Chat</span>
                   </button>
                 ) : (

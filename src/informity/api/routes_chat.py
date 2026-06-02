@@ -2376,30 +2376,30 @@ async def chat(
                 process_cpu_percent=resource_end_snapshot.get('process_cpu_percent') if isinstance(resource_end_snapshot, dict) else None,
                 system_cpu_percent=resource_end_snapshot.get('system_cpu_percent') if isinstance(resource_end_snapshot, dict) else None,
             )
-            # User-facing activity log entry — gated by chat_trace_logging setting
-            if settings.chat_trace_logging:
-                gen_s = round(generation_seconds or 0.0, 1)
-                gen_str = (
-                    f'{int(gen_s) // 60}m {int(gen_s) % 60}s'
-                    if gen_s >= 60 else f'{gen_s:.1f}s'
+            # User-facing activity log — always emitted (not gated by chat_trace_logging,
+            # which controls detailed diagnostic traces, not this lightweight summary).
+            gen_s = round(generation_seconds or 0.0, 1)
+            gen_str = (
+                f'{int(gen_s) // 60}m {int(gen_s) % 60}s'
+                if gen_s >= 60 else f'{gen_s:.1f}s'
+            )
+            src_note = f' · {len(sources)} sources' if sources else ''
+            mode_label = str(resolved_chat_mode or 'assistant').replace('_', ' ').title()
+            try:
+                await emit_log_event(
+                    event_name='chat_message_generated',
+                    source='chat',
+                    message=f'AI reply · {mode_label} mode · {gen_str}{src_note}',
+                    details={
+                        'chat_id': str(chat_id) if chat_id else None,
+                        'chat_mode': resolved_chat_mode,
+                        'generation_seconds': gen_s,
+                        'sources_count': len(sources),
+                    },
+                    correlation_id=str(chat_id) if chat_id else None,
                 )
-                src_note = f' · {len(sources)} sources' if sources else ''
-                mode_label = str(resolved_chat_mode or 'assistant').replace('_', ' ').title()
-                try:
-                    await emit_log_event(
-                        event_name='chat_message_generated',
-                        source='chat',
-                        message=f'AI reply · {mode_label} mode · {gen_str}{src_note}',
-                        details={
-                            'chat_id': str(chat_id) if chat_id else None,
-                            'chat_mode': resolved_chat_mode,
-                            'generation_seconds': gen_s,
-                            'sources_count': len(sources),
-                        },
-                        correlation_id=str(chat_id) if chat_id else None,
-                    )
-                except Exception:
-                    pass  # activity log is non-critical
+            except Exception:
+                pass  # activity log is non-critical
 
             terminal_state = 'done'
             _update_sse_phase('done')
