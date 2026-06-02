@@ -4,9 +4,37 @@ import {
   createTranslateJob,
   estimateTranslateJob,
   getSettings,
+  getTranslateJob,
   streamTranslateJob,
   type TranslateSection,
 } from '../api'
+
+const ACTIVE_JOB_KEY = 'informity_active_translate_job'
+
+interface PersistedJob {
+  jobId: string
+  fileId: number
+  fileName: string
+  pageCount: number | null
+  isUpload: boolean
+  targetLanguage: string
+  tone: string
+}
+
+function saveActiveJob(job: PersistedJob): void {
+  try { sessionStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify(job)) } catch { /* ignore */ }
+}
+
+function loadActiveJob(): PersistedJob | null {
+  try {
+    const raw = sessionStorage.getItem(ACTIVE_JOB_KEY)
+    return raw ? (JSON.parse(raw) as PersistedJob) : null
+  } catch { return null }
+}
+
+function clearActiveJob(): void {
+  try { sessionStorage.removeItem(ACTIVE_JOB_KEY) } catch { /* ignore */ }
+}
 import { showToast } from './useToast'
 import { TranslateContext, type TranslateContextValue } from './translateContext'
 import { TRANSLATE_LANGUAGE_LABELS, TRANSLATE_TONES } from '../utils/translateOptions'
@@ -46,6 +74,86 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
       const t = settings?.translate_default_tone as string | undefined
       if (t && (TRANSLATE_TONES as readonly string[]).includes(t)) setTone(t)
     }).catch(() => {})
+  }, [])
+
+  // Recover active translation after a page reload.
+  // Checks sessionStorage for a persisted job, verifies it is still running
+  // server-side, and reconnects the SSE stream so the UI catches up.
+  useEffect(() => {
+    const persisted = loadActiveJob()
+    if (!persisted) return
+
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    getTranslateJob(persisted.jobId).then((job) => {
+      if (!['queued', 'running'].includes(job.status)) {
+        clearActiveJob()
+        return
+      }
+
+      // Restore file and translation settings
+      setFileInfo({
+        id: persisted.fileId,
+        name: persisted.fileName,
+        pageCount: persisted.pageCount,
+        isUpload: persisted.isUpload,
+      })
+      setTargetLanguage(persisted.targetLanguage)
+      setTone(persisted.tone)
+      setJobId(persisted.jobId)
+      setJobStatus(job.status as 'queued' | 'running')
+      setSections([])
+      setSectionCount(null)
+      setCompletedSections(0)
+      setFailedSections(0)
+
+      // Reconnect SSE — backend replays glossary_done, sections_ready, and
+      // all completed section_done events, then streams live events.
+      return streamTranslateJob(persisted.jobId, {
+        signal: controller.signal,
+        onGlossaryDone: (count) => setGlossaryTermCount(count),
+        onSectionsReady: (count) => setSectionCount(count),
+        onSectionStarted: () => setRetryingSectionIndex(null),
+        onSectionRetry: (idx) => setRetryingSectionIndex(idx),
+        onSectionDone: (section) => {
+          let isNew = false
+          setSections((prev) => {
+            const idx = prev.findIndex((s) => s.section_index === section.section_index)
+            isNew = idx < 0
+            const next = [...prev]
+            if (idx >= 0) next[idx] = section
+            else next.push(section)
+            next.sort((a, b) => a.section_index - b.section_index)
+            return next
+          })
+          if (isNew) setCompletedSections((n) => n + 1)
+          setRetryingSectionIndex(null)
+        },
+        onSectionFailed: () => setFailedSections((n) => n + 1),
+        onJobDone: (completed, failed) => {
+          setCompletedSections(completed)
+          setFailedSections(failed)
+          setJobStatus('done')
+          clearActiveJob()
+        },
+        onJobFailed: (error) => {
+          setJobStatus('failed')
+          clearActiveJob()
+          showToast('error', `Translation failed: ${error}`)
+        },
+        onJobStalled: () => {
+          setJobStatus('stalled')
+          clearActiveJob()
+          showToast('warning', 'Translation stalled. You may retry.')
+        },
+      })
+    }).catch(() => {
+      clearActiveJob()
+    })
+
+    return () => controller.abort()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const setFile = useCallback(async (file: FileInfo | null) => {
@@ -105,6 +213,17 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     }
     if (!job_id) return
 
+    // Persist so a page reload can reconnect to this job
+    saveActiveJob({
+      jobId: job_id,
+      fileId: fileInfo.id,
+      fileName: fileInfo.name,
+      pageCount: fileInfo.pageCount,
+      isUpload: fileInfo.isUpload,
+      targetLanguage,
+      tone,
+    })
+
     try {
       setJobId(job_id)
       setJobStatus('running')
@@ -135,13 +254,16 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
           setCompletedSections(completed)
           setFailedSections(failed)
           setJobStatus('done')
+          clearActiveJob()
         },
         onJobFailed: (error) => {
           setJobStatus('failed')
+          clearActiveJob()
           showToast('error', `Translation failed: ${error}`)
         },
         onJobStalled: () => {
           setJobStatus('stalled')
+          clearActiveJob()
           showToast('warning', 'Translation stalled. You may retry.')
         },
       })
@@ -159,6 +281,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
       showToast('info', 'Stopping translation…')
       cancelTranslateJob(jobId).catch(() => { /* best-effort */ })
     }
+    clearActiveJob()
     setJobStatus(null)
   }, [jobId])
 
