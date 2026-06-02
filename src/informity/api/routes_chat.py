@@ -122,6 +122,7 @@ from informity.llm.types import (
     StructuralGapReason,
     TimeoutReason,
 )
+from informity.log_events import emit_log_event
 from informity.markdown_export import (
     MarkdownExportOptions,
     build_markdown_filename,
@@ -141,7 +142,6 @@ from informity.upload_policy import (
 )
 from informity.utils.json_utils import serialize_api_response
 from informity.utils.number_utils import safe_float, safe_int
-from informity.log_events import emit_log_event
 
 # Trace logging constants
 MAX_ANSWER_PREVIEW_LENGTH = 1500  # Maximum length of answer preview in trace logs
@@ -2406,7 +2406,7 @@ async def chat(
             )
             src_note = f' · {len(sources)} sources' if sources else ''
             mode_label = str(resolved_chat_mode or 'assistant').replace('_', ' ').title()
-            try:
+            with contextlib.suppress(Exception):
                 await emit_log_event(
                     event_name='chat_message_generated',
                     source='chat',
@@ -2419,8 +2419,6 @@ async def chat(
                     },
                     correlation_id=str(chat_id) if chat_id else None,
                 )
-            except Exception:
-                pass  # activity log is non-critical
 
             terminal_state = 'done'
             _update_sse_phase('done')

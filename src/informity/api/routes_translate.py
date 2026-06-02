@@ -34,8 +34,8 @@ from informity.db.sqlite import (
     update_translate_section,
 )
 from informity.indexer.pipeline import index_file, remove_file
-from informity.log_events import emit_log_event
 from informity.llm.engine import llm_engine
+from informity.log_events import emit_log_event
 from informity.scanner.crawler import scanned_file_for_path
 from informity.translate_policy import (
     TONE_INSTRUCTIONS,
