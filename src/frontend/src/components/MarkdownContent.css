@@ -107,6 +107,17 @@
   border-bottom: none;
 }
 
+/* Group-header rows: detected as a single non-empty cell with empty siblings.
+   Rendered full-width with a subtle background to distinguish from data rows. */
+.md-content__table-scroll .md-content__table-group-header td {
+  background: color-mix(in srgb, var(--color-bg-elevated) 70%, transparent);
+  font-weight: 600;
+  color: var(--color-text);
+  border-bottom: 1px var(--layout-divider-style, solid) var(--color-border);
+  white-space: normal;
+  word-break: break-word;
+}
+
 /* --------------------------------------------------------------------------
    Headings — document-proportional sizes for translated academic/technical
    content. PDF section headings (h1) often come out huge at browser defaults.

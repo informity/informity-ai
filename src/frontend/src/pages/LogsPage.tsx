@@ -149,7 +149,7 @@ export function LogsPage() {
     <div className="page page--logs">
       <PageHeader
         title="Activity Logs"
-        subtitle="Review application activity, errors, and integration events."
+        subtitle="Review application activity, errors, and integration events"
         icon="ri-file-list-2-line"
       />
       <div className="page__scroll">

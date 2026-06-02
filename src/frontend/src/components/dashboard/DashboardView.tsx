@@ -337,7 +337,7 @@ export function DashboardView() {
       <div className="page page--dashboard" onWheel={handlePageWheel}>
         <PageHeader
           title="Dashboard"
-          subtitle="Monitor indexing status and manage scans."
+          subtitle="Monitor indexing status and manage scans"
           icon="ri-layout-grid-line"
         />
         <div className="page__scroll" ref={scrollContainerRef}>
@@ -350,7 +350,7 @@ export function DashboardView() {
     <div className="page page--dashboard" onWheel={handlePageWheel}>
       <PageHeader
         title="Dashboard"
-        subtitle="Monitor indexing status and manage scans."
+        subtitle="Monitor indexing status and manage scans"
         icon="ri-layout-grid-line"
       />
 

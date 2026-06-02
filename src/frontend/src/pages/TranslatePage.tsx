@@ -277,7 +277,7 @@ export function TranslatePage() {
     }
   }, [])
 
-  const subtitle = 'Translate a document. Select from your indexed files or upload'
+  const subtitle = 'Translate a document from your indexed files or upload'
 
   if (offline) {
     return (

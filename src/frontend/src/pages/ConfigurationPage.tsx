@@ -111,7 +111,7 @@ export function ConfigurationPage() {
   const pageHeader = (
     <PageHeader
       title="Environment Variables"
-      subtitle="Reference for all INFORMITY_* environment variables. Values shown reflect the current runtime configuration."
+      subtitle="Reference for all INFORMITY_* environment variables. Values shown reflect the current runtime configuration"
       icon="ri-code-s-line"
     />
   )
