@@ -36,6 +36,65 @@
 }
 
 /* -----------------------------------------------------------------------------
+   Integration sub-tabs (Web Search / MCP Server within the Integrations page)
+   ----------------------------------------------------------------------------- */
+
+.integration-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: var(--space-lg);
+  border-bottom: 1px var(--layout-divider-style, solid) var(--color-border);
+  width: 100%;
+}
+
+.integration-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  height: var(--min-touch-height);
+  padding: 0 var(--space-lg) 3px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-base);
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+  transition: color var(--transition-fast);
+  white-space: nowrap;
+  position: relative;
+}
+
+.integration-tab:hover {
+  color: var(--color-text);
+}
+
+.integration-tab--active {
+  color: var(--color-text);
+}
+
+.integration-tab--active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 3px;
+  background: var(--color-accent);
+  border-radius: 2px 2px 0 0;
+}
+
+.integration-tab i {
+  font-size: var(--font-size-base);
+  line-height: 1;
+}
+
+.integration-tab-panel > .settings-subsection:first-child {
+  margin-top: 0;
+}
+
+/* -----------------------------------------------------------------------------
    Sections
    ----------------------------------------------------------------------------- */
 

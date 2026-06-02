@@ -23,7 +23,7 @@ const SETTINGS_SUBNAV = [
   { tab: 'models',      label: 'Models',       icon: 'ri-robot-2-line'      },
   { tab: 'data',        label: 'Data Sources', icon: 'ri-folder-line'       },
   { tab: 'indexing',      label: 'Indexing',      icon: 'ri-stack-line'   },
-  { tab: 'integrations',  label: 'Integrations',  icon: 'ri-puzzle-line'  },
+  { tab: 'integrations',  label: 'Integrations',  icon: 'ri-apps-2-add-line'  },
   { tab: 'diagnostics', label: 'Diagnostics',  icon: 'ri-pulse-line'        },
   { tab: 'system',      label: 'System',       icon: 'ri-server-line'       },
 ]

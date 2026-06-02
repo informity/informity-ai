@@ -479,6 +479,7 @@ export function SettingsView({
   const [ollamaValidationPending, setOllamaValidationPending] = useState(false)
   const [mcpTokenGeneratePending, setMcpTokenGeneratePending] = useState(false)
   const [mcpGeneratedToken, setMcpGeneratedToken] = useState('')
+  const [integrationTab, setIntegrationTab] = useState<'web-search' | 'mcp'>('web-search')
   const [mcpTokenError, setMcpTokenError] = useState<string | null>(null)
   const [mcpTokenVisible, setMcpTokenVisible] = useState(false)
   const modelEventStateRef = useRef<ModelOperationEventResponse['state'] | null>(null)
@@ -1498,6 +1499,32 @@ export function SettingsView({
         </section>
 
         <section className={sectionClass(activeTab === 'integrations')}>
+          {/* Sub-tabs: Web Search (outbound) | MCP Server (inbound) */}
+          <div className="integration-tabs" role="tablist" aria-label="Integrations">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={integrationTab === 'web-search'}
+              className={`integration-tab${integrationTab === 'web-search' ? ' integration-tab--active' : ''}`}
+              onClick={() => setIntegrationTab('web-search')}
+            >
+              <i className="ri-search-line" aria-hidden="true" />
+              <span>Web Search</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={integrationTab === 'mcp'}
+              className={`integration-tab${integrationTab === 'mcp' ? ' integration-tab--active' : ''}`}
+              onClick={() => setIntegrationTab('mcp')}
+            >
+              <i className="ri-plug-3-line" aria-hidden="true" />
+              <span>MCP Server</span>
+            </button>
+          </div>
+
+          {integrationTab === 'web-search' && (
+            <div className="integration-tab-panel">
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
@@ -1643,7 +1670,10 @@ export function SettingsView({
             />
           </div>
         </div>
-
+            </div>
+          )}
+          {integrationTab === 'mcp' && (
+            <div className="integration-tab-panel">
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
@@ -1855,6 +1885,8 @@ export function SettingsView({
           )}
           </div>
         </div>
+            </div>
+          )}
 
         </section>
 

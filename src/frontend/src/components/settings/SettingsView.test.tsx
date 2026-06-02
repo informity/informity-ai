@@ -291,7 +291,8 @@ describe('SettingsView tabs and action bar behavior', () => {
       mcp_token_configured: true,
     }
 
-    const { onSave } = renderSettingsView({ tab: 'mcp', settings, onRequestClearMcpTokenConfirm: confirmClear })
+    const { onSave } = renderSettingsView({ tab: 'integrations', settings, onRequestClearMcpTokenConfirm: confirmClear })
+    fireEvent.click(screen.getByRole('tab', { name: 'MCP Server' }))
 
     const transport = screen.getByLabelText('Transport') as HTMLSelectElement
     fireEvent.change(transport, { target: { value: 'stdio' } })
@@ -317,7 +318,8 @@ describe('SettingsView tabs and action bar behavior', () => {
       mcp_token_configured: true,
     }
 
-    renderSettingsView({ tab: 'mcp', settings, onRequestClearMcpTokenConfirm: confirmClear })
+    renderSettingsView({ tab: 'integrations', settings, onRequestClearMcpTokenConfirm: confirmClear })
+    fireEvent.click(screen.getByRole('tab', { name: 'MCP Server' }))
 
     const transport = screen.getByLabelText('Transport') as HTMLSelectElement
     fireEvent.change(transport, { target: { value: 'stdio' } })
