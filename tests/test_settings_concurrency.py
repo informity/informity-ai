@@ -38,17 +38,23 @@ async def test_concurrent_settings_and_current_chat_updates_keep_valid_config(
 
 
 @pytest.mark.asyncio
-async def test_unknown_settings_field_is_ignored_and_rejected_as_empty_update(
+async def test_unknown_settings_field_is_ignored_and_treated_as_empty_update_noop(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(config.settings, 'app_data_dir', tmp_path)
     monkeypatch.setattr(routes_settings, '_list_available_models', lambda: [])
 
-    with pytest.raises(HTTPException) as exc_info:
-        await routes_settings.update_settings(SettingsUpdateRequest.model_validate({'legacy_field': 'value'}))
-    assert exc_info.value.status_code == 400
-    assert 'No fields provided to update' in str(exc_info.value.detail)
+    # Unknown keys are stripped by Pydantic; empty payload is a no-op (200), not 400.
+    response = await routes_settings.update_settings(
+        SettingsUpdateRequest.model_validate({'legacy_field': 'value'}),
+    )
+    assert response is not None
+
+    config_path = tmp_path / 'config.json'
+    if config_path.exists():
+        payload = json.loads(config_path.read_text(encoding='utf-8'))
+        assert 'legacy_field' not in payload
 
 
 @pytest.mark.asyncio
