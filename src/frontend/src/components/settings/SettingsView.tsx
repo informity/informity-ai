@@ -1983,6 +1983,9 @@ export function SettingsView({
             {!isOllamaProvider && (
               <>
                 <div className="settings-control-group">
+                  <div className="settings-subsection-field">
+                    <label htmlFor="settings-llm-model" className="settings-subsection-field-label">Model</label>
+                  </div>
                   <div className="settings-add-row settings-add-row--model">
                     <select
                       id="settings-llm-model"

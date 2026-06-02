@@ -586,7 +586,7 @@ export function TranslatePage() {
                     onClick={() => void stopStreaming()}
                     title="Stop chat to translate"
                     aria-label="Stop chat"
-                    style={{ gap: '0.375rem' }}
+                    style={{ gap: '0.375rem', padding: '0.375rem 0.75rem' }}
                   >
                     <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1.125rem' }} />
                     <span style={{ fontSize: 'var(--font-size-sm)' }}>Stop chat</span>

@@ -1555,7 +1555,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                           onClick={() => translateCtx?.cancelTranslation()}
                           title="Stop translation"
                           aria-label="Stop translation"
-                          style={{ width: 'auto', gap: '0.375rem' }}
+                          style={{ width: 'auto', gap: '0.375rem', padding: '0.375rem 0.75rem' }}
                         >
                           <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1.125rem' }} />
                           <span style={{ fontSize: 'var(--font-size-sm)' }}>Stop translation</span>
