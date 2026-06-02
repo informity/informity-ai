@@ -49,10 +49,10 @@ function hideBootOverlay() {
 
 async function renderApp() {
   let startupError: string | null = null
-  setBootStatus('Starting Informity AI...')
+  setBootStatus('Starting Informity AI…')
   await initializeTheme()
   const longStartTimerId = window.setTimeout(() => {
-    setBootStatus('Still working, this may take a moment...')
+    setBootStatus('Still working, this may take a moment…')
   }, 20000)
 
   try {
@@ -60,11 +60,11 @@ async function renderApp() {
       setBootStatus(message)
     })
     window.clearTimeout(longStartTimerId)
-    setBootStatus('Loading interface...')
+    setBootStatus('Loading interface…')
   } catch (error) {
     window.clearTimeout(longStartTimerId)
     startupError = error instanceof Error ? error.message : String(error)
-    setBootStatus('Startup failed. Rendering diagnostics...')
+    setBootStatus('Startup failed. Rendering diagnostics…')
   }
 
   createRoot(document.getElementById('root')!).render(

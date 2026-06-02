@@ -1876,7 +1876,7 @@ export function SettingsView({
                       }
                     }}
                   >
-                    {mcpTokenGeneratePending ? 'Generating...' : 'Generate'}
+                    {mcpTokenGeneratePending ? 'Generating…' : 'Generate'}
                   </button>
                 </div>
                 {mcpTokenError && <p className="settings-field-hint">{mcpTokenError}</p>}
@@ -1948,7 +1948,7 @@ export function SettingsView({
                         />
                         <span className="settings-tooltip settings-tooltip--status ui-tooltip ui-tooltip--compact ui-tooltip--nowrap">
                           {ollamaValidationPending
-                            ? 'Checking model...'
+                            ? 'Checking model…'
                             : (ollamaStatus?.model_ready ? 'Model OK' : getFriendlyOllamaStatusMessage(ollamaStatus?.detail, 'model'))}
                         </span>
                       </span>
@@ -1981,7 +1981,7 @@ export function SettingsView({
                         />
                         <span className="settings-tooltip settings-tooltip--status ui-tooltip ui-tooltip--compact ui-tooltip--nowrap">
                           {ollamaValidationPending
-                            ? 'Checking server...'
+                            ? 'Checking server…'
                             : (ollamaStatus?.reachable ? 'Server OK' : getFriendlyOllamaStatusMessage(ollamaStatus?.detail, 'server'))}
                         </span>
                       </span>
@@ -2045,7 +2045,7 @@ export function SettingsView({
                           }}
                           disabled={modelActionPending || !resolvedSelectedModelFilename}
                         >
-                          {modelDownloadPending ? 'Working...' : (modelDownloadInProgress ? 'Cancel' : '+ Add')}
+                          {modelDownloadPending ? 'Working…' : (modelDownloadInProgress ? 'Cancel' : '+ Add')}
                         </button>
                         {modelProgressSummary && (
                           <span className="settings-model-progress-inline">{modelProgressSummary}</span>
@@ -2060,7 +2060,7 @@ export function SettingsView({
                         disabled={modelActionPending || selectedModelIsActive}
                         title={selectedModelIsActive ? 'Select another installed model before removing this one' : 'Remove model'}
                       >
-                        {modelRemovePending ? 'Working...' : 'Remove'}
+                        {modelRemovePending ? 'Working…' : 'Remove'}
                       </button>
                     )}
                   </div>

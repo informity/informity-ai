@@ -259,7 +259,7 @@ export function TranslatePage() {
     }
   }, [])
 
-  const subtitle = 'Translate a document. Select from your indexed files or upload.'
+  const subtitle = 'Translate a document. Select from your indexed files or upload'
 
   if (offline) {
     return (
@@ -270,11 +270,15 @@ export function TranslatePage() {
     )
   }
 
-  const translatePlaceholder = isStreaming
-    ? 'Chat is in progress. Please wait…'
-    : fileId
-      ? 'Ready to translate. Press ⌘↵ or click Translate to start.'
-      : 'Select or upload a document to translate…'
+  const translatePlaceholder = isTranslating
+    ? 'Translation in progress…'
+    : isStreaming
+      ? 'Chat is in progress. Please wait…'
+      : fileId && hasResult
+        ? 'Select a new file or upload to translate again.'
+        : fileId
+          ? 'Ready to translate. Press ⌘↵ or click Translate to start.'
+          : 'Select or upload a document to translate…'
 
   return (
     <div className="translate-page">
@@ -288,7 +292,7 @@ export function TranslatePage() {
             className="translate-page__new-btn"
             onClick={() => void handleNewTranslation()}
             disabled={isTranslating}
-            title="New translation"
+            title="New Translation"
           >
             <i className="ri-translate-2" aria-hidden />
             New Translation

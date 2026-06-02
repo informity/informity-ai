@@ -97,7 +97,7 @@ export function FileFilters({ filters, onChange, disabled = false }: FileFilters
           <input
             type="text"
             className="file-filters__search-input filter-search__input"
-            placeholder="Search filename or path..."
+            placeholder="Search filename or path…"
             value={filters.search ?? ''}
             onChange={handleSearchChange}
             disabled={disabled}

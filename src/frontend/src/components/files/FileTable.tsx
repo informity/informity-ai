@@ -249,7 +249,7 @@ export function FileTable({
                           />
                         </button>
                         <span className="data-table__action-tooltip ui-tooltip ui-tooltip--nowrap">
-                          {isReindexing ? 'Reindexing...' : 'Reindex file'}
+                          {isReindexing ? 'Reindexing…' : 'Reindex file'}
                         </span>
                       </span>
                       <span className="data-table__action-wrap data-table__action-wrap--last ui-tooltip-trigger">

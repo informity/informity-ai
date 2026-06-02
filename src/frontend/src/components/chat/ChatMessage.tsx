@@ -464,7 +464,7 @@ function ChatMessageComponent({
                         <span>{streamStatusText}</span>
                         {showSectionProgress && (
                           <span className="chat-message__typing-progress">
-                            {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections...'}
+                            {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections…'}
                             {remainingProgressText ? ` | ${remainingProgressText}` : ''}
                           </span>
                         )}
@@ -502,7 +502,7 @@ function ChatMessageComponent({
                             <span>{streamStatusText}</span>
                             {showSectionProgress && (
                               <span className="chat-message__typing-progress">
-                                {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections...'}
+                                {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections…'}
                                 {remainingProgressText ? ` | ${remainingProgressText}` : ''}
                               </span>
                             )}
@@ -654,7 +654,7 @@ function ChatMessageComponent({
           <div className="chat-message__raw">
             <div className="chat-message__raw-scroll">
               {rawLoading ? (
-                <p className="chat-message__text chat-message__text--muted">Loading...</p>
+                <p className="chat-message__text chat-message__text--muted">Loading…</p>
               ) : rawContent != null ? (
                 <>
                   <div className="chat-message__raw-header">

@@ -140,7 +140,7 @@ export function LogsPage() {
   const empty = emptyState(activeTab)
   const header = TAB_HEADER[activeTab]
   const emptyDescription = useMemo(() => {
-    if (loading) return 'Loading events...'
+    if (loading) return 'Loading events…'
     if (error) return error
     return empty.description
   }, [empty.description, error, loading])

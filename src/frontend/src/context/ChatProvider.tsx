@@ -58,12 +58,12 @@ const STREAM_WATCHDOG_INTERRUPTED_MESSAGE = 'Response was interrupted due to con
 const STOP_ACK_TIMEOUT_MS = 1500
 const STREAM_STATUS_TIMER_INTERVAL_MS = 1000
 const STREAM_STATUS_LABELS: Record<string, string> = {
-  classifying: 'Analyzing your request...',
-  retrieving: 'Searching for relevant information...',
-  searching: 'Searching the web...',
-  generating: 'Generating response...',
-  continuing: 'Continuing response...',
-  finalizing: 'Finalizing answer...',
+  classifying: 'Analyzing your request…',
+  retrieving: 'Searching for relevant information…',
+  searching: 'Searching the web…',
+  generating: 'Generating response…',
+  continuing: 'Continuing response…',
+  finalizing: 'Finalizing answer…',
 }
 
 function isTransientFetchFailure(err: unknown): boolean {
@@ -794,7 +794,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       isContinuation: isInternalMessage,
       streamStatusText: isInternalMessage
         ? getStreamStatusLabel('continuing')
-        : 'Generating response...',
+        : 'Generating response…',
       isPartial: false,
       streamSectionProgress: undefined,
       createdAt: now,
@@ -818,7 +818,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const requestId = createChatRequestId()
     streamRequestIdRef.current = requestId
     streamStopRequestedRef.current = false
-    streamStatusBaseMessageRef.current = String(assistantDraft.streamStatusText || 'Generating response...')
+    streamStatusBaseMessageRef.current = String(assistantDraft.streamStatusText || 'Generating response…')
     streamStatusStateRef.current = isInternalMessage ? 'continuing' : 'generating'
     streamStatusStartMsRef.current = Date.now()
     clearStreamStatusTimer()

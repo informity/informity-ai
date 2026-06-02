@@ -120,7 +120,7 @@ function App({ startupError = null }: AppProps) {
     return (
       <CenteredState
         icon="ri-loader-4-line"
-        title="Checking setup status..."
+        title="Checking setup status…"
         description="Verifying required local models before loading the app."
       />
     )
@@ -140,7 +140,7 @@ function App({ startupError = null }: AppProps) {
                   fallback={(
                     <CenteredState
                       icon="ri-loader-4-line"
-                      title="Loading page..."
+                      title="Loading page…"
                       description="Preparing application view."
                     />
                   )}

@@ -164,7 +164,7 @@ export function FileDetail({
 
         {loading ? (
           <div className="file-detail__body">
-            <div className="file-detail__loading">Loading...</div>
+            <div className="file-detail__loading">Loading…</div>
           </div>
         ) : error ? (
           <div className="file-detail__body">
@@ -266,7 +266,7 @@ export function FileDetail({
                   aria-hidden
                   style={{ fontSize: '1rem' }}
                 />
-                <span>{isReindexing ? 'Reindexing...' : 'Reindex'}</span>
+                <span>{isReindexing ? 'Reindexing…' : 'Reindex'}</span>
               </button>
               <button
                 type="button"

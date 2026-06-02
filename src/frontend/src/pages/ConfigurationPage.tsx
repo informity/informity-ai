@@ -120,7 +120,7 @@ export function ConfigurationPage() {
     return (
       <div className="page">
         {pageHeader}
-        <div className="page__scroll"><p>Loading...</p></div>
+        <div className="page__scroll"><p>Loading…</p></div>
       </div>
     )
   }

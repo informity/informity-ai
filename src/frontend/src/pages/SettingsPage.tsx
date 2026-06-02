@@ -201,15 +201,15 @@ const RESET_POLL_INTERVAL_MS = 500
 const RESET_POLL_TIMEOUT_MS = 300000
 
 const SETTINGS_TAB_META: Record<string, { title: string; icon: string; subtitle: string }> = {
-  general:     { title: 'General',            icon: 'ri-home-gear-line', subtitle: 'Core application preferences including privacy and appearance.' },
-  chat:        { title: 'Chat',               icon: 'ri-chat-ai-4-line', subtitle: 'Conversation context and default chat settings.' },
-  translate:   { title: 'Translate',          icon: 'ri-translate-2',    subtitle: 'Configure default behaviour for document translation.' },
-  models:      { title: 'Models',             icon: 'ri-robot-2-line',   subtitle: 'Select the AI model to use and view its capabilities.' },
-  data:        { title: 'Data Sources',       icon: 'ri-folder-line',    subtitle: 'Choose which folders and file types the application scans and makes searchable.' },
-  indexing:      { title: 'Indexing',      icon: 'ri-stack-line',  subtitle: 'Controls how the application reads and prepares your files for search and chat.' },
-  integrations:  { title: 'Integrations',  icon: 'ri-apps-2-add-line', subtitle: 'Connect external search providers and allow third-party AI clients to access your library.' },
-  diagnostics: { title: 'Diagnostics',         icon: 'ri-pulse-line',  subtitle: 'Monitor application events and adjust diagnostics settings when troubleshooting.' },
-  system:      { title: 'System',             icon: 'ri-server-line',    subtitle: 'General application utilities and configuration references.' },
+  general:     { title: 'General',            icon: 'ri-home-gear-line', subtitle: 'Core application preferences including privacy and appearance' },
+  chat:        { title: 'Chat',               icon: 'ri-chat-ai-4-line', subtitle: 'Conversation context and default chat settings' },
+  translate:   { title: 'Translate',          icon: 'ri-translate-2',    subtitle: 'Configure default behaviour for document translation' },
+  models:      { title: 'Models',             icon: 'ri-robot-2-line',   subtitle: 'Select the AI model to use and view its capabilities' },
+  data:        { title: 'Data Sources',       icon: 'ri-folder-line',    subtitle: 'Choose which folders and file types the application scans and makes searchable' },
+  indexing:      { title: 'Indexing',      icon: 'ri-stack-line',  subtitle: 'Controls how the application reads and prepares your files for search and chat' },
+  integrations:  { title: 'Integrations',  icon: 'ri-apps-2-add-line', subtitle: 'Connect external search providers and allow third-party AI clients to access your library' },
+  diagnostics: { title: 'Diagnostics',         icon: 'ri-pulse-line',  subtitle: 'Monitor application events and adjust diagnostics settings when troubleshooting' },
+  system:      { title: 'System',             icon: 'ri-server-line',    subtitle: 'General application utilities and configuration references' },
 }
 
 function sleep(ms: number): Promise<void> {
@@ -355,7 +355,7 @@ export function SettingsPage() {
     if (!ok2) return
     setSaving(true)
     try {
-      showToast('info', 'Resetting data...')
+      showToast('info', 'Resetting data…')
       try {
         await resetIndex()
       } catch (err) {
@@ -366,7 +366,7 @@ export function SettingsPage() {
             const status = (await getIndexStatus()) as IndexStatus
             if (resetPollingCancelledRef.current) return
             if (status.reset_in_progress) {
-              showToast('info', 'Reset already in progress. Waiting for completion...')
+              showToast('info', 'Reset already in progress. Waiting for completion…')
             } else {
               throw err
             }
@@ -384,7 +384,7 @@ export function SettingsPage() {
               return
             }
             await resetIndex(true)
-            showToast('info', 'Stopping scan and starting reset...')
+            showToast('info', 'Stopping scan and starting reset…')
           } else {
             throw err
           }
@@ -434,7 +434,7 @@ export function SettingsPage() {
       setSettings(updated)
       const completionMessage =
         compactionError || resetResult?.storage_compacted === false
-          ? 'All data reset.\nDatabase reset in progress...'
+          ? 'All data reset.\nDatabase reset in progress…'
           : 'All data reset'
       showToast('success', completionMessage)
     } catch (err) {

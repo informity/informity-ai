@@ -36,7 +36,7 @@ export function HistoryFilters({ filters, onChange, disabled = false }: HistoryF
           <input
             type="text"
             className="history-filters__search-input filter-search__input"
-            placeholder="Search by title or preview..."
+            placeholder="Search by title or preview…"
             value={filters.search ?? ''}
             onChange={handleSearchChange}
             disabled={disabled}

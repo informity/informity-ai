@@ -26,7 +26,7 @@ interface SetupRequiredPageProps {
 function getCopy(state: SetupBlockingState): { title: string; description: string } {
   if (state === SETUP_STATES.IN_PROGRESS) {
     return {
-      title: 'Downloading model...',
+      title: 'Downloading model…',
       description: "Your model is downloading. Keep this window open until it's done.",
     }
   }
@@ -86,11 +86,11 @@ function getTierDescription(option: SetupTierOption): string {
 }
 
 function formatStageLabel(stage: string | null | undefined): string {
-  if (!stage || !stage.trim()) return 'Preparing setup...'
+  if (!stage || !stage.trim()) return 'Preparing setup…'
   const key = stage.trim().toLowerCase()
-  if (key === 'downloading_model') return 'Downloading model...'
-  if (key === 'queued') return 'Preparing download...'
-  if (key === 'finalizing') return 'Finalizing setup...'
+  if (key === 'downloading_model') return 'Downloading model…'
+  if (key === 'queued') return 'Preparing download…'
+  if (key === 'finalizing') return 'Finalizing setup…'
   const normalized = stage
     .trim()
     .replace(/_/g, ' ')
@@ -362,7 +362,7 @@ export function SetupRequiredPage({
               onStartSetup(selectedOption.tier, selectedOption.model_filename)
             }}
           >
-            {isDownloadInProgress ? 'Cancel Download' : (isStarting ? 'Starting...' : (isRetryMode ? 'Retry' : 'Continue'))}
+            {isDownloadInProgress ? 'Cancel Download' : (isStarting ? 'Starting…' : (isRetryMode ? 'Retry' : 'Continue'))}
           </button>
         </footer>
       </main>

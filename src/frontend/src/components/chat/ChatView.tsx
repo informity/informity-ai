@@ -758,7 +758,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const handleExportFullChat = useCallback(async (format: 'markdown' | 'text' = 'markdown') => {
     if (offline || isStreaming) return
     if (!contextChatId) {
-      showToast('error', 'No active chat to export.')
+      showToast('error', 'No active chat to export')
       return
     }
     setExportMenuOpen(false)
@@ -771,10 +771,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       if (format === 'text') {
         const txtFilename = String(payload.filename || 'chat-export').replace(/\.md$/, '') + '.txt'
         downloadTextFile(txtFilename, markdownToPlainText(payload.markdown))
-        showToast('success', 'Chat exported as plain text.')
+        showToast('success', 'Chat exported as plain text')
       } else {
         triggerMarkdownDownload(payload.filename, payload.markdown)
-        showToast('success', 'Chat exported as Markdown.')
+        showToast('success', 'Chat exported as Markdown')
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to export chat.'
@@ -785,7 +785,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const handleExportAnswer = useCallback(async (messageId?: number) => {
     if (offline || isStreaming) return
     if (!contextChatId) {
-      showToast('error', 'No active chat to export.')
+      showToast('error', 'No active chat to export')
       return
     }
     try {
@@ -796,7 +796,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         template: 'concise_summary',
       })
       triggerMarkdownDownload(payload.filename, payload.markdown)
-      showToast('success', 'Answer exported as Markdown.')
+      showToast('success', 'Answer exported as Markdown')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to export answer.'
       showToast('error', msg)
@@ -815,7 +815,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       })
       const txtFilename = String(payload.filename || 'answer').replace(/\.md$/, '') + '.txt'
       downloadTextFile(txtFilename, markdownToPlainText(payload.markdown))
-      showToast('success', 'Answer exported as plain text.')
+      showToast('success', 'Answer exported as plain text')
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Failed to export answer.'
       showToast('error', msg)
@@ -1306,7 +1306,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       {hasPendingUploads && (
                         <span
                           className="chat-view__upload-chip chat-view__upload-overflow-chip chat-view__upload-overflow-chip--pending"
-                          title={pendingUploadCount === 1 ? 'Uploading 1 file...' : `Uploading ${pendingUploadCount} files...`}
+                          title={pendingUploadCount === 1 ? 'Uploading 1 file…' : `Uploading ${pendingUploadCount} files…`}
                           role="listitem"
                           aria-label={pendingUploadCount === 1 ? 'Uploading 1 file' : `Uploading ${pendingUploadCount} files`}
                         >
@@ -1355,11 +1355,13 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                     placeholder={
                       offline
                         ? 'Service unavailable'
-                        : isStreaming
-                          ? 'Response in progress...'
-                          : (effectiveChatMode === 'assistant' && chatWebSearchEnabled
-                            ? 'Search the web...'
-                            : 'Ask me anything...')
+                        : isTranslating
+                          ? 'Translation in progress…'
+                          : isStreaming
+                            ? 'Response in progress…'
+                            : (effectiveChatMode === 'assistant' && chatWebSearchEnabled
+                              ? 'Search the web…'
+                              : 'Ask me anything…')
                     }
                     value={inputValue}
                     onChange={handleTextareaChange}

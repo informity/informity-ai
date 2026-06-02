@@ -16,7 +16,7 @@ interface UpdateCheckModalProps {
 }
 
 function getTitle(state: UpdateCheckState): string {
-  if (state === 'checking') return 'Checking for updates...'
+  if (state === 'checking') return 'Checking for updates…'
   if (state === 'up_to_date') return "You're up to date"
   if (state === 'update_available') return 'Update Available'
   return 'Update Check Failed'
