@@ -22,22 +22,30 @@ _LOG_PRUNE_INTERVAL_SECONDS = 600.0
 _last_log_prune_ts = 0.0
 
 _CANONICAL_EVENTS: dict[str, tuple[str, str]] = {
-    'scan_started': ('application', 'info'),
-    'scan_completed': ('application', 'info'),
-    'scan_failed': ('errors', 'error'),
-    'scan_cancelled': ('errors', 'warning'),
-    'indexing_timeout': ('errors', 'warning'),
-    'mcp_server_started': ('integrations', 'info'),
-    'mcp_server_stopped': ('integrations', 'info'),
-    'mcp_server_failed': ('integrations', 'error'),
-    'mcp_scope_denied': ('integrations', 'warning'),
-    'mcp_auth_failed': ('integrations', 'warning'),
-    'mcp_policy_violation': ('integrations', 'warning'),
-    'index_refresh_started': ('application', 'info'),
-    'index_refresh_completed': ('application', 'info'),
-    'index_refresh_failed': ('errors', 'error'),
-    'database_compaction_failed': ('errors', 'error'),
-    'ollama_unavailable': ('integrations', 'error'),
+    # Scanning & indexing
+    'scan_started':              ('application', 'info'),
+    'scan_completed':            ('application', 'info'),
+    'scan_failed':               ('errors',      'error'),
+    'scan_cancelled':            ('errors',      'warning'),
+    'indexing_timeout':          ('errors',      'warning'),
+    'index_refresh_started':     ('application', 'info'),
+    'index_refresh_completed':   ('application', 'info'),
+    'index_refresh_failed':      ('errors',      'error'),
+    'database_compaction_failed':('errors',      'error'),
+    # Translation pipeline
+    'translate_job_completed':   ('application', 'info'),
+    'translate_job_failed':      ('errors',      'error'),
+    'translate_job_stalled':     ('errors',      'warning'),
+    # Chat (user-visible; only emitted when chat_trace_logging is enabled)
+    'chat_message_generated':    ('application', 'info'),
+    # Integrations
+    'mcp_server_started':        ('integrations','info'),
+    'mcp_server_stopped':        ('integrations','info'),
+    'mcp_server_failed':         ('integrations','error'),
+    'mcp_scope_denied':          ('integrations','warning'),
+    'mcp_auth_failed':           ('integrations','warning'),
+    'mcp_policy_violation':      ('integrations','warning'),
+    'ollama_unavailable':        ('integrations','error'),
 }
 
 _NOISE_SUBSTRINGS = (

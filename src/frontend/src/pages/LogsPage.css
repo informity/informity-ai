@@ -135,8 +135,15 @@
   width: 8.5rem;
 }
 
-.logs-col--source {
-  width: 8.25rem;
+.logs-col--icon {
+  width: 2.5rem;
+  text-align: center;
+}
+
+.logs-source-icon {
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+  opacity: 0.7;
 }
 
 .logs-table-wrap .data-table__th,

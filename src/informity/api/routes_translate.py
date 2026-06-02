@@ -34,6 +34,7 @@ from informity.db.sqlite import (
     update_translate_section,
 )
 from informity.indexer.pipeline import index_file, remove_file
+from informity.log_events import emit_log_event
 from informity.llm.engine import llm_engine
 from informity.scanner.crawler import scanned_file_for_path
 from informity.translate_policy import (
@@ -60,6 +61,10 @@ from informity.translate_policy import (
 )
 
 log = structlog.get_logger(__name__)
+
+
+def capitalize(s: str) -> str:
+    return s.capitalize() if s else s
 router = APIRouter()
 
 # One translation job at a time (local LLM is single-instance).
@@ -548,12 +553,23 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                         await update_translate_job(db, job_id, status='stalled',
                                                    error='No progress within stall window.')
                         await _emit(job_id, 'job_stalled', {})
+                        await emit_log_event(
+                            event_name='translate_job_stalled',
+                            source='translate',
+                            message=f'Translation stalled: {completed}/{len(sections)} sections completed',
+                            file_id=file_id, db=db,
+                        )
                         return
 
                 final_status = 'done' if completed > 0 else 'failed'
                 await update_translate_job(db, job_id, status=final_status)
                 event = 'job_done' if final_status == 'done' else 'job_failed'
                 await _emit(job_id, event, {'completed_sections': completed, 'failed_sections': failed})
+                job_elapsed_s = int(time.monotonic() - job_loop_start)
+                elapsed_str = (
+                    f'{job_elapsed_s // 60}m {job_elapsed_s % 60}s'
+                    if job_elapsed_s >= 60 else f'{job_elapsed_s}s'
+                )
                 log.info('translate_job_completed',
                          job_id=job_id, language=target_language, tone=tone,
                          status=final_status,
@@ -563,7 +579,46 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                          sections_truncated=truncated,
                          truncation_rate=round(truncated / max(len(sections), 1), 3),
                          glossary_terms=term_count,
-                         total_elapsed_ms=int((time.monotonic() - job_loop_start) * 1000))
+                         total_elapsed_ms=int(job_elapsed_s * 1000))
+
+                # Fetch filename for a human-readable activity log message
+                try:
+                    file_row = await get_file_by_id(db, file_id)
+                    fname = file_row.filename if file_row else f'file #{file_id}'
+                except Exception:
+                    fname = f'file #{file_id}'
+                trunc_note = f' · {truncated} truncated' if truncated else ''
+                if final_status == 'done':
+                    await emit_log_event(
+                        event_name='translate_job_completed',
+                        source='translate',
+                        message=(
+                            f'Translated \'{fname}\' → {target_language} · {capitalize(tone)} tone'
+                            f' · {completed}/{len(sections)} sections · {elapsed_str}{trunc_note}'
+                        ),
+                        details={
+                            'job_id': job_id,
+                            'language': target_language,
+                            'tone': tone,
+                            'sections_completed': completed,
+                            'sections_total': len(sections),
+                            'sections_truncated': truncated,
+                            'elapsed_s': job_elapsed_s,
+                        },
+                        file_id=file_id,
+                        db=db,
+                    )
+                else:
+                    await emit_log_event(
+                        event_name='translate_job_failed',
+                        source='translate',
+                        message=(
+                            f'Translation failed: \'{fname}\' → {target_language}'
+                            f' · {completed}/{len(sections)} sections completed'
+                        ),
+                        file_id=file_id,
+                        db=db,
+                    )
 
     except TimeoutError:
         log.error('translate_job_hard_timeout', job_id=job_id)

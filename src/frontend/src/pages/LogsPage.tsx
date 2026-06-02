@@ -28,7 +28,7 @@ const TAB_HEADER: Record<LogsTab, { icon: string; title: string; description: st
   application: {
     icon: 'ri-window-2-line',
     title: 'Application',
-    description: 'Monitor file scans, indexing jobs, and system startup history.',
+    description: 'Chat replies, translation jobs, file scans, and indexing activity.',
   },
   errors: {
     icon: 'ri-error-warning-line',
@@ -40,6 +40,20 @@ const TAB_HEADER: Record<LogsTab, { icon: string; title: string; description: st
     title: 'Integrations',
     description: 'MCP Server, Ollama, and other integration activity, connection health, and access scope limits.',
   },
+}
+
+const SOURCE_ICONS: Record<string, string> = {
+  chat:      'ri-chat-ai-4-line',
+  translate: 'ri-translate-2',
+  scan:      'ri-database-2-line',
+  indexing:  'ri-database-2-line',
+  mcp:       'ri-plug-3-line',
+  ollama:    'ri-robot-2-line',
+  system:    'ri-settings-3-line',
+}
+
+function sourceIcon(source: string): string {
+  return SOURCE_ICONS[source?.toLowerCase()] ?? 'ri-circle-line'
 }
 
 function formatTimestampIso(value: string): string {
@@ -65,21 +79,21 @@ function emptyState(activeTab: LogsTab): { icon: string; title: string; descript
   if (activeTab === 'errors') {
     return {
       icon: 'ri-error-warning-line',
-      title: 'No errors yet.',
+      title: 'No errors yet',
       description: 'Any new issues will show up here.',
     }
   }
   if (activeTab === 'integrations') {
     return {
       icon: 'ri-plug-3-line',
-      title: 'No integration events yet.',
+      title: 'No integration events yet',
       description: 'MCP server and Ollama activity will appear here.',
     }
   }
   return {
     icon: 'ri-window-2-line',
-    title: 'No application events yet.',
-    description: 'Application activity will appear here.',
+    title: 'No activity yet',
+    description: 'Chat replies, translation jobs, and scan events will appear here. Chat logging can be enabled in Settings → Diagnostics.',
   }
 }
 
@@ -106,7 +120,7 @@ export function LogsPage() {
     setSearchParams(next, { replace: true })
   }
 
-  useEffect(() => {
+  const loadEntries = () => {
     let cancelled = false
     setLoading(true)
     setError(null)
@@ -132,9 +146,16 @@ export function LogsPage() {
       }
     })()
 
-    return () => {
-      cancelled = true
-    }
+    return () => { cancelled = true }
+  }
+
+  useEffect(loadEntries, [activeTab])
+
+  // Auto-refresh every 15s so new chat/translate events appear without a manual reload
+  useEffect(() => {
+    const id = window.setInterval(loadEntries, 15_000)
+    return () => window.clearInterval(id)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab])
 
   const empty = emptyState(activeTab)
@@ -183,8 +204,8 @@ export function LogsPage() {
                   <thead>
                     <tr>
                       <th className="data-table__th logs-col--time">Timestamp</th>
-                      <th className="data-table__th logs-col--level">Event Type</th>
-                      <th className="data-table__th logs-col--source">Source</th>
+                      <th className="data-table__th logs-col--icon" aria-label="Source" />
+                      <th className="data-table__th logs-col--level">Type</th>
                       <th className="data-table__th">Message</th>
                     </tr>
                   </thead>
@@ -192,10 +213,16 @@ export function LogsPage() {
                     {entries.map((entry) => (
                       <tr key={entry.id} className="data-table__row">
                         <td className="data-table__td logs-col--time">{formatTimestampIso(entry.timestamp)}</td>
+                        <td className="data-table__td logs-col--icon">
+                          <i
+                            className={`${sourceIcon(entry.source)} logs-source-icon`}
+                            aria-label={entry.source}
+                            title={entry.source}
+                          />
+                        </td>
                         <td className="data-table__td logs-col--level">
                           <span className={eventTypeBadgeClass(entry.level)}>{entry.level}</span>
                         </td>
-                        <td className="data-table__td logs-col--source">{entry.source}</td>
                         <td className="data-table__td">{entry.message}</td>
                       </tr>
                     ))}
