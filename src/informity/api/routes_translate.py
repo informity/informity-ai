@@ -441,6 +441,8 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                 # --- Phase 4: Translation loop ---
                 completed = 0
                 failed = 0
+                truncated = 0
+                job_loop_start = time.monotonic()
                 # Stall deadline resets at each section START (not just section done).
                 # This means: "no section has even begun in TRANSLATE_JOB_STALL_S seconds".
                 # An active section translating for up to TRANSLATE_SECTION_TIMEOUT_S
@@ -467,11 +469,15 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
 
                     translated = None
                     last_error = None
+                    last_finish_reason: str | None = None
                     total_attempts = 0
+                    section_start_ms = time.monotonic()
                     for attempt in range(TRANSLATE_SECTION_RETRY_MAX + 1):
                         total_attempts += 1
                         token_cap = TRANSLATE_RETRY_TOKEN_CAP if attempt > 0 else TRANSLATE_BATCH_TARGET_TOKENS
-                        max_out   = int(token_cap * 1.35) + 100  # proportional output cap
+                        # Use 1.6× expansion ratio — academic English→Spanish expands 50-60%.
+                        # The previous 1.35× caused frequent mid-sentence truncation.
+                        max_out = int(token_cap * 1.6) + 100
                         source = section['text']
                         if _count_tokens(source) > token_cap:
                             words = source.split()
@@ -480,7 +486,7 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                         try:
                             # _translate_section uses generate_stream internally, so it has
                             # a real cancel_event-backed timeout — no zombie threads.
-                            translated = await _translate_section(
+                            translated, last_finish_reason = await _translate_section(
                                 source, target_language, tone, glossary_block, max_out,
                                 cancel_event=cancel_event,
                             )
@@ -494,6 +500,11 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                                 'section_index': s_idx, 'attempt': attempt + 1, 'error': last_error,
                             })
 
+                    section_elapsed_ms = int((time.monotonic() - section_start_ms) * 1000)
+                    section_truncated = last_finish_reason == 'length'
+                    if section_truncated:
+                        truncated += 1
+
                     await update_translate_section(db, section_id, attempt_count=total_attempts)
 
                     if translated:
@@ -501,6 +512,14 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                         completed += 1
                         await update_translate_job(db, job_id, completed_sections=completed)
                         await db.commit()
+                        log.info('translate_section_completed',
+                                 job_id=job_id, section_index=s_idx,
+                                 section_title=section.get('title'),
+                                 status='done', finish_reason=last_finish_reason,
+                                 truncated=section_truncated,
+                                 chars_output=len(translated),
+                                 duration_ms=section_elapsed_ms,
+                                 attempt_count=total_attempts)
                         await _emit(job_id, 'section_done', {
                             'section_index': s_idx,
                             'section_title': section.get('title'),
@@ -511,6 +530,15 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                         failed += 1
                         await update_translate_job(db, job_id, failed_sections=failed)
                         await db.commit()
+                        log.warning('translate_section_completed',
+                                    job_id=job_id, section_index=s_idx,
+                                    section_title=section.get('title'),
+                                    status='failed', finish_reason=last_finish_reason,
+                                    truncated=section_truncated,
+                                    chars_output=0,
+                                    duration_ms=section_elapsed_ms,
+                                    attempt_count=total_attempts,
+                                    error=last_error)
                         await _emit(job_id, 'section_failed', {
                             'section_index': s_idx, 'error': last_error or 'Translation failed',
                         })
@@ -526,6 +554,16 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                 await update_translate_job(db, job_id, status=final_status)
                 event = 'job_done' if final_status == 'done' else 'job_failed'
                 await _emit(job_id, event, {'completed_sections': completed, 'failed_sections': failed})
+                log.info('translate_job_completed',
+                         job_id=job_id, language=target_language, tone=tone,
+                         status=final_status,
+                         sections_total=len(sections),
+                         sections_completed=completed,
+                         sections_failed=failed,
+                         sections_truncated=truncated,
+                         truncation_rate=round(truncated / max(len(sections), 1), 3),
+                         glossary_terms=term_count,
+                         total_elapsed_ms=int((time.monotonic() - job_loop_start) * 1000))
 
     except TimeoutError:
         log.error('translate_job_hard_timeout', job_id=job_id)
@@ -714,7 +752,7 @@ async def _translate_section(
     glossary_block: str,
     max_tokens: int,
     cancel_event: asyncio.Event | None = None,
-) -> str | None:
+) -> tuple[str | None, str | None]:
     """
     Async translation using generate_stream.
 
@@ -744,6 +782,7 @@ async def _translate_section(
     ]
 
     parts: list[str] = []
+    finish_reason: str | None = None
     gen = llm_engine.generate_stream(
         messages,
         max_tokens=max_tokens,
@@ -756,15 +795,21 @@ async def _translate_section(
             # sets the engine's internal cancel_event, releasing the LLM.
             if cancel_event and cancel_event.is_set():
                 await gen.aclose()
-                return None
+                return None, 'cancelled'
             if isinstance(item, tuple):
-                token, _ = item
-                if isinstance(token, str) and token and token != '__timeout__':
-                    parts.append(token)
+                # Tuple signals end-of-stream; first element is final token or '__timeout__'
+                token, meta = item
+                if token == '__timeout__':
+                    finish_reason = 'timeout'
+                else:
+                    finish_reason = (meta or {}).get('finish_reason', 'stop') if isinstance(meta, dict) else 'stop'
+                    if isinstance(token, str) and token:
+                        parts.append(token)
                 break
             elif isinstance(item, str):
                 parts.append(item)
     except Exception as exc:
         raise RuntimeError(f'Translation stream error: {exc}') from exc
 
-    return ''.join(parts).strip() or None
+    text = ''.join(parts).strip() or None
+    return text, finish_reason

@@ -253,6 +253,13 @@
   border-radius: var(--border-radius-md);
 }
 
+/* Info variant — softer, muted tone for non-critical advisories */
+.translate-page__error--info {
+  color: var(--color-text-muted);
+  background: color-mix(in srgb, var(--color-text-muted) 6%, transparent);
+  border-color: color-mix(in srgb, var(--color-text-muted) 18%, transparent);
+}
+
 /* Pending upload chip — spinner only, no text, matches Chat's upload-overflow-chip--pending */
 .translate-page__pending-chip {
   justify-content: center;
