@@ -15,7 +15,7 @@ interface MarkdownContentProps {
 
 export const MarkdownContent = memo(function MarkdownContent({ children, className }: MarkdownContentProps) {
   return (
-    <div className={className}>
+    <div className={`md-content${className ? ` ${className}` : ''}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{

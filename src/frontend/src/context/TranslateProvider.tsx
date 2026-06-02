@@ -87,12 +87,15 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     abortRef.current = controller
 
     getTranslateJob(persisted.jobId).then((job) => {
-      if (!['queued', 'running'].includes(job.status)) {
+      // Only recover jobs that have meaningful state: running, queued, or completed.
+      // A null/unknown status means the job ID is stale — clear and bail.
+      const recoverableStatuses = ['queued', 'running', 'done', 'stalled', 'failed']
+      if (!recoverableStatuses.includes(job.status)) {
         clearActiveJob()
         return
       }
 
-      // Restore file and translation settings
+      // Restore file and translation settings so the chip and controls appear
       setFileInfo({
         id: persisted.fileId,
         name: persisted.fileName,
@@ -102,14 +105,15 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
       setTargetLanguage(persisted.targetLanguage)
       setTone(persisted.tone)
       setJobId(persisted.jobId)
-      setJobStatus(job.status as 'queued' | 'running')
+      setJobStatus(job.status as TranslateContextValue['jobStatus'])
       setSections([])
       setSectionCount(null)
       setCompletedSections(0)
       setFailedSections(0)
 
-      // Reconnect SSE — backend replays glossary_done, sections_ready, and
-      // all completed section_done events, then streams live events.
+      // Connect to SSE — for completed jobs the backend immediately replays
+      // glossary_done, sections_ready, and all section_done events, then
+      // emits job_done and closes. For active jobs it continues streaming.
       return streamTranslateJob(persisted.jobId, {
         signal: controller.signal,
         onGlossaryDone: (count) => setGlossaryTermCount(count),
@@ -135,16 +139,13 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
           setCompletedSections(completed)
           setFailedSections(failed)
           setJobStatus('done')
-          clearActiveJob()
         },
         onJobFailed: (error) => {
           setJobStatus('failed')
-          clearActiveJob()
           showToast('error', `Translation failed: ${error}`)
         },
         onJobStalled: () => {
           setJobStatus('stalled')
-          clearActiveJob()
           showToast('warning', 'Translation stalled. You may retry.')
         },
       })
@@ -254,16 +255,13 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
           setCompletedSections(completed)
           setFailedSections(failed)
           setJobStatus('done')
-          clearActiveJob()
         },
         onJobFailed: (error) => {
           setJobStatus('failed')
-          clearActiveJob()
           showToast('error', `Translation failed: ${error}`)
         },
         onJobStalled: () => {
           setJobStatus('stalled')
-          clearActiveJob()
           showToast('warning', 'Translation stalled. You may retry.')
         },
       })

@@ -1,31 +1,106 @@
-/* Shared markdown content styles — used by MarkdownContent.tsx */
+/* ==============================================================================
+   Shared Markdown content renderer — used by TranslatePage (section display).
+   All styles mirror ChatMessage.css so Chat and Translate render identically.
+   ============================================================================== */
 
+/* --------------------------------------------------------------------------
+   Links — accent colour with underline, same as chat
+   -------------------------------------------------------------------------- */
+.md-content a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 0.14em;
+}
+
+.md-content a:hover {
+  color: var(--color-text);
+}
+
+/* --------------------------------------------------------------------------
+   Typography — match chat weight and size
+   -------------------------------------------------------------------------- */
+.md-content strong {
+  font-weight: 650;
+}
+
+/* --------------------------------------------------------------------------
+   Blockquotes — left border, muted text, same as chat
+   -------------------------------------------------------------------------- */
+.md-content blockquote {
+  margin: 0.75rem 0;
+  padding: 0.05rem 0 0.05rem 0.8rem;
+  border-left: 3px solid var(--color-border);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-base);
+}
+
+.md-content blockquote p {
+  font-size: var(--font-size-base);
+}
+
+/* --------------------------------------------------------------------------
+   Horizontal rules — layout-divider-style aware (dotted on Onyx), same as chat
+   -------------------------------------------------------------------------- */
+.md-content hr {
+  margin: 0.9rem 0;
+  border: 0;
+  border-top: 1px var(--layout-divider-style, solid) color-mix(in srgb, var(--layout-divider-color, var(--color-border)) 65%, transparent);
+}
+
+/* --------------------------------------------------------------------------
+   Inline code — same background token as chat
+   -------------------------------------------------------------------------- */
+.md-content code {
+  padding: 0.15em 0.4em;
+  border-radius: 4px;
+  font-size: 0.9em;
+  background: var(--chat-code-inline-bg, color-mix(in srgb, var(--color-bg-elevated) 80%, transparent));
+  font-family: var(--font-mono, monospace);
+}
+
+/* --------------------------------------------------------------------------
+   Tables — horizontal-divider style matching chat (no cell borders,
+   muted header, layout-divider-style aware, no alternating row backgrounds)
+   -------------------------------------------------------------------------- */
 .md-content__table-scroll {
+  margin: 0.8rem 0;
+  width: 100%;
   overflow-x: auto;
-  max-width: 100%;
-  margin: var(--space-sm) 0;
 }
 
 .md-content__table-scroll table {
+  width: 100%;
+  min-width: 24rem;
   border-collapse: collapse;
-  font-size: var(--font-size-sm);
-  min-width: max-content;
+  border: 1px var(--layout-divider-style, solid) var(--color-border);
+  border-radius: var(--border-radius-sm);
+  overflow: hidden;
 }
 
 .md-content__table-scroll th,
 .md-content__table-scroll td {
-  border: 1px solid var(--color-border);
-  padding: 0.375rem 0.75rem;
+  padding: 0.6rem 0.75rem;
   text-align: left;
   vertical-align: top;
+  word-break: normal;
+  overflow-wrap: normal;
 }
 
 .md-content__table-scroll th {
-  background: var(--color-bg-elevated);
+  font-size: var(--font-size-base);
   font-weight: 600;
+  color: var(--color-text-muted);
+  background: transparent;
+  border-bottom: 1px var(--layout-divider-style, solid) color-mix(in srgb, var(--color-border) 82%, white);
   white-space: nowrap;
 }
 
-.md-content__table-scroll tr:nth-child(even) td {
-  background: color-mix(in srgb, var(--color-bg-elevated) 50%, transparent);
+.md-content__table-scroll td {
+  font-size: var(--font-size-base);
+  color: var(--color-text);
+  border-bottom: 1px var(--layout-divider-style, solid) var(--layout-divider-color, var(--color-border-subtle));
+}
+
+.md-content__table-scroll tr:last-child td {
+  border-bottom: none;
 }
