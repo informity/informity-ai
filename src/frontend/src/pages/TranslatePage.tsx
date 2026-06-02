@@ -574,8 +574,8 @@ export function TranslatePage() {
                     type="button"
                     className="translate-page__send"
                     onClick={cancelTranslation}
-                    title="Stop translation"
-                    aria-label="Stop translation"
+                    title="Stop Translation"
+                    aria-label="Stop Translation"
                   >
                     <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1.125rem' }} />
                   </button>
@@ -584,12 +584,12 @@ export function TranslatePage() {
                     type="button"
                     className="translate-page__send"
                     onClick={() => void stopStreaming()}
-                    title="Stop chat to translate"
-                    aria-label="Stop chat"
+                    title="Stop Chat to Translate"
+                    aria-label="Stop Chat"
                     style={{ gap: '0.375rem', padding: '0.375rem 0.75rem' }}
                   >
                     <i className="ri-stop-large-line" aria-hidden style={{ fontSize: '1.125rem' }} />
-                    <span style={{ fontSize: 'var(--font-size-sm)' }}>Stop chat</span>
+                    <span style={{ fontSize: 'var(--font-size-sm)' }}>Stop Chat</span>
                   </button>
                 ) : (
                   <button
