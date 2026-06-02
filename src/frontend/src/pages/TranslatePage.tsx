@@ -486,7 +486,6 @@ export function TranslatePage() {
                   onClick={() => { if (!fileId) fileInputRef.current?.click() }}
                   disabled={!!fileId || uploadLoading || isTranslating}
                   aria-label="Upload file"
-                  title="Upload file"
                 >
                   <i className="ri-add-line" aria-hidden />
                 </button>
@@ -498,8 +497,8 @@ export function TranslatePage() {
                     className={`translate-page__icon-btn${menuOpen === 'tone' ? ' translate-page__icon-btn--active' : ''}`}
                     aria-haspopup="menu"
                     aria-expanded={menuOpen === 'tone'}
+                    aria-label="Tone"
                     disabled={isTranslating}
-                    title={`Tone: ${tone}`}
                     onClick={() => setMenuOpen(prev => prev === 'tone' ? null : 'tone')}
                   >
                     <i className="ri-quill-pen-line" aria-hidden />
@@ -585,7 +584,6 @@ export function TranslatePage() {
                     className="translate-page__send"
                     disabled={!canTranslate}
                     onClick={() => void handleTranslate()}
-                    title={canTranslate ? 'Translate (⌘↵)' : 'Select a file first'}
                     aria-label="Translate"
                   >
                     <i className="ri-translate-2" aria-hidden style={{ fontSize: '1.125rem' }} />

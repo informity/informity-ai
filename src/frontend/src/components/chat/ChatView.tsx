@@ -1566,7 +1566,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                           className="chat-view__send"
                           onClick={handleSend}
                           disabled={offline || !inputValue.trim()}
-                          title="Send (Enter)"
                           aria-label="Send message"
                         >
                           <i className="ri-arrow-up-line" aria-hidden style={{ fontSize: '1.125rem' }} />
