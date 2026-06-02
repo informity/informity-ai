@@ -38,6 +38,8 @@ from informity.llm.engine import llm_engine
 from informity.scanner.crawler import scanned_file_for_path
 from informity.translate_policy import (
     TONE_INSTRUCTIONS,
+    TRANSLATE_AVG_SECTION_SECONDS,
+    TRANSLATE_AVG_TOKENS_PER_PAGE,
     TRANSLATE_BATCH_TARGET_TOKENS,
     TRANSLATE_ENTITY_TYPE,
     TRANSLATE_GLOSSARY_INPUT_TOKENS,
@@ -48,15 +50,13 @@ from informity.translate_policy import (
     TRANSLATE_JOB_MAX_RUNTIME_S,
     TRANSLATE_JOB_STALL_S,
     TRANSLATE_PROVIDER,
-    TRANSLATE_SOFT_SECTION_LIMIT,
     TRANSLATE_RETRY_TOKEN_CAP,
     TRANSLATE_SECTION_RETRY_MAX,
     TRANSLATE_SECTION_TIMEOUT_S,
     TRANSLATE_SOFT_PAGE_LIMIT,
+    TRANSLATE_SOFT_SECTION_LIMIT,
     TRANSLATE_STORAGE_DIRNAME,
     TRANSLATE_TEMPERATURE,
-    TRANSLATE_AVG_SECTION_SECONDS,
-    TRANSLATE_AVG_TOKENS_PER_PAGE,
 )
 
 log = structlog.get_logger(__name__)
@@ -306,7 +306,7 @@ async def translate_job_events(
         while True:
             try:
                 msg = await asyncio.wait_for(q.get(), timeout=30.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 yield {'event': 'ping', 'data': '{}'}
                 continue
             if msg is _SENTINEL:
@@ -448,7 +448,7 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                 stall_deadline = time.monotonic() + TRANSLATE_JOB_STALL_S
                 glossary_block = _build_glossary_block(glossary_json)
 
-                for s_idx, (section, row) in enumerate(zip(sections, section_rows)):
+                for s_idx, (section, row) in enumerate(zip(sections, section_rows, strict=True)):
                     # Check for user cancellation between sections
                     job_row = await get_translate_job(db, job_id)
                     if job_row and str(job_row['status']) == 'stalled':
@@ -527,7 +527,7 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                 event = 'job_done' if final_status == 'done' else 'job_failed'
                 await _emit(job_id, event, {'completed_sections': completed, 'failed_sections': failed})
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log.error('translate_job_hard_timeout', job_id=job_id)
         if db:
             await update_translate_job(db, job_id, status='stalled', error='Job exceeded maximum runtime.')

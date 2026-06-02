@@ -50,12 +50,12 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from informity.api.routes_chat import router as chat_router
 from informity.api.routes_index import router as index_router
-from informity.api.routes_translate import router as translate_router
 from informity.api.routes_logs import router as logs_router
 from informity.api.routes_scan import router as scan_router
 from informity.api.routes_search import router as search_router
 from informity.api.routes_settings import router as settings_router
 from informity.api.routes_system import router as system_router
+from informity.api.routes_translate import router as translate_router
 from informity.api.schemas import HealthResponse
 from informity.api.security import (
     TAURI_SESSION_HEADER,
@@ -319,6 +319,7 @@ async def _backfill_page_counts(conn: object) -> None:
     Runs at startup; errors per-file are logged and skipped.
     """
     import aiosqlite
+
     from informity.translate_policy import TRANSLATE_AVG_TOKENS_PER_PAGE
     db: aiosqlite.Connection = conn  # type: ignore[assignment]
 
@@ -438,8 +439,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Sweep stale translate.local uploads older than TRANSLATE_CLEANUP_AGE_HOURS.
     try:
         from datetime import UTC, datetime, timedelta
-        from informity.translate_policy import TRANSLATE_CLEANUP_AGE_HOURS
+
         from informity.db.sqlite import delete_translate_jobs_older_than
+        from informity.translate_policy import TRANSLATE_CLEANUP_AGE_HOURS
         conn = await get_connection()
         try:
             cutoff = (datetime.now(UTC) - timedelta(hours=TRANSLATE_CLEANUP_AGE_HOURS)).isoformat()
