@@ -2376,6 +2376,27 @@ async def chat(
                 process_cpu_percent=resource_end_snapshot.get('process_cpu_percent') if isinstance(resource_end_snapshot, dict) else None,
                 system_cpu_percent=resource_end_snapshot.get('system_cpu_percent') if isinstance(resource_end_snapshot, dict) else None,
             )
+            # Application-tier counterpart to translate_job_completed: a compact event
+            # that tags chat_id + mode + duration in a shape comparable across pipelines.
+            # Supplements (does not replace) chat_response_completed which carries the
+            # full diagnostic context.
+            if stopped_by_user:
+                derived_finish_reason = 'cancelled'
+            elif timeout_occurred:
+                derived_finish_reason = 'timeout'
+            else:
+                derived_finish_reason = 'stop'
+            log.info(
+                'chat_generation_completed',
+                chat_id=str(chat_id) if chat_id else None,
+                chat_mode=resolved_chat_mode,
+                generation_seconds=round(generation_seconds or 0.0, 3),
+                duration_ms=round((generation_seconds or 0.0) * 1000, 1),
+                tokens_output=len(answer_parts),
+                sources_count=len(sources),
+                retrieval_latency_ms=None,  # not currently plumbed from RAGHandler
+                finish_reason=derived_finish_reason,
+            )
             # User-facing activity log — always emitted (not gated by chat_trace_logging,
             # which controls detailed diagnostic traces, not this lightweight summary).
             gen_s = round(generation_seconds or 0.0, 1)

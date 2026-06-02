@@ -259,6 +259,34 @@ async def cancel_translate_job(
     q = _job_queues.get(job_id)
     if q:
         await q.put(_SENTINEL)
+
+    # User-facing activity log entry. Distinguishable from a timeout stall
+    # by the 'cancelled' wording in the message.
+    if row:
+        try:
+            file_id           = int(row['file_id'])
+            target_language   = str(row['target_language'])
+            completed_count   = int(row['completed_sections'] or 0)
+            section_count     = int(row['section_count'] or 0)
+            file_row          = await get_file_by_id(db, file_id)
+            fname             = file_row.filename if file_row else f'file #{file_id}'
+            sections_note     = f' · {completed_count}/{section_count} sections completed' if section_count else ''
+            await emit_log_event(
+                event_name='translate_job_stalled',
+                source='translate',
+                message=f'Translation cancelled: \'{fname}\' → {target_language}{sections_note}',
+                details={
+                    'job_id':              job_id,
+                    'language':            target_language,
+                    'sections_completed':  completed_count,
+                    'sections_total':      section_count,
+                    'cancelled_by_user':   True,
+                },
+                file_id=file_id,
+                db=db,
+            )
+        except Exception:
+            pass  # activity log is non-critical; never fail cancel
     return {'cancelled': True}
 
 
@@ -496,6 +524,14 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                                 cancel_event=cancel_event,
                             )
                             if translated:
+                                # Accept truncated output as-is. A retry uses the smaller
+                                # TRANSLATE_RETRY_TOKEN_CAP and would only produce a shorter
+                                # truncated result — counterproductive. Retry only fires for
+                                # genuine error/empty cases (no `translated`) below.
+                                if last_finish_reason == 'length' and attempt == 0:
+                                    log.warning('translate_section_truncated_accepted',
+                                                job_id=job_id, section=s_idx,
+                                                chars_output=len(translated))
                                 break
                         except Exception as exc:
                             last_error = str(exc)
