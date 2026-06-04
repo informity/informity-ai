@@ -6,7 +6,6 @@
 from pathlib import Path
 
 import pytest
-from PIL import Image, ImageDraw
 
 from informity.scanner.extractors.base import (
     BaseExtractor,
@@ -205,12 +204,9 @@ class TestDoclingExtractor:
         assert doc.word_count > 0
         assert doc.page_count == 1
 
-    def test_extract_real_png_uses_ocr(self, tmp_path: Path) -> None:
-        image_file = tmp_path / 'real-ocr.png'
-        image = Image.new('RGB', (900, 240), 'white')
-        draw = ImageDraw.Draw(image)
-        draw.text((40, 80), 'Informity OCR smoke test 123', fill='black')
-        image.save(image_file)
+    @pytest.mark.parametrize('fixture_name', ['sample_ocr_png', 'sample_ocr_jpeg'])
+    def test_extract_real_image_uses_ocr(self, request, fixture_name: str) -> None:
+        image_file: Path = request.getfixturevalue(fixture_name)
 
         doc = self.extractor.extract(image_file)
         self._skip_if_models_unavailable(doc)
@@ -218,7 +214,7 @@ class TestDoclingExtractor:
         assert doc.error is None
         assert doc.metadata.get('ocr_used') == 'true'
         assert doc.text.strip() != ''
-        assert 'informity' in doc.text.lower() or 'ocr' in doc.text.lower() or 'smoke' in doc.text.lower()
+        assert 'ocr' in doc.text.lower() or 'smoke' in doc.text.lower()
         assert doc.word_count > 0
         assert doc.preview_text.strip() != ''
 
