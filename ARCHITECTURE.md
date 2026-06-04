@@ -686,10 +686,10 @@ class HealthResponse(BaseModel):
 - `GET /api/chat/chats/{chat_id}` — chat messages for one chat
 - `PUT /api/chat/chats/{chat_id}/title` — set chat title
 - `DELETE /api/chat/chats/{chat_id}` — delete chat and its messages
-- Optionally collects diagnostics metrics when `diagnostics_metrics_enabled=True` (lazy import from `diagnostics.observer`, stores in `response_diagnostics_metrics` table via `insert_diagnostics_metrics()`)
+- Optionally collects diagnostics metrics when `diagnostics_metrics_enabled=True` (imports `diagnostics.observer` at module load and only uses it on the enabled path; stores in `response_diagnostics_metrics` table via `insert_diagnostics_metrics()`)
 - Uses `utils.json_utils.serialize_api_response()` for SSE event data serialization.
 - **Imports:** llm.rag, db.sqlite, chat_trace (get_trace_writer, flush_trace_writer), config (settings), utils.json_utils
-- **Lazy import (conditional):** `diagnostics.observer` (EvalMetrics, detect_issues) — only when `settings.diagnostics_metrics_enabled=True`
+- **Module import (enabled-path only):** `diagnostics.observer` (EvalMetrics, detect_issues, estimate_evidence_metrics) — imported by `routes_chat.py`, but only used when `settings.diagnostics_metrics_enabled=True`
 
 ### `api/routes_settings.py`
 - `GET /api/settings` — current settings (SettingsResponse, includes file_type_options, available_models, config_file_path)
