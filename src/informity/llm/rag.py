@@ -18,10 +18,11 @@ from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.db.sqlite import get_chunk_count
 from informity.llm.chat_mode import is_assistant_mode, resolve_chat_mode
+from informity.llm.classification_policy import classify_query_with_timing
 from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.rag import RAGHandler
 from informity.llm.handlers.simple import SimpleHandler
-from informity.llm.query_classifier import QueryClassification, classify_query
+from informity.llm.query_classifier import QueryClassification
 from informity.llm.types import (
     IntentProfileId,
     OutputShape,
@@ -51,13 +52,6 @@ _CLASSIFICATION_TIMEOUT_SECONDS = max(
     5.0,
     min(30.0, float(getattr(settings, 'diagnostics_alert_max_first_token_seconds', 45.0) or 45.0) / 2.0),
 )
-
-
-async def _classify_with_timing(question: str, *, history: list[ChatMessage] | None) -> tuple[QueryClassification, float]:
-    classify_start = asyncio.get_running_loop().time()
-    classification = await asyncio.to_thread(classify_query, question, history=history)
-    classify_elapsed_ms = (asyncio.get_running_loop().time() - classify_start) * 1000.0
-    return classification, classify_elapsed_ms
 
 
 def _resolve_handler_for_classification(classification: QueryClassification) -> Any | None:
@@ -153,7 +147,10 @@ async def answer_question(
                 )
                 try:
                     base_classification, classify_elapsed_ms = await asyncio.wait_for(
-                        _classify_with_timing(question, history=history),
+                        classify_query_with_timing(
+                            question,
+                            history=history,
+                        ),
                         timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
                     )
                 except TimeoutError:
@@ -226,7 +223,10 @@ async def answer_question(
             )
             try:
                 classification, classify_elapsed_ms = await asyncio.wait_for(
-                    _classify_with_timing(question, history=history),
+                    classify_query_with_timing(
+                        question,
+                        history=history,
+                    ),
                     timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
                 )
             except TimeoutError:
