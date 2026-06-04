@@ -1,13 +1,6 @@
 from __future__ import annotations
 
-import sys
-from pathlib import Path
-
-TOOLS_DIR = Path(__file__).resolve().parents[1] / 'tools' / 'diagnostics'
-if str(TOOLS_DIR) not in sys.path:
-    sys.path.insert(0, str(TOOLS_DIR))
-
-from translate_quality import compute_translate_quality  # noqa: E402
+from informity.diagnostics.translate_quality import compute_translate_quality
 
 
 class _Section:
