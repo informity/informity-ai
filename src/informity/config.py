@@ -80,6 +80,7 @@ UI_THEME_ALLOWED_VALUES: tuple[str, ...] = (
     'sage',
     'graphite',
     'onyx',
+    'square',
 )
 # Theme migration map for legacy persisted values.
 UI_THEME_ALIAS_MAP: dict[str, str] = {
@@ -593,8 +594,8 @@ class Settings(BaseSettings):
     diagnostics_alert_max_rss_delta_mb: float = 1024.0
 
     # -- UI (frontend-only; persisted so theme survives restarts) -------------
-    # Color theme for the app UI: canvas, ember, sage, graphite, onyx.
-    ui_theme: Literal['canvas', 'ember', 'sage', 'graphite', 'onyx'] = _DEFAULT_UI_THEME
+    # Color theme for the app UI: canvas, ember, sage, graphite, onyx, square.
+    ui_theme: Literal['canvas', 'ember', 'sage', 'graphite', 'onyx', 'square'] = _DEFAULT_UI_THEME
     # When true, show the macOS menu bar icon while the app is running.
     enable_menu_bar_icon: bool = False
     # Default target language for the translation screen.

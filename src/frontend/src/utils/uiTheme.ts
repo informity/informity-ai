@@ -7,12 +7,14 @@ export const UI_THEME_VALUES = [
   'sage',
   'onyx',
   'graphite',
+  'square',
 ] as const
 
 export type UiThemeValue = (typeof UI_THEME_VALUES)[number]
 
 export const UI_THEME_OPTIONS: Array<{ value: UiThemeValue; label: string }> = [
   { value: 'onyx', label: 'Onyx' },
+  { value: 'square', label: 'Onyx Square' },
   { value: 'graphite', label: 'Graphite' },
   { value: 'ember', label: 'Ember' },
   { value: 'sage', label: 'Sage' },

@@ -578,6 +578,217 @@ html[data-accent='onyx'] .settings-slider::-moz-range-thumb {
 }
 /* Onyx Theme End */
 
+/* Square Theme Start: Onyx colors + zero border radius + compact controls */
+html[data-accent='square'] {
+  color-scheme: dark;
+  --color-accent: #767676;
+  --color-primary: #767676;
+  --color-accent-subtle: rgba(118, 118, 118, 0.1);
+  --color-primary-bg: rgba(118, 118, 118, 0.13);
+  --color-primary-bg-strong: rgba(118, 118, 118, 0.18);
+  --color-primary-border: rgba(118, 118, 118, 0.3);
+  --color-bg: #090909;
+  --color-bg-surface: #1a1a1a;
+  --color-bg-elevated: #242424;
+  --color-bg-hover: #2a2a2a;
+  --color-border: #4a4a4a;
+  --color-border-subtle: #3a3a3a;
+  --color-input-border: #4a4a4a;
+  --color-input-border-chat: rgba(118, 118, 118, 0.3);
+  --surface-nav: #1a1a1a;
+  --surface-control: #303030;
+  --surface-readonly: color-mix(in srgb, var(--color-bg-elevated) 84%, var(--color-bg-surface));
+  --surface-table-head: color-mix(in srgb, var(--surface-nav) 88%, black);
+  --surface-table-row-hover: var(--color-bg-hover);
+  --surface-tooltip: #181614;
+  --layout-divider-color: #4a4a4a;
+  --layout-divider-style: dotted;
+  --border-radius: 0px;
+  --border-radius-sm: 0px;
+  --border-radius-md: 0px;
+  --border-radius-lg: 0px;
+  --chat-code-card-radius: 0px;
+}
+
+html[data-accent='square'] body {
+  background-color: var(--color-bg);
+}
+
+html[data-accent='square'] .ui-subsection-head::before {
+  background: var(--color-accent);
+}
+
+html[data-accent='square'] .page-header {
+  border-bottom: 1px dotted #4a4a4a;
+}
+
+html[data-accent='square'] .settings-tabs {
+  border-bottom: 1px dotted #4a4a4a;
+}
+
+html[data-accent='square'] .settings-tab + .settings-tab {
+  border-left: 1px dotted #4a4a4a;
+}
+
+html[data-accent='square'] .file-table__pagination,
+html[data-accent='square'] .history-table__pagination {
+  border-top: 1px dotted #4a4a4a;
+}
+
+html[data-accent='square'] .settings-actions--sticky {
+  border-top: 1px dotted #4a4a4a;
+}
+
+html[data-accent='square'] .page-footer {
+  border-top: 1px dotted #4a4a4a;
+}
+
+html[data-accent='square'] .data-table__th {
+  border-bottom: 1px dotted #4a4a4a;
+}
+
+html[data-accent='square'] .data-table__td {
+  border-bottom: 1px dotted #3a3a3a;
+}
+
+html[data-accent='square'] .ui-section-divider::before {
+  border-top: 1px dotted #4a4a4a;
+}
+
+html[data-accent='square'] .settings-profile-row {
+  border-bottom: 1px dotted #4a4a4a;
+}
+
+html[data-accent='square'] .settings-slider {
+  background: #303030;
+  border: none;
+}
+
+html[data-accent='square'] .settings-slider::-webkit-slider-thumb {
+  border: none;
+  box-shadow: none;
+}
+
+html[data-accent='square'] .settings-slider::-moz-range-thumb {
+  border: none;
+  box-shadow: none;
+}
+
+html[data-accent='square'] input[type='checkbox'] {
+  border-radius: 0;
+}
+
+/* Hardcoded border-radius overrides — elements that don't use CSS variables */
+html[data-accent='square'] .toast {
+  border-radius: 0;
+}
+
+html[data-accent='square'] .toast__close {
+  border-radius: 0;
+}
+
+html[data-accent='square'] .ui-card,
+html[data-accent='square'] .ui-card__icon-accent {
+  border-radius: 0;
+}
+
+html[data-accent='square'] .source-card {
+  border-radius: 0;
+}
+
+html[data-accent='square'] .skeleton {
+  border-radius: 0;
+}
+
+html[data-accent='square'] .sidebar__logo-shell,
+html[data-accent='square'] .setup-required__logo-shell {
+  border-radius: 0;
+}
+
+html[data-accent='square'] .md-content code,
+html[data-accent='square'] .chat-message__markdown code {
+  border-radius: 0;
+}
+
+html[data-accent='square'] .chat-message__edit-input {
+  border-radius: 0;
+}
+
+html[data-accent='square'] .chat-message__copy-full {
+  border-radius: 0;
+}
+
+html[data-accent='square'] .dashboard__progress-bar,
+html[data-accent='square'] .dashboard__progress-fill {
+  border-radius: 0;
+}
+
+html[data-accent='square'] .dashboard-card__icon {
+  border-radius: 0;
+}
+
+html[data-accent='square'] .dashboard-skeleton__card,
+html[data-accent='square'] .dashboard-skeleton__card-content {
+  border-radius: 0;
+}
+
+html[data-accent='square'] .integration-tab--active::after {
+  border-radius: 0;
+}
+
+html[data-accent='square'] .settings-slider,
+html[data-accent='square'] .settings-slider::-webkit-slider-thumb,
+html[data-accent='square'] .settings-slider::-moz-range-thumb {
+  border-radius: 0;
+}
+
+html[data-accent='square'] .translate-page__flag {
+  border-radius: 0;
+}
+
+/* Compact list items (source dirs, ignore patterns) */
+html[data-accent='square'] .settings-list-scroll {
+  padding: 0;
+}
+
+html[data-accent='square'] .settings-list__item {
+  min-height: 0;
+  padding: 0.3125rem 0.625rem;
+  font-size: var(--font-size-sm);
+}
+
+html[data-accent='square'] .settings-list__remove {
+  width: 1.125rem;
+  height: 1.125rem;
+  font-size: 1rem;
+}
+
+/* Compact inputs and selects (chat/translate textareas excluded by class) */
+html[data-accent='square'] input:not([type='checkbox']):not([type='radio']),
+html[data-accent='square'] select {
+  padding: 0.3125rem 0.625rem;
+  font-size: var(--font-size-sm);
+}
+
+html[data-accent='square'] textarea:not(.composer__textarea) {
+  padding: 0.3125rem 0.625rem;
+  font-size: var(--font-size-sm);
+}
+
+/* Compact buttons */
+html[data-accent='square'] .settings-btn,
+html[data-accent='square'] .confirm-dialog__btn {
+  padding: 0.25rem var(--space-md);
+  min-height: 1.75rem;
+  font-size: var(--font-size-sm);
+}
+
+html[data-accent='square'] .settings-btn--add {
+  padding: 0 var(--space-sm);
+  min-height: 1.75rem;
+}
+/* Square Theme End */
+
 /* Accent hover (darker for buttons, links) */
 :root {
   --color-accent-hover: color-mix(in srgb, var(--color-accent) 85%, black);
