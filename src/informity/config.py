@@ -165,7 +165,8 @@ def _get_default_supported_extensions() -> list[str]:
 
     Note: .json, .yaml, .yml, .toml are excluded by default even if extractors exist;
     user can enable them in Settings. PDF (.pdf) is now included by default since
-    docling provides reliable extraction.
+    docling provides reliable extraction, and image formats are included when the
+    Docling image OCR path is available.
 
     Returns:
         List of extensions that have extractors, excluding data files

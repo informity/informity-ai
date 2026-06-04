@@ -36,6 +36,7 @@ def test_default_supported_extensions_uses_file_types_when_extractor_import_unav
 
     extensions = _get_default_supported_extensions()
     assert '.pdf' in extensions
+    assert '.jpg' in extensions
     assert '.txt' in extensions
     assert '.docx' in extensions
     assert '.json' not in extensions

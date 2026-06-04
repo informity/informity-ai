@@ -1,6 +1,6 @@
 # ==============================================================================
 # Informity AI — Docling Extractor (v2)
-# Unified extractor for docling-supported formats: PDF, DOCX, PPTX, XLSX, HTML, CSV
+# Unified extractor for docling-supported formats: PDF, images, DOCX, PPTX, XLSX, HTML, CSV
 # Uses docling to convert documents to markdown with better structure preservation
 # ==============================================================================
 
@@ -45,8 +45,11 @@ if TYPE_CHECKING:
 # With range-based metadata storage (#6) and explicit GC (#8), memory pressure is lower
 _MAX_CONVERSIONS_BEFORE_RESET = 25  # Recreate converter every N conversions
 
-# Docling-supported formats (excluding images for now)
-_DOCLING_SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.pptx', '.xlsx', '.html', '.htm', '.csv']
+_IMAGE_SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp']
+
+# Docling-supported formats, including OCR-able image uploads.
+_DOCLING_SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.pptx', '.xlsx', '.html', '.htm', '.csv', *_IMAGE_SUPPORTED_EXTENSIONS]
+_DOCLING_OCR_SUPPORTED_EXTENSIONS = frozenset({'.pdf', *_IMAGE_SUPPORTED_EXTENSIONS})
 
 
 @dataclass(frozen=True)
@@ -116,7 +119,7 @@ class DoclingExtractor:
                 )
 
                 docling_cache = prepare_docling_runtime()
-                cls._converter = build_pdf_converter(do_ocr=False)
+                cls._converter = build_pdf_converter(do_ocr=False, include_image_formats=True)
                 cls._conversion_count = 0
             except _DOCLING_RUNTIME_EXCEPTIONS as exc:
                 # If converter creation fails, log error with helpful context
@@ -135,12 +138,19 @@ class DoclingExtractor:
     @classmethod
     def _create_ocr_converter(cls) -> DocumentConverter:
         """
-        Create a DocumentConverter with OCR enabled for image-only PDFs.
+        Create a DocumentConverter with OCR enabled for image-only PDFs and image uploads.
         Used as fallback when regular extraction returns empty text.
         """
-        from informity.scanner.extractors.docling_runtime import build_pdf_converter
+        from informity.scanner.extractors.docling_runtime import build_docling_converter
 
-        return build_pdf_converter(do_ocr=True, force_full_page_ocr=True)
+        return build_docling_converter(do_ocr=True, force_full_page_ocr=True, include_image_formats=True)
+
+    def _should_try_ocr(self, path: Path) -> bool:
+        return settings.enable_ocr_for_images and path.suffix.lower() in _DOCLING_OCR_SUPPORTED_EXTENSIONS
+
+    @staticmethod
+    def _is_image_source(path: Path) -> bool:
+        return path.suffix.lower() in _IMAGE_SUPPORTED_EXTENSIONS
 
     def _try_ocr_extract(self, path: Path) -> _OcrAttempt:
         try:
@@ -394,11 +404,14 @@ class DoclingExtractor:
             }
             if document_hash:
                 metadata['document_hash'] = document_hash
+            if self._is_image_source(path):
+                metadata['ocr_used'] = 'true'
+                metadata['converter'] = 'docling+ocr'
 
             word_count = len(text.split()) if text else 0
 
             # If extraction returned empty text and OCR is enabled, try OCR as fallback
-            if not text.strip() and settings.enable_ocr_for_images and path.suffix.lower() == '.pdf':
+            if not text.strip() and self._should_try_ocr(path):
                 log.info(
                     'trying_ocr_fallback',
                     path=str(path),
@@ -472,7 +485,7 @@ class DoclingExtractor:
             error_code, retryable = _classify_docling_exception(exc)
 
             # If OCR is enabled and this is a PDF, try OCR as fallback for extraction failures
-            if settings.enable_ocr_for_images and path.suffix.lower() == '.pdf':
+            if self._should_try_ocr(path):
                 log.info(
                     'trying_ocr_fallback_after_exception',
                     path=str(path),

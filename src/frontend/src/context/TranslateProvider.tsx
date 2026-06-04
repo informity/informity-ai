@@ -156,7 +156,6 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     })
 
     return () => controller.abort()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const setFile = useCallback(async (file: FileInfo | null) => {

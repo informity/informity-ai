@@ -1,60 +1,67 @@
 /**
  * Shared download utilities used by both Chat and Translate.
  */
-/* eslint-disable @typescript-eslint/no-explicit-any */
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function nodeToText(node: any): string {
+type MarkdownNode = {
+  type: string
+  children?: MarkdownNode[]
+  value?: string
+  alt?: string
+  ordered?: boolean
+  start?: number
+}
+
+function nodeToText(node: MarkdownNode | null | undefined): string {
   if (!node) return ''
   switch (node.type) {
     case 'root':
-      return (node.children as any[]).map(nodeToText).join('\n\n').replace(/\n{3,}/g, '\n\n').trim()
+      return (node.children ?? []).map(nodeToText).join('\n\n').replace(/\n{3,}/g, '\n\n').trim()
     case 'paragraph':
-      return (node.children as any[]).map(nodeToText).join('')
+      return (node.children ?? []).map(nodeToText).join('')
     case 'text':
       return node.value ?? ''
     case 'strong': case 'emphasis': case 'delete':
-      return (node.children as any[]).map(nodeToText).join('')
+      return (node.children ?? []).map(nodeToText).join('')
     case 'inlineCode':
       return node.value ?? ''
     case 'code':
       return node.value ?? ''
     case 'link':
-      return (node.children as any[]).map(nodeToText).join('')
+      return (node.children ?? []).map(nodeToText).join('')
     case 'image':
       return node.alt ?? ''
     case 'heading':
-      return (node.children as any[]).map(nodeToText).join('')
+      return (node.children ?? []).map(nodeToText).join('')
     case 'list':
-      return (node.children as any[]).map((item: any, i: number) => {
+      return (node.children ?? []).map((item, i: number) => {
         const bullet = node.ordered ? `${(node.start ?? 1) + i}. ` : '• '
         return bullet + nodeToText(item).replace(/\n/g, '\n  ')
       }).join('\n')
     case 'listItem':
-      return (node.children as any[]).map(nodeToText).join('\n')
+      return (node.children ?? []).map(nodeToText).join('\n')
     case 'blockquote':
-      return (node.children as any[]).map(nodeToText).join('\n')
+      return (node.children ?? []).map(nodeToText).join('\n')
     case 'table':
-      return (node.children as any[]).map((row: any) =>
-        (row.children as any[]).map((cell: any) =>
-          (cell.children as any[]).map(nodeToText).join('').trim()
+      return (node.children ?? []).map((row) =>
+        (row.children ?? []).map((cell) =>
+          (cell.children ?? []).map(nodeToText).join('').trim()
         ).join('  ')
       ).join('\n')
     case 'tableRow':
-      return (node.children as any[]).map((cell: any) =>
-        (cell.children as any[]).map(nodeToText).join('').trim()
+      return (node.children ?? []).map((cell) =>
+        (cell.children ?? []).map(nodeToText).join('').trim()
       ).join('  ')
     case 'tableCell':
-      return (node.children as any[]).map(nodeToText).join('')
+      return (node.children ?? []).map(nodeToText).join('')
     case 'thematicBreak': case 'html': case 'definition': case 'footnoteDefinition':
       return ''
     case 'break':
       return '\n'
     default:
-      if (Array.isArray(node.children)) return (node.children as any[]).map(nodeToText).join('')
+      if (Array.isArray(node.children)) return node.children.map(nodeToText).join('')
       return node.value ?? ''
   }
 }
@@ -66,7 +73,7 @@ function nodeToText(node: any): string {
 export function markdownToPlainText(md: string): string {
   if (!md || typeof md !== 'string') return ''
   const tree = unified().use(remarkParse).use(remarkGfm).parse(md)
-  return nodeToText(tree)
+  return nodeToText(tree as unknown as MarkdownNode)
 }
 
 /** Trigger a browser download of a text file. */

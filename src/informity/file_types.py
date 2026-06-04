@@ -13,6 +13,11 @@ from __future__ import annotations
 
 FILE_TYPE_OPTIONS: list[dict[str, str | list[str]]] = [
     {'id': 'pdf',         'label': 'PDF Documents',                'extensions': ['.pdf']},
+    {
+        'id': 'image',
+        'label': 'Images',
+        'extensions': ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp'],
+    },
     {'id': 'docx',        'label': 'Word Documents',                'extensions': ['.docx']},
     {'id': 'spreadsheet', 'label': 'Spreadsheets',                  'extensions': ['.xlsx', '.csv']},
     {'id': 'pptx',        'label': 'PowerPoint Presentations',      'extensions': ['.pptx']},

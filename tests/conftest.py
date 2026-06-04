@@ -153,6 +153,18 @@ def sample_html(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def sample_ocr_png() -> Path:
+    # Reusable OCR regression fixture used by image extraction smoke tests.
+    return _REPO_ROOT / 'tests' / 'fixtures' / 'ocr-smoke.png'
+
+
+@pytest.fixture
+def sample_ocr_jpeg() -> Path:
+    # Reusable OCR regression fixture used by image extraction smoke tests.
+    return _REPO_ROOT / 'tests' / 'fixtures' / 'ocr-smoke.jpg'
+
+
+@pytest.fixture
 def sample_epub(tmp_path: Path) -> Path:
     # Create a sample .epub file with two chapters.
     epub = pytest.importorskip('ebooklib.epub')

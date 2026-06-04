@@ -9,7 +9,7 @@ from docling.datamodel.pipeline_options import (
     PdfPipelineOptions,
     RapidOcrOptions,
 )
-from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.document_converter import DocumentConverter, ImageFormatOption, PdfFormatOption
 
 from informity.config import (
     DirNames,
@@ -42,21 +42,42 @@ def prepare_docling_runtime() -> Path:
     return docling_cache
 
 
-def build_pdf_converter(*, do_ocr: bool, force_full_page_ocr: bool = False) -> DocumentConverter:
+def _build_pipeline_options(*, do_ocr: bool, force_full_page_ocr: bool = False) -> PdfPipelineOptions:
     accelerator_options = AcceleratorOptions(num_threads=settings.embedding_max_threads or 4)
     if do_ocr:
         ocr_options = RapidOcrOptions(lang=[])
         ocr_options.force_full_page_ocr = force_full_page_ocr
-        pipeline_options = PdfPipelineOptions(
+        return PdfPipelineOptions(
             accelerator_options=accelerator_options,
             do_ocr=True,
             ocr_options=ocr_options,
         )
-    else:
-        pipeline_options = PdfPipelineOptions(accelerator_options=accelerator_options)
+    return PdfPipelineOptions(accelerator_options=accelerator_options)
 
-    return DocumentConverter(
-        format_options={
-            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
-        }
+
+def build_docling_converter(
+    *,
+    do_ocr: bool,
+    force_full_page_ocr: bool = False,
+    include_image_formats: bool = False,
+) -> DocumentConverter:
+    pipeline_options = _build_pipeline_options(do_ocr=do_ocr, force_full_page_ocr=force_full_page_ocr)
+    format_options: dict[InputFormat, object] = {
+        InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
+    }
+    if include_image_formats:
+        format_options[InputFormat.IMAGE] = ImageFormatOption(pipeline_options=pipeline_options)
+    return DocumentConverter(format_options=format_options)
+
+
+def build_pdf_converter(
+    *,
+    do_ocr: bool,
+    force_full_page_ocr: bool = False,
+    include_image_formats: bool = False,
+) -> DocumentConverter:
+    return build_docling_converter(
+        do_ocr=do_ocr,
+        force_full_page_ocr=force_full_page_ocr,
+        include_image_formats=include_image_formats,
     )

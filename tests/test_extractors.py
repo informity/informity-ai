@@ -24,8 +24,10 @@ from informity.scanner.extractors.text import TextExtractor
 class TestExtractorRegistry:
     def test_register_extractors(self) -> None:
         register_extractors()
-        # DoclingExtractor handles: .pdf, .docx, .pptx, .xlsx, .html, .htm, .csv
+        # DoclingExtractor handles: .pdf, image, .docx, .pptx, .xlsx, .html, .htm, .csv
         assert get_extractor(Path("test.pdf")) is not None
+        assert get_extractor(Path("test.jpg")) is not None
+        assert get_extractor(Path("test.png")) is not None
         assert get_extractor(Path("test.docx")) is not None
         assert get_extractor(Path("test.pptx")) is not None
         assert get_extractor(Path("test.xlsx")) is not None
@@ -140,6 +142,9 @@ class TestDoclingExtractor:
 
     def test_can_handle(self) -> None:
         assert self.extractor.can_handle(Path("doc.pdf"))
+        assert self.extractor.can_handle(Path("image.jpg"))
+        assert self.extractor.can_handle(Path("image.png"))
+        assert self.extractor.can_handle(Path("image.tiff"))
         assert self.extractor.can_handle(Path("doc.docx"))
         assert self.extractor.can_handle(Path("slides.pptx"))
         assert self.extractor.can_handle(Path("data.xlsx"))
@@ -147,6 +152,71 @@ class TestDoclingExtractor:
         assert self.extractor.can_handle(Path("page.html"))
         assert self.extractor.can_handle(Path("page.htm"))
         assert not self.extractor.can_handle(Path("doc.txt"))
+
+    def test_extract_image_uses_ocr_fallback(self, monkeypatch, tmp_path: Path) -> None:
+        image_file = tmp_path / 'scan.png'
+        image_file.write_bytes(b'not-a-real-image-but-good-enough-for-a-mocked-test')
+
+        class _EmptyDocument:
+            tables: list[object] = []
+            form_items: list[object] = []
+            key_value_items: list[object] = []
+            pictures: list[object] = []
+            pages: list[object] = []
+
+            def iterate_items(self, with_groups: bool = True):  # type: ignore[no-untyped-def]
+                return iter(())
+
+            def export_to_markdown(self) -> str:
+                return ''
+
+            def export_to_text(self) -> str:
+                return ''
+
+        class _EmptyResult:
+            def __init__(self) -> None:
+                self.document = _EmptyDocument()
+                self.input = type('Input', (), {'page_count': 1, 'document_hash': 'hash'})()
+
+        class _OcrDocument:
+            pages: list[object] = [object()]
+
+            def export_to_markdown(self) -> str:
+                return 'OCR text from image'
+
+            def export_to_text(self) -> str:
+                return 'OCR text from image'
+
+        class _OcrResult:
+            def __init__(self) -> None:
+                self.document = _OcrDocument()
+                self.input = type('Input', (), {'page_count': 1})()
+
+        monkeypatch.setattr(self.extractor, '_get_converter', lambda: type('Converter', (), {'convert': lambda _self, _path: _EmptyResult()})())
+        monkeypatch.setattr(self.extractor, '_create_ocr_converter', lambda: type('OcrConverter', (), {'convert': lambda _self, _path: _OcrResult()})())
+
+        doc = self.extractor.extract(image_file)
+
+        assert doc.error is None
+        assert doc.text == 'OCR text from image'
+        assert doc.metadata.get('ocr_used') == 'true'
+        assert doc.metadata.get('converter') == 'docling+ocr'
+        assert doc.word_count > 0
+        assert doc.page_count == 1
+
+    @pytest.mark.parametrize('fixture_name', ['sample_ocr_png', 'sample_ocr_jpeg'])
+    def test_extract_real_image_uses_ocr(self, request, fixture_name: str) -> None:
+        image_file: Path = request.getfixturevalue(fixture_name)
+
+        doc = self.extractor.extract(image_file)
+        self._skip_if_models_unavailable(doc)
+
+        assert doc.error is None
+        assert doc.metadata.get('ocr_used') == 'true'
+        assert doc.text.strip() != ''
+        assert 'ocr' in doc.text.lower() or 'smoke' in doc.text.lower()
+        assert doc.word_count > 0
+        assert doc.preview_text.strip() != ''
 
     def test_extract_pdf(self, sample_pdf: Path) -> None:
         doc = self.extractor.extract(sample_pdf)
