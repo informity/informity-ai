@@ -330,7 +330,11 @@ async def test_retry_setup_ollama_uses_classic_workflow(monkeypatch: pytest.Monk
         'create_task',
         lambda coro: (called.__setitem__('scheduled', True), coro.close(), _DummyTask())[2],
     )
-    monkeypatch.setattr(routes_system, '_load_setup_state_file', lambda _path: ({'selected_tier': 'small', 'model_filename': 'x.gguf'}, None))
+    monkeypatch.setattr(
+        routes_system,
+        '_load_setup_state_file',
+        lambda _path: ({'selected_tier': 'small', 'model_filename': 'Qwen_Qwen3.5-9B-Q4_K_M.gguf'}, None),
+    )
 
     response = await routes_system.retry_setup()
     assert response.accepted is True

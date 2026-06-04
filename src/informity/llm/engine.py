@@ -51,7 +51,10 @@ _PROMPT_RENDER_EXCEPTIONS = (ValueError, TypeError, AttributeError, RuntimeError
 
 # Sentinel put on the queue when the stream worker is done
 _STREAM_END: object = object()
-_FIRST_TOKEN_WATCHDOG_MIN_SECONDS = 45.0
+_FIRST_TOKEN_WATCHDOG_MIN_SECONDS = max(
+    45.0,
+    float(getattr(settings, 'diagnostics_alert_max_first_token_seconds', 90.0) or 90.0),
+)
 _FIRST_TOKEN_WATCHDOG_MAX_SECONDS = 180.0
 _FIRST_TOKEN_WATCHDOG_RATIO = 0.30
 _SLOW_PROFILE_TPS_THRESHOLD = 6.0

@@ -51,6 +51,11 @@ _DEFAULT_LLM_MODEL_ID = 'qwen3.6:35b'
 _DEFAULT_LLM_PROVIDER = 'local_gguf'
 _DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434'
 _DEFAULT_OLLAMA_TIMEOUT_SECONDS = 120.0
+_LLM_MODEL_ID_TO_CANONICAL_FILENAME = {
+    'qwen3.5:9b': 'Qwen_Qwen3.5-9B-Q4_K_M.gguf',
+    'qwen3:14b': 'Qwen3-14B-Q5_K_M.gguf',
+    'qwen3.6:35b': 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf',
+}
 
 # Default embedding model (sentence-transformers)
 _DEFAULT_EMBEDDING_MODEL = 'nomic-ai/nomic-embed-text-v1.5'
@@ -269,6 +274,30 @@ def _load_config_file_values() -> dict:
                     data['ui_theme'] = _DEFAULT_UI_THEME
             else:
                 data['ui_theme'] = _DEFAULT_UI_THEME
+        raw_llm_filename = str(data.get('llm_model_filename', '') or '').strip()
+        if raw_llm_filename:
+            resolved_llm_model_id = str(data.get('llm_model_id', '') or '').strip().lower()
+            canonical_llm_filename = _LLM_MODEL_ID_TO_CANONICAL_FILENAME.get(resolved_llm_model_id, '')
+            models_dir = (config_path.parent / 'models' / 'llm').resolve()
+            if canonical_llm_filename and canonical_llm_filename != raw_llm_filename and not (models_dir / raw_llm_filename).exists():
+                data['llm_model_filename'] = canonical_llm_filename
+                try:
+                    config_path.write_text(serialize_config(data), encoding='utf-8')
+                    ensure_private_file(config_path)
+                    log.info(
+                        'repaired_config_llm_model_filename',
+                        path=str(config_path),
+                        old_filename=raw_llm_filename,
+                        new_filename=canonical_llm_filename,
+                    )
+                except OSError as exc:
+                    log.warning(
+                        'repair_config_llm_model_filename_failed',
+                        path=str(config_path),
+                        old_filename=raw_llm_filename,
+                        new_filename=canonical_llm_filename,
+                        error=str(exc),
+                    )
         return data
     except (json.JSONDecodeError, OSError):
         return {}
@@ -560,7 +589,7 @@ class Settings(BaseSettings):
     # Diagnostics performance/resource alert budgets for run artifacts.
     diagnostics_alert_max_elapsed_seconds: float = 120.0
     diagnostics_alert_analysis_max_elapsed_seconds: float = 150.0
-    diagnostics_alert_max_first_token_seconds: float = 45.0
+    diagnostics_alert_max_first_token_seconds: float = 90.0
     diagnostics_alert_max_rss_delta_mb: float = 1024.0
 
     # -- UI (frontend-only; persisted so theme survives restarts) -------------
