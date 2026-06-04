@@ -148,6 +148,10 @@ class DoclingExtractor:
     def _should_try_ocr(self, path: Path) -> bool:
         return settings.enable_ocr_for_images and path.suffix.lower() in _DOCLING_OCR_SUPPORTED_EXTENSIONS
 
+    @staticmethod
+    def _is_image_source(path: Path) -> bool:
+        return path.suffix.lower() in _IMAGE_SUPPORTED_EXTENSIONS
+
     def _try_ocr_extract(self, path: Path) -> _OcrAttempt:
         try:
             ocr_converter = self._create_ocr_converter()
@@ -400,6 +404,9 @@ class DoclingExtractor:
             }
             if document_hash:
                 metadata['document_hash'] = document_hash
+            if self._is_image_source(path):
+                metadata['ocr_used'] = 'true'
+                metadata['converter'] = 'docling+ocr'
 
             word_count = len(text.split()) if text else 0
 
