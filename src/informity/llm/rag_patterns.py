@@ -5,12 +5,17 @@ Deterministic pattern and helper utilities used by the RAG runtime.
 """
 
 import re
+from typing import TYPE_CHECKING
 
 from informity.db.models import ChatMessage
 from informity.llm.promptcue_signals import extract_prompt_signals
-from informity.llm.query_classifier import QueryClassification
 from informity.llm.query_patterns import build_supported_filename_extension_pattern
 from informity.llm.types import QueryType
+
+if TYPE_CHECKING:
+    from informity.llm.query_classifier import QueryClassification
+else:
+    QueryClassification = object
 
 _FILENAME_EXTENSION_ALT = build_supported_filename_extension_pattern()
 
@@ -114,6 +119,10 @@ def extract_explicit_title_reference(question: str) -> str | None:
     if noun_match:
         return normalize_query_text(noun_match.group(1))
     return None
+
+
+def has_comparison_cue(text: str) -> bool:
+    return bool(TITLE_ALIGNMENT_CUE_PATTERN.search(str(text or '')))
 
 
 def tokenize_query_terms(text: str) -> set[str]:

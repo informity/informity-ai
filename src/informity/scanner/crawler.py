@@ -288,6 +288,27 @@ def _compute_file_hash_and_stat(file_path: str) -> tuple[str, int, float] | None
         return None
 
 
+def _build_scanned_file_from_result(
+    path: Path,
+    *,
+    content_hash: str,
+    size_bytes: int,
+    mtime: float,
+) -> ScannedFile | None:
+    try:
+        return ScannedFile(
+            path=path.resolve(),
+            filename=path.name,
+            extension=path.suffix.lower(),
+            size_bytes=size_bytes,
+            content_hash=content_hash,
+            modified_at=datetime.fromtimestamp(mtime, tz=UTC),
+        )
+    except OSError as exc:
+        log.warning('file_processing_failed', path=str(path), error=str(exc))
+        return None
+
+
 def _build_scanned_files(paths: list[Path]) -> list[ScannedFile]:
     # Build ScannedFile objects with hashes for all candidate paths.
     # Uses parallel hashing for batches larger than a threshold.
@@ -357,17 +378,14 @@ def _build_scanned_files_parallel(
             log.warning('hash_failed', path=str(path))
             continue
         content_hash, size_bytes, mtime = result
-        try:
-            results.append(ScannedFile(
-                path=path.resolve(),
-                filename=path.name,
-                extension=path.suffix.lower(),
-                size_bytes=size_bytes,
-                content_hash=content_hash,
-                modified_at=datetime.fromtimestamp(mtime, tz=UTC),
-            ))
-        except OSError as exc:
-            log.warning('file_processing_failed', path=str(path), error=str(exc))
+        scanned = _build_scanned_file_from_result(
+            path,
+            content_hash=content_hash,
+            size_bytes=size_bytes,
+            mtime=mtime,
+        )
+        if scanned is not None:
+            results.append(scanned)
     return results
 
 
@@ -378,18 +396,13 @@ def _path_to_scanned_file(path: Path) -> ScannedFile | None:
         log.warning('scan_file_error', path=str(path), error='hash_or_stat_failed')
         return None
     content_hash, size_bytes, mtime = result
-    try:
-        return ScannedFile(
-            path=path.resolve(),
-            filename=path.name,
-            extension=path.suffix.lower(),
-            size_bytes=size_bytes,
-            content_hash=content_hash,
-            modified_at=datetime.fromtimestamp(mtime, tz=UTC),
-        )
-    except OSError as exc:
-        log.warning('scan_file_error', path=str(path), error=str(exc))
-        return None
+    scanned = _build_scanned_file_from_result(
+        path,
+        content_hash=content_hash,
+        size_bytes=size_bytes,
+        mtime=mtime,
+    )
+    return scanned
 
 
 def scanned_file_for_path(path: Path) -> ScannedFile | None:

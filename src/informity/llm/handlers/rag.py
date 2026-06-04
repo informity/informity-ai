@@ -31,6 +31,7 @@ from informity.llm.query_rewrite import build_followup_retrieval_query
 from informity.llm.rag_patterns import (
     SUMMARY_BLOCK_TYPE_EXCLUDE,
     evaluate_substantive_evidence,
+    has_comparison_cue,
     has_explicit_title_reference,
     has_extraction_cue,
     has_referential_followup_language,
@@ -536,7 +537,7 @@ class RAGHandler:
             )
             strict_title_alignment = bool(
                 explicit_title_reference
-                and not re.search(r'\b(compare|between|versus|vs)\b', str(question or ''), re.IGNORECASE)
+                and not has_comparison_cue(question)
             )
             disable_term_expansion_for_focused_title = False
         summary_style_request = is_summary_style_request(question, classification)

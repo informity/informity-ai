@@ -47,6 +47,12 @@ from informity.llm.query_patterns import (
     build_year_aggregate_cue_pattern,
 )
 from informity.llm.query_rewrite import build_followup_retrieval_query
+from informity.llm.rag_patterns import (
+    extract_explicit_title_reference,
+    has_comparison_cue,
+    has_topic_overlap_with_previous_user,
+    normalize_query_text,
+)
 from informity.llm.term_dictionary import expand_query_for_routing
 from informity.llm.types import (
     BlockType,
@@ -111,31 +117,6 @@ except Exception:  # noqa: BLE001 - keep deterministic fallback when promptcue i
         re.IGNORECASE,
     )
 _QUESTION_WORD_PATTERN = re.compile(r'\b(what|who|when|where|why|how|which)\b', re.IGNORECASE)
-_REWRITE_STOPWORDS = {
-    'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'do', 'for', 'from', 'give', 'has', 'have',
-    'how', 'i', 'in', 'is', 'it', 'its', 'list', 'me', 'of', 'on', 'or', 'our', 'please', 'show',
-    'that', 'the', 'their', 'them', 'there', 'these', 'they', 'this', 'to', 'us', 'what', 'when',
-    'where', 'which', 'who', 'why', 'with', 'you', 'your',
-}
-_TITLE_ALIGNMENT_CUE_PATTERN = re.compile(
-    r'\b(compare|between|versus|vs)\b'
-    r'|'
-    r'\b(?:in|from)\s+.{0,120}\b(document|file|text|record|entry|item|source|material|attachment|note|paper)\b',
-    re.IGNORECASE,
-)
-_QUOTED_TITLE_PATTERN = re.compile(r'["“](.{3,120}?)[”"]')
-_TITLE_IN_PREPOSITION_PATTERN = re.compile(
-    r'\b(?:of|in|about|from)\s+'
-    r'((?:[A-Z][A-Za-z0-9\'_-]*)(?:\s+[A-Z][A-Za-z0-9\'_-]*){1,8})'
-    r'(?:\s+(?:file|document|text|record|entry|item|source|material|attachment|note|paper))?\b'
-)
-_TITLE_BEFORE_DOCUMENT_NOUN_PATTERN = re.compile(
-    r'\b('
-    r'(?!(?:What|Who|When|Where|Why|How|Which|Tell|List)\b)'
-    r'(?:[A-Z][A-Za-z0-9\'_-]*)(?:\s+[A-Z][A-Za-z0-9\'_-]*){1,8}'
-    r')\s+'
-    r'(?:book|document|file|text|record|entry|item|source|material|attachment|note|paper)\b'
-)
 _ANAPHORIC_SCOPE_PATTERN = re.compile(
     r'\b(this|that|it|'
     r'this\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper|book)|'
@@ -144,61 +125,6 @@ _ANAPHORIC_SCOPE_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _FILENAME_EXTENSION_ALT = build_supported_filename_extension_pattern()
-
-
-def _normalize_text(text: str) -> str:
-    return ' '.join(str(text or '').strip().split())
-
-
-def _extract_explicit_title_reference(text: str) -> str | None:
-    message = _normalize_text(text)
-    if not message:
-        return None
-    quoted_match = _QUOTED_TITLE_PATTERN.search(message)
-    if quoted_match:
-        return _normalize_text(quoted_match.group(1))
-    preposition_match = _TITLE_IN_PREPOSITION_PATTERN.search(message)
-    if preposition_match:
-        return _normalize_text(preposition_match.group(1))
-    noun_match = _TITLE_BEFORE_DOCUMENT_NOUN_PATTERN.search(message)
-    if noun_match:
-        return _normalize_text(noun_match.group(1))
-    return None
-
-
-def _tokenize_query_terms(text: str) -> set[str]:
-    lowered = _normalize_text(text).lower()
-    if not lowered:
-        return set()
-    raw_terms = set(re.findall(r"[a-z0-9][a-z0-9'_-]{2,}", lowered))
-    terms: set[str] = set()
-    for term in raw_terms:
-        if term in _REWRITE_STOPWORDS:
-            continue
-        terms.add(term)
-        if term.endswith('s') and len(term) > 4:
-            terms.add(term[:-1])
-    return terms
-
-
-def _has_topic_overlap_with_previous_user(
-    *,
-    question: str,
-    history: list[ChatMessage] | None,
-) -> bool:
-    if not history:
-        return False
-    current_terms = _tokenize_query_terms(question)
-    if not current_terms:
-        return False
-    for message in reversed(history):
-        if message.role != 'user':
-            continue
-        previous_terms = _tokenize_query_terms(message.content or '')
-        if not previous_terms:
-            continue
-        return bool(current_terms & previous_terms)
-    return False
 
 
 def _build_history_aware_retrieval_query(
@@ -212,7 +138,7 @@ def _build_history_aware_retrieval_query(
     has_referential_followup: bool,
     preferred_previous_user: str | None = None,
 ) -> tuple[str | None, bool]:
-    normalized_question = _normalize_text(question)
+    normalized_question = normalize_query_text(question)
     if not normalized_question:
         return None, False
     if not bool(settings.rag_query_rewrite_enabled):
@@ -228,9 +154,9 @@ def _build_history_aware_retrieval_query(
     if intent not in {IntentLabel.FOCUSED, IntentLabel.COVERAGE}:
         return None, False
 
-    has_topical_overlap = _has_topic_overlap_with_previous_user(
+    has_topical_overlap = has_topic_overlap_with_previous_user(
         question=normalized_question,
-        history=history,
+        history=history or [],
     )
     if not has_referential_followup and not has_topical_overlap:
         return None, False
@@ -241,10 +167,10 @@ def _build_history_aware_retrieval_query(
     max_chars_per_turn = max(1, int(settings.rag_query_rewrite_max_chars_per_turn))
     max_query_chars = max(64, int(settings.rag_query_rewrite_max_query_chars))
 
-    previous_user = _normalize_text(preferred_previous_user or '')
+    previous_user = normalize_query_text(preferred_previous_user or '')
     if not previous_user:
         for message in reversed(history[-history_limit:]):
-            content = _normalize_text(message.content or '')
+            content = normalize_query_text(message.content or '')
             if not content:
                 continue
             if not previous_user and message.role == 'user':
@@ -264,7 +190,7 @@ def _build_history_aware_retrieval_query(
 
 
 def _decompose_content_query(text: str) -> tuple[str, float, list[str]]:
-    normalized = _normalize_text(text)
+    normalized = normalize_query_text(text)
     if not normalized:
         return '', 0.0, []
 
@@ -304,7 +230,7 @@ def _decompose_content_query(text: str) -> tuple[str, float, list[str]]:
             best_text = segment
             best_reasons = reasons
 
-    extracted = _normalize_text(best_text)
+    extracted = normalize_query_text(best_text)
     if not extracted:
         return normalized, 0.0, ['fallback_original']
     if _DISCOURSE_PREFIX_PATTERN.match(extracted):
@@ -925,7 +851,7 @@ def classify_query(
             response_shape = OutputShape.NARRATIVE_SYNTHESIS
             reason_codes.append('deterministic_override_year_aggregate_narrative_shape')
 
-    explicit_title_reference = _extract_explicit_title_reference(text)
+    explicit_title_reference = extract_explicit_title_reference(text)
     has_referential_followup = bool(
         prompt_signals.has_referential_followup
         or _ANAPHORIC_SCOPE_PATTERN.search(text)
@@ -936,9 +862,9 @@ def classify_query(
         for message in reversed(history):
             if message.role != 'user':
                 continue
-            referential_title_anchor = _extract_explicit_title_reference(message.content or '')
+            referential_title_anchor = extract_explicit_title_reference(message.content or '')
             if referential_title_anchor:
-                referential_anchor_question = _normalize_text(message.content or '')
+                referential_anchor_question = normalize_query_text(message.content or '')
                 break
     if (
         referential_title_anchor is None
@@ -954,9 +880,9 @@ def classify_query(
         for message in reversed(history):
             if message.role != 'user':
                 continue
-            referential_title_anchor = _extract_explicit_title_reference(message.content or '')
+            referential_title_anchor = extract_explicit_title_reference(message.content or '')
             if referential_title_anchor:
-                referential_anchor_question = _normalize_text(message.content or '')
+                referential_anchor_question = normalize_query_text(message.content or '')
                 reason_codes.append('focus_title_anchor_from_history')
                 break
     if referential_title_anchor is not None:
@@ -966,13 +892,13 @@ def classify_query(
         and (
             explicit_title_reference is not None
             or referential_title_anchor is not None
-            or _TITLE_ALIGNMENT_CUE_PATTERN.search(text)
+            or has_comparison_cue(text)
             or any(len(term) >= 6 and ' ' in term for term in source_terms)
         )
     )
     strict_title_alignment = bool(
         (explicit_title_reference is not None or referential_title_anchor is not None)
-        and not re.search(r'\b(compare|between|versus|vs)\b', text, re.IGNORECASE)
+        and not has_comparison_cue(text)
     )
     title_alignment_query = text
     if referential_title_anchor:

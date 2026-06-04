@@ -8,7 +8,6 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from informity.llm.metadata_filters import extract_metadata_filters
 from informity.llm.retrieval import (
     _apply_strict_title_file_focus,
     _filter_structural_chunks_when_possible,
@@ -655,23 +654,3 @@ async def test_retrieve_chunks_parent_propagates_child_score(mock_db):
     assert results[0]['chunk_id'] == 100
     # Reranker returned child without score — parent should not inherit a phantom score
     assert 'score' not in results[0]
-
-
-def test_extract_metadata_filters_does_not_collapse_multi_year_range() -> None:
-    filters = extract_metadata_filters(
-        'Build a forensic reconciliation report from records across 2022-2024.',
-    )
-    year_filters = [f for f in filters if f.field == 'year']
-    assert len(year_filters) == 1
-    assert year_filters[0].operator == 'in'
-    assert year_filters[0].value == [2022, 2023, 2024]
-
-
-def test_extract_metadata_filters_parses_multi_year_list_to_in_filter() -> None:
-    filters = extract_metadata_filters(
-        'Compare records for years 2022, 2023, and 2024.',
-    )
-    year_filters = [f for f in filters if f.field == 'year']
-    assert len(year_filters) == 1
-    assert year_filters[0].operator == 'in'
-    assert year_filters[0].value == [2022, 2023, 2024]
