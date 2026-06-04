@@ -134,7 +134,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('chunk_child_size_tokens', 'Child chunk size in tokens used for precise search matching (typically 1–2 sentences).'),
             ('chunk_overlap_tokens', 'Token overlap between consecutive chunks for context continuity.'),
             ('chunk_size_tokens', 'Parent chunk size in tokens. Larger values give the LLM more surrounding context per retrieved passage.'),
-            ('enable_ocr_for_images', 'When true, enable OCR fallback for image-only PDFs when regular text extraction fails.'),
+            ('enable_ocr_for_images', 'When true, enable OCR fallback for image-based documents and image-only PDFs when regular text extraction fails.'),
             ('entity_extract_acronym', 'When true, extract acronyms into the term dictionary during indexing.'),
             ('entity_extract_location', 'When true, extract location names into the term dictionary during indexing.'),
             ('entity_extract_numeric_id', 'When true, extract numeric identifiers (IDs, codes) into the term dictionary during indexing.'),

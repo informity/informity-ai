@@ -335,7 +335,7 @@ class SettingsResponse(BaseModel):
     embedding_batch_size:    int
     embedding_max_threads:   int   = 6
     llm_cpu_threads:         int   = 8
-    enable_ocr_for_images:        bool  = True  # Enable OCR fallback for image-only PDFs by default
+    enable_ocr_for_images:        bool  = True  # Enable OCR fallback for image-based documents and image-only PDFs by default
     max_indexable_file_size_mb:   int   = 100
     scan_file_timeout_seconds:    int   = 600
     pdf_extraction_strategy_order: list[str] = Field(default_factory=lambda: list(DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER))
@@ -430,7 +430,7 @@ class SettingsUpdateRequest(BaseModel):
     embedding_batch_size:   int | None = None
     embedding_max_threads:  int | None = None
     llm_cpu_threads:        int | None = None
-    enable_ocr_for_images:        bool | None = None  # Enable OCR for image-only PDFs when regular extraction fails
+    enable_ocr_for_images:        bool | None = None  # Enable OCR for image-based documents and image-only PDFs when regular extraction fails
     max_indexable_file_size_mb:   int | None  = None
     scan_file_timeout_seconds:    int | None  = None
     pdf_extraction_strategy_order: list[str] | None = None

@@ -1369,7 +1369,7 @@ export function SettingsView({
               <i className="ri-arrow-right-down-box-line subsection-icon ui-subsection-icon" aria-hidden="true" />
               Document Extraction
             </div>
-            <p className="settings-subsection-description ui-subsection-description">Options for extracting text from documents, including image-only PDFs.</p>
+            <p className="settings-subsection-description ui-subsection-description">Options for extracting text from documents, including image-based documents and image-only PDFs.</p>
           </div>
           <label className="settings-checkbox-row">
             <input

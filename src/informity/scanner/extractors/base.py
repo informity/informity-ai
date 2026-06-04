@@ -79,7 +79,7 @@ def register_extractors() -> None:
     from informity.scanner.extractors.text import TextExtractor
 
     extractor_classes = [
-        DoclingExtractor,  # Unified extractor for PDF, DOCX, PPTX, XLSX, HTML, CSV
+        DoclingExtractor,  # Unified extractor for PDF, image, DOCX, PPTX, XLSX, HTML, CSV
         EpubExtractor,     # EPUB ebooks
         TextExtractor,      # Plain text files (.txt, .md, .rst, .log)
     ]
