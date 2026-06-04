@@ -8,10 +8,7 @@ from typing import Any, Protocol
 SourceProvider = str
 SourceItemId = str
 FILESYSTEM_PROVIDER: SourceProvider = 'filesystem'
-MAIL_APPLE_PROVIDER: SourceProvider = 'mail.apple'
-MAIL_OUTLOOK_PROVIDER: SourceProvider = 'mail.outlook'
 SOURCE_ENTITY_FILE = 'file'
-SOURCE_ENTITY_MAIL = 'mail'
 
 
 @dataclass(frozen=True)
@@ -46,9 +43,3 @@ class ContentSourceAdapter(Protocol):
 
     def fetch(self, ref: SourceItemRef) -> IngestionItem:
         """Read + normalize one item; returns only normalized ingestion payload."""
-
-    def dedupe_key(self, item: IngestionItem) -> str:
-        """Stable dedupe identity for provider item."""
-
-    def canonical_id(self, item: IngestionItem) -> str:
-        """Stable source identity used for storage uniqueness."""

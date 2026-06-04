@@ -193,15 +193,7 @@ class _InformityEventHandler(FileSystemEventHandler):
 
 _observer: Observer | None = None
 _debouncer: _Debouncer | None = None
-# Serialize _process_pending so concurrent flushes don't race on the same paths.
 _process_lock: asyncio.Lock | None = None
-
-
-def _get_process_lock() -> asyncio.Lock:
-    global _process_lock
-    if _process_lock is None:
-        _process_lock = asyncio.Lock()
-    return _process_lock
 
 
 async def _process_pending(items: list[tuple[str, str]]) -> None:
@@ -219,7 +211,10 @@ async def _process_pending(items: list[tuple[str, str]]) -> None:
     from informity.scanner.crawler import scanned_file_for_path
     from informity.scanner.extractors.base import register_extractors
 
-    async with _get_process_lock(), op_state.get_ingestion_lock():
+    global _process_lock
+    if _process_lock is None:
+        _process_lock = asyncio.Lock()
+    async with _process_lock, op_state.get_ingestion_lock():
         register_extractors()
         db = await get_connection()
         try:

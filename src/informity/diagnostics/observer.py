@@ -18,7 +18,6 @@ _INSUFFICIENT_RETRIEVAL_MIN_CHUNKS = 3
 _COMPLEX_QUERY_MIN_WORDS = 10
 _SIMPLE_QUERY_TYPE = QueryType.SIMPLE
 _VERY_SHORT_ANSWER_MAX_CHARS = 20
-_OBSERVER_HEURISTIC_PROFILE = 'diagnostics_observer_v1'
 _EVIDENCE_TOKEN_PATTERN = re.compile(r'[A-Za-z0-9]+')
 _CLAIM_SPLIT_PATTERN = re.compile(r'(?<=[.!?])\s+')
 _BULLET_PREFIX_PATTERN = re.compile(r'^\s*(?:[-*•]|\d+\.)\s+')
@@ -134,45 +133,6 @@ def detect_issues(answer: str, metrics: EvalMetrics) -> list[IssueType]:
         issues.append(IssueType.unsupported_claims_detected)
 
     return issues
-
-
-def populate_signals(answer: str, metrics: EvalMetrics) -> dict:
-    """
-    Extract quality signals from answer and metrics.
-
-    Returns a dictionary of quality signals that can be used for analysis.
-
-    Args:
-        answer: The generated answer text
-        metrics: EvalMetrics dataclass with response metrics
-
-    Returns:
-        Dictionary of quality signals
-    """
-    signals: dict = {
-        'heuristic_profile': _OBSERVER_HEURISTIC_PROFILE,
-        'has_retrieval': metrics.raw_chunks_count > 0,
-        'has_sources': metrics.sources_count > 0,
-        'answer_length': metrics.answer_length,
-        'generation_time': metrics.generation_seconds,
-        'query_type': metrics.query_type,
-    }
-
-    # Add answer quality signals
-    if answer:
-        signals['has_markdown'] = bool(re.search(r'[#*\[\]`]', answer))
-        signals['has_list'] = bool(re.search(r'^\s*[-*•]|\d+\.', answer, re.MULTILINE))
-        signals['has_table'] = bool(re.search(r'\|.*\|', answer))
-        signals['word_count'] = len(answer.split())
-    else:
-        signals['has_markdown'] = False
-        signals['has_list'] = False
-        signals['has_table'] = False
-        signals['word_count'] = 0
-
-    return signals
-
-
 def estimate_evidence_metrics(
     *,
     answer: str,

@@ -37,6 +37,13 @@ _AGGREGATION_PATTERN = build_aggregation_pattern()
 _COUNT_PATTERN = build_count_pattern()
 _ENUMERATION_PATTERN = build_enumeration_pattern()
 _FILE_LIST_PATTERN = build_file_list_pattern()
+
+
+def _apply_filename_filter(conditions: list[str], params: list[str | int], filename_filter: str) -> None:
+    conditions.append('filename LIKE ?')
+    params.append(f'%{filename_filter}%')
+
+
 class MetadataHandler:
     """
     Handler for metadata queries (count, enumeration, file listing).
@@ -189,8 +196,7 @@ class MetadataHandler:
 
         if classification.filename_filter:
             # Filename filter for metadata queries (e.g., "how many files named X.pdf")
-            conditions.append('filename = ?')
-            params.append(classification.filename_filter)
+            _apply_filename_filter(conditions, params, classification.filename_filter)
 
         where_clause = ''
         if conditions:
@@ -243,8 +249,7 @@ class MetadataHandler:
                 params.append(extension)
 
             if classification.filename_filter:
-                conditions.append('filename = ?')
-                params.append(classification.filename_filter)
+                _apply_filename_filter(conditions, params, classification.filename_filter)
 
             # Always enforce year presence; append safely with or without existing filters.
             where_parts = list(conditions)
@@ -297,8 +302,7 @@ class MetadataHandler:
             conditions.append('extension = ?')
             params.append(extension)
         if classification.filename_filter:
-            conditions.append('filename = ?')
-            params.append(classification.filename_filter)
+            _apply_filename_filter(conditions, params, classification.filename_filter)
         if group_field == 'year':
             conditions.append('year IS NOT NULL')
         if group_field == 'category':
@@ -554,8 +558,7 @@ class MetadataHandler:
             params.append(extension)
 
         if classification.filename_filter:
-            conditions.append('filename = ?')
-            params.append(classification.filename_filter)
+            _apply_filename_filter(conditions, params, classification.filename_filter)
 
         where_clause = ''
         if conditions:

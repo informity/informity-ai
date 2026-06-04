@@ -352,7 +352,7 @@ async def _backfill_page_counts(conn: object) -> None:
                 page_count = len(pdf_doc)
                 if hasattr(pdf_doc, 'close'):
                     pdf_doc.close()
-            except Exception:
+            except (OSError, RuntimeError, ValueError, TypeError):
                 pass  # fall through to token estimate
 
         if page_count is None and tokens > 0:
@@ -693,7 +693,7 @@ async def health_check() -> HealthResponse:
 
 
 # ==============================================================================
-# Routers — will be wired up as modules are implemented
+# Routers — wired up below
 # ==============================================================================
 
 app.include_router(scan_router)

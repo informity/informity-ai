@@ -22,6 +22,16 @@ FILE_TYPE_OPTIONS: list[dict[str, str | list[str]]] = [
     {'id': 'data',        'label': 'Data and Configuration Files',  'extensions': ['.json', '.yaml', '.yml', '.toml']},
 ]
 
+SUPPORTED_EXTENSIONS_CANONICAL_ORDER: tuple[str, ...] = tuple(
+    ext
+    for option in FILE_TYPE_OPTIONS
+    for ext in option['extensions']
+)
+
+PLAINTEXT_EXTENSIONS: tuple[str, ...] = (
+    '.txt', '.md', '.rst', '.log', '.json', '.yaml', '.yml', '.toml',
+)
+
 
 def get_file_type_options() -> list[dict[str, str | list[str]]]:
     """Return the canonical list of file type options (id, label, extensions)."""

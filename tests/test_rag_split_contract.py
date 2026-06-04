@@ -22,10 +22,6 @@ async def test_generation_stream_emits_checkpoint_with_query_type_and_summary() 
         top_p=0.9,
         timeout_seconds=0,
         stop_sequences=[],
-        fit_to_budget_enabled=False,
-        stream_soft_limit_ratio=0.8,
-        soft_closeout_allowed=False,
-        checkpoint_query_type='focused',
         dedupe_insufficient_context_after_stream=False,
         insufficient_context_response='insufficient',
         applied_degradations=[],
@@ -37,14 +33,6 @@ async def test_generation_stream_emits_checkpoint_with_query_type_and_summary() 
             summary = item[1]
             continue
         events.append(item)
-
-    checkpoint_events = [
-        item[1]
-        for item in events
-        if isinstance(item, tuple) and len(item) == 2 and item[0] == '__budget_checkpoint__'
-    ]
-    assert checkpoint_events
-    assert all(isinstance(payload, dict) and payload.get('query_type') == 'focused' for payload in checkpoint_events)
 
     token_events = [event for event in events if isinstance(event, str)]
     assert token_events == ['Token one.', ' Token two.']
@@ -66,10 +54,6 @@ async def test_generation_stream_does_not_enforce_contract_shape_in_stream_path(
         top_p=0.9,
         timeout_seconds=120,
         stop_sequences=[],
-        fit_to_budget_enabled=False,
-        stream_soft_limit_ratio=0.8,
-        soft_closeout_allowed=False,
-        checkpoint_query_type='coverage',
         dedupe_insufficient_context_after_stream=False,
         insufficient_context_response='insufficient',
         applied_degradations=[],
@@ -98,5 +82,4 @@ async def test_generation_stream_does_not_enforce_contract_shape_in_stream_path(
     assert '## Scope' not in merged
     assert '| Group | Years Covered |' not in merged
     assert 'Missing Evidence:' not in merged
-
 

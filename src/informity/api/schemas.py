@@ -15,8 +15,11 @@ from informity.config import (
     DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER,
     DEFAULT_RERANKER_MODEL,
 )
-from informity.db.sqlite import CANONICAL_DIAGNOSTICS_QUERY_TYPES, CANONICAL_DIAGNOSTICS_TYPES
-from informity.diagnostics.issue_types import IssueType
+from informity.db.sqlite import (
+    CANONICAL_DIAGNOSTICS_ISSUE_TYPES,
+    CANONICAL_DIAGNOSTICS_QUERY_TYPES,
+    CANONICAL_DIAGNOSTICS_TYPES,
+)
 from informity.version import APP_VERSION
 
 # ==============================================================================
@@ -42,7 +45,7 @@ class ScanErrorItem(BaseModel):
 
 class ScanStatusResponse(BaseModel):
     # Current status of a scan operation.
-    status:          str        # running, completed, failed
+    status:          str        # running, completed, failed, cancelled
     files_scanned:   int
     files_indexed:   int
     errors:          int
@@ -512,9 +515,6 @@ class CurrentChatUpdateRequest(BaseModel):
 
 _DIAGNOSTICS_SUMMARY_SCHEMA = 'informity.diagnostics.summary.v2'
 _DIAGNOSTICS_SUMMARY_AGGREGATION_MODE = 'direct_window_scan'
-_CANONICAL_DIAGNOSTICS_ISSUES = tuple(sorted(issue.value for issue in IssueType))
-
-
 class DiagnosticsResponse(BaseModel):
     """System diagnostics information."""
     app_version: str = APP_VERSION
@@ -552,7 +552,7 @@ class DiagnosticsMetricsSummaryResponse(BaseModel):
     aggregation_mode: str = _DIAGNOSTICS_SUMMARY_AGGREGATION_MODE
     type_taxonomy: list[str] = list(CANONICAL_DIAGNOSTICS_TYPES)
     query_type_taxonomy: list[str] = list(CANONICAL_DIAGNOSTICS_QUERY_TYPES)
-    issue_type_taxonomy: list[str] = list(_CANONICAL_DIAGNOSTICS_ISSUES)
+    issue_type_taxonomy: list[str] = list(CANONICAL_DIAGNOSTICS_ISSUE_TYPES)
     window_days: int
     type_filter: Literal['user', 'evaluation'] | None = None
     run_id_filter: str | None = None

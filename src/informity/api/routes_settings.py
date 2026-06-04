@@ -31,7 +31,7 @@ from informity.api.schemas import (
     SettingsUpdateRequest,
 )
 from informity.api.security import is_loopback_host
-from informity.file_types import get_file_type_options
+from informity.file_types import SUPPORTED_EXTENSIONS_CANONICAL_ORDER, get_file_type_options
 from informity.llm.model_adapter import (
     discover_available_models,
     get_profile_for_filename,
@@ -88,13 +88,6 @@ _SUPPORTED_MAIN_MODEL_PROFILES: set[str] = {
     'Qwen3 14B',
     'Qwen3.6 35B A3B',
 }
-_SUPPORTED_EXTENSIONS_CANONICAL_ORDER: tuple[str, ...] = tuple(
-    ext
-    for option in get_file_type_options()
-    for ext in option.get('extensions', [])
-)
-
-
 def _visible_role_ids() -> set[str]:
     return {profile.id for profile in list_role_profiles(visible_only=True)}
 
@@ -137,7 +130,7 @@ def _normalize_supported_extensions(value: object) -> list[str]:
         seen.add(ext)
         normalized.append(ext)
 
-    canonical_index = {ext: idx for idx, ext in enumerate(_SUPPORTED_EXTENSIONS_CANONICAL_ORDER)}
+    canonical_index = {ext: idx for idx, ext in enumerate(SUPPORTED_EXTENSIONS_CANONICAL_ORDER)}
     return sorted(
         normalized,
         key=lambda ext: (canonical_index.get(ext, 10_000), ext),
@@ -475,10 +468,8 @@ async def get_settings() -> SettingsResponse:
     effective_llm_model_id = str(getattr(s, 'llm_model_id', '') or '').strip().lower()
     if not effective_llm_model_id:
         effective_llm_model_id = infer_model_id_from_filename(effective_llm_model_filename) or ''
-        if effective_llm_model_id:
-            s.llm_model_id = effective_llm_model_id
-    if effective_llm_model_filename and effective_llm_model_filename != s.llm_model_filename:
-        s.llm_model_filename = effective_llm_model_filename
+    if not effective_llm_model_filename:
+        effective_llm_model_filename = str(s.llm_model_filename or '').strip()
 
     profile_info = _build_model_profile_info(effective_llm_model_filename)
 
@@ -486,12 +477,9 @@ async def get_settings() -> SettingsResponse:
         getattr(s, 'enabled_chat_role_ids', []),
         strict=False,
     )
-    if enabled_chat_role_ids != list(getattr(s, 'enabled_chat_role_ids', [])):
-        s.enabled_chat_role_ids = enabled_chat_role_ids
 
     roles_enabled = len(enabled_chat_role_ids) > 0
-    if s.enable_chat_roles != roles_enabled:
-        s.enable_chat_roles = roles_enabled
+    enable_chat_roles = roles_enabled
 
     return SettingsResponse(
         watched_directories     = [str(p) for p in s.watched_directories],
@@ -557,7 +545,7 @@ async def get_settings() -> SettingsResponse:
         chat_history_messages_assistant = s.chat_history_messages_assistant,
         chat_history_messages_researcher = s.chat_history_messages_researcher,
         default_chat_mode = s.default_chat_mode,
-        enable_chat_roles = roles_enabled,
+        enable_chat_roles = enable_chat_roles,
         enabled_chat_role_ids = enabled_chat_role_ids,
         entity_extract_acronym = s.entity_extract_acronym,
         entity_extract_person_name = s.entity_extract_person_name,

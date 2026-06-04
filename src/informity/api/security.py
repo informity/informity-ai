@@ -13,6 +13,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import HTTPException
 
+LLM_BUSY_DETAIL = 'LLM busy — another translation is already running.'
+INDEX_RESET_IN_PROGRESS_DETAIL = 'Index reset is in progress. Please wait for it to complete.'
 TAURI_SESSION_HEADER = 'X-Informity-Session'
 _TAURI_DEV_ORIGINS: tuple[str, ...] = (
     'http://127.0.0.1:5173',
@@ -31,6 +33,16 @@ def get_tauri_session_token_from_env(env: Mapping[str, str] | None = None) -> st
 
 def is_loopback_host(host: str | None) -> bool:
     return bool(host and str(host).strip().lower() in _LOOPBACK_HOSTS)
+
+
+def raise_if_llm_busy(is_busy: bool) -> None:
+    if is_busy:
+        raise HTTPException(status_code=409, detail=LLM_BUSY_DETAIL)
+
+
+def raise_if_index_reset_in_progress(is_reset_in_progress: bool) -> None:
+    if is_reset_in_progress:
+        raise HTTPException(status_code=409, detail=INDEX_RESET_IN_PROGRESS_DETAIL)
 
 
 def is_tauri_desktop_mode(session_token: str | None) -> bool:

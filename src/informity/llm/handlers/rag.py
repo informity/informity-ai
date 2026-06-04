@@ -187,14 +187,6 @@ def _should_prepend_deterministic_extraction_heading(
     return BY_PER_YEAR_PATTERN.search(question)
 
 
-def _build_history_aware_retrieval_query(question: str, history: list[ChatMessage] | None) -> tuple[str, bool]:
-    return _build_history_aware_retrieval_query_with_classification(
-        question=question,
-        history=history,
-        classification=None,
-    )
-
-
 def _build_history_aware_retrieval_query_with_classification(
     *,
     question: str,
@@ -778,10 +770,6 @@ class RAGHandler:
             top_p=generation_top_p,
             timeout_seconds=timeout_seconds,
             stop_sequences=stop_sequences,
-            fit_to_budget_enabled=False,
-            stream_soft_limit_ratio=0.8,
-            soft_closeout_allowed=False,
-            checkpoint_query_type=None,
             dedupe_insufficient_context_after_stream=bool(profile.dedupe_insufficient_context_after_stream),
             insufficient_context_response=_INSUFFICIENT_CONTEXT_RESPONSE,
             applied_degradations=[],

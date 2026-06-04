@@ -689,7 +689,7 @@ class HealthResponse(BaseModel):
 - Optionally collects diagnostics metrics when `diagnostics_metrics_enabled=True` (lazy import from `diagnostics.observer`, stores in `response_diagnostics_metrics` table via `insert_diagnostics_metrics()`)
 - Uses `utils.json_utils.serialize_api_response()` for SSE event data serialization.
 - **Imports:** llm.rag, db.sqlite, chat_trace (get_trace_writer, flush_trace_writer), config (settings), utils.json_utils
-- **Lazy import (conditional):** `diagnostics.observer` (EvalMetrics, detect_issues, populate_signals) — only when `settings.diagnostics_metrics_enabled=True`
+- **Lazy import (conditional):** `diagnostics.observer` (EvalMetrics, detect_issues) — only when `settings.diagnostics_metrics_enabled=True`
 
 ### `api/routes_settings.py`
 - `GET /api/settings` — current settings (SettingsResponse, includes file_type_options, available_models, config_file_path)
@@ -779,13 +779,12 @@ class HealthResponse(BaseModel):
 Core types live in `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Strict one-way imports: diagnostics → informity ✅ | informity → diagnostics ❌ (except one lazy conditional import in `routes_chat.py`).
 
 ### `informity/diagnostics/issue_types.py`
-- `IssueType` enum (6 types for v2): `retrieval_failure`, `insufficient_retrieval`, `empty_answer`, `refusal_bias`, `timeout`, `very_short_answer`.
+- `IssueType` enum (7 types for v2): `retrieval_failure`, `insufficient_retrieval`, `empty_answer`, `refusal_bias`, `timeout`, `very_short_answer`, `unsupported_claims_detected`.
 - **Imported by:** diagnostics.observer
 
 ### `informity/diagnostics/observer.py`
-- `EvalMetrics` dataclass (OTel-named fields via `openinference-semantic-conventions`): chat_id, question, model_filename, query_type, raw_chunks_count, sources_count, generation_seconds, answer_length, timeout_occurred, has_empty_answer, has_refusal_pattern.
+- `EvalMetrics` dataclass (OTel-named fields): chat_id, question, model_filename, query_type, raw_chunks_count, sources_count, generation_seconds, answer_length, timeout_occurred, has_empty_answer, has_refusal_pattern.
 - `detect_issues(answer: str, metrics: EvalMetrics) -> list[IssueType]` — heuristic issue detection.
-- `populate_signals(answer: str, metrics: EvalMetrics) -> dict` — quality signal extraction.
 - **Imports:** diagnostics.issue_types, openinference.semconv.trace (SpanAttributes, DocumentAttributes)
 - **Imported by:** api.routes_chat (lazy conditional)
 

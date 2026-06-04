@@ -17,11 +17,14 @@ from informity.db.sqlite import (
 from informity.db.vectors import vector_store
 from informity.indexer.embedder import embedder
 from informity.scanner.extractors.base import MAX_EXTRACTED_TEXT_PREVIEW
+from informity.translate_policy import TRANSLATE_PROVIDER
+from informity.upload_policy import UPLOAD_PROVIDER
 
 MAX_MCP_RESULTS = 200
 MAX_SNIPPET_CHARS = 1200
 MAX_TOTAL_RESPONSE_BYTES = 500_000
 VALID_FILE_CATEGORIES = {'document', 'plaintext', 'data', 'web', 'other'}
+_EXCLUDED_SOURCE_PROVIDERS = (UPLOAD_PROVIDER, TRANSLATE_PROVIDER)
 FILE_TYPE_ALIASES: dict[str, str] = {
     'pdf': '.pdf',
     'docx': '.docx',
@@ -147,7 +150,7 @@ async def tool_files_list(
         search=search,
         limit=effective_limit,
         offset=max(0, int(offset)),
-        excluded_source_providers=['upload.local', 'translate.local'],
+        excluded_source_providers=list(_EXCLUDED_SOURCE_PROVIDERS),
     )
     results = []
     for item in files:
@@ -206,7 +209,7 @@ async def tool_search_semantic(
         indexed_file = files_by_id.get(file_id)
         if indexed_file is None:
             continue
-        if str(getattr(indexed_file, 'source_provider', '') or '').strip().lower() in {'upload.local', 'translate.local'}:
+        if str(getattr(indexed_file, 'source_provider', '') or '').strip().lower() in {UPLOAD_PROVIDER, TRANSLATE_PROVIDER}:
             continue
         if normalized_category and indexed_file.category.value != normalized_category:
             continue
@@ -303,10 +306,10 @@ async def _get_filter_options(db: aiosqlite.Connection) -> dict[str, list[str]]:
         '''
         SELECT DISTINCT LOWER(category) AS category
         FROM files
-        WHERE source_provider NOT IN ('upload.local', 'translate.local')
+        WHERE source_provider NOT IN (?, ?)
         ORDER BY category ASC
         ''',
-        (),
+        _EXCLUDED_SOURCE_PROVIDERS,
     )
     category_rows = await categories_cursor.fetchall()
     categories = [str(row['category']) for row in category_rows if row and row['category']]
@@ -317,11 +320,11 @@ async def _get_filter_options(db: aiosqlite.Connection) -> dict[str, list[str]]:
         '''
         SELECT DISTINCT LOWER(extension) AS extension
         FROM files
-        WHERE source_provider NOT IN ('upload.local', 'translate.local')
+        WHERE source_provider NOT IN (?, ?)
           AND extension IS NOT NULL AND TRIM(extension) != ''
         ORDER BY extension ASC
         ''',
-        (),
+        _EXCLUDED_SOURCE_PROVIDERS,
     )
     extension_rows = await extension_cursor.fetchall()
     file_types = [str(row['extension']) for row in extension_rows if row and row['extension']]
@@ -336,9 +339,9 @@ async def tool_index_status(db: aiosqlite.Connection) -> dict[str, Any]:
         '''
         SELECT COUNT(*) as count
         FROM files
-        WHERE source_provider NOT IN ('upload.local', 'translate.local')
+        WHERE source_provider NOT IN (?, ?)
         ''',
-        (),
+        _EXCLUDED_SOURCE_PROVIDERS,
     )
     files_row = await files_cursor.fetchone()
     total_files = int(files_row['count']) if files_row else 0
@@ -348,9 +351,9 @@ async def tool_index_status(db: aiosqlite.Connection) -> dict[str, Any]:
         SELECT COUNT(*) as count
         FROM chunks c
         JOIN files f ON c.file_id = f.id
-        WHERE f.source_provider NOT IN ('upload.local', 'translate.local')
+        WHERE f.source_provider NOT IN (?, ?)
         ''',
-        (),
+        _EXCLUDED_SOURCE_PROVIDERS,
     )
     chunks_row = await chunks_cursor.fetchone()
     total_chunks = int(chunks_row['count']) if chunks_row else 0

@@ -486,7 +486,13 @@ class VectorStore:
         conn = self._get_thread_connection()
         row = conn.execute('SELECT COUNT(*) as count FROM vec_chunks').fetchone()
         total_vectors = int(row['count']) if row else 0
-        storage_bytes = settings.db_path.stat().st_size if settings.db_path and settings.db_path.exists() else 0
+        storage_bytes = 0
+        with suppress(sqlite3.Error):
+            stat_row = conn.execute(
+                "SELECT COALESCE(SUM(pgsize), 0) AS size_bytes FROM dbstat WHERE name LIKE 'vec%'"
+            ).fetchone()
+            if stat_row:
+                storage_bytes = int(stat_row['size_bytes'] or 0)
         return {'total_vectors': total_vectors, 'storage_bytes': storage_bytes}
 
 

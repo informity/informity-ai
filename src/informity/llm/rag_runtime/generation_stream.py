@@ -14,7 +14,7 @@ import structlog
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
 from informity.llm.streaming import stream_llm
 from informity.llm.timeout_policy import normalize_timeout_reason
-from informity.llm.types import CompletionMode, QueryType, StreamSignalTag, TimeoutReason
+from informity.llm.types import CompletionMode, StreamSignalTag, TimeoutReason
 
 log = structlog.get_logger(__name__)
 
@@ -39,18 +39,6 @@ class StreamExecutionSummary:
     rerank_ms: float | None = None          # Cross-encoder reranker time
     prompt_build_ms: float | None = None    # Context assembly + message build time
     ttft_ms: float | None = None            # Time to first generated token
-
-
-def _is_section_boundary(token: str) -> bool:
-    return (
-        '\n\n' in token
-        or token.rstrip().endswith('.')
-        or token.rstrip().endswith('!')
-        or token.rstrip().endswith('?')
-        or token.rstrip().endswith(':')
-    )
-
-
 async def stream_generation_with_budget(
     *,
     messages: list[dict[str, str]],
@@ -59,10 +47,6 @@ async def stream_generation_with_budget(
     top_p: float,
     timeout_seconds: int,
     stop_sequences: list[str],
-    fit_to_budget_enabled: bool,
-    stream_soft_limit_ratio: float,
-    soft_closeout_allowed: bool,
-    checkpoint_query_type: QueryType | None,
     dedupe_insufficient_context_after_stream: bool,
     insufficient_context_response: str,
     applied_degradations: list[dict[str, object]],
@@ -70,12 +54,8 @@ async def stream_generation_with_budget(
     collapse_duplicate_message_fn: Callable[[str], tuple[str, bool]],
     stream_llm_fn: Callable[..., AsyncGenerator[str | tuple[str, object]]] = stream_llm,
 ) -> AsyncGenerator[str | tuple[str, object]]:
-    checkpoint_targets = [0.6, 0.8]
-    checkpoints_emitted: set[float] = set()
     timeout_reason: TimeoutReason | str | None = None
     stream_recovery_reason: str | None = None
-    stream_soft_limit_ms = timeout_seconds * stream_soft_limit_ratio * 1000
-    should_close_after_boundary = False
 
     llm_start = time.perf_counter()
     token_count = 0
@@ -109,41 +89,12 @@ async def stream_generation_with_budget(
                 })
                 break
 
-        stream_elapsed_ms = (time.perf_counter() - llm_start) * 1000
-        for checkpoint_ratio in checkpoint_targets:
-            checkpoint_ms = timeout_seconds * checkpoint_ratio * 1000
-            if checkpoint_ratio in checkpoints_emitted:
-                continue
-            if stream_elapsed_ms >= checkpoint_ms:
-                checkpoints_emitted.add(checkpoint_ratio)
-                checkpoint_payload: dict[str, object] = {
-                    'ratio': checkpoint_ratio,
-                    'elapsed_seconds': round(stream_elapsed_ms / 1000, 1),
-                    'timeout_seconds': timeout_seconds,
-                }
-                if checkpoint_query_type:
-                    checkpoint_payload['query_type'] = checkpoint_query_type
-                yield (StreamSignalTag.BUDGET_CHECKPOINT, checkpoint_payload)
-
         if first_token_ms is None:
-            first_token_ms = stream_elapsed_ms
-
-        if fit_to_budget_enabled and soft_closeout_allowed and stream_elapsed_ms >= stream_soft_limit_ms:
-            should_close_after_boundary = True
+            first_token_ms = (time.perf_counter() - llm_start) * 1000
 
         token_count += 1
         answer_parts.append(item)
         yield item
-
-        if should_close_after_boundary and _is_section_boundary(item):
-            stream_recovery_reason = 'soft_limit_section_closeout'
-            applied_degradations.append({
-                'step': 'mid_stream_recovery_soft_limit',
-                'elapsed_seconds': round(stream_elapsed_ms / 1000, 1),
-                'soft_limit_seconds': round(stream_soft_limit_ms / 1000, 1),
-                'reason': 'soft_budget_limit_crossed',
-            })
-            break
 
     llm_elapsed_ms = (time.perf_counter() - llm_start) * 1000
     if dedupe_insufficient_context_after_stream and answer_parts:
@@ -170,7 +121,7 @@ async def stream_generation_with_budget(
         total_elapsed_ms=llm_elapsed_ms,
         timeout_reason=timeout_reason,
         stream_recovery_reason=stream_recovery_reason,
-        soft_budget_checkpoints_hit=sorted(int(ratio * 100) for ratio in checkpoints_emitted),
+        soft_budget_checkpoints_hit=[],
         completion_mode=completion_mode,
         has_remaining_scope=has_remaining_scope,
         final_answer=''.join(answer_parts),

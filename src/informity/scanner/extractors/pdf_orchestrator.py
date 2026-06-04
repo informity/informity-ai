@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import multiprocessing as mp
-import os
 import queue
 import time
 from pathlib import Path
@@ -15,14 +14,10 @@ from typing import Literal
 from informity.config import (
     DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER,
     PDF_EXTRACTION_STRATEGIES,
-    DirNames,
-    configure_hf_environment,
-    ensure_docling_rapidocr_cache_compat,
     settings,
 )
-from informity.scanner.extractors.base import ExtractedDocument
+from informity.scanner.extractors.base import MAX_EXTRACTED_TEXT_PREVIEW, ExtractedDocument
 from informity.scanner.extractors.text_utils import elapsed_ms
-from informity.utils.directory_utils import ensure_directory
 
 PdfStrategy = Literal['docling_full', 'docling_fast', 'pdf_text_layer']
 _ALLOWED_STRATEGIES: set[str] = set(PDF_EXTRACTION_STRATEGIES)
@@ -73,49 +68,16 @@ def _deserialize_doc(payload: dict[str, object], *, source_path: Path, elapsed_m
     )
 
 
-def _prepare_docling_runtime() -> Path:
-    docling_cache = settings.cache_dir / DirNames.DOCLING
-    ensure_directory(docling_cache)
-    configure_hf_environment()
-    ensure_docling_rapidocr_cache_compat(settings.cache_dir)
-    return docling_cache
-
-
 def _docling_extract_worker(path_str: str, mode: str, use_ocr: bool, result_queue: mp.Queue) -> None:
     try:
-        from docling.datamodel.base_models import InputFormat
-        from docling.datamodel.pipeline_options import (
-            AcceleratorOptions,
-            PdfPipelineOptions,
-            RapidOcrOptions,
+        from informity.scanner.extractors.docling_runtime import (
+            build_pdf_converter,
+            prepare_docling_runtime,
         )
-        from docling.document_converter import DocumentConverter, PdfFormatOption
 
         path = Path(path_str)
-        docling_cache = _prepare_docling_runtime()
-        os.environ['DOCLING_ARTIFACTS_PATH'] = str(docling_cache)
-
-        accelerator_options = AcceleratorOptions(num_threads=settings.embedding_max_threads or 4)
-        if mode == 'docling_fast':
-            pipeline_options = PdfPipelineOptions(
-                accelerator_options=accelerator_options,
-                do_ocr=False,
-            )
-        else:
-            if use_ocr:
-                ocr_options = RapidOcrOptions(lang=[])
-                ocr_options.force_full_page_ocr = True
-                pipeline_options = PdfPipelineOptions(
-                    accelerator_options=accelerator_options,
-                    do_ocr=True,
-                    ocr_options=ocr_options,
-                )
-            else:
-                pipeline_options = PdfPipelineOptions(accelerator_options=accelerator_options)
-
-        converter = DocumentConverter(
-            format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
-        )
+        prepare_docling_runtime()
+        converter = build_pdf_converter(do_ocr=(mode != 'docling_fast' and use_ocr), force_full_page_ocr=True)
         result = converter.convert(str(path))
         doc = result.document
         markdown = (doc.export_to_markdown() or '').strip()
@@ -133,7 +95,7 @@ def _docling_extract_worker(path_str: str, mode: str, use_ocr: bool, result_queu
             },
             page_count=(result.input.page_count if hasattr(result, 'input') and hasattr(result.input, 'page_count') else None),
             word_count=len(markdown.split()),
-            preview_text=markdown[:500],
+            preview_text=markdown[:MAX_EXTRACTED_TEXT_PREVIEW],
         )
         result_queue.put({'ok': True, 'doc': _serialize_doc(extracted)})
     except _DOCLING_WORKER_EXCEPTIONS as exc:
@@ -218,7 +180,7 @@ def _extract_pdf_text_layer(path: Path) -> ExtractedDocument:
             page_count=page_count,
             word_count=len(merged.split()),
             extraction_time_ms=elapsed_ms(start_time),
-            preview_text=merged[:500],
+            preview_text=merged[:MAX_EXTRACTED_TEXT_PREVIEW],
         )
     except _DOCLING_WORKER_EXCEPTIONS as exc:
         return ExtractedDocument(

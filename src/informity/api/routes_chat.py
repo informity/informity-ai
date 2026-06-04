@@ -52,7 +52,7 @@ from informity.api.chat_continuation import (
 from informity.api.chat_continuation import (
     resolve_next_action as _resolve_next_action,
 )
-from informity.api.chat_orchestrator import ChatOrchestrator
+from informity.api.chat_orchestrator import prepare_chat_request
 from informity.api.chat_sources import merge_sources, serialize_sources
 from informity.api.chat_sse import SSE_PHASE_ORDER, SseContractTracker, SseStatusEmitter
 from informity.api.chat_stream_registry import CHAT_STREAM_REGISTRY
@@ -70,6 +70,7 @@ from informity.api.schemas import (
     ChatStopRequest,
 )
 from informity.api.security import EndpointGuard
+from informity.api.upload_helpers import index_uploaded_file
 from informity.chat_trace import get_trace_writer
 from informity.config import settings
 from informity.db.models import ChatMessage, ChatUploadAttachment, ContinuationPassArtifact
@@ -88,7 +89,6 @@ from informity.db.sqlite import (
     get_connection,
     get_db,
     get_file_by_id,
-    get_file_by_path,
     get_files_by_ids,
     insert_chat_message,
     insert_chat_upload_attachment,
@@ -100,7 +100,7 @@ from informity.db.sqlite import (
 )
 from informity.diagnostics.observer import EvalMetrics, detect_issues, estimate_evidence_metrics
 from informity.diagnostics.resource_snapshot import build_resource_delta, capture_resource_snapshot
-from informity.indexer.pipeline import index_file, remove_file
+from informity.indexer.pipeline import remove_file
 from informity.llm.chat_mode import resolve_chat_mode
 from informity.llm.classification_policy import classify_query_with_timing
 from informity.llm.contract_gate import (
@@ -674,7 +674,7 @@ async def upload_chat_file(
         raise HTTPException(status_code=400, detail='Unsupported upload MIME type.')
 
     existing_attachments = await get_chat_upload_attachments(db, chat_id=resolved_chat_id, include_deleted=False)
-    active_attachments = [a for a in existing_attachments if a.state in {'uploading', 'indexing', 'ready'}]
+    active_attachments = [a for a in existing_attachments if a.state in _ACTIVE_UPLOAD_STATES]
     if len(active_attachments) >= MAX_UPLOAD_FILES_PER_CHAT:
         raise HTTPException(
             status_code=413,
@@ -720,7 +720,7 @@ async def upload_chat_file(
         scanned = scanned_file_for_path(file_path)
         if scanned is None:
             raise HTTPException(status_code=422, detail='Unable to process uploaded file for indexing.')
-        index_result = await index_file(
+        index_result, file_record = await index_uploaded_file(
             db,
             scanned,
             source_provider=UPLOAD_PROVIDER,
@@ -734,7 +734,6 @@ async def upload_chat_file(
                 state='failed',
             )
             raise HTTPException(status_code=422, detail=f'Failed to index upload: {index_result.error or "unknown error"}')
-        file_record = await get_file_by_path(db, str(file_path))
         if file_record is None or file_record.id is None:
             await update_chat_upload_attachment_state(
                 db,
@@ -1218,7 +1217,6 @@ async def chat(
     async def _event_stream() -> AsyncGenerator[dict]:
         async with CHAT_GUARD.slot(check_rate=False):
             start_time = time.time()
-            orchestrator = ChatOrchestrator()
             sse_tracker = SseContractTracker()
             status_emitter = SseStatusEmitter(chat_id=chat_id, start_time=start_time)
             stop_event = asyncio.Event()
@@ -1267,7 +1265,7 @@ async def chat(
                     )
 
             _update_sse_phase('chat')
-            chat_event = orchestrator.prepare_request(
+            chat_event = prepare_chat_request(
                 chat_id=chat_id,
                 stream_id=stream_id,
                 request_id=request_id if request_id else None,
@@ -1536,12 +1534,11 @@ async def chat(
                                     break
                                 continue
                             try:
-                                item = answer_next_task.result()
+                                item = await answer_next_task
                             except StopAsyncIteration:
                                 answer_next_task = None
                                 break
-                            finally:
-                                answer_next_task = None
+                            answer_next_task = None
                             answer_items_seen += 1
 
                             if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.CLASSIFICATION:

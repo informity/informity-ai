@@ -31,17 +31,6 @@ ANAPHORIC_SCOPE_PATTERN = re.compile(
     r')\b',
     re.IGNORECASE,
 )
-EXPLICIT_SCOPE_RESET_PATTERN = re.compile(
-    r'\b('
-    r'all\s+(?:documents?|files?|records?)'
-    r'|across\s+all'
-    r'|another\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)'
-    r'|different\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)'
-    r'|other\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)'
-    rf'|[a-z0-9][a-z0-9._-]*\.(?:{_FILENAME_EXTENSION_ALT})'
-    r')\b',
-    re.IGNORECASE,
-)
 TITLE_ALIGNMENT_CUE_PATTERN = re.compile(
     r'\b(compare|between|versus|vs)\b'
     r'|'
@@ -207,58 +196,3 @@ def evaluate_substantive_evidence(chunks: list[dict]) -> dict[str, float | int]:
         'substantive_count': substantive_count,
         'substantive_ratio': substantive_ratio,
     }
-
-
-def should_block_summary_generation_for_structural_only_evidence(
-    *,
-    question: str,
-    classification: QueryClassification,
-    evidence_profile: dict[str, float | int],
-) -> bool:
-    if not is_summary_style_request(question, classification):
-        return False
-    # Plot/chapter mismatch is handled by reframing guidance later; do not
-    # force a refusal gate for those prompts.
-    if is_plot_or_chapter_request(question):
-        return False
-    chunk_count = int(evidence_profile.get('chunk_count') or 0)
-    structural_count = int(evidence_profile.get('structural_count') or 0)
-    substantive_count = int(evidence_profile.get('substantive_count') or 0)
-    if chunk_count == 0:
-        return False
-    return structural_count > 0 and substantive_count == 0
-
-
-def resolve_followup_scope_anchor_filename(
-    *,
-    question: str,
-    history: list[ChatMessage] | None,
-    classification: QueryClassification,
-) -> str | None:
-    if classification.filename_filter:
-        return None
-    if classification.intent != QueryType.FOCUSED:
-        return None
-    lowered_question = str(question or '').casefold()
-    if not ANAPHORIC_SCOPE_PATTERN.search(lowered_question):
-        return None
-    if EXPLICIT_SCOPE_RESET_PATTERN.search(lowered_question):
-        return None
-    if not history:
-        return None
-
-    for message in reversed(history):
-        if message.role != 'assistant':
-            continue
-        sources = list(message.sources or [])
-        if not sources:
-            continue
-        filenames: list[str] = []
-        for source in sources:
-            filename = str((source or {}).get('filename') or '').strip()
-            if filename:
-                filenames.append(filename)
-        unique_filenames = sorted(set(filenames))
-        if len(unique_filenames) == 1:
-            return unique_filenames[0]
-    return None

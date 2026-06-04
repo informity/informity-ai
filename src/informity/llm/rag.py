@@ -224,10 +224,19 @@ async def answer_question(
                 chat_mode=normalized_chat_mode or 'researcher',
                 timeout_seconds=round(_CLASSIFICATION_TIMEOUT_SECONDS, 1),
             )
-            classification, classify_elapsed_ms = await asyncio.wait_for(
-                _classify_with_timing(question, history=history),
-                timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
-            )
+            try:
+                classification, classify_elapsed_ms = await asyncio.wait_for(
+                    _classify_with_timing(question, history=history),
+                    timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
+                )
+            except TimeoutError:
+                log.error(
+                    'query_classification_timeout',
+                    chat_mode=normalized_chat_mode or 'researcher',
+                    timeout_seconds=round(_CLASSIFICATION_TIMEOUT_SECONDS, 1),
+                )
+                classification = QueryClassification(intent=QueryType.SIMPLE)
+                classify_elapsed_ms = _CLASSIFICATION_TIMEOUT_SECONDS * 1000.0
             if trace is not None:
                 trace.record('classification', {
                     'query_length': len(question),

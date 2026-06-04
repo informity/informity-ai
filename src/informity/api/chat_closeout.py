@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import re
 
-_TABLE_SEPARATOR_RE = re.compile(r'^\|?(?:\s*:?-{3,}:?\s*\|)+(?:\s*:?-{3,}:?\s*)\|?$')
+from informity.markdown_patterns import HORIZONTAL_RULE_PATTERN, TABLE_DIVIDER_PATTERN
+
 _CODE_FENCE_OPEN_RE = re.compile(r'^```(?P<lang>[A-Za-z0-9_+\-]*)\s*$')
 _LIST_ITEM_RE = re.compile(r'^(?P<indent>\s*)(?P<marker>(?:[-*+])|(?:\d+[.)]))\s+(?P<body>.+)$')
 _CHECKBOX_RE = re.compile(r'^\[(?P<state>[xX ])\]\s+(?P<text>.+)$')
@@ -16,7 +17,6 @@ _DISCLAIMER_LINE_RE = re.compile(
     r'^\s*(?:#{1,6}\s*)?(?:\*\*)?\s*Disclaimer\s*:\s*(?P<body>.*?)\s*(?:\*\*)?\s*$',
     re.IGNORECASE,
 )
-_HORIZONTAL_RULE_RE = re.compile(r'^\s*(?:-{3,}|\*{3,}|_{3,})\s*$')
 _UNFENCED_CODE_LINE_HINT_RE = re.compile(
     r'^\s*(?:'
     r'(?:const|let|var|function|class|interface|type|enum|import|export|from|if|else|for|while|switch|case|return|try|catch|finally|throw|new)\b'
@@ -77,7 +77,7 @@ def _trim_trailing_divider(lines: list[str]) -> None:
         if not candidate:
             lines.pop()
             continue
-        if _HORIZONTAL_RULE_RE.match(candidate):
+        if HORIZONTAL_RULE_PATTERN.match(candidate):
             lines.pop()
             continue
         break
@@ -98,7 +98,7 @@ def _looks_like_unfenced_code_block(answer: str) -> bool:
         return False
     if any(_UNFENCED_CODE_MARKDOWN_BLOCKER_RE.match(line) for line in non_empty):
         return False
-    if any(_TABLE_SEPARATOR_RE.match(line.strip()) for line in non_empty):
+    if any(TABLE_DIVIDER_PATTERN.match(line.strip()) for line in non_empty):
         return False
 
     hint_lines = 0
@@ -157,7 +157,7 @@ def build_display_blocks(cleaned_answer: str) -> list[dict[str, object]]:
         if (
             has_next
             and '|' in line
-            and _TABLE_SEPARATOR_RE.match(lines[i + 1].strip())
+            and TABLE_DIVIDER_PATTERN.match(lines[i + 1].strip())
         ):
             header_cells = _split_table_cells(line)
             if header_cells:
@@ -280,7 +280,7 @@ def build_display_blocks(cleaned_answer: str) -> list[dict[str, object]]:
                     break
                 if _LIST_ITEM_RE.match(lines[i]) or _QUOTE_LINE_RE.match(lines[i]) or _CODE_FENCE_OPEN_RE.match(lines[i].strip()):
                     break
-                if _HORIZONTAL_RULE_RE.match(continuation):
+                if HORIZONTAL_RULE_PATTERN.match(continuation):
                     i += 1
                     continue
                 disclaimer_lines.append(continuation)

@@ -58,7 +58,7 @@ class TestLazyLoading:
 
     def test_model_not_loaded_on_init(self) -> None:
         emb = Embedder()
-        assert emb.is_loaded is False
+        assert emb._model is None
 
     def test_model_loaded_on_first_embed(self) -> None:
         emb = Embedder()
@@ -71,7 +71,7 @@ class TestLazyLoading:
 
             emb.embed_texts(['test'])
             mock_load.assert_called_once()
-            assert emb.is_loaded is True
+            assert emb._model is mock_model
 
     def test_model_loaded_only_once(self) -> None:
         emb = Embedder()
@@ -87,11 +87,11 @@ class TestLazyLoading:
 
     def test_is_loaded_false_before_use(self) -> None:
         emb = Embedder()
-        assert emb.is_loaded is False
+        assert emb._model is None
 
     def test_is_loaded_true_after_injection(self) -> None:
         emb = _make_embedder_with_mock()
-        assert emb.is_loaded is True
+        assert emb._model is not None
 
 
 # ==============================================================================

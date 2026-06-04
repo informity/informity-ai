@@ -17,8 +17,9 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 
 import informity.api.operation_state as op_state
 from informity.api.chat_stream_registry import CHAT_STREAM_REGISTRY
+from informity.api.index_finalize import finalize_index_operation
 from informity.api.schemas import IndexStatusResponse, RebuildRequest
-from informity.api.security import EndpointGuard
+from informity.api.security import EndpointGuard, raise_if_index_reset_in_progress
 from informity.config import DirNames, reset_to_factory_defaults, settings
 from informity.db.models import ScanRecord, ScanStatus
 from informity.db.sqlite import (
@@ -28,7 +29,6 @@ from informity.db.sqlite import (
     get_connection,
     get_db,
     get_file_count,
-    get_index_integrity_issues,
     get_index_scope_counts,
     get_indexed_content_size_bytes,
     get_latest_completed_scan,
@@ -39,7 +39,7 @@ from informity.db.sqlite import (
     update_scan_record,
 )
 from informity.db.vectors import vector_store
-from informity.indexer.adaptive_tuning import invalidate_tuning_cache, update_tuning_cache
+from informity.indexer.adaptive_tuning import invalidate_tuning_cache
 from informity.indexer.pipeline import reindex_file
 from informity.indexer.term_dictionary_builder import (
     get_term_dictionary_build_status,
@@ -90,11 +90,7 @@ async def rebuild_index(
         # Serialize scan/rebuild/reset transition checks + scan-record creation.
         async with op_state.get_scan_operation_lock():
             # Block if reset is in progress
-            if await op_state.is_reset_in_progress():
-                raise HTTPException(
-                    status_code=409,
-                    detail='Index reset is in progress. Please wait for it to complete.',
-                )
+            raise_if_index_reset_in_progress(await op_state.is_reset_in_progress())
 
             # Check if a scan/rebuild is already running and resolve it (cancel / mark stale / block)
             await op_state.resolve_running_scan(db, force=req.force, operation='rebuild')
@@ -601,28 +597,15 @@ async def _run_rebuild_task(scan_id: int) -> None:
         )
         await update_scan_record(db, scan_record)
 
-        # Post-run integrity check to detect cross-store drift early.
-        integrity_issues = await get_index_integrity_issues(db)
-        non_zero_issues = {k: v for k, v in integrity_issues.items() if v > 0}
-        if non_zero_issues:
-            log.error(
-                'rebuild_integrity_issues_detected',
-                scan_id=scan_id,
-                issues=non_zero_issues,
-            )
-
-        # Update adaptive top-k cache after corpus changed (force immediate recompute).
-        try:
-            await update_tuning_cache(db, force_recompute=True)
-        except (ImportError, _INDEX_RUNTIME_EXCEPTIONS) as exc:
-            log.warning('adaptive_tuning_rebuild_update_failed', error=str(exc))
-
-        # Post-rebuild term dictionary refresh (best-effort; does not fail rebuild).
-        try:
-            term_dictionary_result = await rebuild_term_dictionary(db, run_id=f'term-dict-rebuild-{scan_id}')
-            log.info('term_dictionary_rebuild_update', scan_id=scan_id, result=term_dictionary_result)
-        except _INDEX_RUNTIME_EXCEPTIONS as exc:
-            log.warning('term_dictionary_rebuild_update_failed', scan_id=scan_id, error=str(exc))
+        await finalize_index_operation(
+            db,
+            scan_id=scan_id,
+            integrity_log_name='rebuild_integrity_issues_detected',
+            adaptive_tuning_failure_log_name='adaptive_tuning_rebuild_update_failed',
+            term_dictionary_log_name='term_dictionary_rebuild_update',
+            term_dictionary_failure_log_name='term_dictionary_rebuild_update_failed',
+            term_dictionary_run_id_prefix='term-dict-rebuild-',
+        )
 
         log.info(
             'rebuild_completed',

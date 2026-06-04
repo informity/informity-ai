@@ -20,20 +20,21 @@ from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Up
 from fastapi.responses import PlainTextResponse
 from sse_starlette.sse import EventSourceResponse
 
+from informity.api.security import LLM_BUSY_DETAIL, raise_if_llm_busy
+from informity.api.upload_helpers import index_uploaded_file
 from informity.config import settings
 from informity.db.sqlite import (
     create_translate_job,
     create_translate_section,
     get_db,
     get_file_by_id,
-    get_file_by_path,
     get_translate_job,
     get_translate_job_result,
     get_translate_sections,
     update_translate_job,
     update_translate_section,
 )
-from informity.indexer.pipeline import index_file, remove_file
+from informity.indexer.pipeline import remove_file
 from informity.llm.engine import llm_engine
 from informity.log_events import emit_log_event
 from informity.scanner.crawler import scanned_file_for_path
@@ -61,6 +62,7 @@ from informity.translate_policy import (
 )
 
 log = structlog.get_logger(__name__)
+TRANSLATE_CANCEL_ERROR_TOKEN = 'cancelled_by_user'
 
 
 def capitalize(s: str) -> str:
@@ -103,7 +105,8 @@ def _sanitize_filename(name: str) -> str:
 def _count_tokens(text: str) -> int:
     try:
         return llm_engine.count_tokens(text)
-    except Exception:
+    except Exception as exc:
+        log.warning('translate_count_tokens_fallback', error=str(exc), error_type=type(exc).__name__)
         return max(1, len(text.split()))
 
 
@@ -122,8 +125,17 @@ def _build_glossary_block(glossary_json: str | None) -> str:
             return ''
         lines = '\n'.join(f'- {t["source"]} → {t["translation"]}' for t in terms if t.get('source') and t.get('translation'))
         return f'\nTerminology (use these translations consistently):\n{lines}\n' if lines else ''
-    except Exception:
+    except Exception as exc:
+        log.warning('translate_glossary_block_fallback', error=str(exc), error_type=type(exc).__name__)
         return ''
+
+
+def _is_cancelled_translate_row(row: object) -> bool:
+    return bool(
+        row
+        and str(row['status']) == 'stalled'
+        and str(row['error'] or '') == TRANSLATE_CANCEL_ERROR_TOKEN
+    )
 
 
 # ==============================================================================
@@ -152,12 +164,15 @@ async def upload_translate_file(
     if scanned is None:
         raise HTTPException(status_code=422, detail='Unable to process file for indexing.')
 
-    result = await index_file(db, scanned, source_provider=TRANSLATE_PROVIDER, entity_type=TRANSLATE_ENTITY_TYPE)
+    result, indexed = await index_uploaded_file(
+        db,
+        scanned,
+        source_provider=TRANSLATE_PROVIDER,
+        entity_type=TRANSLATE_ENTITY_TYPE,
+    )
     if not result.success:
         raise HTTPException(status_code=422, detail=f'Indexing failed: {result.error or "unknown"}')
 
-    # IndexResult has no file_id field — fetch the record by path after indexing.
-    indexed = await get_file_by_path(db, str(file_path))
     if indexed is None or indexed.id is None:
         raise HTTPException(status_code=500, detail='File indexed but record not found.')
 
@@ -199,8 +214,7 @@ async def create_translate_job_endpoint(
     background_tasks: BackgroundTasks,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
-    if _translate_lock.locked():
-        raise HTTPException(status_code=409, detail='A translation is already in progress.')
+    raise_if_llm_busy(_translate_lock.locked())
 
     file_id = int(body.get('file_id') or 0)
     target_language = str(body.get('target_language') or 'Spanish').strip()
@@ -250,7 +264,7 @@ async def cancel_translate_job(
     if row and str(row['status']) in ('done', 'failed'):
         return {'cancelled': False}
     # Mark cancelled in DB so the inter-section check stops the loop
-    await update_translate_job(db, job_id, status='stalled', error='Cancelled by user')
+    await update_translate_job(db, job_id, status='stalled', error=TRANSLATE_CANCEL_ERROR_TOKEN)
     # Immediately cancel the active generate_stream (releases LLM lock now)
     cancel_ev = _job_cancel_events.get(job_id)
     if cancel_ev:
@@ -272,7 +286,7 @@ async def cancel_translate_job(
             fname             = file_row.filename if file_row else f'file #{file_id}'
             sections_note     = f' · {completed_count}/{section_count} sections completed' if section_count else ''
             await emit_log_event(
-                event_name='translate_job_stalled',
+                event_name='translate_job_cancelled',
                 source='translate',
                 message=f'Translation cancelled: \'{fname}\' → {target_language}{sections_note}',
                 details={
@@ -281,6 +295,7 @@ async def cancel_translate_job(
                     'sections_completed':  completed_count,
                     'sections_total':      section_count,
                     'cancelled_by_user':   True,
+                    'cancel_error_token':  TRANSLATE_CANCEL_ERROR_TOKEN,
                 },
                 file_id=file_id,
                 db=db,
@@ -327,7 +342,10 @@ async def translate_job_events(
 
         # If already terminal, close immediately.
         if job_status in ('done', 'failed', 'stalled'):
-            event_name = 'job_done' if job_status == 'done' else f'job_{job_status}'
+            if _is_cancelled_translate_row(row):
+                event_name = 'job_cancelled'
+            else:
+                event_name = 'job_done' if job_status == 'done' else f'job_{job_status}'
             yield {'event': event_name, 'data': json.dumps({})}
             return
 
@@ -435,9 +453,8 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
         if _translate_lock.locked():
             log.warning('translate_job_lock_busy', job_id=job_id)
             if db:
-                await update_translate_job(db, job_id, status='failed',
-                                           error='LLM busy — another translation is already running.')
-            await _emit(job_id, 'job_failed', {'error': 'LLM busy — another translation is already running.'})
+                await update_translate_job(db, job_id, status='failed', error=LLM_BUSY_DETAIL)
+            await _emit(job_id, 'job_failed', {'error': LLM_BUSY_DETAIL})
             return
 
         async with asyncio.timeout(TRANSLATE_JOB_MAX_RUNTIME_S):
@@ -486,7 +503,7 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                 for s_idx, (section, row) in enumerate(zip(sections, section_rows, strict=True)):
                     # Check for user cancellation between sections
                     job_row = await get_translate_job(db, job_id)
-                    if job_row and str(job_row['status']) == 'stalled':
+                    if _is_cancelled_translate_row(job_row):
                         log.info('translate_job_cancelled', job_id=job_id, section=s_idx)
                         return
 

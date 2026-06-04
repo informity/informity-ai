@@ -2,6 +2,8 @@ import pytest
 from fastapi import HTTPException
 
 from informity.api.security import (
+    INDEX_RESET_IN_PROGRESS_DETAIL,
+    LLM_BUSY_DETAIL,
     TAURI_SESSION_HEADER,
     EndpointGuard,
     get_cors_allow_origins,
@@ -9,6 +11,8 @@ from informity.api.security import (
     is_loopback_host,
     is_tauri_desktop_mode,
     is_tauri_session_authorized,
+    raise_if_index_reset_in_progress,
+    raise_if_llm_busy,
 )
 
 
@@ -86,3 +90,19 @@ def test_is_loopback_host() -> None:
     assert is_loopback_host('::1') is True
     assert is_loopback_host('0.0.0.0') is False
     assert is_loopback_host('192.168.1.10') is False
+
+
+def test_raise_if_llm_busy() -> None:
+    raise_if_llm_busy(False)
+    with pytest.raises(HTTPException) as exc_info:
+        raise_if_llm_busy(True)
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == LLM_BUSY_DETAIL
+
+
+def test_raise_if_index_reset_in_progress() -> None:
+    raise_if_index_reset_in_progress(False)
+    with pytest.raises(HTTPException) as exc_info:
+        raise_if_index_reset_in_progress(True)
+    assert exc_info.value.status_code == 409
+    assert exc_info.value.detail == INDEX_RESET_IN_PROGRESS_DETAIL

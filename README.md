@@ -350,17 +350,17 @@ src/informity/
     ├── chat_sse.py                 # SSE event formatting for chat streams
     ├── chat_closeout.py            # Post-generation chat record finalization
     ├── chat_stream_registry.py     # Active stream registry (cancel support)
-    ├── routes_scan.py              # POST /api/scan, GET /api/scan/status, GET /api/scan/errors, GET /api/files
+    ├── routes_scan.py              # POST /api/scan, GET /api/scan/status, GET /api/scan/errors, GET /api/files, POST /api/files/open
     ├── routes_index.py             # POST /api/index/rebuild, GET /api/index/status, POST /api/index/reset
     │                               # GET|POST /api/index/term-dictionary/status|rebuild|purge
     ├── routes_search.py            # POST /api/search
-    ├── routes_chat.py              # POST /api/chat (SSE), GET/PUT/DELETE conversations
+    ├── routes_chat.py              # POST /api/chat (SSE), chat uploads, exports, GET/PUT/DELETE conversations
     ├── routes_settings.py          # GET/PUT /api/settings, POST /api/settings/reset, env-vars, file-types
     ├── routes_system.py            # GET /api/diagnostics, GET /api/diagnostics/summary, POST /api/shutdown
     └── env_vars_metadata.py        # INFORMITY_* env var groups for Configuration page
 src/informity/diagnostics/          # Diagnostics package
 ├── issue_types.py                  # IssueType enum
-├── observer.py                     # EvalMetrics dataclass, detect_issues(), populate_signals()
+├── observer.py                     # EvalMetrics dataclass, detect_issues()
 └── resource_snapshot.py            # System resource snapshot at trace time
 ```
 

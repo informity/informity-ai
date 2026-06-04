@@ -197,11 +197,9 @@ async def test_get_diagnostics_returns_system_and_index_stats(
         lambda _path: SimpleNamespace(total=512 * 1024**3, free=300 * 1024**3, used=212 * 1024**3),
     )
 
-    @asynccontextmanager
-    async def _fake_get_db():
-        yield MagicMock()
-
-    monkeypatch.setattr(routes_system, 'get_db', _fake_get_db)
+    fake_db = MagicMock()
+    fake_db.close = AsyncMock()
+    monkeypatch.setattr(routes_system, 'get_connection', AsyncMock(return_value=fake_db))
 
     diagnostics = await routes_system.get_diagnostics(
         request=SimpleNamespace(client=SimpleNamespace(host='127.0.0.1')),
@@ -213,6 +211,7 @@ async def test_get_diagnostics_returns_system_and_index_stats(
     assert diagnostics.model_loaded is True
     assert diagnostics.model_filename == 'model.gguf'
     assert diagnostics.db_size_bytes == 8
+    fake_db.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -646,11 +645,9 @@ async def test_get_diagnostics_summary_aggregates_rows(monkeypatch: pytest.Monke
         },
     ]
 
-    @asynccontextmanager
-    async def _fake_get_db():
-        yield MagicMock()
-
-    monkeypatch.setattr(routes_system, 'get_db', _fake_get_db)
+    fake_db = MagicMock()
+    fake_db.close = AsyncMock()
+    monkeypatch.setattr(routes_system, 'get_connection', AsyncMock(return_value=fake_db))
     monkeypatch.setattr(routes_system, 'get_diagnostics_metrics_since', AsyncMock(return_value=rows))
 
     summary = await routes_system.get_diagnostics_summary(days=7, type_filter=None, run_id_filter=None)
@@ -677,15 +674,14 @@ async def test_get_diagnostics_summary_aggregates_rows(monkeypatch: pytest.Monke
     assert summary.avg_raw_chunks_count == pytest.approx(7.333, rel=1e-3)
     assert summary.created_at_oldest == datetime(2026, 2, 23, tzinfo=UTC)
     assert summary.created_at_newest == datetime(2026, 2, 25, tzinfo=UTC)
+    fake_db.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
 async def test_get_diagnostics_summary_handles_empty_dataset(monkeypatch: pytest.MonkeyPatch) -> None:
-    @asynccontextmanager
-    async def _fake_get_db():
-        yield MagicMock()
-
-    monkeypatch.setattr(routes_system, 'get_db', _fake_get_db)
+    fake_db = MagicMock()
+    fake_db.close = AsyncMock()
+    monkeypatch.setattr(routes_system, 'get_connection', AsyncMock(return_value=fake_db))
     monkeypatch.setattr(routes_system, 'get_diagnostics_metrics_since', AsyncMock(return_value=[]))
 
     summary = await routes_system.get_diagnostics_summary(days=30, type_filter='user', run_id_filter='run-x')
@@ -709,6 +705,7 @@ async def test_get_diagnostics_summary_handles_empty_dataset(monkeypatch: pytest
     assert summary.avg_raw_chunks_count == 0.0
     assert summary.created_at_oldest is None
     assert summary.created_at_newest is None
+    fake_db.close.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -728,11 +725,9 @@ async def test_get_diagnostics_summary_normalizes_non_canonical_fields(monkeypat
         },
     ]
 
-    @asynccontextmanager
-    async def _fake_get_db():
-        yield MagicMock()
-
-    monkeypatch.setattr(routes_system, 'get_db', _fake_get_db)
+    fake_db = MagicMock()
+    fake_db.close = AsyncMock()
+    monkeypatch.setattr(routes_system, 'get_connection', AsyncMock(return_value=fake_db))
     monkeypatch.setattr(routes_system, 'get_diagnostics_metrics_since', AsyncMock(return_value=rows))
 
     summary = await routes_system.get_diagnostics_summary(days=7, type_filter=None, run_id_filter=None)
@@ -741,3 +736,4 @@ async def test_get_diagnostics_summary_normalizes_non_canonical_fields(monkeypat
     assert summary.by_type == {}
     assert summary.by_query_type == {'unknown': 1}
     assert summary.issue_counts == {'timeout': 1}
+    fake_db.close.assert_awaited_once()

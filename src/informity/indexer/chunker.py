@@ -17,6 +17,7 @@ log = structlog.get_logger(__name__)
 
 _TIKTOKEN_ENCODER = tiktoken.get_encoding('cl100k_base')
 _SENTENCE_SEGMENTER = pysbd.Segmenter(language='en', clean=False)
+_HEADER_MIN_CONTENT_CHARS = 50
 _TABLE_HEADER_LINE_PATTERN = re.compile(r'^\s*\|.*\|\s*$')
 _TABLE_SEPARATOR_LINE_PATTERN = re.compile(r'^\s*\|[\s\-:]+\|\s*$')
 
@@ -46,7 +47,7 @@ def _lookup_range_with_starts(
     starts: list[int] | None,
     pos: int,
 ) -> int | str | None:
-    # Same as _lookup_range but reuses precomputed start positions for speed.
+    # Same as _lookup_range_with_starts but reuses precomputed start positions for speed.
     if not ranges or not starts:
         return None
 
@@ -95,7 +96,7 @@ def _is_header_only_chunk(content: str) -> bool:
     Returns:
         True if chunk appears to be header-only, False otherwise
     """
-    if not content or len(content.strip()) < 50:
+    if not content or len(content.strip()) < _HEADER_MIN_CONTENT_CHARS:
         return False
 
     lines = content.strip().split('\n')

@@ -31,7 +31,7 @@ log = structlog.get_logger(__name__)
 # Constants
 # ==============================================================================
 
-HASH_CHUNK_SIZE = 8192  # Read files in 8KB chunks for hashing
+_HASH_READ_CHUNK_BYTES = 8192  # Read files in 8KB chunks for hashing
 DEFAULT_SCAN_SOURCE_PROVIDER = 'filesystem'
 DEFAULT_SCAN_ENTITY_TYPE = 'file'
 
@@ -268,7 +268,7 @@ def _compute_file_hash_and_stat(file_path: str) -> tuple[str, int, float] | None
         mtime = stat_result.st_mtime
         max_hash_bytes = int(getattr(settings, 'scan_hash_max_file_size_bytes', 0) or 0)
         if max_hash_bytes > 0 and size_bytes > max_hash_bytes:
-            pseudo_hash = hashlib.sha256(f'oversized:{size_bytes}:{mtime}'.encode()).hexdigest()
+            pseudo_hash = hashlib.sha256(f'oversized:{size_bytes}'.encode()).hexdigest()
             log.warning(
                 'scan_hash_skipped_oversized_file',
                 path=file_path,
@@ -279,7 +279,7 @@ def _compute_file_hash_and_stat(file_path: str) -> tuple[str, int, float] | None
 
         with open(file_path, 'rb') as f:  # noqa: ASYNC230
             while True:
-                chunk = f.read(HASH_CHUNK_SIZE)
+                chunk = f.read(_HASH_READ_CHUNK_BYTES)
                 if not chunk:
                     break
                 sha256.update(chunk)

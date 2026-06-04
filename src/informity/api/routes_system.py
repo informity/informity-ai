@@ -34,9 +34,14 @@ from informity.api.schemas import (
     SetupStartRequest,
     SetupStartResponse,
     SetupStatusResponse,
-    SetupTierOption,
 )
 from informity.api.security import is_loopback_host
+from informity.api.setup_models import (
+    SETUP_MODEL_SHA256,
+    SETUP_TIER_OPTIONS,
+    SETUP_TIER_REPOS,
+    SETUP_TIER_REVISIONS,
+)
 from informity.api.setup_state import SetupState
 from informity.config import (
     APP_DISPLAY_NAME,
@@ -48,25 +53,21 @@ from informity.config import (
     settings,
 )
 from informity.db.sqlite import (
+    CANONICAL_DIAGNOSTICS_ISSUE_TYPES,
     CANONICAL_DIAGNOSTICS_QUERY_TYPES,
     CANONICAL_DIAGNOSTICS_TYPES,
     get_chunk_count,
-    get_db,
+    get_connection,
     get_diagnostics_metrics_since,
     get_file_count,
     get_indexed_content_size_bytes,
 )
 from informity.db.vectors import vector_store
-from informity.diagnostics.issue_types import IssueType
 from informity.indexer.embedder import embedder
 from informity.indexer.reranker import reranker
 from informity.llm.engine import llm_engine
 from informity.llm.model_adapter import (
-    MODEL_ID_QWEN_9B,
-    MODEL_ID_QWEN_14B,
-    MODEL_ID_QWEN_35B_A3B,
     get_model_alias_filenames,
-    get_model_display_name,
     infer_model_id_from_filename,
 )
 from informity.llm.types import DiagnosticsQueryType
@@ -79,70 +80,8 @@ from informity.version import APP_VERSION
 
 log = structlog.get_logger(__name__)
 _SYSTEM_DIAGNOSTICS_EXCEPTIONS = (OSError, RuntimeError, ValueError, TypeError)
-_CANONICAL_DIAGNOSTICS_ISSUES = tuple(sorted(issue.value for issue in IssueType))
 _SETUP_STATE_FILE = 'setup_state.json'
 _SETUP_CONFIG_FILE = 'config.json'
-_DECIMAL_GB = 1_000_000_000
-_MODEL_SIZE_BYTES = {
-    'Qwen_Qwen3.5-9B-Q4_K_M.gguf': 5_889_811_552,
-    'Qwen3-14B-Q5_K_M.gguf': 10_514_569_568,
-    'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf': 22_134_528_992,
-}
-_SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
-    SetupTierOption(
-        tier='small',
-        model_id=MODEL_ID_QWEN_9B,
-        title='Small',
-        display_name=get_model_display_name('Qwen_Qwen3.5-9B-Q4_K_M.gguf'),
-        model_filename='Qwen_Qwen3.5-9B-Q4_K_M.gguf',
-        model_size_bytes=_MODEL_SIZE_BYTES['Qwen_Qwen3.5-9B-Q4_K_M.gguf'],
-        approx_size_gb=round(_MODEL_SIZE_BYTES['Qwen_Qwen3.5-9B-Q4_K_M.gguf'] / _DECIMAL_GB, 2),
-        quality='Good',
-        speed='Fast',
-        ram_profile='Lower RAM',
-        description='Fastest setup with lower memory footprint.',
-    ),
-    SetupTierOption(
-        tier='balanced',
-        model_id=MODEL_ID_QWEN_14B,
-        title='Balanced',
-        display_name=get_model_display_name('Qwen3-14B-Q5_K_M.gguf'),
-        model_filename='Qwen3-14B-Q5_K_M.gguf',
-        model_size_bytes=_MODEL_SIZE_BYTES['Qwen3-14B-Q5_K_M.gguf'],
-        approx_size_gb=round(_MODEL_SIZE_BYTES['Qwen3-14B-Q5_K_M.gguf'] / _DECIMAL_GB, 2),
-        quality='High',
-        speed='Balanced',
-        ram_profile='Medium RAM',
-        description='Recommended quality and speed tradeoff.',
-    ),
-    SetupTierOption(
-        tier='quality',
-        model_id=MODEL_ID_QWEN_35B_A3B,
-        title='Quality',
-        display_name=get_model_display_name('Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'),
-        model_filename='Qwen3.6-35B-A3B-UD-Q4_K_M.gguf',
-        model_size_bytes=_MODEL_SIZE_BYTES['Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'],
-        approx_size_gb=round(_MODEL_SIZE_BYTES['Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'] / _DECIMAL_GB, 2),
-        quality='Highest',
-        speed='Slower',
-        ram_profile='Higher RAM',
-        description='Best answer quality with higher resource usage.',
-    ),
-)
-_SETUP_TIER_REPOS: dict[str, str] = {
-    'small': 'bartowski/Qwen_Qwen3.5-9B-GGUF',
-    'balanced': 'Qwen/Qwen3-14B-GGUF',
-    'quality': 'unsloth/Qwen3.6-35B-A3B-GGUF',
-}
-_SETUP_TIER_REVISIONS: dict[str, str] = {
-    'small': 'ff13963796ee209598509a81340172bb1c3869fe',
-    'balanced': '530227a7d994db8eca5ab5ced2fb692b614357fd',
-}
-_SETUP_MODEL_SHA256: dict[str, str] = {
-    'Qwen_Qwen3.5-9B-Q4_K_M.gguf': '9437f5bf0dd0c97800caaf902f41e6a6aa00223ab232f159eda41dcbbb492645',
-    'Qwen3-14B-Q5_K_M.gguf': 'e7c9aba1129ca2936be9eca01419d9f86af40e08caa01230d5574b34d08e3e31',
-    'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf': 'ac0e2c1189e055faa36eff361580e79c5bd6f8e76bffb4ce547f167d53e31a61',
-}
 _setup_runtime: dict[str, object] = {
     'state': SetupState.REQUIRED.value,
     'stage': 'idle',
@@ -234,6 +173,35 @@ def _setup_config_path() -> Path:
     return settings.app_data_dir / _SETUP_CONFIG_FILE
 
 
+def _read_setup_config() -> dict[str, object]:
+    config_path = _setup_config_path()
+    if not config_path.exists():
+        return {}
+    try:
+        parsed = json.loads(config_path.read_text(encoding='utf-8'))
+    except (OSError, ValueError, TypeError):
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _write_setup_config(config_data: dict[str, object]) -> None:
+    config_path = _setup_config_path()
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(json.dumps(config_data, indent=2), encoding='utf-8')
+
+
+def _update_setup_config(model_filename: str, *, full_privacy: bool, llm_local_only: bool, embedding_offline: bool) -> None:
+    config_data = _read_setup_config()
+    model_id = infer_model_id_from_filename(model_filename) or str(getattr(settings, 'llm_model_id', '') or '').strip()
+    if model_id:
+        config_data['llm_model_id'] = model_id
+    config_data['llm_model_filename'] = model_filename
+    config_data['full_privacy'] = full_privacy
+    config_data['llm_local_only'] = llm_local_only
+    config_data['embedding_offline'] = embedding_offline
+    _write_setup_config(config_data)
+
+
 def _required_model_filename(setup_state_payload: dict[str, object] | None = None) -> str:
     selected = str((setup_state_payload or {}).get('model_filename') or '').strip()
     if selected:
@@ -296,7 +264,7 @@ def _is_setup_ready() -> bool:
 def _pick_first_ready_local_model_filename() -> str | None:
     # Prefer known setup tier models when available so auto-heal picks canonical
     # SKUs first, then fall back to any installed GGUF.
-    preferred = [opt.model_filename for opt in _SETUP_TIER_OPTIONS]
+    preferred = [opt.model_filename for opt in SETUP_TIER_OPTIONS]
     for filename in preferred:
         if _is_model_file_ready(filename):
             return filename
@@ -461,24 +429,12 @@ def _eta_seconds(*, bytes_done: int, bytes_total: int | None, speed_bps: float) 
 
 
 def _apply_setup_completion_config(model_filename: str) -> None:
-    config_path = _setup_config_path()
-    config_data: dict[str, object] = {}
-    if config_path.exists():
-        try:
-            parsed = json.loads(config_path.read_text(encoding='utf-8'))
-            if isinstance(parsed, dict):
-                config_data = parsed
-        except (OSError, ValueError, TypeError):
-            config_data = {}
-    model_id = infer_model_id_from_filename(model_filename) or str(getattr(settings, 'llm_model_id', '') or '').strip()
-    if model_id:
-        config_data['llm_model_id'] = model_id
-    config_data['llm_model_filename'] = model_filename
-    config_data['full_privacy'] = True
-    config_data['llm_local_only'] = True
-    config_data['embedding_offline'] = True
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(config_data, indent=2), encoding='utf-8')
+    _update_setup_config(
+        model_filename,
+        full_privacy=True,
+        llm_local_only=True,
+        embedding_offline=True,
+    )
 
 
 def _apply_setup_bootstrap_config(model_filename: str) -> None:
@@ -488,24 +444,12 @@ def _apply_setup_bootstrap_config(model_filename: str) -> None:
     Privacy flags stay off during setup so required dependency models can be
     downloaded and cached before switching to full privacy mode.
     """
-    config_path = _setup_config_path()
-    config_data: dict[str, object] = {}
-    if config_path.exists():
-        try:
-            parsed = json.loads(config_path.read_text(encoding='utf-8'))
-            if isinstance(parsed, dict):
-                config_data = parsed
-        except (OSError, ValueError, TypeError):
-            config_data = {}
-    model_id = infer_model_id_from_filename(model_filename) or str(getattr(settings, 'llm_model_id', '') or '').strip()
-    if model_id:
-        config_data['llm_model_id'] = model_id
-    config_data['llm_model_filename'] = model_filename
-    config_data['full_privacy'] = False
-    config_data['llm_local_only'] = False
-    config_data['embedding_offline'] = False
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(config_data, indent=2), encoding='utf-8')
+    _update_setup_config(
+        model_filename,
+        full_privacy=False,
+        llm_local_only=False,
+        embedding_offline=False,
+    )
 
 
 def _cache_required_runtime_dependencies() -> None:
@@ -543,29 +487,20 @@ def _cache_required_runtime_dependencies() -> None:
 
 
 def _apply_model_default_config(model_filename: str) -> None:
-    config_path = _setup_config_path()
-    config_data: dict[str, object] = {}
-    if config_path.exists():
-        try:
-            parsed = json.loads(config_path.read_text(encoding='utf-8'))
-            if isinstance(parsed, dict):
-                config_data = parsed
-        except (OSError, ValueError, TypeError):
-            config_data = {}
+    config_data = _read_setup_config()
     model_id = infer_model_id_from_filename(model_filename) or str(getattr(settings, 'llm_model_id', '') or '').strip()
     if model_id:
         config_data['llm_model_id'] = model_id
     config_data['llm_model_filename'] = model_filename
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(config_data, indent=2), encoding='utf-8')
+    _write_setup_config(config_data)
 
 
 async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
     global _setup_task, _setup_download_cancel_event
     target_path = settings.models_dir / model_filename
-    repo_id = _SETUP_TIER_REPOS.get(tier)
-    revision = _SETUP_TIER_REVISIONS.get(tier)
-    expected_sha256 = _SETUP_MODEL_SHA256.get(model_filename)
+    repo_id = SETUP_TIER_REPOS.get(tier)
+    revision = SETUP_TIER_REVISIONS.get(tier)
+    expected_sha256 = SETUP_MODEL_SHA256.get(model_filename)
     try:
         _update_setup_runtime(
             state=SetupState.IN_PROGRESS.value,
@@ -727,14 +662,14 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
 
 
 def _resolve_tier_for_model(model_filename: str) -> tuple[str, str, str | None, str | None]:
-    for option in _SETUP_TIER_OPTIONS:
+    for option in SETUP_TIER_OPTIONS:
         if option.model_filename == model_filename:
             tier = option.tier
             return (
                 tier,
-                _SETUP_TIER_REPOS[tier],
-                _SETUP_TIER_REVISIONS.get(tier),
-                _SETUP_MODEL_SHA256.get(model_filename),
+                SETUP_TIER_REPOS[tier],
+                SETUP_TIER_REVISIONS.get(tier),
+                SETUP_MODEL_SHA256.get(model_filename),
             )
     raise HTTPException(status_code=400, detail='Unknown model filename')
 
@@ -878,7 +813,7 @@ async def get_setup_status() -> SetupStatusResponse:
     ollama_model_ready: bool | None = None
     if provider == 'ollama':
         ollama_reachable, ollama_model_ready, _ = _probe_ollama_status()
-    tier_options = list(_SETUP_TIER_OPTIONS)
+    tier_options = list(SETUP_TIER_OPTIONS)
 
     if required_models_ready:
         return SetupStatusResponse(
@@ -969,7 +904,7 @@ async def get_ollama_status(
 @router.post('/setup/start', response_model=SetupStartResponse)
 async def start_setup(payload: SetupStartRequest) -> SetupStartResponse:
     global _setup_task
-    valid_tiers = {opt.tier: opt for opt in _SETUP_TIER_OPTIONS}
+    valid_tiers = {opt.tier: opt for opt in SETUP_TIER_OPTIONS}
     selected_tier = str(payload.tier or '').strip().lower()
     selected_model = str(payload.model_filename or '').strip()
     option = valid_tiers.get(selected_tier)
@@ -1092,7 +1027,7 @@ async def get_models_catalog() -> ModelsCatalogResponse:
         default_model_id = inferred_default_model_id
 
     models: list[ModelsCatalogItem] = []
-    for option in _SETUP_TIER_OPTIONS:
+    for option in SETUP_TIER_OPTIONS:
         option_model_id = str(option.model_id or '').strip().lower()
         aliases = get_model_alias_filenames(option_model_id)
         installed = any(_is_model_file_ready(alias) for alias in aliases) if aliases else _is_model_file_ready(option.model_filename)
@@ -1318,10 +1253,13 @@ async def get_diagnostics(request: Request) -> DiagnosticsResponse:
         pass
 
     # Get index stats
-    async with get_db() as db:
+    db = await get_connection()
+    try:
         total_files = await get_file_count(db)
         total_chunks = await get_chunk_count(db)
         indexed_content_size_bytes = await get_indexed_content_size_bytes(db)
+    finally:
+        await db.close()
 
     indexed_content_size_mb = indexed_content_size_bytes / (1024 ** 2)
 
@@ -1397,13 +1335,16 @@ async def get_diagnostics_summary(
     Return aggregate runtime diagnostics metrics from response_diagnostics_metrics.
     Primarily used for operational trends and future stats dashboards.
     """
-    async with get_db() as db:
+    db = await get_connection()
+    try:
         rows = await get_diagnostics_metrics_since(
             db=db,
             days=days,
             type_filter=type_filter,
             run_id_filter=run_id_filter,
         )
+    finally:
+        await db.close()
 
     total = len(rows)
     by_type: dict[str, int] = {}
@@ -1454,7 +1395,7 @@ async def get_diagnostics_summary(
         if isinstance(detected_issues, list):
             for issue in detected_issues:
                 issue_name = str(issue or '').strip().lower()
-                if issue_name and issue_name in _CANONICAL_DIAGNOSTICS_ISSUES:
+                if issue_name and issue_name in CANONICAL_DIAGNOSTICS_ISSUE_TYPES:
                     issue_counts[issue_name] = issue_counts.get(issue_name, 0) + 1
 
         created_at = row.get('created_at')
@@ -1482,7 +1423,7 @@ async def get_diagnostics_summary(
     return DiagnosticsMetricsSummaryResponse(
         type_taxonomy=list(CANONICAL_DIAGNOSTICS_TYPES),
         query_type_taxonomy=list(CANONICAL_DIAGNOSTICS_QUERY_TYPES),
-        issue_type_taxonomy=list(_CANONICAL_DIAGNOSTICS_ISSUES),
+        issue_type_taxonomy=list(CANONICAL_DIAGNOSTICS_ISSUE_TYPES),
         window_days=days,
         type_filter=type_filter,
         run_id_filter=run_id_filter,

@@ -14,12 +14,12 @@ from typing import TYPE_CHECKING
 import structlog
 
 from informity.config import settings
+from informity.utils.torch_utils import is_mps_available
 
 if TYPE_CHECKING:
     from sentence_transformers import SentenceTransformer
 
 log = structlog.get_logger(__name__)
-_MPS_DETECTION_EXCEPTIONS = (ImportError, AttributeError, RuntimeError, OSError, TypeError, ValueError)
 
 _TASK_PREFIX_DOCUMENT = 'search_document: '
 _TASK_PREFIX_QUERY    = 'search_query: '
@@ -46,10 +46,6 @@ class Embedder:
         self._query_embed_cache: OrderedDict[str, tuple[list[float], float]] = OrderedDict()
         self._cache_lock = threading.Lock()
         self._mps_available: bool | None = None
-
-    @property
-    def is_loaded(self) -> bool:
-        return self._model is not None
 
     @property
     def model(self) -> SentenceTransformer:
@@ -83,11 +79,7 @@ class Embedder:
         """Check if Apple Metal Performance Shaders (MPS) is available."""
         if self._mps_available is not None:
             return self._mps_available
-        try:
-            import torch
-            self._mps_available = torch.backends.mps.is_available()
-        except _MPS_DETECTION_EXCEPTIONS:
-            self._mps_available = False
+        self._mps_available = is_mps_available()
         return self._mps_available
 
     def _cache_query_embedding(self, query: str, embedding: list[float]) -> None:

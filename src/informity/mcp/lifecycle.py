@@ -28,8 +28,6 @@ class McpLifecycleManager:
         self._last_error: str | None = None
         self._http_server: uvicorn.Server | None = None
         self._http_task: asyncio.Task[None] | None = None
-        self._http_host: str | None = None
-        self._http_port: int | None = None
 
     @property
     def running(self) -> bool:
@@ -82,7 +80,7 @@ class McpLifecycleManager:
                     )
                     return
 
-            self._running = True
+            self._running = settings.mcp_transport == 'http'
             self._last_error = None
             log.info(
                 'mcp_lifecycle_started',
@@ -149,8 +147,6 @@ class McpLifecycleManager:
         await self._wait_for_http_startup(server, task)
         self._http_server = server
         self._http_task = task
-        self._http_host = settings.mcp_http_host
-        self._http_port = int(settings.mcp_http_port)
 
     def _ensure_http_bindable(self, host: str, port: int) -> None:
         infos = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
@@ -189,8 +185,6 @@ class McpLifecycleManager:
         task = self._http_task
         self._http_server = None
         self._http_task = None
-        self._http_host = None
-        self._http_port = None
         if server is not None:
             server.should_exit = True
         if task is not None:

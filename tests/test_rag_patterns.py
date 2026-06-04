@@ -8,8 +8,6 @@ from informity.llm.rag_patterns import (
     has_topic_shift_cue,
     is_plot_or_chapter_request,
     is_summary_style_request,
-    resolve_followup_scope_anchor_filename,
-    should_block_summary_generation_for_structural_only_evidence,
     should_prefer_title_alignment,
 )
 
@@ -45,52 +43,6 @@ def test_evaluate_substantive_evidence_profiles_structural_only() -> None:
     assert profile['structural_count'] == 2
     assert profile['substantive_count'] == 0
     assert profile['substantive_ratio'] == 0.0
-
-
-def test_should_block_summary_generation_for_structural_only_evidence() -> None:
-    classification = QueryClassification(intent='coverage')
-    evidence_profile = {
-        'chunk_count': 2,
-        'structural_count': 2,
-        'substantive_count': 0,
-    }
-    assert should_block_summary_generation_for_structural_only_evidence(
-        question='Summarize key points',
-        classification=classification,
-        evidence_profile=evidence_profile,
-    ) is True
-
-
-def test_should_not_block_plot_request_structural_only_evidence() -> None:
-    classification = QueryClassification(intent='coverage')
-    evidence_profile = {
-        'chunk_count': 2,
-        'structural_count': 2,
-        'substantive_count': 0,
-    }
-    assert should_block_summary_generation_for_structural_only_evidence(
-        question='What is the plot?',
-        classification=classification,
-        evidence_profile=evidence_profile,
-    ) is False
-
-
-def test_resolve_followup_scope_anchor_filename_from_history() -> None:
-    classification = QueryClassification(intent='focused')
-    history = [
-        ChatMessage(
-            chat_id='chat',
-            role='assistant',
-            content='Prior answer',
-            sources=[{'filename': 'anchored.pdf', 'path': '/docs/anchored.pdf'}],
-        )
-    ]
-    resolved = resolve_followup_scope_anchor_filename(
-        question='Summarize this document',
-        history=history,
-        classification=classification,
-    )
-    assert resolved == 'anchored.pdf'
 
 
 def test_has_topic_overlap_with_previous_user_detects_shared_terms() -> None:

@@ -7,22 +7,16 @@
 from __future__ import annotations
 
 import gc
-import os
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 import structlog
 
-from informity.config import (
-    DirNames,
-    configure_hf_environment,
-    ensure_docling_rapidocr_cache_compat,
-    settings,
-)
+from informity.config import settings
 from informity.scanner.extractors.base import MAX_EXTRACTED_TEXT_PREVIEW, ExtractedDocument
 from informity.scanner.extractors.text_utils import elapsed_ms, get_max_file_size_bytes
-from informity.utils.directory_utils import ensure_directory
 
 log = structlog.get_logger(__name__)
 _DOCLING_RUNTIME_EXCEPTIONS = (
@@ -53,6 +47,16 @@ _MAX_CONVERSIONS_BEFORE_RESET = 25  # Recreate converter every N conversions
 
 # Docling-supported formats (excluding images for now)
 _DOCLING_SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.pptx', '.xlsx', '.html', '.htm', '.csv']
+
+
+@dataclass(frozen=True)
+class _OcrAttempt:
+    text: str
+    page_count: int | None
+    preview_text: str
+    success: bool
+    failure_reason: str | None = None
+    error: Exception | None = None
 
 
 def _classify_docling_exception(exc: Exception) -> tuple[str, bool]:
@@ -104,48 +108,15 @@ class DoclingExtractor:
                 del cls._converter
                 gc.collect()
 
-            # Configure docling to use our cache directory for models
-            # Docling uses DOCLING_ARTIFACTS_PATH env var or downloads to default cache
-            # We set it to our unified cache directory so models are cached there
-            # Set docling artifacts path (flat structure: cache/docling/)
-            # Docling will create its own subdirectories inside as needed
-            docling_cache = settings.cache_dir / DirNames.DOCLING
-            ensure_directory(docling_cache)
-            os.environ['DOCLING_ARTIFACTS_PATH'] = str(docling_cache)
-
-            # Ensure HF environment is configured (for docling's HuggingFace dependencies)
-            # This will raise ConfigurationError if Full Privacy is enabled but models aren't cached
-            configure_hf_environment()
-            ensure_docling_rapidocr_cache_compat(settings.cache_dir)
-
             try:
-                # Import only after DOCLING_ARTIFACTS_PATH is set so docling's settings see it
-                from docling.datamodel.base_models import InputFormat
-                from docling.datamodel.pipeline_options import (
-                    AcceleratorOptions,
-                    PdfPipelineOptions,
-                )
-                from docling.document_converter import DocumentConverter, PdfFormatOption
-
-                # Configure accelerator options with thread alignment
-                accelerator_options = AcceleratorOptions(
-                    num_threads=settings.embedding_max_threads or 4
+                from informity.scanner.extractors.docling_runtime import (
+                    _DOCLING_RUNTIME_EXCEPTIONS,
+                    build_pdf_converter,
+                    prepare_docling_runtime,
                 )
 
-                # Configure PDF pipeline options
-                pdf_pipeline_options = PdfPipelineOptions(
-                    accelerator_options=accelerator_options
-                )
-
-                # Create format_options dict mapping formats to their options
-                # PDF gets custom pipeline options; other formats use defaults
-                format_options = {
-                    InputFormat.PDF: PdfFormatOption(
-                        pipeline_options=pdf_pipeline_options
-                    )
-                }
-
-                cls._converter = DocumentConverter(format_options=format_options)
+                docling_cache = prepare_docling_runtime()
+                cls._converter = build_pdf_converter(do_ocr=False)
                 cls._conversion_count = 0
             except _DOCLING_RUNTIME_EXCEPTIONS as exc:
                 # If converter creation fails, log error with helpful context
@@ -167,39 +138,56 @@ class DoclingExtractor:
         Create a DocumentConverter with OCR enabled for image-only PDFs.
         Used as fallback when regular extraction returns empty text.
         """
-        from docling.datamodel.base_models import InputFormat
-        from docling.datamodel.pipeline_options import (
-            AcceleratorOptions,
-            PdfPipelineOptions,
-            RapidOcrOptions,
-        )
-        from docling.document_converter import DocumentConverter, PdfFormatOption
+        from informity.scanner.extractors.docling_runtime import build_pdf_converter
 
-        # Configure accelerator options
-        accelerator_options = AcceleratorOptions(
-            num_threads=settings.embedding_max_threads or 4
-        )
+        return build_pdf_converter(do_ocr=True, force_full_page_ocr=True)
 
-        # Configure OCR options: force full-page OCR for image-only PDFs
-        # Use RapidOcrOptions since we're using RapidOCR (downloaded via bootstrap)
-        ocr_options = RapidOcrOptions(lang=[])  # Empty lang list = auto-detect language
-        ocr_options.force_full_page_ocr = True
+    def _try_ocr_extract(self, path: Path) -> _OcrAttempt:
+        try:
+            ocr_converter = self._create_ocr_converter()
+            ocr_result = ocr_converter.convert(str(path))
+            ocr_doc = ocr_result.document
+            ocr_text = ocr_doc.export_to_markdown() if hasattr(ocr_doc, 'export_to_markdown') else ''
+            if not ocr_text.strip():
+                return _OcrAttempt(
+                    text='',
+                    page_count=None,
+                    preview_text='',
+                    success=False,
+                    failure_reason='empty_text',
+                )
 
-        # Configure PDF pipeline options with OCR enabled
-        pdf_pipeline_options = PdfPipelineOptions(
-            accelerator_options=accelerator_options,
-            do_ocr=True,  # Enable OCR
-            ocr_options=ocr_options,
-        )
+            page_count: int | None = None
+            try:
+                if hasattr(ocr_result, 'input') and hasattr(ocr_result.input, 'page_count'):
+                    page_count = ocr_result.input.page_count
+                elif hasattr(ocr_doc, 'pages') and ocr_doc.pages:
+                    page_count = len(ocr_doc.pages)
+                elif hasattr(ocr_doc, 'num_pages'):
+                    page_count = ocr_doc.num_pages()
+            except _DOCLING_RUNTIME_EXCEPTIONS:
+                pass
 
-        # Create format_options dict with OCR-enabled PDF options
-        format_options = {
-            InputFormat.PDF: PdfFormatOption(
-                pipeline_options=pdf_pipeline_options
+            try:
+                preview_text = ocr_doc.export_to_text()[:MAX_EXTRACTED_TEXT_PREVIEW]
+            except _DOCLING_RUNTIME_EXCEPTIONS:
+                preview_text = ocr_text[:MAX_EXTRACTED_TEXT_PREVIEW]
+
+            return _OcrAttempt(
+                text=ocr_text,
+                page_count=page_count,
+                preview_text=preview_text,
+                success=True,
             )
-        }
-
-        return DocumentConverter(format_options=format_options)
+        except _DOCLING_RUNTIME_EXCEPTIONS as exc:
+            return _OcrAttempt(
+                text='',
+                page_count=None,
+                preview_text='',
+                success=False,
+                failure_reason='exception',
+                error=exc,
+            )
 
     def extract(self, path: Path) -> ExtractedDocument:
         start_time = time.perf_counter()
@@ -416,63 +404,35 @@ class DoclingExtractor:
                     path=str(path),
                     reason='regular_extraction_returned_empty_text'
                 )
-                try:
-                    # Create OCR-enabled converter for retry
-                    ocr_converter = self._create_ocr_converter()
-                    ocr_result = ocr_converter.convert(str(path))
-                    ocr_doc = ocr_result.document
-
-                    # Extract text from OCR result
-                    ocr_text = ocr_doc.export_to_markdown() if hasattr(ocr_doc, 'export_to_markdown') else ''
-
-                    if ocr_text.strip():
-                        log.info(
-                            'ocr_extraction_succeeded',
-                            path=str(path),
-                            text_length=len(ocr_text),
-                            word_count=len(ocr_text.split())
-                        )
-                        # Use OCR-extracted text
-                        text = ocr_text
-                        word_count = len(text.split())
-
-                        # Update metadata to indicate OCR was used
-                        metadata['ocr_used'] = 'true'
-                        metadata['converter'] = 'docling+ocr'
-
-                        # Re-extract page count from OCR result
-                        try:
-                            if hasattr(ocr_result, 'input') and hasattr(ocr_result.input, 'page_count'):
-                                page_count = ocr_result.input.page_count
-                            elif hasattr(ocr_doc, 'pages') and ocr_doc.pages:
-                                page_count = len(ocr_doc.pages)
-                            elif hasattr(ocr_doc, 'num_pages'):
-                                page_count = ocr_doc.num_pages()
-                        except _DOCLING_RUNTIME_EXCEPTIONS:
-                            pass
-
-                        # Use OCR document for preview
-                        try:
-                            preview_text = ocr_doc.export_to_text()[:MAX_EXTRACTED_TEXT_PREVIEW]
-                        except _DOCLING_RUNTIME_EXCEPTIONS:
-                            preview_text = text[:MAX_EXTRACTED_TEXT_PREVIEW]
-                    else:
-                        log.debug(
-                            'ocr_extraction_empty',
-                            path=str(path),
-                            reason='ocr_also_returned_empty_text'
-                        )
-                        # OCR also returned empty - use original empty result
-                        preview_text = text[:MAX_EXTRACTED_TEXT_PREVIEW]
-                except _DOCLING_RUNTIME_EXCEPTIONS as ocr_exc:
+                ocr_attempt = self._try_ocr_extract(path)
+                if ocr_attempt.success:
+                    log.info(
+                        'ocr_extraction_succeeded',
+                        path=str(path),
+                        text_length=len(ocr_attempt.text),
+                        word_count=len(ocr_attempt.text.split())
+                    )
+                    text = ocr_attempt.text
+                    word_count = len(text.split())
+                    metadata['ocr_used'] = 'true'
+                    metadata['converter'] = 'docling+ocr'
+                    page_count = ocr_attempt.page_count
+                    preview_text = ocr_attempt.preview_text
+                elif ocr_attempt.failure_reason == 'empty_text':
+                    log.debug(
+                        'ocr_extraction_empty',
+                        path=str(path),
+                        reason='ocr_also_returned_empty_text'
+                    )
+                    preview_text = text[:MAX_EXTRACTED_TEXT_PREVIEW]
+                else:
                     log.warning(
                         'ocr_fallback_failed',
                         path=str(path),
-                        error=str(ocr_exc),
-                        error_type=type(ocr_exc).__name__,
+                        error=str(ocr_attempt.error),
+                        error_type=type(ocr_attempt.error).__name__ if ocr_attempt.error is not None else 'UnknownError',
                         action='indexing_file_with_zero_chunks'
                     )
-                    # OCR failed - use original empty result (file will be indexed with 0 chunks)
                     preview_text = text[:MAX_EXTRACTED_TEXT_PREVIEW]
             else:
                 # Get clean preview text (without markdown noise)
@@ -520,89 +480,37 @@ class DoclingExtractor:
                     error_type=type(exc).__name__,
                     reason='regular_extraction_raised_exception'
                 )
-                try:
-                    # Create OCR-enabled converter for retry
-                    ocr_converter = self._create_ocr_converter()
-                    ocr_result = ocr_converter.convert(str(path))
-                    ocr_doc = ocr_result.document
-
-                    # Extract text from OCR result
-                    ocr_text = ocr_doc.export_to_markdown() if hasattr(ocr_doc, 'export_to_markdown') else ''
-
-                    if ocr_text.strip():
-                        log.info(
-                            'ocr_extraction_succeeded_after_exception',
-                            path=str(path),
-                            text_length=len(ocr_text),
-                            word_count=len(ocr_text.split())
-                        )
-                        # Use OCR-extracted text
-                        word_count = len(ocr_text.split())
-
-                        # Get page count from OCR result
-                        page_count: int | None = None
-                        try:
-                            if hasattr(ocr_result, 'input') and hasattr(ocr_result.input, 'page_count'):
-                                page_count = ocr_result.input.page_count
-                            elif hasattr(ocr_doc, 'pages') and ocr_doc.pages:
-                                page_count = len(ocr_doc.pages)
-                            elif hasattr(ocr_doc, 'num_pages'):
-                                page_count = ocr_doc.num_pages()
-                        except _DOCLING_RUNTIME_EXCEPTIONS:
-                            pass
-
-                        # Build metadata indicating OCR was used
-                        metadata: dict[str, str] = {
-                            'converter': 'docling+ocr',
-                            'format': path.suffix.lower(),
-                            'page_count': str(page_count) if page_count else 'unknown',
-                            'ocr_used': 'true',
-                            'original_error': str(exc)[:200],  # Truncate long error messages
-                        }
-
-                        # Get preview text
-                        try:
-                            preview_text = ocr_doc.export_to_text()[:MAX_EXTRACTED_TEXT_PREVIEW]
-                        except _DOCLING_RUNTIME_EXCEPTIONS:
-                            preview_text = ocr_text[:MAX_EXTRACTED_TEXT_PREVIEW]
-
-                        return ExtractedDocument(
-                            text=ocr_text,
-                            source_path=path,
-                            metadata=metadata,
-                            page_count=page_count,
-                            word_count=word_count,
-                            extraction_time_ms=elapsed_ms(start_time),
-                            preview_text=preview_text,
-                        )
-                    else:
-                        log.debug(
-                            'ocr_extraction_empty_after_exception',
-                            path=str(path),
-                            reason='ocr_also_returned_empty_text'
-                        )
-                        # OCR also returned empty - return error result
-                        return ExtractedDocument(
-                            text='',
-                            source_path=path,
-                            metadata={
-                                'error_code': error_code,
-                                'retryable': 'false' if not retryable else 'true',
-                            },
-                            extraction_time_ms=elapsed_ms(start_time),
-                            preview_text='',
-                            error=f'Docling extraction failed: {exc}. OCR fallback also returned empty text.',
-                        )
-                except _DOCLING_RUNTIME_EXCEPTIONS as ocr_exc:
-                    log.warning(
-                        'ocr_fallback_failed_after_exception',
+                ocr_attempt = self._try_ocr_extract(path)
+                if ocr_attempt.success:
+                    log.info(
+                        'ocr_extraction_succeeded_after_exception',
                         path=str(path),
-                        original_error=str(exc),
-                        ocr_error=str(ocr_exc),
-                        error_type=type(ocr_exc).__name__,
-                        action='indexing_file_with_zero_chunks'
+                        text_length=len(ocr_attempt.text),
+                        word_count=len(ocr_attempt.text.split())
                     )
-                    # OCR failed - return error result (file will be indexed with 0 chunks)
+                    word_count = len(ocr_attempt.text.split())
+                    metadata = {
+                        'converter': 'docling+ocr',
+                        'format': path.suffix.lower(),
+                        'page_count': str(ocr_attempt.page_count) if ocr_attempt.page_count else 'unknown',
+                        'ocr_used': 'true',
+                        'original_error': str(exc)[:200],
+                    }
+                    return ExtractedDocument(
+                        text=ocr_attempt.text,
+                        source_path=path,
+                        metadata=metadata,
+                        page_count=ocr_attempt.page_count,
+                        word_count=word_count,
+                        extraction_time_ms=elapsed_ms(start_time),
+                        preview_text=ocr_attempt.preview_text,
+                    )
+                if ocr_attempt.failure_reason == 'empty_text':
+                    log.debug(
+                        'ocr_extraction_empty_after_exception',
+                        path=str(path),
+                        reason='ocr_also_returned_empty_text'
+                    )
                     return ExtractedDocument(
                         text='',
                         source_path=path,
@@ -612,8 +520,27 @@ class DoclingExtractor:
                         },
                         extraction_time_ms=elapsed_ms(start_time),
                         preview_text='',
-                        error=f'Docling extraction failed: {exc}. OCR fallback also failed: {ocr_exc}',
+                        error=f'Docling extraction failed: {exc}. OCR fallback also returned empty text.',
                     )
+                log.warning(
+                    'ocr_fallback_failed_after_exception',
+                    path=str(path),
+                    original_error=str(exc),
+                    ocr_error=str(ocr_attempt.error),
+                    error_type=type(ocr_attempt.error).__name__ if ocr_attempt.error is not None else 'UnknownError',
+                    action='indexing_file_with_zero_chunks'
+                )
+                return ExtractedDocument(
+                    text='',
+                    source_path=path,
+                    metadata={
+                        'error_code': error_code,
+                        'retryable': 'false' if not retryable else 'true',
+                    },
+                    extraction_time_ms=elapsed_ms(start_time),
+                    preview_text='',
+                    error=f'Docling extraction failed: {exc}. OCR fallback also failed: {ocr_attempt.error}',
+                )
 
             # OCR not enabled or not a PDF - return error result
             return ExtractedDocument(

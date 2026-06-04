@@ -9,6 +9,7 @@ from pathlib import Path
 
 import structlog
 
+from informity.file_types import PLAINTEXT_EXTENSIONS
 from informity.scanner.extractors.base import MAX_EXTRACTED_TEXT_PREVIEW, ExtractedDocument
 from informity.scanner.extractors.text_utils import (
     decode_bytes,
@@ -18,18 +19,13 @@ from informity.scanner.extractors.text_utils import (
 
 log = structlog.get_logger(__name__)
 
-# Plain text formats not supported by docling
-# Includes structured data formats (JSON/YAML/TOML) - read as plain text for RAG
-_PLAINTEXT_EXTENSIONS = ['.txt', '.md', '.rst', '.log', '.json', '.yaml', '.yml', '.toml']
-
-
 class TextExtractor:
     """
     Extractor for plain text files not supported by docling.
     Handles encoding detection and simple text extraction.
     Also handles structured data formats (JSON/YAML/TOML) - reads as plain text for RAG.
     """
-    supported_extensions: list[str] = _PLAINTEXT_EXTENSIONS
+    supported_extensions: list[str] = list(PLAINTEXT_EXTENSIONS)
 
     def can_handle(self, path: Path) -> bool:
         return path.suffix.lower() in self.supported_extensions

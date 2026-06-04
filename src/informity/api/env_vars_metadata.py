@@ -10,7 +10,7 @@ from pathlib import Path
 
 from informity.api.schemas import EnvVarGroup, EnvVarItem, EnvVarsResponse
 from informity.config import APP_SLUG, DirNames, Settings
-from informity.file_types import get_file_type_options
+from informity.file_types import SUPPORTED_EXTENSIONS_CANONICAL_ORDER
 from informity.utils.path_utils import normalize_path
 
 # Prefix used by pydantic-settings for this app.
@@ -263,17 +263,10 @@ _INTERNAL_CONSTANTS_PREFIXES = (
     'scan_stale_',
     'scan_timeout_policy',
 )
-_SUPPORTED_EXTENSIONS_CANONICAL_ORDER: tuple[str, ...] = tuple(
-    ext
-    for option in get_file_type_options()
-    for ext in option.get('extensions', [])
-)
-
-
 def _normalize_supported_extensions_display(value: object) -> object:
     if not isinstance(value, list):
         return value
-    canonical_index = {ext: idx for idx, ext in enumerate(_SUPPORTED_EXTENSIONS_CANONICAL_ORDER)}
+    canonical_index = {ext: idx for idx, ext in enumerate(SUPPORTED_EXTENSIONS_CANONICAL_ORDER)}
     normalized: list[str] = []
     seen: set[str] = set()
     for item in value:

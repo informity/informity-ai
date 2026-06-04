@@ -360,6 +360,31 @@ async def test_answer_question_invalid_chat_mode_falls_back_to_researcher(mock_d
 
 
 @pytest.mark.asyncio
+async def test_answer_question_researcher_classification_timeout_falls_back_to_simple(mock_db):
+    async def mock_simple_gen():
+        yield 'timeout fallback'
+        yield []
+
+    async def _raise_timeout(awaitable, timeout):  # type: ignore[no-untyped-def]
+        if hasattr(awaitable, 'close'):
+            awaitable.close()
+        raise TimeoutError
+
+    with patch('informity.llm.rag.asyncio.wait_for', new=_raise_timeout), \
+         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
+         patch('informity.llm.handlers.simple.SimpleHandler.handle', new_callable=MagicMock) as mock_simple_handler:
+        mock_simple_handler.return_value = mock_simple_gen()
+
+        results = []
+        async for item in answer_question('test question', db=mock_db, chat_mode='researcher'):
+            results.append(item)
+
+        mock_simple_handler.assert_called_once()
+        assert any(isinstance(item, str) and item == 'timeout fallback' for item in results)
+        assert results[-1] == []
+
+
+@pytest.mark.asyncio
 async def test_answer_question_researcher_empty_index_short_circuits(mock_db):
     classification = QueryClassification(
         intent='metadata',

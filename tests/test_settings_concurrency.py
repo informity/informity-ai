@@ -11,6 +11,52 @@ from informity.api.schemas import CurrentChatUpdateRequest, SettingsUpdateReques
 
 
 @pytest.mark.asyncio
+async def test_get_settings_normalizes_without_mutating_config_singleton(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config.settings, 'app_data_dir', tmp_path)
+    monkeypatch.setattr(routes_settings, '_list_available_models', lambda: [])
+    monkeypatch.setattr(routes_settings, '_visible_role_ids', lambda: {'assistant', 'researcher'})
+    monkeypatch.setattr(config.settings, 'llm_model_filename', 'Qwen_Qwen3.5-9B-Q4_K_M.gguf   ')
+    monkeypatch.setattr(config.settings, 'llm_model_id', '')
+    monkeypatch.setattr(config.settings, 'enabled_chat_role_ids', ['assistant', 'invalid', 'researcher'])
+    monkeypatch.setattr(config.settings, 'enable_chat_roles', False)
+
+    response = await routes_settings.get_settings()
+
+    assert response.llm_model_filename == 'Qwen_Qwen3.5-9B-Q4_K_M.gguf'
+    assert response.enabled_chat_role_ids == ['assistant', 'researcher']
+    assert response.enable_chat_roles is True
+    assert config.settings.llm_model_filename == 'Qwen_Qwen3.5-9B-Q4_K_M.gguf   '
+    assert config.settings.llm_model_id == ''
+    assert config.settings.enabled_chat_role_ids == ['assistant', 'invalid', 'researcher']
+    assert config.settings.enable_chat_roles is False
+
+
+@pytest.mark.asyncio
+async def test_mcp_stdio_start_does_not_mark_manager_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def _noop_emit_log_event(**kwargs) -> None:
+        _ = kwargs
+
+    monkeypatch.setattr(config.settings, 'mcp_enabled', True)
+    monkeypatch.setattr(config.settings, 'mcp_transport', 'stdio')
+    monkeypatch.setattr(config.settings, 'mcp_http_host', '127.0.0.1')
+    monkeypatch.setattr(config.settings, 'mcp_http_port', 8765)
+    monkeypatch.setattr(config.settings, 'mcp_scope_mode', 'metadata_only')
+    monkeypatch.setattr(routes_settings.mcp_lifecycle, '_running', False)
+    monkeypatch.setattr(routes_settings.mcp_lifecycle, '_last_error', 'previous-error')
+    monkeypatch.setattr('informity.mcp.lifecycle.emit_log_event', _noop_emit_log_event)
+
+    await routes_settings.mcp_lifecycle.start_from_settings()
+
+    assert routes_settings.mcp_lifecycle.running is False
+    assert routes_settings.mcp_lifecycle.last_error is None
+
+
+@pytest.mark.asyncio
 async def test_concurrent_settings_and_current_chat_updates_keep_valid_config(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

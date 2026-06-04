@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import re
 import time
+import zipfile
 from html.parser import HTMLParser
 from pathlib import Path
 
@@ -150,9 +151,21 @@ class EpubExtractor:
                 )
                 return doc
 
+            epub_exception_types: tuple[type[BaseException], ...] = (
+                AttributeError,
+                KeyError,
+                OSError,
+                RuntimeError,
+                ValueError,
+                zipfile.BadZipFile,
+            )
+            epub_exception = getattr(epub, 'EpubException', None)
+            if isinstance(epub_exception, type) and issubclass(epub_exception, BaseException):
+                epub_exception_types += (epub_exception,)
+
             try:
                 book = epub.read_epub(str(path))
-            except Exception as exc:
+            except epub_exception_types as exc:
                 error_code, retryable = _classify_epub_exception(exc)
                 doc = ExtractedDocument(
                     text='',

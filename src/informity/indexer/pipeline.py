@@ -26,6 +26,7 @@ from informity.db.sqlite import (
     update_file,
 )
 from informity.db.vectors import ChunkEmbedding, vector_store
+from informity.file_types import PLAINTEXT_EXTENSIONS
 from informity.indexer.chunker import chunk_text, create_child_chunks
 from informity.indexer.classifier import classify_file, extract_year, generate_tags
 from informity.indexer.embedder import embedder
@@ -48,7 +49,6 @@ if TYPE_CHECKING:
 log = structlog.get_logger(__name__)
 _INDEXER_RUNTIME_EXCEPTIONS = (aiosqlite.Error, sqlite3.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError, MemoryError)
 _EMBEDDING_MODEL_MAX_TOKENS = 8192
-_PLAINTEXT_EXTENSIONS = frozenset({'.txt', '.md', '.rst', '.log', '.json', '.yaml', '.yml', '.toml'})
 _PLAINTEXT_MAX_LINE_CHARS = 200_000
 
 @dataclass
@@ -380,6 +380,28 @@ async def _chunk_embed_store(
                 total_child_chunks=total_child_chunks
             )
 
+        if total_child_chunks > 0 and embedded_count == 0:
+            reason = 'total_child_chunks > 0 but embedded_count == 0'
+            log.error(
+                'embedding_consistency_failed',
+                file_id=file_id,
+                filename=filename,
+                reason=reason,
+            )
+            await _cleanup_partial_file_data(
+                db=db,
+                file_id=file_id,
+                path=str(file_path),
+                reason=reason,
+            )
+            return IndexResult(
+                success=False,
+                chunks_created=0,
+                error='No embeddable child chunks were produced.',
+                error_code='no_embeddable_chunks',
+                retryable=False,
+            )
+
         expected_embedded_count = total_child_chunks - skipped_count
         if failed_batches > 0 or embedded_count != expected_embedded_count:
             reason = (
@@ -537,7 +559,7 @@ async def index_file(
         )
 
         if not isinstance(file_path_or_scanned, IngestionItem):
-            if extension.lower() in _PLAINTEXT_EXTENSIONS:
+            if extension.lower() in PLAINTEXT_EXTENSIONS:
                 max_line_chars = await asyncio.to_thread(_max_line_length, file_path)
                 if max_line_chars > _PLAINTEXT_MAX_LINE_CHARS:
                     message = (
@@ -996,16 +1018,6 @@ async def reindex_file(
                 path=str(path),
                 reason='reindex_chunk_embed_store_failed',
             )
-            # Remove file record on failed re-index to avoid files-without-chunks or partial state.
-            try:
-                await delete_file(db, file_id)
-            except _INDEXER_RUNTIME_EXCEPTIONS as exc:
-                log.warning(
-                    'reindex_failed_file_delete_failed',
-                    file_id=file_id,
-                    path=str(path),
-                    error=str(exc),
-                )
 
         return result
 

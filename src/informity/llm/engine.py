@@ -38,6 +38,7 @@ from informity.llm.model_adapter import (
     get_profile,
     get_profile_for_filename,
 )
+from informity.llm.timeout_policy import normalize_timeout_reason
 from informity.llm.types import StreamSignalTag, TimeoutReason
 from informity.utils.directory_utils import ensure_file_directory
 
@@ -104,6 +105,59 @@ def _resolve_first_token_deadline_seconds(*, wall_clock: float, profile_tps: flo
         )
         return max(base_deadline, slow_deadline)
     return base_deadline
+
+
+async def _stream_from_queue(
+    queue: asyncio.Queue[str | object],
+    cancel_event: threading.Event,
+    *,
+    start: float,
+    wall_clock: float,
+    first_token_deadline_seconds: float,
+    stripper: ThinkStrip,
+) -> AsyncGenerator[tuple[str, object]]:
+    first_token_seen = False
+    while True:
+        elapsed = time.perf_counter() - start
+        if elapsed >= wall_clock:
+            yield ('timeout', {
+                'reason': TimeoutReason.UNKNOWN_TIMEOUT.value,
+                'elapsed_seconds': round(elapsed, 1),
+                'timeout_seconds': wall_clock,
+            })
+            return
+        if not first_token_seen and elapsed >= first_token_deadline_seconds:
+            yield ('timeout', {
+                'reason': TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT.value,
+                'elapsed_seconds': round(elapsed, 1),
+                'timeout_seconds': wall_clock,
+            })
+            return
+
+        remaining_timeout = wall_clock - elapsed
+        queue_poll_timeout = min(remaining_timeout, 2.0)
+        try:
+            item = await asyncio.wait_for(queue.get(), timeout=queue_poll_timeout)
+        except TimeoutError:
+            continue
+
+        if item is _STREAM_END:
+            emit_text = stripper.flush()
+            if emit_text:
+                first_token_seen = True
+                yield ('text', emit_text)
+            return
+        if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.FINISH_REASON:
+            yield ('finish_reason', item[1])
+            continue
+
+        raw_token = str(item)
+        emit_text = stripper.feed(raw_token)
+        if not emit_text:
+            continue
+
+        first_token_seen = True
+        yield ('text', emit_text)
 
 
 # ==============================================================================
@@ -945,66 +999,47 @@ class XllamaCppProvider:
         stripper = ThinkStrip()
 
         try:
-            while True:
-                elapsed = time.perf_counter() - start
-                if elapsed >= wall_clock:
-                    log.warning(
-                        'llm_stream_wall_clock_timeout',
-                        elapsed_seconds  = round(elapsed, 1),
-                        timeout_seconds  = wall_clock,
-                        tokens_generated = token_count,
-                        msg              = 'Hard timeout reached; stopping generation',
-                    )
+            async for event_kind, payload in _stream_from_queue(
+                queue,
+                cancel_event,
+                start=start,
+                wall_clock=wall_clock,
+                first_token_deadline_seconds=first_token_deadline_seconds,
+                stripper=stripper,
+            ):
+                if event_kind == 'timeout':
+                    timeout_payload = payload if isinstance(payload, dict) else {}
+                    timeout_reason_value = str(normalize_timeout_reason(timeout_payload.get('reason')))
+                    if timeout_reason_value == TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT.value:
+                        log.warning(
+                            'llm_stream_first_token_watchdog_timeout',
+                            elapsed_seconds=timeout_payload.get('elapsed_seconds'),
+                            first_token_deadline_seconds=round(first_token_deadline_seconds, 1),
+                            timeout_seconds=timeout_payload.get('timeout_seconds'),
+                            tokens_generated=token_count,
+                            msg='No first token observed before watchdog deadline; stopping generation',
+                        )
+                    else:
+                        log.warning(
+                            'llm_stream_wall_clock_timeout',
+                            elapsed_seconds=timeout_payload.get('elapsed_seconds'),
+                            timeout_seconds=timeout_payload.get('timeout_seconds'),
+                            tokens_generated=token_count,
+                            msg='Hard timeout reached; stopping generation',
+                        )
                     cancel_event.set()
                     timeout_occurred = True
-                    timeout_reason = 'wall_clock_limit'
+                    timeout_reason = timeout_reason_value or TimeoutReason.UNKNOWN_TIMEOUT.value
                     break
-                if first_token_ms is None and elapsed >= first_token_deadline_seconds:
-                    log.warning(
-                        'llm_stream_first_token_watchdog_timeout',
-                        elapsed_seconds=round(elapsed, 1),
-                        first_token_deadline_seconds=round(first_token_deadline_seconds, 1),
-                        timeout_seconds=wall_clock,
-                        tokens_generated=token_count,
-                        msg='No first token observed before watchdog deadline; stopping generation',
-                    )
-                    cancel_event.set()
-                    timeout_occurred = True
-                    timeout_reason = 'first_token_watchdog_timeout'
-                    break
-
-                remaining_timeout = wall_clock - elapsed
-                # Poll in short intervals so first-token watchdog can trip even
-                # when the worker thread yields no queue events.
-                queue_poll_timeout = min(remaining_timeout, 2.0)
-                try:
-                    item = await asyncio.wait_for(queue.get(), timeout=queue_poll_timeout)
-                except TimeoutError:
+                if event_kind == 'finish_reason':
+                    finish_reason = payload if isinstance(payload, str) else None
                     continue
 
-                if item is _STREAM_END:
-                    emit_text = stripper.flush()
-                    if emit_text:
-                        if first_token_ms is None:
-                            first_token_ms = (time.perf_counter() - start) * 1000
-                        token_count += 1
-                        total_text += emit_text
-                        yield emit_text
-                    break
-                if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.FINISH_REASON:
-                    finish_reason = item[1]
-                    continue
-
-                raw_token = str(item)
-                emit_text = stripper.feed(raw_token)
-
-                if not emit_text:
-                    continue
-
+                emit_text = str(payload)
                 if first_token_ms is None:
                     first_token_ms = (time.perf_counter() - start) * 1000
                 token_count += 1
-                total_text  += emit_text
+                total_text += emit_text
                 yield emit_text
 
             if timeout_occurred:
@@ -1370,43 +1405,26 @@ class OllamaProvider:
         stripper = ThinkStrip()
 
         try:
-            while True:
-                elapsed = time.perf_counter() - start
-                if elapsed >= wall_clock:
+            async for event_kind, payload in _stream_from_queue(
+                queue,
+                cancel_event,
+                start=start,
+                wall_clock=wall_clock,
+                first_token_deadline_seconds=first_token_deadline_seconds,
+                stripper=stripper,
+            ):
+                if event_kind == 'timeout':
+                    timeout_payload = payload if isinstance(payload, dict) else {}
+                    timeout_reason_value = str(normalize_timeout_reason(timeout_payload.get('reason')))
                     cancel_event.set()
                     timeout_occurred = True
-                    timeout_reason = 'wall_clock_limit'
+                    timeout_reason = timeout_reason_value or TimeoutReason.UNKNOWN_TIMEOUT.value
                     break
-                if first_token_ms is None and elapsed >= first_token_deadline_seconds:
-                    cancel_event.set()
-                    timeout_occurred = True
-                    timeout_reason = 'first_token_watchdog_timeout'
-                    break
-
-                remaining_timeout = wall_clock - elapsed
-                queue_poll_timeout = min(remaining_timeout, 2.0)
-                try:
-                    item = await asyncio.wait_for(queue.get(), timeout=queue_poll_timeout)
-                except TimeoutError:
+                if event_kind == 'finish_reason':
+                    finish_reason = payload if isinstance(payload, str) else None
                     continue
 
-                if item is _STREAM_END:
-                    emit_text = stripper.flush()
-                    if emit_text:
-                        if first_token_ms is None:
-                            first_token_ms = (time.perf_counter() - start) * 1000
-                        token_count += 1
-                        total_text += emit_text
-                        yield emit_text
-                    break
-                if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.FINISH_REASON:
-                    finish_reason = item[1]
-                    continue
-
-                raw_token = str(item)
-                emit_text = stripper.feed(raw_token)
-                if not emit_text:
-                    continue
+                emit_text = str(payload)
                 if first_token_ms is None:
                     first_token_ms = (time.perf_counter() - start) * 1000
                 token_count += 1

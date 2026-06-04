@@ -5,9 +5,12 @@
 # ==============================================================================
 
 import hashlib
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
 
 from informity.db.models import IndexedFile
 from informity.scanner.crawler import (
@@ -363,6 +366,22 @@ class TestHashComputation:
         result = _compute_file_hash_and_stat(str(f))
         assert result is not None
         assert result[0] == expected
+
+    def test_oversized_file_hash_ignores_mtime(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        f = tmp_path / "large.bin"
+        f.write_bytes(b"x" * 16)
+        monkeypatch.setattr("informity.config.settings.scan_hash_max_file_size_bytes", 1)
+
+        os.utime(f, (1_700_000_000, 1_700_000_000))
+        first = _compute_file_hash_and_stat(str(f))
+        assert first is not None
+
+        os.utime(f, (1_700_000_123, 1_700_000_123))
+        second = _compute_file_hash_and_stat(str(f))
+        assert second is not None
+
+        assert first[0] == second[0]
+        assert first[1] == second[1] == 16
 
 
 # ==============================================================================

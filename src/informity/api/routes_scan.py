@@ -22,6 +22,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
 import informity.api.operation_state as op_state
+from informity.api.index_finalize import finalize_index_operation
 from informity.api.operation_state import resolve_running_scan
 from informity.api.schemas import (
     FileListResponse,
@@ -31,7 +32,7 @@ from informity.api.schemas import (
     ScanRequest,
     ScanStatusResponse,
 )
-from informity.api.security import EndpointGuard
+from informity.api.security import EndpointGuard, raise_if_index_reset_in_progress
 from informity.config import (
     get_effective_ignore_patterns_for_scan,
     get_supported_extensions_for_scan,
@@ -46,7 +47,6 @@ from informity.db.sqlite import (
     get_file_by_id,
     get_file_by_path,
     get_files,
-    get_index_integrity_issues,
     get_latest_scan,
     get_scan_error_records,
     get_scan_error_records_page,
@@ -57,6 +57,7 @@ from informity.db.sqlite import (
     should_skip_file_retry,
     update_scan_record,
 )
+from informity.file_types import PLAINTEXT_EXTENSIONS
 from informity.indexer.pipeline import (
     IndexResult,
     index_file,
@@ -91,7 +92,6 @@ SCAN_PROGRESS_UPDATE_TIMEOUT_SECONDS = 1.0
 SCAN_TERMINAL_UPDATE_RETRIES = 3
 SCAN_TERMINAL_UPDATE_RETRY_DELAY_SECONDS = 0.2
 SCAN_ORCHESTRATOR = build_default_orchestrator()
-_PLAINTEXT_EXTENSIONS = frozenset({'.txt', '.md', '.rst', '.log', '.json', '.yaml', '.yml', '.toml'})
 _PLAINTEXT_TIMEOUT_CAP_SECONDS = 120
 
 
@@ -128,9 +128,55 @@ def _resolve_scan_timeout_seconds_for_file(sf: ScannedFile) -> int:
         scope_key=scope_key,
         size_bytes=max(0, int(sf.size_bytes)),
     )
-    if sf.extension.lower() in _PLAINTEXT_EXTENSIONS:
+    if sf.extension.lower() in PLAINTEXT_EXTENSIONS:
         return max(SCAN_FILE_TIMEOUT_MIN_SECONDS, min(resolved, _PLAINTEXT_TIMEOUT_CAP_SECONDS))
     return resolved
+
+
+def _scan_error_items(records: list[ScanErrorRecord]) -> list[ScanErrorItem]:
+    return [
+        ScanErrorItem(
+            path=item.path,
+            filename=item.filename,
+            extension=item.extension,
+            operation=item.operation,
+            error_code=item.error_code,
+            error_message=item.error_message,
+            is_timeout=item.is_timeout,
+            created_at=item.created_at,
+        )
+        for item in records
+    ]
+
+
+async def _persist_file_result(
+    db: aiosqlite.Connection,
+    result: IndexResult,
+    *,
+    scanned: ScannedFile,
+    source_provider: str,
+    entity_type: str,
+) -> None:
+    normalized_path = str(normalize_path(scanned.path, expand_user=False))
+    if result.success:
+        await clear_file_failure(
+            db,
+            source_provider=source_provider,
+            entity_type=entity_type,
+            source_item_id=normalized_path,
+        )
+        return
+    await record_file_failure(
+        db,
+        source_provider=source_provider,
+        entity_type=entity_type,
+        source_item_id=normalized_path,
+        path=normalized_path,
+        content_hash=scanned.content_hash,
+        error_code=result.error_code,
+        error_message=result.error,
+        retryable=result.retryable,
+    )
 
 @router.post('/api/scan')
 async def trigger_scan(
@@ -150,11 +196,7 @@ async def trigger_scan(
                 detail=f'Directory path too long (max {MAX_PATH_CHARS} characters).',
             )
         # Block if reset is in progress
-        if await op_state.is_reset_in_progress():
-            raise HTTPException(
-                status_code=409,
-                detail='Index reset is in progress. Please wait for it to complete.',
-            )
+        raise_if_index_reset_in_progress(await op_state.is_reset_in_progress())
 
         # Serialize scan/rebuild/reset transition checks + scan-record creation.
         async with op_state.get_scan_operation_lock():
@@ -224,19 +266,7 @@ async def get_scan_status(
         files_indexed=latest.files_indexed,
         errors=latest.errors,
         timeout_errors=await get_scan_timeout_error_count(db, latest.id or 0),
-        recent_errors=[
-            ScanErrorItem(
-                path=item.path,
-                filename=item.filename,
-                extension=item.extension,
-                operation=item.operation,
-                error_code=item.error_code,
-                error_message=item.error_message,
-                is_timeout=item.is_timeout,
-                created_at=item.created_at,
-            )
-            for item in recent_errors
-        ],
+        recent_errors=_scan_error_items(recent_errors),
         started_at=latest.started_at,
         elapsed_seconds=elapsed.total_seconds(),
     )
@@ -263,19 +293,7 @@ async def get_scan_errors(
         total=latest.errors,
         offset=offset,
         limit=limit,
-        errors=[
-            ScanErrorItem(
-                path=item.path,
-                filename=item.filename,
-                extension=item.extension,
-                operation=item.operation,
-                error_code=item.error_code,
-                error_message=item.error_message,
-                is_timeout=item.is_timeout,
-                created_at=item.created_at,
-            )
-            for item in errors
-        ],
+        errors=_scan_error_items(errors),
     )
 
 
@@ -361,11 +379,7 @@ async def reindex_single_file(
     background_tasks: BackgroundTasks,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
-    if await op_state.is_reset_in_progress():
-        raise HTTPException(
-            status_code=409,
-            detail='Index reset is in progress. Please wait for it to complete.',
-        )
+    raise_if_index_reset_in_progress(await op_state.is_reset_in_progress())
 
     file = await get_file_by_id(db, file_id)
     if file is None:
@@ -430,11 +444,7 @@ async def remove_single_file(
     file_id: int,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
-    if await op_state.is_reset_in_progress():
-        raise HTTPException(
-            status_code=409,
-            detail='Index reset is in progress. Please wait for it to complete.',
-        )
+    raise_if_index_reset_in_progress(await op_state.is_reset_in_progress())
 
     file = await get_file_by_id(db, file_id)
     if file is None:
@@ -1101,27 +1111,13 @@ async def _run_scan_task(
                     if await _cancel_requested('index_new_inflight'):
                         return
                     raise
-                normalized_path = str(normalize_path(sf.path, expand_user=False))
-                # Persist failure/success state for retry suppression across scans.
-                if result.success:
-                    await clear_file_failure(
-                        db,
-                        source_provider=FILESYSTEM_PROVIDER,
-                        entity_type=SOURCE_ENTITY_FILE,
-                        source_item_id=normalized_path,
-                    )
-                else:
-                    await record_file_failure(
-                        db,
-                        source_provider=FILESYSTEM_PROVIDER,
-                        entity_type=SOURCE_ENTITY_FILE,
-                        source_item_id=normalized_path,
-                        path=normalized_path,
-                        content_hash=sf.content_hash,
-                        error_code=result.error_code,
-                        error_message=result.error,
-                        retryable=result.retryable,
-                    )
+                await _persist_file_result(
+                    db,
+                    result,
+                    scanned=sf,
+                    source_provider=FILESYSTEM_PROVIDER,
+                    entity_type=SOURCE_ENTITY_FILE,
+                )
             log.info(
                 'scan_loop_complete',
                 loop='new_files',
@@ -1149,26 +1145,13 @@ async def _run_scan_task(
                     if await _cancel_requested('index_changed_inflight'):
                         return
                     raise
-                normalized_path = str(normalize_path(sf.path, expand_user=False))
-                if result.success:
-                    await clear_file_failure(
-                        db,
-                        source_provider=FILESYSTEM_PROVIDER,
-                        entity_type=SOURCE_ENTITY_FILE,
-                        source_item_id=normalized_path,
-                    )
-                else:
-                    await record_file_failure(
-                        db,
-                        source_provider=FILESYSTEM_PROVIDER,
-                        entity_type=SOURCE_ENTITY_FILE,
-                        source_item_id=normalized_path,
-                        path=normalized_path,
-                        content_hash=sf.content_hash,
-                        error_code=result.error_code,
-                        error_message=result.error,
-                        retryable=result.retryable,
-                    )
+                await _persist_file_result(
+                    db,
+                    result,
+                    scanned=sf,
+                    source_provider=FILESYSTEM_PROVIDER,
+                    entity_type=SOURCE_ENTITY_FILE,
+                )
             log.info(
                 'scan_loop_complete',
                 loop='changed_files',
@@ -1197,26 +1180,13 @@ async def _run_scan_task(
                         if await _cancel_requested('index_unchanged_inflight'):
                             return
                         raise
-                    normalized_path = str(normalize_path(sf.path, expand_user=False))
-                    if result.success:
-                        await clear_file_failure(
-                            db,
-                            source_provider=FILESYSTEM_PROVIDER,
-                            entity_type=SOURCE_ENTITY_FILE,
-                            source_item_id=normalized_path,
-                        )
-                    else:
-                        await record_file_failure(
-                            db,
-                            source_provider=FILESYSTEM_PROVIDER,
-                            entity_type=SOURCE_ENTITY_FILE,
-                            source_item_id=normalized_path,
-                            path=normalized_path,
-                            content_hash=sf.content_hash,
-                            error_code=result.error_code,
-                            error_message=result.error,
-                            retryable=result.retryable,
-                        )
+                    await _persist_file_result(
+                        db,
+                        result,
+                        scanned=sf,
+                        source_provider=FILESYSTEM_PROVIDER,
+                        entity_type=SOURCE_ENTITY_FILE,
+                    )
                 log.info(
                     'scan_loop_complete',
                     loop='unchanged_files',
@@ -1294,33 +1264,16 @@ async def _run_scan_task(
             coverage_fallback_mode='batched',
         )
 
-        # Post-run integrity check to detect cross-store drift early.
-        integrity_issues = await get_index_integrity_issues(db)
-        non_zero_issues = {k: v for k, v in integrity_issues.items() if v > 0}
-        if non_zero_issues:
-            log.error(
-                'scan_integrity_issues_detected',
-                scan_id=scan_id,
-                issues=non_zero_issues,
-            )
-
-        # Update adaptive top-k cache after corpus changed (force immediate recompute).
-        try:
-            from informity.indexer.adaptive_tuning import update_tuning_cache
-            await update_tuning_cache(db, force_recompute=True)
-        except (ImportError, _SCAN_RUNTIME_EXCEPTIONS) as exc:
-            log.warning('adaptive_tuning_scan_update_failed', error=str(exc))
-
-        # Post-scan term dictionary rebuild (best-effort; non-blocking for scan success).
-        try:
-            term_dictionary_result = await rebuild_term_dictionary(db, run_id=f'term-dict-scan-{scan_id}')
-            log.info('term_dictionary_scan_update', scan_id=scan_id, result=term_dictionary_result)
-        except _SCAN_RUNTIME_EXCEPTIONS as exc:
-            log.warning('term_dictionary_scan_update_failed', scan_id=scan_id, error=str(exc))
-
-        # sqlite-vec path currently uses exact cosine distance search;
-        # explicit log avoids implying ANN build behavior.
-        log.debug('scan_vector_index_skipped', reason='exact_search_mode')
+        await finalize_index_operation(
+            db,
+            scan_id=scan_id,
+            integrity_log_name='scan_integrity_issues_detected',
+            adaptive_tuning_failure_log_name='adaptive_tuning_scan_update_failed',
+            term_dictionary_log_name='term_dictionary_scan_update',
+            term_dictionary_failure_log_name='term_dictionary_scan_update_failed',
+            term_dictionary_run_id_prefix='term-dict-scan-',
+            vector_skip_log_name='scan_vector_index_skipped',
+        )
 
     except _ScanCancelledInFlightError:
         if await op_state.is_scan_cancel_requested(scan_id):
@@ -1343,6 +1296,8 @@ async def _run_scan_task(
             started_at   = scan_started_at,
             status       = ScanStatus.FAILED,
             errors       = errors + 1,
+            files_scanned = files_scanned,
+            files_indexed = files_indexed,
             completed_at = datetime.now(UTC),
         )
         await _update_scan_record_best_effort(
@@ -1374,6 +1329,8 @@ async def _run_scan_task(
             started_at=scan_started_at,
             status=ScanStatus.FAILED,
             errors=errors + 1,
+            files_scanned=files_scanned,
+            files_indexed=files_indexed,
             completed_at=datetime.now(UTC),
         )
         await _update_scan_record_best_effort(

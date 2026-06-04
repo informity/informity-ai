@@ -22,6 +22,7 @@ from informity.db.models import (
     Chunk,
     ContinuationPassArtifact,
     IndexedFile,
+    IssueType,
     ScanErrorRecord,
     ScanRecord,
     ScanStatus,
@@ -32,8 +33,8 @@ from informity.db.utils import (
     parse_json_tags,
     parse_timestamp,
 )
-from informity.diagnostics.issue_types import IssueType
 from informity.llm.types import ChatRole, DiagnosticsQueryType
+from informity.upload_policy import UPLOAD_PROVIDER
 from informity.utils.directory_utils import ensure_private_file
 
 # ==============================================================================
@@ -3296,13 +3297,13 @@ async def reset_all_data(db: aiosqlite.Connection) -> dict[str, object]:
             """
             SELECT
                 (SELECT COUNT(*) FROM chat_upload_attachments) AS upload_attachments,
-                (SELECT COUNT(*) FROM files WHERE source_provider = 'upload.local' AND entity_type = 'file') AS upload_files,
+                (SELECT COUNT(*) FROM files WHERE source_provider = ? AND entity_type = 'file') AS upload_files,
                 (
                     SELECT COUNT(*)
                     FROM chunks
                     WHERE file_id IN (
                         SELECT id FROM files
-                        WHERE source_provider = 'upload.local' AND entity_type = 'file'
+                        WHERE source_provider = ? AND entity_type = 'file'
                     )
                 ) AS upload_chunks,
                 (
@@ -3310,10 +3311,11 @@ async def reset_all_data(db: aiosqlite.Connection) -> dict[str, object]:
                     FROM vec_chunks
                     WHERE file_id IN (
                         SELECT id FROM files
-                        WHERE source_provider = 'upload.local' AND entity_type = 'file'
+                        WHERE source_provider = ? AND entity_type = 'file'
                     )
                 ) AS upload_vectors
             """,
+            (UPLOAD_PROVIDER, UPLOAD_PROVIDER, UPLOAD_PROVIDER),
         )
         upload_counts_row = await upload_counts_cursor.fetchone()
         if upload_counts_row is not None:

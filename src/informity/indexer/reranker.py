@@ -11,12 +11,12 @@ from typing import TYPE_CHECKING
 import structlog
 
 from informity.config import settings
+from informity.utils.torch_utils import is_mps_available
 
 if TYPE_CHECKING:
     from sentence_transformers import CrossEncoder
 
 log = structlog.get_logger(__name__)
-_MPS_DETECTION_EXCEPTIONS = (ImportError, AttributeError, RuntimeError, OSError, TypeError, ValueError)
 
 
 class Reranker:
@@ -54,11 +54,7 @@ class Reranker:
 
     def _is_mps_available(self) -> bool:
         """Check if Apple Metal Performance Shaders (MPS) is available."""
-        try:
-            import torch
-            return torch.backends.mps.is_available()
-        except _MPS_DETECTION_EXCEPTIONS:
-            return False
+        return is_mps_available()
 
     def rerank(self, query: str, chunks: list[dict]) -> list[dict]:
         # Rerank chunks by relevance to query.

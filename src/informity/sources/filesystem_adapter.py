@@ -61,9 +61,3 @@ class FilesystemSourceAdapter:
             },
             attachments=[],
         )
-
-    def dedupe_key(self, item: IngestionItem) -> str:
-        return item.source_item_id
-
-    def canonical_id(self, item: IngestionItem) -> str:
-        return item.source_item_id

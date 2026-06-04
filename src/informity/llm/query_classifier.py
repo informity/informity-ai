@@ -23,7 +23,6 @@ from informity.llm.query_patterns import (
     build_continuation_pattern,
     build_corpus_document_scope_pattern,
     build_count_pattern,
-    build_coverage_pattern,
     build_enumeration_pattern,
     build_evidence_value_extraction_pattern,
     build_fact_lookup_pattern,
@@ -70,15 +69,10 @@ else:
 log = structlog.get_logger(__name__)
 _PROMPTCUE_CLASSIFY_EXCEPTIONS = (RuntimeError, ValueError, TypeError, AttributeError)
 
-# Module-level constants mirror Settings thresholds for local classifier consumers.
-CONFIDENCE_HIGH_THRESHOLD: float = float(settings.classification_confidence_high_threshold)
-CONFIDENCE_MEDIUM_THRESHOLD: float = float(settings.classification_confidence_medium_threshold)
-
 _FILE_LIST_PATTERN = build_file_list_pattern()
 _CONTINUATION_PATTERN = build_continuation_pattern()
 _COUNT_PATTERN = build_count_pattern()
 _ENUMERATION_PATTERN = build_enumeration_pattern()
-_COVERAGE_PATTERN = build_coverage_pattern()
 _EVIDENCE_VALUE_EXTRACTION_PATTERN = build_evidence_value_extraction_pattern()
 _STRUCTURED_OUTPUT_SCHEMA_PATTERN = build_structured_output_schema_pattern()
 _ANALYSIS_ACTION_PATTERN = build_analysis_action_pattern()
@@ -1049,8 +1043,6 @@ def classify_query(
 
 
 __all__ = [
-    'CONFIDENCE_HIGH_THRESHOLD',
-    'CONFIDENCE_MEDIUM_THRESHOLD',
     'classify_query',
     'QueryClassification',
 ]

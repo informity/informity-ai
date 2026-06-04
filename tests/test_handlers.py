@@ -16,7 +16,6 @@ from informity.llm.handlers.rag import (
     RAGHandler,
     _apply_negation_preferences,
     _apply_output_format_preferences,
-    _build_history_aware_retrieval_query,
     _build_history_aware_retrieval_query_with_classification,
     _resolve_exhaustive_inventory_term_type,
     _should_boost_coverage_top_k,
@@ -178,8 +177,8 @@ class TestMetadataHandler:
 
         execute_calls = mock_db.execute.await_args_list
         assert len(execute_calls) == 2
-        assert 'filename = ?' in execute_calls[0].args[0]
-        assert list(execute_calls[0].args[1]) == ['report.pdf']
+        assert 'filename LIKE ?' in execute_calls[0].args[0]
+        assert list(execute_calls[0].args[1]) == ['%report.pdf%']
 
     def test_format_file_list_response_includes_year_in_header_when_filtered(self) -> None:
         handler = MetadataHandler()
@@ -222,23 +221,25 @@ class TestMetadataHandler:
 class TestRAGHandler:
 
     def test_query_rewrite_passes_through_non_referential_questions(self) -> None:
-        rewritten, applied = _build_history_aware_retrieval_query(
-            'Summarize tax returns by year',
-            [
+        rewritten, applied = _build_history_aware_retrieval_query_with_classification(
+            question='Summarize tax returns by year',
+            history=[
                 ChatMessage(chat_id='chat', role='user', content='Show me my 2024 taxes'),
                 ChatMessage(chat_id='chat', role='assistant', content='Here are the documents'),
             ],
+            classification=None,
         )
         assert applied is False
         assert rewritten == 'Summarize tax returns by year'
 
     def test_query_rewrite_adds_context_for_referential_followups(self) -> None:
-        rewritten, applied = _build_history_aware_retrieval_query(
-            'What about that one?',
-            [
+        rewritten, applied = _build_history_aware_retrieval_query_with_classification(
+            question='What about that one?',
+            history=[
                 ChatMessage(chat_id='chat', role='user', content='Summarize my retirement plans in Escondido'),
                 ChatMessage(chat_id='chat', role='assistant', content='I found two retirement plan files in Escondido.'),
             ],
+            classification=None,
         )
         assert applied is True
         assert 'Follow-up context:' in rewritten
@@ -249,12 +250,13 @@ class TestRAGHandler:
         original_enabled = settings.rag_query_rewrite_enabled
         try:
             settings.rag_query_rewrite_enabled = False
-            rewritten, applied = _build_history_aware_retrieval_query(
-                'What about that one?',
-                [
+            rewritten, applied = _build_history_aware_retrieval_query_with_classification(
+                question='What about that one?',
+                history=[
                     ChatMessage(chat_id='chat', role='user', content='Summarize my retirement plans in Escondido'),
                     ChatMessage(chat_id='chat', role='assistant', content='I found two relevant files.'),
                 ],
+                classification=None,
             )
             assert applied is False
             assert rewritten == 'What about that one?'
@@ -332,24 +334,6 @@ class TestRAGHandler:
 
         score = _normalize_relevance_score(Decimal('0.75'))
         assert 0.67 < score < 0.69
-
-    def test_retrieval_relevance_gate_allows_low_but_valid_coverage_signal(self) -> None:
-        from informity.llm.rag_runtime.retrieval_validation import (
-            _evaluate_retrieval_relevance_gate,
-        )
-
-        chunks = [
-            {'score': -3.3},  # sigmoid ~= 0.035
-            {'score': -3.4},
-            {'score': -3.5},
-        ]
-        passed, mean_score = _evaluate_retrieval_relevance_gate(
-            chunks=chunks,
-            query_type='coverage',
-            route_candidate='cross_document_synthesis',
-        )
-        assert passed is True
-        assert mean_score > 0.0
 
     def test_resolve_sampling_params_reduces_temperature_for_strict_contracts(self) -> None:
         from informity.llm.handlers.rag import _resolve_sampling_params
