@@ -16,6 +16,10 @@ describe('preprocessMarkdown — HTML normalisation', () => {
     expect(preprocessMarkdown('<b>bold</b> and <em>italic</em>')).toBe('bold and italic')
   })
 
+  it('normalizes escaped newlines into real line breaks', () => {
+    expect(preprocessMarkdown('line one\\nline two')).toBe('line one\nline two')
+  })
+
   it('handles text with no HTML unchanged', () => {
     const md = '# Heading\n\nSome paragraph text.\n\n- item'
     expect(preprocessMarkdown(md)).toBe(md)

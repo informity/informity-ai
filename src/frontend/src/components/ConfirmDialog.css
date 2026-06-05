@@ -160,7 +160,8 @@ html[data-accent='canvas'] .confirm-dialog {
   flex: 1 1 0;
   min-width: 0;
   max-width: var(--action-btn-width);
-  padding: var(--space-sm) var(--space-lg);
+  height: var(--min-touch-height);
+  padding: 0 var(--space-lg);
   font-size: var(--font-size-base);
   font-weight: 500;
   border-radius: var(--border-radius);

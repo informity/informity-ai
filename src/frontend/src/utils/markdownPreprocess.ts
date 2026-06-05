@@ -32,6 +32,7 @@ export function preprocessMarkdown(text: string): string {
   if (!text) return ''
 
   const normalised = text
+    .replace(/\\n/g, '\n')
     .replace(/<br\s*\/?>/gi, '\n')
     .replace(/<[^>]+>/g, '')
 

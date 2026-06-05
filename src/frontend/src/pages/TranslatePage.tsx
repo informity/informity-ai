@@ -47,7 +47,7 @@ export function TranslatePage() {
     targetLanguage, tone, resultLanguage, resultTone, jobStatus, sections, sectionCount, completedSections,
     retryingSectionIndex,
     isTranslating, hasResult, pinnedLanguages,
-    setFile, setTargetLanguage, setTone, resetTranslationDefaults, startTranslation, cancelTranslation, clearResult,
+    setFile, setTargetLanguage, setTone, resetTranslationDefaults, resetTranslationSession, startTranslation, cancelTranslation,
   } = useTranslateContext()
 
   // Runs accumulate above composer
@@ -76,13 +76,19 @@ export function TranslatePage() {
   const resultsEndRef = useRef<HTMLDivElement>(null)
   const resultsContainerRef = useRef<HTMLDivElement>(null)
 
-  const displayLanguage = hasResult || isTranslating ? (resultLanguage ?? targetLanguage) : targetLanguage
-  const displayTone = hasResult || isTranslating ? (resultTone ?? tone) : tone
+  const displayLanguage = isTranslating ? (resultLanguage ?? targetLanguage) : targetLanguage
+  const displayTone = isTranslating ? (resultTone ?? tone) : tone
   const selectedLang = findTranslateLanguageOption(displayLanguage)
     ?? findTranslateLanguageOption(TRANSLATE_DEFAULT_LANGUAGE)
   const canTranslate = !!fileId && !isTranslating && !isStreaming  // button morphs to Stop when streaming/translating
 
   // Load default language from settings
+
+  useEffect(() => {
+    if (!isTranslating) {
+      void resetTranslationDefaults()
+    }
+  }, [isTranslating, resetTranslationDefaults])
 
   // Pre-load file from Files page router state
   useEffect(() => {
@@ -258,15 +264,11 @@ export function TranslatePage() {
   const handleNewTranslation = useCallback(async () => {
     activeRunRef.current = null
     if (isTranslating) cancelTranslation()
-    if (fileId && isUpload) {
-      try { await deleteTranslateUpload(fileId) } catch { /* best-effort */ }
-    }
-    await resetTranslationDefaults()
-    setFile(null)
-    clearResult()
+    resetTranslationSession()
     setRuns([])
     wasDocked.current = false
-  }, [isTranslating, cancelTranslation, fileId, isUpload, setFile, clearResult, resetTranslationDefaults])
+    await resetTranslationDefaults()
+  }, [isTranslating, cancelTranslation, resetTranslationSession, resetTranslationDefaults])
 
   const handleCopyRun = useCallback((run: RunRecord) => {
     navigator.clipboard.writeText(run.sections.map(s => s.text).join('\n\n'))
@@ -299,11 +301,9 @@ export function TranslatePage() {
     ? 'Translation in progress…'
     : isStreaming
       ? 'Chat is in progress. Please wait…'
-      : fileId && hasResult
-        ? 'Select a new file or upload to translate again.'
-        : fileId
-          ? 'Ready to translate. Press ⌘↵ or click Translate to start.'
-          : 'Select or upload a document to translate…'
+      : fileId
+        ? 'Ready to translate. Press ⌘↵ or click Translate to start.'
+        : 'Select or upload a document to translate…'
 
   return (
     <div className="translate-page">
@@ -526,7 +526,7 @@ export function TranslatePage() {
                     aria-haspopup="menu"
                     aria-expanded={menuOpen === 'tone'}
                     aria-label="Tone"
-                    disabled={isTranslating || hasResult}
+                    disabled={isTranslating}
                     onClick={() => setMenuOpen(prev => prev === 'tone' ? null : 'tone')}
                   >
                     <i className="ri-quill-pen-line" aria-hidden />
@@ -559,7 +559,7 @@ export function TranslatePage() {
                     className="translate-page__mode-button"
                     aria-haspopup="menu"
                     aria-expanded={menuOpen === 'language'}
-                    disabled={isTranslating || hasResult}
+                    disabled={isTranslating}
                     onClick={() => setMenuOpen(prev => prev === 'language' ? null : 'language')}
                   >
                     {selectedLang ? (

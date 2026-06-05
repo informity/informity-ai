@@ -4,6 +4,7 @@
 import { unified } from 'unified'
 import remarkParse from 'remark-parse'
 import remarkGfm from 'remark-gfm'
+import { preprocessMarkdown } from './markdownPreprocess'
 
 type MarkdownNode = {
   type: string
@@ -72,7 +73,7 @@ function nodeToText(node: MarkdownNode | null | undefined): string {
  */
 export function markdownToPlainText(md: string): string {
   if (!md || typeof md !== 'string') return ''
-  const tree = unified().use(remarkParse).use(remarkGfm).parse(md)
+  const tree = unified().use(remarkParse).use(remarkGfm).parse(preprocessMarkdown(md))
   return nodeToText(tree as unknown as MarkdownNode)
 }
 

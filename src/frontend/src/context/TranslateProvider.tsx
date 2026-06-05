@@ -227,6 +227,24 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     }
   }, [applyTranslateDefaults])
 
+  const resetTranslationSession = useCallback(() => {
+    abortRef.current?.abort()
+    clearActiveJob()
+    setFileInfo(null)
+    setJobId(null)
+    setJobStatus(null)
+    setSections([])
+    setSectionCount(null)
+    setCompletedSections(0)
+    setFailedSections(0)
+    setRetryingSectionIndex(null)
+    setGlossaryTermCount(null)
+    setEstimatedMinutes(null)
+    setExceedsSoftLimit(false)
+    setResultLanguage(null)
+    setResultTone(null)
+  }, [])
+
   const startTranslation = useCallback(async () => {
     if (!fileInfo) return
     abortRef.current?.abort()
@@ -363,7 +381,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     resultLanguage, resultTone,
     pinnedLanguages,
     setFile, setTargetLanguage, setTone,
-    resetTranslationDefaults,
+    resetTranslationDefaults, resetTranslationSession,
     startTranslation, cancelTranslation, clearResult,
     isTranslating, hasResult,
   }

@@ -2,7 +2,7 @@
  * Informity AI — File table
  * Sortable columns, row selection, multi-select, pagination.
  */
-import { useState, useRef, useCallback } from 'react'
+import { useCallback } from 'react'
 import { formatFileSize } from '../../utils/formatFileSize'
 import { formatDate } from '../../utils/formatDate'
 import { formatCategory, getFileIcon } from '../../utils/fileFormatting'
@@ -26,12 +26,10 @@ interface FileTableProps {
   order?: SortOrder
   onSortChange?: (col: SortColumn, order: SortOrder) => void
   onPageChange?: (offset: number) => void
-  onSelectFile?: (file: IndexedFile) => void
   onChatAboutFile?: (file: IndexedFile) => void
   onTranslate?: (file: IndexedFile) => void
   onReindex?: (file: IndexedFile) => void
   onRemove?: (file: IndexedFile, e: React.MouseEvent) => void
-  selectedFileId?: number | null
   reindexingFileIds?: Set<number>
   offline?: boolean
 }
@@ -45,18 +43,13 @@ export function FileTable({
   order = 'desc',
   onSortChange,
   onPageChange,
-  onSelectFile,
   onChatAboutFile,
   onTranslate,
   onReindex,
   onRemove,
-  selectedFileId = null,
   reindexingFileIds = new Set<number>(),
   offline = false,
 }: FileTableProps) {
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
-  const lastClickedIndexRef = useRef(-1)
-
   const handleHeaderClick = useCallback(
     (col: string) => {
       if (offline) return
@@ -65,38 +58,6 @@ export function FileTable({
       onSortChange?.(col as SortColumn, sort === col ? (nextOrder as SortOrder) : 'desc')
     },
     [offline, sort, order, onSortChange],
-  )
-
-  const handleRowClick = useCallback(
-    (file: IndexedFile, index: number, e: React.MouseEvent) => {
-      if (offline) return
-      if (e.metaKey || e.ctrlKey) {
-        setSelectedIds((prev) => {
-          const next = new Set(prev)
-          if (next.has(file.id)) next.delete(file.id)
-          else next.add(file.id)
-          return next
-        })
-        lastClickedIndexRef.current = index
-        return
-      }
-      if (e.shiftKey) {
-        const start = Math.min(lastClickedIndexRef.current, index)
-        const end = Math.max(lastClickedIndexRef.current, index)
-        setSelectedIds((prev) => {
-          const next = new Set(prev)
-          for (let i = start; i <= end; i++) {
-            const f = files[i]
-            if (f) next.add(f.id)
-          }
-          return next
-        })
-        return
-      }
-      lastClickedIndexRef.current = index
-      onSelectFile?.(file)
-    },
-    [offline, files, onSelectFile],
   )
 
   const currentPage = Math.floor(offset / limit) + 1
@@ -179,17 +140,12 @@ export function FileTable({
             </tr>
           </thead>
           <tbody>
-            {files.map((file, index) => {
+            {files.map((file) => {
               const iconClass = getFileIcon(file.extension)
-              const isSelected = selectedFileId === file.id || selectedIds.has(file.id)
               const isReindexing = reindexingFileIds.has(file.id)
 
               return (
-                <tr
-                  key={file.id}
-                  className={`file-table__row data-table__row ${isSelected ? 'file-table__row--selected' : ''}`}
-                  onClick={(e) => !offline && handleRowClick(file, index, e)}
-                >
+                <tr key={file.id} className="file-table__row data-table__row">
                   <td className="file-table__td file-table__td--filename data-table__td">
                     <div className="file-table__filename-row">
                       <i className={`${iconClass} file-table__filename-icon`} aria-hidden style={{ fontSize: '1rem' }} />

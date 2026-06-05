@@ -8,7 +8,8 @@
     align-items: center;
     justify-content: center;
     gap: var(--space-sm);
-    padding: var(--space-sm) var(--space-lg);
+    height: var(--min-touch-height);
+    padding: 0 var(--space-lg);
     font-size: var(--font-size-base);
     font-weight: 500;
     border: 1px solid transparent;
@@ -58,7 +59,7 @@ html[data-accent='canvas'] .settings-btn--secondary {
 
 .settings-btn--add {
     flex-shrink: 0;
-    min-height: var(--min-touch-height);
+    height: var(--min-touch-height);
     padding: 0 var(--space-md);
     background: var(--color-bg-elevated);
     border-color: var(--color-border);
@@ -73,19 +74,6 @@ html[data-accent='canvas'] .settings-btn--secondary {
     border-color: var(--color-accent);
 }
 
-.settings-btn--warning {
-    width: var(--action-btn-width);
-    min-width: var(--action-btn-width);
-    background: transparent;
-    color: var(--color-warning-text);
-    border-color: var(--color-warning-border);
-}
-
-.settings-btn--warning:hover:not(:disabled) {
-    background: rgba(245, 158, 11, 0.08);
-    border-color: rgba(245, 158, 11, 0.5);
-}
-
 .settings-btn--danger {
     width: var(--action-btn-width);
     min-width: var(--action-btn-width);
@@ -97,4 +85,17 @@ html[data-accent='canvas'] .settings-btn--secondary {
 .settings-btn--danger:hover:not(:disabled) {
     background: var(--color-danger-subtle);
     border-color: rgba(239, 68, 68, 0.5);
+}
+
+.settings-btn--warning {
+    width: var(--action-btn-width);
+    min-width: var(--action-btn-width);
+    background: transparent;
+    color: var(--color-warning-text);
+    border-color: var(--color-warning-border);
+}
+
+.settings-btn--warning:hover:not(:disabled) {
+    background: var(--color-warning-bg);
+    border-color: var(--color-warning-bright);
 }

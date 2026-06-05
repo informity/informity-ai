@@ -15,6 +15,7 @@ import {
   normalizeTranslateLanguageList,
   searchTranslateLanguages,
 } from '../../utils/translateOptions'
+import { sortFileTypeOptions } from '../../utils/fileTypeOrdering'
 import {
   cancelModelDownload,
   downloadModel,
@@ -85,7 +86,6 @@ const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; icon: string }> = [
   { id: 'system',      label: 'System',       icon: 'ri-server-line'    },
 ]
 const SETTINGS_TAB_IDS = new Set<SettingsTab>(SETTINGS_TABS.map((tab) => tab.id))
-const FILE_TYPE_DISPLAY_ORDER = ['pdf', 'docx', 'spreadsheet', 'pptx', 'epub', 'web', 'text', 'data'] as const
 
 const INDEXING_SPEED_LABELS = ['', 'Responsive', 'Gentle', 'Balanced', 'Fast', 'Fastest']
 const INDEXING_SPEED_TO_THREADS = [2, 4, 6, 8, 0]
@@ -843,14 +843,7 @@ export function SettingsView({
   const isOllamaProvider = String(form.llm_provider || '').trim().toLowerCase() === 'ollama'
   const providerAllowsSave = isOllamaProvider || selectedModelInstalledResolved
   const canSaveSettings = !saving && !ollamaValidationPending && providerAllowsSave && !modelDownloadInProgress && !modelActionPending
-  const orderedFileTypeOptions = [...(fileTypeOptions || [])].sort((a, b) => {
-    const ai = FILE_TYPE_DISPLAY_ORDER.indexOf(a.id as (typeof FILE_TYPE_DISPLAY_ORDER)[number])
-    const bi = FILE_TYPE_DISPLAY_ORDER.indexOf(b.id as (typeof FILE_TYPE_DISPLAY_ORDER)[number])
-    const aRank = ai === -1 ? Number.MAX_SAFE_INTEGER : ai
-    const bRank = bi === -1 ? Number.MAX_SAFE_INTEGER : bi
-    if (aRank !== bRank) return aRank - bRank
-    return a.label.localeCompare(b.label)
-  })
+  const orderedFileTypeOptions = sortFileTypeOptions(fileTypeOptions || [])
 
   const formatBytes = (value: number): string => {
     if (!Number.isFinite(value) || value <= 0) return '0 KB'

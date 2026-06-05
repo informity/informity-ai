@@ -108,8 +108,11 @@ describe('TranslatePage new translation reset', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'New Translation' }))
 
+    await waitFor(() => expect(screen.getByTestId('result-language')).toHaveTextContent(''))
     await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('German'))
     await waitFor(() => expect(screen.getByTestId('tone')).toHaveTextContent('formal'))
+    expect(screen.queryByTestId('translate-run-language-0')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Spanish' })).toBeNull()
   })
 
   it('shows the configured primary language in the translation dropdown alongside additional languages alphabetically', async () => {
@@ -146,12 +149,12 @@ describe('TranslatePage new translation reset', () => {
 
     renderPage()
 
-    await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('German'))
-    await waitFor(() => expect(screen.getByTestId('tone')).toHaveTextContent('formal'))
+    await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('French'))
+    await waitFor(() => expect(screen.getByTestId('tone')).toHaveTextContent('literal'))
 
     fireEvent.click(screen.getByRole('button', { name: 'Tone' }))
     fireEvent.click(screen.getByRole('button', { name: 'Natural' }))
-    fireEvent.click(screen.getByRole('button', { name: 'German' }))
+    fireEvent.click(screen.getByRole('button', { name: 'French' }))
     fireEvent.click(screen.getByRole('button', { name: 'Spanish' }))
 
     await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('Spanish'))
@@ -159,8 +162,11 @@ describe('TranslatePage new translation reset', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'New Translation' }))
 
+    await waitFor(() => expect(screen.getByTestId('result-language')).toHaveTextContent(''))
     await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('French'))
     await waitFor(() => expect(screen.getByTestId('tone')).toHaveTextContent('literal'))
+    expect(screen.queryByTestId('translate-run-language-0')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Spanish' })).toBeNull()
   })
 
   it('falls back to a valid pinned language when a restored translation uses a removed language', async () => {
@@ -218,6 +224,10 @@ describe('TranslatePage new translation reset', () => {
     await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('French'))
     expect(screen.getByTestId('result-language')).toHaveTextContent('Spanish')
     expect(screen.getByTestId('translate-run-language-0')).toHaveTextContent('Spanish')
-    expect(screen.getByRole('button', { name: 'Spanish' })).toBeInTheDocument()
+
+    const languageButton = screen.getByRole('button', { name: 'French' })
+    expect(languageButton).not.toBeDisabled()
+    fireEvent.click(languageButton)
+    expect(screen.getByRole('menu')).toBeInTheDocument()
   })
 })

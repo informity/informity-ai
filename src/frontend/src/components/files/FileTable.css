@@ -21,6 +21,14 @@
   background: color-mix(in srgb, var(--color-accent) 20%, transparent);
 }
 
+.file-table__row {
+  cursor: default;
+}
+
+.file-table__row:hover {
+  background: transparent;
+}
+
 .file-table__td--filename {
   font-weight: 500;
   padding-left: 0.75rem;

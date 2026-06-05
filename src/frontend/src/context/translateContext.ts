@@ -32,6 +32,7 @@ export interface TranslateContextValue {
   setTargetLanguage: (lang: string) => void
   setTone: (tone: string) => void
   resetTranslationDefaults: () => Promise<void>
+  resetTranslationSession: () => void
   startTranslation: () => Promise<void>
   cancelTranslation: () => void
   clearResult: () => void

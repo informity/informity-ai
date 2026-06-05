@@ -6,6 +6,7 @@
 import { useState, useEffect } from 'react'
 import { getFileTypes } from '../../api'
 import { logApiError } from '../../utils/logApiError'
+import { sortFileTypeOptions } from '../../utils/fileTypeOrdering'
 import './FileFilters.css'
 
 interface FileTypeOption {
@@ -30,7 +31,7 @@ export function FileFilters({ filters, onChange, disabled = false }: FileFilters
 
   useEffect(() => {
     getFileTypes()
-      .then((data) => setFileTypes(Array.isArray(data) ? (data as FileTypeOption[]) : []))
+      .then((data) => setFileTypes(Array.isArray(data) ? sortFileTypeOptions(data as FileTypeOption[]) : []))
       .catch((err) => {
         logApiError(err, 'FileFilters.getFileTypes')
         setFileTypes([])

@@ -67,6 +67,14 @@ describe('markdownToPlainText — table handling', () => {
 // ──────────────────────────────────────────────────────────────────────────────
 
 describe('markdownToPlainText — standard elements', () => {
+  it('normalizes escaped newlines before parsing', () => {
+    const md = '# Title\\n\\n## Subtitle'
+    const out = markdownToPlainText(md)
+    expect(out).toContain('Title')
+    expect(out).toContain('Subtitle')
+    expect(out).not.toContain('\\n')
+  })
+
   it('strips heading markers', () => {
     const md = '# Title\n\n## Subtitle\n\n### Sub-sub'
     const out = markdownToPlainText(md)

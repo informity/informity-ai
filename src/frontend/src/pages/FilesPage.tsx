@@ -8,7 +8,6 @@ import { FileTable } from '../components/files/FileTable'
 import { PageHeader } from '../components/PageHeader'
 import { FileTableSkeleton } from '../components/files/FileTableSkeleton'
 import { FileFilters } from '../components/files/FileFilters'
-import { FileDetail } from '../components/files/FileDetail'
 import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { CenteredState } from '../components/CenteredState'
 import { getFileReindexOperation, getFiles, listFileReindexOperations, reindexFile, removeFile } from '../api'
@@ -40,7 +39,6 @@ export function FilesPage() {
   const [filters, setFilters] = useState<FileFiltersState>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [selectedFileId, setSelectedFileId] = useState<number | null>(null)
   const [reindexOperationsByFileId, setReindexOperationsByFileId] = useState<Record<number, string>>({})
   const { offline } = useBackendStatus()
 
@@ -187,7 +185,7 @@ export function FilesPage() {
 
   useEffect(() => {
     if (offline) {
-      setSelectedFileId(null)
+      return
     }
   }, [offline])
 
@@ -205,19 +203,6 @@ export function FilesPage() {
   const handlePageChange = useCallback((newOffset: number) => {
     setOffset(newOffset)
   }, [])
-
-  const handleSelectFile = useCallback((file: IndexedFile) => {
-    setSelectedFileId(file?.id ?? null)
-  }, [])
-
-  const handleCloseDetail = useCallback(() => {
-    setSelectedFileId(null)
-  }, [])
-
-  const handleFileRemoved = useCallback(() => {
-    setSelectedFileId(null)
-    loadFiles()
-  }, [loadFiles])
 
   const handleChatAboutFile = useCallback((file: IndexedFile) => {
     if (!file?.id) return
@@ -274,14 +259,13 @@ export function FilesPage() {
       try {
         await removeFile(file.id)
         showToast('success', 'File removed from index')
-        if (selectedFileId === file.id) setSelectedFileId(null)
         loadFiles()
       } catch (err) {
         const msg = extractErrorMessage(err, 'Remove failed')
         showToast('error', msg)
       }
     },
-    [confirm, loadFiles, selectedFileId],
+    [confirm, loadFiles],
   )
   const hasSearch = (filters.search?.trim()?.length ?? 0) > 0
   const hasExtensionFilter = Array.isArray(filters.extension) && filters.extension.length > 0
@@ -333,12 +317,10 @@ export function FilesPage() {
                   order={order}
                   onSortChange={handleSortChange}
                   onPageChange={handlePageChange}
-                  onSelectFile={handleSelectFile}
                   onChatAboutFile={handleChatAboutFile}
                   onTranslate={handleTranslateFile}
                   onReindex={handleReindex}
                   onRemove={handleRemove}
-                  selectedFileId={selectedFileId}
                   reindexingFileIds={new Set(Object.keys(reindexOperationsByFileId).map(Number))}
                 />
               )}
@@ -346,16 +328,6 @@ export function FilesPage() {
           </>
         )}
       </div>
-      {selectedFileId && (
-        <FileDetail
-          fileId={selectedFileId}
-          onClose={handleCloseDetail}
-          onRemoved={handleFileRemoved}
-          onChatAboutFile={handleChatAboutFile}
-          isReindexing={Boolean(reindexOperationsByFileId[selectedFileId])}
-          onReindexRequest={handleReindex}
-        />
-      )}
     </div>
   )
 }
