@@ -5,11 +5,52 @@ from types import SimpleNamespace
 import pytest
 
 from informity.api import routes_scan
+from informity.translate_policy import TRANSLATE_PROVIDER
+from informity.upload_policy import UPLOAD_PROVIDER
 from informity.utils.path_utils import normalize_path
 
 
 class _DummyDB:
     pass
+
+
+@pytest.mark.asyncio
+async def test_list_files_excludes_upload_and_translate_local(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, object]] = []
+
+    async def _fake_get_files(db, **kwargs):
+        _ = db
+        calls.append(kwargs)
+        return [], 0
+
+    monkeypatch.setattr(routes_scan, 'get_files', _fake_get_files)
+
+    response = await routes_scan.list_files(
+        category=None,
+        extension=None,
+        search=None,
+        tag=None,
+        sort='indexed_at',
+        order='desc',
+        offset=0,
+        limit=50,
+        db=_DummyDB(),
+    )
+
+    assert response.total == 0
+    assert calls == [
+        {
+            'category': None,
+            'extensions': None,
+            'search': None,
+            'tag': None,
+            'excluded_source_providers': [UPLOAD_PROVIDER, TRANSLATE_PROVIDER],
+            'sort_by': 'indexed_at',
+            'order': 'desc',
+            'offset': 0,
+            'limit': 50,
+        }
+    ]
 
 
 @pytest.mark.asyncio

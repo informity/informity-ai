@@ -88,6 +88,7 @@ from informity.llm.engine import llm_engine, remove_models_dir_cache
 from informity.logging_config import configure_logging
 from informity.mcp.lifecycle import mcp_lifecycle
 from informity.scanner.watcher import start_watcher, stop_watcher
+from informity.storage_migrations import migrate_legacy_upload_storage_layout
 
 # ==============================================================================
 # Initialize Logging
@@ -406,6 +407,16 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
     # Initialize the database (create tables if needed)
     await init_db()
+
+    # Best-effort compatibility migration for older upload layouts.
+    try:
+        conn = await get_connection()
+        try:
+            await migrate_legacy_upload_storage_layout(conn, settings.app_data_dir)
+        finally:
+            await conn.close()
+    except _STARTUP_RUNTIME_EXCEPTIONS as exc:
+        log.warning('legacy_upload_storage_migration_failed', error=str(exc))
 
     # Clear any RUNNING scan records left from a previous process (crash/restart)
     await clear_stale_running_scans()
