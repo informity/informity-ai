@@ -11,12 +11,20 @@ class TranslateLanguageOption:
     flag_code: str
     native_label: str
     aliases: tuple[str, ...] = ()
+    # Model-facing name used in the translation prompt. Overrides `label` when
+    # the label is ambiguous (e.g. "Chinese" → "Simplified Chinese") so the LLM
+    # produces the correct script/variant without guessing.
+    prompt_label: str | None = None
+
+    @property
+    def model_name(self) -> str:
+        return self.prompt_label or self.label
 
 
 TRANSLATE_LANGUAGE_OPTIONS: tuple[TranslateLanguageOption, ...] = (
-    TranslateLanguageOption('Arabic (Standard)', 'ar', 'sa', 'العربية', ('Arabic', 'Standard Arabic', 'ar')),
+    TranslateLanguageOption('Arabic (Standard)', 'ar', 'sa', 'العربية', ('Arabic', 'Standard Arabic', 'ar'), prompt_label='Modern Standard Arabic (MSA)'),
     TranslateLanguageOption('Bengali', 'bn', 'bd', 'বাংলা', ('Bangla', 'bn')),
-    TranslateLanguageOption('Chinese', 'zh', 'cn', '中文', ('Chinese (Simplified)', 'Simplified Chinese', 'zh-cn', 'zh-hans', 'zh')),
+    TranslateLanguageOption('Chinese', 'zh', 'cn', '中文', ('Chinese (Simplified)', 'Simplified Chinese', 'zh-cn', 'zh-hans', 'zh'), prompt_label='Simplified Chinese'),
     TranslateLanguageOption('Czech', 'cs', 'cz', 'Čeština', ('cs',)),
     TranslateLanguageOption('Dutch', 'nl', 'nl', 'Nederlands', ('nl',)),
     TranslateLanguageOption('English', 'en', 'gb', 'English', ('British English', 'American English', 'en')),
@@ -98,6 +106,18 @@ def normalize_translate_language_list(values: object, *, limit: int | None = TRA
     if limit is not None and limit >= 0:
         return normalized[:limit]
     return normalized
+
+
+def get_translate_language_model_name(value: str | None) -> str:
+    """Return the model-facing language name for use in translation prompts.
+
+    Falls back to the display label (and ultimately the input value) so callers
+    always get a non-empty string even for unknown languages.
+    """
+    option = find_translate_language_option(value)
+    if option:
+        return option.model_name
+    return str(value or 'the target language').strip() or 'the target language'
 
 
 def get_translate_language_qwen_code(value: str | None) -> str | None:

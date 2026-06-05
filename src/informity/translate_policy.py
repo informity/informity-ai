@@ -81,3 +81,19 @@ TONE_INSTRUCTIONS: dict[str, str] = {
     'literal': 'Translate into {language} as literally as possible. Preserve sentence structure and word order where grammatically permissible.',
     'formal':  'Use formal, professional {language} register appropriate for business or academic contexts.',
 }
+
+# Per-tone generation temperature.
+# literal: near-zero for maximum determinism and fidelity.
+# formal:  low variance for consistent register.
+# natural: slightly higher to allow idiomatic phrasing.
+TONE_TEMPERATURES: dict[str, float] = {
+    'literal': 0.05,
+    'formal':  0.1,
+    'natural': 0.2,
+}
+
+# Approximate character count taken from the tail of the previous translated
+# section and prepended as context for the next section's prompt.  Keeps the
+# model aware of how the previous paragraph ended so it can maintain register,
+# terminology, and narrative flow across section boundaries.
+TRANSLATE_PREV_CONTEXT_CHARS = 300

@@ -38,9 +38,10 @@ from informity.indexer.pipeline import remove_file
 from informity.llm.engine import llm_engine
 from informity.log_events import emit_log_event
 from informity.scanner.crawler import scanned_file_for_path
-from informity.translate_languages import normalize_translate_language
+from informity.translate_languages import get_translate_language_model_name, normalize_translate_language
 from informity.translate_policy import (
     TONE_INSTRUCTIONS,
+    TONE_TEMPERATURES,
     TRANSLATE_AVG_SECTION_SECONDS,
     TRANSLATE_AVG_TOKENS_PER_PAGE,
     TRANSLATE_BATCH_TARGET_TOKENS,
@@ -52,6 +53,7 @@ from informity.translate_policy import (
     TRANSLATE_GLOSSARY_TIMEOUT_S,
     TRANSLATE_JOB_MAX_RUNTIME_S,
     TRANSLATE_JOB_STALL_S,
+    TRANSLATE_PREV_CONTEXT_CHARS,
     TRANSLATE_PROVIDER,
     TRANSLATE_RETRY_TOKEN_CAP,
     TRANSLATE_SECTION_RETRY_MAX,
@@ -562,6 +564,9 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                 # does NOT trigger a stall — the deadline advances when the section starts.
                 stall_deadline = time.monotonic() + TRANSLATE_JOB_STALL_S
                 glossary_block = _build_glossary_block(glossary_json)
+                # Tail of the last successfully translated section, passed to the next
+                # call so the model can maintain register and terminology across boundaries.
+                prev_context: str | None = None
 
                 for s_idx, (section, row) in enumerate(zip(sections, section_rows, strict=True)):
                     # Check for user cancellation between sections
@@ -599,9 +604,12 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                         try:
                             # _translate_section uses generate_stream internally, so it has
                             # a real cancel_event-backed timeout — no zombie threads.
+                            # prev_context is None on retries (attempt > 0) — the model
+                            # already failed once; keep the retry focused on the section text.
                             translated, last_finish_reason = await _translate_section(
                                 source, target_language, tone, glossary_block, max_out,
                                 cancel_event=cancel_event,
+                                prev_context=prev_context if attempt == 0 else None,
                             )
                             if translated:
                                 # Accept truncated output as-is. A retry uses the smaller
@@ -633,6 +641,8 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                         completed += 1
                         await update_translate_job(db, job_id, completed_sections=completed)
                         await db.commit()
+                        # Capture the tail of this translation for the next section's context.
+                        prev_context = translated[-TRANSLATE_PREV_CONTEXT_CHARS:].strip() or None
                         log.info('translate_section_completed',
                                  job_id=job_id, section_index=s_idx,
                                  section_title=section.get('title'),
@@ -768,11 +778,20 @@ async def _extract_glossary(
     are far more reliably produced in free-form generation than structured JSON.
     Uses generate_stream to avoid zombie C++ threads (no asyncio.to_thread wrapper).
     """
-    cursor = await db.execute(
-        'SELECT content FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC LIMIT 10',
+    # Fetch all chunk indices so we can sample evenly across the document.
+    # Sampling only the first 10 chunks misses domain-specific terms that appear
+    # later in long documents (methods, results, appendices, etc.).
+    all_cursor = await db.execute(
+        'SELECT chunk_index, content FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC',
         (file_id,),
     )
-    rows = await cursor.fetchall()
+    all_rows = await all_cursor.fetchall()
+    _GLOSSARY_SAMPLE_COUNT = 10
+    if len(all_rows) <= _GLOSSARY_SAMPLE_COUNT:
+        rows = all_rows
+    else:
+        step = len(all_rows) / _GLOSSARY_SAMPLE_COUNT
+        rows = [all_rows[int(i * step)] for i in range(_GLOSSARY_SAMPLE_COUNT)]
     combined = '\n\n'.join(str(r['content']) for r in rows)
     words = combined.split()
     cap = int(TRANSLATE_GLOSSARY_INPUT_TOKENS / 1.3)
@@ -916,6 +935,7 @@ async def _translate_section(
     glossary_block: str,
     max_tokens: int,
     cancel_event: asyncio.Event | None = None,
+    prev_context: str | None = None,
 ) -> tuple[str | None, str | None]:
     """
     Async translation using generate_stream.
@@ -925,32 +945,53 @@ async def _translate_section(
     asyncio.wait_for(asyncio.to_thread(chat_complete)) pattern which left zombie
     threads blocking subsequent calls.
     """
-    tone_instr = TONE_INSTRUCTIONS.get(tone, TONE_INSTRUCTIONS['natural']).format(language=target_language)
+    # Use the model-facing name for the language (e.g. "Simplified Chinese"
+    # instead of "Chinese", "Modern Standard Arabic (MSA)" instead of "Arabic
+    # (Standard)") so the model selects the right script and register.
+    model_lang = get_translate_language_model_name(target_language)
+    tone_instr = TONE_INSTRUCTIONS.get(tone, TONE_INSTRUCTIONS['natural']).format(language=model_lang)
     system = (
-        f'You are a professional translator. Translate the following text to {target_language}. '
-        f'{tone_instr} '
-        'Preserve all Markdown formatting: headers (#, ##, ###), bold (**text**), italic (*text*), '
-        'bullet lists (- item), numbered lists (1. item), and code blocks (```). '
-        'For tables: reproduce them as valid GFM Markdown tables with a header row, a separator row '
-        '(|---|---|), and data rows. If the source table is ambiguous or malformed, render its '
-        'content as a bulleted list instead. Never output a standalone separator line (---|---) '
-        'without surrounding table rows — an orphaned separator line is a formatting error. '
-        'Output ONLY the translated text. No commentary, no preamble, no explanations.'
+        f'You are a professional translator. Translate the following text into {model_lang}.\n'
+        f'{tone_instr}\n'
+        'Formatting rules:\n'
+        '- Preserve all Markdown: headers (#, ##, ###), bold (**text**), italic (*text*), '
+        'bullet lists (- item), numbered lists (1. item).\n'
+        '- Preserve code blocks (```...```) and inline code (`...`) exactly — do not translate their contents.\n'
+        '- Reproduce GFM tables with a header row, a separator row (|---|---|), and data rows. '
+        'If a source table is ambiguous or malformed, render its content as a bulleted list. '
+        'Never output a standalone separator line (---|---) without surrounding table rows.\n'
+        'Do not translate: URLs, email addresses, file paths, variable names, proper nouns that '
+        'are trademarks or brand names, and any text inside inline code or code blocks.\n'
+        f'If the source text is already written in {model_lang}, reproduce it unchanged.\n'
+        'Output ONLY the translated text. No commentary, preamble, or explanations.'
     )
     if glossary_block:
         system += glossary_block
 
+    # Prepend the tail of the previous section (translated) as read-only context
+    # so the model can maintain consistent register, terminology, and narrative
+    # flow across section boundaries without re-translating that content.
+    if prev_context:
+        user_content = (
+            f'[End of previous section — for continuity context only, do not re-translate]:\n'
+            f'{prev_context}\n\n'
+            f'[Text to translate]:\n{source_text}'
+        )
+    else:
+        user_content = source_text
+
     messages = [
         {'role': 'system', 'content': system},
-        {'role': 'user', 'content': source_text},
+        {'role': 'user', 'content': user_content},
     ]
 
+    temperature = TONE_TEMPERATURES.get(tone, TRANSLATE_TEMPERATURE)
     parts: list[str] = []
     finish_reason: str | None = None
     gen = llm_engine.generate_stream(
         messages,
         max_tokens=max_tokens,
-        temperature=TRANSLATE_TEMPERATURE,
+        temperature=temperature,
         timeout_seconds=float(TRANSLATE_SECTION_TIMEOUT_S),
     )
     try:

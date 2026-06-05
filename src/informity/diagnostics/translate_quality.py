@@ -1,10 +1,20 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections.abc import Sequence
 from dataclasses import dataclass
 
-_TOKEN_RE = re.compile(r"[a-z0-9']+")
+# Matches runs of Unicode word characters across all scripts (Latin, CJK,
+# Cyrillic, Arabic, Hebrew, Devanagari, Thai, etc.) plus ASCII digits.
+# The previous [a-z0-9']+ pattern produced empty token sets for every
+# non-Latin script, making term_consistency always 0 for ~40% of supported
+# languages (Chinese, Japanese, Korean, Arabic, Hebrew, Persian, Russian,
+# Ukrainian, Hindi, Bengali, Thai, Greek).
+_TOKEN_RE = re.compile(r'\w+', re.UNICODE)
+
+# English stopwords used for Latin-script output.  For non-Latin scripts the
+# lowercase forms won't match anyway, so keeping this list English-only is fine.
 _STOPWORDS = {
     'the', 'and', 'for', 'with', 'that', 'this', 'from', 'have', 'has', 'are', 'was', 'were',
     'you', 'your', 'our', 'their', 'them', 'they', 'into', 'onto', 'about', 'after', 'before',
@@ -24,12 +34,29 @@ class TranslateQualityMetrics:
     recommendation: str
 
 
+def _script_category(text: str) -> str:
+    """Return a rough script category ('cjk', 'arabic', 'latin', 'other')."""
+    for ch in text:
+        if ch.isalpha():
+            name = unicodedata.name(ch, '')
+            if 'CJK' in name or 'HIRAGANA' in name or 'KATAKANA' in name or 'HANGUL' in name:
+                return 'cjk'
+            if 'ARABIC' in name or 'HEBREW' in name or 'PERSIAN' in name:
+                return 'arabic'
+            if 'LATIN' in name:
+                return 'latin'
+            return 'other'
+    return 'latin'
+
+
 def _normalize_tokens(text: str) -> set[str]:
-    return {
-        token
-        for token in _TOKEN_RE.findall(text.lower())
-        if len(token) > 2 and token not in _STOPWORDS
-    }
+    tokens = _TOKEN_RE.findall(text.lower())
+    script = _script_category(text)
+    if script == 'cjk':
+        # CJK: individual characters are the meaningful units; skip short ones.
+        return {t for t in tokens if len(t) >= 1 and not t.isdigit()}
+    # Latin/Cyrillic/other: require length > 2 and filter English stopwords.
+    return {t for t in tokens if len(t) > 2 and t not in _STOPWORDS}
 
 
 def _jaccard(left: set[str], right: set[str]) -> float:
