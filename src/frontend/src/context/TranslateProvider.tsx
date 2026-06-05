@@ -10,7 +10,13 @@ import {
 } from '../api'
 import { showToast } from './useToast'
 import { TranslateContext, type TranslateContextValue } from './translateContext'
-import { TRANSLATE_LANGUAGE_LABELS, TRANSLATE_TONES } from '../utils/translateOptions'
+import {
+  TRANSLATE_DEFAULT_LANGUAGE,
+  TRANSLATE_DEFAULT_TONE,
+  TRANSLATE_TONES,
+  normalizeTranslateLanguage,
+  normalizeTranslateLanguageList,
+} from '../utils/translateOptions'
 
 const ACTIVE_JOB_KEY = 'informity_active_translate_job'
 
@@ -59,20 +65,31 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
   const [exceedsSoftLimit, setExceedsSoftLimit] = useState(false)
 
   const [fileInfo, setFileInfo] = useState<FileInfo | null>(null)
-  const [targetLanguage, setTargetLanguage] = useState('Spanish')
-  const [tone, setTone] = useState('natural')
+  const [targetLanguage, setTargetLanguage] = useState(TRANSLATE_DEFAULT_LANGUAGE)
+  const [tone, setTone] = useState(TRANSLATE_DEFAULT_TONE)
+  const [pinnedLanguages, setPinnedLanguages] = useState<string[]>([])
 
   const abortRef = useRef<AbortController | null>(null)
-  const defaultsRef = useRef({ language: 'Spanish', tone: 'natural' })
+  const defaultsRef = useRef({
+    language: TRANSLATE_DEFAULT_LANGUAGE,
+    tone: TRANSLATE_DEFAULT_TONE,
+    pinnedLanguages: [] as string[],
+  })
 
   const applyTranslateDefaults = useCallback((settings: Record<string, unknown>) => {
     const lang = settings.translate_default_language as string | undefined
-    const resolvedLanguage = lang && TRANSLATE_LANGUAGE_LABELS.includes(lang) ? lang : 'Spanish'
+    const resolvedLanguage = normalizeTranslateLanguage(lang)
     const t = settings.translate_default_tone as string | undefined
-    const resolvedTone = t && (TRANSLATE_TONES as readonly string[]).includes(t) ? t : 'natural'
-    defaultsRef.current = { language: resolvedLanguage, tone: resolvedTone }
+    const resolvedTone = t && (TRANSLATE_TONES as readonly string[]).includes(t) ? t : TRANSLATE_DEFAULT_TONE
+    const resolvedPinnedLanguages = normalizeTranslateLanguageList(settings.translate_pinned_languages)
+    defaultsRef.current = {
+      language: resolvedLanguage,
+      tone: resolvedTone,
+      pinnedLanguages: resolvedPinnedLanguages,
+    }
     setTargetLanguage(resolvedLanguage)
     setTone(resolvedTone)
+    setPinnedLanguages(resolvedPinnedLanguages)
   }, [])
 
   // Load defaults from settings once on mount — lives here so navigation
@@ -82,6 +99,15 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
       .then((s) => applyTranslateDefaults(s as Record<string, unknown>))
       .catch(() => {})
   }, [applyTranslateDefaults])
+
+  useEffect(() => {
+    if (pinnedLanguages.length > 0 && pinnedLanguages.includes(targetLanguage)) return
+    if (targetLanguage === defaultsRef.current.language) return
+    const fallbackLanguage = pinnedLanguages[0] || defaultsRef.current.language
+    if (fallbackLanguage && fallbackLanguage !== targetLanguage) {
+      setTargetLanguage(fallbackLanguage)
+    }
+  }, [pinnedLanguages, targetLanguage])
 
   // Recover active translation after a page reload.
   // Checks sessionStorage for a persisted job, verifies it is still running
@@ -190,6 +216,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     } catch {
       setTargetLanguage(defaultsRef.current.language)
       setTone(defaultsRef.current.tone)
+      setPinnedLanguages(defaultsRef.current.pinnedLanguages)
     }
   }, [applyTranslateDefaults])
 
@@ -322,6 +349,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     pageCount: fileInfo?.pageCount ?? null,
     isUpload: fileInfo?.isUpload ?? false,
     targetLanguage, tone,
+    pinnedLanguages,
     setFile, setTargetLanguage, setTone,
     resetTranslationDefaults,
     startTranslation, cancelTranslation, clearResult,

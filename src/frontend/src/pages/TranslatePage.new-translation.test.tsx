@@ -5,6 +5,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 const { getSettingsMock } = vi.hoisted(() => ({
   getSettingsMock: vi.fn(),
 }))
+const { getTranslateJobMock } = vi.hoisted(() => ({
+  getTranslateJobMock: vi.fn(),
+}))
+const { streamTranslateJobMock } = vi.hoisted(() => ({
+  streamTranslateJobMock: vi.fn(async () => undefined),
+}))
 
 vi.mock('../api', () => ({
   cancelTranslateJob: vi.fn(),
@@ -12,8 +18,8 @@ vi.mock('../api', () => ({
   deleteTranslateUpload: vi.fn(),
   estimateTranslateJob: vi.fn(async () => ({ estimated_minutes: 1, exceeds_soft_limit: false })),
   getSettings: getSettingsMock,
-  getTranslateJob: vi.fn(async () => ({ status: 'stopped' })),
-  streamTranslateJob: vi.fn(),
+  getTranslateJob: getTranslateJobMock,
+  streamTranslateJob: streamTranslateJobMock,
   uploadTranslateFile: vi.fn(),
 }))
 
@@ -55,12 +61,16 @@ describe('TranslatePage new translation reset', () => {
     cleanup()
     sessionStorage.clear()
     getSettingsMock.mockReset()
+    getTranslateJobMock.mockReset()
+    streamTranslateJobMock.mockReset()
+    streamTranslateJobMock.mockResolvedValue(undefined)
   })
 
   it('resets language and tone to the configured defaults when starting a new translation', async () => {
     getSettingsMock.mockResolvedValue({
       translate_default_language: 'German',
       translate_default_tone: 'formal',
+      translate_pinned_languages: ['Spanish', 'German', 'French'],
     })
     renderPage()
 
@@ -86,10 +96,12 @@ describe('TranslatePage new translation reset', () => {
       .mockResolvedValueOnce({
         translate_default_language: 'German',
         translate_default_tone: 'formal',
+        translate_pinned_languages: ['Spanish', 'German', 'French'],
       })
       .mockResolvedValueOnce({
         translate_default_language: 'French',
         translate_default_tone: 'literal',
+        translate_pinned_languages: ['Spanish', 'French'],
       })
 
     renderPage()
@@ -109,5 +121,28 @@ describe('TranslatePage new translation reset', () => {
 
     await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('French'))
     await waitFor(() => expect(screen.getByTestId('tone')).toHaveTextContent('literal'))
+  })
+
+  it('falls back to a valid pinned language when a restored translation uses a removed language', async () => {
+    sessionStorage.setItem('informity_active_translate_job', JSON.stringify({
+      jobId: 'job-1',
+      fileId: 42,
+      fileName: 'consulting-agreement.docx',
+      pageCount: 4,
+      isUpload: false,
+      targetLanguage: 'German',
+      tone: 'formal',
+    }))
+    getSettingsMock.mockResolvedValue({
+      translate_default_language: 'Spanish',
+      translate_default_tone: 'natural',
+      translate_pinned_languages: ['French', 'Spanish'],
+    })
+    getTranslateJobMock.mockResolvedValue({ status: 'done' })
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('French'))
+    await waitFor(() => expect(screen.getByTestId('tone')).toHaveTextContent('formal'))
   })
 })

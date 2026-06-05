@@ -5,7 +5,15 @@
  */
 import { useState, useEffect, useRef } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
-import { TRANSLATE_LANGUAGE_OPTIONS, TRANSLATE_TONES } from '../../utils/translateOptions'
+import {
+  TRANSLATE_DEFAULT_LANGUAGE,
+  TRANSLATE_DEFAULT_TONE,
+  TRANSLATE_LANGUAGE_OPTIONS,
+  TRANSLATE_TONES,
+  findTranslateLanguageOption,
+  normalizeTranslateLanguage,
+  searchTranslateLanguages,
+} from '../../utils/translateOptions'
 import {
   cancelModelDownload,
   downloadModel,
@@ -250,6 +258,7 @@ interface SettingsData {
   enable_menu_bar_icon?: boolean
   translate_default_language?: string
   translate_default_tone?: string
+  translate_pinned_languages?: string[]
   llm_provider?: 'local_gguf' | 'ollama'
   llm_model_id?: string
   ollama_base_url?: string
@@ -314,6 +323,7 @@ interface FormState {
   enable_menu_bar_icon: boolean
   translate_default_language: string
   translate_default_tone: string
+  translate_pinned_languages: string[]
   llm_provider: 'local_gguf' | 'ollama'
   llm_model_id: string
   ollama_base_url: string
@@ -390,8 +400,13 @@ function buildFormState(settings: SettingsData): FormState {
     enable_raw_output_control: settings.enable_raw_output_control ?? false,
     ui_theme: normalizedTheme ?? UI_THEME_DEFAULT,
     enable_menu_bar_icon: settings.enable_menu_bar_icon ?? false,
-    translate_default_language: settings.translate_default_language ?? 'Spanish',
-    translate_default_tone: settings.translate_default_tone ?? 'natural',
+    translate_default_language: normalizeTranslateLanguage(settings.translate_default_language),
+    translate_default_tone: settings.translate_default_tone ?? TRANSLATE_DEFAULT_TONE,
+    translate_pinned_languages: Array.isArray(settings.translate_pinned_languages)
+      ? settings.translate_pinned_languages
+          .map((value) => normalizeTranslateLanguage(value))
+          .filter((value): value is string => Boolean(value))
+      : [],
     llm_provider: settings.llm_provider === 'ollama' ? 'ollama' : 'local_gguf',
     llm_model_id: String(settings.llm_model_id || ''),
     ollama_base_url: String(settings.ollama_base_url || 'http://127.0.0.1:11434'),
@@ -463,6 +478,7 @@ export function SettingsView({
   const [modelProfileNames, setModelProfileNames] = useState<Map<string, string>>(new Map())
   const [dirInput, setDirInput] = useState('')
   const [ignoreInput, setIgnoreInput] = useState('')
+  const [translateLanguageInput, setTranslateLanguageInput] = useState('')
   const [mcpEndpointInput, setMcpEndpointInput] = useState(
     buildMcpHttpEndpoint(
       String(form.mcp_http_host || '127.0.0.1'),
@@ -705,12 +721,35 @@ export function SettingsView({
     update('ignore_patterns', form.ignore_patterns.filter((p) => p !== pattern))
   }
 
+  const addTranslateLanguage = (language: string) => {
+    const normalized = normalizeTranslateLanguage(language)
+    if (!normalized) return
+    const current = form.translate_pinned_languages || []
+    if (current.includes(normalized)) return
+    update('translate_pinned_languages', [...current, normalized])
+    setTranslateLanguageInput('')
+  }
+
+  const removeTranslateLanguage = (language: string) => {
+    update(
+      'translate_pinned_languages',
+      (form.translate_pinned_languages || []).filter((value) => value !== language),
+    )
+  }
+
   const canAddDir = dirInput.trim().length > 0
   const canAddIgnore = ignoreInput.trim().length > 0
   const mcpTokenValue = String(mcpGeneratedToken || form.mcp_access_token || settings.mcp_access_token || '').trim()
   const hasMcpToken = settings.mcp_token_configured || Boolean(mcpTokenValue)
   const mcpTokenDisplayValue = mcpTokenValue || (hasMcpToken ? MASKED_MCP_TOKEN_FALLBACK : '')
   const mcpStdioCommand = buildMcpStdioCommandPath(String(settings.config_file_path || ''))
+  const pinnedTranslateLanguages = form.translate_pinned_languages || []
+  const translateLanguageSuggestions = (() => {
+    const query = translateLanguageInput.trim()
+    if (!query) return []
+    const searchResults = searchTranslateLanguages(query, 10)
+    return searchResults.filter((option) => !pinnedTranslateLanguages.includes(option.label))
+  })()
 
   const speedVal = threadsToSpeed(form.embedding_max_threads ?? 6)
   const handleSpeedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1165,19 +1204,6 @@ export function SettingsView({
             </p>
           </div>
           <div className="settings-control-group">
-            <label className="settings-control-label" htmlFor="settings-translate-default-language">Default Language</label>
-            <select
-              id="settings-translate-default-language"
-              className="settings-select"
-              value={form.translate_default_language ?? 'Spanish'}
-              onChange={(e) => update('translate_default_language', e.target.value)}
-            >
-              {TRANSLATE_LANGUAGE_OPTIONS.map(l => (
-                <option key={l.label} value={l.label}>{l.label}</option>
-              ))}
-            </select>
-          </div>
-          <div className="settings-control-group">
             <label className="settings-control-label" htmlFor="settings-translate-default-tone">Default Tone</label>
             <select
               id="settings-translate-default-tone"
@@ -1189,6 +1215,98 @@ export function SettingsView({
                 <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
               ))}
             </select>
+          </div>
+          <div className="settings-control-group">
+            <label className="settings-control-label" htmlFor="settings-translate-default-language">Default Language</label>
+            <select
+              id="settings-translate-default-language"
+              className="settings-select"
+              value={form.translate_default_language ?? TRANSLATE_DEFAULT_LANGUAGE}
+              onChange={(e) => update('translate_default_language', normalizeTranslateLanguage(e.target.value))}
+            >
+              {TRANSLATE_LANGUAGE_OPTIONS.map((language) => (
+                <option key={language.label} value={language.label}>
+                  {language.label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="settings-control-group">
+            <div className="settings-control-label-row">
+              <label className="settings-control-label" htmlFor="settings-translate-language-search">Pinned Languages</label>
+              <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                <i className="ri-information-line" aria-hidden="true" />
+                <span className="settings-tooltip ui-tooltip">
+                  Pinned languages appear as quick picks on Translate. Choose the small set you use most often.
+                </span>
+              </span>
+            </div>
+            <input
+              id="settings-translate-language-search"
+              type="text"
+              className="settings-input settings-input--narrow settings-input--language-search"
+              placeholder="Search..."
+              value={translateLanguageInput}
+              onChange={(e) => setTranslateLanguageInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  const exact = normalizeTranslateLanguage(translateLanguageInput)
+                  const suggestion = translateLanguageSuggestions.find((language) => language.label === exact)
+                    ?? translateLanguageSuggestions[0]
+                  if (suggestion) addTranslateLanguage(suggestion.label)
+                }
+              }}
+            />
+            {translateLanguageSuggestions.length > 0 && (
+              <div className="settings-language-suggestions settings-language-suggestions--narrow" role="list">
+                {translateLanguageSuggestions.map((language) => (
+                  <button
+                    key={language.label}
+                    type="button"
+                    className="settings-language-suggestion"
+                    aria-label={language.label}
+                    onClick={() => addTranslateLanguage(language.label)}
+                  >
+                    <span className="settings-language-suggestion__label">{language.label}</span>
+                    {language.nativeLabel && language.nativeLabel !== language.label && (
+                      <span className="settings-language-suggestion__native">{language.nativeLabel}</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+            {(pinnedTranslateLanguages.length > 0) && (
+              <div className="settings-list-scroll settings-list-scroll--card settings-list-scroll--narrow">
+                <ul className="settings-list">
+                  {pinnedTranslateLanguages.map((language) => {
+                    const option = findTranslateLanguageOption(language)
+                    return (
+                      <li key={language} className="settings-list__item settings-list__item--language">
+                        <span className="settings-list__language-flag-wrap" aria-hidden="true">
+                          {option ? (
+                            <span className={`fi fi-${option.countryCode} settings-list__language-flag`} />
+                          ) : (
+                            <i className="ri-earth-line settings-list__language-flag" />
+                          )}
+                        </span>
+                        <span className="settings-list__text settings-list__text--language">
+                          {option?.label || language}
+                        </span>
+                        <button
+                          type="button"
+                          className="settings-list__remove"
+                          onClick={() => removeTranslateLanguage(language)}
+                          aria-label={`Remove ${language}`}
+                        >
+                          <i className="ri-close-line" aria-hidden style={{ fontSize: '0.75rem' }} />
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+            )}
           </div>
         </div>
         </section>
@@ -1222,7 +1340,7 @@ export function SettingsView({
             </button>
           </div>
           {(form.watched_directories?.length ?? 0) > 0 && (
-            <div className="settings-list-scroll">
+            <div className="settings-list-scroll settings-list-scroll--card">
               <ul className="settings-list">
                 {(form.watched_directories || []).map((path) => (
                   <li key={path} className="settings-list__item">
@@ -1305,10 +1423,10 @@ export function SettingsView({
             </button>
           </div>
           {(form.ignore_patterns?.length ?? 0) > 0 && (
-            <div className="settings-list-scroll settings-list-scroll--pills">
-              <ul className="settings-list settings-list--pills">
+            <div className="settings-list-scroll settings-list-scroll--card">
+              <ul className="settings-list">
                 {(form.ignore_patterns || []).map((p) => (
-                  <li key={p} className="settings-list__item settings-list__item--pill">
+                  <li key={p} className="settings-list__item">
                     <span className="settings-list__text">{p}</span>
                     <button
                       type="button"
@@ -1323,7 +1441,7 @@ export function SettingsView({
               </ul>
             </div>
           )}
-          <label className="settings-checkbox-row">
+          <label className="settings-checkbox-row settings-checkbox-row--spaced">
             <input
               type="checkbox"
               checked={form.exclude_macos_system ?? true}

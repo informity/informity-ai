@@ -38,6 +38,7 @@ from informity.indexer.pipeline import remove_file
 from informity.llm.engine import llm_engine
 from informity.log_events import emit_log_event
 from informity.scanner.crawler import scanned_file_for_path
+from informity.translate_languages import normalize_translate_language
 from informity.translate_policy import (
     TONE_INSTRUCTIONS,
     TRANSLATE_AVG_SECTION_SECONDS,
@@ -279,7 +280,7 @@ async def create_translate_job_endpoint(
     raise_if_llm_busy(_translate_lock.locked())
 
     file_id = int(body.get('file_id') or 0)
-    target_language = str(body.get('target_language') or 'Spanish').strip()
+    target_language = normalize_translate_language(str(body.get('target_language') or 'Spanish').strip())
     tone = str(body.get('tone') or 'natural').strip()
 
     if not file_id:

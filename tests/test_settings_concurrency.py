@@ -188,17 +188,21 @@ async def test_translate_defaults_round_trip_through_settings_api(
         SettingsUpdateRequest(
             translate_default_language='German',
             translate_default_tone='formal',
+            translate_pinned_languages=['French', 'German', 'French'],
         ),
     )
 
     assert updated.translate_default_language == 'German'
     assert updated.translate_default_tone == 'formal'
+    assert updated.translate_pinned_languages == ['French', 'German']
     assert config.settings.translate_default_language == 'German'
     assert config.settings.translate_default_tone == 'formal'
+    assert config.settings.translate_pinned_languages == ['French', 'German']
 
     reloaded = await routes_settings.get_settings()
     assert reloaded.translate_default_language == 'German'
     assert reloaded.translate_default_tone == 'formal'
+    assert reloaded.translate_pinned_languages == ['French', 'German']
 
 
 @pytest.mark.asyncio

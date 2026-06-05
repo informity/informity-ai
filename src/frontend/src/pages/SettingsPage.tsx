@@ -85,6 +85,7 @@ const UPDATABLE_KEYS = [
   'enable_menu_bar_icon',
   'translate_default_language',
   'translate_default_tone',
+  'translate_pinned_languages',
 ] as const
 
 interface FormState {
@@ -138,6 +139,7 @@ interface FormState {
   enable_menu_bar_icon?: boolean
   translate_default_language?: string
   translate_default_tone?: string
+  translate_pinned_languages?: string[]
   llm_model_filename?: string
   llm_provider?: 'local_gguf' | 'ollama'
   llm_model_id?: string

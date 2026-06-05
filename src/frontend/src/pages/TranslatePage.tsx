@@ -12,9 +12,10 @@ import { showToast } from '../context/useToast'
 import { resizeComposerTextarea, applyComposerScopedPadding } from '../utils/composerSizing'
 import { markdownToPlainText, downloadTextFile, downloadMarkdownFile } from '../utils/downloadHelpers'
 import {
-  TRANSLATE_LANGUAGE_OPTIONS,
+  TRANSLATE_DEFAULT_LANGUAGE,
   TRANSLATE_TONES,
   TRANSLATE_TONE_ICONS,
+  findTranslateLanguageOption,
   type TranslateTone as Tone,
 } from '../utils/translateOptions'
 import type { TranslateSection } from '../api'
@@ -24,8 +25,6 @@ function capitalize(s: string): string {
   return s ? s.charAt(0).toUpperCase() + s.slice(1) : s
 }
 
-// Keep local aliases so the rest of the file can use short names
-const LANGUAGE_OPTIONS = TRANSLATE_LANGUAGE_OPTIONS
 const TONES = TRANSLATE_TONES
 const TONE_ICONS = TRANSLATE_TONE_ICONS
 
@@ -47,7 +46,7 @@ export function TranslatePage() {
     fileId, fileName, pageCount, isUpload, estimatedMinutes, exceedsSoftLimit,
     targetLanguage, tone, jobStatus, sections, sectionCount, completedSections,
     retryingSectionIndex,
-    isTranslating, hasResult,
+    isTranslating, hasResult, pinnedLanguages,
     setFile, setTargetLanguage, setTone, resetTranslationDefaults, startTranslation, cancelTranslation, clearResult,
   } = useTranslateContext()
 
@@ -77,7 +76,8 @@ export function TranslatePage() {
   const resultsEndRef = useRef<HTMLDivElement>(null)
   const resultsContainerRef = useRef<HTMLDivElement>(null)
 
-  const selectedLang = LANGUAGE_OPTIONS.find(l => l.label === targetLanguage) ?? LANGUAGE_OPTIONS.find(l => l.label === 'Spanish')!
+  const selectedLang = findTranslateLanguageOption(targetLanguage)
+    ?? findTranslateLanguageOption(TRANSLATE_DEFAULT_LANGUAGE)
   const canTranslate = !!fileId && !isTranslating && !isStreaming  // button morphs to Stop when streaming/translating
 
   // Load default language from settings
@@ -560,23 +560,38 @@ export function TranslatePage() {
                     disabled={isTranslating}
                     onClick={() => setMenuOpen(prev => prev === 'language' ? null : 'language')}
                   >
-                    <span className={`fi fi-${selectedLang.countryCode} translate-page__flag`} aria-hidden />
+                    {selectedLang ? (
+                      <span className={`fi fi-${selectedLang.countryCode} translate-page__flag`} aria-hidden />
+                    ) : (
+                      <i className="ri-earth-line translate-page__flag" aria-hidden />
+                    )}
                     <span className="translate-page__mode-label">{targetLanguage}</span>
                     <i className="ri-arrow-down-s-line" aria-hidden />
                   </button>
                   {menuOpen === 'language' && (
                     <div className="translate-page__mode-menu" role="menu">
-                      {LANGUAGE_OPTIONS.map(l => (
-                        <button
-                          key={l.label}
-                          type="button"
-                          className={`translate-page__mode-option${targetLanguage === l.label ? ' translate-page__mode-option--active' : ''}`}
-                          onClick={() => { setTargetLanguage(l.label); setMenuOpen(null) }}
-                        >
-                          <span className={`fi fi-${l.countryCode} translate-page__flag`} aria-hidden />
-                          <span>{l.label}</span>
-                        </button>
-                      ))}
+                      {pinnedLanguages.length > 0 ? pinnedLanguages.map((language) => {
+                        const option = findTranslateLanguageOption(language)
+                        return (
+                          <button
+                            key={language}
+                            type="button"
+                            className={`translate-page__mode-option${targetLanguage === language ? ' translate-page__mode-option--active' : ''}`}
+                            onClick={() => { setTargetLanguage(language); setMenuOpen(null) }}
+                          >
+                            {option ? (
+                              <span className={`fi fi-${option.countryCode} translate-page__flag`} aria-hidden />
+                            ) : (
+                              <i className="ri-earth-line translate-page__flag" aria-hidden />
+                            )}
+                            <span>{option?.label || language}</span>
+                          </button>
+                        )
+                      }) : (
+                        <div className="translate-page__mode-menu-empty">
+                          No pinned languages yet. Choose them in Settings.
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

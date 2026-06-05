@@ -23,6 +23,7 @@ export interface TranslateContextValue {
   // Settings
   targetLanguage: string
   tone: string
+  pinnedLanguages: string[]
 
   // Actions
   setFile: (file: { id: number; name: string; pageCount: number | null; isUpload: boolean } | null) => void

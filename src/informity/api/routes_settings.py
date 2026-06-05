@@ -41,6 +41,7 @@ from informity.llm.roles import list_role_profiles
 from informity.mcp.constants import generate_mcp_access_token
 from informity.mcp.lifecycle import mcp_lifecycle
 from informity.scanner.watcher import invalidate_watcher_cache
+from informity.translate_languages import normalize_translate_language_list
 from informity.utils.directory_utils import ensure_file_directory, ensure_private_file
 from informity.utils.json_utils import serialize_config
 from informity.utils.path_utils import resolve_and_check_path
@@ -421,6 +422,7 @@ _UPDATABLE_FIELDS: set[str] = {
     'cpu_priority_nice',
     'translate_default_language',
     'translate_default_tone',
+    'translate_pinned_languages',
     'mcp_enabled',
     'mcp_auto_start',
     'mcp_transport',
@@ -584,6 +586,9 @@ async def get_settings() -> SettingsResponse:
         cpu_priority_nice             = s.cpu_priority_nice,
         translate_default_language    = s.translate_default_language,
         translate_default_tone        = s.translate_default_tone,
+        translate_pinned_languages    = normalize_translate_language_list(
+            getattr(s, 'translate_pinned_languages', []),
+        ),
     )
 
 
@@ -793,6 +798,10 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                 config.settings.enable_chat_roles = len(normalized_role_ids) > 0
                 config_data[field_name] = normalized_role_ids
                 config_data['enable_chat_roles'] = len(normalized_role_ids) > 0
+            elif field_name == 'translate_pinned_languages':
+                normalized_languages = normalize_translate_language_list(value)
+                setattr(config.settings, field_name, normalized_languages)
+                config_data[field_name] = normalized_languages
             else:
                 setattr(config.settings, field_name, value)
                 config_data[field_name] = value

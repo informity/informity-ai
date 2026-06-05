@@ -202,6 +202,24 @@ describe('SettingsView tabs and action bar behavior', () => {
     })
   })
 
+  it('lets users pin translate languages and persists the selection on save', async () => {
+    const { onSave } = renderSettingsView({ tab: 'translate' })
+
+    fireEvent.change(screen.getByLabelText('Pinned Languages'), { target: { value: 'ger' } })
+    fireEvent.click(screen.getByRole('button', { name: 'German' }))
+
+    expect(screen.getByRole('button', { name: 'Remove German' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Settings' }))
+
+    expect(onSave).toHaveBeenCalledTimes(1)
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        translate_pinned_languages: ['German'],
+      }),
+    )
+  })
+
   it('hides advanced diagnostics controls when profile is not custom', () => {
     renderSettingsView({ tab: 'diagnostics' })
 

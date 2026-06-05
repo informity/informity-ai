@@ -603,6 +603,8 @@ class Settings(BaseSettings):
     translate_default_language: str = 'Spanish'
     # Default tone for the translation screen (natural / formal / literal).
     translate_default_tone: str = 'natural'
+    # Quick-pick translation languages shown in the Translate menu.
+    translate_pinned_languages: list[str] = Field(default_factory=list)
     # -- Pydantic Settings Config ---------------------------------------------
     model_config = {
         'env_prefix': 'INFORMITY_',
@@ -838,6 +840,7 @@ def reset_to_factory_defaults() -> Settings:
         'rag_minimal_mode':        True,
         'adaptive_rag_tuning':     True,  # Enabled by default
         'ui_theme':                 _DEFAULT_UI_THEME,
+        'translate_pinned_languages': [],
     }
     config_path.write_text(
         serialize_config(default_config),

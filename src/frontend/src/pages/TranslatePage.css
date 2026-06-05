@@ -468,3 +468,11 @@
   color: var(--color-text);
   font-weight: 500;
 }
+
+.translate-page__mode-menu-empty {
+  padding: 0.5rem 0.75rem;
+  color: var(--color-text-dimmed);
+  font-size: var(--font-size-sm);
+  line-height: 1.4;
+  max-width: 18rem;
+}
