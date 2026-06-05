@@ -56,7 +56,7 @@ def _format_value(value: object, app_dir: Path | None = None) -> str:
 # Current value is read from settings at runtime; variables sorted by env name.
 # ------------------------------------------------------------------------------
 
-# Section order matches Settings UI: Server → Paths → Privacy → Appearance → Data Sources → Indexing → Embeddings → LLM and RAG → Logging → Diagnostics
+# Section order matches Settings UI: Server → Paths → Privacy → Appearance → Translation → Data Sources → Indexing → Embeddings → LLM and RAG → Logging → Diagnostics
 _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
     (
         'Server',
@@ -113,6 +113,15 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         [
             ('ui_theme', 'Color theme for the app UI. Options: canvas, ember, sage, graphite, onyx.'),
             ('enable_menu_bar_icon', 'When true, show the menu bar icon while the app is running (macOS desktop runtime).'),
+        ],
+    ),
+    (
+        'Translation',
+        'Default translation session settings and quick-pick language configuration.',
+        [
+            ('translate_default_language', 'Default target language for the Translate screen.'),
+            ('translate_default_tone', 'Default tone for the Translate screen (natural, formal, or literal).'),
+            ('translate_pinned_languages_limit', 'Maximum number of pinned translation languages shown in the Translate menu.'),
         ],
     ),
     (

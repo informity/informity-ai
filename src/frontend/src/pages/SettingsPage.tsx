@@ -86,6 +86,7 @@ const UPDATABLE_KEYS = [
   'translate_default_language',
   'translate_default_tone',
   'translate_pinned_languages',
+  'translate_pinned_languages_limit',
 ] as const
 
 interface FormState {
@@ -140,6 +141,7 @@ interface FormState {
   translate_default_language?: string
   translate_default_tone?: string
   translate_pinned_languages?: string[]
+  translate_pinned_languages_limit?: number
   llm_model_filename?: string
   llm_provider?: 'local_gguf' | 'ollama'
   llm_model_id?: string
@@ -205,7 +207,7 @@ const RESET_POLL_TIMEOUT_MS = 300000
 const SETTINGS_TAB_META: Record<string, { title: string; icon: string; subtitle: string }> = {
   general:     { title: 'General',            icon: 'ri-home-gear-line', subtitle: 'Core application preferences including privacy and appearance' },
   chat:        { title: 'Chat',               icon: 'ri-chat-ai-4-line', subtitle: 'Conversation context and default chat settings' },
-  translate:   { title: 'Translate',          icon: 'ri-translate-2',    subtitle: 'Configure default behaviour for document translation' },
+  translate:   { title: 'Translate',          icon: 'ri-translate-2',    subtitle: 'Configure default settings for document translation' },
   models:      { title: 'Models',             icon: 'ri-robot-2-line',   subtitle: 'Select the AI model to use and view its capabilities' },
   data:        { title: 'Data Sources',       icon: 'ri-folder-line',    subtitle: 'Choose which folders and file types the application scans and makes searchable' },
   indexing:      { title: 'Indexing',      icon: 'ri-stack-line',  subtitle: 'Controls how the application reads and prepares your files for search and chat' },

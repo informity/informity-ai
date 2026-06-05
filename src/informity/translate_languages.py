@@ -1,6 +1,7 @@
 from dataclasses import dataclass
 
 TRANSLATE_DEFAULT_LANGUAGE = 'Spanish'
+TRANSLATE_PINNED_LANGUAGE_LIMIT = 6
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +43,7 @@ TRANSLATE_LANGUAGE_OPTIONS: tuple[TranslateLanguageOption, ...] = (
 )
 
 TRANSLATE_LANGUAGE_LABELS: tuple[str, ...] = tuple(language.label for language in TRANSLATE_LANGUAGE_OPTIONS)
+_TRANSLATE_LANGUAGE_ORDER = {language.label: index for index, language in enumerate(TRANSLATE_LANGUAGE_OPTIONS)}
 
 _TRANSLATE_LANGUAGE_LOOKUP: dict[str, TranslateLanguageOption] = {}
 for language in TRANSLATE_LANGUAGE_OPTIONS:
@@ -78,7 +80,7 @@ def normalize_translate_language(value: str | None) -> str:
     return option.label if option else TRANSLATE_DEFAULT_LANGUAGE
 
 
-def normalize_translate_language_list(values: object) -> list[str]:
+def normalize_translate_language_list(values: object, *, limit: int | None = TRANSLATE_PINNED_LANGUAGE_LIMIT) -> list[str]:
     if not isinstance(values, list):
         return []
     seen: set[str] = set()
@@ -92,6 +94,9 @@ def normalize_translate_language_list(values: object) -> list[str]:
             continue
         seen.add(language)
         normalized.append(language)
+    normalized.sort(key=lambda value: _TRANSLATE_LANGUAGE_ORDER.get(value, len(_TRANSLATE_LANGUAGE_ORDER)))
+    if limit is not None and limit >= 0:
+        return normalized[:limit]
     return normalized
 
 

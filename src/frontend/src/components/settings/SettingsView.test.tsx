@@ -90,6 +90,7 @@ const baseSettings = {
   ui_theme: 'blue',
   llm_model_filename: 'main.gguf',
   available_models: ['main.gguf', 'alt.gguf'],
+  translate_pinned_languages_limit: 6,
   model_profile: {
     name: 'Qwen 14B',
   },
@@ -205,8 +206,12 @@ describe('SettingsView tabs and action bar behavior', () => {
   it('lets users pin translate languages and persists the selection on save', async () => {
     const { onSave } = renderSettingsView({ tab: 'translate' })
 
+    fireEvent.change(screen.getByLabelText('Pinned Languages'), { target: { value: 'spa' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Spanish' }))
     fireEvent.change(screen.getByLabelText('Pinned Languages'), { target: { value: 'ger' } })
     fireEvent.click(screen.getByRole('button', { name: 'German' }))
+    fireEvent.change(screen.getByLabelText('Pinned Languages'), { target: { value: 'fre' } })
+    fireEvent.click(screen.getByRole('button', { name: 'French' }))
 
     expect(screen.getByRole('button', { name: 'Remove German' })).toBeInTheDocument()
 
@@ -215,7 +220,33 @@ describe('SettingsView tabs and action bar behavior', () => {
     expect(onSave).toHaveBeenCalledTimes(1)
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
-        translate_pinned_languages: ['German'],
+        translate_pinned_languages: ['French', 'German', 'Spanish'],
+      }),
+    )
+  })
+
+  it('caps pinned translate languages at the configured limit', async () => {
+    const { onSave } = renderSettingsView({
+      tab: 'translate',
+      settings: {
+        ...baseSettings,
+        translate_pinned_languages_limit: 2,
+      },
+    })
+
+    fireEvent.change(screen.getByLabelText('Pinned Languages'), { target: { value: 'ger' } })
+    fireEvent.click(screen.getByRole('button', { name: 'German' }))
+    fireEvent.change(screen.getByLabelText('Pinned Languages'), { target: { value: 'fre' } })
+    fireEvent.click(screen.getByRole('button', { name: 'French' }))
+    fireEvent.change(screen.getByLabelText('Pinned Languages'), { target: { value: 'spa' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Spanish' }))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Settings' }))
+
+    expect(onSave).toHaveBeenCalledTimes(1)
+    expect(onSave).toHaveBeenCalledWith(
+      expect.objectContaining({
+        translate_pinned_languages: ['French', 'German'],
       }),
     )
   })

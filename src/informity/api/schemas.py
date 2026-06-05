@@ -408,6 +408,7 @@ class SettingsResponse(BaseModel):
     translate_default_language: str = 'Spanish'  # Default target language for translation screen
     translate_default_tone: str = 'natural'  # Default tone for translation screen
     translate_pinned_languages: list[str] = Field(default_factory=list)  # Quick-pick translation languages
+    translate_pinned_languages_limit: int = 6  # Maximum number of quick-pick translation languages
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -498,6 +499,7 @@ class SettingsUpdateRequest(BaseModel):
     translate_default_language: str | None = None
     translate_default_tone: str | None = None
     translate_pinned_languages: list[str] | None = None
+    translate_pinned_languages_limit: int | None = None
 
 
 class McpTokenGenerateResponse(BaseModel):

@@ -12,6 +12,7 @@ import {
   TRANSLATE_TONES,
   findTranslateLanguageOption,
   normalizeTranslateLanguage,
+  normalizeTranslateLanguageList,
   searchTranslateLanguages,
 } from '../../utils/translateOptions'
 import {
@@ -259,6 +260,7 @@ interface SettingsData {
   translate_default_language?: string
   translate_default_tone?: string
   translate_pinned_languages?: string[]
+  translate_pinned_languages_limit?: number
   llm_provider?: 'local_gguf' | 'ollama'
   llm_model_id?: string
   ollama_base_url?: string
@@ -324,6 +326,7 @@ interface FormState {
   translate_default_language: string
   translate_default_tone: string
   translate_pinned_languages: string[]
+  translate_pinned_languages_limit: number
   llm_provider: 'local_gguf' | 'ollama'
   llm_model_id: string
   ollama_base_url: string
@@ -347,6 +350,9 @@ interface SettingsViewProps {
 
 function buildFormState(settings: SettingsData): FormState {
   const normalizedTheme = normalizeUiTheme(settings.ui_theme)
+  const translatePinnedLanguageLimit = Number.isFinite(settings.translate_pinned_languages_limit)
+    ? Math.max(0, Math.trunc(Number(settings.translate_pinned_languages_limit)))
+    : 6
   return {
     watched_directories: [...(settings.watched_directories || [])],
     ignore_patterns: [...(settings.ignore_patterns || [])],
@@ -402,11 +408,9 @@ function buildFormState(settings: SettingsData): FormState {
     enable_menu_bar_icon: settings.enable_menu_bar_icon ?? false,
     translate_default_language: normalizeTranslateLanguage(settings.translate_default_language),
     translate_default_tone: settings.translate_default_tone ?? TRANSLATE_DEFAULT_TONE,
-    translate_pinned_languages: Array.isArray(settings.translate_pinned_languages)
-      ? settings.translate_pinned_languages
-          .map((value) => normalizeTranslateLanguage(value))
-          .filter((value): value is string => Boolean(value))
-      : [],
+    translate_pinned_languages: normalizeTranslateLanguageList(settings.translate_pinned_languages)
+      .slice(0, translatePinnedLanguageLimit),
+    translate_pinned_languages_limit: translatePinnedLanguageLimit,
     llm_provider: settings.llm_provider === 'ollama' ? 'ollama' : 'local_gguf',
     llm_model_id: String(settings.llm_model_id || ''),
     ollama_base_url: String(settings.ollama_base_url || 'http://127.0.0.1:11434'),
@@ -726,7 +730,8 @@ export function SettingsView({
     if (!normalized) return
     const current = form.translate_pinned_languages || []
     if (current.includes(normalized)) return
-    update('translate_pinned_languages', [...current, normalized])
+    if (current.length >= (form.translate_pinned_languages_limit ?? 6)) return
+    update('translate_pinned_languages', normalizeTranslateLanguageList([...current, normalized]))
     setTranslateLanguageInput('')
   }
 
@@ -744,6 +749,7 @@ export function SettingsView({
   const mcpTokenDisplayValue = mcpTokenValue || (hasMcpToken ? MASKED_MCP_TOKEN_FALLBACK : '')
   const mcpStdioCommand = buildMcpStdioCommandPath(String(settings.config_file_path || ''))
   const pinnedTranslateLanguages = form.translate_pinned_languages || []
+  const translatePinnedLanguageLimit = form.translate_pinned_languages_limit ?? 6
   const translateLanguageSuggestions = (() => {
     const query = translateLanguageInput.trim()
     if (!query) return []
@@ -1200,7 +1206,7 @@ export function SettingsView({
               Translator Configuration
             </div>
             <p className="settings-subsection-description ui-subsection-description">
-              Applied when opening the Translate screen for the first time each session.
+              Applied to each new translation session.
             </p>
           </div>
           <div className="settings-control-group">
@@ -1234,12 +1240,12 @@ export function SettingsView({
           <div className="settings-control-group">
             <div className="settings-control-label-row">
               <label className="settings-control-label" htmlFor="settings-translate-language-search">Pinned Languages</label>
-              <span className="settings-checkbox-row-info ui-tooltip-trigger">
-                <i className="ri-information-line" aria-hidden="true" />
-                <span className="settings-tooltip ui-tooltip">
-                  Pinned languages appear as quick picks on Translate. Choose the small set you use most often.
+                <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                  <i className="ri-information-line" aria-hidden="true" />
+                  <span className="settings-tooltip ui-tooltip">
+                  Pinned languages appear in the language selection menu. Limited to {translatePinnedLanguageLimit}.
+                  </span>
                 </span>
-              </span>
             </div>
             <input
               id="settings-translate-language-search"

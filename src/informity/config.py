@@ -605,6 +605,8 @@ class Settings(BaseSettings):
     translate_default_tone: str = 'natural'
     # Quick-pick translation languages shown in the Translate menu.
     translate_pinned_languages: list[str] = Field(default_factory=list)
+    # Maximum number of quick-pick translation languages shown in the Translate menu.
+    translate_pinned_languages_limit: int = 6
     # -- Pydantic Settings Config ---------------------------------------------
     model_config = {
         'env_prefix': 'INFORMITY_',

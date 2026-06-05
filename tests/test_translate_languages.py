@@ -1,5 +1,6 @@
 from informity.translate_languages import (
     TRANSLATE_LANGUAGE_OPTIONS,
+    TRANSLATE_PINNED_LANGUAGE_LIMIT,
     normalize_translate_language,
     normalize_translate_language_list,
     search_translate_languages,
@@ -45,7 +46,7 @@ def test_translate_language_normalization_accepts_codes_and_aliases() -> None:
     assert normalize_translate_language('Arabic') == 'Arabic (Standard)'
     assert normalize_translate_language('') == 'Spanish'
     assert normalize_translate_language('Unknown Language') == 'Spanish'
-    assert normalize_translate_language_list(['de', 'German', 'fr', 'German']) == ['German', 'French']
+    assert normalize_translate_language_list(['de', 'German', 'fr', 'German']) == ['French', 'German']
 
 
 def test_translate_language_search_is_restricted_to_catalog() -> None:
@@ -54,3 +55,8 @@ def test_translate_language_search_is_restricted_to_catalog() -> None:
     labels = [option.label for option in search_translate_languages('chi')]
     assert labels == ['Chinese']
     assert all(label in {option.label for option in TRANSLATE_LANGUAGE_OPTIONS} for label in labels)
+
+
+def test_translate_language_list_is_capped() -> None:
+    values = ['German', 'French', 'Spanish', 'Italian', 'Dutch', 'Polish', 'Greek']
+    assert normalize_translate_language_list(values) == ['Dutch', 'French', 'German', 'Greek', 'Italian', 'Polish']

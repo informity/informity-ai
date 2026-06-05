@@ -206,6 +206,31 @@ async def test_translate_defaults_round_trip_through_settings_api(
 
 
 @pytest.mark.asyncio
+async def test_translate_pinned_language_limit_round_trip_through_settings_api(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config.settings, 'app_data_dir', tmp_path)
+    monkeypatch.setattr(routes_settings, '_list_available_models', lambda: [])
+
+    updated = await routes_settings.update_settings(
+        SettingsUpdateRequest(
+            translate_pinned_languages_limit=3,
+            translate_pinned_languages=['French', 'German', 'Spanish', 'Italian'],
+        ),
+    )
+
+    assert updated.translate_pinned_languages_limit == 3
+    assert updated.translate_pinned_languages == ['French', 'German', 'Italian']
+    assert config.settings.translate_pinned_languages_limit == 3
+    assert config.settings.translate_pinned_languages == ['French', 'German', 'Italian']
+
+    reloaded = await routes_settings.get_settings()
+    assert reloaded.translate_pinned_languages_limit == 3
+    assert reloaded.translate_pinned_languages == ['French', 'German', 'Italian']
+
+
+@pytest.mark.asyncio
 async def test_mcp_http_host_rejects_non_loopback_values(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

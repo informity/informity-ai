@@ -42,6 +42,7 @@ export const TRANSLATE_LANGUAGE_OPTIONS: TranslateLanguageOption[] = [
 ]
 
 export const TRANSLATE_LANGUAGE_LABELS = TRANSLATE_LANGUAGE_OPTIONS.map((language) => language.label)
+const TRANSLATE_LANGUAGE_ORDER = new Map(TRANSLATE_LANGUAGE_LABELS.map((label, index) => [label, index] as const))
 
 const TRANSLATE_LANGUAGE_LOOKUP = new Map<string, TranslateLanguageOption>(
   TRANSLATE_LANGUAGE_OPTIONS.flatMap((language) => {
@@ -84,7 +85,11 @@ export function normalizeTranslateLanguageList(values: unknown): string[] {
     seen.add(language)
     normalized.push(language)
   }
-  return normalized
+  return normalized.sort((left, right) => {
+    const leftIndex = TRANSLATE_LANGUAGE_ORDER.get(left) ?? Number.MAX_SAFE_INTEGER
+    const rightIndex = TRANSLATE_LANGUAGE_ORDER.get(right) ?? Number.MAX_SAFE_INTEGER
+    return leftIndex - rightIndex
+  })
 }
 
 export function searchTranslateLanguages(query: string, limit = TRANSLATE_LANGUAGE_OPTIONS.length): TranslateLanguageOption[] {

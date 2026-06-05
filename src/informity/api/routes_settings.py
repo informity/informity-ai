@@ -46,6 +46,16 @@ from informity.utils.directory_utils import ensure_file_directory, ensure_privat
 from informity.utils.json_utils import serialize_config
 from informity.utils.path_utils import resolve_and_check_path
 
+
+def _translate_pinned_language_limit(value: object, default: int = 6) -> int:
+    if value is None:
+        return default
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return default
+
+
 # ==============================================================================
 # Logger
 # ==============================================================================
@@ -423,6 +433,7 @@ _UPDATABLE_FIELDS: set[str] = {
     'translate_default_language',
     'translate_default_tone',
     'translate_pinned_languages',
+    'translate_pinned_languages_limit',
     'mcp_enabled',
     'mcp_auto_start',
     'mcp_transport',
@@ -588,7 +599,9 @@ async def get_settings() -> SettingsResponse:
         translate_default_tone        = s.translate_default_tone,
         translate_pinned_languages    = normalize_translate_language_list(
             getattr(s, 'translate_pinned_languages', []),
+            limit=_translate_pinned_language_limit(getattr(s, 'translate_pinned_languages_limit', 6)),
         ),
+        translate_pinned_languages_limit = _translate_pinned_language_limit(getattr(s, 'translate_pinned_languages_limit', 6)),
     )
 
 
@@ -638,6 +651,15 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
     async with _CONFIG_FILE_ASYNC_LOCK:
         # Read existing config file to merge
         config_data = await asyncio.to_thread(_read_config_file)
+
+        translate_pinned_languages_limit_value = max(
+            0,
+            _translate_pinned_language_limit(
+                updates.get('translate_pinned_languages_limit')
+                if updates.get('translate_pinned_languages_limit') is not None
+                else getattr(config.settings, 'translate_pinned_languages_limit', 6),
+            ),
+        )
 
         # Save original values for rollback if config write fails
         original_values: dict[str, Any] = {}
@@ -799,9 +821,15 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                 config_data[field_name] = normalized_role_ids
                 config_data['enable_chat_roles'] = len(normalized_role_ids) > 0
             elif field_name == 'translate_pinned_languages':
-                normalized_languages = normalize_translate_language_list(value)
+                normalized_languages = normalize_translate_language_list(
+                    value,
+                    limit=translate_pinned_languages_limit_value,
+                )
                 setattr(config.settings, field_name, normalized_languages)
                 config_data[field_name] = normalized_languages
+            elif field_name == 'translate_pinned_languages_limit':
+                setattr(config.settings, field_name, translate_pinned_languages_limit_value)
+                config_data[field_name] = translate_pinned_languages_limit_value
             else:
                 setattr(config.settings, field_name, value)
                 config_data[field_name] = value
