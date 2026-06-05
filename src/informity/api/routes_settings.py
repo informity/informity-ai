@@ -41,7 +41,7 @@ from informity.llm.roles import list_role_profiles
 from informity.mcp.constants import generate_mcp_access_token
 from informity.mcp.lifecycle import mcp_lifecycle
 from informity.scanner.watcher import invalidate_watcher_cache
-from informity.translate_languages import normalize_translate_language_list
+from informity.translate_languages import normalize_translate_language, normalize_translate_language_list
 from informity.utils.directory_utils import ensure_file_directory, ensure_private_file
 from informity.utils.json_utils import serialize_config
 from informity.utils.path_utils import resolve_and_check_path
@@ -54,6 +54,20 @@ def _translate_pinned_language_limit(value: object, default: int = 6) -> int:
         return max(0, int(value))
     except (TypeError, ValueError):
         return default
+
+
+def _normalize_additional_translate_languages(
+    values: object,
+    *,
+    primary_language: str | None,
+    limit: int,
+) -> list[str]:
+    normalized_values = normalize_translate_language_list(values, limit=None)
+    primary = normalize_translate_language(primary_language)
+    filtered = [language for language in normalized_values if language != primary]
+    if limit >= 0:
+        return filtered[:limit]
+    return filtered
 
 
 # ==============================================================================
@@ -597,8 +611,9 @@ async def get_settings() -> SettingsResponse:
         cpu_priority_nice             = s.cpu_priority_nice,
         translate_default_language    = s.translate_default_language,
         translate_default_tone        = s.translate_default_tone,
-        translate_pinned_languages    = normalize_translate_language_list(
+        translate_pinned_languages    = _normalize_additional_translate_languages(
             getattr(s, 'translate_pinned_languages', []),
+            primary_language=getattr(s, 'translate_default_language', None),
             limit=_translate_pinned_language_limit(getattr(s, 'translate_pinned_languages_limit', 6)),
         ),
         translate_pinned_languages_limit = _translate_pinned_language_limit(getattr(s, 'translate_pinned_languages_limit', 6)),
@@ -821,8 +836,12 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                 config_data[field_name] = normalized_role_ids
                 config_data['enable_chat_roles'] = len(normalized_role_ids) > 0
             elif field_name == 'translate_pinned_languages':
-                normalized_languages = normalize_translate_language_list(
+                normalized_languages = _normalize_additional_translate_languages(
                     value,
+                    primary_language=updates.get(
+                        'translate_default_language',
+                        getattr(config.settings, 'translate_default_language', None),
+                    ),
                     limit=translate_pinned_languages_limit_value,
                 )
                 setattr(config.settings, field_name, normalized_languages)

@@ -589,7 +589,7 @@ export function TranslatePage() {
                         )
                       }) : (
                         <div className="translate-page__mode-menu-empty">
-                          No pinned languages yet. Choose them in Settings.
+                          No translation languages yet. Choose them in Settings.
                         </div>
                       )}
                     </div>

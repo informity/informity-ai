@@ -73,7 +73,7 @@ export function normalizeTranslateLanguage(value: string | null | undefined): st
   return findTranslateLanguageOption(text)?.label ?? TRANSLATE_DEFAULT_LANGUAGE
 }
 
-export function normalizeTranslateLanguageList(values: unknown): string[] {
+export function normalizeTranslateLanguageList(values: unknown, limit: number | null = TRANSLATE_LANGUAGE_OPTIONS.length): string[] {
   if (!Array.isArray(values)) return []
   const seen = new Set<string>()
   const normalized: string[] = []
@@ -85,11 +85,12 @@ export function normalizeTranslateLanguageList(values: unknown): string[] {
     seen.add(language)
     normalized.push(language)
   }
-  return normalized.sort((left, right) => {
+  const sorted = normalized.sort((left, right) => {
     const leftIndex = TRANSLATE_LANGUAGE_ORDER.get(left) ?? Number.MAX_SAFE_INTEGER
     const rightIndex = TRANSLATE_LANGUAGE_ORDER.get(right) ?? Number.MAX_SAFE_INTEGER
     return leftIndex - rightIndex
   })
+  return limit === null ? sorted : sorted.slice(0, limit)
 }
 
 export function searchTranslateLanguages(query: string, limit = TRANSLATE_LANGUAGE_OPTIONS.length): TranslateLanguageOption[] {

@@ -811,6 +811,12 @@ html[data-accent='canvas'] .settings-btn--add-cancel {
   width: min(100%, var(--settings-narrow-width));
 }
 
+.settings-list-scroll--translate-languages {
+  max-height: none;
+  overflow-y: visible;
+  scrollbar-gutter: auto;
+}
+
 .settings-list-scroll .settings-list {
   gap: 0;
 }
@@ -948,9 +954,14 @@ html[data-accent='canvas'] .settings-btn--add-cancel {
 .settings-language-suggestions {
   max-width: var(--settings-control-max-width);
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--settings-control-gap);
+  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 0;
   margin-bottom: var(--space-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius);
+  overflow: hidden;
+  background: transparent;
 }
 
 .settings-language-suggestions--narrow {
@@ -959,17 +970,20 @@ html[data-accent='canvas'] .settings-btn--add-cancel {
 }
 
 .settings-language-suggestion {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: var(--space-xs);
-  min-height: var(--min-touch-height);
-  padding: 0.4rem 0.75rem;
-  border: 1px solid var(--color-border-subtle);
-  border-radius: var(--border-radius-sm);
+  gap: 0.45rem;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 0;
+  padding: 0.5rem 0.75rem;
+  border: none;
+  border-radius: 0;
   background: var(--color-bg-elevated);
   color: var(--color-text);
   font-size: var(--font-size-sm);
   cursor: pointer;
+  text-align: left;
 }
 
 .settings-language-suggestion:hover {
@@ -978,12 +992,10 @@ html[data-accent='canvas'] .settings-btn--add-cancel {
 }
 
 .settings-language-suggestion__label {
-  font-weight: 600;
-}
-
-.settings-language-suggestion__native {
-  color: var(--color-text-dimmed);
-  font-size: var(--font-size-xs);
+  flex: 1;
+  font-family: inherit;
+  font-weight: 400;
+  word-break: normal;
 }
 
 /* -----------------------------------------------------------------------------

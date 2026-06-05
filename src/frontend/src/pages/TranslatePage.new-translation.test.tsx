@@ -1,5 +1,5 @@
 import { MemoryRouter } from 'react-router-dom'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const { getSettingsMock } = vi.hoisted(() => ({
@@ -89,6 +89,25 @@ describe('TranslatePage new translation reset', () => {
 
     await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('German'))
     await waitFor(() => expect(screen.getByTestId('tone')).toHaveTextContent('formal'))
+  })
+
+  it('shows the configured primary language in the translation dropdown alongside additional languages alphabetically', async () => {
+    getSettingsMock.mockResolvedValue({
+      translate_default_language: 'German',
+      translate_default_tone: 'formal',
+      translate_pinned_languages: ['Spanish', 'French'],
+    })
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('German'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'German' }))
+    const menu = screen.getByRole('menu')
+    const optionLabels = within(menu)
+      .getAllByRole('button')
+      .map((button) => button.textContent?.trim())
+
+    expect(optionLabels).toEqual(['French', 'German', 'Spanish'])
   })
 
   it('refreshes new-translation defaults when settings change after mount', async () => {

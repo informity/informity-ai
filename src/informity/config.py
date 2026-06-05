@@ -599,11 +599,11 @@ class Settings(BaseSettings):
     ui_theme: Literal['canvas', 'ember', 'sage', 'graphite', 'onyx', 'square'] = _DEFAULT_UI_THEME
     # When true, show the macOS menu bar icon while the app is running.
     enable_menu_bar_icon: bool = False
-    # Default target language for the translation screen.
+    # Primary target language for the translation screen.
     translate_default_language: str = 'Spanish'
     # Default tone for the translation screen (natural / formal / literal).
     translate_default_tone: str = 'natural'
-    # Quick-pick translation languages shown in the Translate menu.
+    # Additional translation languages shown in the Translate menu.
     translate_pinned_languages: list[str] = Field(default_factory=list)
     # Maximum number of quick-pick translation languages shown in the Translate menu.
     translate_pinned_languages_limit: int = 6

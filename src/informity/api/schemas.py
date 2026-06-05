@@ -405,9 +405,9 @@ class SettingsResponse(BaseModel):
     ui_theme:               str               = 'onyx'     # Color theme: canvas, ember, sage, graphite, onyx
     enable_menu_bar_icon:   bool              = False      # Show menu bar icon while app is running (macOS desktop runtime)
     cpu_priority_nice:      int = 10  # 0 = off, >0 lowers process priority at startup
-    translate_default_language: str = 'Spanish'  # Default target language for translation screen
+    translate_default_language: str = 'Spanish'  # Primary target language for translation screen
     translate_default_tone: str = 'natural'  # Default tone for translation screen
-    translate_pinned_languages: list[str] = Field(default_factory=list)  # Quick-pick translation languages
+    translate_pinned_languages: list[str] = Field(default_factory=list)  # Additional translation languages for quick picks
     translate_pinned_languages_limit: int = 6  # Maximum number of quick-pick translation languages
 
 

@@ -81,7 +81,10 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     const resolvedLanguage = normalizeTranslateLanguage(lang)
     const t = settings.translate_default_tone as string | undefined
     const resolvedTone = t && (TRANSLATE_TONES as readonly string[]).includes(t) ? t : TRANSLATE_DEFAULT_TONE
-    const resolvedPinnedLanguages = normalizeTranslateLanguageList(settings.translate_pinned_languages)
+    const resolvedPinnedLanguages = normalizeTranslateLanguageList(
+      [resolvedLanguage, ...(Array.isArray(settings.translate_pinned_languages) ? settings.translate_pinned_languages : [])],
+      null,
+    )
     defaultsRef.current = {
       language: resolvedLanguage,
       tone: resolvedTone,

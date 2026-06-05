@@ -121,7 +121,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
         [
             ('translate_default_language', 'Default target language for the Translate screen.'),
             ('translate_default_tone', 'Default tone for the Translate screen (natural, formal, or literal).'),
-            ('translate_pinned_languages_limit', 'Maximum number of pinned translation languages shown in the Translate menu.'),
+            ('translate_pinned_languages_limit', 'Maximum number of additional translation languages shown in the Translate menu.'),
         ],
     ),
     (

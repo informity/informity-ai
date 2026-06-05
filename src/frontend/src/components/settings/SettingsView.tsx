@@ -408,8 +408,11 @@ function buildFormState(settings: SettingsData): FormState {
     enable_menu_bar_icon: settings.enable_menu_bar_icon ?? false,
     translate_default_language: normalizeTranslateLanguage(settings.translate_default_language),
     translate_default_tone: settings.translate_default_tone ?? TRANSLATE_DEFAULT_TONE,
-    translate_pinned_languages: normalizeTranslateLanguageList(settings.translate_pinned_languages)
-      .slice(0, translatePinnedLanguageLimit),
+    translate_pinned_languages: normalizeTranslateLanguageList(
+      (Array.isArray(settings.translate_pinned_languages) ? settings.translate_pinned_languages : [])
+        .filter((value) => normalizeTranslateLanguage(value) !== normalizeTranslateLanguage(settings.translate_default_language)),
+      translatePinnedLanguageLimit,
+    ),
     translate_pinned_languages_limit: translatePinnedLanguageLimit,
     llm_provider: settings.llm_provider === 'ollama' ? 'ollama' : 'local_gguf',
     llm_model_id: String(settings.llm_model_id || ''),
@@ -728,6 +731,7 @@ export function SettingsView({
   const addTranslateLanguage = (language: string) => {
     const normalized = normalizeTranslateLanguage(language)
     if (!normalized) return
+    if (normalized === form.translate_default_language) return
     const current = form.translate_pinned_languages || []
     if (current.includes(normalized)) return
     if (current.length >= (form.translate_pinned_languages_limit ?? 6)) return
@@ -1223,13 +1227,23 @@ export function SettingsView({
             </select>
           </div>
           <div className="settings-control-group">
-            <label className="settings-control-label" htmlFor="settings-translate-default-language">Default Language</label>
-            <select
-              id="settings-translate-default-language"
-              className="settings-select"
-              value={form.translate_default_language ?? TRANSLATE_DEFAULT_LANGUAGE}
-              onChange={(e) => update('translate_default_language', normalizeTranslateLanguage(e.target.value))}
-            >
+              <label className="settings-control-label" htmlFor="settings-translate-default-language">Primary Language</label>
+              <select
+                id="settings-translate-default-language"
+                className="settings-select"
+                value={form.translate_default_language ?? TRANSLATE_DEFAULT_LANGUAGE}
+                onChange={(e) => {
+                  const nextLanguage = normalizeTranslateLanguage(e.target.value)
+                  update('translate_default_language', nextLanguage)
+                  update(
+                    'translate_pinned_languages',
+                    normalizeTranslateLanguageList(
+                      (form.translate_pinned_languages || []).filter((value) => value !== nextLanguage),
+                      form.translate_pinned_languages_limit ?? 6,
+                    ),
+                  )
+                }}
+              >
               {TRANSLATE_LANGUAGE_OPTIONS.map((language) => (
                 <option key={language.label} value={language.label}>
                   {language.label}
@@ -1239,13 +1253,13 @@ export function SettingsView({
           </div>
           <div className="settings-control-group">
             <div className="settings-control-label-row">
-              <label className="settings-control-label" htmlFor="settings-translate-language-search">Pinned Languages</label>
-                <span className="settings-checkbox-row-info ui-tooltip-trigger">
-                  <i className="ri-information-line" aria-hidden="true" />
-                  <span className="settings-tooltip ui-tooltip">
-                  Pinned languages appear in the language selection menu. Limited to {translatePinnedLanguageLimit}.
-                  </span>
+              <label className="settings-control-label" htmlFor="settings-translate-language-search">Additional Languages</label>
+              <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                <i className="ri-information-line" aria-hidden="true" />
+                <span className="settings-tooltip ui-tooltip">
+                  Additional languages appear in the language selection menu. Limited to {translatePinnedLanguageLimit}.
                 </span>
+              </span>
             </div>
             <input
               id="settings-translate-language-search"
@@ -1274,16 +1288,20 @@ export function SettingsView({
                     aria-label={language.label}
                     onClick={() => addTranslateLanguage(language.label)}
                   >
+                    <span className="settings-list__language-flag-wrap" aria-hidden="true">
+                      {language.countryCode ? (
+                        <span className={`fi fi-${language.countryCode} settings-list__language-flag`} />
+                      ) : (
+                        <i className="ri-earth-line settings-list__language-flag" />
+                      )}
+                    </span>
                     <span className="settings-language-suggestion__label">{language.label}</span>
-                    {language.nativeLabel && language.nativeLabel !== language.label && (
-                      <span className="settings-language-suggestion__native">{language.nativeLabel}</span>
-                    )}
                   </button>
                 ))}
               </div>
             )}
             {(pinnedTranslateLanguages.length > 0) && (
-              <div className="settings-list-scroll settings-list-scroll--card settings-list-scroll--narrow">
+              <div className="settings-list-scroll settings-list-scroll--card settings-list-scroll--narrow settings-list-scroll--translate-languages">
                 <ul className="settings-list">
                   {pinnedTranslateLanguages.map((language) => {
                     const option = findTranslateLanguageOption(language)

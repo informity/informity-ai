@@ -88,9 +88,12 @@ const baseSettings = {
   chat_trace_evaluation_retention_days: 30,
   enable_raw_output_control: false,
   ui_theme: 'blue',
+  translate_default_language: 'Spanish',
+  translate_default_tone: 'natural',
+  translate_pinned_languages: [],
+  translate_pinned_languages_limit: 6,
   llm_model_filename: 'main.gguf',
   available_models: ['main.gguf', 'alt.gguf'],
-  translate_pinned_languages_limit: 6,
   model_profile: {
     name: 'Qwen 14B',
   },
@@ -204,23 +207,31 @@ describe('SettingsView tabs and action bar behavior', () => {
   })
 
   it('lets users pin translate languages and persists the selection on save', async () => {
-    const { onSave } = renderSettingsView({ tab: 'translate' })
+    const { onSave } = renderSettingsView({
+      tab: 'translate',
+      settings: {
+        ...baseSettings,
+        translate_default_language: 'German',
+      },
+    })
 
-    fireEvent.change(screen.getByLabelText('Pinned Languages'), { target: { value: 'spa' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Spanish' }))
-    fireEvent.change(screen.getByLabelText('Pinned Languages'), { target: { value: 'ger' } })
+    fireEvent.change(screen.getByLabelText('Additional Languages'), { target: { value: 'ger' } })
     fireEvent.click(screen.getByRole('button', { name: 'German' }))
-    fireEvent.change(screen.getByLabelText('Pinned Languages'), { target: { value: 'fre' } })
+    expect(screen.queryByRole('button', { name: 'Remove German' })).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Additional Languages'), { target: { value: 'spa' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Spanish' }))
+    fireEvent.change(screen.getByLabelText('Additional Languages'), { target: { value: 'fre' } })
     fireEvent.click(screen.getByRole('button', { name: 'French' }))
 
-    expect(screen.getByRole('button', { name: 'Remove German' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove French' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Remove Spanish' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Save Settings' }))
 
     expect(onSave).toHaveBeenCalledTimes(1)
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
-        translate_pinned_languages: ['French', 'German', 'Spanish'],
+        translate_pinned_languages: ['French', 'Spanish'],
       }),
     )
   })
@@ -230,23 +241,24 @@ describe('SettingsView tabs and action bar behavior', () => {
       tab: 'translate',
       settings: {
         ...baseSettings,
+        translate_default_language: 'German',
         translate_pinned_languages_limit: 2,
       },
     })
 
-    fireEvent.change(screen.getByLabelText('Pinned Languages'), { target: { value: 'ger' } })
-    fireEvent.click(screen.getByRole('button', { name: 'German' }))
-    fireEvent.change(screen.getByLabelText('Pinned Languages'), { target: { value: 'fre' } })
+    fireEvent.change(screen.getByLabelText('Additional Languages'), { target: { value: 'fre' } })
     fireEvent.click(screen.getByRole('button', { name: 'French' }))
-    fireEvent.change(screen.getByLabelText('Pinned Languages'), { target: { value: 'spa' } })
+    fireEvent.change(screen.getByLabelText('Additional Languages'), { target: { value: 'spa' } })
     fireEvent.click(screen.getByRole('button', { name: 'Spanish' }))
+    fireEvent.change(screen.getByLabelText('Additional Languages'), { target: { value: 'ita' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Italian' }))
 
     fireEvent.click(screen.getByRole('button', { name: 'Save Settings' }))
 
     expect(onSave).toHaveBeenCalledTimes(1)
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({
-        translate_pinned_languages: ['French', 'German'],
+        translate_pinned_languages: ['French', 'Spanish'],
       }),
     )
   })
