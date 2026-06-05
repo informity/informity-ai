@@ -8,6 +8,9 @@ import {
   streamTranslateJob,
   type TranslateSection,
 } from '../api'
+import { showToast } from './useToast'
+import { TranslateContext, type TranslateContextValue } from './translateContext'
+import { TRANSLATE_LANGUAGE_LABELS, TRANSLATE_TONES } from '../utils/translateOptions'
 
 const ACTIVE_JOB_KEY = 'informity_active_translate_job'
 
@@ -35,9 +38,6 @@ function loadActiveJob(): PersistedJob | null {
 function clearActiveJob(): void {
   try { sessionStorage.removeItem(ACTIVE_JOB_KEY) } catch { /* ignore */ }
 }
-import { showToast } from './useToast'
-import { TranslateContext, type TranslateContextValue } from './translateContext'
-import { TRANSLATE_LANGUAGE_LABELS, TRANSLATE_TONES } from '../utils/translateOptions'
 
 interface FileInfo {
   id: number
@@ -63,20 +63,25 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
   const [tone, setTone] = useState('natural')
 
   const abortRef = useRef<AbortController | null>(null)
+  const defaultsRef = useRef({ language: 'Spanish', tone: 'natural' })
+
+  const applyTranslateDefaults = useCallback((settings: Record<string, unknown>) => {
+    const lang = settings.translate_default_language as string | undefined
+    const resolvedLanguage = lang && TRANSLATE_LANGUAGE_LABELS.includes(lang) ? lang : 'Spanish'
+    const t = settings.translate_default_tone as string | undefined
+    const resolvedTone = t && (TRANSLATE_TONES as readonly string[]).includes(t) ? t : 'natural'
+    defaultsRef.current = { language: resolvedLanguage, tone: resolvedTone }
+    setTargetLanguage(resolvedLanguage)
+    setTone(resolvedTone)
+  }, [])
 
   // Load defaults from settings once on mount — lives here so navigation
   // away and back doesn't reset manual language/tone changes mid-session.
   useEffect(() => {
-    getSettings().then((s) => {
-      const settings = s as Record<string, unknown>
-      const lang = settings?.translate_default_language as string | undefined
-      if (lang && TRANSLATE_LANGUAGE_LABELS.includes(lang)) setTargetLanguage(lang)
-      const t = settings?.translate_default_tone as string | undefined
-      if (t && (TRANSLATE_TONES as readonly string[]).includes(t)) setTone(t)
-      // Flag small models (< ~10B parameters) — translation quality may be lower.
-      // Pattern matches common GGUF filenames: 9B, 8B, 7B, 4B, 3B, 1B etc.
-    }).catch(() => {})
-  }, [])
+    getSettings()
+      .then((s) => applyTranslateDefaults(s as Record<string, unknown>))
+      .catch(() => {})
+  }, [applyTranslateDefaults])
 
   // Recover active translation after a page reload.
   // Checks sessionStorage for a persisted job, verifies it is still running
@@ -177,6 +182,16 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
       } catch { /* non-critical — estimate is best-effort */ }
     }
   }, [])
+
+  const resetTranslationDefaults = useCallback(async () => {
+    try {
+      const settings = (await getSettings()) as Record<string, unknown>
+      applyTranslateDefaults(settings)
+    } catch {
+      setTargetLanguage(defaultsRef.current.language)
+      setTone(defaultsRef.current.tone)
+    }
+  }, [applyTranslateDefaults])
 
   const startTranslation = useCallback(async () => {
     if (!fileInfo) return
@@ -308,6 +323,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     isUpload: fileInfo?.isUpload ?? false,
     targetLanguage, tone,
     setFile, setTargetLanguage, setTone,
+    resetTranslationDefaults,
     startTranslation, cancelTranslation, clearResult,
     isTranslating, hasResult,
   }

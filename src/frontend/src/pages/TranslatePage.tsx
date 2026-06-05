@@ -48,7 +48,7 @@ export function TranslatePage() {
     targetLanguage, tone, jobStatus, sections, sectionCount, completedSections,
     retryingSectionIndex,
     isTranslating, hasResult,
-    setFile, setTargetLanguage, setTone, startTranslation, cancelTranslation, clearResult,
+    setFile, setTargetLanguage, setTone, resetTranslationDefaults, startTranslation, cancelTranslation, clearResult,
   } = useTranslateContext()
 
   // Runs accumulate above composer
@@ -259,11 +259,12 @@ export function TranslatePage() {
     if (fileId && isUpload) {
       try { await deleteTranslateUpload(fileId) } catch { /* best-effort */ }
     }
+    await resetTranslationDefaults()
     setFile(null)
     clearResult()
     setRuns([])
     wasDocked.current = false
-  }, [isTranslating, cancelTranslation, fileId, isUpload, setFile, clearResult])
+  }, [isTranslating, cancelTranslation, fileId, isUpload, setFile, clearResult, resetTranslationDefaults])
 
   const handleCopyRun = useCallback((run: RunRecord) => {
     navigator.clipboard.writeText(run.sections.map(s => s.text).join('\n\n'))

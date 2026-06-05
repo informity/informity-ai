@@ -406,6 +406,7 @@ class SettingsResponse(BaseModel):
     enable_menu_bar_icon:   bool              = False      # Show menu bar icon while app is running (macOS desktop runtime)
     cpu_priority_nice:      int = 10  # 0 = off, >0 lowers process priority at startup
     translate_default_language: str = 'Spanish'  # Default target language for translation screen
+    translate_default_tone: str = 'natural'  # Default tone for translation screen
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -493,6 +494,8 @@ class SettingsUpdateRequest(BaseModel):
     ui_theme:             str | None  = None  # Color theme: canvas, ember, sage, graphite, onyx
     enable_menu_bar_icon: bool | None = None  # Show menu bar icon while app is running (macOS desktop runtime)
     cpu_priority_nice:    int | None = None
+    translate_default_language: str | None = None
+    translate_default_tone: str | None = None
 
 
 class McpTokenGenerateResponse(BaseModel):

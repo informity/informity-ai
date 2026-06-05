@@ -28,6 +28,7 @@ export interface TranslateContextValue {
   setFile: (file: { id: number; name: string; pageCount: number | null; isUpload: boolean } | null) => void
   setTargetLanguage: (lang: string) => void
   setTone: (tone: string) => void
+  resetTranslationDefaults: () => Promise<void>
   startTranslation: () => Promise<void>
   cancelTranslation: () => void
   clearResult: () => void

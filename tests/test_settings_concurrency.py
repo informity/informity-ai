@@ -177,6 +177,31 @@ async def test_web_search_provider_settings_support_dual_keys(
 
 
 @pytest.mark.asyncio
+async def test_translate_defaults_round_trip_through_settings_api(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(config.settings, 'app_data_dir', tmp_path)
+    monkeypatch.setattr(routes_settings, '_list_available_models', lambda: [])
+
+    updated = await routes_settings.update_settings(
+        SettingsUpdateRequest(
+            translate_default_language='German',
+            translate_default_tone='formal',
+        ),
+    )
+
+    assert updated.translate_default_language == 'German'
+    assert updated.translate_default_tone == 'formal'
+    assert config.settings.translate_default_language == 'German'
+    assert config.settings.translate_default_tone == 'formal'
+
+    reloaded = await routes_settings.get_settings()
+    assert reloaded.translate_default_language == 'German'
+    assert reloaded.translate_default_tone == 'formal'
+
+
+@pytest.mark.asyncio
 async def test_mcp_http_host_rejects_non_loopback_values(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
