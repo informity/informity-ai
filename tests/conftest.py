@@ -97,6 +97,28 @@ def sample_docx(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def sample_contract_docx(tmp_path: Path) -> Path:
+    # Create a legal-style .docx file that exercises heading/paragraph structure.
+    docx = pytest.importorskip('docx')
+    f = tmp_path / 'sample-contract.docx'
+    doc = docx.Document()
+    doc.core_properties.title = 'Consulting Agreement'
+    doc.core_properties.author = 'Informity AI'
+    doc.add_heading('Consulting Agreement', level=1)
+    doc.add_paragraph('This Consulting Agreement is entered into by and between the parties.')
+    doc.add_heading('1. Services', level=2)
+    doc.add_paragraph('The Consultant shall provide professional services described in Exhibit A.')
+    doc.add_paragraph('Services will be delivered in a timely and workmanlike manner.')
+    doc.add_heading('2. Fees and Payment', level=2)
+    doc.add_paragraph('The Client shall pay all undisputed invoices within thirty (30) days.')
+    doc.add_heading('3. Confidentiality', level=2)
+    doc.add_paragraph('Each party shall keep confidential information strictly confidential.')
+    doc.add_paragraph('This obligation survives termination of this Agreement.')
+    doc.save(str(f))
+    return f
+
+
+@pytest.fixture
 def sample_pptx(tmp_path: Path) -> Path:
     # Create a sample .pptx file with two slides.
     pptx = pytest.importorskip('pptx')

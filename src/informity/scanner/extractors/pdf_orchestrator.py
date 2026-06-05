@@ -17,6 +17,7 @@ from informity.config import (
     settings,
 )
 from informity.scanner.extractors.base import MAX_EXTRACTED_TEXT_PREVIEW, ExtractedDocument
+from informity.scanner.extractors.boundary_rules import join_structured_blocks
 from informity.scanner.extractors.text_utils import elapsed_ms
 
 PdfStrategy = Literal['docling_full', 'docling_fast', 'pdf_text_layer']
@@ -163,7 +164,7 @@ def _extract_pdf_text_layer(path: Path) -> ExtractedDocument:
                 chunks.append(text)
         if hasattr(doc, 'close'):
             doc.close()
-        merged = '\n\n'.join(chunks).strip()
+        merged = join_structured_blocks(chunks)
         if not merged:
             return ExtractedDocument(
                 text='',

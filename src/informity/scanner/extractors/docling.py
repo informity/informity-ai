@@ -16,6 +16,10 @@ import structlog
 
 from informity.config import settings
 from informity.scanner.extractors.base import MAX_EXTRACTED_TEXT_PREVIEW, ExtractedDocument
+from informity.scanner.extractors.boundary_rules import (
+    STRUCTURED_BLOCK_SEPARATOR,
+    normalize_structured_block,
+)
 from informity.scanner.extractors.text_utils import elapsed_ms, get_max_file_size_bytes
 
 log = structlog.get_logger(__name__)
@@ -256,6 +260,36 @@ class DoclingExtractor:
             char_to_header_level_ranges: list[tuple[int, int, int]] = []  # (start, end, header_level)
             char_pos = 0
 
+            def _append_structured_text(
+                item_text: str,
+                *,
+                page_no: int | None,
+                block_type: str | None,
+                header_level: int | None,
+            ) -> None:
+                nonlocal char_pos
+
+                normalized_text = normalize_structured_block(item_text)
+                if not normalized_text:
+                    return
+
+                if text_parts:
+                    text_parts.append(STRUCTURED_BLOCK_SEPARATOR)
+                    char_pos += len(STRUCTURED_BLOCK_SEPARATOR)
+
+                item_start = char_pos
+                item_end = item_start + len(normalized_text)
+                text_parts.append(normalized_text)
+
+                if page_no is not None:
+                    char_to_page_ranges.append((item_start, item_end, page_no))
+                if block_type:
+                    char_to_block_type_ranges.append((item_start, item_end, block_type))
+                if header_level is not None:
+                    char_to_header_level_ranges.append((item_start, item_end, header_level))
+
+                char_pos = item_end
+
             try:
                 # Import docling types for isinstance checks
                 from docling_core.types.doc.document import (
@@ -325,20 +359,12 @@ class DoclingExtractor:
                             item_text = item.orig
                             block_type = 'narrative'
 
-                    # Map character positions for this item's text using ranges (memory-efficient)
-                    # Store (start, end, value) tuples instead of per-character dict entries
-                    if item_text:
-                        item_end = char_pos + len(item_text)
-                        if page_no is not None:
-                            char_to_page_ranges.append((char_pos, item_end, page_no))
-                        if block_type:
-                            char_to_block_type_ranges.append((char_pos, item_end, block_type))
-                        if header_level is not None:
-                            char_to_header_level_ranges.append((char_pos, item_end, header_level))
-
-                    # Append to text
-                    text_parts.append(item_text)
-                    char_pos += len(item_text)
+                    _append_structured_text(
+                        item_text,
+                        page_no=page_no,
+                        block_type=block_type,
+                        header_level=header_level,
+                    )
 
                 # Join all parts into final markdown text
                 text = ''.join(text_parts)

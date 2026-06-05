@@ -60,3 +60,14 @@ def test_cancelled_translate_row_helper_detects_token() -> None:
     assert routes_translate._is_cancelled_translate_row(
         {'status': 'running', 'error': routes_translate.TRANSLATE_CANCEL_ERROR_TOKEN},
     ) is False
+
+
+def test_split_text_for_translation_breaks_flat_docs() -> None:
+    text = ' '.join(f'Sentence {index} has enough words to count as a real sentence.' for index in range(1, 26))
+
+    parts = routes_translate._split_text_for_translation(text, max_tokens=30)
+
+    assert len(parts) > 1
+    assert all(routes_translate._count_tokens(part) <= 30 for part in parts)
+    assert 'Sentence 1' in parts[0]
+    assert 'Sentence 25' in parts[-1]

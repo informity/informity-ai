@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from informity.api import routes_translate
 from informity.scanner.extractors.base import (
     BaseExtractor,
     get_extractor,
@@ -234,6 +235,17 @@ class TestDoclingExtractor:
         assert "Document Title" in doc.text or "First paragraph" in doc.text
         assert doc.word_count > 0
         assert doc.error is None
+
+    def test_extract_contract_docx_preserves_structure(self, sample_contract_docx: Path) -> None:
+        doc = self.extractor.extract(sample_contract_docx)
+        self._skip_if_models_unavailable(doc)
+        assert doc.error is None
+        assert 'Consulting Agreement' in doc.text
+        assert 'Confidentiality' in doc.text
+        assert doc.text.count('\n\n') >= 3
+        sections = routes_translate._split_text_for_translation(doc.text, max_tokens=50)
+        assert len(sections) > 1
+        assert all(routes_translate._count_tokens(section) <= 50 for section in sections)
 
     def test_extract_pptx(self, sample_pptx: Path) -> None:
         doc = self.extractor.extract(sample_pptx)

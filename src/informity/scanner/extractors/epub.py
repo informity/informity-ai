@@ -14,6 +14,7 @@ from pathlib import Path
 import structlog
 
 from informity.scanner.extractors.base import MAX_EXTRACTED_TEXT_PREVIEW, ExtractedDocument
+from informity.scanner.extractors.boundary_rules import join_structured_blocks
 from informity.scanner.extractors.text_utils import elapsed_ms, get_max_file_size_bytes
 
 log = structlog.get_logger(__name__)
@@ -204,7 +205,7 @@ class EpubExtractor:
                 if parsed:
                     text_parts.append(parsed)
 
-            text = '\n\n'.join(part for part in text_parts if part).strip()
+            text = join_structured_blocks(text_parts)
             word_count = len(text.split()) if text else 0
 
             # Metadata keys are library-defined tuples in EbookLib.

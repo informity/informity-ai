@@ -138,6 +138,68 @@ def _is_cancelled_translate_row(row: object) -> bool:
     )
 
 
+def _split_text_for_translation(text: str, max_tokens: int) -> list[str]:
+    text = text.strip()
+    if not text:
+        return []
+
+    def _pack_units(units: list[str], joiner: str) -> list[str]:
+        packed: list[str] = []
+        current: list[str] = []
+        current_tokens = 0
+        for unit in units:
+            normalized = unit.strip()
+            if not normalized:
+                continue
+            token_count = _count_tokens(normalized)
+            if current and current_tokens + token_count > max_tokens:
+                packed.append(joiner.join(current).strip())
+                current = []
+                current_tokens = 0
+            current.append(normalized)
+            current_tokens += token_count
+        if current:
+            packed.append(joiner.join(current).strip())
+        return [chunk for chunk in packed if chunk]
+
+    paragraph_chunks = [chunk for chunk in re.split(r'\n\s*\n', text) if chunk.strip()]
+    if len(paragraph_chunks) > 1:
+        packed = _pack_units(paragraph_chunks, '\n\n')
+        if len(packed) > 1 or _count_tokens(packed[0]) <= max_tokens:
+            return packed
+
+    sentence_chunks = [chunk for chunk in re.split(r'(?<=[.!?])\s+', text) if chunk.strip()]
+    if len(sentence_chunks) > 1:
+        packed = _pack_units(sentence_chunks, ' ')
+        if len(packed) > 1 or _count_tokens(packed[0]) <= max_tokens:
+            return packed
+
+    line_chunks = [chunk for chunk in text.splitlines() if chunk.strip()]
+    if len(line_chunks) > 1:
+        packed = _pack_units(line_chunks, '\n')
+        if len(packed) > 1 or _count_tokens(packed[0]) <= max_tokens:
+            return packed
+
+    words = text.split()
+    if not words:
+        return [text]
+
+    packed: list[str] = []
+    current: list[str] = []
+    current_tokens = 0
+    for word in words:
+        word_tokens = _count_tokens(word)
+        if current and current_tokens + word_tokens > max_tokens:
+            packed.append(' '.join(current).strip())
+            current = []
+            current_tokens = 0
+        current.append(word)
+        current_tokens += word_tokens
+    if current:
+        packed.append(' '.join(current).strip())
+    return [chunk for chunk in packed if chunk]
+
+
 # ==============================================================================
 # Upload endpoint
 # ==============================================================================
@@ -814,29 +876,22 @@ async def _build_sections(db: aiosqlite.Connection, file_id: int) -> list[dict]:
             text = '\n\n'.join(current_chunks)
             # Fall back to first-sentence label when Docling found no section header.
             title = current_title or _first_sentence_label(text)
-            # If section text exceeds budget, split at paragraph boundaries
-            token_count = _count_tokens(text)
-            if token_count <= TRANSLATE_BATCH_TARGET_TOKENS:
-                sections.append({'title': title, 'text': text})
-            else:
-                # Split by paragraphs into sub-sections
-                paragraphs = text.split('\n\n')
-                sub: list[str] = []
-                sub_tokens = 0
-                part = 0
-                for para in paragraphs:
-                    pt = _count_tokens(para)
-                    if sub_tokens + pt > TRANSLATE_BATCH_TARGET_TOKENS and sub:
-                        sections.append({'title': f'{title} ({part + 1})',
-                                         'text': '\n\n'.join(sub)})
-                        sub = []
-                        sub_tokens = 0
-                        part += 1
-                    sub.append(para)
-                    sub_tokens += pt
-                if sub:
-                    sections.append({'title': f'{title} ({part + 1})' if part > 0 else title,
-                                     'text': '\n\n'.join(sub)})
+            # If section text exceeds budget, split it using progressively
+            # smaller structural boundaries so flat documents still translate
+            # in multiple chunks.
+            text_parts = _split_text_for_translation(text, TRANSLATE_BATCH_TARGET_TOKENS)
+            if not text_parts:
+                return
+            if len(text_parts) == 1:
+                sections.append({'title': title, 'text': text_parts[0]})
+                return
+            for part, section_text in enumerate(text_parts, start=1):
+                sections.append(
+                    {
+                        'title': f'{title} ({part})',
+                        'text': section_text,
+                    }
+                )
 
     for row in rows:
         path = str(row['section_path'] or '')
