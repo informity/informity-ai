@@ -67,6 +67,8 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
   const [fileInfo, setFileInfo] = useState<FileInfo | null>(null)
   const [targetLanguage, setTargetLanguage] = useState(TRANSLATE_DEFAULT_LANGUAGE)
   const [tone, setTone] = useState(TRANSLATE_DEFAULT_TONE)
+  const [resultLanguage, setResultLanguage] = useState<string | null>(null)
+  const [resultTone, setResultTone] = useState<string | null>(null)
   const [pinnedLanguages, setPinnedLanguages] = useState<string[]>([])
 
   const abortRef = useRef<AbortController | null>(null)
@@ -140,6 +142,8 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
       })
       setTargetLanguage(persisted.targetLanguage)
       setTone(persisted.tone)
+      setResultLanguage(persisted.targetLanguage)
+      setResultTone(persisted.tone)
       setJobId(persisted.jobId)
       setJobStatus(job.status as TranslateContextValue['jobStatus'])
       setSections([])
@@ -270,6 +274,8 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
       targetLanguage,
       tone,
     })
+    setResultLanguage(targetLanguage)
+    setResultTone(tone)
 
     try {
       setJobId(job_id)
@@ -338,6 +344,8 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     setCompletedSections(0)
     setFailedSections(0)
     setGlossaryTermCount(null)
+    setResultLanguage(null)
+    setResultTone(null)
   }, [])
 
   const isTranslating = jobStatus === 'queued' || jobStatus === 'running'
@@ -352,6 +360,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     pageCount: fileInfo?.pageCount ?? null,
     isUpload: fileInfo?.isUpload ?? false,
     targetLanguage, tone,
+    resultLanguage, resultTone,
     pinnedLanguages,
     setFile, setTargetLanguage, setTone,
     resetTranslationDefaults,

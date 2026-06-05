@@ -1,9 +1,13 @@
 import { MemoryRouter } from 'react-router-dom'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { useEffect } from 'react'
 
 const { getSettingsMock } = vi.hoisted(() => ({
   getSettingsMock: vi.fn(),
+}))
+const { createTranslateJobMock } = vi.hoisted(() => ({
+  createTranslateJobMock: vi.fn(),
 }))
 const { getTranslateJobMock } = vi.hoisted(() => ({
   getTranslateJobMock: vi.fn(),
@@ -14,7 +18,7 @@ const { streamTranslateJobMock } = vi.hoisted(() => ({
 
 vi.mock('../api', () => ({
   cancelTranslateJob: vi.fn(),
-  createTranslateJob: vi.fn(),
+  createTranslateJob: createTranslateJobMock,
   deleteTranslateUpload: vi.fn(),
   estimateTranslateJob: vi.fn(async () => ({ estimated_minutes: 1, exceeds_soft_limit: false })),
   getSettings: getSettingsMock,
@@ -36,23 +40,39 @@ import { useTranslateContext } from '../context/useTranslateContext'
 import { TranslatePage } from './TranslatePage'
 
 function TranslateProbe() {
-  const { targetLanguage, tone } = useTranslateContext()
+  const { targetLanguage, tone, resultLanguage } = useTranslateContext()
   return (
     <div>
       <span data-testid="language">{targetLanguage}</span>
       <span data-testid="tone">{tone}</span>
+      <span data-testid="result-language">{resultLanguage ?? ''}</span>
+    </div>
+  )
+}
+
+function TranslateHarness() {
+  const { setFile, setTargetLanguage } = useTranslateContext()
+
+  useEffect(() => {
+    setFile({ id: 42, name: 'consulting-agreement.docx', pageCount: 1, isUpload: false })
+  }, [setFile])
+
+  return (
+    <div>
+      <button type="button" onClick={() => setTargetLanguage('French')}>Force French</button>
     </div>
   )
 }
 
 function renderPage() {
   return render(
-    <MemoryRouter>
-      <TranslateProvider>
-        <TranslatePage />
-        <TranslateProbe />
-      </TranslateProvider>
-    </MemoryRouter>,
+        <MemoryRouter>
+          <TranslateProvider>
+            <TranslatePage />
+            <TranslateHarness />
+            <TranslateProbe />
+          </TranslateProvider>
+        </MemoryRouter>,
   )
 }
 
@@ -61,6 +81,7 @@ describe('TranslatePage new translation reset', () => {
     cleanup()
     sessionStorage.clear()
     getSettingsMock.mockReset()
+    createTranslateJobMock.mockReset()
     getTranslateJobMock.mockReset()
     streamTranslateJobMock.mockReset()
     streamTranslateJobMock.mockResolvedValue(undefined)
@@ -163,5 +184,40 @@ describe('TranslatePage new translation reset', () => {
 
     await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('French'))
     await waitFor(() => expect(screen.getByTestId('tone')).toHaveTextContent('formal'))
+  })
+
+  it('preserves the saved translation language in the footer after live target settings change', async () => {
+    getSettingsMock.mockResolvedValue({
+      translate_default_language: 'Spanish',
+      translate_default_tone: 'natural',
+      translate_pinned_languages: ['French', 'Spanish'],
+    })
+    createTranslateJobMock.mockResolvedValue({ job_id: 'job-1' })
+    streamTranslateJobMock.mockImplementationOnce((async (...args: unknown[]) => {
+      const callbacks = args[1] as {
+        onSectionsReady?: (count: number) => void
+        onSectionDone?: (section: { section_index: number; section_title: string | null; text: string }) => void
+        onJobDone?: (completed: number, failed: number) => void
+      }
+      callbacks.onSectionsReady?.(1)
+      callbacks.onSectionDone?.({ section_index: 0, section_title: null, text: 'hola' })
+      callbacks.onJobDone?.(1, 0)
+    }) as never)
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('Spanish'))
+    fireEvent.click(screen.getByRole('button', { name: /Translate/i }))
+
+    await waitFor(() => expect(screen.getByTestId('result-language')).toHaveTextContent('Spanish'))
+    await waitFor(() => expect(screen.getByTestId('translate-run-language-0')).toHaveTextContent('Spanish'))
+    expect(screen.getByRole('button', { name: 'Spanish' })).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Force French' }))
+
+    await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('French'))
+    expect(screen.getByTestId('result-language')).toHaveTextContent('Spanish')
+    expect(screen.getByTestId('translate-run-language-0')).toHaveTextContent('Spanish')
+    expect(screen.getByRole('button', { name: 'Spanish' })).toBeInTheDocument()
   })
 })

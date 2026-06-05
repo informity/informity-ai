@@ -23,6 +23,8 @@ export interface TranslateContextValue {
   // Settings
   targetLanguage: string
   tone: string
+  resultLanguage: string | null
+  resultTone: string | null
   pinnedLanguages: string[]
 
   // Actions

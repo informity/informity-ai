@@ -44,7 +44,7 @@ export function TranslatePage() {
   const location = useLocation()
   const {
     fileId, fileName, pageCount, isUpload, estimatedMinutes, exceedsSoftLimit,
-    targetLanguage, tone, jobStatus, sections, sectionCount, completedSections,
+    targetLanguage, tone, resultLanguage, resultTone, jobStatus, sections, sectionCount, completedSections,
     retryingSectionIndex,
     isTranslating, hasResult, pinnedLanguages,
     setFile, setTargetLanguage, setTone, resetTranslationDefaults, startTranslation, cancelTranslation, clearResult,
@@ -76,7 +76,9 @@ export function TranslatePage() {
   const resultsEndRef = useRef<HTMLDivElement>(null)
   const resultsContainerRef = useRef<HTMLDivElement>(null)
 
-  const selectedLang = findTranslateLanguageOption(targetLanguage)
+  const displayLanguage = hasResult || isTranslating ? (resultLanguage ?? targetLanguage) : targetLanguage
+  const displayTone = hasResult || isTranslating ? (resultTone ?? tone) : tone
+  const selectedLang = findTranslateLanguageOption(displayLanguage)
     ?? findTranslateLanguageOption(TRANSLATE_DEFAULT_LANGUAGE)
   const canTranslate = !!fileId && !isTranslating && !isStreaming  // button morphs to Stop when streaming/translating
 
@@ -143,8 +145,8 @@ export function TranslatePage() {
     if (sections.length === 0 || runs.length > 0) return
     const run: RunRecord = {
       sections: [...sections],
-      language: targetLanguage,
-      tone: tone as Tone,
+      language: displayLanguage,
+      tone: displayTone as Tone,
       completedAt: isTranslating ? null : Date.now(),
       totalSections: sectionCount,
       elapsedSeconds: null,
@@ -164,7 +166,7 @@ export function TranslatePage() {
     if (!isTranslating) return
     if (activeRunRef.current) return  // already created for this run
     const run: RunRecord = {
-      sections: [], language: targetLanguage, tone: tone as Tone,
+      sections: [], language: displayLanguage, tone: displayTone as Tone,
       completedAt: null, totalSections: sectionCount,
       elapsedSeconds: null, fileLabel: fileName ?? 'Document',
     }
@@ -187,8 +189,8 @@ export function TranslatePage() {
     } else if (runs.length === 0) {
       const run: RunRecord = {
         sections: [...sections],
-        language: targetLanguage,
-        tone: tone as Tone,
+        language: displayLanguage,
+        tone: displayTone as Tone,
         completedAt: null,  // set by [jobStatus] effect when job_done arrives
         totalSections: sectionCount,
         elapsedSeconds: null,
@@ -198,7 +200,7 @@ export function TranslatePage() {
       setRuns([run])
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sections, sectionCount])
+  }, [displayLanguage, displayTone, sections, sectionCount])
 
   useEffect(() => {
     if (jobStatus === 'done' && activeRunRef.current && activeRunRef.current.completedAt === null) {
@@ -372,7 +374,7 @@ export function TranslatePage() {
                       )}
                       <div className="translate-page__meta-item">
                         <i className="ri-global-line translate-page__meta-icon" aria-hidden />
-                        <span>{run.language}</span>
+                        <span data-testid={`translate-run-language-${ri}`}>{run.language}</span>
                       </div>
                       <span className="translate-page__meta-sep">|</span>
                       <div className="translate-page__meta-item">
@@ -524,7 +526,7 @@ export function TranslatePage() {
                     aria-haspopup="menu"
                     aria-expanded={menuOpen === 'tone'}
                     aria-label="Tone"
-                    disabled={isTranslating}
+                    disabled={isTranslating || hasResult}
                     onClick={() => setMenuOpen(prev => prev === 'tone' ? null : 'tone')}
                   >
                     <i className="ri-quill-pen-line" aria-hidden />
@@ -535,7 +537,7 @@ export function TranslatePage() {
                         <button
                           key={t}
                           type="button"
-                          className={`translate-page__mode-option${tone === t ? ' translate-page__mode-option--active' : ''}`}
+                          className={`translate-page__mode-option${displayTone === t ? ' translate-page__mode-option--active' : ''}`}
                           onClick={() => { setTone(t); setMenuOpen(null) }}
                         >
                           <i className={TONE_ICONS[t]} aria-hidden />
@@ -557,7 +559,7 @@ export function TranslatePage() {
                     className="translate-page__mode-button"
                     aria-haspopup="menu"
                     aria-expanded={menuOpen === 'language'}
-                    disabled={isTranslating}
+                    disabled={isTranslating || hasResult}
                     onClick={() => setMenuOpen(prev => prev === 'language' ? null : 'language')}
                   >
                     {selectedLang ? (
@@ -565,7 +567,7 @@ export function TranslatePage() {
                     ) : (
                       <i className="ri-earth-line translate-page__flag" aria-hidden />
                     )}
-                    <span className="translate-page__mode-label">{targetLanguage}</span>
+                    <span className="translate-page__mode-label">{displayLanguage}</span>
                     <i className="ri-arrow-down-s-line" aria-hidden />
                   </button>
                   {menuOpen === 'language' && (
@@ -576,7 +578,7 @@ export function TranslatePage() {
                           <button
                             key={language}
                             type="button"
-                            className={`translate-page__mode-option${targetLanguage === language ? ' translate-page__mode-option--active' : ''}`}
+                            className={`translate-page__mode-option${displayLanguage === language ? ' translate-page__mode-option--active' : ''}`}
                             onClick={() => { setTargetLanguage(language); setMenuOpen(null) }}
                           >
                             {option ? (
