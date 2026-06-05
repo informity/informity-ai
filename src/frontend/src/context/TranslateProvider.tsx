@@ -19,6 +19,7 @@ import {
 } from '../utils/translateOptions'
 
 const ACTIVE_JOB_KEY = 'informity_active_translate_job'
+const COMPLETED_RUNS_KEY = 'informity_completed_translate_runs'
 
 interface PersistedJob {
   jobId: string
@@ -43,6 +44,10 @@ function loadActiveJob(): PersistedJob | null {
 
 function clearActiveJob(): void {
   try { sessionStorage.removeItem(ACTIVE_JOB_KEY) } catch { /* ignore */ }
+}
+
+function clearCompletedRuns(): void {
+  try { sessionStorage.removeItem(COMPLETED_RUNS_KEY) } catch { /* ignore */ }
 }
 
 interface FileInfo {
@@ -127,7 +132,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     getTranslateJob(persisted.jobId).then((job) => {
       // Only recover jobs that have meaningful state: running, queued, or completed.
       // A null/unknown status means the job ID is stale — clear and bail.
-      const recoverableStatuses = ['queued', 'running', 'done', 'stalled', 'failed']
+      const recoverableStatuses = ['queued', 'running', 'stalled']
       if (!recoverableStatuses.includes(job.status)) {
         clearActiveJob()
         return
@@ -179,6 +184,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
           setCompletedSections(completed)
           setFailedSections(failed)
           setJobStatus('done')
+          clearActiveJob()
         },
         onJobFailed: (error) => {
           setJobStatus('failed')
@@ -230,6 +236,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
   const resetTranslationSession = useCallback(() => {
     abortRef.current?.abort()
     clearActiveJob()
+    clearCompletedRuns()
     setFileInfo(null)
     setJobId(null)
     setJobStatus(null)
@@ -325,6 +332,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
           setCompletedSections(completed)
           setFailedSections(failed)
           setJobStatus('done')
+          clearActiveJob()
         },
         onJobFailed: (error) => {
           setJobStatus('failed')

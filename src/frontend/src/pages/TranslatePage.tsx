@@ -27,6 +27,7 @@ function capitalize(s: string): string {
 
 const TONES = TRANSLATE_TONES
 const TONE_ICONS = TRANSLATE_TONE_ICONS
+const COMPLETED_RUNS_KEY = 'informity_completed_translate_runs'
 
 interface RunRecord {
   sections: TranslateSection[]
@@ -36,6 +37,31 @@ interface RunRecord {
   totalSections: number | null
   elapsedSeconds: number | null
   fileLabel: string
+}
+
+function loadCompletedRuns(): RunRecord[] {
+  try {
+    const raw = sessionStorage.getItem(COMPLETED_RUNS_KEY)
+    if (!raw) return []
+    const parsed = JSON.parse(raw) as unknown
+    if (!Array.isArray(parsed)) return []
+    return parsed.filter((run): run is RunRecord =>
+      !!run && typeof run === 'object'
+        && Array.isArray((run as RunRecord).sections)
+        && typeof (run as RunRecord).language === 'string'
+        && typeof (run as RunRecord).tone === 'string'
+    )
+  } catch {
+    return []
+  }
+}
+
+function saveCompletedRuns(runs: RunRecord[]): void {
+  try { sessionStorage.setItem(COMPLETED_RUNS_KEY, JSON.stringify(runs)) } catch { /* ignore */ }
+}
+
+function clearCompletedRuns(): void {
+  try { sessionStorage.removeItem(COMPLETED_RUNS_KEY) } catch { /* ignore */ }
 }
 
 export function TranslatePage() {
@@ -51,7 +77,7 @@ export function TranslatePage() {
   } = useTranslateContext()
 
   // Runs accumulate above composer
-  const [runs, setRuns] = useState<RunRecord[]>([])
+  const [runs, setRuns] = useState<RunRecord[]>(() => loadCompletedRuns())
   const activeRunRef = useRef<RunRecord | null>(null)
   const runStartRef = useRef<number>(0)
   const [exportMenuRun, setExportMenuRun] = useState<number | null>(null)
@@ -76,19 +102,11 @@ export function TranslatePage() {
   const resultsEndRef = useRef<HTMLDivElement>(null)
   const resultsContainerRef = useRef<HTMLDivElement>(null)
 
-  const displayLanguage = isTranslating ? (resultLanguage ?? targetLanguage) : targetLanguage
-  const displayTone = isTranslating ? (resultTone ?? tone) : tone
-  const selectedLang = findTranslateLanguageOption(displayLanguage)
+  const resultDisplayLanguage = resultLanguage ?? targetLanguage
+  const resultDisplayTone = resultTone ?? tone
+  const selectedLang = findTranslateLanguageOption(targetLanguage)
     ?? findTranslateLanguageOption(TRANSLATE_DEFAULT_LANGUAGE)
   const canTranslate = !!fileId && !isTranslating && !isStreaming  // button morphs to Stop when streaming/translating
-
-  // Load default language from settings
-
-  useEffect(() => {
-    if (!isTranslating) {
-      void resetTranslationDefaults()
-    }
-  }, [isTranslating, resetTranslationDefaults])
 
   // Pre-load file from Files page router state
   useEffect(() => {
@@ -142,17 +160,27 @@ export function TranslatePage() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
+  useEffect(() => {
+    const completedRuns = runs.filter((run) => run.completedAt !== null)
+    if (completedRuns.length === 0) {
+      clearCompletedRuns()
+      return
+    }
+    saveCompletedRuns(completedRuns)
+  }, [runs])
+
   // On mount: if the context already has sections (user navigated away and back),
   // reconstruct the run display. TranslateProvider keeps sections across navigation;
   // TranslatePage local state resets on unmount, so runs would be [] without this.
   // Must be declared before the [isTranslating] effect so it fires first — that way
   // activeRunRef is already set and the [isTranslating] effect sees it and skips.
   useEffect(() => {
-    if (sections.length === 0 || runs.length > 0) return
+    if (sections.length === 0) return
+    if (runs.length > 0) return
     const run: RunRecord = {
       sections: [...sections],
-      language: displayLanguage,
-      tone: displayTone as Tone,
+      language: resultDisplayLanguage,
+      tone: resultDisplayTone as Tone,
       completedAt: isTranslating ? null : Date.now(),
       totalSections: sectionCount,
       elapsedSeconds: null,
@@ -172,7 +200,7 @@ export function TranslatePage() {
     if (!isTranslating) return
     if (activeRunRef.current) return  // already created for this run
     const run: RunRecord = {
-      sections: [], language: displayLanguage, tone: displayTone as Tone,
+      sections: [], language: resultDisplayLanguage, tone: resultDisplayTone as Tone,
       completedAt: null, totalSections: sectionCount,
       elapsedSeconds: null, fileLabel: fileName ?? 'Document',
     }
@@ -195,8 +223,8 @@ export function TranslatePage() {
     } else if (runs.length === 0) {
       const run: RunRecord = {
         sections: [...sections],
-        language: displayLanguage,
-        tone: displayTone as Tone,
+        language: resultDisplayLanguage,
+        tone: resultDisplayTone as Tone,
         completedAt: null,  // set by [jobStatus] effect when job_done arrives
         totalSections: sectionCount,
         elapsedSeconds: null,
@@ -206,7 +234,7 @@ export function TranslatePage() {
       setRuns([run])
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [displayLanguage, displayTone, sections, sectionCount])
+  }, [resultDisplayLanguage, resultDisplayTone, sections, sectionCount])
 
   useEffect(() => {
     if (jobStatus === 'done' && activeRunRef.current && activeRunRef.current.completedAt === null) {
@@ -265,6 +293,7 @@ export function TranslatePage() {
     activeRunRef.current = null
     if (isTranslating) cancelTranslation()
     resetTranslationSession()
+    clearCompletedRuns()
     setRuns([])
     wasDocked.current = false
     await resetTranslationDefaults()
@@ -537,7 +566,7 @@ export function TranslatePage() {
                         <button
                           key={t}
                           type="button"
-                          className={`translate-page__mode-option${displayTone === t ? ' translate-page__mode-option--active' : ''}`}
+                          className={`translate-page__mode-option${tone === t ? ' translate-page__mode-option--active' : ''}`}
                           onClick={() => { setTone(t); setMenuOpen(null) }}
                         >
                           <i className={TONE_ICONS[t]} aria-hidden />
@@ -567,7 +596,7 @@ export function TranslatePage() {
                     ) : (
                       <i className="ri-earth-line translate-page__flag" aria-hidden />
                     )}
-                    <span className="translate-page__mode-label">{displayLanguage}</span>
+                    <span className="translate-page__mode-label">{targetLanguage}</span>
                     <i className="ri-arrow-down-s-line" aria-hidden />
                   </button>
                   {menuOpen === 'language' && (
@@ -578,7 +607,7 @@ export function TranslatePage() {
                           <button
                             key={language}
                             type="button"
-                            className={`translate-page__mode-option${displayLanguage === language ? ' translate-page__mode-option--active' : ''}`}
+                            className={`translate-page__mode-option${targetLanguage === language ? ' translate-page__mode-option--active' : ''}`}
                             onClick={() => { setTargetLanguage(language); setMenuOpen(null) }}
                           >
                             {option ? (

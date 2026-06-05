@@ -149,12 +149,12 @@ describe('TranslatePage new translation reset', () => {
 
     renderPage()
 
-    await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('French'))
-    await waitFor(() => expect(screen.getByTestId('tone')).toHaveTextContent('literal'))
+    await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('German'))
+    await waitFor(() => expect(screen.getByTestId('tone')).toHaveTextContent('formal'))
 
     fireEvent.click(screen.getByRole('button', { name: 'Tone' }))
     fireEvent.click(screen.getByRole('button', { name: 'Natural' }))
-    fireEvent.click(screen.getByRole('button', { name: 'French' }))
+    fireEvent.click(screen.getByRole('button', { name: 'German' }))
     fireEvent.click(screen.getByRole('button', { name: 'Spanish' }))
 
     await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('Spanish'))
@@ -169,27 +169,44 @@ describe('TranslatePage new translation reset', () => {
     expect(screen.queryByRole('button', { name: 'Spanish' })).toBeNull()
   })
 
-  it('falls back to a valid pinned language when a restored translation uses a removed language', async () => {
-    sessionStorage.setItem('informity_active_translate_job', JSON.stringify({
-      jobId: 'job-1',
-      fileId: 42,
-      fileName: 'consulting-agreement.docx',
-      pageCount: 4,
-      isUpload: false,
-      targetLanguage: 'German',
-      tone: 'formal',
-    }))
-    getSettingsMock.mockResolvedValue({
-      translate_default_language: 'Spanish',
-      translate_default_tone: 'natural',
-      translate_pinned_languages: ['French', 'Spanish'],
-    })
-    getTranslateJobMock.mockResolvedValue({ status: 'done' })
+  it('restores the completed translation footer language after a reload even if settings change later', async () => {
+    getSettingsMock
+      .mockResolvedValueOnce({
+        translate_default_language: 'Spanish',
+        translate_default_tone: 'natural',
+        translate_pinned_languages: ['French', 'Spanish'],
+      })
+      .mockResolvedValueOnce({
+        translate_default_language: 'Portuguese',
+        translate_default_tone: 'natural',
+        translate_pinned_languages: ['French', 'Portuguese', 'Spanish'],
+      })
+    createTranslateJobMock.mockResolvedValue({ job_id: 'job-1' })
+    streamTranslateJobMock.mockImplementationOnce((async (...args: unknown[]) => {
+      const callbacks = args[1] as {
+        onSectionsReady?: (count: number) => void
+        onSectionDone?: (section: { section_index: number; section_title: string | null; text: string }) => void
+        onJobDone?: (completed: number, failed: number) => void
+      }
+      callbacks.onSectionsReady?.(1)
+      callbacks.onSectionDone?.({ section_index: 0, section_title: null, text: 'hola' })
+      callbacks.onJobDone?.(1, 0)
+    }) as never)
+
+    const { unmount } = renderPage()
+
+    await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('Spanish'))
+    fireEvent.click(screen.getByRole('button', { name: /Translate/i }))
+    await waitFor(() => expect(screen.getByTestId('translate-run-language-0')).toHaveTextContent('Spanish'))
+
+    unmount()
+    cleanup()
 
     renderPage()
 
-    await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('French'))
-    await waitFor(() => expect(screen.getByTestId('tone')).toHaveTextContent('formal'))
+    await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('Portuguese'))
+    await waitFor(() => expect(screen.getByTestId('translate-run-language-0')).toHaveTextContent('Spanish'))
+    await waitFor(() => expect(screen.getByTestId('tone')).toHaveTextContent('natural'))
   })
 
   it('preserves the saved translation language in the footer after live target settings change', async () => {
