@@ -21,8 +21,6 @@ import { logApiError } from '../utils/logApiError'
 import { extractErrorMessage } from '../utils/errorMessages'
 import {
   CHAT_FILE_SCOPE_MAP_STORAGE_KEY,
-  CHAT_ROLE_ID_STORAGE_KEY,
-  CHAT_SPECIALIZATION_ID_STORAGE_KEY,
   FORCE_NEW_CHAT_KEY,
   MESSAGE_MODE_MAP_STORAGE_KEY,
 } from '../utils/storageKeys'
