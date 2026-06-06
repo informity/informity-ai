@@ -355,7 +355,7 @@
 }
 
 .settings-btn--sm {
-  min-height: 2rem;
+  min-height: var(--min-touch-height);
   padding: 0.25rem 0.625rem;
   width: auto;
   min-width: 0;
@@ -521,8 +521,9 @@
   display: block;
   width: 100%;
   max-width: 100%;
-  min-height: var(--min-touch-height);
+  height: var(--min-touch-height);
   padding: var(--space-sm) var(--space-md);
+  line-height: 1;
   font-size: var(--font-size-sm);
   font-family: var(--font-mono);
   border: 1px solid var(--color-border);
@@ -689,8 +690,9 @@
 
 .settings-select {
   display: block;
-  min-height: var(--min-touch-height);
+  height: var(--min-touch-height);
   padding: var(--space-sm) 2rem var(--space-sm) var(--space-md);
+  line-height: 1;
   font-size: var(--font-size-sm);
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
@@ -825,8 +827,8 @@ html[data-accent='canvas'] .settings-btn--add-cancel {
   display: flex;
   align-items: center;
   gap: var(--space-sm);
-  min-height: 0;
-  padding: 0.5rem 0.75rem;
+  height: var(--list-item-height);
+  padding: 0 0.75rem;
   background: none;
   border: none;
   border-radius: var(--border-radius);
@@ -875,8 +877,8 @@ html[data-accent='canvas'] .settings-btn--add-cancel {
 
 .settings-list__remove {
   flex-shrink: 0;
-  width: var(--icon-size-md);
-  height: var(--icon-size-md);
+  width: var(--list-item-height);
+  height: var(--list-item-height);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -884,7 +886,6 @@ html[data-accent='canvas'] .settings-btn--add-cancel {
   border: 1px solid transparent;
   border-radius: var(--border-radius-sm);
   color: var(--color-text-dimmed);
-  font-size: var(--icon-size-md);
   line-height: 1;
   cursor: pointer;
   padding: 0;

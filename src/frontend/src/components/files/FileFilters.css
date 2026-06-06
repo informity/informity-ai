@@ -24,7 +24,8 @@
   border-radius: var(--border-radius);
   background: var(--surface-control);
   color: inherit;
-  min-height: var(--min-touch-height);
+  height: var(--min-touch-height);
+  line-height: 1;
   box-sizing: border-box;
 }
 

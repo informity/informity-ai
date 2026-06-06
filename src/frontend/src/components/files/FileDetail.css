@@ -292,7 +292,7 @@ html[data-accent='canvas'] .file-detail__panel {
   color: var(--color-text-muted);
   cursor: pointer;
   transition: all var(--transition-fast);
-  min-height: var(--min-touch-height);
+  height: var(--min-touch-height);
 }
 
 .file-detail__btn:hover:not(:disabled) {
