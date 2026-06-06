@@ -4,6 +4,12 @@ This file is the **single source of truth** for types, interfaces, and module re
 
 **Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `upload_policy.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, security, chat_completion_policy, chat_out_of_corpus, chat_sources, error_messages, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry, context_scope_manager); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils, file_utils, number_utils); `sources/` (base, filesystem_adapter, registry, orchestrator); `scanner/` (crawler, watcher, extractors — docling unified extractor + EPUB extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, model_adapter, rag, query_classifier, query_patterns, rag_patterns, nlp_heuristics, roles, promptcue_signals, types, retrieval, prompt_builder, streaming, metadata_filters, intent_router, classification_policy, promptcue_adapter, term_dictionary, chat_mode, contract_gate, contract_prompt_parser, metrics_payload, system_prompts, timeout_policy, user_messages, web_search, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics runtime modules: `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
 
+## Extensibility Vocabulary
+
+- **Plugins** are internal behavior extensions that shape routing, prompts, ranking, formatting, and specialization.
+- **Integrations** are external-system bridges that move data in or out of Informity or trigger side-effecting actions.
+- The current roadmap keeps those tracks separate so internal extensibility does not blur into external-service work.
+
 ---
 
 ## General Rules

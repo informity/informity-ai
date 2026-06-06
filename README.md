@@ -38,6 +38,15 @@ Informity scans and indexes local files, then answers questions with a local RAG
 - Local LLM inference via `xllamacpp` (Metal/GPU on macOS)
 - Optional Ollama runtime provider (localhost daemon)
 
+## Extensibility
+
+Informity uses two separate extension concepts:
+
+- **Plugins** are internal behavior extensions that shape how the app routes, formats, ranks, and specializes answers.
+- **Integrations** are external-system bridges that connect Informity to other services or data sources.
+
+Current roadmap focus is on the plugin architecture first; integration runtime work is tracked separately when external actions or external-source bridges are needed.
+
 ## Quick Start
 
 ```bash
