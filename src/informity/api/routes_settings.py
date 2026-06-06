@@ -41,7 +41,10 @@ from informity.llm.roles import list_role_profiles
 from informity.mcp.constants import generate_mcp_access_token
 from informity.mcp.lifecycle import mcp_lifecycle
 from informity.scanner.watcher import invalidate_watcher_cache
-from informity.translate_languages import normalize_translate_language, normalize_translate_language_list
+from informity.translate_languages import (
+    normalize_translate_language,
+    normalize_translate_language_list,
+)
 from informity.utils.directory_utils import ensure_file_directory, ensure_private_file
 from informity.utils.json_utils import serialize_config
 from informity.utils.path_utils import resolve_and_check_path
