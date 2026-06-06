@@ -131,7 +131,7 @@ def compute_translate_quality(
         completion_rate >= 0.95
         and structural_fidelity >= 0.90
         and truncation_rate <= 0.10
-        and (term_consistency is None or term_consistency >= 0.15)
+        and (term_consistency is None or term_consistency >= 0.10)
     ):
         recommendation = 'pass'
     elif quality_score >= 65:

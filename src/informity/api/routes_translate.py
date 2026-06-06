@@ -38,6 +38,7 @@ from informity.indexer.pipeline import remove_file
 from informity.llm.engine import llm_engine
 from informity.log_events import emit_log_event
 from informity.scanner.crawler import scanned_file_for_path
+from informity.llm.model_adapter import get_profile
 from informity.translate_languages import get_translate_language_model_name, normalize_translate_language
 from informity.translate_policy import (
     TONE_INSTRUCTIONS,
@@ -139,6 +140,7 @@ def _is_cancelled_translate_row(row: object) -> bool:
         and str(row['status']) == 'stalled'
         and str(row['error'] or '') == TRANSLATE_CANCEL_ERROR_TOKEN
     )
+
 
 
 def _split_text_for_translation(text: str, max_tokens: int) -> list[str]:
@@ -797,6 +799,11 @@ async def _extract_glossary(
     cap = int(TRANSLATE_GLOSSARY_INPUT_TOKENS / 1.3)
     source_sample = ' '.join(words[:cap])
 
+    glossary_user = source_sample
+    _glossary_profile = get_profile()
+    if _glossary_profile.no_think_token:
+        glossary_user += f'\n{_glossary_profile.no_think_token}'
+
     messages = [
         {
             'role': 'system',
@@ -808,7 +815,7 @@ async def _extract_glossary(
                 'No numbering, no bullets, no preamble, no explanation.'
             ),
         },
-        {'role': 'user', 'content': source_sample},
+        {'role': 'user', 'content': glossary_user},
     ]
 
     parts: list[str] = []
@@ -968,15 +975,12 @@ async def _translate_section(
     if glossary_block:
         system += glossary_block
 
-    # Prepend the tail of the previous section (translated) as read-only context
-    # so the model can maintain consistent register, terminology, and narrative
-    # flow across section boundaries without re-translating that content.
+
+    # Prepend the tail of the previous section as a plain separator so the model
+    # can maintain register and terminology without an instruction-like prefix
+    # that could trigger reasoning mode on thinking-capable models.
     if prev_context:
-        user_content = (
-            f'[End of previous section — for continuity context only, do not re-translate]:\n'
-            f'{prev_context}\n\n'
-            f'[Text to translate]:\n{source_text}'
-        )
+        user_content = f'{prev_context}\n\n---\n\n{source_text}'
     else:
         user_content = source_text
 
@@ -984,6 +988,16 @@ async def _translate_section(
         {'role': 'system', 'content': system},
         {'role': 'user', 'content': user_content},
     ]
+
+    # Suppress thinking/reasoning for translation — we want direct output, not
+    # extended reasoning.  Use the loaded model's no_think_token if it has one
+    # (e.g. Qwen3.6 35B uses '/no_think'; models without it leave this as None).
+    # Without this, thinking-capable models spend their entire token budget
+    # inside <think>...</think> and produce zero translation output.
+    profile = get_profile()
+    if profile.no_think_token:
+        messages[-1] = dict(messages[-1])
+        messages[-1]['content'] += f'\n{profile.no_think_token}'
 
     temperature = TONE_TEMPERATURES.get(tone, TRANSLATE_TEMPERATURE)
     parts: list[str] = []
