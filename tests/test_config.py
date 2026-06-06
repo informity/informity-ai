@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import builtins
+import json
 
+from informity import config
 from informity.config import _get_default_supported_extensions
 
 
@@ -43,3 +45,31 @@ def test_default_supported_extensions_uses_file_types_when_extractor_import_unav
     assert '.yaml' not in extensions
     assert '.yml' not in extensions
     assert '.toml' not in extensions
+
+
+def test_load_config_file_values_migrates_legacy_specialization_keys(tmp_path, monkeypatch) -> None:
+    config_path = tmp_path / 'config.json'
+    config_path.write_text(
+        json.dumps(
+            {
+                'enable_chat_roles': True,
+                'enabled_chat_role_ids': ['legal', 'financial', ''],
+                'ui_theme': 'onyx',
+            }
+        ),
+        encoding='utf-8',
+    )
+    monkeypatch.setattr(config, '_config_path_for_loader', lambda: config_path)
+
+    loaded = config._load_config_file_values()
+
+    assert loaded['enable_specializations'] is True
+    assert loaded['enabled_specialization_ids'] == ['legal', 'financial']
+    assert 'enable_chat_roles' not in loaded
+    assert 'enabled_chat_role_ids' not in loaded
+
+    persisted = json.loads(config_path.read_text(encoding='utf-8'))
+    assert persisted['enable_specializations'] is True
+    assert persisted['enabled_specialization_ids'] == ['legal', 'financial']
+    assert 'enable_chat_roles' not in persisted
+    assert 'enabled_chat_role_ids' not in persisted

@@ -697,7 +697,7 @@ async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
 async def _migrate_to_v2(conn: aiosqlite.Connection) -> None:
     """
     v2 migration:
-    - add nullable role_id to chat_messages for role overlay session persistence.
+    - add nullable role_id to chat_messages for legacy role overlay session persistence.
     """
     cursor = await conn.execute("PRAGMA table_info('chat_messages')")
     columns = await cursor.fetchall()
@@ -1002,6 +1002,7 @@ def _row_to_scan_error_record(row: aiosqlite.Row) -> ScanErrorRecord:
 def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
     # Convert a SQLite row to a ChatMessage model.
     try:
+        # Legacy alias: specialization is canonical, but old rows still persist role_id.
         role_id = row['role_id']
     except (KeyError, IndexError):
         role_id = None

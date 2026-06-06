@@ -179,7 +179,7 @@ def build_messages(
 
     # Build system message
     active_system_prompt = (
-        compose_prompt(mode_id='researcher_rag', chat_mode=chat_mode, role_id=role_id)
+        compose_prompt(mode_id='researcher_rag', chat_mode=chat_mode, specialization_id=role_id)
         if system_prompt is None
         else str(system_prompt)
     )

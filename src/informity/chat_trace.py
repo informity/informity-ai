@@ -305,10 +305,20 @@ class _ChatTraceWriter:
             or cancelled_resource_metrics
             or errored_resource_metrics
         )
+        specialization_value = request.get('specialization')
+        specialization = specialization_value if isinstance(specialization_value, dict) else {}
+        specialization_id = self._coerce_string(request.get('specialization_id')) or self._coerce_string(request.get('role_id'))
 
         return {
             'schema': TRACE_SUMMARY_SCHEMA_NAME,
             'summary_version': TRACE_SUMMARY_SCHEMA_VERSION,
+            'specialization': {
+                'id': specialization_id,
+                'name': self._coerce_string(specialization.get('name')),
+                'description': self._coerce_string(specialization.get('description')),
+                'plugin_type': self._coerce_string(specialization.get('plugin_type')),
+                'visible_in_ui': bool(specialization.get('visible_in_ui')) if specialization else None,
+            },
             'intent': {
                 'intent': intent_value,
                 'subtype': subtype_value,

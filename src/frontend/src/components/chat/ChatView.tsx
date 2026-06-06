@@ -13,9 +13,20 @@ import { useOptionalTranslateContext } from '../../context/useTranslateContext'
 import { exportChatMarkdown, getCurrentChat, getRoles, getSettings } from '../../api'
 import { markdownToPlainText, downloadTextFile } from '../../utils/downloadHelpers'
 import { showToast } from '../../context/useToast'
-import { isChatMode, type ChatFileScope, type ChatMessageDisplay, type ChatMode, type ChatRoleDefinition } from '../../types/api'
+import {
+  isChatMode,
+  type ChatFileScope,
+  type ChatMessageDisplay,
+  type ChatMode,
+  type ChatSpecializationDefinition,
+} from '../../types/api'
 import { logApiError } from '../../utils/logApiError'
-import { CHAT_MODE_STORAGE_KEY, CHAT_ROLE_ID_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
+import {
+  CHAT_MODE_STORAGE_KEY,
+  CHAT_ROLE_ID_STORAGE_KEY,
+  CHAT_SPECIALIZATION_ID_STORAGE_KEY,
+  FORCE_NEW_CHAT_KEY,
+} from '../../utils/storageKeys'
 import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
 import { getFileIcon } from '../../utils/fileFormatting'
 import {
@@ -28,7 +39,7 @@ const UPLOAD_CHIP_FALLBACK_WIDTH = 180
 const UPLOAD_OVERFLOW_CHIP_FALLBACK_WIDTH = 52
 const UPLOAD_PENDING_CHIP_FALLBACK_WIDTH = 116
 const ALL_CHAT_MODES: ChatMode[] = ['assistant', 'researcher']
-const GENERAL_ROLE_LABEL = 'General Assistant'
+const GENERAL_SPECIALIZATION_LABEL = 'General Assistant'
 
 interface ChatViewProps {
   prefillMessage?: string
@@ -43,6 +54,8 @@ interface ChatSettingsResponse {
   default_chat_mode?: ChatMode
   full_privacy?: boolean
   web_search_configured?: boolean
+  enabled_specialization_ids?: string[]
+  // Legacy alias; remove after the next version migration window.
   enabled_chat_role_ids?: string[]
 }
 
@@ -142,12 +155,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const [fullPrivacyMode, setFullPrivacyMode] = useState(true)
   const [webSearchConfigured, setWebSearchConfigured] = useState(false)
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
-  const [enabledRoleIds, setEnabledRoleIds] = useState<string[]>([])
-  const [hasConfiguredEnabledRoleIds, setHasConfiguredEnabledRoleIds] = useState(false)
-  const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
-  const [roles, setRoles] = useState<ChatRoleDefinition[]>([])
-  const [rolesLoaded, setRolesLoaded] = useState(false)
-  const [roleMenuOpen, setRoleMenuOpen] = useState(false)
+  const [enabledSpecializationIds, setEnabledSpecializationIds] = useState<string[]>([])
+  const [hasConfiguredEnabledSpecializationIds, setHasConfiguredEnabledSpecializationIds] = useState(false)
+  const [selectedSpecializationId, setSelectedSpecializationId] = useState<string | null>(null)
+  const [specializations, setSpecializations] = useState<ChatSpecializationDefinition[]>([])
+  const [specializationsLoaded, setSpecializationsLoaded] = useState(false)
+  const [specializationMenuOpen, setSpecializationMenuOpen] = useState(false)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [animateToDocked, setAnimateToDocked] = useState(false)
   const [textareaCanScroll, setTextareaCanScroll] = useState(false)
@@ -163,7 +176,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const showScrollRef = useRef(false)
   const isNearBottomRef = useRef(true)
   const modeMenuRef = useRef<HTMLDivElement>(null)
-  const roleMenuRef = useRef<HTMLDivElement>(null)
+  const specializationMenuRef = useRef<HTMLDivElement>(null)
   const consumedInitialScopeRef = useRef<string | null>(null)
   const skipNextSelectChatIdRef = useRef<string | null>(null)
   const draftPendingAliasChatIdRef = useRef<string | null>(null)
@@ -172,11 +185,29 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const uploadChipMeasureRefs = useRef<Record<string, HTMLSpanElement | null>>({})
   const uploadOverflowMeasureRef = useRef<HTMLSpanElement>(null)
   const uploadPendingMeasureRef = useRef<HTMLSpanElement>(null)
-  const roleSelectionExplicitRef = useRef(false)
+  const specializationSelectionExplicitRef = useRef(false)
   const [visibleUploadCount, setVisibleUploadCount] = useState(chatUploads.length)
   const [pendingUploadCountsByChat, setPendingUploadCountsByChat] = useState<Record<string, number>>({})
   const [isDragOverComposer, setIsDragOverComposer] = useState(false)
   const uploadDragDepthRef = useRef(0)
+
+  // Legacy aliases; remove after the next version migration window.
+  const enabledRoleIds = enabledSpecializationIds
+  const setEnabledRoleIds = setEnabledSpecializationIds
+  const hasConfiguredEnabledRoleIds = hasConfiguredEnabledSpecializationIds
+  const setHasConfiguredEnabledRoleIds = setHasConfiguredEnabledSpecializationIds
+  const selectedRoleId = selectedSpecializationId
+  const setSelectedRoleId = setSelectedSpecializationId
+  const roles = specializations
+  const setRoles = setSpecializations
+  const rolesLoaded = specializationsLoaded
+  const setRolesLoaded = setSpecializationsLoaded
+  const roleMenuOpen = specializationMenuOpen
+  const setRoleMenuOpen = setSpecializationMenuOpen
+  const roleMenuRef = specializationMenuRef
+  const roleSelectionExplicitRef = specializationSelectionExplicitRef
+  const GENERAL_ROLE_LABEL = GENERAL_SPECIALIZATION_LABEL
+
   const pendingUploadCount = (() => {
     if (!contextChatId) return pendingUploadCountsByChat.__draft__ ?? 0
     const scopedCount = pendingUploadCountsByChat[contextChatId] ?? 0
@@ -219,7 +250,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         hasStoredMode = true
         setChatMode(raw)
       }
-      const storedRoleId = String(window.localStorage.getItem(CHAT_ROLE_ID_STORAGE_KEY) || '').trim()
+      const storedRoleId = String(
+        window.localStorage.getItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
+        || window.localStorage.getItem(CHAT_ROLE_ID_STORAGE_KEY)
+        || '',
+      ).trim()
       if (storedRoleId) setSelectedRoleId(storedRoleId)
     } catch {
       // ignore storage errors
@@ -330,6 +365,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       setSelectedRoleId(null)
       roleSelectionExplicitRef.current = false
       try {
+        window.localStorage.removeItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
         window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
       } catch {
         // ignore storage errors
@@ -343,6 +379,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     setSelectedRoleId(null)
     roleSelectionExplicitRef.current = false
     try {
+      window.localStorage.removeItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
       window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
     } catch {
       // ignore storage errors
@@ -746,6 +783,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     roleSelectionExplicitRef.current = false
     try {
       window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'researcher')
+      window.localStorage.removeItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
       window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
     } catch {
       // ignore storage errors
@@ -947,7 +985,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   )
   const roleContextTooltip = (
     effectiveChatMode === 'researcher' && !hasRoleDocContext
-      ? 'Roles are strongest with scoped documents'
+      ? 'Plugins are strongest with scoped documents'
       : `Role: ${roleButtonLabel}`
   )
 
@@ -1425,6 +1463,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                   roleSelectionExplicitRef.current = true
                                   setRoleMenuOpen(false)
                                   try {
+                                    window.localStorage.removeItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
                                     window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
                                   } catch {
                                     // ignore storage errors
@@ -1449,6 +1488,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                     roleSelectionExplicitRef.current = true
                                     setRoleMenuOpen(false)
                                     try {
+                                      window.localStorage.setItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY, role.id)
                                       window.localStorage.setItem(CHAT_ROLE_ID_STORAGE_KEY, role.id)
                                     } catch {
                                       // ignore storage errors
@@ -1517,6 +1557,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                       setSelectedRoleId(null)
                                       roleSelectionExplicitRef.current = false
                                       try {
+                                        window.localStorage.removeItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
                                         window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
                                       } catch {
                                         // ignore storage errors

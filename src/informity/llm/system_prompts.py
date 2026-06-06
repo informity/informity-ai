@@ -1,6 +1,6 @@
 # ==============================================================================
 # Informity AI — System Prompt Registry
-# Backward-compatible exports sourced from centralized role registry.
+# Backward-compatible exports sourced from centralized specialization/mode registry.
 # ==============================================================================
 
 from informity.llm.roles import get_mode_prompt

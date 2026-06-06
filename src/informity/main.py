@@ -51,6 +51,7 @@ from structlog.contextvars import bind_contextvars, clear_contextvars
 from informity.api.routes_chat import router as chat_router
 from informity.api.routes_index import router as index_router
 from informity.api.routes_logs import router as logs_router
+from informity.api.routes_plugins import router as plugins_router
 from informity.api.routes_scan import router as scan_router
 from informity.api.routes_search import router as search_router
 from informity.api.routes_settings import router as settings_router
@@ -713,6 +714,7 @@ app.include_router(chat_router)
 app.include_router(translate_router)
 app.include_router(search_router)
 app.include_router(settings_router)
+app.include_router(plugins_router)
 app.include_router(system_router)
 app.include_router(logs_router)
 

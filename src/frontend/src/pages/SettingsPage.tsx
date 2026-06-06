@@ -55,6 +55,8 @@ const UPDATABLE_KEYS = [
   'adaptive_rag_tuning',
   'chat_history_messages',
   'default_chat_mode',
+  'enabled_specialization_ids',
+  // Legacy alias; remove after the next version migration window.
   'enabled_chat_role_ids',
   'entity_extract_acronym',
   'entity_extract_person_name',
@@ -115,6 +117,10 @@ interface FormState {
   adaptive_rag_tuning?: boolean
   chat_history_messages?: number
   default_chat_mode?: ChatMode
+  enable_specializations?: boolean
+  enabled_specialization_ids?: string[]
+  // Legacy alias; remove after the next version migration window.
+  enable_chat_roles?: boolean
   enabled_chat_role_ids?: string[]
   entity_extract_acronym?: boolean
   entity_extract_person_name?: boolean

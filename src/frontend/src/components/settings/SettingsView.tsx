@@ -30,7 +30,7 @@ import {
   type ModelsCatalogResponse,
   type OllamaStatusResponse,
 } from '../../api'
-import { isChatMode, type ChatMode, type ChatRoleDefinition } from '../../types/api'
+import { isChatMode, type ChatMode, type ChatSpecializationDefinition as ChatRoleDefinition } from '../../types/api'
 import { SETTINGS_ACTIVE_TAB_STORAGE_KEY } from '../../utils/storageKeys'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_OPTIONS, UI_THEME_STORAGE_KEY } from '../../utils/uiTheme'
 import { formatModelSizeGb } from '../../utils/formatModelSizeGb'
@@ -232,6 +232,10 @@ interface SettingsData {
   adaptive_rag_tuning?: boolean
   chat_history_messages?: number
   default_chat_mode?: ChatMode
+  enable_specializations?: boolean
+  enabled_specialization_ids?: string[]
+  // Legacy aliases; remove after the next version migration window.
+  enable_chat_roles?: boolean
   enabled_chat_role_ids?: string[]
   entity_extract_acronym?: boolean
   entity_extract_person_name?: boolean
@@ -300,6 +304,10 @@ interface FormState {
   adaptive_rag_tuning: boolean
   chat_history_messages: number
   default_chat_mode: ChatMode
+  enable_specializations: boolean
+  enabled_specialization_ids: string[]
+  // Legacy aliases; remove after the next version migration window.
+  enable_chat_roles: boolean
   enabled_chat_role_ids: string[]
   entity_extract_acronym: boolean
   entity_extract_person_name: boolean
@@ -379,6 +387,14 @@ function buildFormState(settings: SettingsData): FormState {
     adaptive_rag_tuning: settings.adaptive_rag_tuning ?? true,
     chat_history_messages: settings.chat_history_messages ?? 5,
     default_chat_mode: isChatMode(settings.default_chat_mode) ? settings.default_chat_mode : 'researcher',
+    enable_specializations: settings.enable_specializations ?? settings.enable_chat_roles ?? false,
+    enabled_specialization_ids: Array.isArray(settings.enabled_specialization_ids)
+      ? settings.enabled_specialization_ids
+      : Array.isArray(settings.enabled_chat_role_ids)
+        ? settings.enabled_chat_role_ids
+        : [],
+    // Legacy aliases; remove after the next version migration window.
+    enable_chat_roles: settings.enable_chat_roles ?? settings.enable_specializations ?? false,
     enabled_chat_role_ids: Array.isArray(settings.enabled_chat_role_ids) ? settings.enabled_chat_role_ids : [],
     entity_extract_acronym: settings.entity_extract_acronym ?? true,
     entity_extract_person_name: settings.entity_extract_person_name ?? false,
@@ -1098,26 +1114,28 @@ export function SettingsView({
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
               <i className="ri-user-settings-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              AI Roles
+              AI Plugins
             </div>
             <p className="settings-subsection-description ui-subsection-description">
-              Focus responses on a specific domain. Active roles appear in the chat composer.
+              Focus responses on a specific domain. Active plugins appear in the chat composer.
             </p>
           </div>
           <div>
             <div className="settings-file-types">
               {availableRoles.filter((role) => role.id !== 'general').map((role) => {
-                const checked = (form.enabled_chat_role_ids || []).includes(role.id)
+                const checked = (form.enabled_specialization_ids || []).includes(role.id)
                 return (
                   <label key={role.id} className="settings-file-type">
                     <input
                       type="checkbox"
                       checked={checked}
                       onChange={() => {
-                        const current = form.enabled_chat_role_ids || []
+                        const current = form.enabled_specialization_ids || []
                         const next = checked
                           ? current.filter((id) => id !== role.id)
                           : [...current, role.id]
+                        update('enabled_specialization_ids', next)
+                        // Legacy alias; remove after the next version migration window.
                         update('enabled_chat_role_ids', next)
                       }}
                     />

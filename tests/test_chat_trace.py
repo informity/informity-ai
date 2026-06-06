@@ -27,6 +27,30 @@ def test_summary_envelope_existing_fields_unaffected_by_plan_addition() -> None:
     assert 'plan' not in envelope
 
 
+def test_summary_envelope_includes_specialization_attribution() -> None:
+    writer = _ChatTraceWriter(chat_id='c3', message_id='m3')
+    writer.record(
+        'request',
+        {
+            'question': 'What is the risk?',
+            'specialization_id': 'legal',
+            'specialization': {
+                'id': 'legal',
+                'name': 'Legal Counsel',
+                'description': 'Reads contracts carefully.',
+                'plugin_type': 'specialization',
+                'visible_in_ui': True,
+            },
+        },
+    )
+
+    envelope = writer.get_summary_envelope()
+    assert envelope['specialization']['id'] == 'legal'
+    assert envelope['specialization']['name'] == 'Legal Counsel'
+    assert envelope['specialization']['plugin_type'] == 'specialization'
+    assert envelope['specialization']['visible_in_ui'] is True
+
+
 @pytest.mark.asyncio
 async def test_flush_warns_and_skips_evaluation_trace_when_run_id_missing_even_without_steps() -> None:
     writer = _ChatTraceWriter(chat_id='chat-eval', message_id='msg-1', chat_type='evaluation', run_id=None)

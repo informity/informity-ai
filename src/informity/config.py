@@ -276,6 +276,42 @@ def _load_config_file_values() -> dict:
                     data['ui_theme'] = _DEFAULT_UI_THEME
             else:
                 data['ui_theme'] = _DEFAULT_UI_THEME
+
+        # Migration: specialization is the canonical term; legacy alias keys remain only as aliases
+        # during the compatibility window. Rewrite old persisted keys on startup so future loads
+        # only see the specialization fields.
+        legacy_enable_roles = data.pop('enable_chat_roles', None)
+        legacy_enabled_role_ids = data.pop('enabled_chat_role_ids', None)
+        has_legacy_specialization_migration = (
+            legacy_enable_roles is not None
+            or legacy_enabled_role_ids is not None
+        )
+        if has_legacy_specialization_migration:
+            if 'enable_specializations' not in data and legacy_enable_roles is not None:
+                data['enable_specializations'] = bool(legacy_enable_roles)
+            if 'enabled_specialization_ids' not in data and legacy_enabled_role_ids is not None:
+                if isinstance(legacy_enabled_role_ids, list):
+                    data['enabled_specialization_ids'] = [
+                        str(item).strip()
+                        for item in legacy_enabled_role_ids
+                        if str(item).strip()
+                    ]
+                else:
+                    data['enabled_specialization_ids'] = []
+            try:
+                config_path.write_text(serialize_config(data), encoding='utf-8')
+                ensure_private_file(config_path)
+                log.info(
+                    'repaired_config_specialization_keys',
+                    path=str(config_path),
+                    migrated_keys=['enable_chat_roles', 'enabled_chat_role_ids'],
+                )
+            except OSError as exc:
+                log.warning(
+                    'repair_config_specialization_keys_failed',
+                    path=str(config_path),
+                    error=str(exc),
+                )
         raw_llm_filename = str(data.get('llm_model_filename', '') or '').strip()
         if raw_llm_filename:
             resolved_llm_model_id = str(data.get('llm_model_id', '') or '').strip().lower()
@@ -523,9 +559,12 @@ class Settings(BaseSettings):
     chat_summary_max_chars_per_message: int = 900
     # Default chat mode shown in the Chat UI.
     default_chat_mode: Literal['assistant', 'researcher'] = 'researcher'
-    # When true, role overlays can be selected in chat UI.
+    # When true, specialization plugins can be selected in chat UI.
+    enable_specializations: bool = False
+    # Enabled built-in specialization IDs shown in the specialization picker when enabled.
+    enabled_specialization_ids: list[str] = Field(default_factory=list)
+    # Legacy compatibility aliases; remove after the next version migration window.
     enable_chat_roles: bool = False
-    # Enabled built-in role IDs shown in the role picker when roles are enabled.
     enabled_chat_role_ids: list[str] = Field(default_factory=list)
     # Chat auto-continuation policy for long/strict outputs.
     chat_auto_continue_enabled: bool = True
@@ -793,6 +832,12 @@ def _build_settings() -> Settings:
     settings_field_names = set(Settings.model_fields)
     init_kwargs = {k: v for k, v in config_values.items() if k in settings_field_names}
 
+    # Migration: specialization is the canonical term; legacy alias fields remain as aliases.
+    if 'enabled_specialization_ids' not in init_kwargs and 'enabled_chat_role_ids' in init_kwargs:
+        init_kwargs['enabled_specialization_ids'] = init_kwargs.get('enabled_chat_role_ids', [])
+    if 'enable_specializations' not in init_kwargs and 'enable_chat_roles' in init_kwargs:
+        init_kwargs['enable_specializations'] = init_kwargs.get('enable_chat_roles', False)
+
     # Temporarily unset env vars for keys that we have in config, so that
     # pydantic uses our config values (init_kwargs) instead of env.
     # Otherwise pydantic-settings would let env override init_kwargs.
@@ -803,7 +848,11 @@ def _build_settings() -> Settings:
             saved_env[env_key] = os.environ.pop(env_key)
 
     try:
-        return Settings(**init_kwargs)
+        new_settings = Settings(**init_kwargs)
+        # Legacy aliases: keep the old alias-shaped fields mirrored in memory until callers are removed.
+        new_settings.enable_chat_roles = bool(new_settings.enable_specializations)
+        new_settings.enabled_chat_role_ids = list(new_settings.enabled_specialization_ids)
+        return new_settings
     finally:
         for env_key, value in saved_env.items():
             os.environ[env_key] = value
@@ -837,6 +886,9 @@ def reset_to_factory_defaults() -> Settings:
         'chat_trace_logging':      False,
         'enable_raw_output_control': False,
         'default_chat_mode':      'researcher',
+        'enable_specializations': False,
+        'enabled_specialization_ids': [],
+        # Legacy compatibility aliases; remove after the next version migration window.
         'enable_chat_roles':      False,
         'enabled_chat_role_ids':  [],
         'rag_minimal_mode':        True,

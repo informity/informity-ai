@@ -17,21 +17,23 @@ async def test_get_settings_normalizes_without_mutating_config_singleton(
 ) -> None:
     monkeypatch.setattr(config.settings, 'app_data_dir', tmp_path)
     monkeypatch.setattr(routes_settings, '_list_available_models', lambda: [])
-    monkeypatch.setattr(routes_settings, '_visible_role_ids', lambda: {'assistant', 'researcher'})
+    monkeypatch.setattr(routes_settings, '_visible_specialization_ids', lambda: {'legal', 'financial'})
     monkeypatch.setattr(config.settings, 'llm_model_filename', 'Qwen_Qwen3.5-9B-Q4_K_M.gguf   ')
     monkeypatch.setattr(config.settings, 'llm_model_id', '')
-    monkeypatch.setattr(config.settings, 'enabled_chat_role_ids', ['assistant', 'invalid', 'researcher'])
-    monkeypatch.setattr(config.settings, 'enable_chat_roles', False)
+    monkeypatch.setattr(config.settings, 'enabled_specialization_ids', ['legal', 'invalid', 'financial'])
+    monkeypatch.setattr(config.settings, 'enable_specializations', False)
 
     response = await routes_settings.get_settings()
 
     assert response.llm_model_filename == 'Qwen_Qwen3.5-9B-Q4_K_M.gguf'
-    assert response.enabled_chat_role_ids == ['assistant', 'researcher']
+    assert response.enabled_specialization_ids == ['legal', 'financial']
+    assert response.enable_specializations is True
+    assert response.enabled_chat_role_ids == ['legal', 'financial']
     assert response.enable_chat_roles is True
     assert config.settings.llm_model_filename == 'Qwen_Qwen3.5-9B-Q4_K_M.gguf   '
     assert config.settings.llm_model_id == ''
-    assert config.settings.enabled_chat_role_ids == ['assistant', 'invalid', 'researcher']
-    assert config.settings.enable_chat_roles is False
+    assert config.settings.enabled_specialization_ids == ['legal', 'invalid', 'financial']
+    assert config.settings.enable_specializations is False
 
 
 @pytest.mark.asyncio

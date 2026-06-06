@@ -19,7 +19,13 @@ import {
 import { showToast } from './useToast'
 import { logApiError } from '../utils/logApiError'
 import { extractErrorMessage } from '../utils/errorMessages'
-import { CHAT_FILE_SCOPE_MAP_STORAGE_KEY, FORCE_NEW_CHAT_KEY, MESSAGE_MODE_MAP_STORAGE_KEY } from '../utils/storageKeys'
+import {
+  CHAT_FILE_SCOPE_MAP_STORAGE_KEY,
+  CHAT_ROLE_ID_STORAGE_KEY,
+  CHAT_SPECIALIZATION_ID_STORAGE_KEY,
+  FORCE_NEW_CHAT_KEY,
+  MESSAGE_MODE_MAP_STORAGE_KEY,
+} from '../utils/storageKeys'
 import type {
   ChatFileScope,
   ChatMode,
@@ -41,6 +47,8 @@ interface ChatProviderProps {
 interface GetChatResponse {
   messages?: ChatMessageApi[]
   chat_mode?: ChatMode
+  specialization_id?: string | null
+  /** Legacy alias; remove after the next version migration window. */
   role_id?: string | null
   chat_web_search_enabled?: boolean
   chat_web_search_privacy_override?: boolean
@@ -528,8 +536,10 @@ export function ChatProvider({ children }: ChatProviderProps) {
       if (chatLoadSessionRef.current !== sessionId) return
       const historyMessages = data.messages || []
       const lockedChatMode = isChatMode(data.chat_mode) ? data.chat_mode : undefined
-      const lockedRoleId = typeof data.role_id === 'string' && data.role_id.trim().length > 0
-        ? data.role_id.trim()
+      const lockedRoleId = typeof data.specialization_id === 'string' && data.specialization_id.trim().length > 0
+        ? data.specialization_id.trim()
+        : typeof data.role_id === 'string' && data.role_id.trim().length > 0
+          ? data.role_id.trim()
         : null
       setCurrentChatLockedMode(lockedChatMode ?? null)
       setCurrentChatLockedRoleId(lockedRoleId)
@@ -608,8 +618,10 @@ export function ChatProvider({ children }: ChatProviderProps) {
           generationSeconds: m.generation_seconds,
           chatMode: inferredAssistantMode,
           roleId: (
-            typeof m.role_id === 'string' && m.role_id.trim().length > 0
-              ? m.role_id.trim()
+            typeof m.specialization_id === 'string' && m.specialization_id.trim().length > 0
+              ? m.specialization_id.trim()
+              : typeof m.role_id === 'string' && m.role_id.trim().length > 0
+                ? m.role_id.trim()
               : lockedRoleId
           ),
           scopedFileName: m.role === 'assistant' ? resolvedFileScope?.filename ?? null : null,
@@ -921,8 +933,10 @@ export function ChatProvider({ children }: ChatProviderProps) {
               stoppedByUser: persistedStoppedByUser,
               chatMode: persistedMode ?? msg.chatMode,
               roleId: (
-                typeof persisted.role_id === 'string' && persisted.role_id.trim().length > 0
-                  ? persisted.role_id.trim()
+                typeof persisted.specialization_id === 'string' && persisted.specialization_id.trim().length > 0
+                  ? persisted.specialization_id.trim()
+                  : typeof persisted.role_id === 'string' && persisted.role_id.trim().length > 0
+                    ? persisted.role_id.trim()
                   : msg.roleId
               ),
               generationSeconds: persisted.generation_seconds ?? msg.generationSeconds,

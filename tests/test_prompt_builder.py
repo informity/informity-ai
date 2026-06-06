@@ -256,7 +256,7 @@ class TestPromptBuilder:
         messages = build_messages('Question', [])
         assert 'Research mode instructions:' not in messages[0]['content']
 
-    def test_builder_system_prompt_matches_rag_role_composer_exactly(self) -> None:
+    def test_builder_system_prompt_matches_rag_specialization_composer_exactly(self) -> None:
         messages = build_messages('Question', [], chat_mode='researcher')
         expected_system_prefix = compose_prompt(mode_id='researcher_rag', chat_mode='researcher')
         assert messages[0]['content'] == f'{expected_system_prefix}\n\nContext:\n'
@@ -266,30 +266,30 @@ class TestPromptBuilder:
         expected_system_prefix = compose_prompt(mode_id='researcher_rag', chat_mode='assistant')
         assert messages[0]['content'] == f'{expected_system_prefix}\n\nContext:\n'
 
-    def test_builder_general_role_parity_when_role_absent(self) -> None:
-        messages_no_role = build_messages('Question', [], chat_mode='researcher', role_id=None)
+    def test_builder_general_specialization_parity_when_specialization_absent(self) -> None:
+        messages_no_specialization = build_messages('Question', [], chat_mode='researcher', role_id=None)
         messages_legacy = build_messages('Question', [], chat_mode='researcher')
-        assert messages_no_role[0]['content'] == messages_legacy[0]['content']
+        assert messages_no_specialization[0]['content'] == messages_legacy[0]['content']
 
-    def test_builder_applies_role_overlay_when_role_present(self) -> None:
+    def test_builder_applies_specialization_overlay_when_specialization_present(self) -> None:
         messages = build_messages('Question', [], chat_mode='researcher', role_id='legal')
-        assert 'Role Identity:' in messages[0]['content']
-        assert 'Role Disclaimer:' not in messages[0]['content']
+        assert 'Specialization Identity:' in messages[0]['content']
+        assert 'Specialization Disclaimer:' not in messages[0]['content']
         assert 'Role Evidence Discipline:' in messages[0]['content']
 
-    def test_builder_applies_role_specific_financial_numeric_discipline(self) -> None:
+    def test_builder_applies_specialization_specific_financial_numeric_discipline(self) -> None:
         messages = build_messages('Question', [], chat_mode='researcher', role_id='financial')
         assert 'Prioritize financial interpretation' in messages[0]['content']
         assert 'Role Output Guardrails:' not in messages[0]['content']
         assert 'Financial Output Contract:' not in messages[0]['content']
         assert 'Role Evidence Discipline:' in messages[0]['content']
 
-    def test_builder_applies_role_specific_technical_non_invention_rule(self) -> None:
+    def test_builder_applies_specialization_specific_technical_non_invention_rule(self) -> None:
         messages = build_messages('Question', [], chat_mode='researcher', role_id='technical')
         assert 'avoid invented architecture' in messages[0]['content']
         assert 'Technical Output Contract:' in messages[0]['content']
 
-    def test_builder_applies_role_specific_legal_compact_contract(self) -> None:
+    def test_builder_applies_specialization_specific_legal_compact_contract(self) -> None:
         messages = build_messages('Question', [], chat_mode='researcher', role_id='legal')
         assert 'Prioritize legal risk identification' in messages[0]['content']
         assert 'Legal Output Contract:' not in messages[0]['content']

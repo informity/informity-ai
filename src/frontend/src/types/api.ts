@@ -162,6 +162,8 @@ export interface ChatMessageApi {
   created_at?: string
   generation_seconds?: number
   chat_mode?: ChatMode
+  specialization_id?: string | null
+  /** Legacy alias; remove after the next version migration window. */
   role_id?: string | null
   retrieval_scope_kind?: string | null
   retrieval_scope_key?: string | null
@@ -219,7 +221,7 @@ export interface ChatFileScope {
   filename: string
 }
 
-export interface ChatRoleDefinition {
+export interface ChatSpecializationDefinition {
   id: string
   name: string
   description: string

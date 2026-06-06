@@ -107,7 +107,9 @@ class ChatRequest(BaseModel):
     request_id: str | None = None  # Optional client-generated request ID for deterministic stop
     run_id: str | None = None      # Optional diagnostics run correlation ID
     mode: str | None = None        # Optional chat mode: assistant | researcher (invalid -> researcher)
-    role_id: str | None = None     # Optional domain role overlay ID
+    specialization_id: str | None = None  # Optional domain specialization overlay ID
+    # Legacy alias; remove after the next version migration window.
+    role_id: str | None = None     # Optional domain specialization overlay ID (legacy field name)
     chat_web_search_enabled: bool | None = None  # Optional chat-scoped assistant web-search toggle
     chat_web_search_privacy_override: bool | None = None  # Optional chat-scoped privacy override for web search
 
@@ -162,7 +164,7 @@ class ChatPreferencesUpdateRequest(BaseModel):
         return self
 
 
-class ChatRoleDefinition(BaseModel):
+class ChatSpecializationDefinition(BaseModel):
     id: str
     name: str
     description: str
@@ -374,6 +376,9 @@ class SettingsResponse(BaseModel):
     chat_history_messages_assistant: int = 12  # Assistant mode history window
     chat_history_messages_researcher: int = 5  # Researcher mode history window
     default_chat_mode: Literal['assistant', 'researcher'] = 'researcher'
+    enable_specializations: bool = False
+    enabled_specialization_ids: list[str] = Field(default_factory=list)
+    # Legacy aliases; remove after the next version migration window.
     enable_chat_roles: bool = False
     enabled_chat_role_ids: list[str] = Field(default_factory=list)
     entity_extract_acronym: bool = True
@@ -471,6 +476,9 @@ class SettingsUpdateRequest(BaseModel):
     chat_history_messages_assistant: int | None = None  # Assistant mode history window
     chat_history_messages_researcher: int | None = None  # Researcher mode history window
     default_chat_mode: Literal['assistant', 'researcher'] | None = None
+    enable_specializations: bool | None = None
+    enabled_specialization_ids: list[str] | None = None
+    # Legacy aliases; remove after the next version migration window.
     enable_chat_roles: bool | None = None
     enabled_chat_role_ids: list[str] | None = None
     entity_extract_acronym: bool | None = None

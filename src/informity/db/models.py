@@ -7,7 +7,7 @@
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from informity.llm.types import ChatRole, CompletionMode, NextAction
 
@@ -146,12 +146,22 @@ class ChatMessage(BaseModel):
     next_action: NextAction | str | None = None
     next_action_reason: str | None = None
     chat_mode: str | None = None
+    specialization_id: str | None = None
+    # Legacy alias; remove after the next version migration window.
     role_id: str | None = None
     retrieval_scope_kind: str | None = None
     retrieval_scope_key: str | None = None
     model_filename: str | None = None
     is_internal: bool = False
     created_at:       datetime | None = None
+
+    @model_validator(mode='after')
+    def _normalize_specialization_alias(self) -> 'ChatMessage':
+        if self.specialization_id is None and self.role_id is not None:
+            self.specialization_id = self.role_id
+        elif self.role_id is None and self.specialization_id is not None:
+            self.role_id = self.specialization_id
+        return self
 
 
 class ContinuationPassArtifact(BaseModel):
