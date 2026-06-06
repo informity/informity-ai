@@ -81,7 +81,7 @@ const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; icon: string }> = [
   { id: 'models',       label: 'Models',        icon: 'ri-robot-2-line'    },
   { id: 'data',         label: 'Data Sources',  icon: 'ri-folder-line'     },
   { id: 'indexing',     label: 'Indexing',      icon: 'ri-stack-line'      },
-  { id: 'integrations', label: 'Integrations',  icon: 'ri-puzzle-line'     },
+  { id: 'integrations', label: 'Integrations',  icon: 'ri-function-add-line' },
   { id: 'diagnostics', label: 'Diagnostics',  icon: 'ri-pulse-line'     },
   { id: 'system',      label: 'System',       icon: 'ri-server-line'    },
 ]
@@ -1114,7 +1114,7 @@ export function SettingsView({
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
               <i className="ri-user-settings-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              AI Plugins
+              Specialization Plugins
             </div>
             <p className="settings-subsection-description ui-subsection-description">
               Focus responses on a specific domain. Active plugins appear in the chat composer.
@@ -1180,36 +1180,6 @@ export function SettingsView({
             onChange={(e) => update('chat_history_messages', clamp(parseInteger(e.target.value, 5), 0, 10))}
           />
         </div>
-
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-cpu-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              CPU Responsiveness
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">
-              Controls CPU threads used by chat generation. Lower values keep the system more responsive. Requires restart.
-            </p>
-          </div>
-          <div className="settings-slider-row">
-            <span className="settings-slider-min">Responsive</span>
-            <span className="settings-slider-label">
-              <span className="settings-slider-current">{CHAT_CPU_RESPONSIVENESS_LABELS[chatCpuVal] || 'Balanced'}</span>
-              {' '}({form.llm_cpu_threads ?? 4} threads)
-            </span>
-            <span className="settings-slider-max">Fastest</span>
-          </div>
-          <input
-            type="range"
-            className="settings-slider"
-            min={1}
-            max={3}
-            step={1}
-            value={chatCpuVal}
-            onChange={handleChatCpuChange}
-          />
-        </div>
-
 
         </section>
 
@@ -1671,7 +1641,7 @@ export function SettingsView({
               className={`integration-tab${integrationTab === 'mcp' ? ' integration-tab--active' : ''}`}
               onClick={() => setIntegrationTab('mcp')}
             >
-              <i className="ri-plug-3-line" aria-hidden="true" />
+              <i className="ri-server-line" aria-hidden="true" />
               <span>MCP Server</span>
             </button>
           </div>
@@ -1830,7 +1800,7 @@ export function SettingsView({
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-plug-3-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              <i className="ri-server-line subsection-icon ui-subsection-icon" aria-hidden="true" />
               MCP Server <span className="settings-subsection-suffix">(Experimental)</span>
             </div>
             <p className="settings-subsection-description ui-subsection-description">
@@ -2419,6 +2389,35 @@ export function SettingsView({
 
         {activeTab === 'system' && (
           <>
+            <div className="settings-subsection">
+              <div className="settings-subsection-head ui-subsection-head">
+                <div className="settings-subsection-title ui-subsection-title">
+                  <i className="ri-cpu-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                  CPU Responsiveness
+                </div>
+                <p className="settings-subsection-description ui-subsection-description">
+                  Controls CPU threads used by chat generation. Lower values keep the system more responsive. Requires restart.
+                </p>
+              </div>
+              <div className="settings-slider-row">
+                <span className="settings-slider-min">Responsive</span>
+                <span className="settings-slider-label">
+                  <span className="settings-slider-current">{CHAT_CPU_RESPONSIVENESS_LABELS[chatCpuVal] || 'Balanced'}</span>
+                  {' '}({form.llm_cpu_threads ?? 4} threads)
+                </span>
+                <span className="settings-slider-max">Fastest</span>
+              </div>
+              <input
+                type="range"
+                className="settings-slider"
+                min={1}
+                max={3}
+                step={1}
+                value={chatCpuVal}
+                onChange={handleChatCpuChange}
+              />
+            </div>
+
             <div className="settings-reset-card ui-card ui-card--warning">
               <div className="settings-reset-card-title ui-card__title">
                 <i className="ri-alert-line" aria-hidden="true" /> Reset Settings

@@ -21,7 +21,7 @@ interface LogEntry {
 const LOGS_TABS: Array<{ id: LogsTab; label: string; icon: string }> = [
   { id: 'application', label: 'Application', icon: 'ri-window-2-line' },
   { id: 'errors', label: 'Errors', icon: 'ri-error-warning-line' },
-  { id: 'integrations', label: 'Integrations', icon: 'ri-plug-3-line' },
+  { id: 'integrations', label: 'Integrations', icon: 'ri-function-add-line' },
 ]
 
 const TAB_HEADER: Record<LogsTab, { icon: string; title: string; description: string }> = {
@@ -36,7 +36,7 @@ const TAB_HEADER: Record<LogsTab, { icon: string; title: string; description: st
     description: 'Errors and warnings flagged for review.',
   },
   integrations: {
-    icon: 'ri-plug-3-line',
+    icon: 'ri-function-add-line',
     title: 'Integrations',
     description: 'MCP Server, Ollama, and other integration activity, connection health, and access scope limits.',
   },
@@ -72,7 +72,7 @@ function emptyState(activeTab: LogsTab): { icon: string; title: string; descript
   }
   if (activeTab === 'integrations') {
     return {
-      icon: 'ri-plug-3-line',
+      icon: 'ri-function-add-line',
       title: 'No integration events yet',
       description: 'MCP server and Ollama activity will appear here.',
     }

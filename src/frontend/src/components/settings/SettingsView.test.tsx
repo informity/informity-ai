@@ -313,9 +313,14 @@ describe('SettingsView tabs and action bar behavior', () => {
     )
   })
 
-  it('shows CPU responsiveness on the Chat tab', () => {
-    renderSettingsView({ tab: 'chat' })
+  it('shows CPU responsiveness on the System tab', () => {
+    renderSettingsView({ tab: 'system' })
     expect(screen.getByText('CPU Responsiveness')).toBeInTheDocument()
+  })
+
+  it('shows specialization plugins on the Chat tab', () => {
+    renderSettingsView({ tab: 'chat' })
+    expect(screen.getByText('Specialization Plugins')).toBeInTheDocument()
   })
 
   it('shows chat activity logs toggle on the Diagnostics tab (moved from Chat)', () => {
