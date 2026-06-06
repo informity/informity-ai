@@ -1006,7 +1006,7 @@ export function SettingsView({
                 <i className="ri-contrast-2-line subsection-icon ui-subsection-icon" aria-hidden="true" />
                 Theme
               </div>
-              <p className="settings-subsection-description ui-subsection-description">Choose the accent color. Preview instantly; save to persist.</p>
+              <p className="settings-subsection-description ui-subsection-description">Choose a theme to change the overall look and feel. Save to persist.</p>
             </div>
             <select
               className="settings-select"
