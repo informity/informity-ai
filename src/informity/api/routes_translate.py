@@ -36,10 +36,13 @@ from informity.db.sqlite import (
 )
 from informity.indexer.pipeline import remove_file
 from informity.llm.engine import llm_engine
+from informity.llm.model_adapter import get_profile
 from informity.log_events import emit_log_event
 from informity.scanner.crawler import scanned_file_for_path
-from informity.llm.model_adapter import get_profile
-from informity.translate_languages import get_translate_language_model_name, normalize_translate_language
+from informity.translate_languages import (
+    get_translate_language_model_name,
+    normalize_translate_language,
+)
 from informity.translate_policy import (
     TONE_INSTRUCTIONS,
     TONE_TEMPERATURES,
@@ -71,6 +74,8 @@ TRANSLATE_CANCEL_ERROR_TOKEN = 'cancelled_by_user'
 
 def capitalize(s: str) -> str:
     return s.capitalize() if s else s
+
+
 router = APIRouter()
 
 # One translation job at a time (local LLM is single-instance).
@@ -788,12 +793,12 @@ async def _extract_glossary(
         (file_id,),
     )
     all_rows = await all_cursor.fetchall()
-    _GLOSSARY_SAMPLE_COUNT = 10
-    if len(all_rows) <= _GLOSSARY_SAMPLE_COUNT:
+    glossary_sample_count = 10
+    if len(all_rows) <= glossary_sample_count:
         rows = all_rows
     else:
-        step = len(all_rows) / _GLOSSARY_SAMPLE_COUNT
-        rows = [all_rows[int(i * step)] for i in range(_GLOSSARY_SAMPLE_COUNT)]
+        step = len(all_rows) / glossary_sample_count
+        rows = [all_rows[int(i * step)] for i in range(glossary_sample_count)]
     combined = '\n\n'.join(str(r['content']) for r in rows)
     words = combined.split()
     cap = int(TRANSLATE_GLOSSARY_INPUT_TOKENS / 1.3)
@@ -979,10 +984,7 @@ async def _translate_section(
     # Prepend the tail of the previous section as a plain separator so the model
     # can maintain register and terminology without an instruction-like prefix
     # that could trigger reasoning mode on thinking-capable models.
-    if prev_context:
-        user_content = f'{prev_context}\n\n---\n\n{source_text}'
-    else:
-        user_content = source_text
+    user_content = f'{prev_context}\n\n---\n\n{source_text}' if prev_context else source_text
 
     messages = [
         {'role': 'system', 'content': system},

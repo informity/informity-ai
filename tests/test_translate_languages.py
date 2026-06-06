@@ -1,6 +1,5 @@
 from informity.translate_languages import (
     TRANSLATE_LANGUAGE_OPTIONS,
-    TRANSLATE_PINNED_LANGUAGE_LIMIT,
     normalize_translate_language,
     normalize_translate_language_list,
     search_translate_languages,
