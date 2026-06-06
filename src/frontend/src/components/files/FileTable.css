@@ -91,6 +91,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  text-align: center;
   width: var(--pill-width-files-logs);
   padding-left: 10px;
   padding-right: 10px;
