@@ -614,7 +614,7 @@ class XllamaCppProvider:
             params.model.path             = str(model_path)
             params.n_ctx                  = ctx_len
             params.n_gpu_layers           = -1    # Offload all layers to Metal GPU
-            params.n_batch                = 512   # Reduce peak CPU during prompt prefill
+            params.n_batch                = 256   # Reduce peak CPU during prompt prefill (lowered from 512 to reduce fan noise; raise if TTFT regresses)
             params.cpuparams.n_threads    = settings.llm_cpu_threads  # Cap CPU threads
             params.cpuparams_batch.n_threads = settings.llm_cpu_threads
 
