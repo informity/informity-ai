@@ -315,7 +315,7 @@ describe('SettingsView tabs and action bar behavior', () => {
 
   it('shows CPU responsiveness on the System tab', () => {
     renderSettingsView({ tab: 'system' })
-    expect(screen.getByText('CPU Responsiveness')).toBeInTheDocument()
+    expect(screen.getByText('CPU Performance')).toBeInTheDocument()
   })
 
   it('shows specialization plugins on the Chat tab', () => {

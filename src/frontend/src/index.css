@@ -259,7 +259,7 @@ input[type='checkbox']::before {
   height: 0.56rem;
   border: solid var(--color-on-primary);
   border-width: 0 2px 2px 0;
-  transform: rotate(45deg) scale(0);
+  transform: translateY(-0.07rem) rotate(45deg) scale(0);
   transition: transform var(--transition-fast);
 }
 
@@ -269,7 +269,7 @@ input[type='checkbox']:checked {
 }
 
 input[type='checkbox']:checked::before {
-  transform: rotate(45deg) scale(1);
+  transform: translateY(-0.07rem) rotate(45deg) scale(1);
 }
 
 input[type='checkbox']:disabled {

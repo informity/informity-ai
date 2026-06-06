@@ -397,7 +397,7 @@
 
 .settings-checkbox-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: var(--space-sm);
   margin-bottom: 0.625rem;
   cursor: pointer;
@@ -417,7 +417,6 @@
 
 .settings-checkbox-row input {
   margin: 0;
-  margin-top: 0.125rem;
   flex-shrink: 0;
   cursor: pointer;
   accent-color: var(--color-checkbox-accent, var(--color-accent));

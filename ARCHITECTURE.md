@@ -593,10 +593,10 @@ class HealthResponse(BaseModel):
 - **Imported by:** llm.query_classifier, llm.rag_patterns, api.context_scope_manager
 
 ### `llm/roles.py`
-- Defines chat role profiles and role registry helpers used for role-scoped behavior and settings exposure.
-- Provides visibility filtering and stable role lookup by ID.
+- Defines specialization profiles and specialization registry helpers used for specialization-scoped behavior and settings exposure.
+- Provides visibility filtering and stable specialization lookup by ID.
 - **Imports:** dataclasses/typing utilities
-- **Imported by:** API routes and chat/runtime role-selection paths
+- **Imported by:** API routes and chat/runtime specialization-selection paths
 
 ### `llm/retrieval.py`
 - Unified retrieval pipeline (v2): embed query → vector search with WHERE clauses (year, category, extension filters, upload-source exclusion for unscoped corpus turns) → rerank (when enabled by settings) → top-k. For coverage queries, uses file-anchored retrieval (one chunk per file, exhaustive). Supports summary-oriented substantive-section preference to de-prioritize structural sections (appendix/contents/etc.) when synthesis intent is detected.
