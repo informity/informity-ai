@@ -87,6 +87,12 @@ jobs:
           printf '%s\n' "$HOMEBREW_TAP_SSH_KEY" > ~/.ssh/id_ed25519_informity
           chmod 600 ~/.ssh/id_ed25519_informity
           cat >> ~/.ssh/config <<'CFG'
+          Host github.com
+            HostName github.com
+            User git
+            IdentityFile ~/.ssh/id_ed25519_informity
+            IdentitiesOnly yes
+
           Host github.com-inf
             HostName github.com
             User git
