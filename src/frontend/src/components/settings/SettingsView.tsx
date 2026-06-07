@@ -1113,6 +1113,32 @@ export function SettingsView({
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
+              <i className="ri-message-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+              Conversation Memory
+            </div>
+            <p className="settings-subsection-description ui-subsection-description">How many recent messages are kept for context in new replies. Higher values improve continuity but may slow responses.</p>
+          </div>
+          <div className="settings-slider-row">
+            <span className="settings-slider-min">0</span>
+            <span className="settings-slider-label">
+              Messages: <span className="settings-slider-current">{form.chat_history_messages ?? 5}</span>
+            </span>
+            <span className="settings-slider-max">10</span>
+          </div>
+          <input
+            type="range"
+            className="settings-slider"
+            min={0}
+            max={10}
+            step={1}
+            value={form.chat_history_messages ?? 5}
+            onChange={(e) => update('chat_history_messages', clamp(parseInteger(e.target.value, 5), 0, 10))}
+          />
+        </div>
+
+        <div className="settings-subsection">
+          <div className="settings-subsection-head ui-subsection-head">
+            <div className="settings-subsection-title ui-subsection-title">
               <i className="ri-user-settings-line subsection-icon ui-subsection-icon" aria-hidden="true" />
               Specialization Plugins
             </div>
@@ -1153,32 +1179,6 @@ export function SettingsView({
               })}
             </div>
           </div>
-        </div>
-
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-message-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Conversation Memory
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">How many recent messages are kept for context in new replies. Higher values improve continuity but may slow responses.</p>
-          </div>
-          <div className="settings-slider-row">
-            <span className="settings-slider-min">0</span>
-            <span className="settings-slider-label">
-              Messages: <span className="settings-slider-current">{form.chat_history_messages ?? 5}</span>
-            </span>
-            <span className="settings-slider-max">10</span>
-          </div>
-          <input
-            type="range"
-            className="settings-slider"
-            min={0}
-            max={10}
-            step={1}
-            value={form.chat_history_messages ?? 5}
-            onChange={(e) => update('chat_history_messages', clamp(parseInteger(e.target.value, 5), 0, 10))}
-          />
         </div>
 
         </section>

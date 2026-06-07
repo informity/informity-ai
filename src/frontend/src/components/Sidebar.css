@@ -131,6 +131,19 @@ html[data-accent='canvas'] .sidebar__logo-shell {
   color: var(--color-text);
 }
 
+html[data-accent='canvas'] .sidebar__toggle,
+html[data-accent='sage'] .sidebar__toggle,
+html[data-accent='ember'] .sidebar__toggle {
+  color: var(--color-text-muted);
+  opacity: 0.78;
+}
+
+html[data-accent='canvas'] .sidebar__toggle:hover,
+html[data-accent='sage'] .sidebar__toggle:hover,
+html[data-accent='ember'] .sidebar__toggle:hover {
+  opacity: 0.92;
+}
+
 .sidebar__nav {
   list-style: none;
   margin: 0;

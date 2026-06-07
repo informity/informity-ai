@@ -134,7 +134,7 @@
   margin-bottom: 0;
 }
 
-/* First subsection sits right under the page header — no extra top gap needed */
+/* The page header already provides the top separator breathing room. */
 .settings-section > .settings-subsection:first-child {
   margin-top: 0;
 }
