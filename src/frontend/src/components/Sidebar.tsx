@@ -17,15 +17,15 @@ const NAV_ITEMS = [
 ]
 
 const SETTINGS_SUBNAV = [
-  { tab: 'general',     label: 'General',      icon: 'ri-home-gear-line'    },
-  { tab: 'chat',        label: 'Chat',         icon: 'ri-chat-ai-4-line'    },
-  { tab: 'translate',   label: 'Translate',    icon: 'ri-translate-2'       },
-  { tab: 'models',      label: 'Models',       icon: 'ri-robot-2-line'      },
-  { tab: 'data',        label: 'Data Sources', icon: 'ri-folder-line'       },
-  { tab: 'indexing',      label: 'Indexing',      icon: 'ri-stack-line'   },
-  { tab: 'integrations',  label: 'Integrations',  icon: 'ri-function-add-line'  },
-  { tab: 'diagnostics', label: 'Diagnostics',  icon: 'ri-pulse-line'        },
-  { tab: 'system',      label: 'System',       icon: 'ri-server-line'       },
+  { section: 'general',     label: 'General',      icon: 'ri-home-gear-line'    },
+  { section: 'data',        label: 'Data Sources', icon: 'ri-folder-line'       },
+  { section: 'indexing',    label: 'Indexing',     icon: 'ri-stack-line'        },
+  { section: 'chat',        label: 'Chat',         icon: 'ri-chat-ai-4-line'    },
+  { section: 'translate',   label: 'Translate',    icon: 'ri-translate-2'       },
+  { section: 'models',      label: 'Models',       icon: 'ri-robot-2-line'      },
+  { section: 'integrations',label: 'Integrations', icon: 'ri-function-add-line' },
+  { section: 'diagnostics', label: 'Diagnostics',  icon: 'ri-pulse-line'        },
+  { section: 'system',      label: 'System',       icon: 'ri-server-line'       },
 ]
 
 interface SidebarProps {
@@ -36,8 +36,8 @@ interface SidebarProps {
 export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   const navigate = useNavigate()
   const { pathname, search } = useLocation()
-  const activeSettingsTab = pathname === '/settings'
-    ? (new URLSearchParams(search).get('tab') ?? 'general')
+  const activeSettingsSection = pathname === '/settings'
+    ? (new URLSearchParams(search).get('section') ?? 'general')
     : null
   const { isStreaming } = useChatContext()
   const translateCtx = useOptionalTranslateContext()
@@ -148,12 +148,12 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
               </button>
               {isSettings && !collapsed && pathname === '/settings' && (
                 <div className="sidebar__subnav">
-                  {SETTINGS_SUBNAV.map(({ tab, label: subLabel, icon: subIcon }) => (
+                  {SETTINGS_SUBNAV.map(({ section, label: subLabel, icon: subIcon }) => (
                     <button
-                      key={tab}
+                      key={section}
                       type="button"
-                      className={`sidebar__subnav-item${activeSettingsTab === tab ? ' sidebar__subnav-item--active' : ''}`}
-                      onClick={() => navigate(`/settings?tab=${tab}`)}
+                      className={`sidebar__subnav-item${activeSettingsSection === section ? ' sidebar__subnav-item--active' : ''}`}
+                      onClick={() => navigate(`/settings?section=${section}`)}
                     >
                       <i className={`${subIcon} sidebar__subnav-icon`} aria-hidden />
                       <span>{subLabel}</span>

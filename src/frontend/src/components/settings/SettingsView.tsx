@@ -31,7 +31,7 @@ import {
   type OllamaStatusResponse,
 } from '../../api'
 import { isChatMode, type ChatMode, type ChatSpecializationDefinition as ChatRoleDefinition } from '../../types/api'
-import { SETTINGS_ACTIVE_TAB_STORAGE_KEY } from '../../utils/storageKeys'
+import { SETTINGS_ACTIVE_SECTION_STORAGE_KEY } from '../../utils/storageKeys'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_OPTIONS, UI_THEME_STORAGE_KEY } from '../../utils/uiTheme'
 import { formatModelSizeGb } from '../../utils/formatModelSizeGb'
 import { getFriendlyModelDownloadError } from '../../utils/modelDownloadErrors'
@@ -63,7 +63,7 @@ const LLM_PROVIDER_OPTIONS = [
   { value: 'ollama', label: 'Ollama' },
 ]
 
-type SettingsTab =
+type SettingsSection =
   | 'general'
   | 'chat'
   | 'translate'
@@ -74,18 +74,18 @@ type SettingsTab =
   | 'models'
   | 'system'
 
-const SETTINGS_TABS: Array<{ id: SettingsTab; label: string; icon: string }> = [
+const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; icon: string }> = [
   { id: 'general',      label: 'General',       icon: 'ri-home-gear-line'  },
+  { id: 'data',         label: 'Data Sources',  icon: 'ri-folder-line'     },
+  { id: 'indexing',     label: 'Indexing',      icon: 'ri-stack-line'      },
   { id: 'chat',         label: 'Chat',          icon: 'ri-chat-ai-4-line'  },
   { id: 'translate',    label: 'Translate',     icon: 'ri-translate-2'     },
   { id: 'models',       label: 'Models',        icon: 'ri-robot-2-line'    },
-  { id: 'data',         label: 'Data Sources',  icon: 'ri-folder-line'     },
-  { id: 'indexing',     label: 'Indexing',      icon: 'ri-stack-line'      },
   { id: 'integrations', label: 'Integrations',  icon: 'ri-function-add-line' },
-  { id: 'diagnostics', label: 'Diagnostics',  icon: 'ri-pulse-line'     },
-  { id: 'system',      label: 'System',       icon: 'ri-server-line'    },
+  { id: 'diagnostics',  label: 'Diagnostics',   icon: 'ri-pulse-line'      },
+  { id: 'system',       label: 'System',        icon: 'ri-server-line'    },
 ]
-const SETTINGS_TAB_IDS = new Set<SettingsTab>(SETTINGS_TABS.map((tab) => tab.id))
+const SETTINGS_SECTION_IDS = new Set<SettingsSection>(SETTINGS_SECTIONS.map((section) => section.id))
 
 const INDEXING_SPEED_LABELS = ['', 'Responsive', 'Gentle', 'Balanced', 'Fast', 'Fastest']
 const INDEXING_SPEED_TO_THREADS = [2, 4, 6, 8, 0]
@@ -447,14 +447,14 @@ function ProfileRow({ label, value }: { label: string; value: string | number | 
   )
 }
 
-function getInitialActiveTab(): SettingsTab {
+function getInitialActiveSection(): SettingsSection {
   try {
-    const saved = localStorage.getItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY)
-    if (saved && SETTINGS_TAB_IDS.has(saved as SettingsTab)) {
-      return saved as SettingsTab
+    const saved = localStorage.getItem(SETTINGS_ACTIVE_SECTION_STORAGE_KEY)
+    if (saved && SETTINGS_SECTION_IDS.has(saved as SettingsSection)) {
+      return saved as SettingsSection
     }
   } catch {
-    // Ignore localStorage errors and use default tab.
+    // Ignore localStorage errors and use default section.
   }
   return 'general'
 }
@@ -492,10 +492,10 @@ export function SettingsView({
 }: SettingsViewProps) {
   const [searchParams, setSearchParams] = useSearchParams()
   const [form, setForm] = useState<FormState>(() => buildFormState(settings || {}))
-  const [activeTab, setActiveTab] = useState<SettingsTab>(() => {
-    const fromUrl = searchParams.get('tab')
-    if (fromUrl && SETTINGS_TAB_IDS.has(fromUrl as SettingsTab)) return fromUrl as SettingsTab
-    return getInitialActiveTab()
+  const [activeSection, setActiveSection] = useState<SettingsSection>(() => {
+    const fromUrl = searchParams.get('section')
+    if (fromUrl && SETTINGS_SECTION_IDS.has(fromUrl as SettingsSection)) return fromUrl as SettingsSection
+    return getInitialActiveSection()
   })
   const [previewProfile, setPreviewProfile] = useState<ModelProfile | null>(null)
   const [modelProfileNames, setModelProfileNames] = useState<Map<string, string>>(new Map())
@@ -558,18 +558,18 @@ export function SettingsView({
     )
   }, [form.mcp_http_host, form.mcp_http_port])
 
-  // Sync tab state → URL param + localStorage
+  // Sync section state → URL param + localStorage
   useEffect(() => {
-    setSearchParams({ tab: activeTab }, { replace: true })
-    try { localStorage.setItem(SETTINGS_ACTIVE_TAB_STORAGE_KEY, activeTab) } catch { /* ignore */ }
+    setSearchParams({ section: activeSection }, { replace: true })
+    try { localStorage.setItem(SETTINGS_ACTIVE_SECTION_STORAGE_KEY, activeSection) } catch { /* ignore */ }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab])
+  }, [activeSection])
 
-  // Sync URL param → tab state (handles sidebar sub-item clicks while on Settings)
+  // Sync URL param → section state (handles sidebar sub-item clicks while on Settings)
   useEffect(() => {
-    const fromUrl = searchParams.get('tab')
-    if (fromUrl && SETTINGS_TAB_IDS.has(fromUrl as SettingsTab) && fromUrl !== activeTab) {
-      setActiveTab(fromUrl as SettingsTab)
+    const fromUrl = searchParams.get('section')
+    if (fromUrl && SETTINGS_SECTION_IDS.has(fromUrl as SettingsSection) && fromUrl !== activeSection) {
+      setActiveSection(fromUrl as SettingsSection)
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams])
@@ -997,7 +997,7 @@ export function SettingsView({
   return (
     <div className="settings-view">
       <div className="settings-content">
-        <section className={sectionClass(activeTab === 'general')}>
+        <section className={sectionClass(activeSection === 'general')}>
           <div className="settings-subsection">
             <div className="settings-subsection-head ui-subsection-head">
               <div className="settings-subsection-title ui-subsection-title">
@@ -1086,7 +1086,7 @@ export function SettingsView({
           </div>
         </section>
 
-        <section className={sectionClass(activeTab === 'chat')}>
+        <section className={sectionClass(activeSection === 'chat')}>
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
@@ -1183,7 +1183,7 @@ export function SettingsView({
 
         </section>
 
-        <section className={sectionClass(activeTab === 'translate')}>
+        <section className={sectionClass(activeSection === 'translate')}>
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
@@ -1316,7 +1316,7 @@ export function SettingsView({
         </div>
         </section>
 
-        <section className={sectionClass(activeTab === 'data')}>
+        <section className={sectionClass(activeSection === 'data')}>
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
@@ -1485,7 +1485,7 @@ export function SettingsView({
         </div>
         </section>
 
-        <section className={sectionClass(activeTab === 'indexing')}>
+        <section className={sectionClass(activeSection === 'indexing')}>
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
@@ -1621,7 +1621,7 @@ export function SettingsView({
 
         </section>
 
-        <section className={sectionClass(activeTab === 'integrations')}>
+        <section className={sectionClass(activeSection === 'integrations')}>
           {/* Sub-tabs: Web Search (outbound) | MCP Server (inbound) */}
           <div className="integration-tabs" role="tablist" aria-label="Integrations">
             <button
@@ -2013,7 +2013,7 @@ export function SettingsView({
 
         </section>
 
-        <section className={sectionClass(activeTab === 'models')}>
+        <section className={sectionClass(activeSection === 'models')}>
         {profile && (
           <>
             <div className="settings-subsection settings-subsection--profile">
@@ -2210,7 +2210,7 @@ export function SettingsView({
         )}
         </section>
 
-        <section className={sectionClass(activeTab === 'diagnostics')}>
+        <section className={sectionClass(activeSection === 'diagnostics')}>
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
@@ -2356,7 +2356,7 @@ export function SettingsView({
         )}
         </section>
 
-        <section className={sectionClass(activeTab === 'system')}>
+        <section className={sectionClass(activeSection === 'system')}>
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
@@ -2416,7 +2416,7 @@ export function SettingsView({
         </div>
         </section>
 
-        {activeTab === 'system' && (
+        {activeSection === 'system' && (
           <>
             <div className="settings-reset-card ui-card ui-card--warning">
               <div className="settings-reset-card-title ui-card__title">

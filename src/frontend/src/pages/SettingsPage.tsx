@@ -210,16 +210,16 @@ interface SettingsData extends FormState {
 const RESET_POLL_INTERVAL_MS = 500
 const RESET_POLL_TIMEOUT_MS = 300000
 
-const SETTINGS_TAB_META: Record<string, { title: string; icon: string; subtitle: string }> = {
-  general:     { title: 'General',            icon: 'ri-home-gear-line', subtitle: 'Core application preferences including privacy and appearance' },
-  chat:        { title: 'Chat',               icon: 'ri-chat-ai-4-line', subtitle: 'Conversation context and default chat settings' },
-  translate:   { title: 'Translate',          icon: 'ri-translate-2',    subtitle: 'Configure default settings for document translation' },
-  models:      { title: 'Models',             icon: 'ri-robot-2-line',   subtitle: 'Select the AI model to use and view its capabilities' },
-  data:        { title: 'Data Sources',       icon: 'ri-folder-line',    subtitle: 'Choose which folders and file types the application scans and makes searchable' },
-  indexing:      { title: 'Indexing',      icon: 'ri-stack-line',  subtitle: 'Controls how the application reads and prepares your files for search and chat' },
-  integrations:  { title: 'Integrations',  icon: 'ri-function-add-line', subtitle: 'Connect external search providers and allow third-party AI clients to access your library' },
-  diagnostics: { title: 'Diagnostics',         icon: 'ri-pulse-line',  subtitle: 'Monitor application events and adjust diagnostics settings when troubleshooting' },
-  system:      { title: 'System',             icon: 'ri-server-line',    subtitle: 'General application utilities and configuration references' },
+const SETTINGS_SECTION_META: Record<string, { title: string; icon: string; subtitle: string }> = {
+  general:      { title: 'General',            icon: 'ri-home-gear-line', subtitle: 'Core application preferences including privacy and appearance' },
+  data:         { title: 'Data Sources',       icon: 'ri-folder-line',    subtitle: 'Choose which folders and file types the application scans and makes searchable' },
+  indexing:     { title: 'Indexing',            icon: 'ri-stack-line',     subtitle: 'Controls how the application reads and prepares your files for search and chat' },
+  chat:         { title: 'Chat',               icon: 'ri-chat-ai-4-line',  subtitle: 'Conversation context and default chat settings' },
+  translate:    { title: 'Translate',          icon: 'ri-translate-2',     subtitle: 'Configure default settings for document translation' },
+  models:       { title: 'Models',             icon: 'ri-robot-2-line',    subtitle: 'Select the AI model to use and view its capabilities' },
+  integrations: { title: 'Integrations',       icon: 'ri-function-add-line', subtitle: 'Connect external search providers and allow third-party AI clients to access your library' },
+  diagnostics:  { title: 'Diagnostics',        icon: 'ri-pulse-line',      subtitle: 'Monitor application events and adjust diagnostics settings when troubleshooting' },
+  system:       { title: 'System',             icon: 'ri-server-line',     subtitle: 'General application utilities and configuration references' },
 }
 
 function sleep(ms: number): Promise<void> {
@@ -232,8 +232,8 @@ export function SettingsPage() {
   const confirm = useConfirm()
   const { offline } = useBackendStatus()
   const [searchParams] = useSearchParams()
-  const activeTab = searchParams.get('tab') ?? 'general'
-  const tabMeta = SETTINGS_TAB_META[activeTab] ?? SETTINGS_TAB_META.general
+  const activeSection = searchParams.get('section') ?? 'general'
+  const sectionMeta = SETTINGS_SECTION_META[activeSection] ?? SETTINGS_SECTION_META.general
   const [settings, setSettings] = useState<SettingsData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -524,7 +524,7 @@ export function SettingsPage() {
   if (loading) {
     return (
       <div className="page" onWheel={handlePageWheel}>
-        <PageHeader title={tabMeta.title} subtitle={tabMeta.subtitle} icon={tabMeta.icon} />
+        <PageHeader title={sectionMeta.title} subtitle={sectionMeta.subtitle} icon={sectionMeta.icon} />
         <div className="page__scroll" ref={pageScrollRef}>
           <p>Loading settings...</p>
         </div>
@@ -535,7 +535,7 @@ export function SettingsPage() {
   if (offline || error) {
     return (
       <div className="page" onWheel={handlePageWheel}>
-        <PageHeader title={tabMeta.title} subtitle={tabMeta.subtitle} icon={tabMeta.icon} />
+        <PageHeader title={sectionMeta.title} subtitle={sectionMeta.subtitle} icon={sectionMeta.icon} />
         <div className="page__scroll" ref={pageScrollRef}>
           {offline ? <ServiceUnavailableState /> : <p className="page__error">{error}</p>}
         </div>
@@ -545,7 +545,7 @@ export function SettingsPage() {
 
   return (
     <div className="page" onWheel={handlePageWheel}>
-      <PageHeader title={tabMeta.title} subtitle={tabMeta.subtitle} icon={tabMeta.icon} />
+      <PageHeader title={sectionMeta.title} subtitle={sectionMeta.subtitle} icon={sectionMeta.icon} />
       <div className="page__scroll" ref={pageScrollRef}>
         <SettingsView
           settings={settings}
