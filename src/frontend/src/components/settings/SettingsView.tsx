@@ -1560,7 +1560,8 @@ export function SettingsView({
                   Status
                 </div>
                 <p className="settings-subsection-description ui-subsection-description">
-                  Manual scan action and current status.
+                  Manual scan action and current status. Requires at least one configured{' '}
+                  <Link to="/settings?section=data" className="settings-link">data source</Link>.
                 </p>
               </div>
 

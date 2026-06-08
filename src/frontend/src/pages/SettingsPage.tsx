@@ -3,8 +3,8 @@
  * Loads settings, wires Save/Discard/Reset, handles confirmations.
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { WheelEvent } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import type { ReactNode, WheelEvent } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
   cancelScan,
   getSettings,
@@ -214,16 +214,34 @@ interface SettingsData extends FormState {
 const RESET_POLL_INTERVAL_MS = 500
 const RESET_POLL_TIMEOUT_MS = 300000
 
-const SETTINGS_SECTION_META: Record<string, { title: string; icon: string; subtitle: string }> = {
-  general:      { title: 'General',            icon: 'ri-home-gear-line', subtitle: 'Core application preferences including privacy and appearance' },
-  data:         { title: 'Data Sources',       icon: 'ri-folder-line',    subtitle: 'Choose which folders and file types the application scans and makes searchable' },
-  indexing:     { title: 'Indexing',            icon: 'ri-stack-line',     subtitle: 'Manages how your files are scanned and made available for search, chat, and translation.' },
+const SETTINGS_SECTION_META: Record<string, { title: string; icon: string; subtitle: ReactNode }> = {
+  general:      { title: 'General',            icon: 'ri-home-gear-line', subtitle: 'Core application preferences for privacy and appearance.' },
+  data:         {
+    title: 'Data Sources',
+    icon: 'ri-folder-line',
+    subtitle: (
+      <>
+        Manage your content sources for chat, translate and search. Each new source requires at least one{' '}
+        <Link to="/settings?section=indexing" className="settings-link">manual scan</Link>.
+      </>
+    ),
+  },
+  indexing:     {
+    title: 'Indexing',
+    icon: 'ri-stack-line',
+    subtitle: (
+      <>
+        Manage how Informity AI scans, updates, and rebuilds indexed{' '}
+        <Link to="/settings?section=data" className="settings-link">content</Link>.
+      </>
+    ),
+  },
   chat:         { title: 'Chat',               icon: 'ri-chat-ai-4-line',  subtitle: 'Conversation context and default chat settings' },
   translate:    { title: 'Translate',          icon: 'ri-translate-2',     subtitle: 'Configure default settings for document translation' },
   models:       { title: 'Models',             icon: 'ri-robot-2-line',    subtitle: 'Select the AI model to use and view its capabilities' },
   integrations: { title: 'Integrations',       icon: 'ri-function-add-line', subtitle: 'Connect external search providers and allow third-party AI clients to access your library' },
-  diagnostics:  { title: 'Diagnostics',        icon: 'ri-pulse-line',      subtitle: 'Monitor application events and adjust diagnostics settings when troubleshooting' },
-  system:       { title: 'System',             icon: 'ri-server-line',     subtitle: 'General application utilities and configuration references' },
+  diagnostics:  { title: 'Diagnostics',        icon: 'ri-pulse-line',      subtitle: 'Monitor application events and adjust diagnostics when troubleshooting.' },
+  system:       { title: 'System',             icon: 'ri-server-line',     subtitle: 'Application utilities and configuration references.' },
 }
 
 function sleep(ms: number): Promise<void> {
