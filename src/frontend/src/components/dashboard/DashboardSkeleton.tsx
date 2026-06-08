@@ -15,15 +15,6 @@ export function DashboardSkeleton() {
       />
 
       <div className="page__scroll">
-        {/* Hero Card Skeleton */}
-        <div className="dashboard-skeleton__hero">
-          <Skeleton width={100} height={16} />
-          <Skeleton width={120} height={48} style={{ marginTop: '1rem', marginBottom: '0.5rem' }} />
-          <Skeleton width={200} height={20} />
-          <Skeleton width={180} height={14} style={{ marginTop: '0.5rem', marginBottom: '1.5rem' }} />
-          <Skeleton width={168} height={32} />
-        </div>
-
         {/* Content Metrics */}
         <div className="dashboard-skeleton__section">
           <Skeleton width={140} height={24} style={{ marginBottom: '1rem' }} />
