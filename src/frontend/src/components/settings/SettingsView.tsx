@@ -16,6 +16,8 @@ import {
   searchTranslateLanguages,
 } from '../../utils/translateOptions'
 import { sortFileTypeOptions } from '../../utils/fileTypeOrdering'
+import { formatDuration } from '../../utils/formatDuration'
+import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import {
   cancelModelDownload,
   downloadModel,
@@ -30,13 +32,20 @@ import {
   type ModelsCatalogResponse,
   type OllamaStatusResponse,
 } from '../../api'
-import { isChatMode, type ChatMode, type ChatSpecializationDefinition as ChatRoleDefinition } from '../../types/api'
+import {
+  isChatMode,
+  type ChatMode,
+  type ChatSpecializationDefinition as ChatRoleDefinition,
+  type IndexStatus,
+  type ScanStatus,
+} from '../../types/api'
 import { SETTINGS_ACTIVE_SECTION_STORAGE_KEY } from '../../utils/storageKeys'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_OPTIONS, UI_THEME_STORAGE_KEY } from '../../utils/uiTheme'
 import { formatModelSizeGb } from '../../utils/formatModelSizeGb'
 import { getFriendlyModelDownloadError } from '../../utils/modelDownloadErrors'
 import { isDesktopRuntime, nativePickDirectoryDialog } from '../../tauriRuntime'
 import '../../styles/shared/buttons.css'
+import '../dashboard/DashboardView.css'
 import './SettingsView.css'
 const DIAGNOSTICS_PROFILE_OPTIONS = [
   { value: 'standard', label: 'Standard' },
@@ -345,6 +354,8 @@ interface FormState {
 interface SettingsViewProps {
   settings: SettingsData | null
   fileTypeOptions?: FileTypeOption[]
+  indexStatus?: IndexStatus | null
+  scanStatus?: ScanStatus | null
   onSave: (form: FormState) => void | Promise<void>
   onRequestEnableMcpConfirm?: () => Promise<boolean>
   onRequestClearMcpTokenConfirm?: () => Promise<boolean>
@@ -352,6 +363,10 @@ interface SettingsViewProps {
   onDiscard?: () => void
   onResetSettings: () => void
   onResetIndex: () => void
+  onIndexNow?: () => void | Promise<void>
+  onRescanAll?: () => void | Promise<void>
+  onCancelIndex?: () => void | Promise<void>
+  onRebuildIndex?: () => void | Promise<void>
   onCheckForUpdates?: () => void
   saving: boolean
 }
@@ -480,6 +495,8 @@ function getFriendlyOllamaStatusMessage(
 export function SettingsView({
   settings,
   fileTypeOptions,
+  indexStatus,
+  scanStatus,
   onSave,
   onRequestEnableMcpConfirm,
   onRequestClearMcpTokenConfirm,
@@ -487,6 +504,10 @@ export function SettingsView({
   onDiscard,
   onResetSettings,
   onResetIndex,
+  onIndexNow,
+  onRescanAll,
+  onCancelIndex,
+  onRebuildIndex,
   onCheckForUpdates,
   saving,
 }: SettingsViewProps) {
@@ -519,10 +540,12 @@ export function SettingsView({
   const [mcpTokenGeneratePending, setMcpTokenGeneratePending] = useState(false)
   const [mcpGeneratedToken, setMcpGeneratedToken] = useState('')
   const [integrationTab, setIntegrationTab] = useState<'web-search' | 'mcp'>('web-search')
+  const [indexingTab, setIndexingTab] = useState<'overview' | 'settings'>('overview')
   const [mcpTokenError, setMcpTokenError] = useState<string | null>(null)
   const [mcpTokenVisible, setMcpTokenVisible] = useState(false)
   const modelEventStateRef = useRef<ModelOperationEventResponse['state'] | null>(null)
   const persistedModel = canonicalizeModelFilename(settings?.llm_model_filename ?? '')
+  const watchedDirCount = settings?.watched_directories?.length ?? 0
 
   useEffect(() => {
     let cancelled = false
@@ -713,6 +736,26 @@ export function SettingsView({
 
   const updateDiagnosticsControl = <K extends keyof FormState>(key: K, value: FormState[K]) =>
     setForm((prev) => ({ ...prev, [key]: value, diagnostics_profile: 'custom' }))
+
+  const isIndexRunning = scanStatus?.status === 'running'
+  const indexFileCount = indexStatus?.total_files?.toLocaleString() ?? '0'
+  const indexStatusLabel = isIndexRunning
+    ? 'Indexing in progress'
+    : indexStatus?.reset_in_progress
+      ? 'Rebuilding index'
+      : scanStatus?.status === 'completed'
+        ? 'Index up to date'
+        : scanStatus?.status === 'failed'
+          ? 'Indexing failed'
+          : 'Ready'
+  const indexActionLabel = isIndexRunning
+    ? 'Scanning…'
+    : 'Scan Now'
+  const indexProgressText = isIndexRunning && scanStatus
+    ? `${scanStatus.files_scanned ?? 0} files scanned · ${scanStatus.files_indexed ?? 0} indexed${(scanStatus.errors ?? 0) > 0 ? ` · ${scanStatus.errors} errors` : ''}${(scanStatus.timeout_errors ?? 0) > 0 ? ` · ${scanStatus.timeout_errors} timeouts` : ''} · ${formatDuration(scanStatus.elapsed_seconds)}`
+    : indexStatus?.last_scan_at
+      ? `Last scan ${formatRelativeTime(indexStatus.last_scan_at)}`
+      : 'No scans have been run yet'
 
   const addDir = () => {
     const path = dirInput.trim()
@@ -1486,138 +1529,256 @@ export function SettingsView({
         </section>
 
         <section className={sectionClass(activeSection === 'indexing')}>
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-arrow-right-down-box-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Document Extraction
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">Options for extracting text from documents, including image-based documents and image-only PDFs.</p>
+          <div className="integration-tabs settings-indexing-tabs" role="tablist" aria-label="Indexing">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={indexingTab === 'overview'}
+              className={`integration-tab${indexingTab === 'overview' ? ' integration-tab--active' : ''}`}
+              onClick={() => setIndexingTab('overview')}
+            >
+              <i className="ri-layout-4-line" aria-hidden="true" />
+              <span>Overview</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={indexingTab === 'settings'}
+              className={`integration-tab${indexingTab === 'settings' ? ' integration-tab--active' : ''}`}
+              onClick={() => setIndexingTab('settings')}
+            >
+              <i className="ri-equalizer-line" aria-hidden="true" />
+              <span>Configuration</span>
+            </button>
           </div>
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.enable_ocr_for_images ?? true}
-              onChange={(e) => update('enable_ocr_for_images', e.target.checked)}
-            />
-            <div><span className="settings-checkbox-row-label">Enable OCR for scanned documents</span></div>
-          </label>
-          <div className="settings-subsection-field">
-            <label htmlFor="max-indexable-file-size" className="settings-subsection-field-label">
-              Max Indexable File Size <span className="settings-subsection-field-unit">(MB)</span>
-              <span className="settings-checkbox-row-info ui-tooltip-trigger">
-                <i className="ri-information-line" aria-hidden="true" />
-                <span className="settings-tooltip ui-tooltip">Files exceeding this limit are skipped during indexing and data extraction. Maximum allowed: 500 MB.</span>
-              </span>
-            </label>
-            <input
-              id="max-indexable-file-size"
-              type="number"
-              className="settings-input settings-input--number"
-              min={1}
-              max={500}
-              step={10}
-              value={form.max_indexable_file_size_mb ?? 100}
-              onChange={(e) => update('max_indexable_file_size_mb', clamp(parseInteger(e.target.value, 100), 1, 500))}
-            />
-          </div>
-        </div>
 
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-fingerprint-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Entity Extraction
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">
-              Control which entity types are identified and indexed alongside your documents.
-            </p>
-          </div>
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.entity_extract_acronym ?? true}
-              onChange={(e) => update('entity_extract_acronym', e.target.checked)}
-            />
-            <div><span className="settings-checkbox-row-label">Extract acronyms</span></div>
-          </label>
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.entity_extract_location ?? false}
-              onChange={(e) => update('entity_extract_location', e.target.checked)}
-            />
-            <div><span className="settings-checkbox-row-label">Extract locations</span></div>
-          </label>
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.entity_extract_numeric_id ?? false}
-              onChange={(e) => update('entity_extract_numeric_id', e.target.checked)}
-            />
-            <div><span className="settings-checkbox-row-label">Extract numeric IDs</span></div>
-          </label>
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.entity_extract_organization ?? false}
-              onChange={(e) => update('entity_extract_organization', e.target.checked)}
-            />
-            <div><span className="settings-checkbox-row-label">Extract organizations</span></div>
-          </label>
-          <label className="settings-checkbox-row">
-            <input
-              type="checkbox"
-              checked={form.entity_extract_person_name ?? false}
-              onChange={(e) => update('entity_extract_person_name', e.target.checked)}
-            />
-            <div><span className="settings-checkbox-row-label">Extract person names</span></div>
-          </label>
-        </div>
+          {indexingTab === 'overview' && (
+            <div className="settings-subsection settings-subsection--indexing-overview">
+              <div className="settings-subsection-head ui-subsection-head">
+                <div className="settings-subsection-title ui-subsection-title">
+                  <i className="ri-file-chart-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                  Status
+                </div>
+                <p className="settings-subsection-description ui-subsection-description">
+                  Manual scan action and current status.
+                </p>
+              </div>
 
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-speed-up-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              Performance
+              <div className="settings-control-group settings-indexing-scan-action">
+                <button
+                  type="button"
+                  className="settings-btn settings-btn--primary"
+                  onClick={() => { void onIndexNow?.() }}
+                  disabled={isIndexRunning}
+                >
+                  {isIndexRunning ? (
+                    <i className="ri-loader-4-line dashboard__btn-icon--spin" aria-hidden="true" />
+                  ) : (
+                    <i className="ri-scan-2-line" aria-hidden="true" />
+                  )}
+                  <span>{indexActionLabel}</span>
+                </button>
+                {isIndexRunning && (
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn--secondary"
+                    onClick={() => { void onCancelIndex?.() }}
+                  >
+                    <i className="ri-close-circle-line" aria-hidden="true" />
+                    <span>Cancel Scan</span>
+                  </button>
+                )}
+              </div>
+
+              {isIndexRunning && scanStatus && (
+                <div className="dashboard__hero-progress">
+                  <div className="dashboard__progress-bar">
+                    <div className="dashboard__progress-fill dashboard__progress-fill--indeterminate" />
+                  </div>
+                  <div className="dashboard__progress-text">{indexProgressText}</div>
+                </div>
+              )}
+
+              <div className="settings-profile-grid">
+                <ProfileRow label="Status" value={indexStatusLabel} />
+                <ProfileRow label="Files" value={indexFileCount} />
+                <ProfileRow
+                  label="Sources"
+                  value={watchedDirCount > 0
+                    ? `${watchedDirCount} source ${watchedDirCount === 1 ? 'directory' : 'directories'}`
+                    : '0 source directories'}
+                />
+                <ProfileRow label="Last scan" value={scanStatus?.started_at ? formatRelativeTime(scanStatus.started_at) : indexStatus?.last_scan_at ? formatRelativeTime(indexStatus.last_scan_at) : '—'} />
+              </div>
+
+              <div className="settings-subsection settings-subsection--indexing-advanced">
+              <div className="settings-subsection-head ui-subsection-head">
+                <div className="settings-subsection-title ui-subsection-title">
+                    <i className="ri-tools-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                    Advanced
+                </div>
+                <p className="settings-subsection-description ui-subsection-description">
+                  Maintenance actions for your index. Use when you need to reprocess or fully rebuild.
+                </p>
+              </div>
+                <div className="settings-control-group settings-indexing-advanced-actions">
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn--secondary"
+                    onClick={() => { void onRescanAll?.() }}
+                    disabled={isIndexRunning}
+                  >
+                    <span>Rescan All Files</span>
+                  </button>
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn--secondary"
+                    onClick={() => { void onRebuildIndex?.() }}
+                    disabled={isIndexRunning || (indexStatus?.reset_in_progress ?? false)}
+                  >
+                    <span>{indexStatus?.reset_in_progress ? 'Rebuilding…' : 'Rebuild Index'}</span>
+                  </button>
+                </div>
+              </div>
             </div>
-            <p className="settings-subsection-description ui-subsection-description">Trade off indexing speed against keeping your Mac responsive. Requires restart.</p>
-          </div>
-          <div className="settings-slider-row">
-            <span className="settings-slider-min">Responsive</span>
-            <span className="settings-slider-label">
-              <span className="settings-slider-current">{INDEXING_SPEED_LABELS[speedVal] || 'Balanced'}</span>
-            </span>
-            <span className="settings-slider-max">Fastest</span>
-          </div>
-          <input
-            type="range"
-            className="settings-slider"
-            min={1}
-            max={5}
-            step={1}
-            value={speedVal}
-            onChange={handleSpeedChange}
-          />
-          <div className="settings-subsection-field">
-            <label htmlFor="scan-file-timeout" className="settings-subsection-field-label">
-              File Processing Timeout <span className="settings-subsection-field-unit">(seconds)</span>
-              <span className="settings-checkbox-row-info ui-tooltip-trigger">
-                <i className="ri-information-line" aria-hidden="true" />
-                <span className="settings-tooltip ui-tooltip">Per-file time limit for extraction. Increase if you have large or complex documents. Maximum allowed: 600 seconds.</span>
-              </span>
-            </label>
-            <input
-              id="scan-file-timeout"
-              type="number"
-              className="settings-input settings-input--number"
-              min={1}
-              max={600}
-              value={form.scan_file_timeout_seconds ?? 600}
-              onChange={(e) => update('scan_file_timeout_seconds', clamp(parseInteger(e.target.value, 600), 1, 600))}
-            />
-          </div>
-        </div>
+          )}
+
+          {indexingTab === 'settings' && (
+            <>
+              <div className="settings-subsection">
+                <div className="settings-subsection-head ui-subsection-head">
+                  <div className="settings-subsection-title ui-subsection-title">
+                    <i className="ri-arrow-right-down-box-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                    Document Extraction
+                  </div>
+                  <p className="settings-subsection-description ui-subsection-description">Options for extracting text from documents, including image-based documents and image-only PDFs.</p>
+                </div>
+                <label className="settings-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={form.enable_ocr_for_images ?? true}
+                    onChange={(e) => update('enable_ocr_for_images', e.target.checked)}
+                  />
+                  <div><span className="settings-checkbox-row-label">Enable OCR for scanned documents</span></div>
+                </label>
+                <div className="settings-subsection-field">
+                  <label htmlFor="max-indexable-file-size" className="settings-subsection-field-label">
+                    Max Indexable File Size <span className="settings-subsection-field-unit">(MB)</span>
+                    <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                      <i className="ri-information-line" aria-hidden="true" />
+                      <span className="settings-tooltip ui-tooltip">Files exceeding this limit are skipped during indexing and data extraction. Maximum allowed: 500 MB.</span>
+                    </span>
+                  </label>
+                  <input
+                    id="max-indexable-file-size"
+                    type="number"
+                    className="settings-input settings-input--number"
+                    min={1}
+                    max={500}
+                    step={10}
+                    value={form.max_indexable_file_size_mb ?? 100}
+                    onChange={(e) => update('max_indexable_file_size_mb', clamp(parseInteger(e.target.value, 100), 1, 500))}
+                  />
+                </div>
+              </div>
+
+              <div className="settings-subsection">
+                <div className="settings-subsection-head ui-subsection-head">
+                  <div className="settings-subsection-title ui-subsection-title">
+                    <i className="ri-fingerprint-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                    Entity Extraction
+                  </div>
+                  <p className="settings-subsection-description ui-subsection-description">
+                    Control which entity types are identified and indexed alongside your documents.
+                  </p>
+                </div>
+                <label className="settings-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={form.entity_extract_acronym ?? true}
+                    onChange={(e) => update('entity_extract_acronym', e.target.checked)}
+                  />
+                  <div><span className="settings-checkbox-row-label">Extract acronyms</span></div>
+                </label>
+                <label className="settings-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={form.entity_extract_location ?? false}
+                    onChange={(e) => update('entity_extract_location', e.target.checked)}
+                  />
+                  <div><span className="settings-checkbox-row-label">Extract locations</span></div>
+                </label>
+                <label className="settings-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={form.entity_extract_numeric_id ?? false}
+                    onChange={(e) => update('entity_extract_numeric_id', e.target.checked)}
+                  />
+                  <div><span className="settings-checkbox-row-label">Extract numeric IDs</span></div>
+                </label>
+                <label className="settings-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={form.entity_extract_organization ?? false}
+                    onChange={(e) => update('entity_extract_organization', e.target.checked)}
+                  />
+                  <div><span className="settings-checkbox-row-label">Extract organizations</span></div>
+                </label>
+                <label className="settings-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={form.entity_extract_person_name ?? false}
+                    onChange={(e) => update('entity_extract_person_name', e.target.checked)}
+                  />
+                  <div><span className="settings-checkbox-row-label">Extract person names</span></div>
+                </label>
+              </div>
+
+              <div className="settings-subsection">
+                <div className="settings-subsection-head ui-subsection-head">
+                  <div className="settings-subsection-title ui-subsection-title">
+                    <i className="ri-speed-up-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                    Performance
+                  </div>
+                  <p className="settings-subsection-description ui-subsection-description">Trade off indexing speed against keeping your Mac responsive. Requires restart.</p>
+                </div>
+                <div className="settings-slider-row">
+                  <span className="settings-slider-min">Responsive</span>
+                  <span className="settings-slider-label">
+                    <span className="settings-slider-current">{INDEXING_SPEED_LABELS[speedVal] || 'Balanced'}</span>
+                  </span>
+                  <span className="settings-slider-max">Fastest</span>
+                </div>
+                <input
+                  type="range"
+                  className="settings-slider"
+                  min={1}
+                  max={5}
+                  step={1}
+                  value={speedVal}
+                  onChange={handleSpeedChange}
+                />
+                <div className="settings-subsection-field">
+                  <label htmlFor="scan-file-timeout" className="settings-subsection-field-label">
+                    File Processing Timeout <span className="settings-subsection-field-unit">(seconds)</span>
+                    <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                      <i className="ri-information-line" aria-hidden="true" />
+                      <span className="settings-tooltip ui-tooltip">Per-file time limit for extraction. Increase if you have large or complex documents. Maximum allowed: 600 seconds.</span>
+                    </span>
+                  </label>
+                  <input
+                    id="scan-file-timeout"
+                    type="number"
+                    className="settings-input settings-input--number"
+                    min={1}
+                    max={600}
+                    value={form.scan_file_timeout_seconds ?? 600}
+                    onChange={(e) => update('scan_file_timeout_seconds', clamp(parseInteger(e.target.value, 600), 1, 600))}
+                  />
+                </div>
+              </div>
+            </>
+          )}
 
         </section>
 

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { SettingsView } from './SettingsView'
 import { SETTINGS_ACTIVE_SECTION_STORAGE_KEY } from '../../utils/storageKeys'
@@ -101,10 +101,29 @@ const baseSettings = {
   rag_reranker_model: 'reranker.gguf',
 }
 
+const baseIndexStatus = {
+  total_files: 42,
+  total_chunks: 126,
+  total_embeddings: 84,
+  last_scan_at: '2026-06-08T09:00:00.000Z',
+}
+
+const baseScanStatus = {
+  status: 'completed' as const,
+  started_at: '2026-06-08T08:55:00.000Z',
+  files_scanned: 42,
+  files_indexed: 42,
+  errors: 0,
+  timeout_errors: 0,
+  elapsed_seconds: 125,
+}
+
 // Render SettingsView with an optional ?section= URL param (replaces old sidebar-link navigation)
 function renderSettingsView(options?: {
   section?: string
   settings?: typeof baseSettings
+  indexStatus?: typeof baseIndexStatus | null
+  scanStatus?: typeof baseScanStatus | null
   onRequestClearMcpTokenConfirm?: () => Promise<boolean>
   onRequestRemoveModelConfirm?: (modelName: string, modelSizeLabel?: string) => Promise<boolean>
 }) {
@@ -112,6 +131,10 @@ function renderSettingsView(options?: {
   const onDiscard = vi.fn()
   const onResetSettings = vi.fn()
   const onResetIndex = vi.fn()
+  const onIndexNow = vi.fn()
+  const onRescanAll = vi.fn()
+  const onCancelIndex = vi.fn()
+  const onRebuildIndex = vi.fn()
   const section = options?.section
   const initialEntry = section ? `/settings?section=${section}` : '/settings'
 
@@ -119,6 +142,8 @@ function renderSettingsView(options?: {
     <MemoryRouter initialEntries={[initialEntry]}>
       <SettingsView
         settings={options?.settings ?? baseSettings}
+        indexStatus={options?.indexStatus ?? baseIndexStatus}
+        scanStatus={options?.scanStatus ?? baseScanStatus}
         fileTypeOptions={[{ id: 'docs', label: 'Docs', extensions: ['.md', '.txt'] }]}
         onSave={onSave}
         onRequestClearMcpTokenConfirm={options?.onRequestClearMcpTokenConfirm}
@@ -126,12 +151,25 @@ function renderSettingsView(options?: {
         onDiscard={onDiscard}
         onResetSettings={onResetSettings}
         onResetIndex={onResetIndex}
+        onIndexNow={onIndexNow}
+        onRescanAll={onRescanAll}
+        onCancelIndex={onCancelIndex}
+        onRebuildIndex={onRebuildIndex}
         saving={false}
       />
     </MemoryRouter>,
   )
 
-  return { onSave, onDiscard, onResetSettings, onResetIndex }
+  return {
+    onSave,
+    onDiscard,
+    onResetSettings,
+    onResetIndex,
+    onIndexNow,
+    onRescanAll,
+    onCancelIndex,
+    onRebuildIndex,
+  }
 }
 
 describe('SettingsView tabs and action bar behavior', () => {
@@ -290,10 +328,49 @@ describe('SettingsView tabs and action bar behavior', () => {
 
   it('does not render chunk size or embedding controls on the Indexing tab', () => {
     renderSettingsView({ section: 'indexing' })
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
     expect(screen.queryByText(/Chunk size:/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/Overlap:/i)).not.toBeInTheDocument()
     expect(screen.queryByLabelText('embedding-batch-size')).not.toBeInTheDocument()
     expect(screen.queryByText('Embedding Batch Size')).not.toBeInTheDocument()
+  })
+
+  it('shows indexing overview metrics and actions on the Indexing tab', () => {
+    const { onIndexNow, onRescanAll, onCancelIndex, onRebuildIndex } = renderSettingsView({ section: 'indexing' })
+
+    const overview = screen.getByText('Manual scan action and current status.').closest('.settings-subsection')
+    expect(overview).toBeTruthy()
+    expect(within(overview as HTMLElement).getByText('Index up to date')).toBeInTheDocument()
+    expect(within(overview as HTMLElement).getByText('Files')).toBeInTheDocument()
+    expect(within(overview as HTMLElement).getByText('42')).toBeInTheDocument()
+    expect(within(overview as HTMLElement).getByText(/1 source directory/i)).toBeInTheDocument()
+    expect(within(overview as HTMLElement).getByText('Last scan')).toBeInTheDocument()
+    expect(within(overview as HTMLElement).getByText('Index up to date')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Scan Now' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Cancel Scan' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rescan All Files' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Rebuild Index' })).toBeInTheDocument()
+    expect(within(overview as HTMLElement).queryByText(/files scanned/i)).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Scan Now' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Rescan All Files' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Rebuild Index' }))
+
+    expect(onIndexNow).toHaveBeenCalledTimes(1)
+    expect(onRescanAll).toHaveBeenCalledTimes(1)
+    expect(onRebuildIndex).toHaveBeenCalledTimes(1)
+    expect(onCancelIndex).not.toHaveBeenCalled()
+  })
+
+  it('switches to the Indexing configuration tab and keeps the existing controls', () => {
+    renderSettingsView({ section: 'indexing' })
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Configuration' }))
+
+    expect(screen.getByText('Document Extraction')).toBeInTheDocument()
+    expect(screen.getByLabelText('Enable OCR for scanned documents')).toBeInTheDocument()
+    expect(screen.getByText('Entity Extraction')).toBeInTheDocument()
+    expect(screen.getByText('Performance')).toBeInTheDocument()
   })
 
   it('keeps hidden settings in save payload (no contract regression)', () => {
@@ -341,7 +418,8 @@ describe('SettingsView tabs and action bar behavior', () => {
     cleanup()
 
     renderSettingsView({ section: 'indexing' })
-    expect(screen.getByText('File Processing Timeout')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Configuration' }))
+    expect(screen.getByLabelText(/File Processing Timeout/i)).toBeInTheDocument()
   })
 
   it('clears MCP token when switching HTTP to STDIO after confirmation', async () => {
