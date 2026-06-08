@@ -338,7 +338,7 @@ describe('SettingsView tabs and action bar behavior', () => {
   it('shows indexing overview metrics and actions on the Indexing tab', () => {
     const { onIndexNow, onRescanAll, onCancelIndex, onRebuildIndex } = renderSettingsView({ section: 'indexing' })
 
-    const overview = screen.getByText('Manual scan action and current status.').closest('.settings-subsection')
+    const overview = screen.getByText(/Manual scan action and current status/i).closest('.settings-subsection')
     expect(overview).toBeTruthy()
     expect(within(overview as HTMLElement).getByText('Index up to date')).toBeInTheDocument()
     expect(within(overview as HTMLElement).getByText('Files')).toBeInTheDocument()
