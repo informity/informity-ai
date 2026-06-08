@@ -124,6 +124,10 @@ function renderSettingsView(options?: {
   settings?: typeof baseSettings
   indexStatus?: typeof baseIndexStatus | null
   scanStatus?: typeof baseScanStatus | null
+  onIndexNow?: () => Promise<void> | void
+  onRescanAll?: () => Promise<void> | void
+  onCancelIndex?: () => Promise<void> | void
+  onRebuildIndex?: () => Promise<void> | void
   onRequestClearMcpTokenConfirm?: () => Promise<boolean>
   onRequestRemoveModelConfirm?: (modelName: string, modelSizeLabel?: string) => Promise<boolean>
 }) {
@@ -131,10 +135,10 @@ function renderSettingsView(options?: {
   const onDiscard = vi.fn()
   const onResetSettings = vi.fn()
   const onResetIndex = vi.fn()
-  const onIndexNow = vi.fn()
-  const onRescanAll = vi.fn()
-  const onCancelIndex = vi.fn()
-  const onRebuildIndex = vi.fn()
+  const onIndexNow = options?.onIndexNow ? vi.fn(options.onIndexNow) : vi.fn()
+  const onRescanAll = options?.onRescanAll ? vi.fn(options.onRescanAll) : vi.fn()
+  const onCancelIndex = options?.onCancelIndex ? vi.fn(options.onCancelIndex) : vi.fn()
+  const onRebuildIndex = options?.onRebuildIndex ? vi.fn(options.onRebuildIndex) : vi.fn()
   const section = options?.section
   const initialEntry = section ? `/settings?section=${section}` : '/settings'
 
@@ -360,6 +364,24 @@ describe('SettingsView tabs and action bar behavior', () => {
     expect(onRescanAll).toHaveBeenCalledTimes(1)
     expect(onRebuildIndex).toHaveBeenCalledTimes(1)
     expect(onCancelIndex).not.toHaveBeenCalled()
+  })
+
+  it('shows a spinner on Scan Now while the request is pending on the Indexing tab', async () => {
+    let resolveIndexNow: () => void = () => {}
+    const onIndexNow = () => new Promise<void>((resolve) => {
+      resolveIndexNow = resolve
+    })
+
+    renderSettingsView({ section: 'indexing', onIndexNow })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Scan Now' }))
+
+    const scanningButton = screen.getByRole('button', { name: 'Scanning…' })
+    expect(scanningButton).toBeInTheDocument()
+    expect(scanningButton.querySelector('.settings-btn__icon--spin')).toBeTruthy()
+
+    resolveIndexNow()
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Scan Now' })).toBeInTheDocument())
   })
 
   it('switches to the Indexing configuration tab and keeps the existing controls', () => {

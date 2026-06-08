@@ -520,6 +520,10 @@
   animation: spin 1s linear infinite;
 }
 
+.settings-btn__icon--spin {
+  animation: spin 1s linear infinite;
+}
+
 .settings-subsection-field-unit {
     color: var(--color-text-muted);
     font-weight: 400;

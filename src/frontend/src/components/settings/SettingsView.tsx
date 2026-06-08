@@ -541,6 +541,7 @@ export function SettingsView({
   const [mcpGeneratedToken, setMcpGeneratedToken] = useState('')
   const [integrationTab, setIntegrationTab] = useState<'web-search' | 'mcp'>('web-search')
   const [indexingTab, setIndexingTab] = useState<'overview' | 'settings'>('overview')
+  const [indexActionPending, setIndexActionPending] = useState(false)
   const [mcpTokenError, setMcpTokenError] = useState<string | null>(null)
   const [mcpTokenVisible, setMcpTokenVisible] = useState(false)
   const modelEventStateRef = useRef<ModelOperationEventResponse['state'] | null>(null)
@@ -748,7 +749,8 @@ export function SettingsView({
         : scanStatus?.status === 'failed'
           ? 'Indexing failed'
           : 'Ready'
-  const indexActionLabel = isIndexRunning
+  const isIndexActionRunning = isIndexRunning || indexActionPending
+  const indexActionLabel = isIndexActionRunning
     ? 'Scanning…'
     : 'Scan Now'
   const indexProgressText = isIndexRunning && scanStatus
@@ -1569,11 +1571,17 @@ export function SettingsView({
                 <button
                   type="button"
                   className="settings-btn settings-btn--primary"
-                  onClick={() => { void onIndexNow?.() }}
-                  disabled={isIndexRunning}
+                  onClick={() => {
+                    if (isIndexActionRunning) return
+                    setIndexActionPending(true)
+                    void Promise.resolve(onIndexNow?.()).finally(() => {
+                      setIndexActionPending(false)
+                    })
+                  }}
+                  disabled={isIndexActionRunning}
                 >
-                  {isIndexRunning ? (
-                    <i className="ri-loader-4-line dashboard__btn-icon--spin" aria-hidden="true" />
+                  {isIndexActionRunning ? (
+                    <i className="ri-loader-4-line settings-btn__icon--spin" aria-hidden="true" />
                   ) : (
                     <i className="ri-scan-2-line" aria-hidden="true" />
                   )}
