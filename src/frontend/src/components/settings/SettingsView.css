@@ -102,6 +102,58 @@
   margin-top: 0;
 }
 
+.settings-indexing-tabs {
+  margin-bottom: var(--settings-subsection-gap);
+}
+
+.settings-indexing-tabs + .settings-subsection {
+  margin-top: 0;
+}
+
+.settings-indexing-overview {
+  max-width: var(--settings-control-max-width);
+}
+
+.settings-indexing-overview + .settings-subsection {
+  margin-top: var(--space-lg);
+}
+
+.settings-subsection--indexing-advanced {
+  max-width: var(--settings-control-max-width);
+}
+
+.settings-indexing-overview .settings-profile-grid {
+  margin-top: var(--space-xs);
+}
+
+.settings-indexing-overview .dashboard__hero-progress {
+  margin-top: var(--space-sm);
+}
+
+.settings-indexing-scan-action {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+  margin-bottom: 0;
+}
+
+.settings-indexing-scan-action .settings-btn {
+  width: var(--action-btn-width);
+  min-width: var(--action-btn-width);
+}
+
+.settings-indexing-advanced-actions {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: 0;
+}
+
+.settings-indexing-advanced-actions .settings-btn {
+  width: var(--action-btn-width);
+  min-width: var(--action-btn-width);
+}
+
 /* -----------------------------------------------------------------------------
    Sections
    ----------------------------------------------------------------------------- */

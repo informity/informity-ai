@@ -1,37 +1,24 @@
 /**
  * Informity AI — Dashboard view
- * Status-first design: hero status card, content metrics, recent activity, advanced actions.
+ * Status-first design: content metrics and recent activity.
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { WheelEvent } from 'react'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation } from 'react-router-dom'
 import {
-  cancelScan,
   getIndexStatus,
-  getScanStatus,
-  scanFiles,
   getFiles,
-  rebuildIndex,
-  getSettings,
 } from '../../api'
-import { ApiError } from '../../api'
-import { showToast } from '../../context/useToast'
-import { useConfirm } from '../../context/useConfirm'
 import { useBackendStatus } from '../../context/useBackendStatus'
 import { DashboardSkeleton } from './DashboardSkeleton'
 import { PageHeader } from '../PageHeader'
 import { ServiceUnavailableState } from '../ServiceUnavailableState'
 import { formatFileSize } from '../../utils/formatFileSize'
-import { formatDuration } from '../../utils/formatDuration'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
-import { extractErrorMessage } from '../../utils/errorMessages'
-import { MENU_SCAN_NOW_PENDING_KEY } from '../../utils/storageKeys'
 import { proxyWheelToContainer } from '../../utils/wheelProxy'
-import type { IndexedFile, IndexStatus, ScanStatus } from '../../types/api'
+import type { IndexedFile, IndexStatus } from '../../types/api'
 import '../../styles/shared/buttons.css'
 import './DashboardView.css'
-
-const POLL_INTERVAL_MS = 2000
 
 interface StatCardProps {
   icon: string
@@ -55,25 +42,12 @@ function StatCard({ icon, label, value, subtitle }: StatCardProps) {
   )
 }
 
-interface SettingsData {
-  watched_directories?: string[]
-}
-
 export function DashboardView() {
-  const confirm = useConfirm()
   const { offline } = useBackendStatus()
   const location = useLocation()
-  const navigate = useNavigate()
   const [indexStatus, setIndexStatus] = useState<IndexStatus | null>(null)
-  const [scanStatus, setScanStatus] = useState<ScanStatus | null>(null)
   const [recentFiles, setRecentFiles] = useState<IndexedFile[]>([])
-  const [settings, setSettings] = useState<SettingsData | null>(null)
   const [loading, setLoading] = useState(true)
-  const [scanning, setScanning] = useState(false)
-  const [cancelling, setCancelling] = useState(false)
-  const [rebuilding, setRebuilding] = useState(false)
-  const [scanError, setScanError] = useState<string | null>(null)
-  const previousScanStatusRef = useRef<string | undefined>(undefined)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
 
   const loadIndexStatus = useCallback(async () => {
@@ -82,21 +56,6 @@ export function DashboardView() {
       setIndexStatus(data)
     } catch {
       setIndexStatus(null)
-    }
-  }, [])
-
-  const loadScanStatus = useCallback(async (): Promise<ScanStatus | null> => {
-    try {
-      const data = (await getScanStatus()) as ScanStatus
-      setScanStatus(data)
-      if (data?.status !== 'running') {
-        setCancelling(false)
-      }
-      return data
-    } catch {
-      setScanStatus(null)
-      setCancelling(false)
-      return null
     }
   }, [])
 
@@ -109,22 +68,11 @@ export function DashboardView() {
     }
   }, [])
 
-  const loadSettings = useCallback(async () => {
-    try {
-      const data = (await getSettings()) as SettingsData
-      setSettings(data)
-    } catch {
-      setSettings(null)
-    }
-  }, [])
-
   useEffect(() => {
     if (location.pathname !== '/dashboard') return
     setLoading(true)
-    Promise.all([loadIndexStatus(), loadScanStatus(), loadRecentFiles(), loadSettings()]).finally(() =>
-      setLoading(false),
-    )
-  }, [location.pathname, loadIndexStatus, loadScanStatus, loadRecentFiles, loadSettings])
+    Promise.all([loadIndexStatus(), loadRecentFiles()]).finally(() => setLoading(false))
+  }, [location.pathname, loadIndexStatus, loadRecentFiles])
 
   useEffect(() => {
     const handleChatsUpdated = () => {
@@ -133,196 +81,6 @@ export function DashboardView() {
     window.addEventListener('chats-updated', handleChatsUpdated)
     return () => window.removeEventListener('chats-updated', handleChatsUpdated)
   }, [loadIndexStatus])
-
-  useEffect(() => {
-    let timeoutId: ReturnType<typeof setTimeout> | undefined
-    let cancelled = false
-    let pollInFlight = false
-
-    const poll = async () => {
-      if (cancelled || pollInFlight) return
-      pollInFlight = true
-      const latest = await loadScanStatus()
-      const isRunning = latest?.status === 'running'
-      if (isRunning) {
-        await loadIndexStatus()
-      } else {
-        await loadIndexStatus()
-        await loadRecentFiles()
-      }
-      pollInFlight = false
-      if (!cancelled && scanStatus?.status === 'running') {
-        timeoutId = setTimeout(poll, POLL_INTERVAL_MS)
-      }
-    }
-
-    if (scanStatus?.status === 'running') {
-      timeoutId = setTimeout(poll, POLL_INTERVAL_MS)
-    }
-
-    return () => {
-      cancelled = true
-      if (timeoutId) clearTimeout(timeoutId)
-    }
-  }, [scanStatus?.status, loadScanStatus, loadIndexStatus, loadRecentFiles])
-
-  useEffect(() => {
-    const previousStatus = previousScanStatusRef.current
-    const currentStatus = scanStatus?.status
-    if (previousStatus === 'running' && currentStatus !== 'running') {
-      const completedWithoutErrors =
-        (scanStatus?.errors ?? 0) === 0 &&
-        (scanStatus?.timeout_errors ?? 0) === 0
-      if (completedWithoutErrors) {
-        setScanError(null)
-      }
-    }
-    previousScanStatusRef.current = currentStatus
-  }, [scanStatus])
-
-  const refreshStatusAfterStart = useCallback(async () => {
-    const latest = await loadScanStatus()
-    const isRunning = latest?.status === 'running'
-    if (isRunning) {
-      await loadIndexStatus()
-    } else {
-      await loadIndexStatus()
-      await loadRecentFiles()
-    }
-  }, [loadScanStatus, loadIndexStatus, loadRecentFiles])
-
-  const runScan = useCallback(async (force: boolean, failureFallbackMessage: string) => {
-    if (offline) return
-    setScanning(true)
-    setScanError(null)
-    try {
-      let dirs = settings?.watched_directories
-      if (!dirs?.length) {
-        const fresh = (await getSettings()) as SettingsData
-        dirs = fresh?.watched_directories
-        if (fresh) setSettings(fresh)
-      }
-      await scanFiles(dirs ?? undefined, force)
-      await refreshStatusAfterStart()
-    } catch (err) {
-      const msg = extractErrorMessage(err, failureFallbackMessage)
-      setScanError(msg)
-      showToast('error', msg)
-    } finally {
-      setScanning(false)
-    }
-  }, [offline, settings?.watched_directories, refreshStatusAfterStart])
-
-  const handleScanNow = useCallback(async () => {
-    await runScan(false, 'Scan failed')
-  }, [runScan])
-
-  const isScanRunning = scanStatus?.status === 'running'
-  const watchedDirCount = settings?.watched_directories?.length ?? 0
-
-  useEffect(() => {
-    try {
-      const pending = sessionStorage.getItem(MENU_SCAN_NOW_PENDING_KEY) === '1'
-      if (pending) {
-        sessionStorage.removeItem(MENU_SCAN_NOW_PENDING_KEY)
-        if (!isScanRunning && !scanning && !rebuilding && !cancelling && !offline) {
-          void handleScanNow()
-        }
-      }
-    } catch {
-      // ignore storage errors
-    }
-    return () => {
-      try {
-        sessionStorage.removeItem(MENU_SCAN_NOW_PENDING_KEY)
-      } catch {
-        // ignore storage errors
-      }
-    }
-  }, [handleScanNow, isScanRunning, scanning, rebuilding, cancelling, offline])
-
-  useEffect(() => {
-    const handleMenuScanNow = () => {
-      if (isScanRunning || scanning || rebuilding || cancelling || offline) return
-      void handleScanNow()
-    }
-    window.addEventListener('menu-scan-now', handleMenuScanNow)
-    return () => window.removeEventListener('menu-scan-now', handleMenuScanNow)
-  }, [handleScanNow, isScanRunning, scanning, rebuilding, cancelling, offline])
-
-  const handleRescanAll = async () => {
-    if (offline) return
-    const ok = await confirm({
-      title:       'Rescan All Files',
-      message:     'Rescan all files in source directories (including unchanged)? This may take a while.',
-      confirmLabel: 'Rescan',
-      cancelLabel:  'Cancel',
-      icon:       'ri-refresh-line',
-    })
-    if (!ok) return
-    await runScan(true, 'Rescan failed')
-  }
-
-  const handleCancelScan = async () => {
-    if (offline || !isScanRunning || cancelling) return
-    setCancelling(true)
-    setScanError(null)
-    try {
-      await cancelScan()
-      await loadScanStatus()
-      showToast('success', 'Cancelling scan…')
-    } catch (err) {
-      const msg = extractErrorMessage(err, 'Cancel failed')
-      setScanError(msg)
-      showToast('error', msg)
-      setCancelling(false)
-    }
-  }
-
-  const handleRebuild = async () => {
-    if (offline) return
-    const ok = await confirm({
-      title:       'Rebuild Index',
-      message:     'Rebuild the entire index? This will re-extract, re-chunk, and re-embed every file.',
-      confirmLabel: 'Rebuild',
-      cancelLabel:  'Cancel',
-      icon:       'ri-stack-line',
-    })
-    if (!ok) return
-    setRebuilding(true)
-    setScanError(null)
-    try {
-      await rebuildIndex(false)
-      await refreshStatusAfterStart()
-    } catch (err) {
-      const is409 = err instanceof ApiError && err.status === 409
-      if (
-        is409 &&
-        (await confirm({
-          title:       'Scan or Rebuild Running',
-          message:     'A scan or rebuild is already running. Cancel it and rebuild anyway?',
-          confirmLabel: 'Rebuild',
-          cancelLabel:  'Cancel',
-          icon:       'ri-error-warning-line',
-        }))
-      ) {
-        try {
-          await rebuildIndex(true)
-          await refreshStatusAfterStart()
-        } catch (forceErr) {
-          const msg = extractErrorMessage(forceErr, 'Rebuild failed')
-          setScanError(msg)
-          showToast('error', msg)
-        }
-      } else {
-        const msg = extractErrorMessage(err, 'Rebuild failed')
-        setScanError(msg)
-        showToast('error', msg)
-      }
-    } finally {
-      setRebuilding(false)
-    }
-  }
 
   const handlePageWheel = useCallback((e: WheelEvent<HTMLDivElement>) => {
     proxyWheelToContainer(e, scrollContainerRef.current)
@@ -337,7 +95,7 @@ export function DashboardView() {
       <div className="page page--dashboard" onWheel={handlePageWheel}>
         <PageHeader
           title="Dashboard"
-          subtitle="Monitor indexing status and manage scans"
+          subtitle="Indexing overview and recent scan activity"
           icon="ri-layout-grid-line"
         />
         <div className="page__scroll" ref={scrollContainerRef}>
@@ -350,100 +108,12 @@ export function DashboardView() {
     <div className="page page--dashboard" onWheel={handlePageWheel}>
       <PageHeader
         title="Dashboard"
-        subtitle="Monitor indexing status and manage scans"
+        subtitle="Indexing overview and recent scan activity"
         icon="ri-layout-grid-line"
       />
 
       <div className="page__scroll" ref={scrollContainerRef}>
-        <div className="dashboard__hero-grid">
-          <div className="dashboard__hero">
-            <div className="dashboard__hero-main">
-              <div className="dashboard__hero-icon">
-                <i className="ri-file-copy-2-line" aria-hidden />
-              </div>
-              <div className="dashboard__hero-title">
-                <span className="dashboard__hero-number">{indexStatus?.total_files?.toLocaleString() ?? 0}</span>
-                <span className="dashboard__hero-number"> Files</span>
-              </div>
-            </div>
-            <div className="dashboard__hero-meta">
-              {scanStatus?.started_at ? (
-                <span>Last scan: {formatRelativeTime(scanStatus.started_at)}</span>
-              ) : (
-                <span>No scans have been run yet</span>
-              )}
-              {watchedDirCount > 0 && (
-                <>
-                  {' · '}
-                  <span>
-                    {watchedDirCount} source {watchedDirCount === 1 ? 'directory' : 'directories'}
-                  </span>
-                </>
-              )}
-              {(scanStatus?.errors ?? 0) > 0 && (
-                <>
-                  {' · '}
-                  <button
-                    type="button"
-                    className="dashboard__hero-meta-link dashboard__hero-meta-link--danger"
-                    onClick={() => navigate('/logs?tab=errors')}
-                  >
-                    Errors: {scanStatus?.errors ?? 0}
-                  </button>
-                </>
-              )}
-            </div>
-            <div className="dashboard__hero-actions">
-              <button
-                type="button"
-                className="settings-btn settings-btn--primary"
-                onClick={handleScanNow}
-                disabled={offline || scanning || rebuilding || isScanRunning || cancelling}
-              >
-                {scanning || isScanRunning ? (
-                  <i className="ri-loader-4-line dashboard__btn-icon--spin" aria-hidden />
-                ) : (
-                  <i className="ri-scan-2-line" aria-hidden />
-                )}
-                <span>{isScanRunning ? 'Scanning…' : scanning ? 'Starting…' : 'Scan Now'}</span>
-              </button>
-              {isScanRunning && (
-                <button
-                  type="button"
-                  className="settings-btn settings-btn--secondary"
-                  onClick={handleCancelScan}
-                  disabled={offline || cancelling}
-                >
-                  {cancelling ? (
-                    <i className="ri-loader-4-line dashboard__btn-icon--spin" aria-hidden />
-                  ) : (
-                    <i className="ri-close-circle-line" aria-hidden />
-                  )}
-                  <span>{cancelling ? 'Cancelling…' : 'Cancel Scan'}</span>
-                </button>
-              )}
-            </div>
-            {isScanRunning && scanStatus && (
-              <div className="dashboard__hero-progress">
-                <div className="dashboard__progress-bar">
-                  <div className="dashboard__progress-fill dashboard__progress-fill--indeterminate" />
-                </div>
-                <div className="dashboard__progress-text">
-                  {scanStatus.files_scanned} files scanned · {scanStatus.files_indexed} indexed
-                  {(scanStatus.errors ?? 0) > 0 ? ` · ${scanStatus.errors} errors` : ''} ·{' '}
-                  {(scanStatus.timeout_errors ?? 0) > 0 ? `${scanStatus.timeout_errors} timeouts · ` : ''}
-                  {formatDuration(scanStatus.elapsed_seconds)}
-                </div>
-              </div>
-            )}
-            {scanError && (
-              <div className="dashboard__scan-summary" role="status" aria-live="polite">
-                <span className="dashboard__scan-summary-text">{scanError}</span>
-              </div>
-            )}
-          </div>
-
-          <div className="dashboard__content-metrics ui-section-divider">
+          <div className="dashboard__content-metrics">
             <h2 className="dashboard__section-heading ui-section-heading">
               <i className="ri-pie-chart-line dashboard__section-icon ui-section-heading__icon" aria-hidden />
               Content
@@ -467,7 +137,7 @@ export function DashboardView() {
             </div>
           </div>
 
-          <div className="dashboard__storage-section ui-section-divider">
+          <div className="dashboard__storage-section">
             <h2 className="dashboard__section-heading ui-section-heading">
               <i className="ri-save-line dashboard__section-icon ui-section-heading__icon" aria-hidden />
               Storage
@@ -490,12 +160,11 @@ export function DashboardView() {
               />
             </div>
           </div>
-        </div>
 
-        <div className="dashboard__recent ui-section-divider">
+        <div className="dashboard__recent">
           <h2 className="dashboard__section-heading ui-section-heading">
             <i className="ri-time-line dashboard__section-icon ui-section-heading__icon" aria-hidden />
-            Recent Activity
+            Recent Scan Activity
           </h2>
           {recentFiles.length > 0 ? (
             <div className="dashboard__recent-table">
@@ -511,38 +180,9 @@ export function DashboardView() {
             <div className="dashboard__recent-empty data-table__empty-state">
               <i className="ri-file-copy-2-line data-table__empty-icon" aria-hidden />
               <p>No recent activity.</p>
-              <p className="data-table__empty-hint">Indexed files will appear here after a scan.</p>
+              <p className="data-table__empty-hint">Indexed files will appear here after indexing runs.</p>
             </div>
           )}
-        </div>
-
-        <div className="dashboard__advanced ui-section-divider">
-          <h2 className="dashboard__section-heading ui-section-heading">
-            <i className="ri-folder-settings-line dashboard__section-icon ui-section-heading__icon" aria-hidden />
-            Advanced
-          </h2>
-          <div className="dashboard__advanced-content">
-            <div className="dashboard__advanced-actions">
-              <button
-                type="button"
-                className="settings-btn settings-btn--secondary"
-                onClick={handleRescanAll}
-                disabled={offline || scanning || rebuilding || isScanRunning}
-              >
-                <i className="ri-refresh-line" aria-hidden />
-                <span>Rescan All Files</span>
-              </button>
-              <button
-                type="button"
-                className="settings-btn settings-btn--secondary"
-                onClick={handleRebuild}
-                disabled={offline || scanning || rebuilding || isScanRunning}
-              >
-                <i className="ri-stack-line" aria-hidden />
-                <span>{rebuilding ? 'Rebuilding…' : 'Rebuild Index'}</span>
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </div>

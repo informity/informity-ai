@@ -3,13 +3,17 @@
  * Loads settings, wires Save/Discard/Reset, handles confirmations.
  */
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { WheelEvent } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import type { ReactNode, WheelEvent } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import {
+  cancelScan,
   getSettings,
   getIndexStatus,
+  getScanStatus,
+  scanFiles,
   updateSettings,
   resetSettings,
+  rebuildIndex,
   resetIndex,
   ApiError,
 } from '../api'
@@ -19,7 +23,7 @@ import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { showToast } from '../context/useToast'
 import { useConfirm } from '../context/useConfirm'
 import { useBackendStatus } from '../context/useBackendStatus'
-import { isChatMode, type ChatMode, type IndexStatus } from '../types/api'
+import { isChatMode, type ChatMode, type IndexStatus, type ScanStatus } from '../types/api'
 import { isBackendConnectionError } from '../utils/networkErrors'
 import { extractErrorMessage } from '../utils/errorMessages'
 import { CHAT_MODE_STORAGE_KEY } from '../utils/storageKeys'
@@ -210,16 +214,34 @@ interface SettingsData extends FormState {
 const RESET_POLL_INTERVAL_MS = 500
 const RESET_POLL_TIMEOUT_MS = 300000
 
-const SETTINGS_SECTION_META: Record<string, { title: string; icon: string; subtitle: string }> = {
-  general:      { title: 'General',            icon: 'ri-home-gear-line', subtitle: 'Core application preferences including privacy and appearance' },
-  data:         { title: 'Data Sources',       icon: 'ri-folder-line',    subtitle: 'Choose which folders and file types the application scans and makes searchable' },
-  indexing:     { title: 'Indexing',            icon: 'ri-stack-line',     subtitle: 'Controls how the application reads and prepares your files for search and chat' },
+const SETTINGS_SECTION_META: Record<string, { title: string; icon: string; subtitle: ReactNode }> = {
+  general:      { title: 'General',            icon: 'ri-home-gear-line', subtitle: 'Core application preferences for privacy and appearance.' },
+  data:         {
+    title: 'Data Sources',
+    icon: 'ri-folder-line',
+    subtitle: (
+      <>
+        Manage your content sources for chat, translate and search. Each new source requires at least one{' '}
+        <Link to="/settings?section=indexing" className="settings-link">manual scan</Link>.
+      </>
+    ),
+  },
+  indexing:     {
+    title: 'Indexing',
+    icon: 'ri-stack-line',
+    subtitle: (
+      <>
+        Manage how Informity AI scans, updates, and rebuilds indexed{' '}
+        <Link to="/settings?section=data" className="settings-link">content</Link>.
+      </>
+    ),
+  },
   chat:         { title: 'Chat',               icon: 'ri-chat-ai-4-line',  subtitle: 'Conversation context and default chat settings' },
   translate:    { title: 'Translate',          icon: 'ri-translate-2',     subtitle: 'Configure default settings for document translation' },
   models:       { title: 'Models',             icon: 'ri-robot-2-line',    subtitle: 'Select the AI model to use and view its capabilities' },
   integrations: { title: 'Integrations',       icon: 'ri-function-add-line', subtitle: 'Connect external search providers and allow third-party AI clients to access your library' },
-  diagnostics:  { title: 'Diagnostics',        icon: 'ri-pulse-line',      subtitle: 'Monitor application events and adjust diagnostics settings when troubleshooting' },
-  system:       { title: 'System',             icon: 'ri-server-line',     subtitle: 'General application utilities and configuration references' },
+  diagnostics:  { title: 'Diagnostics',        icon: 'ri-pulse-line',      subtitle: 'Monitor application events and adjust diagnostics when troubleshooting.' },
+  system:       { title: 'System',             icon: 'ri-server-line',     subtitle: 'Application utilities and configuration references.' },
 }
 
 function sleep(ms: number): Promise<void> {
@@ -235,6 +257,8 @@ export function SettingsPage() {
   const activeSection = searchParams.get('section') ?? 'general'
   const sectionMeta = SETTINGS_SECTION_META[activeSection] ?? SETTINGS_SECTION_META.general
   const [settings, setSettings] = useState<SettingsData | null>(null)
+  const [indexStatus, setIndexStatus] = useState<IndexStatus | null>(null)
+  const [scanStatus, setScanStatus] = useState<ScanStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -254,6 +278,17 @@ export function SettingsPage() {
     try {
       const settingsData = (await getSettings()) as SettingsData
       setSettings(settingsData)
+      try {
+        const [statusData, scanData] = await Promise.all([
+          getIndexStatus(),
+          getScanStatus(),
+        ])
+        setIndexStatus(statusData as IndexStatus)
+        setScanStatus(scanData as ScanStatus)
+      } catch {
+        setIndexStatus(null)
+        setScanStatus(null)
+      }
     } catch (err) {
       const msg = extractErrorMessage(err, 'Failed to load')
       const disconnected = isBackendConnectionError(err)
@@ -262,10 +297,44 @@ export function SettingsPage() {
         showToast('error', msg)
       }
       setSettings(null)
+      setIndexStatus(null)
+      setScanStatus(null)
     } finally {
       setLoading(false)
     }
   }, [])
+
+  const refreshIndexStatus = useCallback(async () => {
+    try {
+      const [statusData, scanData] = await Promise.all([
+        getIndexStatus(),
+        getScanStatus(),
+      ])
+      setIndexStatus(statusData as IndexStatus)
+      setScanStatus(scanData as ScanStatus)
+    } catch {
+      setIndexStatus(null)
+      setScanStatus(null)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (scanStatus?.status !== 'running') return undefined
+    let cancelled = false
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    const poll = async () => {
+      if (cancelled) return
+      await refreshIndexStatus()
+      if (!cancelled) {
+        timeoutId = setTimeout(poll, 2000)
+      }
+    }
+    timeoutId = setTimeout(poll, 2000)
+    return () => {
+      cancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [scanStatus?.status, refreshIndexStatus])
 
   useEffect(() => {
     load()
@@ -442,6 +511,7 @@ export function SettingsPage() {
       const updated = (await getSettings()) as SettingsData
       if (resetPollingCancelledRef.current) return
       setSettings(updated)
+      await refreshIndexStatus()
       const completionMessage =
         compactionError || resetResult?.storage_compacted === false
           ? 'All data reset.\nDatabase reset in progress…'
@@ -521,6 +591,90 @@ export function SettingsPage() {
     })
   }, [confirm])
 
+  const handleIndexNow = useCallback(async () => {
+    if (offline) return
+    try {
+      await scanFiles(settings?.watched_directories || undefined, false)
+      await refreshIndexStatus()
+    } catch (err) {
+      const msg = extractErrorMessage(err, 'Indexing failed')
+      showToast('error', msg)
+    }
+  }, [offline, settings?.watched_directories, refreshIndexStatus])
+
+  const handleRescanAll = useCallback(async () => {
+    if (offline) return
+    const ok = await confirm({
+      title: 'Rescan All Files',
+      message: 'Rescan all files in source directories (including unchanged)? This may take a while.',
+      confirmLabel: 'Rescan',
+      cancelLabel: 'Cancel',
+      icon: 'ri-refresh-line',
+    })
+    if (!ok) return
+    try {
+      await scanFiles(settings?.watched_directories || undefined, true)
+      await refreshIndexStatus()
+    } catch (err) {
+      const msg = extractErrorMessage(err, 'Rescan failed')
+      showToast('error', msg)
+    }
+  }, [offline, settings?.watched_directories, refreshIndexStatus])
+
+  const handleCancelIndex = useCallback(async () => {
+    if (offline || scanStatus?.status !== 'running') return
+    try {
+      await cancelScan()
+      await refreshIndexStatus()
+      showToast('success', 'Cancelling index run…')
+    } catch (err) {
+      const msg = extractErrorMessage(err, 'Cancel failed')
+      showToast('error', msg)
+    }
+  }, [offline, refreshIndexStatus, scanStatus?.status])
+
+  const handleRebuildIndex = useCallback(async () => {
+    if (offline) return
+    const ok = await confirm({
+      title: 'Rebuild Index',
+      message: 'Rebuild the entire index? This will re-extract, re-chunk, and re-embed every file.',
+      confirmLabel: 'Rebuild',
+      cancelLabel: 'Cancel',
+      icon: 'ri-stack-line',
+    })
+    if (!ok) return
+    try {
+      await rebuildIndex(false)
+      await refreshIndexStatus()
+      showToast('info', 'Rebuilding index…')
+    } catch (err) {
+      const is409 = err instanceof ApiError && err.status === 409
+      if (
+        is409 &&
+        (await confirm({
+          title: 'Scan or Rebuild Running',
+          message: 'A scan or rebuild is already running. Cancel it and rebuild anyway?',
+          confirmLabel: 'Rebuild',
+          cancelLabel: 'Cancel',
+          icon: 'ri-error-warning-line',
+        }))
+      ) {
+        try {
+          await rebuildIndex(true)
+          await refreshIndexStatus()
+          showToast('info', 'Rebuilding index…')
+          return
+        } catch (forceErr) {
+          const msg = extractErrorMessage(forceErr, 'Rebuild failed')
+          showToast('error', msg)
+          return
+        }
+      }
+      const msg = extractErrorMessage(err, 'Rebuild failed')
+      showToast('error', msg)
+    }
+  }, [confirm, offline, refreshIndexStatus])
+
   if (loading) {
     return (
       <div className="page" onWheel={handlePageWheel}>
@@ -550,10 +704,16 @@ export function SettingsPage() {
         <SettingsView
           settings={settings}
           fileTypeOptions={settings?.file_type_options ?? []}
+          indexStatus={indexStatus}
+          scanStatus={scanStatus}
           onSave={handleSave}
           onDiscard={handleDiscard}
           onResetSettings={handleResetSettings}
           onResetIndex={handleResetIndex}
+          onIndexNow={handleIndexNow}
+          onRescanAll={handleRescanAll}
+          onCancelIndex={handleCancelIndex}
+          onRebuildIndex={handleRebuildIndex}
           onRequestEnableMcpConfirm={handleConfirmEnableMcp}
           onRequestClearMcpTokenConfirm={handleConfirmClearMcpToken}
           onRequestRemoveModelConfirm={handleConfirmRemoveModel}
