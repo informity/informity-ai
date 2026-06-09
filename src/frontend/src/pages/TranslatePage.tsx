@@ -72,7 +72,7 @@ export function TranslatePage() {
     fileId, fileName, pageCount, isUpload, estimatedMinutes, exceedsSoftLimit,
     targetLanguage, tone, resultLanguage, resultTone, jobStatus, sections, sectionCount, completedSections,
     retryingSectionIndex,
-    isTranslating, hasResult, pinnedLanguages,
+    isTranslating, hasResult, pinnedLanguages, lastCompletedElapsedSeconds,
     setFile, setTargetLanguage, setTone, resetTranslationDefaults, resetTranslationSession, startTranslation, cancelTranslation,
   } = useTranslateContext()
 
@@ -108,6 +108,35 @@ export function TranslatePage() {
     ?? findTranslateLanguageOption(TRANSLATE_DEFAULT_LANGUAGE)
   const canTranslate = !!fileId && !isTranslating && !isStreaming  // button morphs to Stop when streaming/translating
 
+  const primeActiveRun = useCallback(() => {
+    if (activeRunRef.current) return
+    const run: RunRecord = {
+      sections: [],
+      language: resultDisplayLanguage,
+      tone: resultDisplayTone as Tone,
+      completedAt: null,
+      totalSections: sectionCount,
+      elapsedSeconds: null,
+      fileLabel: fileName ?? 'Document',
+    }
+    activeRunRef.current = run
+    runStartRef.current = Date.now()
+    setRuns((prev) => (prev.length > 0 ? prev : [...prev, run]))
+  }, [fileName, resultDisplayLanguage, resultDisplayTone, sectionCount])
+
+  useLayoutEffect(() => {
+    if (lastCompletedElapsedSeconds == null) return
+    setRuns((prev) => {
+      if (prev.length === 0) return prev
+      const lastIndex = prev.length - 1
+      const lastRun = prev[lastIndex]
+      if (!lastRun || lastRun.elapsedSeconds === lastCompletedElapsedSeconds) return prev
+      const next = [...prev]
+      next[lastIndex] = { ...lastRun, elapsedSeconds: lastCompletedElapsedSeconds }
+      return next
+    })
+  }, [lastCompletedElapsedSeconds, runs.length])
+
   // Pre-load file from Files page router state
   useEffect(() => {
     const state = location.state as { scopedFileId?: number; scopedFileName?: string } | null
@@ -115,6 +144,19 @@ export function TranslatePage() {
       setFile({ id: state.scopedFileId, name: state.scopedFileName, pageCount: null, isUpload: false })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const finalizeActiveRun = useCallback(() => {
+    const run = activeRunRef.current
+    if (!run || run.completedAt !== null) return
+    run.completedAt = Date.now()
+    // runStartRef is 0 during reload recovery (we don't know the real start).
+    // Guard to avoid displaying a ~56-year elapsed time.
+    run.elapsedSeconds = runStartRef.current > 0
+      ? Math.round((Date.now() - runStartRef.current) / 1000)
+      : run.elapsedSeconds
+    setRuns(prev => [...prev])
+    activeRunRef.current = null
   }, [])
 
   // Centered → docked transition (mirrors ChatView logic)
@@ -183,7 +225,7 @@ export function TranslatePage() {
       tone: resultDisplayTone as Tone,
       completedAt: isTranslating ? null : Date.now(),
       totalSections: sectionCount,
-      elapsedSeconds: null,
+      elapsedSeconds: isTranslating ? null : lastCompletedElapsedSeconds,
       fileLabel: fileName ?? 'Document',
     }
     if (isTranslating) {
@@ -214,7 +256,7 @@ export function TranslatePage() {
   // Also handles the reload-recovery case: if sections arrive from SSE replay
   // but no run entry exists yet (activeRunRef is null and runs is empty),
   // create one now so the footer and content display correctly.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (sections.length === 0) return
     if (activeRunRef.current) {
       activeRunRef.current.sections = [...sections]
@@ -227,7 +269,7 @@ export function TranslatePage() {
         tone: resultDisplayTone as Tone,
         completedAt: null,  // set by [jobStatus] effect when job_done arrives
         totalSections: sectionCount,
-        elapsedSeconds: null,
+        elapsedSeconds: lastCompletedElapsedSeconds,
         fileLabel: fileName ?? 'Document',
       }
       activeRunRef.current = run
@@ -236,18 +278,9 @@ export function TranslatePage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resultDisplayLanguage, resultDisplayTone, sections, sectionCount])
 
-  useEffect(() => {
-    if (jobStatus === 'done' && activeRunRef.current && activeRunRef.current.completedAt === null) {
-      activeRunRef.current.completedAt = Date.now()
-      // runStartRef is 0 during reload recovery (we don't know the real start).
-      // Guard to avoid displaying a ~56-year elapsed time.
-      activeRunRef.current.elapsedSeconds = runStartRef.current > 0
-        ? Math.round((Date.now() - runStartRef.current) / 1000)
-        : null
-      setRuns(prev => [...prev])
-      activeRunRef.current = null
-    }
-  }, [jobStatus])
+  useLayoutEffect(() => {
+    if (jobStatus === 'done') finalizeActiveRun()
+  }, [finalizeActiveRun, jobStatus])
 
   // Scroll to bottom after run updates AND when job completes (footer appears).
   // useLayoutEffect fires after DOM commits so scrollHeight is accurate.
@@ -286,8 +319,10 @@ export function TranslatePage() {
 
   const handleTranslate = useCallback(async () => {
     if (!fileId || isTranslating) return
-    await startTranslation()
-  }, [fileId, isTranslating, startTranslation])
+    primeActiveRun()
+    const completed = await startTranslation()
+    if (completed) finalizeActiveRun()
+  }, [fileId, finalizeActiveRun, isTranslating, primeActiveRun, startTranslation])
 
   const handleNewTranslation = useCallback(async () => {
     activeRunRef.current = null

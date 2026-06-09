@@ -13,6 +13,7 @@ export interface TranslateContextValue {
   glossaryTermCount: number | null
   estimatedMinutes: number | null
   exceedsSoftLimit: boolean
+  lastCompletedElapsedSeconds: number | null
 
   // Selected file
   fileId: number | null
@@ -33,7 +34,7 @@ export interface TranslateContextValue {
   setTone: (tone: string) => void
   resetTranslationDefaults: () => Promise<void>
   resetTranslationSession: () => void
-  startTranslation: () => Promise<void>
+  startTranslation: () => Promise<boolean>
   cancelTranslation: () => void
   clearResult: () => void
 

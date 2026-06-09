@@ -29,6 +29,7 @@ interface PersistedJob {
   isUpload: boolean
   targetLanguage: string
   tone: string
+  startedAt: number
 }
 
 function saveActiveJob(job: PersistedJob): void {
@@ -68,6 +69,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
   const [glossaryTermCount, setGlossaryTermCount] = useState<number | null>(null)
   const [estimatedMinutes, setEstimatedMinutes] = useState<number | null>(null)
   const [exceedsSoftLimit, setExceedsSoftLimit] = useState(false)
+  const [lastCompletedElapsedSeconds, setLastCompletedElapsedSeconds] = useState<number | null>(null)
 
   const [fileInfo, setFileInfo] = useState<FileInfo | null>(null)
   const [targetLanguage, setTargetLanguage] = useState(TRANSLATE_DEFAULT_LANGUAGE)
@@ -77,6 +79,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
   const [pinnedLanguages, setPinnedLanguages] = useState<string[]>([])
 
   const abortRef = useRef<AbortController | null>(null)
+  const jobStartedAtRef = useRef<number>(0)
   const defaultsRef = useRef({
     language: TRANSLATE_DEFAULT_LANGUAGE,
     tone: TRANSLATE_DEFAULT_TONE,
@@ -149,12 +152,16 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
       setTone(persisted.tone)
       setResultLanguage(persisted.targetLanguage)
       setResultTone(persisted.tone)
+      jobStartedAtRef.current = Number.isFinite(persisted.startedAt) && persisted.startedAt > 0
+        ? persisted.startedAt
+        : Date.now()
       setJobId(persisted.jobId)
       setJobStatus(job.status as TranslateContextValue['jobStatus'])
       setSections([])
       setSectionCount(null)
       setCompletedSections(0)
       setFailedSections(0)
+      setLastCompletedElapsedSeconds(null)
 
       // Connect to SSE — for completed jobs the backend immediately replays
       // glossary_done, sections_ready, and all section_done events, then
@@ -180,10 +187,17 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
           setRetryingSectionIndex(null)
         },
         onSectionFailed: () => setFailedSections((n) => n + 1),
-        onJobDone: (completed, failed) => {
+        onJobDone: (completed, failed, elapsedSeconds) => {
           setCompletedSections(completed)
           setFailedSections(failed)
+          const computedElapsed = (
+            jobStartedAtRef.current > 0
+              ? Math.max(0, Math.round((Date.now() - jobStartedAtRef.current) / 1000))
+              : null
+          )
+          setLastCompletedElapsedSeconds(elapsedSeconds ?? computedElapsed)
           setJobStatus('done')
+          jobStartedAtRef.current = 0
           clearActiveJob()
         },
         onJobFailed: (error) => {
@@ -248,15 +262,19 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     setGlossaryTermCount(null)
     setEstimatedMinutes(null)
     setExceedsSoftLimit(false)
+    setLastCompletedElapsedSeconds(null)
     setResultLanguage(null)
     setResultTone(null)
+    jobStartedAtRef.current = 0
   }, [])
 
   const startTranslation = useCallback(async () => {
-    if (!fileInfo) return
+    if (!fileInfo) return false
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
+    jobStartedAtRef.current = Date.now()
+    let didComplete = false
 
     setSections([])
     setSectionCount(null)
@@ -265,6 +283,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     setRetryingSectionIndex(null)
     setGlossaryTermCount(null)
     setJobStatus('queued')
+    setLastCompletedElapsedSeconds(null)
 
     // Retry job creation with backoff — the LLM lock takes ~100-500ms to
     // release after a cancel, so a 409 immediately after Stop is expected.
@@ -298,6 +317,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
       isUpload: fileInfo.isUpload,
       targetLanguage,
       tone,
+      startedAt: jobStartedAtRef.current,
     })
     setResultLanguage(targetLanguage)
     setResultTone(tone)
@@ -328,9 +348,11 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
           setRetryingSectionIndex(null)
         },
         onSectionFailed: () => setFailedSections((n) => n + 1),
-        onJobDone: (completed, failed) => {
+        onJobDone: (completed, failed, elapsedSeconds) => {
+          didComplete = true
           setCompletedSections(completed)
           setFailedSections(failed)
+          setLastCompletedElapsedSeconds(elapsedSeconds ?? null)
           setJobStatus('done')
           clearActiveJob()
         },
@@ -344,11 +366,13 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
         },
       })
     } catch (err: unknown) {
-      if ((err as { name?: string })?.name === 'AbortError') return
+      if ((err as { name?: string })?.name === 'AbortError') return false
       const msg = (err as { message?: string })?.message || 'Translation failed'
       setJobStatus('failed')
       showToast('error', msg)
+      return false
     }
+    return didComplete
   }, [fileInfo, targetLanguage, tone])
 
   const cancelTranslation = useCallback(() => {
@@ -359,6 +383,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     }
     clearActiveJob()
     setJobStatus(null)
+    jobStartedAtRef.current = 0
   }, [jobId])
 
   const clearResult = useCallback(() => {
@@ -370,8 +395,10 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     setCompletedSections(0)
     setFailedSections(0)
     setGlossaryTermCount(null)
+    setLastCompletedElapsedSeconds(null)
     setResultLanguage(null)
     setResultTone(null)
+    jobStartedAtRef.current = 0
   }, [])
 
   const isTranslating = jobStatus === 'queued' || jobStatus === 'running'
@@ -381,6 +408,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     jobId, jobStatus, sections, sectionCount, completedSections, failedSections,
     retryingSectionIndex,
     glossaryTermCount, estimatedMinutes, exceedsSoftLimit,
+    lastCompletedElapsedSeconds,
     fileId: fileInfo?.id ?? null,
     fileName: fileInfo?.name ?? null,
     pageCount: fileInfo?.pageCount ?? null,

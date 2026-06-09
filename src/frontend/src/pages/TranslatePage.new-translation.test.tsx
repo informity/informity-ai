@@ -186,11 +186,11 @@ describe('TranslatePage new translation reset', () => {
       const callbacks = args[1] as {
         onSectionsReady?: (count: number) => void
         onSectionDone?: (section: { section_index: number; section_title: string | null; text: string }) => void
-        onJobDone?: (completed: number, failed: number) => void
+        onJobDone?: (completed: number, failed: number, elapsedSeconds?: number | null) => void
       }
       callbacks.onSectionsReady?.(1)
       callbacks.onSectionDone?.({ section_index: 0, section_title: null, text: 'hola' })
-      callbacks.onJobDone?.(1, 0)
+      callbacks.onJobDone?.(1, 0, 7)
     }) as never)
 
     const { unmount } = renderPage()
@@ -207,6 +207,7 @@ describe('TranslatePage new translation reset', () => {
     await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('Portuguese'))
     await waitFor(() => expect(screen.getByTestId('translate-run-language-0')).toHaveTextContent('Spanish'))
     await waitFor(() => expect(screen.getByTestId('tone')).toHaveTextContent('natural'))
+    await waitFor(() => expect(screen.getByText('0m 7s')).toBeInTheDocument())
   })
 
   it('preserves the saved translation language in the footer after live target settings change', async () => {
@@ -220,11 +221,11 @@ describe('TranslatePage new translation reset', () => {
       const callbacks = args[1] as {
         onSectionsReady?: (count: number) => void
         onSectionDone?: (section: { section_index: number; section_title: string | null; text: string }) => void
-        onJobDone?: (completed: number, failed: number) => void
+        onJobDone?: (completed: number, failed: number, elapsedSeconds?: number | null) => void
       }
       callbacks.onSectionsReady?.(1)
       callbacks.onSectionDone?.({ section_index: 0, section_title: null, text: 'hola' })
-      callbacks.onJobDone?.(1, 0)
+      callbacks.onJobDone?.(1, 0, 7)
     }) as never)
 
     renderPage()
