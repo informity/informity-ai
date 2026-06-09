@@ -259,6 +259,7 @@ export function SettingsPage() {
   const [settings, setSettings] = useState<SettingsData | null>(null)
   const [indexStatus, setIndexStatus] = useState<IndexStatus | null>(null)
   const [scanStatus, setScanStatus] = useState<ScanStatus | null>(null)
+  const [scanActionPending, setScanActionPending] = useState(false)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -312,29 +313,43 @@ export function SettingsPage() {
       ])
       setIndexStatus(statusData as IndexStatus)
       setScanStatus(scanData as ScanStatus)
+      return scanData as ScanStatus
     } catch {
       setIndexStatus(null)
       setScanStatus(null)
+      return null
     }
   }, [])
 
   useEffect(() => {
-    if (scanStatus?.status !== 'running') return undefined
+    if (!scanActionPending) return undefined
     let cancelled = false
     let timeoutId: ReturnType<typeof setTimeout> | undefined
+    const startedAt = Date.now()
+    const MAX_WAIT_MS = 15000
+
     const poll = async () => {
       if (cancelled) return
-      await refreshIndexStatus()
+      const currentStatus = await refreshIndexStatus()
       if (!cancelled) {
-        timeoutId = setTimeout(poll, 2000)
+        if (
+          currentStatus?.status === 'running'
+          || currentStatus?.status === 'completed'
+          || currentStatus?.status === 'failed'
+          || Date.now() - startedAt > MAX_WAIT_MS
+        ) {
+          setScanActionPending(false)
+          return
+        }
+        timeoutId = setTimeout(poll, 500)
       }
     }
-    timeoutId = setTimeout(poll, 2000)
+    void poll()
     return () => {
       cancelled = true
       if (timeoutId) clearTimeout(timeoutId)
     }
-  }, [scanStatus?.status, refreshIndexStatus])
+  }, [scanActionPending, refreshIndexStatus])
 
   useEffect(() => {
     load()
@@ -593,10 +608,12 @@ export function SettingsPage() {
 
   const handleIndexNow = useCallback(async () => {
     if (offline) return
+    setScanActionPending(true)
     try {
       await scanFiles(settings?.watched_directories || undefined, false)
       await refreshIndexStatus()
     } catch (err) {
+      setScanActionPending(false)
       const msg = extractErrorMessage(err, 'Indexing failed')
       showToast('error', msg)
     }
@@ -718,6 +735,7 @@ export function SettingsPage() {
           onRequestClearMcpTokenConfirm={handleConfirmClearMcpToken}
           onRequestRemoveModelConfirm={handleConfirmRemoveModel}
           onCheckForUpdates={() => window.dispatchEvent(new CustomEvent(UPDATE_CHECK_EVENT))}
+          scanActionPending={scanActionPending}
           saving={saving}
         />
       </div>

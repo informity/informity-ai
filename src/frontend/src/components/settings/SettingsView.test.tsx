@@ -124,6 +124,7 @@ function renderSettingsView(options?: {
   settings?: typeof baseSettings
   indexStatus?: typeof baseIndexStatus | null
   scanStatus?: typeof baseScanStatus | null
+  scanActionPending?: boolean
   onIndexNow?: () => Promise<void> | void
   onRescanAll?: () => Promise<void> | void
   onCancelIndex?: () => Promise<void> | void
@@ -159,6 +160,7 @@ function renderSettingsView(options?: {
         onRescanAll={onRescanAll}
         onCancelIndex={onCancelIndex}
         onRebuildIndex={onRebuildIndex}
+        scanActionPending={options?.scanActionPending ?? false}
         saving={false}
       />
     </MemoryRouter>,
@@ -366,22 +368,14 @@ describe('SettingsView tabs and action bar behavior', () => {
     expect(onCancelIndex).not.toHaveBeenCalled()
   })
 
-  it('shows a spinner on Scan Now while the request is pending on the Indexing tab', async () => {
-    let resolveIndexNow: () => void = () => {}
-    const onIndexNow = () => new Promise<void>((resolve) => {
-      resolveIndexNow = resolve
-    })
-
-    renderSettingsView({ section: 'indexing', onIndexNow })
-
-    fireEvent.click(screen.getByRole('button', { name: 'Scan Now' }))
+  it('shows a spinner and progress bar while a scan is pending on the Indexing tab', () => {
+    renderSettingsView({ section: 'indexing', scanActionPending: true })
 
     const scanningButton = screen.getByRole('button', { name: 'Scanning…' })
     expect(scanningButton).toBeInTheDocument()
     expect(scanningButton.querySelector('.settings-btn__icon--spin')).toBeTruthy()
-
-    resolveIndexNow()
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Scan Now' })).toBeInTheDocument())
+    expect(screen.getByText('Starting scan…')).toBeInTheDocument()
+    expect(document.querySelector('.dashboard__hero-progress')).toBeInTheDocument()
   })
 
   it('switches to the Indexing configuration tab and keeps the existing controls', () => {

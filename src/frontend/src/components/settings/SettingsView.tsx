@@ -368,6 +368,7 @@ interface SettingsViewProps {
   onCancelIndex?: () => void | Promise<void>
   onRebuildIndex?: () => void | Promise<void>
   onCheckForUpdates?: () => void
+  scanActionPending?: boolean
   saving: boolean
 }
 
@@ -509,6 +510,7 @@ export function SettingsView({
   onCancelIndex,
   onRebuildIndex,
   onCheckForUpdates,
+  scanActionPending = false,
   saving,
 }: SettingsViewProps) {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -541,7 +543,6 @@ export function SettingsView({
   const [mcpGeneratedToken, setMcpGeneratedToken] = useState('')
   const [integrationTab, setIntegrationTab] = useState<'web-search' | 'mcp'>('web-search')
   const [indexingTab, setIndexingTab] = useState<'overview' | 'settings'>('overview')
-  const [indexActionPending, setIndexActionPending] = useState(false)
   const [mcpTokenError, setMcpTokenError] = useState<string | null>(null)
   const [mcpTokenVisible, setMcpTokenVisible] = useState(false)
   const modelEventStateRef = useRef<ModelOperationEventResponse['state'] | null>(null)
@@ -749,15 +750,18 @@ export function SettingsView({
         : scanStatus?.status === 'failed'
           ? 'Indexing failed'
           : 'Ready'
-  const isIndexActionRunning = isIndexRunning || indexActionPending
+  const isIndexActionRunning = isIndexRunning || scanActionPending
   const indexActionLabel = isIndexActionRunning
     ? 'Scanning…'
     : 'Scan Now'
   const indexProgressText = isIndexRunning && scanStatus
     ? `${scanStatus.files_scanned ?? 0} files scanned · ${scanStatus.files_indexed ?? 0} indexed${(scanStatus.errors ?? 0) > 0 ? ` · ${scanStatus.errors} errors` : ''}${(scanStatus.timeout_errors ?? 0) > 0 ? ` · ${scanStatus.timeout_errors} timeouts` : ''} · ${formatDuration(scanStatus.elapsed_seconds)}`
+    : scanActionPending
+      ? 'Starting scan…'
     : indexStatus?.last_scan_at
       ? `Last scan ${formatRelativeTime(indexStatus.last_scan_at)}`
       : 'No scans have been run yet'
+  const showIndexProgress = scanActionPending || (isIndexRunning && Boolean(scanStatus))
 
   const addDir = () => {
     const path = dirInput.trim()
@@ -1573,10 +1577,7 @@ export function SettingsView({
                   className="settings-btn settings-btn--primary"
                   onClick={() => {
                     if (isIndexActionRunning) return
-                    setIndexActionPending(true)
-                    void Promise.resolve(onIndexNow?.()).finally(() => {
-                      setIndexActionPending(false)
-                    })
+                    void onIndexNow?.()
                   }}
                   disabled={isIndexActionRunning}
                 >
@@ -1599,7 +1600,7 @@ export function SettingsView({
                 )}
               </div>
 
-              {isIndexRunning && scanStatus && (
+              {showIndexProgress && (
                 <div className="dashboard__hero-progress">
                   <div className="dashboard__progress-bar">
                     <div className="dashboard__progress-fill dashboard__progress-fill--indeterminate" />
