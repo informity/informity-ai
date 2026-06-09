@@ -4,7 +4,7 @@
 # ==============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help run dev kill-server dev-restart test lint format reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build tauri-build-mac tauri-build-linux tauri-build-appstore app qa-quick qa-full qa-security qa-lint qa-typecheck qa-tauri-quit-smoke
+.PHONY: help run dev kill-server dev-restart test lint format reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build tauri-build-mac tauri-build-linux-deb tauri-build-linux-rpm tauri-build-appstore app qa-quick qa-full qa-security qa-lint qa-typecheck qa-tauri-quit-smoke
 
 # ==============================================================================
 # Configuration
@@ -91,8 +91,11 @@ tauri-build: ## Build desktop bundle artifacts (requires Rust toolchain + Tauri 
 tauri-build-mac: ## Maintainers: build/sign/notarize/staple/verify macOS release artifacts (requires .env.codesign)
 	./scripts/build_tauri_signed_release.sh
 
-tauri-build-linux: ## Maintainers: build Linux release artifacts (.deb + AppImage)
-	./scripts/build_tauri_linux_release.sh
+tauri-build-linux-deb: ## Maintainers: build Linux release artifacts (.deb + AppImage)
+	./scripts/build_tauri_linux_release.sh deb
+
+tauri-build-linux-rpm: ## Maintainers: build Linux release artifacts (.rpm + AppImage)
+	./scripts/build_tauri_linux_release.sh rpm
 
 tauri-build-appstore: ## Maintainers: build/sign/package/upload macOS App Store artifacts (requires .env.appstore)
 	./scripts/build_tauri_appstore_release.sh
