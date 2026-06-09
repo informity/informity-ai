@@ -306,7 +306,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
         throw err
       }
     }
-    if (!job_id) return
+    if (!job_id) return false
 
     // Persist so a page reload can reconnect to this job
     saveActiveJob({
