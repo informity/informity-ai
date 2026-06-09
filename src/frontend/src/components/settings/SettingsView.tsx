@@ -751,17 +751,17 @@ export function SettingsView({
           ? 'Indexing failed'
           : 'Ready'
   const isIndexActionRunning = isIndexRunning || scanActionPending
-  const indexActionLabel = isIndexActionRunning
+  const indexActionLabel = isIndexRunning
     ? 'Scanning…'
-    : 'Scan Now'
+    : scanActionPending
+      ? 'Starting…'
+      : 'Scan Now'
   const indexProgressText = isIndexRunning && scanStatus
     ? `${scanStatus.files_scanned ?? 0} files scanned · ${scanStatus.files_indexed ?? 0} indexed${(scanStatus.errors ?? 0) > 0 ? ` · ${scanStatus.errors} errors` : ''}${(scanStatus.timeout_errors ?? 0) > 0 ? ` · ${scanStatus.timeout_errors} timeouts` : ''} · ${formatDuration(scanStatus.elapsed_seconds)}`
-    : scanActionPending
-      ? 'Starting scan…'
     : indexStatus?.last_scan_at
       ? `Last scan ${formatRelativeTime(indexStatus.last_scan_at)}`
       : 'No scans have been run yet'
-  const showIndexProgress = scanActionPending || (isIndexRunning && Boolean(scanStatus))
+  const showIndexProgress = isIndexRunning
 
   const addDir = () => {
     const path = dirInput.trim()

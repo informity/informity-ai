@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { getScanStatus, listFileReindexOperations } from '../api'
 import { useChatContext } from '../context/useChatContext'
 import { useOptionalTranslateContext } from '../context/useTranslateContext'
+import { SCAN_ACTION_STATE_EVENT, type ScanActionStateDetail } from '../utils/scanActionState'
 import './Sidebar.css'
 
 const SCAN_STATUS_POLL_MS = 3000
@@ -43,7 +44,20 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   const translateCtx = useOptionalTranslateContext()
   const isTranslating = translateCtx?.isTranslating ?? false
   const [isScanRunning, setIsScanRunning] = useState(false)
+  const [isScanActionPending, setIsScanActionPending] = useState(false)
   const [isFileReindexRunning, setIsFileReindexRunning] = useState(false)
+
+  useEffect(() => {
+    const handleScanActionState = (event: Event) => {
+      const detail = (event as CustomEvent<ScanActionStateDetail>).detail
+      setIsScanActionPending(Boolean(detail?.running))
+    }
+
+    window.addEventListener(SCAN_ACTION_STATE_EVENT, handleScanActionState)
+    return () => {
+      window.removeEventListener(SCAN_ACTION_STATE_EVENT, handleScanActionState)
+    }
+  }, [])
 
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout> | null = null
@@ -115,7 +129,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
         {NAV_ITEMS.filter(({ devOnly }) => !devOnly || import.meta.env.DEV).map(({ path, label, icon }) => {
           const showSpinner =
             (path === '/chat' && isStreaming)
-            || (path === '/settings' && isScanRunning)
+            || (path === '/settings' && (isScanActionPending || isScanRunning))
             || (path === '/files' && isFileReindexRunning)
             || (path === '/translate' && isTranslating)
           const spinnerLabel =

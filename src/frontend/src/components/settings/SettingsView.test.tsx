@@ -124,13 +124,13 @@ function renderSettingsView(options?: {
   settings?: typeof baseSettings
   indexStatus?: typeof baseIndexStatus | null
   scanStatus?: typeof baseScanStatus | null
-  scanActionPending?: boolean
   onIndexNow?: () => Promise<void> | void
   onRescanAll?: () => Promise<void> | void
   onCancelIndex?: () => Promise<void> | void
   onRebuildIndex?: () => Promise<void> | void
   onRequestClearMcpTokenConfirm?: () => Promise<boolean>
   onRequestRemoveModelConfirm?: (modelName: string, modelSizeLabel?: string) => Promise<boolean>
+  scanActionPending?: boolean
 }) {
   const onSave = vi.fn()
   const onDiscard = vi.fn()
@@ -341,7 +341,7 @@ describe('SettingsView tabs and action bar behavior', () => {
     expect(screen.queryByText('Embedding Batch Size')).not.toBeInTheDocument()
   })
 
-  it('shows indexing overview metrics and actions on the Indexing tab', () => {
+  it('shows indexing overview metrics and actions on the Indexing tab', async () => {
     const { onIndexNow, onRescanAll, onCancelIndex, onRebuildIndex } = renderSettingsView({ section: 'indexing' })
 
     const overview = screen.getByText(/Manual scan action and current status/i).closest('.settings-subsection')
@@ -362,20 +362,18 @@ describe('SettingsView tabs and action bar behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Rescan All Files' }))
     fireEvent.click(screen.getByRole('button', { name: 'Rebuild Index' }))
 
-    expect(onIndexNow).toHaveBeenCalledTimes(1)
+    await waitFor(() => expect(onIndexNow).toHaveBeenCalledTimes(1))
     expect(onRescanAll).toHaveBeenCalledTimes(1)
     expect(onRebuildIndex).toHaveBeenCalledTimes(1)
     expect(onCancelIndex).not.toHaveBeenCalled()
   })
 
-  it('shows a spinner and progress bar while a scan is pending on the Indexing tab', () => {
+  it('shows a spinner on Scan Now while scanActionPending is true on the Indexing tab', () => {
     renderSettingsView({ section: 'indexing', scanActionPending: true })
 
-    const scanningButton = screen.getByRole('button', { name: 'Scanning…' })
-    expect(scanningButton).toBeInTheDocument()
-    expect(scanningButton.querySelector('.settings-btn__icon--spin')).toBeTruthy()
-    expect(screen.getByText('Starting scan…')).toBeInTheDocument()
-    expect(document.querySelector('.dashboard__hero-progress')).toBeInTheDocument()
+    const startingButton = screen.getByRole('button', { name: 'Starting…' })
+    expect(startingButton).toBeInTheDocument()
+    expect(startingButton.querySelector('.settings-btn__icon--spin')).toBeTruthy()
   })
 
   it('switches to the Indexing configuration tab and keeps the existing controls', () => {

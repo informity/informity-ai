@@ -32,6 +32,7 @@ import {
 } from '../utils/updateCheck'
 import { proxyWheelToContainer } from '../utils/wheelProxy'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_STORAGE_KEY } from '../utils/uiTheme'
+import { dispatchScanActionState } from '../utils/scanActionState'
 import { setMenuBarIconEnabled } from '../tauriRuntime'
 import '../pages/PlaceholderPage.css'
 
@@ -322,6 +323,11 @@ export function SettingsPage() {
   }, [])
 
   useEffect(() => {
+    const active = scanActionPending || scanStatus?.status === 'running'
+    dispatchScanActionState(active)
+  }, [scanActionPending, scanStatus?.status])
+
+  useEffect(() => {
     if (!scanActionPending) return undefined
     let cancelled = false
     let timeoutId: ReturnType<typeof setTimeout> | undefined
@@ -331,25 +337,49 @@ export function SettingsPage() {
     const poll = async () => {
       if (cancelled) return
       const currentStatus = await refreshIndexStatus()
-      if (!cancelled) {
-        if (
-          currentStatus?.status === 'running'
-          || currentStatus?.status === 'completed'
-          || currentStatus?.status === 'failed'
-          || Date.now() - startedAt > MAX_WAIT_MS
-        ) {
-          setScanActionPending(false)
-          return
-        }
-        timeoutId = setTimeout(poll, 500)
+      if (cancelled) return
+
+      if (
+        currentStatus?.status === 'running'
+        || currentStatus?.status === 'completed'
+        || currentStatus?.status === 'failed'
+        || currentStatus?.status === 'cancelled'
+        || Date.now() - startedAt > MAX_WAIT_MS
+      ) {
+        setScanActionPending(false)
+        return
       }
+
+      timeoutId = setTimeout(poll, 500)
     }
+
     void poll()
     return () => {
       cancelled = true
       if (timeoutId) clearTimeout(timeoutId)
     }
-  }, [scanActionPending, refreshIndexStatus])
+  }, [refreshIndexStatus, scanActionPending])
+
+  useEffect(() => {
+    if (scanStatus?.status !== 'running') return undefined
+    let cancelled = false
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+
+    const poll = async () => {
+      if (cancelled) return
+      const currentStatus = await refreshIndexStatus()
+      if (cancelled) return
+      if (currentStatus?.status === 'running') {
+        timeoutId = setTimeout(poll, 500)
+      }
+    }
+
+    timeoutId = setTimeout(poll, 500)
+    return () => {
+      cancelled = true
+      if (timeoutId) clearTimeout(timeoutId)
+    }
+  }, [refreshIndexStatus, scanStatus?.status])
 
   useEffect(() => {
     load()
@@ -609,6 +639,7 @@ export function SettingsPage() {
   const handleIndexNow = useCallback(async () => {
     if (offline) return
     setScanActionPending(true)
+    dispatchScanActionState(true)
     try {
       await scanFiles(settings?.watched_directories || undefined, false)
       await refreshIndexStatus()
