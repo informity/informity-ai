@@ -13,6 +13,7 @@ vi.mock('../context/useChatContext', () => ({
 }))
 
 vi.mock('../api', () => ({
+  getScanStatus: vi.fn(async () => ({ status: 'completed' })),
   listFileReindexOperations: vi.fn(async () => ({ running_count: 0, operations: [] })),
 }))
 
@@ -55,13 +56,17 @@ describe('Sidebar', () => {
     expect(await screen.findByLabelText('Indexing')).toBeInTheDocument()
   })
 
-  it('does not show a scan spinner on the dashboard item', () => {
+  it('shows a scan spinner on the settings item when scanning is running', async () => {
+    vi.spyOn(api, 'getScanStatus').mockResolvedValueOnce({
+      status: 'running',
+    })
+
     render(
-      <MemoryRouter initialEntries={['/dashboard']}>
+      <MemoryRouter initialEntries={['/settings?section=indexing']}>
         <Sidebar collapsed={false} onToggleCollapsed={() => {}} />
       </MemoryRouter>,
     )
 
-    expect(screen.queryByLabelText('Scanning')).not.toBeInTheDocument()
+    expect(await screen.findByLabelText('Scanning')).toBeInTheDocument()
   })
 })

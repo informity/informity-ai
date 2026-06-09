@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { listFileReindexOperations } from '../api'
+import { getScanStatus, listFileReindexOperations } from '../api'
 import { useChatContext } from '../context/useChatContext'
 import { useOptionalTranslateContext } from '../context/useTranslateContext'
 import './Sidebar.css'
@@ -42,6 +42,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   const { isStreaming } = useChatContext()
   const translateCtx = useOptionalTranslateContext()
   const isTranslating = translateCtx?.isTranslating ?? false
+  const [isScanRunning, setIsScanRunning] = useState(false)
   const [isFileReindexRunning, setIsFileReindexRunning] = useState(false)
 
   useEffect(() => {
@@ -50,12 +51,17 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
 
     const pollStatuses = async () => {
       try {
-        const fileReindexStatus = await listFileReindexOperations('running')
+        const [scanStatus, fileReindexStatus] = await Promise.all([
+          getScanStatus() as Promise<{ status?: string }>,
+          listFileReindexOperations('running'),
+        ])
         if (!cancelled) {
+          setIsScanRunning(scanStatus?.status === 'running')
           setIsFileReindexRunning((fileReindexStatus?.running_count ?? 0) > 0)
         }
       } catch {
         if (!cancelled) {
+          setIsScanRunning(false)
           setIsFileReindexRunning(false)
         }
       } finally {
@@ -109,10 +115,12 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
         {NAV_ITEMS.filter(({ devOnly }) => !devOnly || import.meta.env.DEV).map(({ path, label, icon }) => {
           const showSpinner =
             (path === '/chat' && isStreaming)
+            || (path === '/settings' && isScanRunning)
             || (path === '/files' && isFileReindexRunning)
             || (path === '/translate' && isTranslating)
           const spinnerLabel =
             path === '/chat' ? 'Generating'
+            : path === '/settings' ? 'Scanning'
             : path === '/files' ? 'Indexing'
             : 'Translating'
           const isSettings = path === '/settings'
