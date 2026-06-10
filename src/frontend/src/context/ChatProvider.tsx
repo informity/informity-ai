@@ -46,8 +46,6 @@ interface GetChatResponse {
   messages?: ChatMessageApi[]
   chat_mode?: ChatMode
   specialization_id?: string | null
-  /** Legacy alias; remove after the next version migration window. */
-  role_id?: string | null
   chat_web_search_enabled?: boolean
   chat_web_search_privacy_override?: boolean
 }
@@ -278,7 +276,7 @@ async function resolveFileScopeFromHistory(messages: ChatMessageApi[]): Promise<
 export function ChatProvider({ children }: ChatProviderProps) {
   const [currentChatId, setCurrentChatIdState] = useState<string | null>(null)
   const [currentChatLockedMode, setCurrentChatLockedMode] = useState<ChatMode | null>(null)
-  const [currentChatLockedRoleId, setCurrentChatLockedRoleId] = useState<string | null>(null)
+  const [currentChatLockedSpecializationId, setCurrentChatLockedSpecializationId] = useState<string | null>(null)
   const [activeGenerationChatId, setActiveGenerationChatId] = useState<string | null>(null)
   const [activeGenerationRequestId, setActiveGenerationRequestId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessageDisplay[]>([])
@@ -534,13 +532,11 @@ export function ChatProvider({ children }: ChatProviderProps) {
       if (chatLoadSessionRef.current !== sessionId) return
       const historyMessages = data.messages || []
       const lockedChatMode = isChatMode(data.chat_mode) ? data.chat_mode : undefined
-      const lockedRoleId = typeof data.specialization_id === 'string' && data.specialization_id.trim().length > 0
+      const lockedSpecializationId = typeof data.specialization_id === 'string' && data.specialization_id.trim().length > 0
         ? data.specialization_id.trim()
-        : typeof data.role_id === 'string' && data.role_id.trim().length > 0
-          ? data.role_id.trim()
         : null
       setCurrentChatLockedMode(lockedChatMode ?? null)
-      setCurrentChatLockedRoleId(lockedRoleId)
+      setCurrentChatLockedSpecializationId(lockedSpecializationId)
       const resolvedPrefs = {
         enabled: data.chat_web_search_enabled === true,
         privacyOverride: data.chat_web_search_privacy_override === true,
@@ -615,12 +611,10 @@ export function ChatProvider({ children }: ChatProviderProps) {
           createdAt: m.created_at,
           generationSeconds: m.generation_seconds,
           chatMode: inferredAssistantMode,
-          roleId: (
+          specializationId: (
             typeof m.specialization_id === 'string' && m.specialization_id.trim().length > 0
               ? m.specialization_id.trim()
-              : typeof m.role_id === 'string' && m.role_id.trim().length > 0
-                ? m.role_id.trim()
-              : lockedRoleId
+              : lockedSpecializationId
           ),
           scopedFileName: m.role === 'assistant' ? resolvedFileScope?.filename ?? null : null,
         }
@@ -644,7 +638,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         currentChatIdRef.current = null
         setCurrentChatIdState(null)
         setCurrentChatLockedMode(null)
-        setCurrentChatLockedRoleId(null)
+        setCurrentChatLockedSpecializationId(null)
         setChatWebSearchEnabled(false)
         setChatWebSearchPrivacyOverride(false)
         setChatFileScope(null)
@@ -722,7 +716,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     options?: {
       isInternal?: boolean
       mode?: ChatMode
-      roleId?: string | null
+      specializationId?: string | null
       fileScope?: ChatFileScope | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
@@ -731,8 +725,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const message = text.trim()
     const isInternalMessage = !!options?.isInternal
     const chatMode: ChatMode = options?.mode ?? 'researcher'
-    const roleId = typeof options?.roleId === 'string' && options.roleId.trim().length > 0
-      ? options.roleId.trim()
+    const specializationId = typeof options?.specializationId === 'string' && options.specializationId.trim().length > 0
+      ? options.specializationId.trim()
       : null
     const providedScope = options?.fileScope ?? null
     const chatWebSearchEnabled = !!options?.chatWebSearchEnabled
@@ -798,7 +792,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       content: '',
       sources: [],
       chatMode,
-      roleId,
+      specializationId,
       scopedFileName: effectiveFileScope?.filename ?? null,
       isStreaming: true,
       isContinuation: isInternalMessage,
@@ -930,12 +924,10 @@ export function ChatProvider({ children }: ChatProviderProps) {
               hasRemainingScope: persistedHasRemainingScope,
               stoppedByUser: persistedStoppedByUser,
               chatMode: persistedMode ?? msg.chatMode,
-              roleId: (
+              specializationId: (
                 typeof persisted.specialization_id === 'string' && persisted.specialization_id.trim().length > 0
                   ? persisted.specialization_id.trim()
-                  : typeof persisted.role_id === 'string' && persisted.role_id.trim().length > 0
-                    ? persisted.role_id.trim()
-                  : msg.roleId
+                  : msg.specializationId
               ),
               generationSeconds: persisted.generation_seconds ?? msg.generationSeconds,
               nextAction: persistedNextAction,
@@ -1011,7 +1003,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           stoppedByUser,
           generationSeconds: elapsed,
           chatMode,
-          roleId,
+          specializationId,
           nextAction,
           nextActionReason,
           continuationPasses,
@@ -1038,7 +1030,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 stoppedByUser,
                 generationSeconds: elapsed ?? last.generationSeconds,
                 chatMode: chatMode ?? last.chatMode,
-                roleId: roleId ?? last.roleId,
+                specializationId: specializationId ?? last.specializationId,
                 scopedFileName: effectiveFileScope?.filename ?? last.scopedFileName ?? null,
                 nextAction,
                 nextActionReason,
@@ -1393,7 +1385,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         },
       }, {
         mode: chatMode,
-        roleId,
+        specializationId,
         requestId,
         fileId: effectiveFileScope?.fileId ?? null,
         scopedUploadIds: effectiveScopedUploadIds.length > 0 ? effectiveScopedUploadIds : null,
@@ -1419,7 +1411,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     anchorMessageId?: number,
     options?: {
       mode?: ChatMode
-      roleId?: string | null
+      specializationId?: string | null
       fileScope?: ChatFileScope | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
@@ -1433,7 +1425,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       {
         isInternal: true,
         mode: options?.mode ?? 'researcher',
-        roleId: options?.roleId ?? null,
+        specializationId: options?.specializationId ?? null,
         fileScope: options?.fileScope ?? null,
         chatWebSearchEnabled: options?.chatWebSearchEnabled ?? false,
         chatWebSearchPrivacyOverride: options?.chatWebSearchPrivacyOverride ?? false,
@@ -1452,7 +1444,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     currentChatIdRef.current = null
     setCurrentChatIdState(null)
     setCurrentChatLockedMode(null)
-    setCurrentChatLockedRoleId(null)
+    setCurrentChatLockedSpecializationId(null)
     setChatWebSearchEnabled(false)
     setChatWebSearchPrivacyOverride(false)
     setChatFileScope(null)
@@ -1499,7 +1491,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       value={{
         currentChatId,
         currentChatLockedMode,
-        currentChatLockedRoleId,
+        currentChatLockedSpecializationId,
         setCurrentChatId,
         activeGenerationChatId,
         activeGenerationRequestId,

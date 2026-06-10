@@ -110,7 +110,7 @@ from informity.llm.contract_gate import (
     validate_contract,
 )
 from informity.llm.rag import answer_question
-from informity.llm.roles import (
+from informity.llm.specializations import (
     describe_specialization,
     get_specialization_profile,
     list_specialization_profiles,
@@ -533,7 +533,7 @@ async def _finalize_stopped_stream_if_active(
                                 next_action=NextAction.REGENERATE,
                                 next_action_reason='stopped',
                                 chat_mode=latest_assistant.chat_mode if latest_assistant is not None else None,
-                                role_id=latest_assistant.role_id if latest_assistant is not None else None,
+                                specialization_id=latest_assistant.specialization_id if latest_assistant is not None else None,
                                 retrieval_scope_kind=(
                                     latest_assistant.retrieval_scope_kind if latest_assistant is not None else None
                                 ),
@@ -591,7 +591,7 @@ async def _persist_terminal_assistant_message(
     next_action: NextAction,
     next_action_reason: str | None,
     chat_mode: str,
-    role_id: str | None = None,
+    specialization_id: str | None = None,
     retrieval_scope_kind: str | None = None,
     retrieval_scope_key: str | None = None,
 ) -> tuple[ChatMessage | None, bool]:
@@ -611,7 +611,7 @@ async def _persist_terminal_assistant_message(
         next_action=next_action,
         next_action_reason=next_action_reason,
         chat_mode=chat_mode,
-        role_id=role_id,
+        specialization_id=specialization_id,
         retrieval_scope_kind=retrieval_scope_kind,
         retrieval_scope_key=retrieval_scope_key,
         is_internal=False,
@@ -896,12 +896,6 @@ async def list_specializations() -> list[ChatSpecializationDefinition]:
     ]
 
 
-@router.get('/api/roles', response_model=list[ChatSpecializationDefinition])
-async def list_roles() -> list[ChatSpecializationDefinition]:
-    # Legacy alias; remove after the next version migration window.
-    return await list_specializations()
-
-
 # ==============================================================================
 # POST /api/chat — send a message and stream the response via SSE
 # ==============================================================================
@@ -940,7 +934,7 @@ async def chat(
     await CHAT_GUARD.check_rate_limit()
     requested_run_id = str(request.run_id or '').strip() or None
     resolved_chat_mode = resolve_chat_mode(request.mode)
-    requested_specialization_id = str(request.specialization_id or request.role_id or '').strip() or None
+    requested_specialization_id = str(request.specialization_id or '').strip() or None
     requested_specialization = (
         describe_specialization(requested_specialization_id)
         if requested_specialization_id is not None
@@ -1136,15 +1130,15 @@ async def chat(
         ]
 
     first_user_specialization_id = (
-        str(first_user_message.role_id or '').strip() or None
+        str(first_user_message.specialization_id or '').strip() or None
         if first_user_message is not None
         else None
     )
     first_assistant_specialization_id = next(
         (
-            str(message.role_id or '').strip()
+            str(message.specialization_id or '').strip()
             for message in full_history
-            if message.role == ChatRole.ASSISTANT and (str(message.role_id or '').strip())
+            if message.role == ChatRole.ASSISTANT and (str(message.specialization_id or '').strip())
         ),
         None,
     )
@@ -1185,7 +1179,7 @@ async def chat(
         role    = 'user',
         content = message_text,
         chat_mode = resolved_chat_mode,
-        role_id = resolved_specialization_id,
+        specialization_id = resolved_specialization_id,
         retrieval_scope_kind = retrieval_scope_kind,
         retrieval_scope_key = retrieval_scope_key,
         model_filename = settings.llm_model_filename,
@@ -1227,7 +1221,7 @@ async def chat(
             'chat_mode':        resolved_chat_mode,
             'specialization_id': requested_specialization_id,
             'specialization':    requested_specialization,
-            'role_id':          resolved_specialization_id,
+            'resolved_specialization_id': resolved_specialization_id,
             'model_filename':   settings.llm_model_filename,
             'chat_web_search_enabled': resolved_chat_web_search_enabled,
             'chat_web_search_privacy_override': resolved_chat_web_search_privacy_override,
@@ -1423,7 +1417,7 @@ async def chat(
                                 completion_mode=CompletionMode.SCOPED_COMPLETE,
                                 has_remaining_scope=True,
                                 chat_mode=resolved_chat_mode,
-                                role_id=resolved_specialization_id,
+                                specialization_id=resolved_specialization_id,
                                 retrieval_scope_kind=retrieval_scope_kind,
                                 retrieval_scope_key=retrieval_scope_key,
                             ),
@@ -1481,7 +1475,7 @@ async def chat(
                         trace=trace_writer,
                         classification=locked_classification,
                         chat_mode=resolved_chat_mode,
-                        role_id=resolved_specialization_id,
+                        specialization_id=resolved_specialization_id,
                         chat_web_search_enabled=resolved_chat_web_search_enabled,
                         chat_web_search_privacy_override=resolved_chat_web_search_privacy_override,
                     ).__aiter__()
@@ -1983,7 +1977,7 @@ async def chat(
                     next_action=message_next_action,
                     next_action_reason=message_next_action_reason,
                     chat_mode=resolved_chat_mode,
-                    role_id=resolved_specialization_id,
+                    specialization_id=resolved_specialization_id,
                     retrieval_scope_kind=retrieval_scope_kind,
                     retrieval_scope_key=retrieval_scope_key,
                     is_internal=False,
@@ -2126,7 +2120,7 @@ async def chat(
                     next_action=NextAction.REGENERATE,
                     next_action_reason='stopped',
                     chat_mode=resolved_chat_mode,
-                    role_id=resolved_specialization_id,
+                    specialization_id=resolved_specialization_id,
                     retrieval_scope_kind=retrieval_scope_kind,
                     retrieval_scope_key=retrieval_scope_key,
                 )
@@ -2184,7 +2178,7 @@ async def chat(
                         next_action=cancelled_next_action,
                         next_action_reason=cancelled_next_action_reason,
                         chat_mode=resolved_chat_mode,
-                        role_id=resolved_specialization_id,
+                        specialization_id=resolved_specialization_id,
                         retrieval_scope_kind=retrieval_scope_kind,
                         retrieval_scope_key=retrieval_scope_key,
                     )
@@ -2570,15 +2564,15 @@ async def get_chat_messages(
     )
     locked_chat_mode = first_user_chat_mode or first_assistant_chat_mode
     first_user_specialization_id = (
-        str(first_user_message.role_id or '').strip() or None
+        str(first_user_message.specialization_id or '').strip() or None
         if first_user_message is not None
         else None
     )
     first_assistant_specialization_id = next(
         (
-            str(message.role_id or '').strip()
+            str(message.specialization_id or '').strip()
             for message in messages
-            if message.role == ChatRole.ASSISTANT and (str(message.role_id or '').strip())
+            if message.role == ChatRole.ASSISTANT and (str(message.specialization_id or '').strip())
         ),
         None,
     )
@@ -2603,7 +2597,7 @@ async def get_chat_messages(
         'messages':                          serialized_messages,
         'total':                             len(messages),
         'chat_mode':                         locked_chat_mode,
-        'role_id':                           locked_specialization_id,
+        'specialization_id':                           locked_specialization_id,
         'chat_web_search_enabled':           bool(chat_preferences.get('chat_web_search_enabled')),
         'chat_web_search_privacy_override':  bool(chat_preferences.get('chat_web_search_privacy_override')),
     }

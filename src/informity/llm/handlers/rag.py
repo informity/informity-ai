@@ -443,7 +443,7 @@ class RAGHandler:
         db: aiosqlite.Connection,
         trace: object | None,
         file_ids: list[int] | None = None,
-        role_id: str | None = None,
+        specialization_id: str | None = None,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         profile = get_profile()
         effective_query_type = _resolve_minimal_query_type(classification)
@@ -735,7 +735,7 @@ class RAGHandler:
             format_requirements=format_requirements,
             model_profile=profile,
             chat_mode='researcher',
-            role_id=role_id,
+            specialization_id=specialization_id,
         )
         messages = profile.prepare_messages(messages, effective_query_type)
         prompt_build_ms = (time.perf_counter() - prompt_build_start) * 1000
@@ -855,7 +855,7 @@ class RAGHandler:
         chat_id: str | None = None,
         file_ids: list[int] | None = None,
         chat_mode: str | None = None,
-        role_id: str | None = None,
+        specialization_id: str | None = None,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         """
         Handle RAG query using the single minimal runtime path.
@@ -870,7 +870,7 @@ class RAGHandler:
                 db=db,
                 trace=trace,
                 file_ids=file_ids,
-                role_id=role_id,
+                specialization_id=specialization_id,
             ):
                 yield item
         except _HANDLER_RUNTIME_EXCEPTIONS as exc:

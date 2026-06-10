@@ -37,7 +37,7 @@ from informity.llm.model_adapter import (
     get_profile_for_filename,
     infer_model_id_from_filename,
 )
-from informity.llm.roles import list_specialization_profiles
+from informity.llm.specializations import list_specialization_profiles
 from informity.mcp.constants import generate_mcp_access_token
 from informity.mcp.lifecycle import mcp_lifecycle
 from informity.scanner.watcher import invalidate_watcher_cache
@@ -141,16 +141,6 @@ def _normalize_enabled_specialization_ids(values: object, *, strict: bool = True
         seen.add(specialization_id)
         normalized.append(specialization_id)
     return normalized
-
-
-def _visible_role_ids() -> set[str]:
-    # Legacy alias; remove after the next version migration window.
-    return _visible_specialization_ids()
-
-
-def _normalize_enabled_chat_role_ids(values: object, *, strict: bool = True) -> list[str]:
-    # Legacy alias; remove after the next version migration window.
-    return _normalize_enabled_specialization_ids(values, strict=strict)
 
 
 def _allowed_values_detail(field_name: str, values: tuple[str, ...]) -> str:
@@ -442,9 +432,6 @@ _UPDATABLE_FIELDS: set[str] = {
     'default_chat_mode',
     'enable_specializations',
     'enabled_specialization_ids',
-    # Legacy aliases; remove after the next version migration window.
-    'enable_chat_roles',
-    'enabled_chat_role_ids',
     'entity_extract_acronym',
     'entity_extract_person_name',
     'entity_extract_organization',
@@ -520,12 +507,6 @@ async def get_settings() -> SettingsResponse:
         getattr(s, 'enabled_specialization_ids', []),
         strict=False,
     )
-    if not enabled_specialization_ids:
-        # Legacy fallback; remove after the next version migration window.
-        enabled_specialization_ids = _normalize_enabled_specialization_ids(
-            getattr(s, 'enabled_chat_role_ids', []),
-            strict=False,
-        )
 
     specializations_enabled = len(enabled_specialization_ids) > 0
     enable_specializations = specializations_enabled
@@ -596,9 +577,6 @@ async def get_settings() -> SettingsResponse:
         default_chat_mode = s.default_chat_mode,
         enable_specializations = enable_specializations,
         enabled_specialization_ids = enabled_specialization_ids,
-        # Legacy aliases; remove after the next version migration window.
-        enable_chat_roles = enable_specializations,
-        enabled_chat_role_ids = enabled_specialization_ids,
         entity_extract_acronym = s.entity_extract_acronym,
         entity_extract_person_name = s.entity_extract_person_name,
         entity_extract_organization = s.entity_extract_organization,
@@ -807,15 +785,6 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                 config_data[field_name] = normalized_specialization_ids
                 config_data['enable_specializations'] = len(normalized_specialization_ids) > 0
                 continue
-            if field_name == 'enable_chat_roles':
-                # Legacy compatibility field; canonical source of truth is enabled_specialization_ids.
-                enabled = bool(value)
-                config.settings.enable_chat_roles = enabled
-                config_data['enable_chat_roles'] = enabled
-                if not enabled:
-                    config.settings.enabled_specialization_ids = []
-                    config_data['enabled_specialization_ids'] = []
-                continue
             if field_name == 'llm_model_filename' and value is not None:
                 value = (value or '').strip()
                 if not value:
@@ -865,17 +834,12 @@ async def update_settings(request: SettingsUpdateRequest) -> SettingsResponse:
                 normalized_extensions = _normalize_supported_extensions(value)
                 setattr(config.settings, field_name, normalized_extensions)
                 config_data[field_name] = normalized_extensions
-            elif field_name == 'enabled_chat_role_ids':
-                # Legacy compatibility field; remove after the next version migration window.
+            elif field_name == 'enabled_specialization_ids':
                 normalized_specialization_ids = _normalize_enabled_specialization_ids(value)
                 config.settings.enabled_specialization_ids = normalized_specialization_ids
                 config.settings.enable_specializations = len(normalized_specialization_ids) > 0
-                config.settings.enabled_chat_role_ids = normalized_specialization_ids
-                config.settings.enable_chat_roles = len(normalized_specialization_ids) > 0
                 config_data['enabled_specialization_ids'] = normalized_specialization_ids
                 config_data['enable_specializations'] = len(normalized_specialization_ids) > 0
-                config_data[field_name] = normalized_specialization_ids
-                config_data['enable_chat_roles'] = len(normalized_specialization_ids) > 0
             elif field_name == 'translate_pinned_languages':
                 normalized_languages = _normalize_additional_translate_languages(
                     value,

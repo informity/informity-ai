@@ -61,8 +61,6 @@ const UPDATABLE_KEYS = [
   'chat_history_messages',
   'default_chat_mode',
   'enabled_specialization_ids',
-  // Legacy alias; remove after the next version migration window.
-  'enabled_chat_role_ids',
   'entity_extract_acronym',
   'entity_extract_person_name',
   'entity_extract_organization',
@@ -124,9 +122,6 @@ interface FormState {
   default_chat_mode?: ChatMode
   enable_specializations?: boolean
   enabled_specialization_ids?: string[]
-  // Legacy alias; remove after the next version migration window.
-  enable_chat_roles?: boolean
-  enabled_chat_role_ids?: string[]
   entity_extract_acronym?: boolean
   entity_extract_person_name?: boolean
   entity_extract_organization?: boolean

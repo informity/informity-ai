@@ -22,7 +22,7 @@ import {
   cancelModelDownload,
   downloadModel,
   generateMcpToken,
-  getRoles,
+  getSpecializations,
   getModelOperationEvents,
   getModelProfile,
   getModelsCatalog,
@@ -35,7 +35,7 @@ import {
 import {
   isChatMode,
   type ChatMode,
-  type ChatSpecializationDefinition as ChatRoleDefinition,
+  type ChatSpecializationDefinition as ChatSpecializationDefinition,
   type IndexStatus,
   type ScanStatus,
 } from '../../types/api'
@@ -243,9 +243,6 @@ interface SettingsData {
   default_chat_mode?: ChatMode
   enable_specializations?: boolean
   enabled_specialization_ids?: string[]
-  // Legacy aliases; remove after the next version migration window.
-  enable_chat_roles?: boolean
-  enabled_chat_role_ids?: string[]
   entity_extract_acronym?: boolean
   entity_extract_person_name?: boolean
   entity_extract_organization?: boolean
@@ -315,9 +312,6 @@ interface FormState {
   default_chat_mode: ChatMode
   enable_specializations: boolean
   enabled_specialization_ids: string[]
-  // Legacy aliases; remove after the next version migration window.
-  enable_chat_roles: boolean
-  enabled_chat_role_ids: string[]
   entity_extract_acronym: boolean
   entity_extract_person_name: boolean
   entity_extract_organization: boolean
@@ -403,15 +397,8 @@ function buildFormState(settings: SettingsData): FormState {
     adaptive_rag_tuning: settings.adaptive_rag_tuning ?? true,
     chat_history_messages: settings.chat_history_messages ?? 5,
     default_chat_mode: isChatMode(settings.default_chat_mode) ? settings.default_chat_mode : 'researcher',
-    enable_specializations: settings.enable_specializations ?? settings.enable_chat_roles ?? false,
-    enabled_specialization_ids: Array.isArray(settings.enabled_specialization_ids)
-      ? settings.enabled_specialization_ids
-      : Array.isArray(settings.enabled_chat_role_ids)
-        ? settings.enabled_chat_role_ids
-        : [],
-    // Legacy aliases; remove after the next version migration window.
-    enable_chat_roles: settings.enable_chat_roles ?? settings.enable_specializations ?? false,
-    enabled_chat_role_ids: Array.isArray(settings.enabled_chat_role_ids) ? settings.enabled_chat_role_ids : [],
+    enable_specializations: settings.enable_specializations ?? false,
+    enabled_specialization_ids: Array.isArray(settings.enabled_specialization_ids) ? settings.enabled_specialization_ids : [],
     entity_extract_acronym: settings.entity_extract_acronym ?? true,
     entity_extract_person_name: settings.entity_extract_person_name ?? false,
     entity_extract_organization: settings.entity_extract_organization ?? false,
@@ -532,7 +519,7 @@ export function SettingsView({
     ),
   )
   const [modelsCatalog, setModelsCatalog] = useState<ModelsCatalogResponse | null>(null)
-  const [availableRoles, setAvailableRoles] = useState<ChatRoleDefinition[]>([])
+  const [availableSpecializations, setAvailableSpecializations] = useState<ChatSpecializationDefinition[]>([])
   const [modelDownloadPending, setModelDownloadPending] = useState(false)
   const [modelRemovePending, setModelRemovePending] = useState(false)
   const [modelDownloadError, setModelDownloadError] = useState<string | null>(null)
@@ -551,14 +538,14 @@ export function SettingsView({
 
   useEffect(() => {
     let cancelled = false
-    getRoles()
-      .then((roles) => {
+    getSpecializations()
+      .then((specializations) => {
         if (cancelled) return
-        setAvailableRoles(Array.isArray(roles) ? roles : [])
+        setAvailableSpecializations(Array.isArray(specializations) ? specializations : [])
       })
       .catch(() => {
         if (cancelled) return
-        setAvailableRoles([])
+        setAvailableSpecializations([])
       })
     return () => {
       cancelled = true
@@ -1197,29 +1184,27 @@ export function SettingsView({
           </div>
           <div>
             <div className="settings-file-types">
-              {availableRoles.filter((role) => role.id !== 'general').map((role) => {
-                const checked = (form.enabled_specialization_ids || []).includes(role.id)
+              {availableSpecializations.filter((specialization) => specialization.id !== 'general').map((specialization) => {
+                const checked = (form.enabled_specialization_ids || []).includes(specialization.id)
                 return (
-                  <label key={role.id} className="settings-file-type">
+                  <label key={specialization.id} className="settings-file-type">
                     <input
                       type="checkbox"
                       checked={checked}
                       onChange={() => {
                         const current = form.enabled_specialization_ids || []
                         const next = checked
-                          ? current.filter((id) => id !== role.id)
-                          : [...current, role.id]
+                          ? current.filter((id) => id !== specialization.id)
+                          : [...current, specialization.id]
                         update('enabled_specialization_ids', next)
-                        // Legacy alias; remove after the next version migration window.
-                        update('enabled_chat_role_ids', next)
                       }}
                     />
                     <span>
-                      {role.name}
+                      {specialization.name}
                       <span className="settings-checkbox-row-info ui-tooltip-trigger">
                         <i className="ri-information-line" aria-hidden="true" />
                         <span className="settings-tooltip ui-tooltip">
-                          {role.description}
+                          {specialization.description}
                         </span>
                       </span>
                     </span>

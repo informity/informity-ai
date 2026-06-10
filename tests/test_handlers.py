@@ -22,7 +22,7 @@ from informity.llm.handlers.rag import (
 )
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification
-from informity.llm.roles import get_mode_prompt
+from informity.llm.specializations import get_mode_prompt
 from informity.llm.types import OutputFormat
 from informity.llm.web_search import SearchResult, WebSearchOutcome
 

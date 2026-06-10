@@ -13,7 +13,7 @@ const {
   getCurrentChatMock,
   getFilesMock,
   getMessageRawMock,
-  getRolesMock,
+  getSpecializationsMock,
   getScanStatusMock,
   getSettingsMock,
   listChatUploadsMock,
@@ -32,7 +32,7 @@ const {
   getCurrentChatMock: vi.fn(),
   getFilesMock: vi.fn(),
   getMessageRawMock: vi.fn(),
-  getRolesMock: vi.fn(),
+  getSpecializationsMock: vi.fn(),
   getScanStatusMock: vi.fn(),
   getSettingsMock: vi.fn(),
   listChatUploadsMock: vi.fn(),
@@ -68,7 +68,7 @@ vi.mock('../../api', () => {
     getCurrentChat: getCurrentChatMock,
     getFiles: getFilesMock,
     getMessageRaw: getMessageRawMock,
-    getRoles: getRolesMock,
+    getSpecializations: getSpecializationsMock,
     getScanStatus: getScanStatusMock,
     getSettings: getSettingsMock,
     listChatUploads: listChatUploadsMock,
@@ -86,11 +86,11 @@ vi.mock('../../api', () => {
 describe('History open + sidebar navigation integration', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_specializations: true })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
     getFilesMock.mockResolvedValue({ files: [] })
     getMessageRawMock.mockResolvedValue({ raw_content: null })
-    getRolesMock.mockResolvedValue([])
+    getSpecializationsMock.mockResolvedValue([])
     getScanStatusMock.mockResolvedValue({ status: 'completed' })
     listChatUploadsMock.mockResolvedValue({ chat_id: 'chat-history-integration-1', attachments: [] })
     listFileReindexOperationsMock.mockResolvedValue({ running_count: 0, operations: [] })
@@ -113,7 +113,7 @@ describe('History open + sidebar navigation integration', () => {
           role: 'user',
           content: 'History question',
           chat_mode: 'researcher',
-          role_id: null,
+          specialization_id: null,
           sources: [],
           created_at: '2026-05-10T10:00:00.000Z',
         },
@@ -122,7 +122,7 @@ describe('History open + sidebar navigation integration', () => {
           role: 'assistant',
           content: 'History answer from selected chat',
           chat_mode: 'researcher',
-          role_id: null,
+          specialization_id: null,
           sources: [],
           created_at: '2026-05-10T10:00:02.000Z',
         },

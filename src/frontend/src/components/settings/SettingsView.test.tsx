@@ -5,7 +5,7 @@ import { SettingsView } from './SettingsView'
 import { SETTINGS_ACTIVE_SECTION_STORAGE_KEY } from '../../utils/storageKeys'
 
 vi.mock('../../api', () => ({
-  getRoles: vi.fn(async () => [
+  getSpecializations: vi.fn(async () => [
     { id: 'legal', name: 'Legal', description: 'Legal role', icon: 'ri-scales-3-line' },
     { id: 'security_compliance', name: 'Security & Compliance', description: 'Security role', icon: 'ri-shield-check-line' },
   ]),
@@ -78,8 +78,8 @@ const baseSettings = {
   full_privacy: true,
   adaptive_rag_tuning: true,
   chat_history_messages: 5,
-  enable_chat_roles: true,
-  enabled_chat_role_ids: ['legal', 'security_compliance'],
+  enable_specializations: true,
+  enabled_specialization_ids: ['legal', 'security_compliance'],
   log_level: 'info',
   diagnostics_profile: 'standard',
   chat_trace_logging: false,

@@ -28,8 +28,8 @@ async def test_get_settings_normalizes_without_mutating_config_singleton(
     assert response.llm_model_filename == 'Qwen_Qwen3.5-9B-Q4_K_M.gguf'
     assert response.enabled_specialization_ids == ['legal', 'financial']
     assert response.enable_specializations is True
-    assert response.enabled_chat_role_ids == ['legal', 'financial']
-    assert response.enable_chat_roles is True
+    assert response.enabled_specialization_ids == ['legal', 'financial']
+    assert response.enable_specializations is True
     assert config.settings.llm_model_filename == 'Qwen_Qwen3.5-9B-Q4_K_M.gguf   '
     assert config.settings.llm_model_id == ''
     assert config.settings.enabled_specialization_ids == ['legal', 'invalid', 'financial']

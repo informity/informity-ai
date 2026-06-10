@@ -108,8 +108,6 @@ class ChatRequest(BaseModel):
     run_id: str | None = None      # Optional diagnostics run correlation ID
     mode: str | None = None        # Optional chat mode: assistant | researcher (invalid -> researcher)
     specialization_id: str | None = None  # Optional domain specialization overlay ID
-    # Legacy alias; remove after the next version migration window.
-    role_id: str | None = None     # Optional domain specialization overlay ID (legacy field name)
     chat_web_search_enabled: bool | None = None  # Optional chat-scoped assistant web-search toggle
     chat_web_search_privacy_override: bool | None = None  # Optional chat-scoped privacy override for web search
 
@@ -378,9 +376,6 @@ class SettingsResponse(BaseModel):
     default_chat_mode: Literal['assistant', 'researcher'] = 'researcher'
     enable_specializations: bool = False
     enabled_specialization_ids: list[str] = Field(default_factory=list)
-    # Legacy aliases; remove after the next version migration window.
-    enable_chat_roles: bool = False
-    enabled_chat_role_ids: list[str] = Field(default_factory=list)
     entity_extract_acronym: bool = True
     entity_extract_person_name: bool = False
     entity_extract_organization: bool = False
@@ -478,9 +473,6 @@ class SettingsUpdateRequest(BaseModel):
     default_chat_mode: Literal['assistant', 'researcher'] | None = None
     enable_specializations: bool | None = None
     enabled_specialization_ids: list[str] | None = None
-    # Legacy aliases; remove after the next version migration window.
-    enable_chat_roles: bool | None = None
-    enabled_chat_role_ids: list[str] | None = None
     entity_extract_acronym: bool | None = None
     entity_extract_person_name: bool | None = None
     entity_extract_organization: bool | None = None

@@ -3,14 +3,14 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { ChatView } from './ChatView'
 import { ChatProvider } from '../../context/ChatProvider'
 import { ConfirmProvider } from '../../context/ConfirmProvider'
-import { CHAT_FILE_SCOPE_MAP_STORAGE_KEY, CHAT_MODE_STORAGE_KEY, CHAT_ROLE_ID_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
+import { CHAT_FILE_SCOPE_MAP_STORAGE_KEY, CHAT_MODE_STORAGE_KEY, CHAT_SPECIALIZATION_ID_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
 
   const {
     getFilesMock,
     getChatMock,
     getCurrentChatMock,
     exportChatMarkdownMock,
-    getRolesMock,
+    getSpecializationsMock,
     listChatUploadsMock,
     getMessageRawMock,
   getSettingsMock,
@@ -22,7 +22,7 @@ import { CHAT_FILE_SCOPE_MAP_STORAGE_KEY, CHAT_MODE_STORAGE_KEY, CHAT_ROLE_ID_ST
   getChatMock: vi.fn(),
   getCurrentChatMock: vi.fn(),
   exportChatMarkdownMock: vi.fn(),
-  getRolesMock: vi.fn(),
+  getSpecializationsMock: vi.fn(),
   listChatUploadsMock: vi.fn(),
   getMessageRawMock: vi.fn(),
   getSettingsMock: vi.fn(),
@@ -50,7 +50,7 @@ vi.mock('../../api', () => {
     getChat: getChatMock,
     getCurrentChat: getCurrentChatMock,
     exportChatMarkdown: exportChatMarkdownMock,
-    getRoles: getRolesMock,
+    getSpecializations: getSpecializationsMock,
     listChatUploads: listChatUploadsMock,
     getMessageRaw: getMessageRawMock,
     getSettings: getSettingsMock,
@@ -81,7 +81,7 @@ describe('ChatView new chat behavior', () => {
     vi.clearAllMocks()
     getFilesMock.mockResolvedValue({ files: [] })
     listChatUploadsMock.mockResolvedValue({ chat_id: 'test-chat', attachments: [] })
-    getRolesMock.mockResolvedValue([])
+    getSpecializationsMock.mockResolvedValue([])
     exportChatMarkdownMock.mockResolvedValue({
       chat_id: 'test-chat',
       scope: 'full_chat',
@@ -96,7 +96,7 @@ describe('ChatView new chat behavior', () => {
     cleanup()
     window.localStorage.removeItem(CHAT_FILE_SCOPE_MAP_STORAGE_KEY)
     window.localStorage.removeItem(CHAT_MODE_STORAGE_KEY)
-    window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
+    window.localStorage.removeItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
     window.localStorage.removeItem(FORCE_NEW_CHAT_KEY)
     window.sessionStorage.removeItem(FORCE_NEW_CHAT_KEY)
   })
@@ -233,14 +233,14 @@ describe('ChatView new chat behavior', () => {
   })
 
   it('clears draft role when switching from assistant back to researcher', async () => {
-    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_specializations: true })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
     getMessageRawMock.mockResolvedValue({ raw_content: null })
     streamChatMock.mockResolvedValue(undefined)
     updateSettingsMock.mockResolvedValue({})
     updateCurrentChatMock.mockResolvedValue({})
     getChatMock.mockResolvedValue({ messages: [] })
-    getRolesMock.mockResolvedValue([
+    getSpecializationsMock.mockResolvedValue([
       {
         id: 'legal',
         name: 'Legal',
@@ -257,7 +257,7 @@ describe('ChatView new chat behavior', () => {
       </ConfirmProvider>,
     )
 
-    await waitFor(() => expect(getRolesMock).toHaveBeenCalled())
+    await waitFor(() => expect(getSpecializationsMock).toHaveBeenCalled())
     fireEvent.click(screen.getByRole('button', { name: 'Select chat mode' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Assistant' }))
     expect(screen.getByRole('button', { name: 'Role: General Assistant' })).toBeInTheDocument()
@@ -269,7 +269,7 @@ describe('ChatView new chat behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select chat mode' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Researcher' }))
     expect(screen.queryByRole('button', { name: /Role:/i })).not.toBeInTheDocument()
-    expect(window.localStorage.getItem(CHAT_ROLE_ID_STORAGE_KEY)).toBeNull()
+    expect(window.localStorage.getItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: 'Select chat mode' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Assistant' }))
@@ -514,15 +514,15 @@ describe('ChatView new chat behavior', () => {
     fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'Continue corpus-wide' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
-    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ fileId: null, mode: 'researcher', roleId: null })
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ fileId: null, mode: 'researcher', specializationId: null })
   })
 
   it('locks mode to Researcher when file scope is active', async () => {
     getSettingsMock.mockResolvedValue({
       enable_raw_output_control: false,
-      enabled_chat_role_ids: ['legal'],
+      enabled_specialization_ids: ['legal'],
     })
-    getRolesMock.mockResolvedValue([
+    getSpecializationsMock.mockResolvedValue([
       {
         id: 'legal',
         name: 'Legal',
@@ -555,14 +555,14 @@ describe('ChatView new chat behavior', () => {
   })
 
   it('hides role selector in Researcher mode without scoped/uploaded documents', async () => {
-    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_specializations: true })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
     getMessageRawMock.mockResolvedValue({ raw_content: null })
     streamChatMock.mockResolvedValue(undefined)
     updateSettingsMock.mockResolvedValue({})
     updateCurrentChatMock.mockResolvedValue({})
     getChatMock.mockResolvedValue({ messages: [] })
-    getRolesMock.mockResolvedValue([
+    getSpecializationsMock.mockResolvedValue([
       {
         id: 'legal',
         name: 'Legal',
@@ -579,21 +579,21 @@ describe('ChatView new chat behavior', () => {
       </ConfirmProvider>,
     )
 
-    await waitFor(() => expect(getRolesMock).toHaveBeenCalled())
+    await waitFor(() => expect(getSpecializationsMock).toHaveBeenCalled())
     expect(screen.getByRole('button', { name: 'Select chat mode' })).toHaveTextContent('Researcher')
     expect(screen.queryByRole('button', { name: /Role:/i })).not.toBeInTheDocument()
   })
 
   it('forces General role for corpus-wide Researcher first turn even when a role is stored', async () => {
     window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'researcher')
-    window.localStorage.setItem(CHAT_ROLE_ID_STORAGE_KEY, 'legal')
-    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+    window.localStorage.setItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY, 'legal')
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_specializations: true })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
     getMessageRawMock.mockResolvedValue({ raw_content: null })
     updateSettingsMock.mockResolvedValue({})
     updateCurrentChatMock.mockResolvedValue({})
     getChatMock.mockResolvedValue({ messages: [] })
-    getRolesMock.mockResolvedValue([
+    getSpecializationsMock.mockResolvedValue([
       {
         id: 'legal',
         name: 'Legal',
@@ -611,21 +611,21 @@ describe('ChatView new chat behavior', () => {
       </ConfirmProvider>,
     )
 
-    await waitFor(() => expect(getRolesMock).toHaveBeenCalled())
+    await waitFor(() => expect(getSpecializationsMock).toHaveBeenCalled())
     fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'Corpus question' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
     await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
-    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ roleId: null, mode: 'researcher' })
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ specializationId: null, mode: 'researcher' })
   })
 
   it('restores mode and locked role selection when opening a chat from history', async () => {
-    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_specializations: true })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
     getMessageRawMock.mockResolvedValue({ raw_content: null })
     streamChatMock.mockResolvedValue(undefined)
     updateSettingsMock.mockResolvedValue({})
     updateCurrentChatMock.mockResolvedValue({})
-    getRolesMock.mockResolvedValue([
+    getSpecializationsMock.mockResolvedValue([
       {
         id: 'legal',
         name: 'Legal',
@@ -639,7 +639,7 @@ describe('ChatView new chat behavior', () => {
           id: 701,
           role: 'user',
           content: 'Review this agreement',
-          role_id: 'legal',
+          specialization_id: 'legal',
           chat_mode: 'assistant',
           sources: [],
           created_at: '2026-02-23T12:00:00.000Z',
@@ -648,7 +648,7 @@ describe('ChatView new chat behavior', () => {
           id: 702,
           role: 'assistant',
           content: 'Here is a legal review.',
-          role_id: 'legal',
+          specialization_id: 'legal',
           chat_mode: 'assistant',
           sources: [],
           created_at: '2026-02-23T12:00:05.000Z',
@@ -674,22 +674,22 @@ describe('ChatView new chat behavior', () => {
     expect(roleButton).toBeDisabled()
   })
 
-  it('keeps history role when roles load after chat history', async () => {
-    const rolesDeferred = createDeferred<Array<{ id: string; name: string; description: string; icon: string }>>()
-    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+  it('keeps history role when specializations load after chat history', async () => {
+    const specializationsDeferred = createDeferred<Array<{ id: string; name: string; description: string; icon: string }>>()
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_specializations: true })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
     getMessageRawMock.mockResolvedValue({ raw_content: null })
     streamChatMock.mockResolvedValue(undefined)
     updateSettingsMock.mockResolvedValue({})
     updateCurrentChatMock.mockResolvedValue({})
-    getRolesMock.mockReturnValue(rolesDeferred.promise)
+    getSpecializationsMock.mockReturnValue(specializationsDeferred.promise)
     getChatMock.mockResolvedValue({
       messages: [
         {
           id: 801,
           role: 'user',
           content: 'Review this agreement',
-          role_id: 'legal',
+          specialization_id: 'legal',
           chat_mode: 'assistant',
           sources: [],
           created_at: '2026-02-23T12:00:00.000Z',
@@ -698,7 +698,7 @@ describe('ChatView new chat behavior', () => {
           id: 802,
           role: 'assistant',
           content: 'Here is a legal review.',
-          role_id: 'legal',
+          specialization_id: 'legal',
           chat_mode: 'assistant',
           sources: [],
           created_at: '2026-02-23T12:00:05.000Z',
@@ -720,7 +720,7 @@ describe('ChatView new chat behavior', () => {
     })
     expect(screen.getByRole('button', { name: 'Role: Legal' })).toBeInTheDocument()
 
-    rolesDeferred.resolve([
+    specializationsDeferred.resolve([
       {
         id: 'legal',
         name: 'Legal',
@@ -729,18 +729,18 @@ describe('ChatView new chat behavior', () => {
       },
     ])
 
-    await waitFor(() => expect(getRolesMock).toHaveBeenCalled())
+    await waitFor(() => expect(getSpecializationsMock).toHaveBeenCalled())
     expect(screen.getByRole('button', { name: 'Role: Legal' })).toBeInTheDocument()
   })
 
-  it('restores locked role from chat-level payload when message role_id is missing', async () => {
-    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+  it('restores locked role from chat-level payload when message specialization_id is missing', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_specializations: true })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
     getMessageRawMock.mockResolvedValue({ raw_content: null })
     streamChatMock.mockResolvedValue(undefined)
     updateSettingsMock.mockResolvedValue({})
     updateCurrentChatMock.mockResolvedValue({})
-    getRolesMock.mockResolvedValue([
+    getSpecializationsMock.mockResolvedValue([
       {
         id: 'legal',
         name: 'Legal',
@@ -750,13 +750,13 @@ describe('ChatView new chat behavior', () => {
     ])
     getChatMock.mockResolvedValue({
       chat_mode: 'assistant',
-      role_id: 'legal',
+      specialization_id: 'legal',
       messages: [
         {
           id: 901,
           role: 'user',
           content: 'Review this agreement',
-          role_id: null,
+          specialization_id: null,
           chat_mode: 'assistant',
           sources: [],
           created_at: '2026-02-23T12:00:00.000Z',
@@ -765,7 +765,7 @@ describe('ChatView new chat behavior', () => {
           id: 902,
           role: 'assistant',
           content: 'Here is a legal review.',
-          role_id: null,
+          specialization_id: null,
           chat_mode: 'assistant',
           sources: [],
           created_at: '2026-02-23T12:00:05.000Z',
@@ -789,13 +789,13 @@ describe('ChatView new chat behavior', () => {
   })
 
   it('locks role selector for history chat even when role is General', async () => {
-    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_specializations: true })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
     getMessageRawMock.mockResolvedValue({ raw_content: null })
     streamChatMock.mockResolvedValue(undefined)
     updateSettingsMock.mockResolvedValue({})
     updateCurrentChatMock.mockResolvedValue({})
-    getRolesMock.mockResolvedValue([
+    getSpecializationsMock.mockResolvedValue([
       {
         id: 'legal',
         name: 'Legal',
@@ -805,13 +805,13 @@ describe('ChatView new chat behavior', () => {
     ])
     getChatMock.mockResolvedValue({
       chat_mode: 'assistant',
-      role_id: null,
+      specialization_id: null,
       messages: [
         {
           id: 9301,
           role: 'user',
           content: 'General assistant question',
-          role_id: null,
+          specialization_id: null,
           chat_mode: 'assistant',
           sources: [],
           created_at: '2026-02-23T12:00:00.000Z',
@@ -820,7 +820,7 @@ describe('ChatView new chat behavior', () => {
           id: 9302,
           role: 'assistant',
           content: 'General assistant answer.',
-          role_id: null,
+          specialization_id: null,
           chat_mode: 'assistant',
           sources: [],
           created_at: '2026-02-23T12:00:02.000Z',
@@ -844,12 +844,12 @@ describe('ChatView new chat behavior', () => {
   })
 
   it('keeps send and upload controls active for history chats while mode/role remain locked', async () => {
-    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_specializations: true })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
     getMessageRawMock.mockResolvedValue({ raw_content: null })
     updateSettingsMock.mockResolvedValue({})
     updateCurrentChatMock.mockResolvedValue({})
-    getRolesMock.mockResolvedValue([
+    getSpecializationsMock.mockResolvedValue([
       {
         id: 'legal',
         name: 'Legal',
@@ -864,7 +864,7 @@ describe('ChatView new chat behavior', () => {
           id: 9401,
           role: 'user',
           content: 'Researcher history question',
-          role_id: null,
+          specialization_id: null,
           chat_mode: 'researcher',
           sources: [],
           created_at: '2026-02-23T12:00:00.000Z',
@@ -873,7 +873,7 @@ describe('ChatView new chat behavior', () => {
           id: 9402,
           role: 'assistant',
           content: 'Researcher history answer.',
-          role_id: null,
+          specialization_id: null,
           chat_mode: 'researcher',
           sources: [],
           created_at: '2026-02-23T12:00:02.000Z',
@@ -901,12 +901,12 @@ describe('ChatView new chat behavior', () => {
   })
 
   it('keeps history file-scope controls active while mode remains locked', async () => {
-    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_specializations: true })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
     getMessageRawMock.mockResolvedValue({ raw_content: null })
     updateSettingsMock.mockResolvedValue({})
     updateCurrentChatMock.mockResolvedValue({})
-    getRolesMock.mockResolvedValue([])
+    getSpecializationsMock.mockResolvedValue([])
     streamChatMock.mockResolvedValue(undefined)
     getChatMock.mockResolvedValue({
       messages: [
@@ -914,7 +914,7 @@ describe('ChatView new chat behavior', () => {
           id: 9501,
           role: 'user',
           content: 'Scoped history question',
-          role_id: null,
+          specialization_id: null,
           chat_mode: 'researcher',
           sources: [],
           created_at: '2026-02-23T12:00:00.000Z',
@@ -923,7 +923,7 @@ describe('ChatView new chat behavior', () => {
           id: 9502,
           role: 'assistant',
           content: 'Scoped history answer.',
-          role_id: null,
+          specialization_id: null,
           chat_mode: 'researcher',
           sources: [],
           created_at: '2026-02-23T12:00:02.000Z',
@@ -953,12 +953,12 @@ describe('ChatView new chat behavior', () => {
   })
 
   it('locks assistant mode and legal role across send and history reopen', async () => {
-    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_chat_roles: true })
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_specializations: true })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
     getMessageRawMock.mockResolvedValue({ raw_content: null })
     updateSettingsMock.mockResolvedValue({})
     updateCurrentChatMock.mockResolvedValue({})
-    getRolesMock.mockResolvedValue([
+    getSpecializationsMock.mockResolvedValue([
       {
         id: 'legal',
         name: 'Legal',
@@ -976,7 +976,7 @@ describe('ChatView new chat behavior', () => {
           id: 9100,
           role: 'user',
           content: 'First legal assistant question',
-          role_id: 'legal',
+          specialization_id: 'legal',
           chat_mode: 'assistant',
           sources: [],
           created_at: '2026-02-23T12:00:00.000Z',
@@ -985,7 +985,7 @@ describe('ChatView new chat behavior', () => {
           id: 9101,
           role: 'assistant',
           content: 'Legal assistant response.',
-          role_id: 'legal',
+          specialization_id: 'legal',
           chat_mode: 'assistant',
           sources: [],
           created_at: '2026-02-23T12:00:02.000Z',
@@ -1012,7 +1012,7 @@ describe('ChatView new chat behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
     await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(1))
-    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ mode: 'assistant', roleId: 'legal' })
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ mode: 'assistant', specializationId: 'legal' })
 
     firstRender.unmount()
 
@@ -1035,13 +1035,13 @@ describe('ChatView new chat behavior', () => {
   it('preserves locked role on existing chat even when role is unchecked in settings', async () => {
     getSettingsMock.mockResolvedValue({
       enable_raw_output_control: false,
-      enabled_chat_role_ids: [],
+      enabled_specialization_ids: [],
     })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
     getMessageRawMock.mockResolvedValue({ raw_content: null })
     updateSettingsMock.mockResolvedValue({})
     updateCurrentChatMock.mockResolvedValue({})
-    getRolesMock.mockResolvedValue([
+    getSpecializationsMock.mockResolvedValue([
       {
         id: 'legal',
         name: 'Legal',
@@ -1056,7 +1056,7 @@ describe('ChatView new chat behavior', () => {
           id: 9200,
           role: 'user',
           content: 'Follow-up legal question',
-          role_id: 'legal',
+          specialization_id: 'legal',
           chat_mode: 'assistant',
           sources: [],
           created_at: '2026-02-23T12:00:00.000Z',
@@ -1065,7 +1065,7 @@ describe('ChatView new chat behavior', () => {
           id: 9201,
           role: 'assistant',
           content: 'Legal response.',
-          role_id: 'legal',
+          specialization_id: 'legal',
           chat_mode: 'assistant',
           sources: [],
           created_at: '2026-02-23T12:00:02.000Z',
@@ -1089,7 +1089,7 @@ describe('ChatView new chat behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
 
     await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(1))
-    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ mode: 'assistant', roleId: 'legal' })
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ mode: 'assistant', specializationId: 'legal' })
   })
 
   it('shows edit control only on the latest non-internal user message after streaming completes', async () => {

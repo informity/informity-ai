@@ -147,8 +147,6 @@ class ChatMessage(BaseModel):
     next_action_reason: str | None = None
     chat_mode: str | None = None
     specialization_id: str | None = None
-    # Legacy alias; remove after the next version migration window.
-    role_id: str | None = None
     retrieval_scope_kind: str | None = None
     retrieval_scope_key: str | None = None
     model_filename: str | None = None
@@ -156,11 +154,7 @@ class ChatMessage(BaseModel):
     created_at:       datetime | None = None
 
     @model_validator(mode='after')
-    def _normalize_specialization_alias(self) -> 'ChatMessage':
-        if self.specialization_id is None and self.role_id is not None:
-            self.specialization_id = self.role_id
-        elif self.role_id is None and self.specialization_id is not None:
-            self.role_id = self.specialization_id
+    def _normalize_specialization(self) -> 'ChatMessage':
         return self
 
 

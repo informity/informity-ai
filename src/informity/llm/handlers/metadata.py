@@ -72,7 +72,7 @@ class MetadataHandler:
         chat_id: str | None = None,
         file_ids: list[int] | None = None,
         chat_mode: str | None = None,
-        role_id: str | None = None,
+        specialization_id: str | None = None,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         """
         Handle metadata query by routing to appropriate SQLite query.

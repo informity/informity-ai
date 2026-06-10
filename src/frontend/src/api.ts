@@ -270,7 +270,6 @@ export async function streamChat(
   options?: {
     mode?: ChatMode
     specializationId?: string | null
-    roleId?: string | null
     requestId?: string
     fileId?: number | null
     scopedUploadIds?: string[] | null
@@ -297,9 +296,7 @@ export async function streamChat(
     scoped_file_ids: scopedFileIds,
     scoped_upload_ids: scopedUploadIds.length > 0 ? scopedUploadIds : null,
     mode: options?.mode ?? 'researcher',
-    specialization_id: options?.specializationId ?? options?.roleId ?? null,
-    // Legacy alias; remove after the next version migration window.
-    role_id: options?.roleId ?? null,
+    specialization_id: options?.specializationId ?? null,
     request_id: options?.requestId ?? null,
     chat_web_search_enabled: options?.chatWebSearchEnabled ?? false,
     chat_web_search_privacy_override: options?.chatWebSearchPrivacyOverride ?? false,
@@ -652,11 +649,6 @@ export async function getSettings(): Promise<unknown> {
 
 export async function getSpecializations(): Promise<ChatSpecializationDefinition[]> {
   return request<ChatSpecializationDefinition[]>('GET', '/api/specializations')
-}
-
-export async function getRoles(): Promise<ChatSpecializationDefinition[]> {
-  // Legacy alias; remove after the next version migration window.
-  return getSpecializations()
 }
 
 export async function getModelProfile(modelFilename: string): Promise<unknown> {

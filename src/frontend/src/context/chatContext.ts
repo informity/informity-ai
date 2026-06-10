@@ -8,7 +8,7 @@ import type { ChatFileScope, ChatMessageDisplay, ChatMode, ChatUploadAttachment 
 export interface ChatContextValue {
   currentChatId: string | null
   currentChatLockedMode: ChatMode | null
-  currentChatLockedRoleId: string | null
+  currentChatLockedSpecializationId: string | null
   setCurrentChatId: (id: string | null) => void
   activeGenerationChatId: string | null
   activeGenerationRequestId: string | null
@@ -37,7 +37,7 @@ export interface ChatContextValue {
     options?: {
       isInternal?: boolean
       mode?: ChatMode
-      roleId?: string | null
+      specializationId?: string | null
       fileScope?: ChatFileScope | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
@@ -47,7 +47,7 @@ export interface ChatContextValue {
     anchorMessageId?: number,
     options?: {
       mode?: ChatMode
-      roleId?: string | null
+      specializationId?: string | null
       fileScope?: ChatFileScope | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean

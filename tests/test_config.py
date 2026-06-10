@@ -52,8 +52,8 @@ def test_load_config_file_values_migrates_legacy_specialization_keys(tmp_path, m
     config_path.write_text(
         json.dumps(
             {
-                'enable_chat_roles': True,
-                'enabled_chat_role_ids': ['legal', 'financial', ''],
+                'enable_specializations': True,
+                'enabled_specialization_ids': ['legal', 'financial', ''],
                 'ui_theme': 'onyx',
             }
         ),

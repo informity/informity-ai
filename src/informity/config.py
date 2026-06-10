@@ -258,6 +258,7 @@ def _load_config_file_values() -> dict:
         data = json.loads(config_path.read_text(encoding='utf-8'))
         if not isinstance(data, dict):
             return {}
+        original_enabled_specialization_ids = data.get('enabled_specialization_ids')
         # Resolve watched_directories to absolute paths so scans use consistent paths
         if 'watched_directories' in data and isinstance(data['watched_directories'], list):
             normalized_paths = normalize_paths(
@@ -277,9 +278,7 @@ def _load_config_file_values() -> dict:
             else:
                 data['ui_theme'] = _DEFAULT_UI_THEME
 
-        # Migration: specialization is the canonical term; legacy alias keys remain only as aliases
-        # during the compatibility window. Rewrite old persisted keys on startup so future loads
-        # only see the specialization fields.
+        # Migration: specialization is the canonical term; old role-shaped keys are rewritten on startup.
         legacy_enable_roles = data.pop('enable_chat_roles', None)
         legacy_enabled_role_ids = data.pop('enabled_chat_role_ids', None)
         has_legacy_specialization_migration = (
@@ -298,7 +297,21 @@ def _load_config_file_values() -> dict:
                     ]
                 else:
                     data['enabled_specialization_ids'] = []
-            try:
+        if isinstance(data.get('enabled_specialization_ids'), list):
+            normalized_enabled_specialization_ids = [
+                str(item).strip()
+                for item in data['enabled_specialization_ids']
+                if str(item).strip()
+            ]
+            if normalized_enabled_specialization_ids != data['enabled_specialization_ids']:
+                data['enabled_specialization_ids'] = normalized_enabled_specialization_ids
+                has_legacy_specialization_migration = True
+        should_repair_specialization_keys = (
+            has_legacy_specialization_migration
+            or data.get('enabled_specialization_ids') != original_enabled_specialization_ids
+        )
+        try:
+            if should_repair_specialization_keys:
                 config_path.write_text(serialize_config(data), encoding='utf-8')
                 ensure_private_file(config_path)
                 log.info(
@@ -306,7 +319,8 @@ def _load_config_file_values() -> dict:
                     path=str(config_path),
                     migrated_keys=['enable_chat_roles', 'enabled_chat_role_ids'],
                 )
-            except OSError as exc:
+        except OSError as exc:
+            if should_repair_specialization_keys:
                 log.warning(
                     'repair_config_specialization_keys_failed',
                     path=str(config_path),
@@ -563,9 +577,6 @@ class Settings(BaseSettings):
     enable_specializations: bool = False
     # Enabled built-in specialization IDs shown in the specialization picker when enabled.
     enabled_specialization_ids: list[str] = Field(default_factory=list)
-    # Legacy compatibility aliases; remove after the next version migration window.
-    enable_chat_roles: bool = False
-    enabled_chat_role_ids: list[str] = Field(default_factory=list)
     # Chat auto-continuation policy for long/strict outputs.
     chat_auto_continue_enabled: bool = True
     chat_auto_continue_default_max_rounds: int = 2
@@ -832,11 +843,6 @@ def _build_settings() -> Settings:
     settings_field_names = set(Settings.model_fields)
     init_kwargs = {k: v for k, v in config_values.items() if k in settings_field_names}
 
-    # Migration: specialization is the canonical term; legacy alias fields remain as aliases.
-    if 'enabled_specialization_ids' not in init_kwargs and 'enabled_chat_role_ids' in init_kwargs:
-        init_kwargs['enabled_specialization_ids'] = init_kwargs.get('enabled_chat_role_ids', [])
-    if 'enable_specializations' not in init_kwargs and 'enable_chat_roles' in init_kwargs:
-        init_kwargs['enable_specializations'] = init_kwargs.get('enable_chat_roles', False)
 
     # Temporarily unset env vars for keys that we have in config, so that
     # pydantic uses our config values (init_kwargs) instead of env.
@@ -849,9 +855,6 @@ def _build_settings() -> Settings:
 
     try:
         new_settings = Settings(**init_kwargs)
-        # Legacy aliases: keep the old alias-shaped fields mirrored in memory until callers are removed.
-        new_settings.enable_chat_roles = bool(new_settings.enable_specializations)
-        new_settings.enabled_chat_role_ids = list(new_settings.enabled_specialization_ids)
         return new_settings
     finally:
         for env_key, value in saved_env.items():
@@ -888,9 +891,6 @@ def reset_to_factory_defaults() -> Settings:
         'default_chat_mode':      'researcher',
         'enable_specializations': False,
         'enabled_specialization_ids': [],
-        # Legacy compatibility aliases; remove after the next version migration window.
-        'enable_chat_roles':      False,
-        'enabled_chat_role_ids':  [],
         'rag_minimal_mode':        True,
         'adaptive_rag_tuning':     True,  # Enabled by default
         'ui_theme':                 _DEFAULT_UI_THEME,

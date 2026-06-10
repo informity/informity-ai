@@ -6,7 +6,7 @@
 from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.prompt_builder import build_messages
-from informity.llm.roles import compose_prompt
+from informity.llm.specializations import compose_prompt
 
 
 class _StubProfile:
@@ -267,30 +267,30 @@ class TestPromptBuilder:
         assert messages[0]['content'] == f'{expected_system_prefix}\n\nContext:\n'
 
     def test_builder_general_specialization_parity_when_specialization_absent(self) -> None:
-        messages_no_specialization = build_messages('Question', [], chat_mode='researcher', role_id=None)
+        messages_no_specialization = build_messages('Question', [], chat_mode='researcher', specialization_id=None)
         messages_legacy = build_messages('Question', [], chat_mode='researcher')
         assert messages_no_specialization[0]['content'] == messages_legacy[0]['content']
 
     def test_builder_applies_specialization_overlay_when_specialization_present(self) -> None:
-        messages = build_messages('Question', [], chat_mode='researcher', role_id='legal')
+        messages = build_messages('Question', [], chat_mode='researcher', specialization_id='legal')
         assert 'Specialization Identity:' in messages[0]['content']
         assert 'Specialization Disclaimer:' not in messages[0]['content']
-        assert 'Role Evidence Discipline:' in messages[0]['content']
+        assert 'Specialization Evidence Discipline:' in messages[0]['content']
 
     def test_builder_applies_specialization_specific_financial_numeric_discipline(self) -> None:
-        messages = build_messages('Question', [], chat_mode='researcher', role_id='financial')
+        messages = build_messages('Question', [], chat_mode='researcher', specialization_id='financial')
         assert 'Prioritize financial interpretation' in messages[0]['content']
-        assert 'Role Output Guardrails:' not in messages[0]['content']
+        assert 'Specialization Output Guardrails:' not in messages[0]['content']
         assert 'Financial Output Contract:' not in messages[0]['content']
-        assert 'Role Evidence Discipline:' in messages[0]['content']
+        assert 'Specialization Evidence Discipline:' in messages[0]['content']
 
     def test_builder_applies_specialization_specific_technical_non_invention_rule(self) -> None:
-        messages = build_messages('Question', [], chat_mode='researcher', role_id='technical')
+        messages = build_messages('Question', [], chat_mode='researcher', specialization_id='technical')
         assert 'avoid invented architecture' in messages[0]['content']
         assert 'Technical Output Contract:' in messages[0]['content']
 
     def test_builder_applies_specialization_specific_legal_compact_contract(self) -> None:
-        messages = build_messages('Question', [], chat_mode='researcher', role_id='legal')
+        messages = build_messages('Question', [], chat_mode='researcher', specialization_id='legal')
         assert 'Prioritize legal risk identification' in messages[0]['content']
         assert 'Legal Output Contract:' not in messages[0]['content']
 

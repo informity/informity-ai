@@ -48,8 +48,8 @@ interface ChatMessageProps {
   nextAction?: 'none' | 'continue' | 'regenerate' | 'assistant_switch'
   continueLabel?: 'Continue' | 'Continue Again'
   webSearchUsed?: boolean
-  roleName?: string
-  roleIcon?: string
+  specializationName?: string
+  specializationIcon?: string
   createdAt?: string
   generationSeconds?: number
   enableRawOutputControl?: boolean
@@ -88,8 +88,8 @@ function ChatMessageComponent({
   nextAction = 'none',
   continueLabel = 'Continue',
   webSearchUsed = false,
-  roleName,
-  roleIcon,
+  specializationName,
+  specializationIcon,
   createdAt,
   generationSeconds,
   enableRawOutputControl = false,
@@ -201,13 +201,13 @@ function ChatMessageComponent({
       ),
     })
   }
-  if (!isUser && roleName) {
+  if (!isUser && specializationName) {
     assistantMetaItems.push({
       key: 'role',
       node: (
         <div className="chat-message__meta-item">
-          <i className={`${roleIcon || 'ri-user-settings-line'} chat-message__meta-icon`} aria-hidden />
-          <span>{roleName}</span>
+          <i className={`${specializationIcon || 'ri-user-settings-line'} chat-message__meta-icon`} aria-hidden />
+          <span>{specializationName}</span>
         </div>
       ),
     })
@@ -708,8 +708,8 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.nextAction === next.nextAction &&
     prev.continueLabel === next.continueLabel &&
     prev.webSearchUsed === next.webSearchUsed &&
-    prev.roleName === next.roleName &&
-    prev.roleIcon === next.roleIcon &&
+    prev.specializationName === next.specializationName &&
+    prev.specializationIcon === next.specializationIcon &&
     prev.createdAt === next.createdAt &&
     prev.generationSeconds === next.generationSeconds &&
     prev.enableRawOutputControl === next.enableRawOutputControl &&

@@ -17,7 +17,7 @@ PLUGIN_DIRECTORY_NAME = 'plugins'
 PLUGIN_MANIFEST_FILENAME = 'plugin.json'
 PLUGIN_STATE_FILENAME = 'plugins-state.json'
 
-PLUGIN_TYPE_VALUES = ('runtime', 'role', 'specialization')
+PLUGIN_TYPE_VALUES = ('runtime', 'specialization')
 PLUGIN_HOOK_POINT_VALUES = (
     'prompt_suffix',
     'system_prompt_fragment',
@@ -69,7 +69,7 @@ class PluginManifest(BaseModel):
     id: str
     name: str
     version: str
-    plugin_type: Literal['runtime', 'role', 'specialization']
+    plugin_type: Literal['runtime', 'specialization']
     entrypoint: str | None = None
     capabilities: list[str] = Field(default_factory=list)
     permissions: list[str] = Field(default_factory=list)
@@ -152,7 +152,7 @@ class PluginInventoryItem(BaseModel):
     id: str
     name: str | None = None
     version: str | None = None
-    plugin_type: Literal['runtime', 'role', 'specialization'] | None = None
+    plugin_type: Literal['runtime', 'specialization'] | None = None
     path: str
     installed: bool
     enabled: bool

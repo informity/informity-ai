@@ -303,7 +303,7 @@ async def test_chat_allows_follow_up_when_role_is_omitted_but_chat_role_is_locke
                 role=ChatRole.USER,
                 content='Initial legal question',
                 chat_mode='assistant',
-                role_id='legal',
+                specialization_id='legal',
             ),
         )
 
@@ -318,7 +318,7 @@ async def test_chat_allows_follow_up_when_role_is_omitted_but_chat_role_is_locke
                     message='Follow-up question without explicit role id',
                     chat_id=chat_id,
                     mode='assistant',
-                    role_id=None,
+                    specialization_id=None,
                 ),
                 db=db,
             )
@@ -344,7 +344,7 @@ async def test_chat_allows_follow_up_when_user_role_missing_but_assistant_role_l
                 role=ChatRole.USER,
                 content='Initial question without role metadata',
                 chat_mode='assistant',
-                role_id=None,
+                specialization_id=None,
             ),
         )
         await insert_chat_message(
@@ -354,7 +354,7 @@ async def test_chat_allows_follow_up_when_user_role_missing_but_assistant_role_l
                 role=ChatRole.ASSISTANT,
                 content='Assistant reply tagged legal',
                 chat_mode='assistant',
-                role_id='legal',
+                specialization_id='legal',
             ),
         )
 
@@ -369,7 +369,7 @@ async def test_chat_allows_follow_up_when_user_role_missing_but_assistant_role_l
                     message='Follow-up with legal role should be accepted',
                     chat_id=chat_id,
                     mode='assistant',
-                    role_id='legal',
+                    specialization_id='legal',
                 ),
                 db=db,
             )
@@ -395,7 +395,7 @@ async def test_chat_coerces_follow_up_mode_to_locked_chat_mode(
                 role=ChatRole.USER,
                 content='Initial researcher question',
                 chat_mode='researcher',
-                role_id='legal',
+                specialization_id='legal',
             ),
         )
         await routes_chat.chat(
@@ -403,7 +403,7 @@ async def test_chat_coerces_follow_up_mode_to_locked_chat_mode(
                 message='Follow-up tries to switch mode',
                 chat_id=chat_id,
                 mode='assistant',
-                role_id='legal',
+                specialization_id='legal',
             ),
             db=db,
         )
@@ -416,7 +416,7 @@ async def test_chat_coerces_follow_up_mode_to_locked_chat_mode(
 
 
 @pytest.mark.asyncio
-async def test_get_chat_preserves_role_id_from_db_rows(
+async def test_get_chat_preserves_specialization_id_from_db_rows(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -433,12 +433,12 @@ async def test_get_chat_preserves_role_id_from_db_rows(
                 role=ChatRole.USER,
                 content='Initial legal question',
                 chat_mode='assistant',
-                role_id='legal',
+                specialization_id='legal',
             ),
         )
         history = await get_chat(db, chat_id)
         assert len(history) == 1
-        assert history[0].role_id == 'legal'
+        assert history[0].specialization_id == 'legal'
     finally:
         await db.close()
 
@@ -461,7 +461,7 @@ async def test_chat_coerces_follow_up_role_to_locked_chat_role(
                 role=ChatRole.USER,
                 content='Initial legal question',
                 chat_mode='assistant',
-                role_id='legal',
+                specialization_id='legal',
             ),
         )
 
@@ -476,7 +476,7 @@ async def test_chat_coerces_follow_up_role_to_locked_chat_role(
                     message='Follow-up tries to switch role',
                     chat_id=chat_id,
                     mode='assistant',
-                    role_id='financial',
+                    specialization_id='financial',
                 ),
                 db=db,
             )

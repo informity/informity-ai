@@ -1,6 +1,6 @@
-from informity.llm.roles import (
+from informity.llm.specializations import (
     MODE_REGISTRY,
-    ROLE_REGISTRY,
+    SPECIALIZATION_REGISTRY,
     compose_prompt,
     describe_specialization,
     get_mode_prompt,
@@ -100,10 +100,10 @@ def test_compose_prompt_mode_only_is_stable() -> None:
 
 
 def test_specialization_registry_contains_builtin_specializations() -> None:
-    assert 'legal' in ROLE_REGISTRY
-    assert 'security_compliance' in ROLE_REGISTRY
-    assert 'financial' in ROLE_REGISTRY
-    assert 'technical' in ROLE_REGISTRY
+    assert 'legal' in SPECIALIZATION_REGISTRY
+    assert 'security_compliance' in SPECIALIZATION_REGISTRY
+    assert 'financial' in SPECIALIZATION_REGISTRY
+    assert 'technical' in SPECIALIZATION_REGISTRY
 
 
 def test_specialization_overlay_is_additive_and_keeps_mode_prompt_prefix() -> None:
@@ -115,7 +115,7 @@ def test_specialization_overlay_is_additive_and_keeps_mode_prompt_prefix() -> No
     assert 'Specialization Scope:' in legal
     assert 'Specialization Analysis Checklist:' in legal
     assert 'Specialization Output Preferences:' in legal
-    assert 'Role Evidence Discipline:' in legal
+    assert 'Specialization Evidence Discipline:' in legal
     assert 'Specialization Overlay:' in legal
     assert 'Specialization Disclaimer:' not in legal
 

@@ -307,7 +307,7 @@ class _ChatTraceWriter:
         )
         specialization_value = request.get('specialization')
         specialization = specialization_value if isinstance(specialization_value, dict) else {}
-        specialization_id = self._coerce_string(request.get('specialization_id')) or self._coerce_string(request.get('role_id'))
+        specialization_id = self._coerce_string(request.get('specialization_id'))
 
         return {
             'schema': TRACE_SUMMARY_SCHEMA_NAME,

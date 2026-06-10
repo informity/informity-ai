@@ -66,7 +66,7 @@ _CHAT_TITLE_WHITESPACE_RE = re.compile(r'\s+')
 # Schema — DDL statements for all tables
 # ==============================================================================
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 DIAGNOSTICS_TYPE_USER = 'user'
 DIAGNOSTICS_TYPE_EVALUATION = 'evaluation'
@@ -264,7 +264,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     next_action        TEXT,
     next_action_reason TEXT,
     chat_mode          TEXT,
-    role_id            TEXT,
+    specialization_id            TEXT,
     retrieval_scope_kind TEXT,
     retrieval_scope_key  TEXT,
     model_filename     TEXT,
@@ -688,6 +688,8 @@ async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
             await _migrate_to_v4(conn)
         elif next_version == 5:
             await _migrate_to_v5(conn)
+        elif next_version == 6:
+            await _migrate_to_v6(conn)
         else:
             raise RuntimeError(f'No migration path defined for schema version {next_version}')
         await conn.execute('UPDATE schema_version SET version = ?', (next_version,))
@@ -697,13 +699,13 @@ async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
 async def _migrate_to_v2(conn: aiosqlite.Connection) -> None:
     """
     v2 migration:
-    - add nullable role_id to chat_messages for legacy role overlay session persistence.
+    - add nullable specialization_id to chat_messages for legacy role overlay session persistence.
     """
     cursor = await conn.execute("PRAGMA table_info('chat_messages')")
     columns = await cursor.fetchall()
     column_names = {str(row['name']) for row in columns}
-    if 'role_id' not in column_names:
-        await conn.execute('ALTER TABLE chat_messages ADD COLUMN role_id TEXT')
+    if 'specialization_id' not in column_names:
+        await conn.execute('ALTER TABLE chat_messages ADD COLUMN specialization_id TEXT')
 
 
 async def _migrate_to_v3(conn: aiosqlite.Connection) -> None:
@@ -812,6 +814,18 @@ async def _migrate_to_v5(conn: aiosqlite.Connection) -> None:
     )
     await conn.execute('CREATE INDEX IF NOT EXISTS idx_translate_job_sections_job_id ON translate_job_sections(job_id)')
     await conn.execute('CREATE INDEX IF NOT EXISTS idx_translate_job_sections_job_index ON translate_job_sections(job_id, section_index)')
+
+
+async def _migrate_to_v6(conn: aiosqlite.Connection) -> None:
+    """
+    v6 migration:
+    - rename chat_messages.role_id to chat_messages.specialization_id.
+    """
+    cursor = await conn.execute("PRAGMA table_info('chat_messages')")
+    columns = await cursor.fetchall()
+    column_names = {str(row['name']) for row in columns}
+    if 'role_id' in column_names and 'specialization_id' not in column_names:
+        await conn.execute('ALTER TABLE chat_messages RENAME COLUMN role_id TO specialization_id')
 
 
 async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
@@ -1002,10 +1016,12 @@ def _row_to_scan_error_record(row: aiosqlite.Row) -> ScanErrorRecord:
 def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
     # Convert a SQLite row to a ChatMessage model.
     try:
-        # Legacy alias: specialization is canonical, but old rows still persist role_id.
-        role_id = row['role_id']
+        specialization_id = row['specialization_id']
     except (KeyError, IndexError):
-        role_id = None
+        try:
+            specialization_id = row['role_id']
+        except (KeyError, IndexError):
+            specialization_id = None
     return ChatMessage(
         id                 = row['id'],
         chat_id            = row['chat_id'],
@@ -1019,7 +1035,7 @@ def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
         next_action        = row['next_action'],
         next_action_reason = row['next_action_reason'],
         chat_mode          = row['chat_mode'],
-        role_id            = role_id,
+        specialization_id            = specialization_id,
         retrieval_scope_kind = row['retrieval_scope_kind'],
         retrieval_scope_key = row['retrieval_scope_key'],
         model_filename     = row['model_filename'],
@@ -1747,7 +1763,7 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
         INSERT INTO chat_messages (
             chat_id, role, content, sources, generation_seconds,
             completion_mode, stopped_by_user, has_remaining_scope, next_action, next_action_reason,
-            chat_mode, role_id, retrieval_scope_kind, retrieval_scope_key, model_filename, is_internal
+            chat_mode, specialization_id, retrieval_scope_kind, retrieval_scope_key, model_filename, is_internal
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
@@ -1763,7 +1779,7 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
             message.next_action,
             message.next_action_reason,
             message.chat_mode,
-            message.role_id,
+            message.specialization_id,
             message.retrieval_scope_kind,
             message.retrieval_scope_key,
             message.model_filename,

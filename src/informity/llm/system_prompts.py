@@ -3,7 +3,7 @@
 # Backward-compatible exports sourced from centralized specialization/mode registry.
 # ==============================================================================
 
-from informity.llm.roles import get_mode_prompt
+from informity.llm.specializations import get_mode_prompt
 
 SIMPLE_ASSISTANT_SYSTEM_PROMPT = get_mode_prompt('assistant_default')
 SIMPLE_ASSISTANT_WEB_SEARCH_SYNTHESIS_PROMPT = get_mode_prompt('assistant_web_search_synthesis')

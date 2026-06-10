@@ -15,7 +15,7 @@ from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.chat_mode import normalize_chat_mode
 from informity.llm.model_adapter import get_effective_context_length
-from informity.llm.roles import compose_prompt
+from informity.llm.specializations import compose_prompt
 
 if TYPE_CHECKING:
     from informity.llm.model_adapter import ModelProfile
@@ -130,7 +130,7 @@ def build_messages(
     model_profile: ModelProfile | None = None,
     system_prompt: str | None = None,
     chat_mode: str | None = None,
-    role_id: str | None = None,
+    specialization_id: str | None = None,
 ) -> list[dict[str, str]]:
     # Build messages for LLM. Context chunks formatted with [Source: N] labels
     # for LLM understanding (document boundaries, structure, provenance).
@@ -179,7 +179,7 @@ def build_messages(
 
     # Build system message
     active_system_prompt = (
-        compose_prompt(mode_id='researcher_rag', chat_mode=chat_mode, specialization_id=role_id)
+        compose_prompt(mode_id='researcher_rag', chat_mode=chat_mode, specialization_id=specialization_id)
         if system_prompt is None
         else str(system_prompt)
     )

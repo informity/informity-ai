@@ -21,7 +21,7 @@ from informity.llm.metrics_payload import build_metrics_payload
 from informity.llm.model_adapter import get_profile
 from informity.llm.prompt_builder import build_messages, resolve_history_limit
 from informity.llm.query_classifier import QueryClassification
-from informity.llm.roles import compose_prompt, get_mode_prompt, resolve_runtime_mode_id
+from informity.llm.specializations import compose_prompt, get_mode_prompt, resolve_runtime_mode_id
 from informity.llm.streaming import stream_llm
 from informity.llm.types import QueryType, StreamSignalTag
 from informity.llm.user_messages import get_web_search_status_message
@@ -137,7 +137,7 @@ class SimpleHandler:
         chat_id: str | None = None,
         file_ids: list[int] | None = None,
         chat_mode: str | None = None,
-        role_id: str | None = None,
+        specialization_id: str | None = None,
         chat_web_search_enabled: bool = False,
         chat_web_search_privacy_override: bool = False,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
@@ -154,7 +154,7 @@ class SimpleHandler:
             system_prompt = compose_prompt(
                 mode_id=resolve_runtime_mode_id(normalized_chat_mode),
                 chat_mode=normalized_chat_mode,
-                role_id=role_id,
+                specialization_id=specialization_id,
             )
             is_chat_summary_mode = bool(classification.needs_chat_history)
             if is_chat_summary_mode:
@@ -248,7 +248,7 @@ class SimpleHandler:
                 response_system_prompt = compose_prompt(
                     mode_id='assistant_web_search_synthesis',
                     chat_mode=normalized_chat_mode,
-                    role_id=role_id,
+                    specialization_id=specialization_id,
                 )
 
             summary_turn_count = 0

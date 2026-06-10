@@ -10,7 +10,7 @@ import { ServiceUnavailableState } from '../ServiceUnavailableState'
 import { useChatContext } from '../../context/useChatContext'
 import { useBackendStatus } from '../../context/useBackendStatus'
 import { useOptionalTranslateContext } from '../../context/useTranslateContext'
-import { exportChatMarkdown, getCurrentChat, getRoles, getSettings } from '../../api'
+import { exportChatMarkdown, getCurrentChat, getSpecializations, getSettings } from '../../api'
 import { markdownToPlainText, downloadTextFile } from '../../utils/downloadHelpers'
 import { showToast } from '../../context/useToast'
 import {
@@ -23,7 +23,6 @@ import {
 import { logApiError } from '../../utils/logApiError'
 import {
   CHAT_MODE_STORAGE_KEY,
-  CHAT_ROLE_ID_STORAGE_KEY,
   CHAT_SPECIALIZATION_ID_STORAGE_KEY,
   FORCE_NEW_CHAT_KEY,
 } from '../../utils/storageKeys'
@@ -55,8 +54,6 @@ interface ChatSettingsResponse {
   full_privacy?: boolean
   web_search_configured?: boolean
   enabled_specialization_ids?: string[]
-  // Legacy alias; remove after the next version migration window.
-  enabled_chat_role_ids?: string[]
 }
 
 interface SettingsUpdatedEvent extends Event {
@@ -102,16 +99,16 @@ function resolveLockedMode(history: ChatMessageDisplay[]): ChatMode | null {
   )
 }
 
-function resolveLockedRoleId(history: ChatMessageDisplay[]): string | null {
+function resolveLockedSpecializationId(history: ChatMessageDisplay[]): string | null {
   return (
-    history.find((msg) => msg.role === 'user' && !msg.isInternal && !!msg.roleId)?.roleId
-    ?? history.find((msg) => msg.role === 'assistant' && !!msg.roleId)?.roleId
+    history.find((msg) => msg.role === 'user' && !msg.isInternal && !!msg.specializationId)?.specializationId
+    ?? history.find((msg) => msg.role === 'assistant' && !!msg.specializationId)?.specializationId
     ?? null
   )
 }
 
-function formatRoleNameFromId(roleId: string): string {
-  return roleId
+function formatSpecializationNameFromId(specializationId: string): string {
+  return specializationId
     .split('_')
     .filter(Boolean)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
@@ -127,7 +124,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const {
     currentChatId: contextChatId,
     currentChatLockedMode,
-    currentChatLockedRoleId,
+    currentChatLockedSpecializationId,
     messages,
     isStreaming,
     loadingChat,
@@ -191,23 +188,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const [isDragOverComposer, setIsDragOverComposer] = useState(false)
   const uploadDragDepthRef = useRef(0)
 
-  // Legacy aliases; remove after the next version migration window.
-  const enabledRoleIds = enabledSpecializationIds
-  const setEnabledRoleIds = setEnabledSpecializationIds
-  const hasConfiguredEnabledRoleIds = hasConfiguredEnabledSpecializationIds
-  const setHasConfiguredEnabledRoleIds = setHasConfiguredEnabledSpecializationIds
-  const selectedRoleId = selectedSpecializationId
-  const setSelectedRoleId = setSelectedSpecializationId
-  const roles = specializations
-  const setRoles = setSpecializations
-  const rolesLoaded = specializationsLoaded
-  const setRolesLoaded = setSpecializationsLoaded
-  const roleMenuOpen = specializationMenuOpen
-  const setRoleMenuOpen = setSpecializationMenuOpen
-  const roleMenuRef = specializationMenuRef
-  const roleSelectionExplicitRef = specializationSelectionExplicitRef
-  const GENERAL_ROLE_LABEL = GENERAL_SPECIALIZATION_LABEL
-
   const pendingUploadCount = (() => {
     if (!contextChatId) return pendingUploadCountsByChat.__draft__ ?? 0
     const scopedCount = pendingUploadCountsByChat[contextChatId] ?? 0
@@ -242,7 +222,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
 
   useEffect(() => {
     let cancelled = false
-    let rolesCancelled = false
+    let specializationsCancelled = false
     let hasStoredMode = false
     try {
       const raw = window.localStorage.getItem(CHAT_MODE_STORAGE_KEY)
@@ -250,12 +230,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         hasStoredMode = true
         setChatMode(raw)
       }
-      const storedRoleId = String(
+      const storedSpecializationId = String(
         window.localStorage.getItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
-        || window.localStorage.getItem(CHAT_ROLE_ID_STORAGE_KEY)
-        || '',
+        || ''
       ).trim()
-      if (storedRoleId) setSelectedRoleId(storedRoleId)
+      if (storedSpecializationId) setSelectedSpecializationId(storedSpecializationId)
     } catch {
       // ignore storage errors
     }
@@ -266,12 +245,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         const mode = settings?.default_chat_mode
         setFullPrivacyMode(!!settings?.full_privacy)
         setWebSearchConfigured(!!settings?.web_search_configured)
-        if (Array.isArray(settings?.enabled_chat_role_ids)) {
-          setEnabledRoleIds(settings.enabled_chat_role_ids)
-          setHasConfiguredEnabledRoleIds(true)
+        if (Array.isArray(settings?.enabled_specialization_ids)) {
+          setEnabledSpecializationIds(settings.enabled_specialization_ids)
+          setHasConfiguredEnabledSpecializationIds(true)
         } else {
-          setEnabledRoleIds([])
-          setHasConfiguredEnabledRoleIds(false)
+          setEnabledSpecializationIds([])
+          setHasConfiguredEnabledSpecializationIds(false)
         }
         if (isChatMode(mode)) {
           setDefaultChatMode(mode)
@@ -286,20 +265,20 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         }
       })
       .catch((err) => logApiError(err, 'ChatView.getSettings.default_chat_mode'))
-    getRoles()
+    getSpecializations()
       .then((items) => {
-        if (rolesCancelled) return
-        setRoles(Array.isArray(items) ? items : [])
-        setRolesLoaded(true)
+        if (specializationsCancelled) return
+        setSpecializations(Array.isArray(items) ? items : [])
+        setSpecializationsLoaded(true)
       })
       .catch((err) => {
-        if (rolesCancelled) return
-        setRolesLoaded(true)
-        logApiError(err, 'ChatView.getRoles')
+        if (specializationsCancelled) return
+        setSpecializationsLoaded(true)
+        logApiError(err, 'ChatView.getSpecializations')
       })
     return () => {
       cancelled = true
-      rolesCancelled = true
+      specializationsCancelled = true
     }
   }, [])
 
@@ -313,9 +292,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       if (typeof detail.web_search_configured === 'boolean') {
         setWebSearchConfigured(detail.web_search_configured)
       }
-      if (Array.isArray(detail.enabled_chat_role_ids)) {
-        setEnabledRoleIds(detail.enabled_chat_role_ids)
-        setHasConfiguredEnabledRoleIds(true)
+      if (Array.isArray(detail.enabled_specialization_ids)) {
+        setEnabledSpecializationIds(detail.enabled_specialization_ids)
+        setHasConfiguredEnabledSpecializationIds(true)
       }
       if (isChatMode(detail.default_chat_mode)) {
         setDefaultChatMode(detail.default_chat_mode)
@@ -333,8 +312,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       if (modeMenuRef.current && !modeMenuRef.current.contains(target)) {
         setModeMenuOpen(false)
       }
-      if (roleMenuRef.current && !roleMenuRef.current.contains(target)) {
-        setRoleMenuOpen(false)
+      if (specializationMenuRef.current && !specializationMenuRef.current.contains(target)) {
+        setSpecializationMenuOpen(false)
       }
     }
     document.addEventListener('mousedown', handlePointerDown)
@@ -353,38 +332,36 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   useEffect(() => {
     if (offline || isStreaming) {
       setModeMenuOpen(false)
-      setRoleMenuOpen(false)
+      setSpecializationMenuOpen(false)
     }
   }, [offline, isStreaming])
 
   useEffect(() => {
-    if (!rolesLoaded) return
-    if (!selectedRoleId) return
+    if (!specializationsLoaded) return
+    if (!selectedSpecializationId) return
     if (messages.length > 0) return
-    if (!roles.some((role) => role.id === selectedRoleId)) {
-      setSelectedRoleId(null)
-      roleSelectionExplicitRef.current = false
+    if (!specializations.some((specialization) => specialization.id === selectedSpecializationId)) {
+      setSelectedSpecializationId(null)
+      specializationSelectionExplicitRef.current = false
       try {
         window.localStorage.removeItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
-        window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
       } catch {
         // ignore storage errors
       }
       return
     }
-    const normalizedEnabledRoleIds = hasConfiguredEnabledRoleIds
-      ? enabledRoleIds
-      : roles.map((role) => role.id)
-    if (normalizedEnabledRoleIds.includes(selectedRoleId)) return
-    setSelectedRoleId(null)
-    roleSelectionExplicitRef.current = false
+    const normalizedEnabledSpecializationIds = hasConfiguredEnabledSpecializationIds
+      ? enabledSpecializationIds
+      : specializations.map((specialization) => specialization.id)
+    if (normalizedEnabledSpecializationIds.includes(selectedSpecializationId)) return
+    setSelectedSpecializationId(null)
+    specializationSelectionExplicitRef.current = false
     try {
       window.localStorage.removeItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
-      window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
     } catch {
       // ignore storage errors
     }
-  }, [roles, selectedRoleId, rolesLoaded, messages.length, enabledRoleIds, hasConfiguredEnabledRoleIds])
+  }, [specializations, selectedSpecializationId, specializationsLoaded, messages.length, enabledSpecializationIds, hasConfiguredEnabledSpecializationIds])
 
   useEffect(() => {
     // Route-selected chat id should be consumed once per incoming value.
@@ -444,31 +421,31 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const hasActiveUploadAttachments = chatUploads.some((item) => ['uploading', 'indexing', 'ready'].includes(String(item.state)))
   const hasPendingUploads = pendingUploadCount > 0
   const lockedMode = currentChatLockedMode ?? resolveLockedMode(messages)
-  const lockedRoleId = currentChatLockedRoleId ?? resolveLockedRoleId(messages)
+  const lockedSpecializationId = currentChatLockedSpecializationId ?? resolveLockedSpecializationId(messages)
   const effectiveChatMode: ChatMode = lockedMode ?? chatMode
   const hasUploadChipRow = effectiveChatMode === 'researcher' && (hasUploadAttachments || hasPendingUploads)
   const hasScopedInputPill = effectiveChatMode === 'researcher' && (!!chatFileScope || hasUploadChipRow)
   const hideAssistantSwitch = effectiveChatMode === 'researcher' && hasScopedInputPill
-  // Existing chat threads lock only session identity controls (mode/role).
+  // Existing chat threads lock only session identity controls (mode/specialization).
   // The rest of chat interactions (send, uploads, scope clear, etc.) remain active.
-  const modeRoleSessionLocked = (
+  const modeSpecializationSessionLocked = (
     !!contextChatId
     && messages.some((msg) => (msg.role === 'user' && !msg.isInternal) || msg.role === 'assistant')
   )
-  const effectiveRoleId = lockedRoleId ?? selectedRoleId
-  const hasRoleDocContext = !!chatFileScope || chatUploads.some((item) => item.state === 'ready')
-  const effectiveEnabledRoleIds = (
-    hasConfiguredEnabledRoleIds
-      ? enabledRoleIds
-      : roles.map((role) => role.id)
+  const effectiveSpecializationId = lockedSpecializationId ?? selectedSpecializationId
+  const hasSpecializationDocContext = !!chatFileScope || chatUploads.some((item) => item.state === 'ready')
+  const effectiveEnabledSpecializationIds = (
+    hasConfiguredEnabledSpecializationIds
+      ? enabledSpecializationIds
+      : specializations.map((specialization) => specialization.id)
   )
-  const rolesSelectable = effectiveEnabledRoleIds.length > 0
-  const requestRoleId = (() => {
-    if (lockedRoleId != null) return lockedRoleId
-    if (!rolesSelectable) return null
-    if (effectiveChatMode !== 'researcher') return effectiveRoleId
-    if (!hasRoleDocContext) return null
-    if (roleSelectionExplicitRef.current) return effectiveRoleId
+  const specializationsSelectable = effectiveEnabledSpecializationIds.length > 0
+  const requestSpecializationId = (() => {
+    if (lockedSpecializationId != null) return lockedSpecializationId
+    if (!specializationsSelectable) return null
+    if (effectiveChatMode !== 'researcher') return effectiveSpecializationId
+    if (!hasSpecializationDocContext) return null
+    if (specializationSelectionExplicitRef.current) return effectiveSpecializationId
     return null
   })()
   const hiddenUploadCount = Math.max(0, chatUploads.length - visibleUploadCount)
@@ -628,14 +605,14 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   useEffect(() => {
     if (!contextChatId || loadingChat || messages.length === 0) return
     const restoredRoleId = (
-      messages.find((msg) => msg.role === 'user' && !msg.isInternal && !!msg.roleId)?.roleId
-      ?? messages.find((msg) => msg.role === 'assistant' && !!msg.roleId)?.roleId
+      messages.find((msg) => msg.role === 'user' && !msg.isInternal && !!msg.specializationId)?.specializationId
+      ?? messages.find((msg) => msg.role === 'assistant' && !!msg.specializationId)?.specializationId
       ?? null
     )
     if (restoredRoleId == null) return
-    if (restoredRoleId === selectedRoleId) return
-    setSelectedRoleId(restoredRoleId)
-  }, [contextChatId, messages, loadingChat, selectedRoleId])
+    if (restoredRoleId === selectedSpecializationId) return
+    setSelectedSpecializationId(restoredRoleId)
+  }, [contextChatId, messages, loadingChat, selectedSpecializationId])
 
   const lastMessage = messages[messages.length - 1]
   const streamContent = lastMessage?.role === 'assistant' ? lastMessage.content : ''
@@ -679,12 +656,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     if (offline) return
     void continueLastScope(anchorMessageId, {
       mode: effectiveChatMode,
-      roleId: requestRoleId,
+      specializationId: requestSpecializationId,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, continueLastScope, effectiveChatMode, requestRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, continueLastScope, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleRegenerate = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -696,12 +673,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     if (!previousUser) return
     void sendMessage(previousUser.content, {
       mode: effectiveChatMode,
-      roleId: requestRoleId,
+      specializationId: requestSpecializationId,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, isStreaming, messages, sendMessage, effectiveChatMode, requestRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, isStreaming, messages, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleAskInAssistant = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -723,7 +700,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     }
     void sendMessage(previousUser.content, {
       mode: 'assistant',
-      roleId: requestRoleId,
+      specializationId: requestSpecializationId,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
@@ -734,7 +711,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     hasScopedInputPill,
     messages,
     sendMessage,
-    requestRoleId,
+    requestSpecializationId,
     chatFileScope,
     chatWebSearchPrivacyOverride,
     chatWebSearchEnabled,
@@ -757,7 +734,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     if (loadingChat) return
     await sendMessage(editedText, {
       mode: effectiveChatMode,
-      roleId: requestRoleId,
+      specializationId: requestSpecializationId,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
@@ -768,7 +745,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     loadingChat,
     sendMessage,
     effectiveChatMode,
-    requestRoleId,
+    requestSpecializationId,
     chatFileScope,
     chatWebSearchEnabled,
     chatWebSearchPrivacyOverride,
@@ -779,12 +756,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     newChatRequestedRef.current = true
     setInputValue('')
     setChatMode('researcher')
-    setSelectedRoleId(null)
-    roleSelectionExplicitRef.current = false
+    setSelectedSpecializationId(null)
+    specializationSelectionExplicitRef.current = false
     try {
       window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'researcher')
       window.localStorage.removeItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
-      window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
     } catch {
       // ignore storage errors
     }
@@ -875,12 +851,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     setInputValue('')
     await sendMessage(text, {
       mode: effectiveChatMode,
-      roleId: requestRoleId,
+      specializationId: requestSpecializationId,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, inputValue, isTranslating, sendMessage, effectiveChatMode, requestRoleId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, inputValue, isTranslating, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleStop = useCallback(() => {
     if (offline) return
@@ -961,50 +937,50 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     })
   }, [webSearchToggleLocked, chatWebSearchEnabled, fullPrivacyMode, setChatWebSearchPreferences])
 
-  const enabledRoles = roles.filter((role) => effectiveEnabledRoleIds.includes(role.id))
-  const selectedRole = roles.find((role) => role.id === effectiveRoleId) ?? (
-    effectiveRoleId
+  const enabledSpecializations = specializations.filter((specialization) => effectiveEnabledSpecializationIds.includes(specialization.id))
+  const selectedSpecialization = specializations.find((specialization) => specialization.id === effectiveSpecializationId) ?? (
+    effectiveSpecializationId
       ? {
-          id: effectiveRoleId,
-          name: formatRoleNameFromId(effectiveRoleId),
+          id: effectiveSpecializationId,
+          name: formatSpecializationNameFromId(effectiveSpecializationId),
           description: '',
           icon: null,
         }
       : null
   )
-  const modeSelectorDisabled = offline || isStreaming || modeRoleSessionLocked
-  const roleSelectorDisabled = offline || isStreaming || enabledRoles.length === 0 || modeRoleSessionLocked
-  const roleButtonLabel = selectedRole?.name || GENERAL_ROLE_LABEL
-  const showRoleSelector = (
-    (rolesSelectable || lockedRoleId != null || !rolesLoaded)
-    && (enabledRoles.length > 0 || lockedRoleId != null || !rolesLoaded)
+  const modeSelectorDisabled = offline || isStreaming || modeSpecializationSessionLocked
+  const specializationSelectorDisabled = offline || isStreaming || enabledSpecializations.length === 0 || modeSpecializationSessionLocked
+  const specializationButtonLabel = selectedSpecialization?.name || GENERAL_SPECIALIZATION_LABEL
+  const showSpecializationSelector = (
+    (specializationsSelectable || lockedSpecializationId != null || !specializationsLoaded)
+    && (enabledSpecializations.length > 0 || lockedSpecializationId != null || !specializationsLoaded)
     && (
       effectiveChatMode === 'assistant'
-      || (effectiveChatMode === 'researcher' && hasRoleDocContext)
+      || (effectiveChatMode === 'researcher' && hasSpecializationDocContext)
     )
   )
-  const roleContextTooltip = (
-    effectiveChatMode === 'researcher' && !hasRoleDocContext
+  const specializationContextTooltip = (
+    effectiveChatMode === 'researcher' && !hasSpecializationDocContext
       ? 'Plugins are strongest with scoped documents'
-      : `Role: ${roleButtonLabel}`
+      : `Specialization: ${specializationButtonLabel}`
   )
 
   useEffect(() => {
-    if (showRoleSelector) return
-    setRoleMenuOpen(false)
-  }, [showRoleSelector])
+    if (showSpecializationSelector) return
+    setSpecializationMenuOpen(false)
+  }, [showSpecializationSelector])
 
-  const lockedRoleMissingFromEnabled = (
-    !!lockedRoleId
-    && !effectiveEnabledRoleIds.includes(lockedRoleId)
-    && roles.some((role) => role.id === lockedRoleId)
+  const lockedSpecializationMissingFromEnabled = (
+    !!lockedSpecializationId
+    && !effectiveEnabledSpecializationIds.includes(lockedSpecializationId)
+    && specializations.some((specialization) => specialization.id === lockedSpecializationId)
   )
 
   useEffect(() => {
-    if (lockedRoleId == null) return
-    if (lockedRoleId === selectedRoleId) return
-    setSelectedRoleId(lockedRoleId)
-  }, [lockedRoleId, selectedRoleId])
+    if (lockedSpecializationId == null) return
+    if (lockedSpecializationId === selectedSpecializationId) return
+    setSelectedSpecializationId(lockedSpecializationId)
+  }, [lockedSpecializationId, selectedSpecializationId])
 
   useEffect(() => {
     if (lockedMode == null) return
@@ -1201,7 +1177,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                   <>
                     <ChatMessageSkeleton role="user" />
                     <ChatMessageSkeleton role="assistant" />
-                    <ChatMessageSkeleton role="assistant" />
                   </>
                 )}
                 {showOfflineEmptyState && <ServiceUnavailableState />}
@@ -1230,8 +1205,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       nextAction={msg.nextAction}
                       continueLabel={msg.continueLabel}
                       webSearchUsed={msg.webSearchUsed}
-                      roleName={msg.roleId ? (roles.find((role) => role.id === msg.roleId)?.name || msg.roleId) : undefined}
-                      roleIcon={msg.roleId ? (roles.find((role) => role.id === msg.roleId)?.icon || undefined) : undefined}
+                      specializationName={msg.specializationId ? (specializations.find((specialization) => specialization.id === msg.specializationId)?.name || msg.specializationId) : undefined}
+                      specializationIcon={msg.specializationId ? (specializations.find((specialization) => specialization.id === msg.specializationId)?.icon || undefined) : undefined}
                       createdAt={msg.createdAt}
                       generationSeconds={msg.generationSeconds}
                       enableRawOutputControl={enableRawOutputControl}
@@ -1435,73 +1410,71 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                           {chatWebSearchEnabled && <span className="chat-view__web-search-pill">Search</span>}
                         </button>
                       )}
-                      {showRoleSelector && (
-                      <div ref={roleMenuRef} className="chat-view__role-selector">
+                      {showSpecializationSelector && (
+                      <div ref={specializationMenuRef} className="chat-view__specialization-selector">
                         <button
                           type="button"
-                          className="chat-view__role-button"
-                          onClick={() => setRoleMenuOpen((open) => !open)}
-                          disabled={roleSelectorDisabled}
+                          className="chat-view__specialization-button"
+                          onClick={() => setSpecializationMenuOpen((open) => !open)}
+                          disabled={specializationSelectorDisabled}
                           aria-haspopup="menu"
-                          aria-expanded={roleMenuOpen}
-                          aria-label={roleContextTooltip}
+                          aria-expanded={specializationMenuOpen}
+                          aria-label={specializationContextTooltip}
                         >
-                          <i className={selectedRole?.icon || 'ri-user-settings-line'} aria-hidden />
+                          <i className={selectedSpecialization?.icon || 'ri-user-settings-line'} aria-hidden />
                         </button>
-                        {roleMenuOpen && (
-                          <div className="chat-view__mode-menu chat-view__mode-menu--role" role="menu">
+                        {specializationMenuOpen && (
+                          <div className="chat-view__mode-menu chat-view__mode-menu--specialization" role="menu">
                             <span className="chat-view__mode-option-wrap">
                               <button
                                 type="button"
-                                className={`chat-view__mode-option${effectiveRoleId == null ? ' chat-view__mode-option--active' : ''}`}
+                                className={`chat-view__mode-option${effectiveSpecializationId == null ? ' chat-view__mode-option--active' : ''}`}
                                 role="menuitemradio"
-                                aria-label={GENERAL_ROLE_LABEL}
-                                aria-checked={effectiveRoleId == null}
-                                disabled={roleSelectorDisabled}
+                                aria-label={GENERAL_SPECIALIZATION_LABEL}
+                                aria-checked={effectiveSpecializationId == null}
+                                disabled={specializationSelectorDisabled}
                                 onClick={() => {
-                                  setSelectedRoleId(null)
-                                  roleSelectionExplicitRef.current = true
-                                  setRoleMenuOpen(false)
+                                  setSelectedSpecializationId(null)
+                                  specializationSelectionExplicitRef.current = true
+                                  setSpecializationMenuOpen(false)
                                   try {
                                     window.localStorage.removeItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
-                                    window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
                                   } catch {
                                     // ignore storage errors
                                   }
                                 }}
                               >
                                 <i className="ri-user-settings-line" aria-hidden />
-                                <span className="chat-view__mode-option-label">{GENERAL_ROLE_LABEL}</span>
+                                <span className="chat-view__mode-option-label">{GENERAL_SPECIALIZATION_LABEL}</span>
                               </button>
                             </span>
-                            {enabledRoles.map((role) => (
-                              <span key={role.id} className="chat-view__mode-option-wrap">
+                            {enabledSpecializations.map((specialization) => (
+                              <span key={specialization.id} className="chat-view__mode-option-wrap">
                                 <button
                                   type="button"
-                                  className={`chat-view__mode-option${effectiveRoleId === role.id ? ' chat-view__mode-option--active' : ''}`}
+                                  className={`chat-view__mode-option${effectiveSpecializationId === specialization.id ? ' chat-view__mode-option--active' : ''}`}
                                   role="menuitemradio"
-                                  aria-label={role.name}
-                                  aria-checked={effectiveRoleId === role.id}
-                                  disabled={roleSelectorDisabled}
+                                  aria-label={specialization.name}
+                                  aria-checked={effectiveSpecializationId === specialization.id}
+                                  disabled={specializationSelectorDisabled}
                                   onClick={() => {
-                                    setSelectedRoleId(role.id)
-                                    roleSelectionExplicitRef.current = true
-                                    setRoleMenuOpen(false)
+                                    setSelectedSpecializationId(specialization.id)
+                                    specializationSelectionExplicitRef.current = true
+                                    setSpecializationMenuOpen(false)
                                     try {
-                                      window.localStorage.setItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY, role.id)
-                                      window.localStorage.setItem(CHAT_ROLE_ID_STORAGE_KEY, role.id)
+                                      window.localStorage.setItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY, specialization.id)
                                     } catch {
                                       // ignore storage errors
                                     }
                                   }}
                                 >
-                                  <i className={role.icon || 'ri-user-settings-line'} aria-hidden />
-                                  <span className="chat-view__mode-option-label">{role.name}</span>
+                                  <i className={specialization.icon || 'ri-user-settings-line'} aria-hidden />
+                                  <span className="chat-view__mode-option-label">{specialization.name}</span>
                                 </button>
                               </span>
                             ))}
-                            {lockedRoleMissingFromEnabled && selectedRole && (
-                              <span key={`${selectedRole.id}-locked`} className="chat-view__mode-option-wrap">
+                            {lockedSpecializationMissingFromEnabled && selectedSpecialization && (
+                              <span key={`${selectedSpecialization.id}-locked`} className="chat-view__mode-option-wrap">
                                 <button
                                   type="button"
                                   className="chat-view__mode-option chat-view__mode-option--disabled"
@@ -1510,8 +1483,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                   disabled
                                   title="Disabled in Settings for new chats"
                                 >
-                                  <i className={selectedRole.icon || 'ri-user-settings-line'} aria-hidden />
-                                  <span>{selectedRole.name}</span>
+                                  <i className={selectedSpecialization.icon || 'ri-user-settings-line'} aria-hidden />
+                                  <span>{selectedSpecialization.name}</span>
                                 </button>
                               </span>
                             )}
@@ -1551,14 +1524,13 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                                     if (modeSelectorDisabled) return
                                     if (scopedModeLocked) return
                                     setChatMode(mode)
-                                    if (mode === 'researcher' && lockedRoleId == null) {
-                                      // Prevent assistant-role carryover into researcher drafts:
-                                      // researcher should start from General unless user picks a role in that mode context.
-                                      setSelectedRoleId(null)
-                                      roleSelectionExplicitRef.current = false
+                                    if (mode === 'researcher' && lockedSpecializationId == null) {
+                                      // Prevent assistant-specialization carryover into researcher drafts:
+                                      // researcher should start from General unless user picks a specialization in that mode context.
+                                      setSelectedSpecializationId(null)
+                                      specializationSelectionExplicitRef.current = false
                                       try {
                                         window.localStorage.removeItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
-                                        window.localStorage.removeItem(CHAT_ROLE_ID_STORAGE_KEY)
                                       } catch {
                                         // ignore storage errors
                                       }

@@ -8,10 +8,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from informity.llm.chat_mode import normalize_chat_mode
-from informity.plugins.role_plugins import (
-    BUILTIN_ROLE_PLUGIN_SPECS,
-    ROLE_PLUGIN_SPEC_REGISTRY,
-    RolePluginSpec,
+from informity.plugins.specialization_plugins import (
+    BUILTIN_SPECIALIZATION_PLUGIN_SPECS,
+    SPECIALIZATION_PLUGIN_SPEC_REGISTRY,
+    SpecializationPluginSpec,
 )
 
 
@@ -46,9 +46,6 @@ class SpecializationProfile:
     retrieval_hints: tuple[str, ...] = ()
     visible_in_ui: bool = True
 
-
-# Legacy alias: keep the historical type name until the compatibility window closes.
-RoleProfile = SpecializationProfile
 
 
 _ASSISTANT_DEFAULT_PROMPT = """You are Informity AI, a helpful AI assistant. Answer conversationally, clearly, and directly.
@@ -161,7 +158,7 @@ MODE_REGISTRY: dict[str, ModeProfile] = {
     ),
 }
 
-def _build_specialization_profile(spec: RolePluginSpec) -> SpecializationProfile:
+def _build_specialization_profile(spec: SpecializationPluginSpec) -> SpecializationProfile:
     return SpecializationProfile(
         id=spec.id,
         name=spec.name,
@@ -180,12 +177,8 @@ def _build_specialization_profile(spec: RolePluginSpec) -> SpecializationProfile
 
 
 SPECIALIZATION_REGISTRY: dict[str, SpecializationProfile] = {
-    # Legacy alias: specialization plugins now define the canonical behavior surface,
-    # but callers still resolve through the historical registry name for now.
-    spec.id: _build_specialization_profile(spec) for spec in BUILTIN_ROLE_PLUGIN_SPECS
+    spec.id: _build_specialization_profile(spec) for spec in BUILTIN_SPECIALIZATION_PLUGIN_SPECS
 }
-# Legacy alias: remove after the compatibility window closes.
-ROLE_REGISTRY = SPECIALIZATION_REGISTRY
 
 
 def get_mode_profile(mode_id: str) -> ModeProfile:
@@ -197,38 +190,23 @@ def get_mode_profile(mode_id: str) -> ModeProfile:
 
 
 def get_specialization_profile(specialization_id: str) -> SpecializationProfile:
-    """Resolve a specialization profile by id.
-
-    Legacy alias: specialization is the canonical product term; keep the role-shaped
-    alias below until the next release window removes role-based callers.
-    """
+    """Resolve a specialization profile by id."""
     try:
         return SPECIALIZATION_REGISTRY[specialization_id]
     except KeyError as exc:
         raise KeyError(f'Unknown specialization_id: {specialization_id}') from exc
 
 
-def get_role_profile(role_id: str) -> SpecializationProfile:
-    # Legacy alias: keep the old specialization-shaped API under the historical name until the next release window.
-    return get_specialization_profile(role_id)
-
-
 def list_specialization_profiles(*, visible_only: bool = True) -> list[SpecializationProfile]:
-    # Legacy alias: specialization plugins are the canonical source of these profiles.
     profiles = list(SPECIALIZATION_REGISTRY.values())
     if visible_only:
         profiles = [profile for profile in profiles if profile.visible_in_ui]
     return profiles
 
 
-def list_role_profiles(*, visible_only: bool = True) -> list[SpecializationProfile]:
-    # Legacy alias: keep the old specialization-shaped API under the historical name until the next release window.
-    return list_specialization_profiles(visible_only=visible_only)
-
-
 def describe_specialization(specialization_id: str) -> dict[str, object]:
     profile = get_specialization_profile(specialization_id)
-    plugin_spec = ROLE_PLUGIN_SPEC_REGISTRY.get(profile.id)
+    plugin_spec = SPECIALIZATION_PLUGIN_SPEC_REGISTRY.get(profile.id)
     return {
         'id': profile.id,
         'name': profile.name,
@@ -250,19 +228,17 @@ def compose_prompt(
     mode_id: str,
     chat_mode: str | None = None,
     specialization_id: str | None = None,
-    role_id: str | None = None,
 ) -> str:
     """Compose final prompt from mode profile + optional specialization overlay."""
     mode_profile = get_mode_profile(mode_id)
-    suppress_role_disclaimer = 'rag' in mode_profile.capabilities
+    suppress_specialization_disclaimer = 'rag' in mode_profile.capabilities
     prompt = mode_profile.identity_prompt
     if mode_profile.mode_policy and normalize_chat_mode(chat_mode) == 'assistant':
         prompt += mode_profile.mode_policy
 
-    resolved_specialization_id = specialization_id or role_id
-    if resolved_specialization_id:
-        specialization_profile = get_specialization_profile(resolved_specialization_id)
-        specialization_spec = ROLE_PLUGIN_SPEC_REGISTRY.get(specialization_profile.id)
+    if specialization_id:
+        specialization_profile = get_specialization_profile(specialization_id)
+        specialization_spec = SPECIALIZATION_PLUGIN_SPEC_REGISTRY.get(specialization_profile.id)
         normalized_chat_mode = normalize_chat_mode(chat_mode)
         specialization_sections: list[str] = []
         if specialization_profile.identity_prompt:
@@ -279,7 +255,7 @@ def compose_prompt(
             specialization_sections.extend(specialization_spec.isolated_rules)
             if specialization_spec.id == 'technical' and normalized_chat_mode == 'assistant':
                 specialization_sections.extend(specialization_spec.assistant_mode_rules)
-        if specialization_profile.disclaimer and not suppress_role_disclaimer:
+        if specialization_profile.disclaimer and not suppress_specialization_disclaimer:
             specialization_sections.append(
                 'Disclaimer Placement Rule:\n'
                 '- Include the disclaimer at the end of the answer under a "Disclaimer:" line.\n'
@@ -289,7 +265,7 @@ def compose_prompt(
             specialization_sections.append(f'Specialization Overlay:\n{specialization_profile.overlay_prompt}')
         if specialization_sections:
             prompt = f'{prompt}\n\n' + '\n\n'.join(specialization_sections)
-        if specialization_profile.disclaimer and not suppress_role_disclaimer:
+        if specialization_profile.disclaimer and not suppress_specialization_disclaimer:
             prompt = f'{prompt}\n\nSpecialization Disclaimer:\n{specialization_profile.disclaimer}'
 
     return prompt
@@ -304,18 +280,14 @@ def resolve_runtime_mode_id(chat_mode: str | None) -> str:
 
 __all__ = [
     'ModeProfile',
-    'RoleProfile',
     'SpecializationProfile',
     'MODE_REGISTRY',
     'SPECIALIZATION_REGISTRY',
-    'ROLE_REGISTRY',
     'compose_prompt',
     'get_mode_profile',
     'get_mode_prompt',
     'get_specialization_profile',
     'describe_specialization',
-    'get_role_profile',
     'list_specialization_profiles',
-    'list_role_profiles',
     'resolve_runtime_mode_id',
 ]

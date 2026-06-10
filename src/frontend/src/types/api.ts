@@ -163,8 +163,6 @@ export interface ChatMessageApi {
   generation_seconds?: number
   chat_mode?: ChatMode
   specialization_id?: string | null
-  /** Legacy alias; remove after the next version migration window. */
-  role_id?: string | null
   retrieval_scope_kind?: string | null
   retrieval_scope_key?: string | null
 }
@@ -192,7 +190,7 @@ export interface ChatMessageDisplay {
   createdAt?: string
   generationSeconds?: number
   chatMode?: ChatMode
-  roleId?: string | null
+  specializationId?: string | null
   nextAction?: NextAction
   nextActionReason?: NextActionReason | null
   continuationPasses?: number
