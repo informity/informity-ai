@@ -260,11 +260,11 @@ describe('ChatView new chat behavior', () => {
     await waitFor(() => expect(getSpecializationsMock).toHaveBeenCalled())
     fireEvent.click(screen.getByRole('button', { name: 'Select chat mode' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Assistant' }))
-    expect(screen.getByRole('button', { name: 'Role: General Assistant' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Specialization: General Assistant' })).toBeInTheDocument()
 
-    fireEvent.click(screen.getByRole('button', { name: 'Role: General Assistant' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Specialization: General Assistant' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Legal' }))
-    expect(screen.getByRole('button', { name: 'Role: Legal' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Specialization: Legal' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Select chat mode' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Researcher' }))
@@ -273,7 +273,7 @@ describe('ChatView new chat behavior', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Select chat mode' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Assistant' }))
-    expect(screen.getByRole('button', { name: 'Role: General Assistant' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Specialization: General Assistant' })).toBeInTheDocument()
   })
 
   it('accepts trailing inline selection on Tab without sending message', async () => {
@@ -547,7 +547,7 @@ describe('ChatView new chat behavior', () => {
 
     expect(await screen.findByRole('button', { name: 'Clear file scope' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Select chat mode' })).toHaveTextContent('Researcher')
-    expect(screen.getByRole('button', { name: 'Role: General Assistant' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Specialization: General Assistant' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Select chat mode' }))
     const assistantOption = screen.getByRole('menuitemradio', { name: 'Assistant' })
@@ -670,7 +670,7 @@ describe('ChatView new chat behavior', () => {
     })
     expect(screen.getByRole('button', { name: 'Select chat mode' })).toBeDisabled()
 
-    const roleButton = screen.getByRole('button', { name: 'Role: Legal' })
+    const roleButton = screen.getByRole('button', { name: 'Specialization: Legal' })
     expect(roleButton).toBeDisabled()
   })
 
@@ -718,7 +718,7 @@ describe('ChatView new chat behavior', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Select chat mode' })).toHaveTextContent('Assistant')
     })
-    expect(screen.getByRole('button', { name: 'Role: Legal' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Specialization: Legal' })).toBeInTheDocument()
 
     specializationsDeferred.resolve([
       {
@@ -730,7 +730,7 @@ describe('ChatView new chat behavior', () => {
     ])
 
     await waitFor(() => expect(getSpecializationsMock).toHaveBeenCalled())
-    expect(screen.getByRole('button', { name: 'Role: Legal' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Specialization: Legal' })).toBeInTheDocument()
   })
 
   it('restores locked role from chat-level payload when message specialization_id is missing', async () => {
@@ -785,7 +785,7 @@ describe('ChatView new chat behavior', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Select chat mode' })).toHaveTextContent('Assistant')
     })
-    expect(screen.getByRole('button', { name: 'Role: Legal' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Specialization: Legal' })).toBeDisabled()
   })
 
   it('locks role selector for history chat even when role is General', async () => {
@@ -840,7 +840,7 @@ describe('ChatView new chat behavior', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: 'Select chat mode' })).toHaveTextContent('Assistant')
     })
-    expect(screen.getByRole('button', { name: 'Role: General Assistant' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Specialization: General Assistant' })).toBeDisabled()
   })
 
   it('keeps send and upload controls active for history chats while mode/role remain locked', async () => {
@@ -1004,9 +1004,9 @@ describe('ChatView new chat behavior', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Select chat mode' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Assistant' }))
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Role: General Assistant' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Specialization: General Assistant' })).toBeInTheDocument()
     })
-    fireEvent.click(screen.getByRole('button', { name: 'Role: General Assistant' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Specialization: General Assistant' }))
     fireEvent.click(screen.getByRole('menuitemradio', { name: 'Legal' }))
     fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'First legal assistant question' } })
     fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
@@ -1029,7 +1029,7 @@ describe('ChatView new chat behavior', () => {
       expect(screen.getByRole('button', { name: 'Select chat mode' })).toHaveTextContent('Assistant')
     })
     expect(screen.getByRole('button', { name: 'Select chat mode' })).toBeDisabled()
-    expect(screen.getByRole('button', { name: 'Role: Legal' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Specialization: Legal' })).toBeDisabled()
   })
 
   it('preserves locked role on existing chat even when role is unchecked in settings', async () => {
@@ -1082,7 +1082,7 @@ describe('ChatView new chat behavior', () => {
     )
 
     await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-role-unchecked-1'))
-    const roleButton = await screen.findByRole('button', { name: 'Role: Legal' })
+    const roleButton = await screen.findByRole('button', { name: 'Specialization: Legal' })
     expect(roleButton).toBeDisabled()
 
     fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'Follow-up legal question' } })
