@@ -199,6 +199,7 @@ interface ModelProfile {
   coverage_top_k?: number
   rag_max_score?: number
   rag_context_ratio?: number
+  rag_rerank_min_score?: number
   top_p?: number
   prompt_format?: string
 }
@@ -2358,6 +2359,7 @@ export function SettingsView({
                   <ProfileRow label="Retrieval (top-k)" value={profile.rag_top_k ?? '--'} />
                   <ProfileRow label="Document matching threshold" value={profile.rag_max_score ?? '--'} />
                   <ProfileRow label="Context ratio" value={profile.rag_context_ratio ?? '--'} />
+                  <ProfileRow label="Rerank minimum score" value={profile.rag_rerank_min_score ?? '--'} />
                   <ProfileRow label="Model size" value={formatModelSizeGb(selectedCatalogEntry?.model_size_bytes)} />
                 </div>
               </>

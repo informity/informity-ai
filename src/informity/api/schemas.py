@@ -304,6 +304,7 @@ class ModelProfileInfo(BaseModel):
     rag_top_k:               int       # Chunks to retrieve before filtering
     rag_max_score:           float     # Max L2 distance for relevant chunk (lower = stricter)
     rag_context_ratio:       float     # Share of prompt budget for context (rest for history)
+    rag_rerank_min_score:    float     # Minimum reranker score to keep a chunk before top-k selection
     timeout_seconds:         int       # Timeout seconds
 
 

@@ -50,6 +50,44 @@ class TestPromptBuilder:
 
         assert '[Source: 1] test.pdf' in messages[0]['content']
 
+    def test_reorders_context_chunks_for_attention_without_renumbering_sources(self) -> None:
+        chunks = [
+            {
+                'chunk_text': 'First chunk text.',
+                'filename': 'first.txt',
+                'source_rank': 1,
+            },
+            {
+                'chunk_text': 'Second chunk text.',
+                'filename': 'second.txt',
+                'source_rank': 2,
+            },
+            {
+                'chunk_text': 'Third chunk text.',
+                'filename': 'third.txt',
+                'source_rank': 3,
+            },
+            {
+                'chunk_text': 'Fourth chunk text.',
+                'filename': 'fourth.txt',
+                'source_rank': 4,
+            },
+        ]
+
+        messages = build_messages('Question', chunks)
+        content = messages[0]['content']
+
+        first_index = content.index('First chunk text.')
+        third_index = content.index('Third chunk text.')
+        fourth_index = content.index('Fourth chunk text.')
+        second_index = content.index('Second chunk text.')
+
+        assert first_index < third_index < fourth_index < second_index
+        assert '[Source: 1] first.txt' in content
+        assert '[Source: 2] second.txt' in content
+        assert '[Source: 3] third.txt' in content
+        assert '[Source: 4] fourth.txt' in content
+
     def test_includes_page_number_if_present(self) -> None:
         chunks = [
             {

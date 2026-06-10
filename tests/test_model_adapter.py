@@ -124,6 +124,7 @@ class TestQwen3535BA3BProfile:
         assert profile.rag_top_k == 10
         assert profile.rag_max_score == 0.90
         assert profile.rag_context_ratio == 0.65
+        assert profile.rag_rerank_min_score == 0.10
         assert profile.retrieval_top_k_final == 12
 
     def test_stop_sequences_include_chatml(self, profile: ModelProfile) -> None:
@@ -227,7 +228,7 @@ class TestModelProfileMethods:
             'prompt_format', 'coverage_prompt_format', 'context_length',
             'temperature', 'top_p', 'rag_top_k', 'retrieval_top_k_candidates', 'retrieval_top_k_final',
             'rag_top_k_simple', 'rag_top_k_focused', 'rag_top_k_coverage',
-            'rag_max_score', 'rag_context_ratio', 'timeout_seconds',
+            'rag_max_score', 'rag_context_ratio', 'rag_rerank_min_score', 'timeout_seconds',
         }
         assert expected_keys == set(display.keys())
 

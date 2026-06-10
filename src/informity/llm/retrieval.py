@@ -252,6 +252,24 @@ def _apply_strict_title_file_focus(
     return focused_chunks or chunks
 
 
+def _apply_reranker_score_threshold(
+    *,
+    chunks: list[dict],
+    min_score: float,
+) -> list[dict]:
+    if len(chunks) <= 1 or min_score <= 0:
+        return chunks
+
+    kept_chunks = [
+        chunk
+        for chunk in chunks
+        if (_coerce_reranker_score(chunk.get('score')) or 0.0) >= min_score
+    ]
+    if kept_chunks:
+        return kept_chunks
+    return chunks[:1]
+
+
 def _select_top_children(
     *,
     reranked_children: list[dict],
@@ -533,6 +551,7 @@ async def retrieve_chunks(
 
     fts5_augmented_count: int = 0  # Net-new candidates added by FTS5 augmentation (focused only)
     profile = get_profile()
+    rerank_min_score = float(getattr(profile, 'rag_rerank_min_score', 0.0) or 0.0)
     # 3. Vector retrieval (single path, no coverage-specific fallback branch)
     search_k = max(top_k * 2, int(getattr(profile, 'retrieval_top_k_candidates', 25)))
     results = await asyncio.to_thread(
@@ -758,6 +777,14 @@ async def retrieve_chunks(
         query=title_alignment_query or query,
         strict_title_alignment=strict_title_alignment,
     )
+    rerank_threshold_removed_count = 0
+    if rerank_enabled and rerank_min_score > 0:
+        filtered_reranked_children = _apply_reranker_score_threshold(
+            chunks=reranked_children,
+            min_score=rerank_min_score,
+        )
+        rerank_threshold_removed_count = max(len(reranked_children) - len(filtered_reranked_children), 0)
+        reranked_children = filtered_reranked_children
     rerank_elapsed_ms = (time.perf_counter() - rerank_start) * 1000
     top_children = _select_top_children(
         reranked_children=reranked_children,
@@ -805,6 +832,7 @@ async def retrieve_chunks(
                     parent_id=parent_id,
                 )
                 warned_child_ids.add(child_id)
+            parent_chunk['source_rank'] = len(final) + 1
             final.append(parent_chunk)
             seen_parent_ids.add(parent_id)
         elif not parent_id:
@@ -814,7 +842,7 @@ async def retrieve_chunks(
             if child_id not in warned_child_ids:
                 log.warning('child_chunk_no_parent', child_id=child_id)
                 warned_child_ids.add(child_id)
-            final.append(child)
+            final.append({**child, 'source_rank': len(final) + 1})
         else:
             # Orphan case: parent_id exists but parent chunk not found in database
             # This can happen if parent chunks were deleted or lookup failed
@@ -827,7 +855,7 @@ async def retrieve_chunks(
                     msg='Parent chunk not found in database, using child as fallback'
                 )
                 warned_child_ids.add(child_id)
-            final.append(child)
+            final.append({**child, 'source_rank': len(final) + 1})
 
     if trace is not None:
         trace_data = {
@@ -871,6 +899,8 @@ async def retrieve_chunks(
             'children_after_structural_filter': len(filtered_child_chunks),
             'parents_fetched':     len(parent_chunks),
             'fts5_augmented_count': fts5_augmented_count,
+            'rerank_min_score':    rerank_min_score,
+            'rerank_threshold_removed_count': rerank_threshold_removed_count,
         }
         trace.record('retrieval', trace_data)
         trace.record('rerank', {
@@ -882,6 +912,8 @@ async def retrieve_chunks(
             'top_k_overlap_count': rerank_top_k_overlap,
             'top_k_changed_count': max(len(post_rerank_top_ids) - rerank_top_k_overlap, 0),
             'structural_filters_applied': bool(safe_block_type_filter or safe_section_filter),
+            'rerank_min_score': rerank_min_score,
+            'rerank_threshold_removed_count': rerank_threshold_removed_count,
             'elapsed_ms':  round(rerank_elapsed_ms, 1),
         })
 
@@ -896,6 +928,8 @@ async def retrieve_chunks(
         children_returned=len(top_children),
         parents_returned=len(final),
         timeout_occurred=False,
+        rerank_min_score=rerank_min_score,
+        rerank_threshold_removed_count=rerank_threshold_removed_count,
         embed_duration_ms=round(embed_elapsed_ms, 1),
         search_duration_ms=round(search_elapsed_ms, 1),
         rerank_duration_ms=round(rerank_elapsed_ms, 1),

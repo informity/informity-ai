@@ -31,6 +31,16 @@ _TOKENIZER_MISMATCH_BUFFER_RATIO = 0.12
 _MESSAGE_OVERHEAD_TOKENS = 6
 
 
+def _coerce_source_rank(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    try:
+        rank = int(value)
+    except (TypeError, ValueError):
+        return None
+    return rank if rank > 0 else None
+
+
 @lru_cache(maxsize=1)
 def _encoding() -> tiktoken.Encoding:
     return tiktoken.get_encoding('cl100k_base')
@@ -48,6 +58,29 @@ def _count_tokens(text: str) -> int:
 
 def _estimate_message_tokens(*, role: str, content: str) -> int:
     return _MESSAGE_OVERHEAD_TOKENS + _count_tokens(role) + _count_tokens(content)
+
+
+def _reorder_context_chunks_for_attention(context_chunks: list[dict]) -> list[dict]:
+    if len(context_chunks) <= 2:
+        return context_chunks
+
+    ranked_chunks = [
+        (
+            _coerce_source_rank(chunk.get('source_rank')) or index,
+            index,
+            chunk,
+        )
+        for index, chunk in enumerate(context_chunks, start=1)
+    ]
+    ranked_chunks.sort(key=lambda item: (item[0], item[1]))
+    ordered_chunks = [chunk for _, _, chunk in ranked_chunks]
+    if len(ordered_chunks) <= 2:
+        return ordered_chunks
+
+    highest_rank_chunk = ordered_chunks[0]
+    second_highest_rank_chunk = ordered_chunks[1]
+    middle_chunks = ordered_chunks[2:]
+    return [highest_rank_chunk, *middle_chunks, second_highest_rank_chunk]
 
 
 def resolve_history_limit(chat_mode: str | None) -> int:
@@ -136,9 +169,11 @@ def build_messages(
     # for LLM understanding (document boundaries, structure, provenance).
     # Labels are informational only — not for citation in answers.
     # Format context
+    ordered_context_chunks = _reorder_context_chunks_for_attention(context_chunks)
     context_parts = []
-    for i, chunk in enumerate(context_chunks, start=1):
-        source_label = f"[Source: {i}] {chunk.get('filename', 'unknown')}"
+    for i, chunk in enumerate(ordered_context_chunks, start=1):
+        source_rank = _coerce_source_rank(chunk.get('source_rank')) or i
+        source_label = f"[Source: {source_rank}] {chunk.get('filename', 'unknown')}"
         if isinstance(chunk.get('year'), int):
             source_label += f", Year: {chunk['year']}"
         category = str(chunk.get('category', '') or '').strip()

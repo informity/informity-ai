@@ -654,3 +654,283 @@ async def test_retrieve_chunks_parent_propagates_child_score(mock_db):
     assert results[0]['chunk_id'] == 100
     # Reranker returned child without score — parent should not inherit a phantom score
     assert 'score' not in results[0]
+
+
+@pytest.mark.asyncio
+async def test_retrieve_chunks_filters_low_rerank_scores_before_selection(mock_db):
+    from informity.config import settings as real_settings
+
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall = AsyncMock(return_value=[
+        {
+            'chunk_id': 1,
+            'file_id': 1,
+            'file_path': '/f1',
+            'filename': 'f1.txt',
+            'chunk_text': 'high score chunk',
+            'page_number': None,
+            'start_page': None,
+            'end_page': None,
+            'section_path': None,
+            'block_type': None,
+            'parent_id': None,
+        },
+        {
+            'chunk_id': 2,
+            'file_id': 2,
+            'file_path': '/f2',
+            'filename': 'f2.txt',
+            'chunk_text': 'low score chunk',
+            'page_number': None,
+            'start_page': None,
+            'end_page': None,
+            'section_path': None,
+            'block_type': None,
+            'parent_id': None,
+        },
+        {
+            'chunk_id': 3,
+            'file_id': 3,
+            'file_path': '/f3',
+            'filename': 'f3.txt',
+            'chunk_text': 'mid score chunk',
+            'page_number': None,
+            'start_page': None,
+            'end_page': None,
+            'section_path': None,
+            'block_type': None,
+            'parent_id': None,
+        },
+    ])
+    mock_db.execute = AsyncMock(return_value=mock_cursor)
+
+    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
+         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch('informity.llm.retrieval.get_profile') as mock_get_profile, \
+         patch.object(real_settings, 'rag_rerank', True), \
+         patch.object(real_settings, 'fts5_candidate_limit', 0):
+        mock_embedder.embed_query.return_value = [0.1] * 768
+        mock_get_profile.return_value = SimpleNamespace(
+            retrieval_top_k_candidates=25,
+            rag_rerank_min_score=0.5,
+        )
+        mock_vector_store.search_similar.return_value = [
+            {'chunk_id': 1, 'score': 0.9},
+            {'chunk_id': 2, 'score': 0.4},
+            {'chunk_id': 3, 'score': 0.3},
+        ]
+        mock_vector_store.fts5_augment_candidates.return_value = []
+        mock_reranker.rerank.return_value = [
+            {'chunk_id': 1, 'score': 0.9},
+            {'chunk_id': 2, 'score': 0.4},
+            {'chunk_id': 3, 'score': 0.3},
+        ]
+
+        results = await retrieve_chunks('test query', top_k=5, db=mock_db)
+
+    assert [item['chunk_id'] for item in results] == [1]
+    assert results[0]['source_rank'] == 1
+
+
+@pytest.mark.asyncio
+async def test_retrieve_chunks_keeps_one_chunk_when_all_scores_below_rerank_threshold(mock_db):
+    from informity.config import settings as real_settings
+
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall = AsyncMock(return_value=[
+        {
+            'chunk_id': 11,
+            'file_id': 11,
+            'file_path': '/f11',
+            'filename': 'f11.txt',
+            'chunk_text': 'first low chunk',
+            'page_number': None,
+            'start_page': None,
+            'end_page': None,
+            'section_path': None,
+            'block_type': None,
+            'parent_id': None,
+        },
+        {
+            'chunk_id': 12,
+            'file_id': 12,
+            'file_path': '/f12',
+            'filename': 'f12.txt',
+            'chunk_text': 'second low chunk',
+            'page_number': None,
+            'start_page': None,
+            'end_page': None,
+            'section_path': None,
+            'block_type': None,
+            'parent_id': None,
+        },
+    ])
+    mock_db.execute = AsyncMock(return_value=mock_cursor)
+
+    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
+         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch('informity.llm.retrieval.get_profile') as mock_get_profile, \
+         patch.object(real_settings, 'rag_rerank', True), \
+         patch.object(real_settings, 'fts5_candidate_limit', 0):
+        mock_embedder.embed_query.return_value = [0.1] * 768
+        mock_get_profile.return_value = SimpleNamespace(
+            retrieval_top_k_candidates=25,
+            rag_rerank_min_score=0.5,
+        )
+        mock_vector_store.search_similar.return_value = [
+            {'chunk_id': 11, 'score': 0.4},
+            {'chunk_id': 12, 'score': 0.3},
+        ]
+        mock_vector_store.fts5_augment_candidates.return_value = []
+        mock_reranker.rerank.return_value = [
+            {'chunk_id': 11, 'score': 0.4},
+            {'chunk_id': 12, 'score': 0.3},
+        ]
+
+        results = await retrieve_chunks('test query', top_k=5, db=mock_db)
+
+    assert len(results) == 1
+    assert results[0]['chunk_id'] == 11
+    assert results[0]['source_rank'] == 1
+
+
+@pytest.mark.asyncio
+async def test_retrieve_chunks_filters_low_rerank_scores_before_injection(mock_db):
+    from informity.config import settings as real_settings
+
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall = AsyncMock(return_value=[
+        {
+            'chunk_id': 1,
+            'file_id': 1,
+            'file_path': '/f1',
+            'filename': 'f1.txt',
+            'chunk_text': 'high score chunk',
+            'page_number': None,
+            'start_page': None,
+            'end_page': None,
+            'section_path': None,
+            'block_type': None,
+            'parent_id': None,
+        },
+        {
+            'chunk_id': 2,
+            'file_id': 2,
+            'file_path': '/f2',
+            'filename': 'f2.txt',
+            'chunk_text': 'low score chunk',
+            'page_number': None,
+            'start_page': None,
+            'end_page': None,
+            'section_path': None,
+            'block_type': None,
+            'parent_id': None,
+        },
+        {
+            'chunk_id': 3,
+            'file_id': 3,
+            'file_path': '/f3',
+            'filename': 'f3.txt',
+            'chunk_text': 'mid score chunk',
+            'page_number': None,
+            'start_page': None,
+            'end_page': None,
+            'section_path': None,
+            'block_type': None,
+            'parent_id': None,
+        },
+    ])
+    mock_db.execute = AsyncMock(return_value=mock_cursor)
+
+    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
+         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch('informity.llm.retrieval.get_profile') as mock_get_profile, \
+         patch.object(real_settings, 'rag_rerank', True), \
+         patch.object(real_settings, 'fts5_candidate_limit', 0):
+        mock_embedder.embed_query.return_value = [0.1] * 768
+        mock_get_profile.return_value = SimpleNamespace(
+            retrieval_top_k_candidates=25,
+            rag_rerank_min_score=0.5,
+        )
+        mock_vector_store.search_similar.return_value = [
+            {'chunk_id': 1, 'score': 0.9},
+            {'chunk_id': 2, 'score': 0.4},
+            {'chunk_id': 3, 'score': 0.3},
+        ]
+        mock_vector_store.fts5_augment_candidates.return_value = []
+        mock_reranker.rerank.return_value = [
+            {'chunk_id': 1, 'score': 0.9},
+            {'chunk_id': 2, 'score': 0.4},
+            {'chunk_id': 3, 'score': 0.3},
+        ]
+
+        results = await retrieve_chunks('test query', top_k=5, db=mock_db)
+
+    assert [item['chunk_id'] for item in results] == [1]
+    assert results[0]['source_rank'] == 1
+
+
+@pytest.mark.asyncio
+async def test_retrieve_chunks_keeps_one_chunk_when_all_scores_below_threshold(mock_db):
+    from informity.config import settings as real_settings
+
+    mock_cursor = MagicMock()
+    mock_cursor.fetchall = AsyncMock(return_value=[
+        {
+            'chunk_id': 11,
+            'file_id': 11,
+            'file_path': '/f11',
+            'filename': 'f11.txt',
+            'chunk_text': 'first low chunk',
+            'page_number': None,
+            'start_page': None,
+            'end_page': None,
+            'section_path': None,
+            'block_type': None,
+            'parent_id': None,
+        },
+        {
+            'chunk_id': 12,
+            'file_id': 12,
+            'file_path': '/f12',
+            'filename': 'f12.txt',
+            'chunk_text': 'second low chunk',
+            'page_number': None,
+            'start_page': None,
+            'end_page': None,
+            'section_path': None,
+            'block_type': None,
+            'parent_id': None,
+        },
+    ])
+    mock_db.execute = AsyncMock(return_value=mock_cursor)
+
+    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
+         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch('informity.llm.retrieval.get_profile') as mock_get_profile, \
+         patch.object(real_settings, 'rag_rerank', True), \
+         patch.object(real_settings, 'fts5_candidate_limit', 0):
+        mock_embedder.embed_query.return_value = [0.1] * 768
+        mock_get_profile.return_value = SimpleNamespace(
+            retrieval_top_k_candidates=25,
+            rag_rerank_min_score=0.5,
+        )
+        mock_vector_store.search_similar.return_value = [
+            {'chunk_id': 11, 'score': 0.4},
+            {'chunk_id': 12, 'score': 0.3},
+        ]
+        mock_vector_store.fts5_augment_candidates.return_value = []
+        mock_reranker.rerank.return_value = [
+            {'chunk_id': 11, 'score': 0.4},
+            {'chunk_id': 12, 'score': 0.3},
+        ]
+
+        results = await retrieve_chunks('test query', top_k=5, db=mock_db)
+
+    assert len(results) == 1
+    assert results[0]['chunk_id'] == 11
+    assert results[0]['source_rank'] == 1

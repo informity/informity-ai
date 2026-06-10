@@ -135,6 +135,7 @@ class ModelProfile:
     # -- RAG retrieval tuning (model-specific optimal values) ------------------
     rag_max_score:            float = 0.95  # Max L2 distance for relevant chunk (lower = stricter)
     rag_context_ratio:        float = 0.75  # Share of prompt budget for context (rest for history)
+    rag_rerank_min_score:     float = 0.10  # Minimum reranker score to keep a chunk before top-k selection
 
     # -- Stop sequences --------------------------------------------------------
     stop_sequences:              tuple[str, ...] = ()
@@ -214,6 +215,7 @@ class ModelProfile:
             'rag_top_k_coverage':      self.rag_top_k_coverage or self.coverage_top_k,
             'rag_max_score':           self.rag_max_score,
             'rag_context_ratio':       self.rag_context_ratio,
+            'rag_rerank_min_score':    self.rag_rerank_min_score,
             'timeout_seconds':         self.timeout_seconds,
         }
 
@@ -272,6 +274,7 @@ QWEN3_14B_PROFILE = ModelProfile(
 
     rag_max_score            = 0.92,
     rag_context_ratio        = 0.68,
+    rag_rerank_min_score     = 0.10,
 
     rag_top_k_simple   = 6,   # Simple queries need fewer candidates
     rag_top_k_focused  = 12,  # Focused queries benefit from slightly wider pool
@@ -319,6 +322,7 @@ QWEN3_5_9B_PROFILE = ModelProfile(
 
     rag_max_score             = 0.91,
     rag_context_ratio         = 0.66,
+    rag_rerank_min_score      = 0.10,
 
     rag_top_k_simple   = 6,
     rag_top_k_focused  = 12,
@@ -369,6 +373,7 @@ def _build_qwen_35b_a3b_profile(*, name: str, filename_patterns: tuple[str, ...]
 
         rag_max_score=0.90,
         rag_context_ratio=0.65,
+        rag_rerank_min_score=0.10,
 
         retrieval_top_k_final=12,
         rag_top_k_simple=6,
@@ -417,6 +422,7 @@ DEFAULT_PROFILE = ModelProfile(
     # RAG tuning: Conservative defaults (matching current global settings)
     rag_max_score            = 0.95,
     rag_context_ratio        = 0.70,
+    rag_rerank_min_score     = 0.10,
 
     stop_sequences  = _CHATML_STRUCTURAL + _CITATION + _FALLBACK_PHRASE_STOPS,
 
@@ -456,6 +462,7 @@ OLLAMA_DEFAULT_PROFILE = ModelProfile(
 
     rag_max_score=0.95,
     rag_context_ratio=0.70,
+    rag_rerank_min_score=0.10,
 
     rag_top_k_simple=6,
     rag_top_k_focused=10,
