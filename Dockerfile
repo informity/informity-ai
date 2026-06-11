@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # Multi-stage build for the Informity AI backend service.
-# Produces a headless FastAPI server on port 8420 — no Tauri/GUI.
+# Produces a FastAPI server on port 8420 with the React frontend served at /.
 #
 # Build:  docker build -t informity-backend .
 # Run:    docker run -p 8420:8420 -v ~/.informity:/data informity-backend
@@ -28,7 +28,23 @@ COPY scripts/ ./scripts/
 # Install all runtime deps (--frozen ensures lockfile is respected)
 RUN uv sync --no-dev --frozen --python 3.13
 
-# ── Stage 2: runtime ──────────────────────────────────────────────────────────
+# ── Stage 2: frontend build ───────────────────────────────────────────────────
+FROM node:22-slim AS frontend
+
+WORKDIR /app/src/frontend
+
+COPY src/frontend/package.json src/frontend/package-lock.json* ./
+RUN npm install
+
+COPY src/frontend/ ./
+
+# Empty VITE_API_URL makes API calls relative to the serving origin (browser mode).
+# Tauri desktop overrides this at runtime via window.__INFORMITY_API_BASE__.
+ARG VITE_API_URL=
+ENV VITE_API_URL=$VITE_API_URL
+RUN npm run build
+
+# ── Stage 3: runtime ──────────────────────────────────────────────────────────
 FROM python:3.13-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -42,6 +58,9 @@ WORKDIR /app
 COPY --from=deps /app/.venv /app/.venv
 COPY --from=deps /app/src /app/src
 COPY --from=deps /app/scripts /app/scripts
+
+# Copy built frontend — served at / by SPAStaticFiles
+COPY --from=frontend /app/src/frontend/dist /app/src/frontend/dist
 
 ENV PATH="/app/.venv/bin:$PATH"
 ENV PYTHONPATH="/app/src"

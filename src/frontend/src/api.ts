@@ -4,6 +4,7 @@
  */
 
 import type {
+  ChatMessageTranslationResponse,
   ChatUploadAttachment,
   ChatMode,
   LogChannel,
@@ -19,7 +20,9 @@ import type { SetupState } from './types/setupState'
 const DEFAULT_API_BASE = 'http://localhost:8420'
 
 function getApiBase(): string {
-  return window.__INFORMITY_API_BASE__ || import.meta.env.VITE_API_URL || DEFAULT_API_BASE
+  if (window.__INFORMITY_API_BASE__ !== undefined) return window.__INFORMITY_API_BASE__
+  if (import.meta.env.VITE_API_URL !== undefined) return import.meta.env.VITE_API_URL
+  return DEFAULT_API_BASE
 }
 
 function getSessionToken(): string | null {
@@ -521,6 +524,19 @@ export async function stopChatStream(
 
 export async function getMessageRaw(messageId: number): Promise<{ content: string }> {
   return request('GET', `/api/chat/messages/${messageId}/raw`) as Promise<{ content: string }>
+}
+
+export async function translateChatMessage(
+  chatId: string,
+  messageId: number,
+  body: {
+    target_language?: string | null
+    tone?: string | null
+  },
+): Promise<ChatMessageTranslationResponse> {
+  return request<ChatMessageTranslationResponse>('POST', `/api/chat/chats/${chatId}/messages/${messageId}/translate`, {
+    body,
+  })
 }
 
 export interface ChatMarkdownExportResponse {
