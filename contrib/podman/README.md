@@ -47,6 +47,7 @@ podman volume create informity-data
 podman run --rm \
   -v informity-data:/data \
   -e INFORMITY_APP_DATA_DIR=/data \
+  -e INFORMITY_CACHE_DIR=/data/cache \
   -e INFORMITY_FULL_PRIVACY=false \
   -e INFORMITY_EMBEDDING_OFFLINE=false \
   -e INFORMITY_LLM_LOCAL_ONLY=false \

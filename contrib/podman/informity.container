@@ -8,6 +8,7 @@
 #   podman build -t informity-backend /path/to/informity-ai
 #   podman volume create informity-data
 #   podman run --rm -v informity-data:/data -e INFORMITY_APP_DATA_DIR=/data \
+#     -e INFORMITY_CACHE_DIR=/data/cache \
 #     -e INFORMITY_FULL_PRIVACY=false -e INFORMITY_EMBEDDING_OFFLINE=false \
 #     -e INFORMITY_LLM_LOCAL_ONLY=false \
 #     localhost/informity-backend:latest python scripts/install_bootstrap_models.py
@@ -33,6 +34,7 @@ Volume=informity-data:/data
 Environment=INFORMITY_HOST=0.0.0.0
 Environment=INFORMITY_PORT=8420
 Environment=INFORMITY_APP_DATA_DIR=/data
+Environment=INFORMITY_CACHE_DIR=/data/cache
 
 # Optional: disable CPU priority lowering (useful in a container context)
 Environment=INFORMITY_CPU_PRIORITY_NICE=0
