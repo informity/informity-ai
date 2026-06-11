@@ -1,0 +1,14 @@
+.git
+.venv
+.internal
+node_modules
+src/frontend/dist
+src/frontend/node_modules
+src/frontend/src-tauri/target
+build
+__pycache__
+*.pyc
+*.pyo
+.pytest_cache
+.ruff_cache
+dist

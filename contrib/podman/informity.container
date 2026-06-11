@@ -1,0 +1,48 @@
+# Informity AI — Podman Quadlet unit
+# Drop into ~/.config/containers/systemd/ and run: systemctl --user daemon-reload
+#
+# Exposes the Informity backend API on http://informity:8420 within the container network.
+# Models and database are persisted in the informity-data named volume.
+#
+# First-time setup (run once before starting the service):
+#   podman build -t informity-backend /path/to/informity-ai
+#   podman volume create informity-data
+#   podman run --rm -v informity-data:/data -e INFORMITY_APP_DATA_DIR=/data \
+#     -e INFORMITY_FULL_PRIVACY=false -e INFORMITY_EMBEDDING_OFFLINE=false \
+#     -e INFORMITY_LLM_LOCAL_ONLY=false \
+#     localhost/informity-backend:latest python scripts/install_bootstrap_models.py
+
+[Unit]
+Description=Informity AI Backend
+After=network-online.target
+Wants=network-online.target
+
+[Container]
+# Build locally: podman build -t informity-backend /path/to/informity-ai
+Image=localhost/informity-backend:latest
+ContainerName=informity
+
+# Join the same network as your other services (e.g. caddy, open-webui)
+Network=caddy.network
+NetworkAlias=informity
+
+# Persist models, SQLite DB, and config
+Volume=informity-data:/data
+
+# Bind to all interfaces inside the container
+Environment=INFORMITY_HOST=0.0.0.0
+Environment=INFORMITY_PORT=8420
+Environment=INFORMITY_APP_DATA_DIR=/data
+
+# Optional: disable CPU priority lowering (useful in a container context)
+Environment=INFORMITY_CPU_PRIORITY_NICE=0
+
+# Optional: set log level (debug, info, warning, error)
+# Environment=INFORMITY_LOG_LEVEL=info
+
+[Service]
+Restart=always
+TimeoutStartSec=180
+
+[Install]
+WantedBy=default.target
