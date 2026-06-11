@@ -59,6 +59,13 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
     }
   }, [])
 
+  const handleNavClick = (path: string) => {
+    if (collapsed && path === '/settings') {
+      onToggleCollapsed()
+    }
+    navigate(path)
+  }
+
   useEffect(() => {
     let timeoutId: ReturnType<typeof setTimeout> | null = null
     let cancelled = false
@@ -143,7 +150,8 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
               <button
                 type="button"
                 className={`sidebar__link ${pathname === path ? 'sidebar__link--active' : ''}`}
-                onClick={() => navigate(path)}
+                onClick={() => handleNavClick(path)}
+                aria-label={label}
                 aria-current={pathname === path ? 'page' : undefined}
               >
                 <i className={`${icon} sidebar__icon`} aria-hidden />

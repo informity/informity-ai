@@ -75,12 +75,13 @@ _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT = (
 )
 LOG_LEVEL_ALLOWED_VALUES: tuple[str, ...] = ('debug', 'info', 'warning', 'error')
 UI_THEME_ALLOWED_VALUES: tuple[str, ...] = (
-    'canvas',
-    'ember',
-    'sage',
-    'graphite',
     'onyx',
     'square',
+    'graphite',
+    'midnight',
+    'ember',
+    'sage',
+    'canvas',
 )
 # Theme migration map for legacy persisted values.
 UI_THEME_ALIAS_MAP: dict[str, str] = {
@@ -646,7 +647,7 @@ class Settings(BaseSettings):
 
     # -- UI (frontend-only; persisted so theme survives restarts) -------------
     # Color theme for the app UI: canvas, ember, sage, graphite, onyx, square.
-    ui_theme: Literal['canvas', 'ember', 'sage', 'graphite', 'onyx', 'square'] = _DEFAULT_UI_THEME
+    ui_theme: Literal['canvas', 'ember', 'sage', 'graphite', 'onyx', 'square', 'midnight'] = _DEFAULT_UI_THEME
     # When true, show the macOS menu bar icon while the app is running.
     enable_menu_bar_icon: bool = False
     # Primary target language for the translation screen.

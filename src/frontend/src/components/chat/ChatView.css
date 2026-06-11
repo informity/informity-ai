@@ -677,6 +677,13 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
   width: 8.9rem;
 }
 
+.chat-view__specialization-selector {
+  position: relative;
+  z-index: 9;
+  transform: translateX(-4px);
+  display: inline-flex;
+}
+
 .chat-view__role-selector {
   position: relative;
   z-index: 9;
@@ -781,6 +788,15 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
 .chat-view__mode-menu--role .chat-view__mode-option {
   padding-left: 0.75rem;
   padding-right: 0.75rem;
+}
+
+.chat-view__mode-menu--specialization {
+  left: 0;
+  right: auto;
+  bottom: calc(100% + 0.375rem);
+  min-width: 10rem;
+  width: max-content;
+  max-width: min(16rem, calc(100vw - 2rem));
 }
 
 .chat-view__mode-option {

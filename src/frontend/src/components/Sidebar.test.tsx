@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { useState } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import * as api from '../api'
@@ -18,6 +19,16 @@ vi.mock('../api', () => ({
 }))
 
 import { Sidebar } from './Sidebar'
+
+function SidebarHarness({ initialCollapsed }: { initialCollapsed: boolean }) {
+  const [collapsed, setCollapsed] = useState(initialCollapsed)
+
+  return (
+    <MemoryRouter initialEntries={['/chat']}>
+      <Sidebar collapsed={collapsed} onToggleCollapsed={() => setCollapsed((value) => !value)} />
+    </MemoryRouter>
+  )
+}
 
 describe('Sidebar', () => {
   it('shows low-noise generating spinner on chat item', () => {
@@ -68,5 +79,18 @@ describe('Sidebar', () => {
     )
 
     expect(await screen.findByLabelText('Scanning')).toBeInTheDocument()
+  })
+
+  it('expands the sidebar when clicking Settings while collapsed', () => {
+    const { container } = render(<SidebarHarness initialCollapsed />)
+
+    const collapsedSidebar = container.querySelector('.sidebar--collapsed')
+    expect(collapsedSidebar).toBeTruthy()
+    fireEvent.click(within(collapsedSidebar as HTMLElement).getByRole('button', { name: 'Settings' }))
+
+    expect(collapsedSidebar).not.toHaveClass('sidebar--collapsed')
+    expect(within(collapsedSidebar as HTMLElement).getByRole('button', { name: 'Toggle sidebar' })).toBeInTheDocument()
+    expect(within(collapsedSidebar as HTMLElement).getByText('General')).toBeInTheDocument()
+    expect(within(collapsedSidebar as HTMLElement).getByText('Data Sources')).toBeInTheDocument()
   })
 })

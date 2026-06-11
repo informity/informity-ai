@@ -5,7 +5,7 @@
     <meta name="color-scheme" content="dark light" />
     <script>
       try {
-        const allowed = new Set(['canvas', 'ember', 'sage', 'graphite', 'onyx'])
+        const allowed = new Set(['canvas', 'ember', 'sage', 'graphite', 'onyx', 'square', 'midnight'])
         const aliases = {
           light: 'canvas',
           sand: 'canvas',
@@ -56,6 +56,11 @@
       html[data-accent='onyx'] {
         --boot-accent: #8f8f8f;
         --boot-text: #9a9a9a;
+      }
+      html[data-accent='midnight'] {
+        --boot-bg: #07070a;
+        --boot-accent: #9d8fff;
+        --boot-text: #9898a8;
       }
       #boot-overlay {
         position: fixed;
