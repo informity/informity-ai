@@ -20,7 +20,9 @@ import type { SetupState } from './types/setupState'
 const DEFAULT_API_BASE = 'http://localhost:8420'
 
 function getApiBase(): string {
-  return window.__INFORMITY_API_BASE__ || import.meta.env.VITE_API_URL || DEFAULT_API_BASE
+  if (window.__INFORMITY_API_BASE__ !== undefined) return window.__INFORMITY_API_BASE__
+  if (import.meta.env.VITE_API_URL !== undefined) return import.meta.env.VITE_API_URL
+  return DEFAULT_API_BASE
 }
 
 function getSessionToken(): string | null {
