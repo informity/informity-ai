@@ -52,6 +52,7 @@ interface RequestConfig {
   params?: Record<string, string | number | boolean | undefined | string[]>
   headers?: Record<string, string>
   keepalive?: boolean
+  signal?: AbortSignal
 }
 
 async function extractErrorDetail(response: Response): Promise<string> {
@@ -102,6 +103,7 @@ async function request<T = unknown>(
     headers,
     cache: 'no-store',
     ...(options.keepalive === true ? { keepalive: true } : {}),
+    ...(options.signal ? { signal: options.signal } : {}),
     ...(body != null ? { body: JSON.stringify(body) } : {}),
   }
 
@@ -531,9 +533,13 @@ export async function translateChatMessage(
     target_language?: string | null
     tone?: string | null
   },
+  options?: {
+    signal?: AbortSignal
+  },
 ): Promise<ChatMessageTranslationResponse> {
   return request<ChatMessageTranslationResponse>('POST', `/api/chat/chats/${chatId}/messages/${messageId}/translate`, {
     body,
+    signal: options?.signal,
   })
 }
 

@@ -66,7 +66,7 @@ function clearCompletedRuns(): void {
 
 export function TranslatePage() {
   const { offline } = useBackendStatus()
-  const { isStreaming, isTranslatingReply, stopStreaming } = useChatContext()
+  const { isStreaming, isTranslatingReply, stopStreaming, cancelReplyTranslation } = useChatContext()
   const location = useLocation()
   const {
     fileId, fileName, pageCount, isUpload, estimatedMinutes, exceedsSoftLimit,
@@ -695,11 +695,13 @@ export function TranslatePage() {
                   <button
                     type="button"
                     className="translate-page__send"
-                    disabled
-                    title="Chat reply translation in progress"
-                    aria-label="Chat reply translation in progress"
+                    onClick={() => void cancelReplyTranslation()}
+                    title="Stop Chat"
+                    aria-label="Stop Chat"
+                    style={{ gap: '0.375rem', padding: '0.375rem 0.75rem' }}
                   >
-                    <i className="ri-translate-2" aria-hidden style={{ fontSize: '1.125rem' }} />
+                    <i className="ri-stop-circle-line" aria-hidden style={{ fontSize: '1.125rem' }} />
+                    <span style={{ fontSize: 'var(--font-size-sm)' }}>Stop Chat</span>
                   </button>
                 ) : (
                   <button

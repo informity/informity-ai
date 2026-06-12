@@ -67,6 +67,7 @@ export interface ChatContextValue {
       tone?: string | null
     },
   ) => Promise<boolean>
+  cancelReplyTranslation: () => void
   stopStreaming: () => Promise<boolean>
   newChat: () => Promise<void>
   clearError: () => void

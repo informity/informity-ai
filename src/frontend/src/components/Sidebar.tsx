@@ -43,7 +43,6 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   const { isStreaming, isTranslatingReply } = useChatContext()
   const translateCtx = useOptionalTranslateContext()
   const isTranslating = translateCtx?.isTranslating ?? false
-  const isTranslateBlocked = isTranslating || isTranslatingReply || isStreaming
   const [isScanRunning, setIsScanRunning] = useState(false)
   const [isScanActionPending, setIsScanActionPending] = useState(false)
   const [isFileReindexRunning, setIsFileReindexRunning] = useState(false)
@@ -139,7 +138,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             (path === '/chat' && isStreaming)
             || (path === '/settings' && (isScanActionPending || isScanRunning))
             || (path === '/files' && isFileReindexRunning)
-            || (path === '/translate' && isTranslateBlocked)
+            || (path === '/translate' && isTranslating)
             || (path === '/chat' && isTranslatingReply)
           const spinnerLabel =
             path === '/chat' ? 'Generating'

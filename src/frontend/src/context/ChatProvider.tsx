@@ -303,6 +303,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     targetLanguage: string
     tone: string | null
   } | null>(null)
+  const activeChatTranslationAbortRef = useRef<AbortController | null>(null)
   const [loadingChat, setLoadingChat] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [enableRawOutputControl, setEnableRawOutputControl] = useState(false)
@@ -1464,6 +1465,9 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const targetLanguage = String(options?.targetLanguage || '').trim() || null
     const tone = String(options?.tone || '').trim() || null
     const sourceMessageId = messageId
+    const abortController = new AbortController()
+    activeChatTranslationAbortRef.current?.abort()
+    activeChatTranslationAbortRef.current = abortController
     setActiveChatTranslation({
       chatId,
       sourceMessageId,
@@ -1482,7 +1486,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       const response: ChatMessageTranslationResponse = await translateChatMessage(chatId, messageId, {
         target_language: targetLanguage,
         tone,
-      })
+      }, { signal: abortController.signal })
       if (currentChatIdRef.current !== chatId) return false
       const translated = response.translated_message
       const completionMode = normalizeCompletionMode(translated.completion_mode)
@@ -1547,18 +1551,29 @@ export function ChatProvider({ children }: ChatProviderProps) {
       })
       return true
     } catch (err) {
+      if ((err as { name?: string })?.name === 'AbortError') return false
       logApiError(err, 'ChatProvider.translateAssistantMessage')
       const msg = extractErrorMessage(err, 'Failed to translate reply')
       setError(msg)
       showToast('error', msg)
       return false
     } finally {
+      if (activeChatTranslationAbortRef.current === abortController) {
+        activeChatTranslationAbortRef.current = null
+      }
       clearSessionValue(CHAT_TRANSLATION_REQUEST_STORAGE_KEY)
       setActiveChatTranslation((current) => (
         current?.chatId === chatId && current?.sourceMessageId === sourceMessageId ? null : current
       ))
     }
   }, [currentChatLockedMode, currentChatLockedSpecializationId])
+
+  const cancelReplyTranslation = useCallback(() => {
+    activeChatTranslationAbortRef.current?.abort()
+    activeChatTranslationAbortRef.current = null
+    clearSessionValue(CHAT_TRANSLATION_REQUEST_STORAGE_KEY)
+    setActiveChatTranslation(null)
+  }, [])
 
   useEffect(() => {
     if (loadingChat || isStreaming || sendInFlightRef.current) return
@@ -1704,6 +1719,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         sendMessage,
         continueLastScope,
         translateAssistantMessage,
+        cancelReplyTranslation,
         stopStreaming,
         newChat,
         clearError,
