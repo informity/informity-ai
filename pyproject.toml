@@ -105,6 +105,20 @@ ignore = [
 [tool.ruff.lint.isort]
 known-first-party = ["informity"]
 
+# ==============================================================================
+# uv — CPU-only torch (container/Linux builds)
+# Scopes torch to the PyTorch CPU index so uv does not pull CUDA wheels,
+# keeping the container image lean. macOS builds are unaffected (Metal path
+# is handled at runtime by xllamacpp regardless of wheel variant).
+# ==============================================================================
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
