@@ -1351,6 +1351,7 @@ describe('ChatView new chat behavior', () => {
         'chat-translate-1',
         444,
         { target_language: null, tone: null },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       )
     })
     expect(screen.getByText(/Translating to selected language/i)).toBeInTheDocument()
@@ -1494,6 +1495,7 @@ describe('ChatView new chat behavior', () => {
         'chat-translate-reload-1',
         701,
         { target_language: 'French', tone: 'natural' },
+        expect.objectContaining({ signal: expect.any(AbortSignal) }),
       )
     })
     expect(screen.getByText(/Translating to French/i)).toBeInTheDocument()
