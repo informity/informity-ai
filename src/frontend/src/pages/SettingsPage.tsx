@@ -643,7 +643,7 @@ export function SettingsPage() {
       const msg = extractErrorMessage(err, 'Indexing failed')
       showToast('error', msg)
     }
-  }, [confirm, offline, settings?.watched_directories, refreshIndexStatus])
+  }, [offline, settings?.watched_directories, refreshIndexStatus])
 
   const handleRescanAll = useCallback(async () => {
     if (offline) return
@@ -662,7 +662,7 @@ export function SettingsPage() {
       const msg = extractErrorMessage(err, 'Rescan failed')
       showToast('error', msg)
     }
-  }, [offline, settings?.watched_directories, refreshIndexStatus])
+  }, [confirm, offline, settings?.watched_directories, refreshIndexStatus])
 
   const handleCancelIndex = useCallback(async () => {
     if (offline || scanStatus?.status !== 'running') return

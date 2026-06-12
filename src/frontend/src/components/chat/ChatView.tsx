@@ -895,13 +895,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     if (offline || isStreaming || loadingChat || isTranslating || isTranslatingReply) return
     if (!contextChatId) return
     if (!messageId || !Number.isFinite(messageId)) return
-    try {
-      await translateAssistantMessage(messageId, {
-        targetLanguage: translateTargetLanguage,
-        tone: translateTone,
-      })
-    } finally {
-    }
+    await translateAssistantMessage(messageId, {
+      targetLanguage: translateTargetLanguage,
+      tone: translateTone,
+    })
   }, [contextChatId, isStreaming, isTranslating, isTranslatingReply, loadingChat, offline, translateAssistantMessage, translateTargetLanguage, translateTone])
 
   useEffect(() => {
@@ -925,7 +922,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [contextChatId, offline, inputValue, isTranslating, isTranslatingReply, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, inputValue, isTranslating, isTranslatingReply, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleStop = useCallback(() => {
     if (offline) return
