@@ -302,6 +302,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     sourceMessageId: number
     targetLanguage: string
     tone: string | null
+    startedAt: number
   } | null>(null)
   const activeChatTranslationAbortRef = useRef<AbortController | null>(null)
   const [loadingChat, setLoadingChat] = useState(false)
@@ -1468,18 +1469,20 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const abortController = new AbortController()
     activeChatTranslationAbortRef.current?.abort()
     activeChatTranslationAbortRef.current = abortController
+    const startedAt = Date.now()
     setActiveChatTranslation({
       chatId,
       sourceMessageId,
       targetLanguage: targetLanguage || 'selected language',
       tone,
+      startedAt,
     })
     saveSessionJson(CHAT_TRANSLATION_REQUEST_STORAGE_KEY, {
       chatId,
       sourceMessageId,
       targetLanguage,
       tone,
-      startedAt: Date.now(),
+      startedAt,
     })
 
     try {

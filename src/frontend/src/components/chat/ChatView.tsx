@@ -151,6 +151,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     clearError,
     translateAssistantMessage,
   } = useChatContext()
+  const [translationElapsedSeconds, setTranslationElapsedSeconds] = useState(0)
   const [inputValue, setInputValue] = useState(prefillMessage)
   const [chatMode, setChatMode] = useState<ChatMode>('researcher')
   const [, setDefaultChatMode] = useState<ChatMode>('researcher')
@@ -204,16 +205,32 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     return Math.max(scopedCount, draftAliasCount)
   })()
 
+  useEffect(() => {
+    if (!activeChatTranslation || activeChatTranslation.chatId !== contextChatId) {
+      setTranslationElapsedSeconds(0)
+      return
+    }
+    const startedAt = Number(activeChatTranslation.startedAt)
+    const updateElapsed = () => {
+      const elapsed = Math.max(0, Math.floor((Date.now() - startedAt) / 1000))
+      setTranslationElapsedSeconds(elapsed)
+    }
+    updateElapsed()
+    const intervalId = window.setInterval(updateElapsed, 1000)
+    return () => window.clearInterval(intervalId)
+  }, [activeChatTranslation, contextChatId])
+
   const renderedMessages = useMemo(() => {
     if (!activeChatTranslation || activeChatTranslation.chatId !== contextChatId) return messages
     const sourceMessageId = activeChatTranslation.sourceMessageId
     const filteredMessages = messages.filter((message) => message.translatedFromMessageId !== sourceMessageId)
     const pendingLanguage = activeChatTranslation.targetLanguage || 'selected language'
+    const elapsedLabel = translationElapsedSeconds > 0 ? ` ${translationElapsedSeconds}s` : ''
     const placeholder: ChatMessageDisplay = {
       role: 'assistant',
       content: '',
       isStreaming: true,
-      streamStatusText: `Translating to ${pendingLanguage}…`,
+      streamStatusText: `Translating to ${pendingLanguage}…${elapsedLabel}`,
       chatMode: currentChatLockedMode ?? 'assistant',
       specializationId: currentChatLockedSpecializationId,
       translatedFromMessageId: activeChatTranslation.sourceMessageId,
@@ -235,7 +252,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     }
     if (!inserted) next.push(placeholder)
     return next
-  }, [activeChatTranslation, contextChatId, currentChatLockedMode, currentChatLockedSpecializationId, messages])
+  }, [activeChatTranslation, contextChatId, currentChatLockedMode, currentChatLockedSpecializationId, messages, translationElapsedSeconds])
 
   const isForceNewChatRequested = useCallback((): boolean => {
     try {
@@ -1250,6 +1267,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       streamSectionProgress={msg.streamSectionProgress}
                       streamPlanSteps={msg.streamPlanSteps}
                       scopedFileName={msg.scopedFileName}
+                      translateTargetLanguage={translateTargetLanguage}
                       isPartial={msg.isPartial}
                       hasRemainingScope={msg.hasRemainingScope}
                       completionMode={msg.completionMode}

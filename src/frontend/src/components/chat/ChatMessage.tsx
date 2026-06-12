@@ -41,6 +41,7 @@ interface ChatMessageProps {
   }
   streamPlanSteps?: Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>
   scopedFileName?: string | null
+  translateTargetLanguage?: string | null
   translationLanguage?: string | null
   translationTone?: string | null
   translationIsStale?: boolean
@@ -86,6 +87,7 @@ function ChatMessageComponent({
   streamSectionProgress,
   streamPlanSteps,
   scopedFileName = null,
+  translateTargetLanguage = null,
   translationLanguage = null,
   translationTone = null,
   translationIsStale = false,
@@ -128,6 +130,7 @@ function ChatMessageComponent({
   const [isEditSubmitting, setIsEditSubmitting] = useState(false)
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const exportMenuRef = useRef<HTMLDivElement>(null)
+  const translateReplyTitle = translateTargetLanguage ? `Translate to ${translateTargetLanguage}` : 'Translate reply'
 
   useEffect(() => {
     if (!exportMenuOpen) return
@@ -592,8 +595,8 @@ function ChatMessageComponent({
                 className="chat-message__copy-full"
                 onClick={handleTranslate}
                 disabled={actionsDisabled || !canTranslate}
-                title="Translate reply"
-                aria-label="Translate reply"
+                title={translateReplyTitle}
+                aria-label={translateReplyTitle}
               >
                 <i className="ri-translate-2" aria-hidden style={{ fontSize: '0.875rem' }} />
               </button>

@@ -18,6 +18,7 @@ export interface ChatContextValue {
     sourceMessageId: number
     targetLanguage: string
     tone: string | null
+    startedAt: number
   } | null
   isTranslatingReply: boolean
   messages: ChatMessageDisplay[]
