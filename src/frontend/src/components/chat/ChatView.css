@@ -689,7 +689,7 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
   z-index: 9;
 }
 
-.chat-view__role-button {
+.chat-view__specialization-button {
   position: static;
   display: inline-flex;
   align-items: center;
@@ -710,17 +710,17 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
   transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
 }
 
-.chat-view__role-button:hover:not(:disabled) {
+.chat-view__specialization-button:hover:not(:disabled) {
   background: var(--chat-view-toggle-hover-bg);
   color: var(--color-text);
 }
 
-.chat-view__role-button:disabled {
+.chat-view__specialization-button:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.chat-view__role-button i {
+.chat-view__specialization-button i {
   font-size: 1rem;
   line-height: 1;
 }
@@ -779,13 +779,13 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
   z-index: 12;
 }
 
-.chat-view__mode-menu--role {
+.chat-view__mode-menu--specialization {
   left: 0;
   right: auto;
   transform: none;
 }
 
-.chat-view__mode-menu--role .chat-view__mode-option {
+.chat-view__mode-menu--specialization .chat-view__mode-option {
   padding-left: 0.75rem;
   padding-right: 0.75rem;
 }

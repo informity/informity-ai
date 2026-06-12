@@ -40,7 +40,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
   const activeSettingsSection = pathname === '/settings'
     ? (new URLSearchParams(search).get('section') ?? 'general')
     : null
-  const { isStreaming } = useChatContext()
+  const { isStreaming, isTranslatingReply } = useChatContext()
   const translateCtx = useOptionalTranslateContext()
   const isTranslating = translateCtx?.isTranslating ?? false
   const [isScanRunning, setIsScanRunning] = useState(false)
@@ -139,6 +139,7 @@ export function Sidebar({ collapsed, onToggleCollapsed }: SidebarProps) {
             || (path === '/settings' && (isScanActionPending || isScanRunning))
             || (path === '/files' && isFileReindexRunning)
             || (path === '/translate' && isTranslating)
+            || (path === '/chat' && isTranslatingReply)
           const spinnerLabel =
             path === '/chat' ? 'Generating'
             : path === '/settings' ? 'Scanning'

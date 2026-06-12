@@ -1226,7 +1226,7 @@ export function SettingsView({
               Translator Configuration
             </div>
             <p className="settings-subsection-description ui-subsection-description">
-              Applied to each new translation session.
+              Applied to new translation sessions and AI reply translations in Chat.
             </p>
           </div>
           <div className="settings-control-group">

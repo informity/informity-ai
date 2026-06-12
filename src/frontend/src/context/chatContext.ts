@@ -13,6 +13,13 @@ export interface ChatContextValue {
   activeGenerationChatId: string | null
   activeGenerationRequestId: string | null
   hasActiveGenerationForCurrentChat: boolean
+  activeChatTranslation: {
+    chatId: string
+    sourceMessageId: number
+    targetLanguage: string
+    tone: string | null
+  } | null
+  isTranslatingReply: boolean
   messages: ChatMessageDisplay[]
   isStreaming: boolean
   loadingChat: boolean

@@ -24,7 +24,13 @@ import {
   CHAT_FILE_SCOPE_MAP_STORAGE_KEY,
   FORCE_NEW_CHAT_KEY,
   MESSAGE_MODE_MAP_STORAGE_KEY,
+  CHAT_TRANSLATION_REQUEST_STORAGE_KEY,
 } from '../utils/storageKeys'
+import {
+  clearSessionValue,
+  loadSessionJson,
+  saveSessionJson,
+} from '../utils/translationLifecycle'
 import type {
   ChatFileScope,
   ChatMode,
@@ -70,6 +76,14 @@ const STREAM_STATUS_LABELS: Record<string, string> = {
   generating: 'Generating response…',
   continuing: 'Continuing response…',
   finalizing: 'Finalizing answer…',
+}
+
+interface PersistedChatTranslationRequest {
+  chatId: string
+  sourceMessageId: number
+  targetLanguage: string | null
+  tone: string | null
+  startedAt: number
 }
 
 function isTransientFetchFailure(err: unknown): boolean {
@@ -283,6 +297,12 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const [activeGenerationRequestId, setActiveGenerationRequestId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessageDisplay[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
+  const [activeChatTranslation, setActiveChatTranslation] = useState<{
+    chatId: string
+    sourceMessageId: number
+    targetLanguage: string
+    tone: string | null
+  } | null>(null)
   const [loadingChat, setLoadingChat] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [enableRawOutputControl, setEnableRawOutputControl] = useState(false)
@@ -315,6 +335,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const streamStopRequestedRef = useRef(false)
   const currentChatIdRef = useRef<string | null>(null)
   const isStreamingRef = useRef(false)
+  const translationRecoveryAttemptedRef = useRef<string | null>(null)
   const messagesCountRef = useRef(0)
   const lastAutoContinuedMessageIdRef = useRef<number | null>(null)
   const chatPrefsRef = useRef<Record<string, { enabled: boolean; privacyOverride: boolean }>>({})
@@ -1440,11 +1461,26 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const chatId = currentChatIdRef.current
     if (!chatId || !Number.isFinite(messageId) || messageId <= 0) return false
     if (isStreamingRef.current || sendInFlightRef.current) return false
+    const targetLanguage = String(options?.targetLanguage || '').trim() || null
+    const tone = String(options?.tone || '').trim() || null
+    setActiveChatTranslation({
+      chatId,
+      sourceMessageId: messageId,
+      targetLanguage: targetLanguage || 'selected language',
+      tone,
+    })
+    saveSessionJson(CHAT_TRANSLATION_REQUEST_STORAGE_KEY, {
+      chatId,
+      sourceMessageId: messageId,
+      targetLanguage,
+      tone,
+      startedAt: Date.now(),
+    })
 
     try {
       const response: ChatMessageTranslationResponse = await translateChatMessage(chatId, messageId, {
-        target_language: options?.targetLanguage ?? null,
-        tone: options?.tone ?? null,
+        target_language: targetLanguage,
+        tone,
       })
       if (currentChatIdRef.current !== chatId) return false
       const translated = response.translated_message
@@ -1508,15 +1544,57 @@ export function ChatProvider({ children }: ChatProviderProps) {
         }
         return next
       })
+      clearSessionValue(CHAT_TRANSLATION_REQUEST_STORAGE_KEY)
+      setActiveChatTranslation((current) => (
+        current?.chatId === chatId && current?.sourceMessageId === messageId ? null : current
+      ))
       return true
     } catch (err) {
       logApiError(err, 'ChatProvider.translateAssistantMessage')
       const msg = extractErrorMessage(err, 'Failed to translate reply')
       setError(msg)
       showToast('error', msg)
+      clearSessionValue(CHAT_TRANSLATION_REQUEST_STORAGE_KEY)
+      setActiveChatTranslation((current) => (
+        current?.chatId === chatId && current?.sourceMessageId === messageId ? null : current
+      ))
       return false
     }
   }, [currentChatLockedMode, currentChatLockedSpecializationId])
+
+  useEffect(() => {
+    if (loadingChat || isStreaming || sendInFlightRef.current) return
+    if (activeChatTranslation) return
+    if (!currentChatIdRef.current) return
+    const persisted = loadSessionJson<PersistedChatTranslationRequest>(CHAT_TRANSLATION_REQUEST_STORAGE_KEY)
+    if (!persisted || persisted.chatId !== currentChatIdRef.current) return
+    const sourceMessageId = Number(persisted.sourceMessageId)
+    if (!Number.isFinite(sourceMessageId) || sourceMessageId <= 0) return
+    const sourceExists = messages.some((message) => message.id === sourceMessageId)
+    if (!sourceExists) return
+    const translationAlreadyPresent = messages.some(
+      (message) => message.translatedFromMessageId === sourceMessageId,
+    )
+    if (translationAlreadyPresent) {
+      clearSessionValue(CHAT_TRANSLATION_REQUEST_STORAGE_KEY)
+      translationRecoveryAttemptedRef.current = null
+      return
+    }
+    const requestSignature = [
+      persisted.chatId,
+      sourceMessageId,
+      persisted.targetLanguage || '',
+      persisted.tone || '',
+    ].join(':')
+    if (translationRecoveryAttemptedRef.current === requestSignature) return
+    translationRecoveryAttemptedRef.current = requestSignature
+    void translateAssistantMessage(sourceMessageId, {
+      targetLanguage: persisted.targetLanguage,
+      tone: persisted.tone,
+    }).finally(() => {
+      translationRecoveryAttemptedRef.current = null
+    })
+  }, [activeChatTranslation, isStreaming, loadingChat, messages, translateAssistantMessage])
 
   const continueLastScope = useCallback(async (
     anchorMessageId?: number,
@@ -1607,6 +1685,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
         activeGenerationChatId,
         activeGenerationRequestId,
         hasActiveGenerationForCurrentChat: !!(isStreaming && activeGenerationChatId && currentChatId === activeGenerationChatId),
+        activeChatTranslation,
+        isTranslatingReply: !!activeChatTranslation && activeChatTranslation.chatId === currentChatId,
         messages,
         isStreaming,
         loadingChat,
