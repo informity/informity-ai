@@ -12,6 +12,7 @@ import {
   listChatUploads,
   stopChatStream,
   streamChat,
+  translateChatMessage,
   updateChatPreferences,
   updateCurrentChat,
   uploadChatFile,
@@ -34,6 +35,7 @@ import type {
   NextAction,
   NextActionReason,
   PlanStepPayload,
+  ChatMessageTranslationResponse,
   StreamDonePayload,
 } from '../types/api'
 import { isChatMode } from '../types/api'
@@ -616,6 +618,27 @@ export function ChatProvider({ children }: ChatProviderProps) {
               ? m.specialization_id.trim()
               : lockedSpecializationId
           ),
+          translatedFromMessageId: (
+            typeof m.translated_from_message_id === 'number'
+              ? m.translated_from_message_id
+              : null
+          ),
+          translationLanguage: (
+            typeof m.translation_language === 'string' && m.translation_language.trim().length > 0
+              ? m.translation_language.trim()
+              : null
+          ),
+          translationTone: (
+            typeof m.translation_tone === 'string' && m.translation_tone.trim().length > 0
+              ? m.translation_tone.trim()
+              : null
+          ),
+          translationSourceHash: (
+            typeof m.translation_source_hash === 'string' && m.translation_source_hash.trim().length > 0
+              ? m.translation_source_hash.trim()
+              : null
+          ),
+          translationIsStale: !!m.translation_is_stale,
           scopedFileName: m.role === 'assistant' ? resolvedFileScope?.filename ?? null : null,
         }
       })
@@ -1407,6 +1430,94 @@ export function ChatProvider({ children }: ChatProviderProps) {
     resolveDraftOrChatFileScope,
   ])
 
+  const translateAssistantMessage = useCallback(async (
+    messageId: number,
+    options?: {
+      targetLanguage?: string | null
+      tone?: string | null
+    },
+  ): Promise<boolean> => {
+    const chatId = currentChatIdRef.current
+    if (!chatId || !Number.isFinite(messageId) || messageId <= 0) return false
+    if (isStreamingRef.current || sendInFlightRef.current) return false
+
+    try {
+      const response: ChatMessageTranslationResponse = await translateChatMessage(chatId, messageId, {
+        target_language: options?.targetLanguage ?? null,
+        tone: options?.tone ?? null,
+      })
+      if (currentChatIdRef.current !== chatId) return false
+      const translated = response.translated_message
+      const completionMode = normalizeCompletionMode(translated.completion_mode)
+      const mappedTranslated: ChatMessageDisplay = {
+        id: translated.id,
+        role: translated.role,
+        content: translated.content || '',
+        isInternal: !!translated.is_internal,
+        isContinuation: false,
+        sources: translated.sources || [],
+        displayBlocks: Array.isArray(translated.display_blocks) ? translated.display_blocks : undefined,
+        isPartial: completionMode === 'partial',
+        hasRemainingScope: !!translated.has_remaining_scope,
+        completionMode,
+        stoppedByUser: !!translated.stopped_by_user,
+        nextAction: translated.next_action ?? 'none',
+        nextActionReason: translated.next_action_reason ?? null,
+        continueLabel: 'Continue',
+        createdAt: translated.created_at,
+        generationSeconds: translated.generation_seconds,
+        chatMode: isChatMode(translated.chat_mode)
+          ? translated.chat_mode
+          : currentChatLockedMode ?? 'assistant',
+        specializationId: (
+          typeof translated.specialization_id === 'string' && translated.specialization_id.trim().length > 0
+            ? translated.specialization_id.trim()
+            : currentChatLockedSpecializationId
+        ),
+        translatedFromMessageId: (
+          typeof translated.translated_from_message_id === 'number'
+            ? translated.translated_from_message_id
+            : null
+        ),
+        translationLanguage: (
+          typeof translated.translation_language === 'string' && translated.translation_language.trim().length > 0
+            ? translated.translation_language.trim()
+            : null
+        ),
+        translationTone: (
+          typeof translated.translation_tone === 'string' && translated.translation_tone.trim().length > 0
+            ? translated.translation_tone.trim()
+            : null
+        ),
+        translationSourceHash: (
+          typeof translated.translation_source_hash === 'string' && translated.translation_source_hash.trim().length > 0
+            ? translated.translation_source_hash.trim()
+            : null
+        ),
+        translationIsStale: !!translated.translation_is_stale,
+        scopedFileName: null,
+      }
+
+      setMessages((prev) => {
+        const next = [...prev]
+        const existingIndex = next.findIndex((message) => message.id != null && message.id === mappedTranslated.id)
+        if (existingIndex >= 0) {
+          next[existingIndex] = mappedTranslated
+        } else {
+          next.push(mappedTranslated)
+        }
+        return next
+      })
+      return true
+    } catch (err) {
+      logApiError(err, 'ChatProvider.translateAssistantMessage')
+      const msg = extractErrorMessage(err, 'Failed to translate reply')
+      setError(msg)
+      showToast('error', msg)
+      return false
+    }
+  }, [currentChatLockedMode, currentChatLockedSpecializationId])
+
   const continueLastScope = useCallback(async (
     anchorMessageId?: number,
     options?: {
@@ -1514,6 +1625,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         goToGeneratingChat,
         sendMessage,
         continueLastScope,
+        translateAssistantMessage,
         stopStreaming,
         newChat,
         clearError,

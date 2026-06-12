@@ -183,6 +183,25 @@ class ChatStopRequest(BaseModel):
         return self
 
 
+class ChatMessageTranslateRequest(BaseModel):
+    # Request to translate an existing assistant message inside chat.
+    model_config = ConfigDict(extra='forbid')
+
+    target_language: str | None = None
+    tone: str | None = None
+
+
+class ChatMessageTranslationResponse(BaseModel):
+    # Response for a translated assistant message persisted to chat history.
+    chat_id: str
+    source_message_id: int
+    translated_message_id: int
+    target_language: str
+    tone: str
+    reused_existing_translation: bool = False
+    translated_message: dict[str, object]
+
+
 class ChatSourceReference(BaseModel):
     # A source document cited in a chat response.
     filename:        str

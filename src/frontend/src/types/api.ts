@@ -163,6 +163,11 @@ export interface ChatMessageApi {
   generation_seconds?: number
   chat_mode?: ChatMode
   specialization_id?: string | null
+  translated_from_message_id?: number | null
+  translation_language?: string | null
+  translation_tone?: string | null
+  translation_source_hash?: string | null
+  translation_is_stale?: boolean
   retrieval_scope_kind?: string | null
   retrieval_scope_key?: string | null
 }
@@ -191,6 +196,11 @@ export interface ChatMessageDisplay {
   generationSeconds?: number
   chatMode?: ChatMode
   specializationId?: string | null
+  translatedFromMessageId?: number | null
+  translationLanguage?: string | null
+  translationTone?: string | null
+  translationSourceHash?: string | null
+  translationIsStale?: boolean
   nextAction?: NextAction
   nextActionReason?: NextActionReason | null
   continuationPasses?: number
@@ -198,6 +208,16 @@ export interface ChatMessageDisplay {
   webSearchUsed?: boolean
   streamPlanSteps?: Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>
   scopedFileName?: string | null
+}
+
+export interface ChatMessageTranslationResponse {
+  chat_id: string
+  source_message_id: number
+  translated_message_id: number
+  target_language: string
+  tone: string
+  reused_existing_translation: boolean
+  translated_message: ChatMessageApi
 }
 
 export interface StreamChatCallbacks {

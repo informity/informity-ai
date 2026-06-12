@@ -41,6 +41,9 @@ interface ChatMessageProps {
   }
   streamPlanSteps?: Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>
   scopedFileName?: string | null
+  translationLanguage?: string | null
+  translationTone?: string | null
+  translationIsStale?: boolean
   isPartial?: boolean
   hasRemainingScope?: boolean
   completionMode?: 'complete' | 'partial' | 'scoped_complete' | 'stopped'
@@ -58,12 +61,14 @@ interface ChatMessageProps {
   onAssistantSwitch?: () => void
   onExport?: (messageId?: number) => void
   onExportText?: (messageId?: number) => void
+  onTranslate?: (messageId?: number) => void | Promise<void>
   canEdit?: boolean
   onEditSubmit?: (text: string) => void | Promise<void>
   onEditCancel?: () => void
   canContinue?: boolean
   canRegenerate?: boolean
   canAssistantSwitch?: boolean
+  canTranslate?: boolean
   actionsDisabled?: boolean
 }
 
@@ -81,6 +86,9 @@ function ChatMessageComponent({
   streamSectionProgress,
   streamPlanSteps,
   scopedFileName = null,
+  translationLanguage = null,
+  translationTone = null,
+  translationIsStale = false,
   isPartial = false,
   hasRemainingScope = false,
   completionMode = 'complete',
@@ -98,12 +106,14 @@ function ChatMessageComponent({
   onAssistantSwitch,
   onExport,
   onExportText,
+  onTranslate,
   canEdit = false,
   onEditSubmit,
   onEditCancel,
   canContinue = false,
   canRegenerate = false,
   canAssistantSwitch = false,
+  canTranslate = false,
   actionsDisabled = false,
 }: ChatMessageProps) {
   const [copied, setCopied] = useState(false)
@@ -230,6 +240,32 @@ function ChatMessageComponent({
         <div className="chat-message__meta-item">
           <i className="ri-global-line chat-message__meta-icon" aria-hidden />
           <span>Web Search</span>
+        </div>
+      ),
+    })
+  }
+  if (!isUser && translationLanguage) {
+    assistantMetaItems.push({
+          key: 'translation',
+          node: (
+            <div className="chat-message__meta-item">
+          <i className="ri-translate-2 chat-message__meta-icon" aria-hidden />
+              <span>{translationLanguage}</span>
+              {translationTone && (
+                <>
+                  <span className="chat-message__meta-sep">|</span>
+                  <span className="chat-message__meta-item">
+                    <i className="ri-quill-pen-line chat-message__meta-icon" aria-hidden />
+                    <span>{translationTone.charAt(0).toUpperCase() + translationTone.slice(1)}</span>
+                  </span>
+                </>
+              )}
+          {translationIsStale && (
+            <>
+              <span className="chat-message__meta-sep">|</span>
+              <span className="chat-message__translation-stale">Stale</span>
+            </>
+          )}
         </div>
       ),
     })
@@ -418,6 +454,11 @@ function ChatMessageComponent({
     }
   }, [editDraft, isEditSubmitting, onEditSubmit])
 
+  const handleTranslate = useCallback(() => {
+    if (actionsDisabled || !onTranslate) return
+    void onTranslate(messageId)
+  }, [actionsDisabled, messageId, onTranslate])
+
   const handleEditKeyDown = useCallback((event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Escape') {
       event.preventDefault()
@@ -544,6 +585,18 @@ function ChatMessageComponent({
           <div className="chat-message__actions-right">
             {createdAt && (
               <span className="chat-message__time">{formatRelativeTime(createdAt)}</span>
+            )}
+            {!isUser && messageId != null && onTranslate && (
+              <button
+                type="button"
+                className="chat-message__copy-full"
+                onClick={handleTranslate}
+                disabled={actionsDisabled || !canTranslate}
+                title="Translate reply"
+                aria-label="Translate reply"
+              >
+                <i className="ri-translate-2" aria-hidden style={{ fontSize: '0.875rem' }} />
+              </button>
             )}
             {showEditControls && (
               isEditing ? (
@@ -701,6 +754,9 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.streamSectionProgress === next.streamSectionProgress &&
     prev.streamPlanSteps === next.streamPlanSteps &&
     prev.scopedFileName === next.scopedFileName &&
+    prev.translationLanguage === next.translationLanguage &&
+    prev.translationTone === next.translationTone &&
+    prev.translationIsStale === next.translationIsStale &&
     prev.isPartial === next.isPartial &&
     prev.hasRemainingScope === next.hasRemainingScope &&
     prev.completionMode === next.completionMode &&
@@ -718,12 +774,14 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.onAssistantSwitch === next.onAssistantSwitch &&
     prev.onExport === next.onExport &&
     prev.onExportText === next.onExportText &&
+    prev.onTranslate === next.onTranslate &&
     prev.canEdit === next.canEdit &&
     prev.onEditSubmit === next.onEditSubmit &&
     prev.onEditCancel === next.onEditCancel &&
     prev.canContinue === next.canContinue &&
     prev.canRegenerate === next.canRegenerate &&
     prev.canAssistantSwitch === next.canAssistantSwitch &&
+    prev.canTranslate === next.canTranslate &&
     prev.actionsDisabled === next.actionsDisabled
   )
 }

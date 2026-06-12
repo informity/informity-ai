@@ -147,6 +147,11 @@ class ChatMessage(BaseModel):
     next_action_reason: str | None = None
     chat_mode: str | None = None
     specialization_id: str | None = None
+    translated_from_message_id: int | None = None
+    translation_language: str | None = None
+    translation_tone: str | None = None
+    translation_source_hash: str | None = None
+    translation_is_stale: bool = False
     retrieval_scope_kind: str | None = None
     retrieval_scope_key: str | None = None
     model_filename: str | None = None

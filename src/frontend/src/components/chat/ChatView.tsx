@@ -2,7 +2,7 @@
  * Informity AI — Chat view
  * Full-height message list, input, SSE streaming.
  */
-import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react'
+import { useState, useRef, useEffect, useCallback, useLayoutEffect, useMemo } from 'react'
 import { ChatMessage } from './ChatMessage'
 import { ChatMessageSkeleton } from './ChatMessageSkeleton'
 import { PageHeader } from '../PageHeader'
@@ -24,8 +24,14 @@ import { logApiError } from '../../utils/logApiError'
 import {
   CHAT_MODE_STORAGE_KEY,
   CHAT_SPECIALIZATION_ID_STORAGE_KEY,
+  CHAT_TRANSLATION_REQUEST_STORAGE_KEY,
   FORCE_NEW_CHAT_KEY,
 } from '../../utils/storageKeys'
+import {
+  clearSessionValue,
+  loadSessionJson,
+  saveSessionJson,
+} from '../../utils/translationLifecycle'
 import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
 import { getFileIcon } from '../../utils/fileFormatting'
 import {
@@ -58,6 +64,36 @@ interface ChatSettingsResponse {
 
 interface SettingsUpdatedEvent extends Event {
   detail?: ChatSettingsResponse
+}
+
+interface PersistedChatTranslationRequest {
+  chatId: string
+  sourceMessageId: number
+  targetLanguage: string | null
+  tone: string | null
+  startedAt: number
+}
+
+function loadPersistedChatTranslationRequest(): PersistedChatTranslationRequest | null {
+  const parsed = loadSessionJson<Partial<PersistedChatTranslationRequest>>(CHAT_TRANSLATION_REQUEST_STORAGE_KEY)
+  if (!parsed) return null
+  if (typeof parsed.chatId !== 'string') return null
+  if (!Number.isFinite(parsed.sourceMessageId)) return null
+  return {
+    chatId: parsed.chatId,
+    sourceMessageId: Number(parsed.sourceMessageId),
+    targetLanguage: typeof parsed.targetLanguage === 'string' ? parsed.targetLanguage : null,
+    tone: typeof parsed.tone === 'string' ? parsed.tone : null,
+    startedAt: Number.isFinite(parsed.startedAt) ? Number(parsed.startedAt) : Date.now(),
+  }
+}
+
+function savePersistedChatTranslationRequest(request: PersistedChatTranslationRequest): void {
+  saveSessionJson(CHAT_TRANSLATION_REQUEST_STORAGE_KEY, request)
+}
+
+function clearPersistedChatTranslationRequest(): void {
+  clearSessionValue(CHAT_TRANSLATION_REQUEST_STORAGE_KEY)
 }
 
 function triggerMarkdownDownload(filename: string, markdown: string): void {
@@ -119,6 +155,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const { offline } = useBackendStatus()
   const translateCtx = useOptionalTranslateContext()
   const isTranslating = translateCtx?.isTranslating ?? false
+  const translateTargetLanguage = translateCtx?.targetLanguage ?? null
+  const translateTone = translateCtx?.tone ?? null
   const [exportMenuOpen, setExportMenuOpen] = useState(false)
   const exportMenuRef = useRef<HTMLDivElement>(null)
   const {
@@ -145,6 +183,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     stopStreaming,
     newChat,
     clearError,
+    translateAssistantMessage,
   } = useChatContext()
   const [inputValue, setInputValue] = useState(prefillMessage)
   const [chatMode, setChatMode] = useState<ChatMode>('researcher')
@@ -162,6 +201,12 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const [animateToDocked, setAnimateToDocked] = useState(false)
   const [textareaCanScroll, setTextareaCanScroll] = useState(false)
   const [textareaHasTopScroll, setTextareaHasTopScroll] = useState(false)
+  const [activeTranslation, setActiveTranslation] = useState<{
+    sourceMessageId: number
+    targetLanguage: string
+    tone: string | null
+  } | null>(null)
+  const translationRecoveryAttemptedRef = useRef<string | null>(null)
   const messagesContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const newChatRequestedRef = useRef(false)
@@ -198,6 +243,74 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     )
     return Math.max(scopedCount, draftAliasCount)
   })()
+
+  const renderedMessages = useMemo(() => {
+    if (!activeTranslation) return messages
+    const sourceMessageId = activeTranslation.sourceMessageId
+    const filteredMessages = messages.filter((message) => message.translatedFromMessageId !== sourceMessageId)
+    const pendingLanguage = activeTranslation.targetLanguage || 'selected language'
+    const placeholder: ChatMessageDisplay = {
+      role: 'assistant',
+      content: '',
+      isStreaming: true,
+      streamStatusText: `Translating to ${pendingLanguage}…`,
+      chatMode: currentChatLockedMode ?? 'assistant',
+      specializationId: currentChatLockedSpecializationId,
+      translatedFromMessageId: activeTranslation.sourceMessageId,
+      translationLanguage: pendingLanguage,
+      translationTone: activeTranslation.tone,
+      translationIsStale: false,
+      sources: [],
+      displayBlocks: [],
+      isInternal: false,
+    }
+    const next: ChatMessageDisplay[] = []
+    let inserted = false
+    for (const message of filteredMessages) {
+      next.push(message)
+      if (!inserted && message.id === sourceMessageId) {
+        next.push(placeholder)
+        inserted = true
+      }
+    }
+    if (!inserted) next.push(placeholder)
+    return next
+  }, [activeTranslation, currentChatLockedMode, currentChatLockedSpecializationId, messages])
+
+  useEffect(() => {
+    if (!contextChatId || loadingChat) return
+    if (activeTranslation || isStreaming || isTranslating) return
+    const persisted = loadPersistedChatTranslationRequest()
+    if (!persisted || persisted.chatId !== contextChatId) return
+    const sourceExists = messages.some((message) => message.id === persisted.sourceMessageId)
+    if (!sourceExists) return
+    const translationAlreadyPresent = messages.some(
+      (message) => message.translatedFromMessageId === persisted.sourceMessageId,
+    )
+    if (translationAlreadyPresent) {
+      clearPersistedChatTranslationRequest()
+      translationRecoveryAttemptedRef.current = null
+      return
+    }
+    const requestSignature = `${persisted.chatId}:${persisted.sourceMessageId}:${persisted.targetLanguage || ''}:${persisted.tone || ''}`
+    if (translationRecoveryAttemptedRef.current === requestSignature) return
+    translationRecoveryAttemptedRef.current = requestSignature
+    setActiveTranslation({
+      sourceMessageId: persisted.sourceMessageId,
+      targetLanguage: persisted.targetLanguage?.trim() || 'selected language',
+      tone: persisted.tone,
+    })
+    void translateAssistantMessage(persisted.sourceMessageId, {
+      targetLanguage: persisted.targetLanguage,
+      tone: persisted.tone,
+    }).finally(() => {
+      clearPersistedChatTranslationRequest()
+      setActiveTranslation((current) => (
+        current?.sourceMessageId === persisted.sourceMessageId ? null : current
+      ))
+      translationRecoveryAttemptedRef.current = null
+    })
+  }, [activeTranslation, contextChatId, isStreaming, isTranslating, loadingChat, messages, translateAssistantMessage])
 
   const isForceNewChatRequested = useCallback((): boolean => {
     try {
@@ -615,7 +728,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   }, [contextChatId, messages, loadingChat, selectedSpecializationId])
 
   const lastMessage = messages[messages.length - 1]
-  const streamContent = lastMessage?.role === 'assistant' ? lastMessage.content : ''
   const isInitialThinkingPhase = isStreaming && lastMessage?.role === 'assistant' && !lastMessage.content
   const showOfflineEmptyState = offline && !loadingChat && messages.length === 0
   const isCenteredComposer = !offline && !loadingChat && messages.length === 0
@@ -648,9 +760,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   }, [])
 
   useEffect(() => {
-    if (!isStreaming || !isNearBottomRef.current) return
+    if (!isNearBottomRef.current) return
+    if (!isStreaming && !activeTranslation) return
     scheduleAutoFollow()
-  }, [isStreaming, streamContent, scheduleAutoFollow])
+  }, [activeTranslation, isStreaming, messages.length, scheduleAutoFollow])
 
   const handleContinue = useCallback((anchorMessageId?: number) => {
     if (offline) return
@@ -754,6 +867,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const handleNewChat = useCallback(() => {
     if (offline) return
     newChatRequestedRef.current = true
+    clearPersistedChatTranslationRequest()
+    translationRecoveryAttemptedRef.current = null
+    setActiveTranslation(null)
     setInputValue('')
     setChatMode('researcher')
     setSelectedSpecializationId(null)
@@ -836,6 +952,31 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     }
   }, [contextChatId, isStreaming, offline])
 
+  const handleTranslateReply = useCallback(async (messageId?: number) => {
+    if (offline || isStreaming || loadingChat || isTranslating || activeTranslation) return
+    if (!contextChatId) return
+    if (!messageId || !Number.isFinite(messageId)) return
+    const targetLanguage = translateTargetLanguage?.trim() || 'selected language'
+    const tone = translateTone?.trim() || null
+    setActiveTranslation({ sourceMessageId: messageId, targetLanguage, tone })
+    savePersistedChatTranslationRequest({
+      chatId: contextChatId,
+      sourceMessageId: messageId,
+      targetLanguage: translateTargetLanguage?.trim() || null,
+      tone,
+      startedAt: Date.now(),
+    })
+    try {
+      await translateAssistantMessage(messageId, {
+        targetLanguage: translateTargetLanguage,
+        tone: translateTone,
+      })
+    } finally {
+      clearPersistedChatTranslationRequest()
+      setActiveTranslation((current) => (current?.sourceMessageId === messageId ? null : current))
+    }
+  }, [activeTranslation, contextChatId, isStreaming, isTranslating, loadingChat, offline, translateAssistantMessage, translateTargetLanguage, translateTone])
+
   useEffect(() => {
     const handleNewChatEvent = () => handleNewChat()
     window.addEventListener('new-chat', handleNewChatEvent)
@@ -845,6 +986,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const handleSend = useCallback(async () => {
     if (offline) return
     if (isTranslating) return
+    if (activeTranslation) return
     const text = inputValue.trim()
     if (!text) return
 
@@ -856,7 +998,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [offline, inputValue, isTranslating, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [activeTranslation, offline, inputValue, isTranslating, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleStop = useCallback(() => {
     if (offline) return
@@ -1181,8 +1323,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                 )}
                 {showOfflineEmptyState && <ServiceUnavailableState />}
                 {!loadingChat &&
-                  messages.length > 0 &&
-                  messages.map((msg, i) => (
+                  renderedMessages.length > 0 &&
+                  renderedMessages.map((msg, i) => (
                     <ChatMessage
                       key={`${msg.role}-${i}-${msg.id ?? msg.createdAt ?? ''}`}
                       id={msg.id}
@@ -1225,6 +1367,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       canContinue={!offline && !isStreaming}
                       canRegenerate={!offline && !isStreaming}
                       canAssistantSwitch={!offline && !isStreaming && !hideAssistantSwitch}
+                      onTranslate={typeof msg.translatedFromMessageId === 'number' ? undefined : handleTranslateReply}
+                      translationLanguage={msg.translationLanguage}
+                      translationTone={msg.translationTone}
+                      translationIsStale={msg.translationIsStale}
+                      canTranslate={!offline && !isStreaming && !loadingChat && !isTranslating && !activeTranslation && typeof msg.translatedFromMessageId !== 'number'}
                       actionsDisabled={offline}
                     />
                   ))}

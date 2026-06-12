@@ -17,6 +17,13 @@ import {
   normalizeTranslateLanguage,
   normalizeTranslateLanguageList,
 } from '../utils/translateOptions'
+import {
+  clearSessionValue,
+  isTranslationJobActive,
+  isTranslationJobRecoverable,
+  loadSessionJson,
+  saveSessionJson,
+} from '../utils/translationLifecycle'
 
 const ACTIVE_JOB_KEY = 'informity_active_translate_job'
 const COMPLETED_RUNS_KEY = 'informity_completed_translate_runs'
@@ -33,22 +40,19 @@ interface PersistedJob {
 }
 
 function saveActiveJob(job: PersistedJob): void {
-  try { sessionStorage.setItem(ACTIVE_JOB_KEY, JSON.stringify(job)) } catch { /* ignore */ }
+  saveSessionJson(ACTIVE_JOB_KEY, job)
 }
 
 function loadActiveJob(): PersistedJob | null {
-  try {
-    const raw = sessionStorage.getItem(ACTIVE_JOB_KEY)
-    return raw ? (JSON.parse(raw) as PersistedJob) : null
-  } catch { return null }
+  return loadSessionJson<PersistedJob>(ACTIVE_JOB_KEY)
 }
 
 function clearActiveJob(): void {
-  try { sessionStorage.removeItem(ACTIVE_JOB_KEY) } catch { /* ignore */ }
+  clearSessionValue(ACTIVE_JOB_KEY)
 }
 
 function clearCompletedRuns(): void {
-  try { sessionStorage.removeItem(COMPLETED_RUNS_KEY) } catch { /* ignore */ }
+  clearSessionValue(COMPLETED_RUNS_KEY)
 }
 
 interface FileInfo {
@@ -135,8 +139,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     getTranslateJob(persisted.jobId).then((job) => {
       // Only recover jobs that have meaningful state: running, queued, or completed.
       // A null/unknown status means the job ID is stale — clear and bail.
-      const recoverableStatuses = ['queued', 'running', 'stalled']
-      if (!recoverableStatuses.includes(job.status)) {
+      if (!isTranslationJobRecoverable(job.status)) {
         clearActiveJob()
         return
       }
@@ -401,7 +404,7 @@ export function TranslateProvider({ children }: { children: ReactNode }) {
     jobStartedAtRef.current = 0
   }, [])
 
-  const isTranslating = jobStatus === 'queued' || jobStatus === 'running'
+  const isTranslating = isTranslationJobActive(jobStatus)
   const hasResult = sections.length > 0
 
   const value: TranslateContextValue = {

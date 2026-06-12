@@ -892,7 +892,7 @@ html[data-accent='canvas'] .chat-message--assistant .chat-message__actions {
 .chat-message__meta-left {
   display: flex;
   align-items: center;
-  gap: var(--chat-meta-group-gap);
+  gap: var(--space-sm);
   font-size: var(--font-size-description);
   color: var(--chat-message-muted-fg);
 }
@@ -900,7 +900,7 @@ html[data-accent='canvas'] .chat-message--assistant .chat-message__actions {
 .chat-message__meta-item {
   display: flex;
   align-items: center;
-  gap: var(--chat-meta-pair-gap);
+  gap: 0.25rem;
 }
 
 .chat-message__meta-icon {
@@ -985,6 +985,69 @@ html[data-accent='canvas'] .chat-message--assistant .chat-message__actions {
   align-items: center;
   gap: 0.25rem;
   margin-left: auto;
+}
+
+.chat-message__translations {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding-left: 0.25rem;
+  width: 100%;
+}
+
+.chat-message__translation {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  width: 100%;
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--chat-message-divider-color);
+  border-radius: var(--border-radius);
+  background: color-mix(in srgb, var(--color-bg-surface) 92%, transparent);
+  box-sizing: border-box;
+}
+
+.chat-message__translation--stale {
+  opacity: 0.78;
+}
+
+.chat-message__translation-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  font-size: var(--font-size-description);
+  color: var(--chat-message-muted-fg);
+}
+
+.chat-message__translation-header-left,
+.chat-message__translation-header-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.chat-message__translation-label {
+  font-weight: 600;
+}
+
+.chat-message__translation-tone {
+  color: var(--color-text-muted);
+}
+
+.chat-message__translation-stale {
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-bg-surface) 78%, transparent);
+  color: var(--color-text-muted);
+  font-size: 0.72rem;
+  line-height: 1;
+}
+
+.chat-message__translation-body {
+  min-width: 0;
 }
 
 .chat-message__time {

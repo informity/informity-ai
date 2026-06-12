@@ -6,6 +6,7 @@
 import type {
   ChatUploadAttachment,
   ChatMode,
+  ChatMessageTranslationResponse,
   LogChannel,
   LogEventsResponse,
   ChatSpecializationDefinition,
@@ -521,6 +522,19 @@ export async function stopChatStream(
 
 export async function getMessageRaw(messageId: number): Promise<{ content: string }> {
   return request('GET', `/api/chat/messages/${messageId}/raw`) as Promise<{ content: string }>
+}
+
+export async function translateChatMessage(
+  chatId: string,
+  messageId: number,
+  body: {
+    target_language?: string | null
+    tone?: string | null
+  },
+): Promise<ChatMessageTranslationResponse> {
+  return request<ChatMessageTranslationResponse>('POST', `/api/chat/chats/${chatId}/messages/${messageId}/translate`, {
+    body,
+  })
 }
 
 export interface ChatMarkdownExportResponse {

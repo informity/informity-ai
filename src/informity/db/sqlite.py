@@ -66,7 +66,7 @@ _CHAT_TITLE_WHITESPACE_RE = re.compile(r'\s+')
 # Schema — DDL statements for all tables
 # ==============================================================================
 
-SCHEMA_VERSION = 6
+SCHEMA_VERSION = 7
 
 DIAGNOSTICS_TYPE_USER = 'user'
 DIAGNOSTICS_TYPE_EVALUATION = 'evaluation'
@@ -265,6 +265,11 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     next_action_reason TEXT,
     chat_mode          TEXT,
     specialization_id            TEXT,
+    translated_from_message_id INTEGER REFERENCES chat_messages(id) ON DELETE CASCADE,
+    translation_language TEXT,
+    translation_tone    TEXT,
+    translation_source_hash TEXT NOT NULL DEFAULT '',
+    translation_is_stale INTEGER DEFAULT 0,
     retrieval_scope_kind TEXT,
     retrieval_scope_key  TEXT,
     model_filename     TEXT,
@@ -640,6 +645,7 @@ async def init_db() -> None:
         await conn.executescript(_FTS_TRIGGERS_SQL)
 
         await _ensure_schema_version(conn)
+        await _ensure_chat_translation_indexes(conn)
         await conn.execute(
             '''
             INSERT INTO term_dictionary_state (singleton_id, current_version)
@@ -690,6 +696,8 @@ async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
             await _migrate_to_v5(conn)
         elif next_version == 6:
             await _migrate_to_v6(conn)
+        elif next_version == 7:
+            await _migrate_to_v7(conn)
         else:
             raise RuntimeError(f'No migration path defined for schema version {next_version}')
         await conn.execute('UPDATE schema_version SET version = ?', (next_version,))
@@ -826,6 +834,42 @@ async def _migrate_to_v6(conn: aiosqlite.Connection) -> None:
     column_names = {str(row['name']) for row in columns}
     if 'role_id' in column_names and 'specialization_id' not in column_names:
         await conn.execute('ALTER TABLE chat_messages RENAME COLUMN role_id TO specialization_id')
+
+
+async def _migrate_to_v7(conn: aiosqlite.Connection) -> None:
+    """
+    v7 migration:
+    - add chat message translation provenance fields for assistant-message translations.
+    """
+    cursor = await conn.execute("PRAGMA table_info('chat_messages')")
+    columns = await cursor.fetchall()
+    column_names = {str(row['name']) for row in columns}
+    if 'translated_from_message_id' not in column_names:
+        await conn.execute(
+            'ALTER TABLE chat_messages ADD COLUMN translated_from_message_id INTEGER REFERENCES chat_messages(id) ON DELETE CASCADE'
+        )
+    if 'translation_language' not in column_names:
+        await conn.execute('ALTER TABLE chat_messages ADD COLUMN translation_language TEXT')
+    if 'translation_tone' not in column_names:
+        await conn.execute('ALTER TABLE chat_messages ADD COLUMN translation_tone TEXT')
+    if 'translation_source_hash' not in column_names:
+        await conn.execute("ALTER TABLE chat_messages ADD COLUMN translation_source_hash TEXT NOT NULL DEFAULT ''")
+    if 'translation_is_stale' not in column_names:
+        await conn.execute('ALTER TABLE chat_messages ADD COLUMN translation_is_stale INTEGER DEFAULT 0')
+    await _ensure_chat_translation_indexes(conn)
+
+
+async def _ensure_chat_translation_indexes(conn: aiosqlite.Connection) -> None:
+    await conn.execute(
+        'CREATE INDEX IF NOT EXISTS idx_chat_translation_source_message_id ON chat_messages(translated_from_message_id)'
+    )
+    await conn.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_translation_unique
+        ON chat_messages(chat_id, translated_from_message_id, translation_language, translation_tone, translation_source_hash)
+        WHERE translated_from_message_id IS NOT NULL
+        """
+    )
 
 
 async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
@@ -1015,6 +1059,7 @@ def _row_to_scan_error_record(row: aiosqlite.Row) -> ScanErrorRecord:
 
 def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
     # Convert a SQLite row to a ChatMessage model.
+    row_keys = set(row.keys()) if hasattr(row, 'keys') else set()
     try:
         specialization_id = row['specialization_id']
     except (KeyError, IndexError):
@@ -1036,6 +1081,11 @@ def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
         next_action_reason = row['next_action_reason'],
         chat_mode          = row['chat_mode'],
         specialization_id            = specialization_id,
+        translated_from_message_id = row['translated_from_message_id'] if 'translated_from_message_id' in row_keys else None,
+        translation_language = row['translation_language'] if 'translation_language' in row_keys else None,
+        translation_tone   = row['translation_tone'] if 'translation_tone' in row_keys else None,
+        translation_source_hash = row['translation_source_hash'] if 'translation_source_hash' in row_keys else None,
+        translation_is_stale = bool(row['translation_is_stale']) if 'translation_is_stale' in row_keys else False,
         retrieval_scope_kind = row['retrieval_scope_kind'],
         retrieval_scope_key = row['retrieval_scope_key'],
         model_filename     = row['model_filename'],
@@ -1763,9 +1813,11 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
         INSERT INTO chat_messages (
             chat_id, role, content, sources, generation_seconds,
             completion_mode, stopped_by_user, has_remaining_scope, next_action, next_action_reason,
-            chat_mode, specialization_id, retrieval_scope_kind, retrieval_scope_key, model_filename, is_internal
+            chat_mode, specialization_id, translated_from_message_id, translation_language,
+            translation_tone, translation_source_hash, translation_is_stale,
+            retrieval_scope_kind, retrieval_scope_key, model_filename, is_internal
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             message.chat_id,
@@ -1780,6 +1832,11 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
             message.next_action_reason,
             message.chat_mode,
             message.specialization_id,
+            message.translated_from_message_id,
+            message.translation_language,
+            message.translation_tone,
+            str(message.translation_source_hash or '').strip(),
+            1 if message.translation_is_stale else 0,
             message.retrieval_scope_kind,
             message.retrieval_scope_key,
             message.model_filename,
@@ -2195,7 +2252,7 @@ async def insert_continuation_pass_artifact(
 async def get_chat(db: aiosqlite.Connection, chat_id: str) -> list[ChatMessage]:
     # Get all messages for a chat.
     cursor = await db.execute(
-        'SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY created_at ASC',
+        'SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY created_at ASC, id ASC',
         (chat_id,),
     )
     rows = await cursor.fetchall()
@@ -2207,6 +2264,34 @@ async def get_chat_message_by_id(db: aiosqlite.Connection, message_id: int) -> C
     cursor = await db.execute(
         'SELECT * FROM chat_messages WHERE id = ?',
         (message_id,),
+    )
+    row = await cursor.fetchone()
+    if row is None:
+        return None
+    return _row_to_chat_message(row)
+
+
+async def get_chat_translation_by_source(
+    db: aiosqlite.Connection,
+    *,
+    chat_id: str,
+    source_message_id: int,
+    target_language: str,
+    tone: str,
+    source_hash: str,
+) -> ChatMessage | None:
+    cursor = await db.execute(
+        """
+        SELECT *
+        FROM chat_messages
+        WHERE chat_id = ?
+          AND translated_from_message_id = ?
+          AND translation_language = ?
+          AND translation_tone = ?
+          AND translation_source_hash = ?
+        LIMIT 1
+        """,
+        (chat_id, int(source_message_id), target_language, tone, source_hash),
     )
     row = await cursor.fetchone()
     if row is None:

@@ -3,16 +3,17 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { ChatView } from './ChatView'
 import { ChatProvider } from '../../context/ChatProvider'
 import { ConfirmProvider } from '../../context/ConfirmProvider'
-import { CHAT_FILE_SCOPE_MAP_STORAGE_KEY, CHAT_MODE_STORAGE_KEY, CHAT_SPECIALIZATION_ID_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
+import { CHAT_FILE_SCOPE_MAP_STORAGE_KEY, CHAT_MODE_STORAGE_KEY, CHAT_SPECIALIZATION_ID_STORAGE_KEY, CHAT_TRANSLATION_REQUEST_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
 
-  const {
-    getFilesMock,
-    getChatMock,
-    getCurrentChatMock,
-    exportChatMarkdownMock,
-    getSpecializationsMock,
-    listChatUploadsMock,
-    getMessageRawMock,
+const {
+  getFilesMock,
+  getChatMock,
+  getCurrentChatMock,
+  exportChatMarkdownMock,
+  getSpecializationsMock,
+  listChatUploadsMock,
+  getMessageRawMock,
+  translateChatMessageMock,
   getSettingsMock,
   streamChatMock,
   updateSettingsMock,
@@ -25,6 +26,7 @@ import { CHAT_FILE_SCOPE_MAP_STORAGE_KEY, CHAT_MODE_STORAGE_KEY, CHAT_SPECIALIZA
   getSpecializationsMock: vi.fn(),
   listChatUploadsMock: vi.fn(),
   getMessageRawMock: vi.fn(),
+  translateChatMessageMock: vi.fn(),
   getSettingsMock: vi.fn(),
   streamChatMock: vi.fn(),
   updateSettingsMock: vi.fn(),
@@ -53,6 +55,7 @@ vi.mock('../../api', () => {
     getSpecializations: getSpecializationsMock,
     listChatUploads: listChatUploadsMock,
     getMessageRaw: getMessageRawMock,
+    translateChatMessage: translateChatMessageMock,
     getSettings: getSettingsMock,
     streamChat: streamChatMock,
     updateSettings: updateSettingsMock,
@@ -99,6 +102,7 @@ describe('ChatView new chat behavior', () => {
     window.localStorage.removeItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
     window.localStorage.removeItem(FORCE_NEW_CHAT_KEY)
     window.sessionStorage.removeItem(FORCE_NEW_CHAT_KEY)
+    window.sessionStorage.removeItem(CHAT_TRANSLATION_REQUEST_STORAGE_KEY)
   })
 
   it('does not reselect initial history chat after New Chat', async () => {
@@ -1285,5 +1289,240 @@ describe('ChatView new chat behavior', () => {
       template: 'concise_summary',
       includeFrontmatter: false,
     })))
+  })
+
+  it('translates an assistant reply and stacks the translated reply under the source', async () => {
+    const translateDeferred = createDeferred<{
+      chat_id: string
+      source_message_id: number
+      translated_message_id: number
+      target_language: string
+      tone: string
+      reused_existing_translation: boolean
+      translated_message: {
+        id: number
+        role: 'assistant'
+        content: string
+        sources: []
+        display_blocks: Array<{ type: 'text'; markdown: string }>
+        chat_mode: 'assistant'
+        translated_from_message_id: number
+        translation_language: string
+        translation_tone: string
+        translation_source_hash: string
+        translation_is_stale: boolean
+        created_at: string
+      }
+    }>()
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockResolvedValue(undefined)
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({
+      messages: [
+        {
+          id: 444,
+          role: 'assistant',
+          content: 'Hello world.',
+          sources: [],
+          chat_mode: 'assistant',
+          created_at: '2026-02-23T12:00:00.000Z',
+        },
+      ],
+    })
+    translateChatMessageMock.mockReturnValue(translateDeferred.promise)
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialChatId="chat-translate-1" />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-translate-1'))
+    expect(await screen.findByText('Hello world.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Translate reply' }))
+
+    await waitFor(() => {
+      expect(translateChatMessageMock).toHaveBeenCalledWith(
+        'chat-translate-1',
+        444,
+        { target_language: null, tone: null },
+      )
+    })
+    expect(screen.getByText(/Translating to selected language/i)).toBeInTheDocument()
+
+    translateDeferred.resolve({
+      chat_id: 'chat-translate-1',
+      source_message_id: 444,
+      translated_message_id: 555,
+      target_language: 'French',
+      tone: 'natural',
+      reused_existing_translation: false,
+      translated_message: {
+        id: 555,
+        role: 'assistant',
+        content: 'Bonjour le monde.',
+        sources: [],
+        display_blocks: [{ type: 'text', markdown: 'Bonjour le monde.' }],
+        chat_mode: 'assistant',
+        translated_from_message_id: 444,
+        translation_language: 'French',
+        translation_tone: 'natural',
+        translation_source_hash: 'abc123',
+        translation_is_stale: false,
+        created_at: '2026-02-23T12:00:01.000Z',
+      },
+    })
+    expect(await screen.findByText('Bonjour le monde.')).toBeInTheDocument()
+    expect(screen.getByText('French')).toBeInTheDocument()
+  })
+
+  it('reloads translated replies from history and keeps them stacked under the source', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockResolvedValue(undefined)
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({
+      messages: [
+        {
+          id: 601,
+          role: 'assistant',
+          content: 'Original answer.',
+          sources: [],
+          chat_mode: 'assistant',
+          created_at: '2026-02-23T12:00:00.000Z',
+        },
+        {
+          id: 602,
+          role: 'assistant',
+          content: 'Réponse originale.',
+          sources: [],
+          display_blocks: [{ type: 'text', markdown: 'Réponse originale.' }],
+          chat_mode: 'assistant',
+          translated_from_message_id: 601,
+          translation_language: 'French',
+          translation_tone: 'natural',
+          translation_source_hash: 'def456',
+          translation_is_stale: false,
+          created_at: '2026-02-23T12:00:01.000Z',
+        },
+      ],
+    })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialChatId="chat-translate-history-1" />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-translate-history-1'))
+    expect(await screen.findByText('Original answer.')).toBeInTheDocument()
+    expect(await screen.findByText('Réponse originale.')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Translate reply' })).toHaveLength(1)
+    expect(screen.getByText('French')).toBeInTheDocument()
+  })
+
+  it('recovers an in-flight translation after reload using the persisted request', async () => {
+    const translateDeferred = createDeferred<{
+      chat_id: string
+      source_message_id: number
+      translated_message_id: number
+      target_language: string
+      tone: string
+      reused_existing_translation: boolean
+      translated_message: {
+        id: number
+        role: 'assistant'
+        content: string
+        sources: []
+        display_blocks: Array<{ type: 'text'; markdown: string }>
+        chat_mode: 'assistant'
+        translated_from_message_id: number
+        translation_language: string
+        translation_tone: string
+        translation_source_hash: string
+        translation_is_stale: boolean
+        created_at: string
+      }
+    }>()
+    window.sessionStorage.setItem(CHAT_TRANSLATION_REQUEST_STORAGE_KEY, JSON.stringify({
+      chatId: 'chat-translate-reload-1',
+      sourceMessageId: 701,
+      targetLanguage: 'French',
+      tone: 'natural',
+      startedAt: Date.now(),
+    }))
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockResolvedValue(undefined)
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({
+      messages: [
+        {
+          id: 701,
+          role: 'assistant',
+          content: 'Recover me.',
+          sources: [],
+          chat_mode: 'assistant',
+          created_at: '2026-02-23T12:00:00.000Z',
+        },
+      ],
+    })
+    translateChatMessageMock.mockReturnValue(translateDeferred.promise)
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialChatId="chat-translate-reload-1" />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-translate-reload-1'))
+    await waitFor(() => {
+      expect(translateChatMessageMock).toHaveBeenCalledWith(
+        'chat-translate-reload-1',
+        701,
+        { target_language: 'French', tone: 'natural' },
+      )
+    })
+    expect(screen.getByText(/Translating to French/i)).toBeInTheDocument()
+
+    translateDeferred.resolve({
+      chat_id: 'chat-translate-reload-1',
+      source_message_id: 701,
+      translated_message_id: 702,
+      target_language: 'French',
+      tone: 'natural',
+      reused_existing_translation: false,
+      translated_message: {
+        id: 702,
+        role: 'assistant',
+        content: 'Récupère-moi.',
+        sources: [],
+        display_blocks: [{ type: 'text', markdown: 'Récupère-moi.' }],
+        chat_mode: 'assistant',
+        translated_from_message_id: 701,
+        translation_language: 'French',
+        translation_tone: 'natural',
+        translation_source_hash: 'recover-hash',
+        translation_is_stale: false,
+        created_at: '2026-02-23T12:00:01.000Z',
+      },
+    })
+
+    expect(await screen.findByText('Récupère-moi.')).toBeInTheDocument()
+    expect(screen.getByText('French')).toBeInTheDocument()
+    expect(window.sessionStorage.getItem(CHAT_TRANSLATION_REQUEST_STORAGE_KEY)).toBeNull()
   })
 })

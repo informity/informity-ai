@@ -53,6 +53,13 @@ export interface ChatContextValue {
       chatWebSearchPrivacyOverride?: boolean
     },
   ) => Promise<void>
+  translateAssistantMessage: (
+    messageId: number,
+    options?: {
+      targetLanguage?: string | null
+      tone?: string | null
+    },
+  ) => Promise<boolean>
   stopStreaming: () => Promise<boolean>
   newChat: () => Promise<void>
   clearError: () => void

@@ -6,6 +6,7 @@
 
 import asyncio
 import contextlib
+import hashlib
 import os
 import re
 import shutil
@@ -56,6 +57,7 @@ from informity.api.chat_orchestrator import prepare_chat_request
 from informity.api.chat_sources import merge_sources, serialize_sources
 from informity.api.chat_sse import SSE_PHASE_ORDER, SseContractTracker, SseStatusEmitter
 from informity.api.chat_stream_registry import CHAT_STREAM_REGISTRY
+from informity.api.chat_translation import translate_chat_message_text
 from informity.api.context_scope_manager import (
     INDEXED_CORPUS_SCOPE_KIND,
     normalize_indexed_corpus_scope_key,
@@ -63,6 +65,8 @@ from informity.api.context_scope_manager import (
 )
 from informity.api.error_messages import to_client_error_message
 from informity.api.schemas import (
+    ChatMessageTranslateRequest,
+    ChatMessageTranslationResponse,
     ChatPreferencesUpdateRequest,
     ChatRequest,
     ChatSourceReference,
@@ -82,6 +86,7 @@ from informity.db.sqlite import (
     get_chat_message_by_id,
     get_chat_preferences,
     get_chat_title,
+    get_chat_translation_by_source,
     get_chat_upload_attachment_by_upload_id,
     get_chat_upload_attachments,
     get_chat_upload_size_bytes,
@@ -134,6 +139,11 @@ from informity.markdown_export import (
     render_full_chat_markdown,
 )
 from informity.scanner.crawler import scanned_file_for_path
+from informity.translate_languages import (
+    find_translate_language_option,
+    normalize_translate_language,
+)
+from informity.translate_policy import TONE_INSTRUCTIONS
 from informity.upload_policy import (
     MAX_UPLOAD_FILES_PER_CHAT,
     UPLOAD_ENTITY_TYPE,
@@ -492,6 +502,53 @@ CHAT_GUARD = EndpointGuard(
 
 class UserStopRequestedError(Exception):
     """Raised when the user explicitly requests to stop an in-flight stream."""
+
+
+def _resolve_chat_translation_language(requested_language: str | None) -> str:
+    default_language = normalize_translate_language(getattr(settings, 'translate_default_language', None))
+    raw_language = str(requested_language or '').strip()
+    if not raw_language:
+        return default_language
+    if find_translate_language_option(raw_language) is None:
+        raise HTTPException(status_code=400, detail=f'Invalid translation language: {raw_language}')
+    return normalize_translate_language(raw_language)
+
+
+def _resolve_chat_translation_tone(requested_tone: str | None) -> str:
+    default_tone = str(getattr(settings, 'translate_default_tone', 'natural') or 'natural').strip().lower()
+    default_tone = default_tone if default_tone in TONE_INSTRUCTIONS else 'natural'
+    raw_tone = str(requested_tone or '').strip().lower()
+    if not raw_tone:
+        return default_tone
+    if raw_tone not in TONE_INSTRUCTIONS:
+        raise HTTPException(status_code=400, detail=f'Invalid tone. Choose: {list(TONE_INSTRUCTIONS)}')
+    return raw_tone
+
+
+def _build_chat_translation_display_payload(message: ChatMessage) -> dict[str, object]:
+    display_content, _ = build_display_answer(str(message.content or ''))
+    payload = message.model_dump(mode='json')
+    payload['content'] = display_content
+    payload['display_blocks'] = build_display_blocks(display_content)
+    return payload
+
+
+def _source_message_display_payload(
+    *,
+    messages: list[ChatMessage],
+    source_message: ChatMessage,
+) -> tuple[str, bool]:
+    latest_user_prompt = ''
+    for message in messages:
+        if message.role == ChatRole.USER and not bool(message.is_internal):
+            latest_user_prompt = str(message.content or '')
+        if message.id == source_message.id:
+            preserve_task_checkboxes = answer_sanitization.should_preserve_task_checkboxes(latest_user_prompt)
+            return build_display_answer(
+                str(source_message.content or ''),
+                preserve_task_checkboxes=preserve_task_checkboxes,
+            )
+    raise HTTPException(status_code=404, detail='Message not found')
 
 
 async def _finalize_stopped_stream_if_active(
@@ -2507,6 +2564,113 @@ async def get_message_raw(
 
 
 # ==============================================================================
+# POST /api/chat/chats/{chat_id}/messages/{message_id}/translate — translate assistant reply
+# ==============================================================================
+
+@router.post(
+    '/api/chat/chats/{chat_id}/messages/{message_id}/translate',
+    response_model=ChatMessageTranslationResponse,
+)
+async def translate_chat_message(
+    chat_id: str,
+    message_id: int,
+    request: ChatMessageTranslateRequest,
+    db: aiosqlite.Connection = Depends(get_db),
+) -> ChatMessageTranslationResponse:
+    await CHAT_GUARD.check_rate_limit()
+    async with CHAT_GUARD.slot(check_rate=False):
+        messages = await get_chat(db, chat_id)
+        if not messages:
+            raise HTTPException(status_code=404, detail='Chat not found')
+
+        source_message = next((message for message in messages if message.id == message_id), None)
+        if source_message is None:
+            raise HTTPException(status_code=404, detail='Message not found')
+        if source_message.role != ChatRole.ASSISTANT or bool(source_message.is_internal):
+            raise HTTPException(status_code=409, detail='Only assistant replies can be translated.')
+        if source_message.translated_from_message_id is not None:
+            raise HTTPException(status_code=409, detail='Translated replies cannot be translated again.')
+
+        source_display_text, reasoning_only_output = _source_message_display_payload(
+            messages=messages,
+            source_message=source_message,
+        )
+        if reasoning_only_output or not str(source_display_text or '').strip():
+            raise HTTPException(status_code=409, detail='This assistant reply cannot be translated.')
+
+        target_language = _resolve_chat_translation_language(request.target_language)
+        tone = _resolve_chat_translation_tone(request.tone)
+        source_hash = hashlib.sha256(str(source_display_text).encode('utf-8')).hexdigest()
+
+        existing_translation = await get_chat_translation_by_source(
+            db,
+            chat_id=chat_id,
+            source_message_id=int(message_id),
+            target_language=target_language,
+            tone=tone,
+            source_hash=source_hash,
+        )
+        if existing_translation is not None:
+            payload = _build_chat_translation_display_payload(existing_translation)
+            return {
+                'chat_id': chat_id,
+                'source_message_id': int(message_id),
+                'translated_message_id': int(existing_translation.id or 0),
+                'target_language': target_language,
+                'tone': tone,
+                'reused_existing_translation': True,
+                'translated_message': payload,
+            }
+
+        started_at = time.perf_counter()
+        translated_text, finish_reason = await translate_chat_message_text(
+            str(source_display_text),
+            target_language=target_language,
+            tone=tone,
+        )
+        elapsed_seconds = round(time.perf_counter() - started_at, 3)
+        if finish_reason == 'timeout' or not translated_text:
+            raise HTTPException(status_code=504, detail='Translation timed out. Please try again.')
+
+        translated_message = await insert_chat_message(
+            db,
+            ChatMessage(
+                chat_id=chat_id,
+                role=ChatRole.ASSISTANT,
+                content=translated_text,
+                sources=list(source_message.sources),
+                generation_seconds=elapsed_seconds,
+                completion_mode=CompletionMode.COMPLETE,
+                stopped_by_user=False,
+                has_remaining_scope=False,
+                next_action=NextAction.NONE,
+                next_action_reason=None,
+                chat_mode=source_message.chat_mode,
+                specialization_id=source_message.specialization_id,
+                translated_from_message_id=int(message_id),
+                translation_language=target_language,
+                translation_tone=tone,
+                translation_source_hash=source_hash,
+                translation_is_stale=False,
+                retrieval_scope_kind=source_message.retrieval_scope_kind,
+                retrieval_scope_key=source_message.retrieval_scope_key,
+                model_filename=settings.llm_model_filename,
+                is_internal=False,
+            ),
+        )
+        payload = _build_chat_translation_display_payload(translated_message)
+        return {
+            'chat_id': chat_id,
+            'source_message_id': int(message_id),
+            'translated_message_id': int(translated_message.id or 0),
+            'target_language': target_language,
+            'tone': tone,
+            'reused_existing_translation': False,
+            'translated_message': payload,
+        }
+
+
+# ==============================================================================
 # GET /api/chat/chats — list recent chats
 # ==============================================================================
 
@@ -2577,6 +2741,7 @@ async def get_chat_messages(
         None,
     )
     locked_specialization_id = first_user_specialization_id or first_assistant_specialization_id
+    messages_by_id = {message.id: message for message in messages if message.id is not None}
     for message in messages:
         payload = message.model_dump(mode='json')
         if message.role == ChatRole.USER:
@@ -2589,6 +2754,17 @@ async def get_chat_messages(
             )
             payload['content'] = cleaned_content
             payload['display_blocks'] = build_display_blocks(cleaned_content)
+            if message.translated_from_message_id is not None:
+                source_message = messages_by_id.get(message.translated_from_message_id)
+                if source_message is not None:
+                    source_display_text, _ = _source_message_display_payload(
+                        messages=messages,
+                        source_message=source_message,
+                    )
+                    current_source_hash = hashlib.sha256(str(source_display_text).encode('utf-8')).hexdigest()
+                    payload['translation_is_stale'] = current_source_hash != str(message.translation_source_hash or '')
+                else:
+                    payload['translation_is_stale'] = True
         serialized_messages.append(payload)
     chat_preferences = await get_chat_preferences(db, chat_id)
 
