@@ -875,7 +875,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   }, [contextChatId, isStreaming, offline])
 
   const handleTranslateReply = useCallback(async (messageId?: number) => {
-    if (offline || isStreaming || loadingChat || isTranslating || (activeChatTranslation && activeChatTranslation.chatId === contextChatId)) return
+    if (offline || isStreaming || loadingChat || isTranslating || isTranslatingReply) return
     if (!contextChatId) return
     if (!messageId || !Number.isFinite(messageId)) return
     try {
@@ -885,7 +885,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       })
     } finally {
     }
-  }, [activeChatTranslation, contextChatId, isStreaming, isTranslating, loadingChat, offline, translateAssistantMessage, translateTargetLanguage, translateTone])
+  }, [contextChatId, isStreaming, isTranslating, isTranslatingReply, loadingChat, offline, translateAssistantMessage, translateTargetLanguage, translateTone])
 
   useEffect(() => {
     const handleNewChatEvent = () => handleNewChat()
@@ -896,7 +896,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const handleSend = useCallback(async () => {
     if (offline) return
     if (isTranslating) return
-    if (activeChatTranslation && activeChatTranslation.chatId === contextChatId) return
+    if (isTranslatingReply) return
     const text = inputValue.trim()
     if (!text) return
 
@@ -908,7 +908,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
     })
-  }, [activeChatTranslation, contextChatId, offline, inputValue, isTranslating, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [contextChatId, offline, inputValue, isTranslating, isTranslatingReply, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
   const handleStop = useCallback(() => {
     if (offline) return

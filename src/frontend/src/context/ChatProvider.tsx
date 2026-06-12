@@ -1463,15 +1463,16 @@ export function ChatProvider({ children }: ChatProviderProps) {
     if (isStreamingRef.current || sendInFlightRef.current) return false
     const targetLanguage = String(options?.targetLanguage || '').trim() || null
     const tone = String(options?.tone || '').trim() || null
+    const sourceMessageId = messageId
     setActiveChatTranslation({
       chatId,
-      sourceMessageId: messageId,
+      sourceMessageId,
       targetLanguage: targetLanguage || 'selected language',
       tone,
     })
     saveSessionJson(CHAT_TRANSLATION_REQUEST_STORAGE_KEY, {
       chatId,
-      sourceMessageId: messageId,
+      sourceMessageId,
       targetLanguage,
       tone,
       startedAt: Date.now(),
@@ -1544,21 +1545,18 @@ export function ChatProvider({ children }: ChatProviderProps) {
         }
         return next
       })
-      clearSessionValue(CHAT_TRANSLATION_REQUEST_STORAGE_KEY)
-      setActiveChatTranslation((current) => (
-        current?.chatId === chatId && current?.sourceMessageId === messageId ? null : current
-      ))
       return true
     } catch (err) {
       logApiError(err, 'ChatProvider.translateAssistantMessage')
       const msg = extractErrorMessage(err, 'Failed to translate reply')
       setError(msg)
       showToast('error', msg)
+      return false
+    } finally {
       clearSessionValue(CHAT_TRANSLATION_REQUEST_STORAGE_KEY)
       setActiveChatTranslation((current) => (
-        current?.chatId === chatId && current?.sourceMessageId === messageId ? null : current
+        current?.chatId === chatId && current?.sourceMessageId === sourceMessageId ? null : current
       ))
-      return false
     }
   }, [currentChatLockedMode, currentChatLockedSpecializationId])
 
@@ -1686,7 +1684,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         activeGenerationRequestId,
         hasActiveGenerationForCurrentChat: !!(isStreaming && activeGenerationChatId && currentChatId === activeGenerationChatId),
         activeChatTranslation,
-        isTranslatingReply: !!activeChatTranslation && activeChatTranslation.chatId === currentChatId,
+        isTranslatingReply: !!activeChatTranslation,
         messages,
         isStreaming,
         loadingChat,

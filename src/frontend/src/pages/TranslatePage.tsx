@@ -66,7 +66,7 @@ function clearCompletedRuns(): void {
 
 export function TranslatePage() {
   const { offline } = useBackendStatus()
-  const { isStreaming, stopStreaming } = useChatContext()
+  const { isStreaming, isTranslatingReply, stopStreaming } = useChatContext()
   const location = useLocation()
   const {
     fileId, fileName, pageCount, isUpload, estimatedMinutes, exceedsSoftLimit,
@@ -106,7 +106,9 @@ export function TranslatePage() {
   const resultDisplayTone = resultTone ?? tone
   const selectedLang = findTranslateLanguageOption(targetLanguage)
     ?? findTranslateLanguageOption(TRANSLATE_DEFAULT_LANGUAGE)
-  const canTranslate = !!fileId && !isTranslating && !isStreaming  // button morphs to Stop when streaming/translating
+  const isChatOperationActive = isStreaming || isTranslatingReply
+  const isTranslateBlocked = isTranslating || isChatOperationActive
+  const canTranslate = !!fileId && !isTranslateBlocked  // button morphs to Stop when streaming/translating
 
   const primeActiveRun = useCallback(() => {
     if (activeRunRef.current) return
@@ -365,6 +367,8 @@ export function TranslatePage() {
     ? 'Translation in progress…'
     : isStreaming
       ? 'Chat is in progress. Please wait…'
+      : isTranslatingReply
+        ? 'Chat reply translation is in progress. Please wait…'
       : fileId
         ? 'Ready to translate. Press ⌘↵ or click Translate to start.'
         : 'Select or upload a document to translate…'
@@ -380,7 +384,7 @@ export function TranslatePage() {
             type="button"
             className="translate-page__new-btn"
             onClick={() => void handleNewTranslation()}
-            disabled={isTranslating}
+            disabled={isTranslateBlocked}
             title="New Translation"
           >
             <i className="ri-translate-2" aria-hidden />
@@ -531,7 +535,7 @@ export function TranslatePage() {
                   type="button"
                   className="composer__scope-clear"
                   aria-label="Remove file"
-                  disabled={isTranslating}
+                  disabled={isTranslateBlocked}
                   onClick={() => void handleDismiss()}
                 >
                   <i className="ri-close-line" aria-hidden />
@@ -547,13 +551,13 @@ export function TranslatePage() {
             )}
 
             {/* Textarea — file drop zone and visual composer input */}
-            <textarea
+              <textarea
               ref={textareaRef}
               className={`composer__textarea${(fileId || uploadLoading) ? ' composer__textarea--scoped' : ''}`}
               rows={1}
               placeholder={translatePlaceholder}
               readOnly={!!fileId}
-              disabled={isTranslating}
+              disabled={isTranslateBlocked}
               onDragOver={(e) => { if (!fileId) e.preventDefault() }}
               onDrop={(e) => {
                 if (!fileId) { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) void handleUpload(f) }
@@ -576,7 +580,7 @@ export function TranslatePage() {
                   type="button"
                   className="translate-page__icon-btn"
                   onClick={() => { if (!fileId) fileInputRef.current?.click() }}
-                  disabled={!!fileId || uploadLoading || isTranslating}
+                  disabled={!!fileId || uploadLoading || isTranslateBlocked}
                   aria-label="Upload file"
                 >
                   <i className="ri-add-line" aria-hidden />
@@ -590,7 +594,7 @@ export function TranslatePage() {
                     aria-haspopup="menu"
                     aria-expanded={menuOpen === 'tone'}
                     aria-label="Tone"
-                    disabled={isTranslating}
+                    disabled={isTranslateBlocked}
                     onClick={() => setMenuOpen(prev => prev === 'tone' ? null : 'tone')}
                   >
                     <i className="ri-quill-pen-line" aria-hidden />
@@ -602,6 +606,7 @@ export function TranslatePage() {
                           key={t}
                           type="button"
                           className={`translate-page__mode-option${tone === t ? ' translate-page__mode-option--active' : ''}`}
+                          disabled={isTranslateBlocked}
                           onClick={() => { setTone(t); setMenuOpen(null) }}
                         >
                           <i className={TONE_ICONS[t]} aria-hidden />
@@ -623,7 +628,7 @@ export function TranslatePage() {
                     className="translate-page__mode-button"
                     aria-haspopup="menu"
                     aria-expanded={menuOpen === 'language'}
-                    disabled={isTranslating}
+                    disabled={isTranslateBlocked}
                     onClick={() => setMenuOpen(prev => prev === 'language' ? null : 'language')}
                   >
                     {selectedLang ? (
@@ -643,6 +648,7 @@ export function TranslatePage() {
                             key={language}
                             type="button"
                             className={`translate-page__mode-option${targetLanguage === language ? ' translate-page__mode-option--active' : ''}`}
+                            disabled={isTranslateBlocked}
                             onClick={() => { setTargetLanguage(language); setMenuOpen(null) }}
                           >
                             {option ? (
@@ -684,6 +690,16 @@ export function TranslatePage() {
                   >
                     <i className="ri-stop-circle-line" aria-hidden style={{ fontSize: '1.125rem' }} />
                     <span style={{ fontSize: 'var(--font-size-sm)' }}>Stop Chat</span>
+                  </button>
+                ) : isTranslatingReply ? (
+                  <button
+                    type="button"
+                    className="translate-page__send"
+                    disabled
+                    title="Chat reply translation in progress"
+                    aria-label="Chat reply translation in progress"
+                  >
+                    <i className="ri-translate-2" aria-hidden style={{ fontSize: '1.125rem' }} />
                   </button>
                 ) : (
                   <button
