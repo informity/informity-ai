@@ -38,6 +38,7 @@ from informity.api.schemas import (
 from informity.api.security import is_loopback_host
 from informity.api.setup_models import (
     SETUP_MODEL_SHA256,
+    SETUP_MODEL_RELEASES,
     SETUP_TIER_OPTIONS,
     SETUP_TIER_REPOS,
     SETUP_TIER_REVISIONS,
@@ -1027,10 +1028,10 @@ async def get_models_catalog() -> ModelsCatalogResponse:
         default_model_id = inferred_default_model_id
 
     models: list[ModelsCatalogItem] = []
-    for option in SETUP_TIER_OPTIONS:
-        option_model_id = str(option.model_id or '').strip().lower()
-        aliases = get_model_alias_filenames(option_model_id)
-        installed = any(_is_model_file_ready(alias) for alias in aliases) if aliases else _is_model_file_ready(option.model_filename)
+    for option in SETUP_MODEL_RELEASES:
+        installed = _is_model_file_ready(option.model_filename)
+        if option.release_label == 'Legacy' and not installed and option.model_filename != default_model:
+            continue
         models.append(
             ModelsCatalogItem(
                 tier=option.tier,
@@ -1044,8 +1045,10 @@ async def get_models_catalog() -> ModelsCatalogResponse:
                 speed=option.speed,
                 ram_profile=option.ram_profile,
                 description=option.description,
+                release_label=option.release_label,
+                downloadable=option.downloadable,
                 installed=installed,
-                is_default=bool(default_model_id) and option_model_id == default_model_id,
+                is_default=bool(default_model) and option.model_filename == default_model,
             ),
         )
     return ModelsCatalogResponse(

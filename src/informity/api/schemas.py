@@ -737,6 +737,8 @@ class ModelsCatalogItem(BaseModel):
     speed: str
     ram_profile: str
     description: str
+    release_label: str | None = None
+    downloadable: bool = True
     installed: bool
     is_default: bool
 

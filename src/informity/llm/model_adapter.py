@@ -395,6 +395,13 @@ QWEN3_6_35B_A3B_PROFILE = _build_qwen_35b_a3b_profile(
 )
 
 
+# -- Qwen3.5 35B A3B (legacy) -------------------------------------------------
+QWEN3_5_35B_A3B_PROFILE = _build_qwen_35b_a3b_profile(
+    name='Qwen3.5 35B A3B',
+    filename_patterns=('qwen3.5-35b-a3b',),
+)
+
+
 # -- Default profile for unknown models (conservative ChatML) -----------------
 DEFAULT_PROFILE = ModelProfile(
     name              = 'Unknown (ChatML default)',
@@ -481,6 +488,7 @@ OLLAMA_DEFAULT_PROFILE = ModelProfile(
 
 # Order matters: more specific patterns first.
 _PROFILE_REGISTRY: list[ModelProfile] = [
+    QWEN3_5_35B_A3B_PROFILE,       # Qwen3.5-35B-A3B-Q4_K_M (legacy quality-tier)
     QWEN3_6_35B_A3B_PROFILE,       # Qwen3.6-35B-A3B(-UD)-Q4_K_M
     QWEN3_5_9B_PROFILE,            # Qwen3.5-9B-Q4_K_M (analysis RAG)
     QWEN3_14B_PROFILE,             # Qwen3-14B-Q5_K_M (analysis RAG profile)
@@ -500,6 +508,7 @@ MODEL_ID_TO_FILENAMES: dict[str, tuple[str, ...]] = {
     ),
     MODEL_ID_QWEN_35B_A3B: (
         'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf',
+        'Qwen3.5-35B-A3B-Q4_K_M.gguf',
     ),
 }
 
@@ -553,6 +562,8 @@ def infer_model_id_from_filename(filename: str) -> str | None:
         return MODEL_ID_QWEN_9B
     if profile is QWEN3_14B_PROFILE:
         return MODEL_ID_QWEN_14B
+    if profile is QWEN3_5_35B_A3B_PROFILE:
+        return MODEL_ID_QWEN_35B_A3B
     if profile is QWEN3_6_35B_A3B_PROFILE:
         return MODEL_ID_QWEN_35B_A3B
     return None

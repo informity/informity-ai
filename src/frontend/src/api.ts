@@ -825,6 +825,8 @@ export interface ModelsCatalogItem {
   speed: string
   ram_profile: string
   description: string
+  release_label?: string | null
+  downloadable?: boolean
   installed: boolean
   is_default: boolean
 }

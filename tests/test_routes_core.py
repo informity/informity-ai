@@ -462,7 +462,33 @@ async def test_get_models_catalog_marks_quality_installed_for_canonical_35b(
     quality_entry = next(item for item in catalog.models if item.tier == 'quality')
     assert quality_entry.installed is True
     assert quality_entry.is_default is True
+    assert quality_entry.release_label == 'Recommended'
     # Canonical 35B filename resolves to canonical model-id.
+    assert catalog.default_model_id == 'qwen3.6:35b'
+
+
+@pytest.mark.asyncio
+async def test_get_models_catalog_includes_legacy_quality_model_when_present(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    models_dir = tmp_path / 'models'
+    models_dir.mkdir(parents=True)
+    legacy_model = 'Qwen3.5-35B-A3B-Q4_K_M.gguf'
+    (models_dir / legacy_model).write_bytes(b'x')
+    monkeypatch.setattr(routes_system.settings, 'models_dir', models_dir)
+    monkeypatch.setattr(routes_system.settings, 'llm_model_filename', legacy_model)
+    monkeypatch.setattr(routes_system.settings, 'llm_model_id', '')
+
+    catalog = await routes_system.get_models_catalog()
+    legacy_entry = next(item for item in catalog.models if item.model_filename == legacy_model)
+    current_entry = next(item for item in catalog.models if item.model_filename == 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf')
+    assert legacy_entry.installed is True
+    assert legacy_entry.is_default is True
+    assert legacy_entry.release_label == 'Legacy'
+    assert legacy_entry.downloadable is False
+    assert current_entry.installed is False
+    assert current_entry.release_label == 'Recommended'
     assert catalog.default_model_id == 'qwen3.6:35b'
 
 
