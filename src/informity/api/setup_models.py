@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from informity.api.schemas import SetupTierOption
 from informity.llm.model_adapter import (
     MODEL_ID_QWEN_9B,
@@ -15,6 +17,54 @@ _MODEL_SIZE_BYTES: dict[str, int] = {
     'Qwen3-14B-Q5_K_M.gguf': 10_514_569_568,
     'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf': 22_134_528_992,
 }
+
+@dataclass(frozen=True)
+class ModelReleaseOption:
+    tier: str
+    model_id: str
+    title: str
+    display_name: str
+    model_filename: str
+    model_size_bytes: int
+    approx_size_gb: float
+    quality: str
+    speed: str
+    ram_profile: str
+    description: str
+    release_label: str  # Recommended | Legacy
+    downloadable: bool = True
+
+
+def _build_release(
+    *,
+    tier: str,
+    model_id: str,
+    title: str,
+    display_name: str,
+    model_filename: str,
+    model_size_bytes: int,
+    quality: str,
+    speed: str,
+    ram_profile: str,
+    description: str,
+    release_label: str,
+    downloadable: bool = True,
+) -> ModelReleaseOption:
+    return ModelReleaseOption(
+        tier=tier,
+        model_id=model_id,
+        title=title,
+        display_name=display_name,
+        model_filename=model_filename,
+        model_size_bytes=model_size_bytes,
+        approx_size_gb=round(model_size_bytes / _DECIMAL_GB, 2) if model_size_bytes > 0 else 0.0,
+        quality=quality,
+        speed=speed,
+        ram_profile=ram_profile,
+        description=description,
+        release_label=release_label,
+        downloadable=downloadable,
+    )
 
 SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
     SetupTierOption(
@@ -55,6 +105,62 @@ SETUP_TIER_OPTIONS: tuple[SetupTierOption, ...] = (
         speed='Slower',
         ram_profile='Higher RAM',
         description='Best answer quality with higher resource usage.',
+    ),
+)
+
+SETUP_MODEL_RELEASES: tuple[ModelReleaseOption, ...] = (
+    _build_release(
+        tier='small',
+        model_id=MODEL_ID_QWEN_9B,
+        title='Small',
+        display_name=get_model_display_name('Qwen_Qwen3.5-9B-Q4_K_M.gguf'),
+        model_filename='Qwen_Qwen3.5-9B-Q4_K_M.gguf',
+        model_size_bytes=_MODEL_SIZE_BYTES['Qwen_Qwen3.5-9B-Q4_K_M.gguf'],
+        quality='Good',
+        speed='Fast',
+        ram_profile='Lower RAM',
+        description='Fastest setup with lower memory footprint.',
+        release_label='Recommended',
+    ),
+    _build_release(
+        tier='balanced',
+        model_id=MODEL_ID_QWEN_14B,
+        title='Balanced',
+        display_name=get_model_display_name('Qwen3-14B-Q5_K_M.gguf'),
+        model_filename='Qwen3-14B-Q5_K_M.gguf',
+        model_size_bytes=_MODEL_SIZE_BYTES['Qwen3-14B-Q5_K_M.gguf'],
+        quality='High',
+        speed='Balanced',
+        ram_profile='Medium RAM',
+        description='Recommended quality and speed tradeoff.',
+        release_label='Recommended',
+    ),
+    _build_release(
+        tier='quality',
+        model_id=MODEL_ID_QWEN_35B_A3B,
+        title='Quality',
+        display_name=get_model_display_name('Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'),
+        model_filename='Qwen3.6-35B-A3B-UD-Q4_K_M.gguf',
+        model_size_bytes=_MODEL_SIZE_BYTES['Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'],
+        quality='Highest',
+        speed='Slower',
+        ram_profile='Higher RAM',
+        description='Best answer quality with higher resource usage.',
+        release_label='Recommended',
+    ),
+    _build_release(
+        tier='quality',
+        model_id=MODEL_ID_QWEN_35B_A3B,
+        title='Quality',
+        display_name=get_model_display_name('Qwen3.5-35B-A3B-Q4_K_M.gguf'),
+        model_filename='Qwen3.5-35B-A3B-Q4_K_M.gguf',
+        model_size_bytes=_MODEL_SIZE_BYTES['Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'],
+        quality='Highest',
+        speed='Slower',
+        ram_profile='Higher RAM',
+        description='Older quality-tier model; still usable, but superseded by the current quality release.',
+        release_label='Legacy',
+        downloadable=False,
     ),
 )
 

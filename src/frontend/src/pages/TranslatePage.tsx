@@ -451,7 +451,7 @@ export function TranslatePage() {
                       </div>
                     </div>
                     <div className="translate-page__meta-right">
-                      {/* Export dropdown — Markdown / Plain text */}
+                        {/* Export dropdown — Markdown / Plain text */}
                       <div className="translate-page__export-trigger">
                         <button
                           type="button"

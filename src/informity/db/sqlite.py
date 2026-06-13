@@ -66,7 +66,29 @@ _CHAT_TITLE_WHITESPACE_RE = re.compile(r'\s+')
 # Schema — DDL statements for all tables
 # ==============================================================================
 
-SCHEMA_VERSION = 7
+SCHEMA_VERSION = 8
+
+# Additive columns reconciled on every startup so legacy databases catch up even when
+# schema_version already matches SCHEMA_VERSION (e.g. columns added to _SCHEMA_SQL only).
+_CHAT_MESSAGES_ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
+    ('generation_seconds', 'REAL'),
+    ('completion_mode', 'TEXT'),
+    ('stopped_by_user', 'INTEGER DEFAULT 0'),
+    ('has_remaining_scope', 'INTEGER DEFAULT 0'),
+    ('next_action', 'TEXT'),
+    ('next_action_reason', 'TEXT'),
+    ('chat_mode', 'TEXT'),
+    ('specialization_id', 'TEXT'),
+    ('translated_from_message_id', 'INTEGER REFERENCES chat_messages(id) ON DELETE CASCADE'),
+    ('translation_language', 'TEXT'),
+    ('translation_tone', 'TEXT'),
+    ('translation_source_hash', "TEXT NOT NULL DEFAULT ''"),
+    ('translation_is_stale', 'INTEGER DEFAULT 0'),
+    ('retrieval_scope_kind', 'TEXT'),
+    ('retrieval_scope_key', 'TEXT'),
+    ('model_filename', 'TEXT'),
+    ('is_internal', 'INTEGER DEFAULT 0'),
+)
 
 DIAGNOSTICS_TYPE_USER = 'user'
 DIAGNOSTICS_TYPE_EVALUATION = 'evaluation'
@@ -672,10 +694,12 @@ async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
     row = await cursor.fetchone()
     if row is None:
         await conn.execute('INSERT INTO schema_version (version) VALUES (?)', (SCHEMA_VERSION,))
+        await _reconcile_chat_messages_schema(conn)
         return
 
     existing = int(row['version'])
     if existing == SCHEMA_VERSION:
+        await _reconcile_chat_messages_schema(conn)
         return
     if existing > SCHEMA_VERSION:
         raise RuntimeError(
@@ -698,10 +722,54 @@ async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
             await _migrate_to_v6(conn)
         elif next_version == 7:
             await _migrate_to_v7(conn)
+        elif next_version == 8:
+            await _migrate_to_v8(conn)
         else:
             raise RuntimeError(f'No migration path defined for schema version {next_version}')
         await conn.execute('UPDATE schema_version SET version = ?', (next_version,))
         current = next_version
+
+    await _reconcile_chat_messages_schema(conn)
+
+
+async def _table_column_names(conn: aiosqlite.Connection, table: str) -> set[str]:
+    cursor = await conn.execute(f"PRAGMA table_info('{table}')")
+    columns = await cursor.fetchall()
+    return {str(row['name']) for row in columns}
+
+
+async def _ensure_additive_columns(
+    conn: aiosqlite.Connection,
+    *,
+    table: str,
+    columns: tuple[tuple[str, str], ...],
+) -> None:
+    existing = await _table_column_names(conn, table)
+    for name, column_def in columns:
+        if name in existing:
+            continue
+        await conn.execute(f'ALTER TABLE {table} ADD COLUMN {name} {column_def}')
+        log.info('schema_additive_column_added', table=table, column=name)
+
+
+async def _reconcile_chat_messages_schema(conn: aiosqlite.Connection) -> None:
+    cursor = await conn.execute(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='chat_messages'"
+    )
+    if await cursor.fetchone() is None:
+        return
+
+    column_names = await _table_column_names(conn, 'chat_messages')
+    if 'role_id' in column_names and 'specialization_id' not in column_names:
+        await conn.execute('ALTER TABLE chat_messages RENAME COLUMN role_id TO specialization_id')
+        log.info('schema_column_renamed', table='chat_messages', from_column='role_id', to_column='specialization_id')
+
+    await _ensure_additive_columns(
+        conn,
+        table='chat_messages',
+        columns=_CHAT_MESSAGES_ADDITIVE_COLUMNS,
+    )
+    await _ensure_chat_translation_indexes(conn)
 
 
 async def _migrate_to_v2(conn: aiosqlite.Connection) -> None:
@@ -857,6 +925,14 @@ async def _migrate_to_v7(conn: aiosqlite.Connection) -> None:
     if 'translation_is_stale' not in column_names:
         await conn.execute('ALTER TABLE chat_messages ADD COLUMN translation_is_stale INTEGER DEFAULT 0')
     await _ensure_chat_translation_indexes(conn)
+
+
+async def _migrate_to_v8(conn: aiosqlite.Connection) -> None:
+    """
+    v8 migration:
+    - add chat message retrieval scope, model provenance, and internal-message fields.
+    """
+    await _reconcile_chat_messages_schema(conn)
 
 
 async def _ensure_chat_translation_indexes(conn: aiosqlite.Connection) -> None:

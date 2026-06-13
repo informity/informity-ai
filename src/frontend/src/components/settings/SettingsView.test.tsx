@@ -16,24 +16,45 @@ vi.mock('../../api', () => ({
       {
         tier: 'small',
         title: 'Small',
+        display_name: 'Small',
         model_filename: 'main.gguf',
         approx_size_gb: 5.5,
         quality: 'Good',
         speed: 'Fast',
         ram_profile: 'Lower RAM',
         description: 'Fastest setup with lower memory footprint.',
+        release_label: 'Recommended',
+        downloadable: true,
         installed: true,
         is_default: true,
       },
       {
         tier: 'balanced',
         title: 'Balanced',
+        display_name: 'Balanced',
         model_filename: 'alt.gguf',
         approx_size_gb: 9.8,
         quality: 'High',
         speed: 'Balanced',
         ram_profile: 'Medium RAM',
         description: 'Recommended quality and speed tradeoff.',
+        release_label: 'Recommended',
+        downloadable: true,
+        installed: true,
+        is_default: false,
+      },
+      {
+        tier: 'quality',
+        title: 'Quality',
+        display_name: 'Qwen3.5 35B A3B',
+        model_filename: 'Qwen3.5-35B-A3B-Q4_K_M.gguf',
+        approx_size_gb: 22.1,
+        quality: 'Highest',
+        speed: 'Slower',
+        ram_profile: 'Higher RAM',
+        description: 'Older quality-tier model.',
+        release_label: 'Legacy',
+        downloadable: false,
         installed: true,
         is_default: false,
       },
@@ -233,6 +254,16 @@ describe('SettingsView tabs and action bar behavior', () => {
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({ llm_model_filename: 'alt.gguf' }),
     )
+  })
+
+  it('shows recommended and legacy labels in the model dropdown', async () => {
+    renderSettingsView({ section: 'models' })
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: 'Small (Recommended)' })).toBeInTheDocument()
+      expect(screen.getByRole('option', { name: 'Qwen3.5 35B A3B (Legacy)' })).toBeInTheDocument()
+      expect(screen.queryByRole('option', { name: 'Balanced (Recommended)' })).not.toBeInTheDocument()
+    })
   })
 
   it('includes installed models not present in catalog entries', async () => {

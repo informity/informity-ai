@@ -6,6 +6,7 @@ import pytest
 
 from informity.config import settings
 from informity.db.sqlite import (
+    SCHEMA_VERSION,
     get_connection,
     get_log_events,
     init_db,
@@ -35,7 +36,7 @@ async def test_log_events_table_created_for_existing_v3_database(
     try:
         schema_row = await (await db.execute('SELECT version FROM schema_version LIMIT 1')).fetchone()
         assert schema_row is not None
-        assert int(schema_row['version']) == 7
+        assert int(schema_row['version']) == SCHEMA_VERSION
 
         table_row = await (
             await db.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='log_events'")

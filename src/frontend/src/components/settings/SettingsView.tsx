@@ -862,6 +862,7 @@ export function SettingsView({
   const selectedModelFilename = canonicalizeModelFilename(form.llm_model_filename || settings.llm_model_filename || '')
   const catalogModels = modelsCatalog?.models || []
   const selectedCatalogEntry = catalogModels.find((model) => model.model_filename === selectedModelFilename)
+  const selectedModelCanDownload = selectedCatalogEntry?.downloadable !== false
   const knownModelFilenames = (() => {
     const ordered: string[] = []
     const seen = new Set<string>()
@@ -921,7 +922,7 @@ export function SettingsView({
   })()
 
   const handleDownloadSelectedModel = async (): Promise<void> => {
-    if (!resolvedSelectedModelFilename || selectedModelInstalledResolved || modelActionPending) return
+    if (!resolvedSelectedModelFilename || selectedModelInstalledResolved || modelActionPending || !selectedModelCanDownload) return
     setModelDownloadPending(true)
     setModelDownloadError(null)
     setModelEvent((prev) => ({
@@ -2302,16 +2303,21 @@ export function SettingsView({
                       {knownModelFilenames.map((modelName) => {
                         const catalogEntry = catalogModels.find((model) => model.model_filename === modelName)
                         const installed = installedModelSet.has(modelName)
+                        const releaseLabel = catalogEntry?.release_label === 'Legacy'
+                          ? ' (Legacy)'
+                          : (catalogEntry?.release_label === 'Recommended' && modelName === resolvedSelectedModelFilename
+                              ? ' (Recommended)'
+                              : '')
                         const baseLabel = catalogEntry?.display_name || modelProfileNames.get(modelName) || modelName
                         const suffix = installed ? '' : ' (Not installed)'
                         return (
                           <option key={modelName} value={modelName}>
-                            {`${baseLabel}${suffix}`}
+                            {`${baseLabel}${releaseLabel}${suffix}`}
                           </option>
                         )
                       })}
                     </select>
-                    {!selectedModelInstalledResolved && (
+                    {!selectedModelInstalledResolved && selectedModelCanDownload && (
                       <>
                         <button
                           type="button"
