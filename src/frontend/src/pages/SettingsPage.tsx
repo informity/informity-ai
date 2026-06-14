@@ -234,7 +234,7 @@ const SETTINGS_SECTION_META: Record<string, { title: string; icon: string; subti
   },
   chat:         { title: 'Chat',               icon: 'ri-chat-ai-4-line',  subtitle: 'Conversation context and default chat settings' },
   translate:    { title: 'Translate',          icon: 'ri-translate-2',     subtitle: 'Configure default settings for document translation' },
-  models:       { title: 'Models',             icon: 'ri-robot-2-line',    subtitle: 'Select the AI model to use and view its capabilities' },
+  models:       { title: 'Models',             icon: 'ri-robot-2-line',    subtitle: 'Choose the default AI model used for chat responses and document translation' },
   integrations: { title: 'Integrations',       icon: 'ri-function-add-line', subtitle: 'Connect external search providers and allow third-party AI clients to access your library' },
   diagnostics:  { title: 'Diagnostics',        icon: 'ri-pulse-line',      subtitle: 'Monitor application events and adjust diagnostics when troubleshooting.' },
   system:       { title: 'System',             icon: 'ri-server-line',     subtitle: 'Application utilities and configuration references.' },

@@ -2178,9 +2178,13 @@ export function SettingsView({
               <div className="settings-subsection-head ui-subsection-head">
                 <div className="settings-subsection-title ui-subsection-title">
                   <i className="ri-chat-ai-4-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-                  Main Model
+                  Model Configuration
                 </div>
-                <p className="settings-subsection-description ui-subsection-description">The AI model used for query classifications and chat responses. Requires restart.</p>
+                <p className="settings-subsection-description ui-subsection-description">
+                  Select a local GGUF model (recommended) or a model from <a className="settings-link" href="https://ollama.com/search" target="_blank" rel="noreferrer">
+                    Ollama
+                  </a>. Requires restart.
+                </p>
               </div>
             </div>
             <div className="settings-control-group">
