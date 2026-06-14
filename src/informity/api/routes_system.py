@@ -37,8 +37,8 @@ from informity.api.schemas import (
 )
 from informity.api.security import is_loopback_host
 from informity.api.setup_models import (
-    SETUP_MODEL_SHA256,
     SETUP_MODEL_RELEASES,
+    SETUP_MODEL_SHA256,
     SETUP_TIER_OPTIONS,
     SETUP_TIER_REPOS,
     SETUP_TIER_REVISIONS,
