@@ -1130,12 +1130,7 @@ async def remove_model(payload: ModelActionRequest) -> ModelActionResponse:
         raise HTTPException(status_code=400, detail='model_filename must be a .gguf file')
 
     current_model_filename = str(getattr(settings, 'llm_model_filename', '') or '').strip()
-    current_model_id = infer_model_id_from_filename(current_model_filename) if current_model_filename else ''
-    target_model_id = infer_model_id_from_filename(model_filename)
-    if current_model_filename and (
-        current_model_filename == model_filename
-        or (current_model_id and target_model_id and current_model_id == target_model_id)
-    ):
+    if current_model_filename == model_filename:
         raise HTTPException(status_code=400, detail='Cannot remove the active model')
 
     async with _model_lock:
@@ -1145,26 +1140,13 @@ async def remove_model(payload: ModelActionRequest) -> ModelActionResponse:
         if _setup_task is not None and not _setup_task.done():
             return ModelActionResponse(accepted=False, detail='Another model operation is already in progress')
 
-    model_id = target_model_id
-    alias_candidates = get_model_alias_filenames(model_id) if model_id else []
-    candidates = list(dict.fromkeys([model_filename, *alias_candidates]))
-    removed_any = False
-
-    for candidate in candidates:
-        normalized = str(candidate or '').strip()
-        if not normalized:
-            continue
-        path = settings.models_dir / normalized
-        if not path.exists() or not path.is_file():
-            continue
-        try:
-            path.unlink()
-            removed_any = True
-        except OSError as exc:
-            raise HTTPException(status_code=500, detail=f'Failed to remove model file: {exc}') from exc
-
-    if not removed_any:
+    path = settings.models_dir / model_filename
+    if not path.exists() or not path.is_file():
         return ModelActionResponse(accepted=False, detail='Model is not installed')
+    try:
+        path.unlink()
+    except OSError as exc:
+        raise HTTPException(status_code=500, detail=f'Failed to remove model file: {exc}') from exc
 
     return ModelActionResponse(accepted=True, detail='Model removed')
 

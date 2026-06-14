@@ -592,6 +592,29 @@ async def test_remove_model_rejects_active_model(
 
 
 @pytest.mark.asyncio
+async def test_remove_model_allows_legacy_alias_when_newer_alias_is_active(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    models_dir = tmp_path / 'models'
+    models_dir.mkdir(parents=True)
+    legacy = models_dir / 'Qwen3.5-35B-A3B-Q4_K_M.gguf'
+    current = models_dir / 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'
+    legacy.write_bytes(b'legacy')
+    current.write_bytes(b'current')
+    monkeypatch.setattr(routes_system.settings, 'models_dir', models_dir)
+    monkeypatch.setattr(routes_system.settings, 'llm_model_filename', 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf')
+    monkeypatch.setattr(routes_system, '_model_task', None)
+    monkeypatch.setattr(routes_system, '_setup_task', None)
+
+    response = await routes_system.remove_model(ModelActionRequest(model_filename='Qwen3.5-35B-A3B-Q4_K_M.gguf'))
+    assert response.accepted is True
+    assert response.detail == 'Model removed'
+    assert not legacy.exists()
+    assert current.exists()
+
+
+@pytest.mark.asyncio
 async def test_remove_model_rejects_while_setup_task_in_progress(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
