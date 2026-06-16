@@ -86,7 +86,7 @@ type SettingsSection =
 const SETTINGS_SECTIONS: Array<{ id: SettingsSection; label: string; icon: string }> = [
   { id: 'general',      label: 'General',       icon: 'ri-home-gear-line'  },
   { id: 'data',         label: 'Data Sources',  icon: 'ri-folder-line'     },
-  { id: 'indexing',     label: 'Indexing',      icon: 'ri-stack-line'      },
+  { id: 'indexing',     label: 'Indexing',        icon: 'ri-stack-line'    },
   { id: 'chat',         label: 'Chat',          icon: 'ri-chat-ai-4-line'  },
   { id: 'translate',    label: 'Translate',     icon: 'ri-translate-2'     },
   { id: 'models',       label: 'Models',        icon: 'ri-robot-2-line'    },
@@ -1413,38 +1413,6 @@ export function SettingsView({
         <div className="settings-subsection">
           <div className="settings-subsection-head ui-subsection-head">
             <div className="settings-subsection-title ui-subsection-title">
-              <i className="ri-file-copy-2-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-              File Categories to Index
-            </div>
-            <p className="settings-subsection-description ui-subsection-description">Only checked file types will be scanned and indexed.</p>
-          </div>
-          <div className="settings-file-types">
-            {orderedFileTypeOptions.map((opt) => {
-              const exts = opt.extensions || []
-              const current = form.supported_extensions || []
-              const allChecked = exts.length > 0 && exts.every((e) => current.includes(e))
-              return (
-                <label key={opt.id} className="settings-file-type">
-                  <input
-                    type="checkbox"
-                    checked={allChecked}
-                    onChange={() => {
-                      const next = allChecked
-                        ? current.filter((e) => !exts.includes(e))
-                        : [...new Set([...current, ...exts])]
-                      update('supported_extensions', next)
-                    }}
-                  />
-                  <span>{opt.label}</span>
-                </label>
-              )
-            })}
-          </div>
-        </div>
-
-        <div className="settings-subsection">
-          <div className="settings-subsection-head ui-subsection-head">
-            <div className="settings-subsection-title ui-subsection-title">
               <i className="ri-filter-off-line subsection-icon ui-subsection-icon" aria-hidden="true" />
               Exclude Patterns
             </div>
@@ -1600,7 +1568,7 @@ export function SettingsView({
                 <ProfileRow label="Status" value={indexStatusLabel} />
                 <ProfileRow label="Files" value={indexFileCount} />
                 <ProfileRow
-                  label="Sources"
+                  label="Data Sources"
                   value={watchedDirCount > 0
                     ? `${watchedDirCount} source ${watchedDirCount === 1 ? 'directory' : 'directories'}`
                     : '0 source directories'}
@@ -1642,6 +1610,40 @@ export function SettingsView({
 
           {indexingTab === 'settings' && (
             <>
+              <div className="settings-subsection">
+                <div className="settings-subsection-head ui-subsection-head">
+                  <div className="settings-subsection-title ui-subsection-title">
+                    <i className="ri-file-copy-2-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                    File Types to Index
+                  </div>
+                  <p className="settings-subsection-description ui-subsection-description">
+                    Only checked file types will be scanned and indexed.
+                  </p>
+                </div>
+                <div className="settings-file-types">
+                  {orderedFileTypeOptions.map((opt) => {
+                    const exts = opt.extensions || []
+                    const current = form.supported_extensions || []
+                    const allChecked = exts.length > 0 && exts.every((e) => current.includes(e))
+                    return (
+                      <label key={opt.id} className="settings-file-type">
+                        <input
+                          type="checkbox"
+                          checked={allChecked}
+                          onChange={() => {
+                            const next = allChecked
+                              ? current.filter((e) => !exts.includes(e))
+                              : [...new Set([...current, ...exts])]
+                            update('supported_extensions', next)
+                          }}
+                        />
+                        <span>{opt.label}</span>
+                      </label>
+                    )
+                  })}
+                </div>
+              </div>
+
               <div className="settings-subsection">
                 <div className="settings-subsection-head ui-subsection-head">
                   <div className="settings-subsection-title ui-subsection-title">

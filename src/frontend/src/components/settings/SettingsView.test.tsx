@@ -366,6 +366,7 @@ describe('SettingsView tabs and action bar behavior', () => {
   it('does not render chunk size or embedding controls on the Indexing tab', () => {
     renderSettingsView({ section: 'indexing' })
     expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.queryByText('File Types to Index')).not.toBeInTheDocument()
     expect(screen.queryByText(/Chunk size:/i)).not.toBeInTheDocument()
     expect(screen.queryByText(/Overlap:/i)).not.toBeInTheDocument()
     expect(screen.queryByLabelText('embedding-batch-size')).not.toBeInTheDocument()
@@ -412,6 +413,7 @@ describe('SettingsView tabs and action bar behavior', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'Configuration' }))
 
+    expect(screen.getByText('File Types to Index')).toBeInTheDocument()
     expect(screen.getByText('Document Extraction')).toBeInTheDocument()
     expect(screen.getByLabelText('Enable OCR for scanned documents')).toBeInTheDocument()
     expect(screen.getByText('Entity Extraction')).toBeInTheDocument()

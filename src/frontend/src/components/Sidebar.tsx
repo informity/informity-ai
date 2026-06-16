@@ -20,7 +20,7 @@ const NAV_ITEMS = [
 const SETTINGS_SUBNAV = [
   { section: 'general',     label: 'General',      icon: 'ri-home-gear-line'    },
   { section: 'data',        label: 'Data Sources', icon: 'ri-folder-line'       },
-  { section: 'indexing',    label: 'Indexing',     icon: 'ri-stack-line'        },
+  { section: 'indexing',    label: 'Indexing',        icon: 'ri-stack-line'     },
   { section: 'chat',        label: 'Chat',         icon: 'ri-chat-ai-4-line'    },
   { section: 'translate',   label: 'Translate',    icon: 'ri-translate-2'       },
   { section: 'models',      label: 'Models',       icon: 'ri-robot-2-line'      },
