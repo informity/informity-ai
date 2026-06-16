@@ -1647,19 +1647,29 @@ export function SettingsView({
               <div className="settings-subsection">
                 <div className="settings-subsection-head ui-subsection-head">
                   <div className="settings-subsection-title ui-subsection-title">
-                    <i className="ri-arrow-right-down-box-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-                    Document Extraction
+                    <i className="ri-fingerprint-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                    Performance & Limits
                   </div>
-                  <p className="settings-subsection-description ui-subsection-description">Options for extracting text from documents, including image-based documents and image-only PDFs.</p>
+                  <p className="settings-subsection-description ui-subsection-description">
+                    Trade off indexing speed and file limits against keeping your Mac responsive. Requires restart.
+                  </p>
                 </div>
-                <label className="settings-checkbox-row">
-                  <input
-                    type="checkbox"
-                    checked={form.enable_ocr_for_images ?? true}
-                    onChange={(e) => update('enable_ocr_for_images', e.target.checked)}
-                  />
-                  <div><span className="settings-checkbox-row-label">Enable OCR for scanned documents</span></div>
-                </label>
+                <div className="settings-slider-row">
+                  <span className="settings-slider-min">Responsive</span>
+                  <span className="settings-slider-label">
+                    <span className="settings-slider-current">{INDEXING_SPEED_LABELS[speedVal] || 'Balanced'}</span>
+                  </span>
+                  <span className="settings-slider-max">Fastest</span>
+                </div>
+                <input
+                  type="range"
+                  className="settings-slider"
+                  min={1}
+                  max={5}
+                  step={1}
+                  value={speedVal}
+                  onChange={handleSpeedChange}
+                />
                 <div className="settings-subsection-field">
                   <label htmlFor="max-indexable-file-size" className="settings-subsection-field-label">
                     Max Indexable File Size <span className="settings-subsection-field-unit">(MB)</span>
@@ -1679,6 +1689,42 @@ export function SettingsView({
                     onChange={(e) => update('max_indexable_file_size_mb', clamp(parseInteger(e.target.value, 100), 1, 500))}
                   />
                 </div>
+                <div className="settings-subsection-field">
+                  <label htmlFor="scan-file-timeout" className="settings-subsection-field-label">
+                    File Processing Timeout <span className="settings-subsection-field-unit">(seconds)</span>
+                    <span className="settings-checkbox-row-info ui-tooltip-trigger">
+                      <i className="ri-information-line" aria-hidden="true" />
+                      <span className="settings-tooltip ui-tooltip">Per-file time limit for extraction. Increase if you have large or complex documents. Maximum allowed: 600 seconds.</span>
+                    </span>
+                  </label>
+                  <input
+                    id="scan-file-timeout"
+                    type="number"
+                    className="settings-input settings-input--number"
+                    min={1}
+                    max={600}
+                    value={form.scan_file_timeout_seconds ?? 600}
+                  onChange={(e) => update('scan_file_timeout_seconds', clamp(parseInteger(e.target.value, 600), 1, 600))}
+                  />
+                </div>
+              </div>
+
+              <div className="settings-subsection">
+                <div className="settings-subsection-head ui-subsection-head">
+                  <div className="settings-subsection-title ui-subsection-title">
+                    <i className="ri-arrow-right-down-box-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                    Document Extraction
+                  </div>
+                  <p className="settings-subsection-description ui-subsection-description">Options for extracting text from documents, including image-based documents and image-only PDFs.</p>
+                </div>
+                <label className="settings-checkbox-row">
+                  <input
+                    type="checkbox"
+                    checked={form.enable_ocr_for_images ?? true}
+                    onChange={(e) => update('enable_ocr_for_images', e.target.checked)}
+                  />
+                  <div><span className="settings-checkbox-row-label">Enable OCR for scanned documents</span></div>
+                </label>
               </div>
 
               <div className="settings-subsection">
@@ -1731,50 +1777,6 @@ export function SettingsView({
                   />
                   <div><span className="settings-checkbox-row-label">Extract person names</span></div>
                 </label>
-              </div>
-
-              <div className="settings-subsection">
-                <div className="settings-subsection-head ui-subsection-head">
-                  <div className="settings-subsection-title ui-subsection-title">
-                    <i className="ri-speed-up-line subsection-icon ui-subsection-icon" aria-hidden="true" />
-                    Performance
-                  </div>
-                  <p className="settings-subsection-description ui-subsection-description">Trade off indexing speed against keeping your Mac responsive. Requires restart.</p>
-                </div>
-                <div className="settings-slider-row">
-                  <span className="settings-slider-min">Responsive</span>
-                  <span className="settings-slider-label">
-                    <span className="settings-slider-current">{INDEXING_SPEED_LABELS[speedVal] || 'Balanced'}</span>
-                  </span>
-                  <span className="settings-slider-max">Fastest</span>
-                </div>
-                <input
-                  type="range"
-                  className="settings-slider"
-                  min={1}
-                  max={5}
-                  step={1}
-                  value={speedVal}
-                  onChange={handleSpeedChange}
-                />
-                <div className="settings-subsection-field">
-                  <label htmlFor="scan-file-timeout" className="settings-subsection-field-label">
-                    File Processing Timeout <span className="settings-subsection-field-unit">(seconds)</span>
-                    <span className="settings-checkbox-row-info ui-tooltip-trigger">
-                      <i className="ri-information-line" aria-hidden="true" />
-                      <span className="settings-tooltip ui-tooltip">Per-file time limit for extraction. Increase if you have large or complex documents. Maximum allowed: 600 seconds.</span>
-                    </span>
-                  </label>
-                  <input
-                    id="scan-file-timeout"
-                    type="number"
-                    className="settings-input settings-input--number"
-                    min={1}
-                    max={600}
-                    value={form.scan_file_timeout_seconds ?? 600}
-                    onChange={(e) => update('scan_file_timeout_seconds', clamp(parseInteger(e.target.value, 600), 1, 600))}
-                  />
-                </div>
               </div>
             </>
           )}

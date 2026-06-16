@@ -417,7 +417,7 @@ describe('SettingsView tabs and action bar behavior', () => {
     expect(screen.getByText('Document Extraction')).toBeInTheDocument()
     expect(screen.getByLabelText('Enable OCR for scanned documents')).toBeInTheDocument()
     expect(screen.getByText('Entity Extraction')).toBeInTheDocument()
-    expect(screen.getByText('Performance')).toBeInTheDocument()
+    expect(screen.getByText('Performance & Limits')).toBeInTheDocument()
   })
 
   it('keeps hidden settings in save payload (no contract regression)', () => {
