@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { getLogEvents } from '../api'
+import { ApiError, getLogEvents, getScanErrors } from '../api'
 import { PageHeader } from '../components/PageHeader'
 import { CenteredState } from '../components/CenteredState'
 import { extractErrorMessage } from '../utils/errorMessages'
@@ -67,7 +67,7 @@ function emptyState(activeTab: LogsTab): { icon: string; title: string; descript
     return {
       icon: 'ri-error-warning-line',
       title: 'No errors yet',
-      description: 'Any new issues will show up here.',
+      description: 'Scan errors and warnings will show up here.',
     }
   }
   if (activeTab === 'integrations') {
@@ -114,19 +114,43 @@ export function LogsPage() {
 
     ;(async () => {
       try {
-        const response = await getLogEvents({ channel: activeTab, limit: 200 })
+        const response = activeTab === 'errors'
+          ? await getScanErrors({ limit: 200 })
+          : await getLogEvents({ channel: activeTab, limit: 200 })
         if (cancelled) return
-        const mapped = (response.items || []).map((item) => ({
-          level: (item.event_type === 'warning' || item.event_type === 'error') ? item.event_type : 'info',
-          id: String(item.id),
-          timestamp: item.timestamp || item.created_at,
-          source: item.source,
-          message: item.message,
-        })) as LogEntry[]
+        const mapped = activeTab === 'errors'
+          ? ((response as { errors?: Array<Record<string, unknown>> }).errors || []).map((item, index) => {
+              const filename = String(item.filename || item.path || 'Unknown file')
+              const operation = String(item.operation || 'scan')
+              const message = String(item.error_message || 'Unknown error')
+              const extension = String(item.extension || '').trim()
+              const suffix = extension ? ` (${extension})` : ''
+              return {
+                level: item.is_timeout ? 'warning' : 'error',
+                id: `${String(item.created_at || 'error')}-${index}`,
+                timestamp: String(item.created_at || ''),
+                source: operation,
+                message: `${filename}${suffix} — ${message}`,
+              }
+            }) as LogEntry[]
+          : ((response as { items?: Array<Record<string, unknown>> }).items || []).map((item) => ({
+              level: (item.event_type === 'warning' || item.event_type === 'error') ? item.event_type : 'info',
+              id: String(item.id),
+              timestamp: String(item.timestamp || item.created_at || ''),
+              source: String(item.source || ''),
+              message: String(item.message || ''),
+            })) as LogEntry[]
         setEntries(mapped)
+        if (activeTab === 'errors' && mapped.length === 0) {
+          setError(null)
+        }
       } catch (err) {
         if (cancelled) return
         setEntries([])
+        if (activeTab === 'errors' && err instanceof ApiError && err.status === 404) {
+          setError(null)
+          return
+        }
         setError(extractErrorMessage(err, 'Failed to load logs'))
       } finally {
         if (!cancelled) setLoading(false)
