@@ -10,7 +10,7 @@ from informity.api.chat_continuation import (
     resolve_completion_state,
     resolve_next_action,
 )
-from informity.api.chat_out_of_corpus import resolve_out_of_corpus_next_action
+from informity.api.chat_out_of_scope import resolve_out_of_scope_next_action
 from informity.llm.types import (
     CompletionMode,
     ContinuationResolutionReason,
@@ -29,8 +29,8 @@ def resolve_completion_and_action(
     stopped_by_user: bool,
     continuation_resolution_reason: ContinuationResolutionReason | StructuralGapReason | TimeoutReason | str | None,
     chat_mode: str,
-    researcher_out_of_corpus: bool,
-    answer_signals_out_of_corpus: bool,
+    researcher_out_of_scope: bool,
+    answer_signals_out_of_scope: bool,
 ) -> tuple[CompletionMode, bool, NextAction, str | None]:
     completion_mode, resolved_has_remaining_scope = resolve_completion_state(
         completion_mode_override=completion_mode_override,
@@ -44,12 +44,12 @@ def resolve_completion_and_action(
         has_remaining_scope=resolved_has_remaining_scope,
         continuation_resolution_reason=continuation_resolution_reason,
     )
-    next_action, next_action_reason = resolve_out_of_corpus_next_action(
+    next_action, next_action_reason = resolve_out_of_scope_next_action(
         chat_mode=chat_mode,
-        researcher_out_of_corpus=researcher_out_of_corpus,
+        researcher_out_of_scope=researcher_out_of_scope,
         next_action=next_action,
         next_action_reason=next_action_reason,
-        answer_signals_out_of_corpus=answer_signals_out_of_corpus,
+        answer_signals_out_of_scope=answer_signals_out_of_scope,
     )
     completion_mode, resolved_has_remaining_scope = enforce_completion_action_consistency(
         completion_mode=completion_mode,
