@@ -17,10 +17,10 @@ _ANSWER_LABEL_PATTERN = re.compile(
 _ANSWER_LABEL_BOLD_COLON_INSIDE_PATTERN = re.compile(
     r'(?im)(^|\n{2,}[ \t]*)\*\*[ \t]*answer[ \t]*:[ \t]*\*\*[ \t]*'
 )
-_OUT_OF_CORPUS_SENTENCE_PATTERN = re.compile(
+_OUT_OF_SCOPE_SENTENCE_PATTERN = re.compile(
     r'(?is)\bhowever,\s*this information is not (?:contained|present|available)\s+in\s+the\s+provided\s+documents\.?'
 )
-_OUT_OF_CORPUS_SIGNAL_PATTERN = re.compile(
+_OUT_OF_SCOPE_SIGNAL_PATTERN = re.compile(
     r'(?is)\b(?:documents?|context)\b.{0,120}\b(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b(?:contain|include|cover|mention|provide)\b'
 )
 _OVERCAUTIOUS_SUMMARY_OPENING_PATTERN = re.compile(
@@ -164,10 +164,10 @@ def sanitize_display_answer(text: str, *, preserve_task_checkboxes: bool = False
     cleaned = _ANSWER_LABEL_BOLD_COLON_INSIDE_PATTERN.sub(lambda m: m.group(1), cleaned)
     cleaned = _ANSWER_LABEL_PATTERN.sub(lambda m: m.group(1), cleaned)
     if (
-        len(_OUT_OF_CORPUS_SIGNAL_PATTERN.findall(cleaned)) >= 1
-        and _OUT_OF_CORPUS_SENTENCE_PATTERN.search(cleaned) is not None
+        len(_OUT_OF_SCOPE_SIGNAL_PATTERN.findall(cleaned)) >= 1
+        and _OUT_OF_SCOPE_SENTENCE_PATTERN.search(cleaned) is not None
     ):
-        cleaned = _OUT_OF_CORPUS_SENTENCE_PATTERN.sub('', cleaned)
+        cleaned = _OUT_OF_SCOPE_SENTENCE_PATTERN.sub('', cleaned)
     # Normalize line-break HTML artifacts commonly emitted inside markdown table cells.
     cleaned = re.sub(r'(?i)<br\s*/?>', '; ', cleaned)
     cleaned = _normalize_inline_whitespace_preserve_indentation(cleaned)

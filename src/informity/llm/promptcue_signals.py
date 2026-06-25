@@ -135,6 +135,12 @@ def _fallback_signal_snapshot(text: str) -> PromptSignalSnapshot:
     )
 
 
+def action_hint_enabled(action_hints: dict[str, object] | None, key: str) -> bool:
+    if not action_hints:
+        return False
+    return bool(action_hints.get(key))
+
+
 def extract_prompt_signals(
     text: str,
     *,
@@ -151,4 +157,4 @@ def extract_prompt_signals(
     return _fallback_signal_snapshot(normalized)
 
 
-__all__ = ["PromptSignalSnapshot", "extract_prompt_signals"]
+__all__ = ["PromptSignalSnapshot", "action_hint_enabled", "extract_prompt_signals"]

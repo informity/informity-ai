@@ -54,6 +54,8 @@ _IMAGE_SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp',
 # Docling-supported formats, including OCR-able image uploads.
 _DOCLING_SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.pptx', '.xlsx', '.html', '.htm', '.csv', *_IMAGE_SUPPORTED_EXTENSIONS]
 _DOCLING_OCR_SUPPORTED_EXTENSIONS = frozenset({'.pdf', *_IMAGE_SUPPORTED_EXTENSIONS})
+_SPARSE_EXTRACTION_WORD_THRESHOLD = 24
+_SPARSE_EXTRACTION_ALPHA_TOKEN_THRESHOLD = 8
 
 
 @dataclass(frozen=True)
@@ -151,6 +153,35 @@ class DoclingExtractor:
 
     def _should_try_ocr(self, path: Path) -> bool:
         return settings.enable_ocr_for_images and path.suffix.lower() in _DOCLING_OCR_SUPPORTED_EXTENSIONS
+
+    @staticmethod
+    def _looks_effectively_empty(text: str) -> bool:
+        stripped = str(text or '').strip()
+        if not stripped:
+            return True
+
+        words = stripped.split()
+        if len(words) > _SPARSE_EXTRACTION_WORD_THRESHOLD:
+            return False
+
+        alpha_tokens = sum(1 for token in words if any(ch.isalpha() for ch in token))
+        if alpha_tokens < _SPARSE_EXTRACTION_ALPHA_TOKEN_THRESHOLD:
+            return True
+
+        low_signal_patterns = (
+            'page 1',
+            'page 2',
+            'figure 1',
+            'figure 2',
+            'table of contents',
+            '[image]',
+            '<image>',
+        )
+        lowered = stripped.casefold()
+        if any(pattern in lowered for pattern in low_signal_patterns) and alpha_tokens <= _SPARSE_EXTRACTION_ALPHA_TOKEN_THRESHOLD:
+            return True
+
+        return False
 
     @staticmethod
     def _is_image_source(path: Path) -> bool:
@@ -437,11 +468,11 @@ class DoclingExtractor:
             word_count = len(text.split()) if text else 0
 
             # If extraction returned empty text and OCR is enabled, try OCR as fallback
-            if not text.strip() and self._should_try_ocr(path):
+            if self._should_try_ocr(path) and self._looks_effectively_empty(text):
                 log.info(
                     'trying_ocr_fallback',
                     path=str(path),
-                    reason='regular_extraction_returned_empty_text'
+                    reason='regular_extraction_returned_empty_or_sparse_text'
                 )
                 ocr_attempt = self._try_ocr_extract(path)
                 if ocr_attempt.success:

@@ -79,7 +79,7 @@ export function isChatMode(value: unknown): value is ChatMode {
   return value === 'assistant' || value === 'researcher'
 }
 export type NextAction = 'none' | 'continue' | 'regenerate' | 'assistant_switch'
-export type NextActionReason = 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_corpus'
+export type NextActionReason = 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_scope'
 export type StreamStatusState = 'classifying' | 'retrieving' | 'searching' | 'generating' | 'continuing' | 'finalizing'
 
 export interface PlanStepPayload {

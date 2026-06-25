@@ -101,6 +101,58 @@ def _build_file_metadata(path: Path, doc_metadata: dict[str, str]) -> dict[str, 
     }
 
 
+def _build_document_shape_tags(
+    *,
+    ocr_used: bool,
+    page_count: int | None,
+    tables_count: int | None,
+    form_items_count: int | None,
+    key_value_items_count: int | None,
+    pictures_count: int | None,
+) -> list[str]:
+    # Derive corpus-agnostic document shape tags from extraction metadata.
+    tags: list[str] = []
+    normalized_page_count = int(page_count or 0)
+    normalized_tables = int(tables_count or 0)
+    normalized_forms = int(form_items_count or 0)
+    normalized_key_values = int(key_value_items_count or 0)
+    normalized_pictures = int(pictures_count or 0)
+    structured_count = normalized_tables + normalized_forms + normalized_key_values
+
+    if normalized_tables > 0 and normalized_tables >= max(normalized_forms, normalized_key_values):
+        tags.append('shape:table_heavy')
+    elif normalized_forms > 0 or normalized_key_values > 0:
+        tags.append('shape:form_heavy')
+    elif normalized_pictures > 0:
+        tags.append('shape:image_heavy')
+    else:
+        tags.append('shape:narrative')
+
+    if ocr_used:
+        tags.append('shape:ocr')
+    if normalized_page_count >= 5 and structured_count > 0:
+        tags.append('shape:multisection')
+    if structured_count > 0 and normalized_pictures > 0:
+        tags.append('shape:mixed')
+
+    return list(dict.fromkeys(tags))
+
+
+def _merge_tags_with_document_shape(tags: list[str], *, file_metadata: dict[str, object]) -> list[str]:
+    merged_tags = list(tags)
+    merged_tags.extend(
+        _build_document_shape_tags(
+            ocr_used=bool(file_metadata.get('ocr_used', False)),
+            page_count=file_metadata.get('page_count') if isinstance(file_metadata.get('page_count'), int) else None,
+            tables_count=file_metadata.get('tables_count') if isinstance(file_metadata.get('tables_count'), int) else None,
+            form_items_count=file_metadata.get('form_items_count') if isinstance(file_metadata.get('form_items_count'), int) else None,
+            key_value_items_count=file_metadata.get('key_value_items_count') if isinstance(file_metadata.get('key_value_items_count'), int) else None,
+            pictures_count=file_metadata.get('pictures_count') if isinstance(file_metadata.get('pictures_count'), int) else None,
+        )
+    )
+    return list(dict.fromkeys(tag for tag in merged_tags if tag))
+
+
 def _max_line_length(path: Path) -> int:
     # Return maximum line length (in characters) for a UTF-8-decodable text file.
     # Uses replacement decoding to avoid hard failures on mixed encodings.
@@ -619,7 +671,7 @@ async def index_file(
         # 2. Classify
         category = classify_file(file_path, extension)
         year = extract_year(file_path, doc_text)
-        tags = generate_tags(file_path)
+        tags = _merge_tags_with_document_shape(generate_tags(file_path), file_metadata=file_metadata)
 
         # 3. Insert file
         # content_hash already computed above (from ScannedFile or computed from Path)
@@ -932,8 +984,8 @@ async def reindex_file(
         # -- Classify -------------------------------------------------------------
         category = classify_file(path, scanned.extension)
         year = extract_year(path, doc.text)
-        tags = generate_tags(path)
         file_metadata = _build_file_metadata(path, doc.metadata)
+        tags = _merge_tags_with_document_shape(generate_tags(path), file_metadata=file_metadata)
 
         # -- Remove old data ------------------------------------------------------
         try:

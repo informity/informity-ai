@@ -1,6 +1,7 @@
 import re
 
 from informity.llm import contract_prompt_parser as _contract_prompt_parser
+from informity.llm.promptcue_signals import action_hint_enabled
 
 _NUMBER_PATTERN = re.compile(r'\(?\$?\d[\d,]*(?:\.\d{1,2})?\)?')
 _FIELD_LABEL_NEAR_NUMBER_PATTERN = re.compile(r'([A-Za-z][A-Za-z0-9\s/_-]{1,36})$')
@@ -242,9 +243,9 @@ def _derive_format_requirements(
         _append_requirement('explicitly call out missing evidence by requested group and/or year')
     # action_hints are additive signals only: they do not replace regex/user-contract cues,
     # and they flow through the same deduplicated append path for deterministic behavior.
-    if bool(action_hints and action_hints.get('should_enumerate')):
+    if action_hint_enabled(action_hints, 'should_enumerate'):
         _append_requirement('present findings as a numbered or bulleted list when no stricter format contract overrides it')
-    if bool(action_hints and action_hints.get('should_compare')):
+    if action_hint_enabled(action_hints, 'should_compare'):
         _append_requirement('use a side-by-side or structured comparison format grounded in retrieved evidence')
     required_terms = _extract_required_terms_from_user_contract(question)
     for term in required_terms[:10]:
@@ -293,4 +294,3 @@ def _extract_required_terms_from_user_contract(question: str) -> list[str]:
             if len(terms) >= 12:
                 return terms
     return terms
-

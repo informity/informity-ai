@@ -332,6 +332,83 @@ async def test_retrieve_chunks_coverage_prefers_file_diversity(mock_db):
 
 
 @pytest.mark.asyncio
+async def test_retrieve_chunks_coverage_prefers_document_breadth(mock_db):
+    with patch('informity.llm.retrieval.embedder') as mock_embedder, \
+         patch('informity.llm.retrieval.vector_store') as mock_vector_store, \
+         patch('informity.llm.retrieval.reranker') as mock_reranker, \
+         patch('informity.llm.retrieval.get_chunks_by_parent_ids', new_callable=AsyncMock) as mock_get_parents:
+        mock_embedder.embed_query.return_value = [0.1] * 768
+        mock_vector_store.search_similar.return_value = [
+            {'chunk_id': 1, 'file_id': 10, 'score': 0.99},
+            {'chunk_id': 2, 'file_id': 20, 'score': 0.99},
+        ]
+        mock_vector_store.fts5_augment_candidates.return_value = []
+        mock_reranker.rerank.return_value = [
+            {'chunk_id': 1, 'file_id': 10, 'score': 0.99},
+            {'chunk_id': 2, 'file_id': 20, 'score': 0.99},
+        ]
+
+        mock_cursor = MagicMock()
+        mock_cursor.fetchall = AsyncMock(return_value=[
+            {
+                'chunk_id': 1,
+                'file_id': 10,
+                'file_path': '/f10',
+                'filename': 'f10.txt',
+                'chunk_text': 'chunk 1',
+                'page_number': 1,
+                'start_page': 1,
+                'end_page': 1,
+                'section_path': 'intro',
+                'block_type': 'narrative',
+                'parent_id': 101,
+                'file_tags': '[]',
+                'ocr_used': 0,
+                'page_count': 1,
+                'tables_count': 0,
+                'form_items_count': 0,
+                'key_value_items_count': 0,
+                'pictures_count': 0,
+            },
+            {
+                'chunk_id': 2,
+                'file_id': 20,
+                'file_path': '/f20',
+                'filename': 'f20.txt',
+                'chunk_text': 'chunk 2',
+                'page_number': 1,
+                'start_page': 1,
+                'end_page': 1,
+                'section_path': 'results',
+                'block_type': 'table',
+                'parent_id': 102,
+                'file_tags': '["shape:table_heavy"]',
+                'ocr_used': 0,
+                'page_count': 8,
+                'tables_count': 3,
+                'form_items_count': 1,
+                'key_value_items_count': 0,
+                'pictures_count': 0,
+            },
+        ])
+        mock_db.execute = AsyncMock(return_value=mock_cursor)
+        mock_get_parents.return_value = [
+            {'chunk_id': 101, 'file_id': 10, 'file_path': '/f10', 'filename': 'f10.txt', 'chunk_text': 'p1'},
+            {'chunk_id': 102, 'file_id': 20, 'file_path': '/f20', 'filename': 'f20.txt', 'chunk_text': 'p2'},
+        ]
+
+        results = await retrieve_chunks(
+            'compare the broader documents',
+            top_k=1,
+            query_type='coverage',
+            db=mock_db,
+        )
+
+    assert len(results) == 1
+    assert results[0]['file_id'] == 20
+
+
+@pytest.mark.asyncio
 async def test_retrieve_chunks_applies_block_type_filter(mock_db):
     from informity.config import settings as real_settings
     with patch('informity.llm.retrieval.embedder') as mock_embedder, \

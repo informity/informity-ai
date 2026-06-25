@@ -13,8 +13,8 @@ def test_resolve_completion_and_action_defaults_to_complete_no_action() -> None:
         stopped_by_user=False,
         continuation_resolution_reason=None,
         chat_mode='researcher',
-        researcher_out_of_corpus=False,
-        answer_signals_out_of_corpus=False,
+        researcher_out_of_scope=False,
+        answer_signals_out_of_scope=False,
     )
     assert mode == CompletionMode.COMPLETE
     assert has_remaining_scope is False
@@ -22,7 +22,7 @@ def test_resolve_completion_and_action_defaults_to_complete_no_action() -> None:
     assert reason is None
 
 
-def test_resolve_completion_and_action_sets_assistant_switch_for_out_of_corpus() -> None:
+def test_resolve_completion_and_action_sets_assistant_switch_for_out_of_scope() -> None:
     mode, has_remaining_scope, next_action, reason = resolve_completion_and_action(
         completion_mode_override=None,
         timeout_occurred=False,
@@ -31,10 +31,10 @@ def test_resolve_completion_and_action_sets_assistant_switch_for_out_of_corpus()
         stopped_by_user=False,
         continuation_resolution_reason=None,
         chat_mode='researcher',
-        researcher_out_of_corpus=True,
-        answer_signals_out_of_corpus=False,
+        researcher_out_of_scope=True,
+        answer_signals_out_of_scope=False,
     )
     assert mode == CompletionMode.COMPLETE
     assert has_remaining_scope is False
     assert next_action == NextAction.ASSISTANT_SWITCH
-    assert reason == 'out_of_corpus'
+    assert reason == 'out_of_scope'

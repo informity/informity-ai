@@ -4,6 +4,7 @@
 # ==============================================================================
 
 import asyncio
+import math
 import re
 import time
 
@@ -15,6 +16,7 @@ from informity.db.sqlite import get_chunks_by_parent_ids
 from informity.db.vectors import vector_store
 from informity.indexer.embedder import embedder
 from informity.indexer.reranker import reranker
+from informity.db.utils import parse_json_tags
 from informity.llm.metadata_filters import (
     MetadataFilter,
     build_where_clause_and_params,
@@ -268,6 +270,109 @@ def _apply_reranker_score_threshold(
     if kept_chunks:
         return kept_chunks
     return chunks[:1]
+
+
+def _file_breadth_bonus(chunks: list[dict]) -> float:
+    page_numbers: set[int] = set()
+    section_paths: set[str] = set()
+    block_types: set[str] = set()
+    shape_tags: set[str] = set()
+    ocr_used = False
+    page_count = 0
+    tables_count = 0
+    forms_count = 0
+    pictures_count = 0
+    key_values_count = 0
+
+    for chunk in chunks:
+        page_number = chunk.get('page_number')
+        if isinstance(page_number, int):
+            page_numbers.add(page_number)
+        start_page = chunk.get('start_page')
+        end_page = chunk.get('end_page')
+        if isinstance(start_page, int):
+            page_numbers.add(start_page)
+        if isinstance(end_page, int):
+            page_numbers.add(end_page)
+        section_path = str(chunk.get('section_path') or '').strip()
+        if section_path:
+            section_paths.add(section_path.casefold())
+        block_type = str(chunk.get('block_type') or '').strip().casefold()
+        if block_type:
+            block_types.add(block_type)
+
+        shape_tags.update(parse_json_tags(str(chunk.get('file_tags') or '')))
+        ocr_used = ocr_used or bool(chunk.get('ocr_used'))
+        try:
+            page_count = max(page_count, int(chunk.get('page_count') or 0))
+            tables_count = max(tables_count, int(chunk.get('tables_count') or 0))
+            forms_count = max(forms_count, int(chunk.get('form_items_count') or 0))
+            key_values_count = max(key_values_count, int(chunk.get('key_value_items_count') or 0))
+            pictures_count = max(pictures_count, int(chunk.get('pictures_count') or 0))
+        except (TypeError, ValueError):
+            pass
+
+    bonus = 0.0
+    if 'shape:table_heavy' in shape_tags or 'table' in block_types:
+        bonus += 0.06
+    if 'shape:form_heavy' in shape_tags or 'form' in block_types:
+        bonus += 0.05
+    if 'shape:image_heavy' in shape_tags or pictures_count > 0:
+        bonus += 0.03
+    if ocr_used and not {'table', 'form'} & block_types:
+        bonus += 0.02
+    if len(page_numbers) > 1:
+        bonus += min(0.05, 0.012 * (len(page_numbers) - 1))
+    if len(section_paths) > 1:
+        bonus += min(0.05, 0.012 * (len(section_paths) - 1))
+    if page_count >= 5:
+        bonus += min(0.04, math.log1p(page_count) * 0.01)
+    if tables_count > 0 and forms_count > 0:
+        bonus += 0.03
+    if key_values_count > 0 and tables_count > 0:
+        bonus += 0.02
+    return round(bonus, 4)
+
+
+def _apply_coverage_document_breadth_bias(
+    *,
+    chunks: list[dict],
+    query_type: QueryType,
+    prefer_within_file_diversity: bool,
+) -> list[dict]:
+    if query_type != QueryType.COVERAGE and not prefer_within_file_diversity:
+        return chunks
+    if len(chunks) <= 1:
+        return chunks
+
+    file_groups: dict[int, list[dict]] = {}
+    for chunk in chunks:
+        try:
+            file_id = int(chunk.get('file_id'))
+        except (TypeError, ValueError):
+            continue
+        file_groups.setdefault(file_id, []).append(chunk)
+
+    if not file_groups:
+        return chunks
+
+    file_bonus_map = {file_id: _file_breadth_bonus(group) for file_id, group in file_groups.items()}
+    if not any(file_bonus_map.values()):
+        return chunks
+
+    rescored: list[dict] = []
+    for chunk in chunks:
+        try:
+            file_id = int(chunk.get('file_id'))
+        except (TypeError, ValueError):
+            rescored.append(chunk)
+            continue
+        bonus = file_bonus_map.get(file_id, 0.0)
+        score = _coerce_reranker_score(chunk.get('score')) or 0.0
+        rescored.append({**chunk, 'score': score + bonus, 'document_breadth_bonus': bonus})
+
+    rescored.sort(key=lambda item: _coerce_reranker_score(item.get('score')) or 0.0, reverse=True)
+    return rescored
 
 
 def _select_top_children(
@@ -665,7 +770,9 @@ async def retrieve_chunks(
     cursor = await db.execute(
         f"""
         SELECT c.id AS chunk_id, c.file_id, f.path AS file_path, f.filename, c.content AS chunk_text,
-               c.page_number, c.start_page, c.end_page, c.section_path, c.block_type, c.parent_id
+               c.page_number, c.start_page, c.end_page, c.section_path, c.block_type, c.parent_id,
+               f.tags AS file_tags, f.ocr_used, f.page_count, f.tables_count, f.form_items_count,
+               f.key_value_items_count, f.pictures_count
         FROM chunks c
         JOIN files f ON c.file_id = f.id
         WHERE c.id IN ({placeholders})
@@ -706,6 +813,34 @@ async def retrieve_chunks(
             chunk_dict['block_type'] = row['block_type']
         except (KeyError, IndexError):
             chunk_dict['block_type'] = None
+        try:
+            chunk_dict['file_tags'] = row['file_tags']
+        except (KeyError, IndexError):
+            chunk_dict['file_tags'] = None
+        try:
+            chunk_dict['ocr_used'] = row['ocr_used']
+        except (KeyError, IndexError):
+            chunk_dict['ocr_used'] = None
+        try:
+            chunk_dict['page_count'] = row['page_count']
+        except (KeyError, IndexError):
+            chunk_dict['page_count'] = None
+        try:
+            chunk_dict['tables_count'] = row['tables_count']
+        except (KeyError, IndexError):
+            chunk_dict['tables_count'] = None
+        try:
+            chunk_dict['form_items_count'] = row['form_items_count']
+        except (KeyError, IndexError):
+            chunk_dict['form_items_count'] = None
+        try:
+            chunk_dict['key_value_items_count'] = row['key_value_items_count']
+        except (KeyError, IndexError):
+            chunk_dict['key_value_items_count'] = None
+        try:
+            chunk_dict['pictures_count'] = row['pictures_count']
+        except (KeyError, IndexError):
+            chunk_dict['pictures_count'] = None
 
         # Store parent_id mapping
         try:
@@ -754,6 +889,13 @@ async def retrieve_chunks(
     rerank_enabled     = settings.rag_rerank and (not is_coverage_query or settings.rag_rerank_coverage)
     rerank_start       = time.perf_counter()
     pre_rerank_top_ids = [chunk.get('chunk_id') for chunk in filtered_child_chunks[:top_k]]
+    child_chunk_metadata_by_id: dict[int, dict] = {}
+    for chunk in filtered_child_chunks:
+        try:
+            chunk_id = int(chunk.get('chunk_id'))
+        except (TypeError, ValueError):
+            continue
+        child_chunk_metadata_by_id[chunk_id] = chunk
     if rerank_enabled:
         reranked_children = await asyncio.to_thread(reranker.rerank, query, filtered_child_chunks)
     else:
@@ -762,6 +904,13 @@ async def retrieve_chunks(
             {**chunk, 'score': vector_score_map.get(chunk['chunk_id'], 0.0)}
             for chunk in filtered_child_chunks
         ]
+    reranked_children = [
+        {
+            **child_chunk_metadata_by_id.get(int(chunk.get('chunk_id')), {}),
+            **chunk,
+        }
+        for chunk in reranked_children
+    ]
     reranked_children = _apply_substantive_section_bias(
         chunks=reranked_children,
         prefer_substantive_sections=prefer_substantive_sections,
@@ -776,6 +925,11 @@ async def retrieve_chunks(
         chunks=reranked_children,
         query=title_alignment_query or query,
         strict_title_alignment=strict_title_alignment,
+    )
+    reranked_children = _apply_coverage_document_breadth_bias(
+        chunks=reranked_children,
+        query_type=query_type,
+        prefer_within_file_diversity=prefer_within_file_diversity,
     )
     rerank_threshold_removed_count = 0
     if rerank_enabled and rerank_min_score > 0:

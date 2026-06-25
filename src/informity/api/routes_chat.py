@@ -183,7 +183,7 @@ _FILENAME_CANDIDATE_PATTERN = re.compile(
     r'(?i)\b([a-z0-9][a-z0-9_\-\(\)\[\]\.]{0,140}\.[a-z0-9]{1,10})\b'
 )
 _QUOTED_TEXT_PATTERN = re.compile(r'["\']([^"\']{1,180})["\']')
-_OUT_OF_CORPUS_RESPONSE_PATTERN = re.compile(
+_OUT_OF_SCOPE_RESPONSE_PATTERN = re.compile(
     r'(?is)\b(?:provided|indexed|these)?\s*(?:documents?|records?|context)\b.{0,120}\b'
     r'(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b'
     r'(?:contain|include|cover|mention|provide|have)\b'
@@ -207,8 +207,8 @@ def _normalize_diagnostics_query_type(value: object) -> str:
         return DiagnosticsQueryType.UNKNOWN.value
 
 
-def _answer_signals_out_of_corpus(text: str) -> bool:
-    return bool(_OUT_OF_CORPUS_RESPONSE_PATTERN.search(str(text or '')))
+def _answer_signals_out_of_scope(text: str) -> bool:
+    return bool(_OUT_OF_SCOPE_RESPONSE_PATTERN.search(str(text or '')))
 
 
 def _looks_per_file_separate_request(text: str) -> bool:
@@ -1364,7 +1364,7 @@ async def chat(
             metrics_raw_chunks_count = 0
             continuation_passes = 0
             pass_details: list[dict[str, object]] = []
-            researcher_out_of_corpus = False
+            researcher_out_of_scope = False
             continuation_resolution_reason: (
                 ContinuationResolutionReason | StructuralGapReason | TimeoutReason | str | None
             ) = None
@@ -1712,7 +1712,7 @@ async def chat(
                                     and not bool(metrics_payload.get('answerability_passed'))
                                     and not bool(getattr(locked_classification, 'is_metadata_query', False))
                                 ):
-                                    researcher_out_of_corpus = True
+                                    researcher_out_of_scope = True
                                 log.info(
                                     'chat_answer_stream_metrics_received',
                                     chat_id=chat_id,
@@ -2019,8 +2019,8 @@ async def chat(
                     stopped_by_user=False,
                     continuation_resolution_reason=continuation_resolution_reason,
                     chat_mode=resolved_chat_mode,
-                    researcher_out_of_corpus=researcher_out_of_corpus,
-                    answer_signals_out_of_corpus=_answer_signals_out_of_corpus(cleaned_answer),
+                    researcher_out_of_scope=researcher_out_of_scope,
+                    answer_signals_out_of_scope=_answer_signals_out_of_scope(cleaned_answer),
                 )
                 assistant_message = ChatMessage(
                     chat_id=chat_id,
@@ -2313,8 +2313,8 @@ async def chat(
                     stopped_by_user=stopped_by_user,
                     continuation_resolution_reason=continuation_resolution_reason,
                     chat_mode=resolved_chat_mode,
-                    researcher_out_of_corpus=researcher_out_of_corpus,
-                    answer_signals_out_of_corpus=_answer_signals_out_of_corpus(cleaned_answer),
+                    researcher_out_of_scope=researcher_out_of_scope,
+                    answer_signals_out_of_scope=_answer_signals_out_of_scope(cleaned_answer),
                 )
             )
             resolved_completion_mode = completion_mode
