@@ -1,5 +1,9 @@
 from informity.llm.rag_runtime import generation_closeout as _generation_closeout
 from informity.llm.rag_runtime import generation_runtime as _generation_runtime
+from informity.llm.rag_runtime.citation_verification import (
+    assess_answer_support,
+    filter_verified_sources,
+)
 from informity.llm.rag_runtime.structured_numeric import (
     _derive_format_requirements,
 )
@@ -161,3 +165,62 @@ def test_generation_closeout_source_references_keep_all_when_answer_empty() -> N
     )
     assert len(sources) == 2
     assert {source.filename for source in sources} == {'a.pdf', 'b.pdf'}
+
+
+def test_generation_closeout_keeps_fallback_sources_when_verification_finds_none() -> None:
+    chunks = [
+        {
+            'filename': 'a.pdf',
+            'file_path': '/docs/a.pdf',
+            'chunk_text': 'Alpha chunk with unrelated content.',
+            'score': 0.6,
+        },
+        {
+            'filename': 'b.pdf',
+            'file_path': '/docs/b.pdf',
+            'chunk_text': 'Beta chunk with unrelated content.',
+            'score': 0.5,
+        },
+    ]
+    sources = _generation_closeout.build_source_references(
+        chunks=chunks,
+        answer_text='This answer uses terms that do not appear in the chunks.',
+        truncate_preview_fn=lambda text: text,
+        normalize_relevance_score_fn=lambda score: float(score),
+    )
+    assert len(sources) == 2
+    assert {source.filename for source in sources} == {'a.pdf', 'b.pdf'}
+
+
+def test_citation_verification_support_assessment_flags_thin_evidence() -> None:
+    result = assess_answer_support(
+        answer_text='The document says the balance is 123 and confirms the owner.',
+        source_texts=['A completely unrelated passage about other topics.'],
+    )
+    assert result.evaluated_claim_count >= 1
+    assert result.supported_claim_count == 0
+    assert result.should_fail_closed is True
+
+
+def test_filter_verified_sources_keeps_only_matching_sources() -> None:
+    sources = [
+        _generation_closeout.ChatSourceReference(
+            filename='alpha.pdf',
+            path='/docs/alpha.pdf',
+            chunk_preview='Alpha balance is 123 and due to seller.',
+            relevance_score=0.9,
+            file_id=1,
+        ),
+        _generation_closeout.ChatSourceReference(
+            filename='beta.pdf',
+            path='/docs/beta.pdf',
+            chunk_preview='Beta unrelated metadata and boilerplate.',
+            relevance_score=0.8,
+            file_id=2,
+        ),
+    ]
+    verified = filter_verified_sources(
+        sources,
+        answer_text='The balance is 123 and due to seller.',
+    )
+    assert [source.filename for source in verified] == ['alpha.pdf']

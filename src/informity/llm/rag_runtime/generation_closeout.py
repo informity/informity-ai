@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 
 from informity.api.schemas import ChatSourceReference
+from informity.llm.rag_runtime.citation_verification import filter_verified_sources
 
 try:
     from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS as _SKLEARN_ENGLISH_STOP_WORDS
@@ -59,7 +60,7 @@ def build_source_references(
                 filtered_chunks.append(chunk)
         candidate_chunks = filtered_chunks or chunks[:_SOURCE_FALLBACK_LIMIT]
 
-    return [
+    sources = [
         ChatSourceReference(
             filename=chunk.get('filename', 'unknown'),
             path=chunk.get('file_path', ''),
@@ -69,6 +70,8 @@ def build_source_references(
         )
         for chunk in candidate_chunks
     ]
+    verified_sources = filter_verified_sources(sources, answer_text=answer_text)
+    return verified_sources or sources
 
 
 def record_sources_trace(
