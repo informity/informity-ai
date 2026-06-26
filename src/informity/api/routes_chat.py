@@ -107,7 +107,6 @@ from informity.diagnostics.observer import EvalMetrics, detect_issues, estimate_
 from informity.diagnostics.resource_snapshot import build_resource_delta, capture_resource_snapshot
 from informity.indexer.pipeline import remove_file
 from informity.llm.chat_mode import resolve_chat_mode
-from informity.llm.classification_policy import classify_query_with_timing
 from informity.llm.contract_gate import (
     build_contract_spec,
     build_repair_guidance,
@@ -1398,38 +1397,7 @@ async def chat(
                     history=history,
                 )
 
-                # Pre-classify to gate planning and lock classification for all passes.
-                # Planning adds structural value only for multi-section synthesis routes;
-                # running it on focused/simple/metadata queries wastes 9-28s with no benefit.
-                # On failure, falls through to None so planning runs unconditionally (safe fallback).
                 locked_classification = None
-                if resolved_chat_mode != 'assistant':
-                    try:
-                        locked_classification, pre_classification_elapsed_ms = await classify_query_with_timing(
-                            continuation_anchor_question,
-                            scoped_file_active=bool(scoped_file_ids),
-                            scoped_file_count=len(scoped_file_ids or []),
-                            history=history,
-                        )
-                        log.info(
-                            'query_pre_classified',
-                            chat_id=chat_id,
-                            route_candidate=locked_classification.route_candidate,
-                            confidence=locked_classification.confidence,
-                            chat_mode=resolved_chat_mode,
-                        )
-                    except (RuntimeError, ValueError, TypeError, OSError) as exc:
-                        log.warning('pre_classification_failed', chat_id=chat_id, error=str(exc), chat_mode=resolved_chat_mode)
-                        locked_classification = None
-
-                # Override continuation_request with the authoritative classifier result.
-                if locked_classification is not None:
-                    continuation_request = bool(continuation_request or locked_classification.is_continuation)
-                    if continuation_request:
-                        locked_classification = _normalize_continuation_classification(
-                            classification=locked_classification,
-                            continuation_anchor_question=continuation_anchor_question,
-                        )
 
                 auto_continue_enabled, max_auto_continue_rounds, auto_continue_prompt = _resolve_auto_continue_policy()
                 base_history = list(history)

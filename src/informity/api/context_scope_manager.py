@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from informity.db.models import ChatMessage
-from informity.llm.promptcue_signals import extract_prompt_signals
+from informity.llm.prompt_signals import extract_prompt_signals
 
 INDEXED_CORPUS_SCOPE_KIND = 'indexed_corpus'
 INDEXED_CORPUS_GENERATION_PREFIX = f'{INDEXED_CORPUS_SCOPE_KIND}|g:'

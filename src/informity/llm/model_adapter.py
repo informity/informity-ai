@@ -402,6 +402,80 @@ QWEN3_5_35B_A3B_PROFILE = _build_qwen_35b_a3b_profile(
 )
 
 
+# -- Qwen3.5 4B Classifier ----------------------------------------------------
+QWEN3_5_4B_ROUTER_PROFILE = ModelProfile(
+    name='Qwen3.5 4B Classifier',
+    family=ModelFamily.CHATML,
+    filename_patterns=('qwen3.5-4b',),
+
+    supports_think_blocks=False,
+    reasoning_mode=ReasoningMode.NEVER,
+    no_think_token=None,
+
+    prompt_format=PromptFormat.NATIVE_GGUF,
+    coverage_prompt_format=PromptFormat.NATIVE_GGUF,
+
+    max_tokens=256,
+    coverage_top_k=8,
+    min_tokens_coverage=64,
+
+    timeout_seconds=45,
+
+    context_length=8192,
+    generation_tokens_per_second=18.0,
+    temperature=0.0,
+    top_p=1.0,
+    rag_top_k=4,
+    retrieval_top_k_candidates=8,
+    retrieval_top_k_final=4,
+
+    rag_max_score=0.99,
+    rag_context_ratio=0.50,
+    rag_rerank_min_score=0.0,
+
+    stop_sequences=(),
+    strip_meta_commentary=True,
+    strip_citations=True,
+)
+
+
+# -- Qwen3.5 2B Classifier ----------------------------------------------------
+QWEN3_5_2B_ROUTER_PROFILE = ModelProfile(
+    name='Qwen3.5 2B Classifier',
+    family=ModelFamily.CHATML,
+    filename_patterns=('qwen3.5-2b',),
+
+    supports_think_blocks=False,
+    reasoning_mode=ReasoningMode.NEVER,
+    no_think_token=None,
+
+    prompt_format=PromptFormat.NATIVE_GGUF,
+    coverage_prompt_format=PromptFormat.NATIVE_GGUF,
+
+    max_tokens=256,
+    coverage_top_k=8,
+    min_tokens_coverage=64,
+
+    timeout_seconds=45,
+
+    context_length=4096,
+    generation_tokens_per_second=24.0,
+    temperature=0.0,
+    top_p=1.0,
+    rag_top_k=4,
+    retrieval_top_k_candidates=8,
+    retrieval_top_k_final=4,
+
+    rag_max_score=0.99,
+    rag_context_ratio=0.50,
+    rag_rerank_min_score=0.0,
+
+    stop_sequences=(),
+    strip_meta_commentary=True,
+    strip_citations=True,
+)
+
+
 # -- Default profile for unknown models (conservative ChatML) -----------------
 DEFAULT_PROFILE = ModelProfile(
     name              = 'Unknown (ChatML default)',
@@ -490,6 +564,8 @@ OLLAMA_DEFAULT_PROFILE = ModelProfile(
 _PROFILE_REGISTRY: list[ModelProfile] = [
     QWEN3_5_35B_A3B_PROFILE,       # Qwen3.5-35B-A3B-Q4_K_M (legacy quality-tier)
     QWEN3_6_35B_A3B_PROFILE,       # Qwen3.6-35B-A3B(-UD)-Q4_K_M
+    QWEN3_5_4B_ROUTER_PROFILE,     # Qwen3.5-4B-Q4_K_M (classifier)
+    QWEN3_5_2B_ROUTER_PROFILE,     # Qwen3.5-2B-Q4_K_M (classifier fallback)
     QWEN3_5_9B_PROFILE,            # Qwen3.5-9B-Q4_K_M (analysis RAG)
     QWEN3_14B_PROFILE,             # Qwen3-14B-Q5_K_M (analysis RAG profile)
 ]
@@ -498,6 +574,8 @@ _PROFILE_REGISTRY: list[ModelProfile] = [
 MODEL_ID_QWEN_9B = 'qwen3.5:9b'
 MODEL_ID_QWEN_14B = 'qwen3:14b'
 MODEL_ID_QWEN_35B_A3B = 'qwen3.6:35b'
+MODEL_ID_QWEN_4B_ROUTER = 'qwen3.5:4b'
+MODEL_ID_QWEN_2B_ROUTER = 'qwen3.5:2b'
 
 MODEL_ID_TO_FILENAMES: dict[str, tuple[str, ...]] = {
     MODEL_ID_QWEN_9B: (
@@ -509,6 +587,12 @@ MODEL_ID_TO_FILENAMES: dict[str, tuple[str, ...]] = {
     MODEL_ID_QWEN_35B_A3B: (
         'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf',
         'Qwen3.5-35B-A3B-Q4_K_M.gguf',
+    ),
+    MODEL_ID_QWEN_4B_ROUTER: (
+        'Qwen3.5-4B-Q4_K_M.gguf',
+    ),
+    MODEL_ID_QWEN_2B_ROUTER: (
+        'Qwen3.5-2B-Q4_K_M.gguf',
     ),
 }
 
@@ -523,6 +607,9 @@ _OLLAMA_MODEL_ID_ALIASES: dict[str, str] = {
     'qwen3.6:35b': MODEL_ID_QWEN_35B_A3B,
     'qwen3:14b': MODEL_ID_QWEN_14B,
     'qwen3.5:9b': MODEL_ID_QWEN_9B,
+    'qwen3.5:4b-mlx': MODEL_ID_QWEN_4B_ROUTER,
+    'qwen3.5:4b': MODEL_ID_QWEN_4B_ROUTER,
+    'qwen3.5:2b': MODEL_ID_QWEN_2B_ROUTER,
 }
 
 
@@ -566,6 +653,10 @@ def infer_model_id_from_filename(filename: str) -> str | None:
         return MODEL_ID_QWEN_35B_A3B
     if profile is QWEN3_6_35B_A3B_PROFILE:
         return MODEL_ID_QWEN_35B_A3B
+    if profile is QWEN3_5_4B_ROUTER_PROFILE:
+        return MODEL_ID_QWEN_4B_ROUTER
+    if profile is QWEN3_5_2B_ROUTER_PROFILE:
+        return MODEL_ID_QWEN_2B_ROUTER
     return None
 
 

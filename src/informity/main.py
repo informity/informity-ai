@@ -285,30 +285,34 @@ async def _run_embedder_warmup() -> None:
         log.warning('embedder_warmup_failed', error=str(exc))
 
 
-async def _run_intent_router_warmup() -> None:
+async def _run_five_q_classifier_warmup() -> None:
     """
-    Warm up intent-router embeddings so first classification is not cold.
+    Warm up the 5Q classifier so first classification is not cold.
     """
     try:
-        from informity.llm.intent_router import get_intent_router
+        from informity.llm.five_q_classifier import ClassifierContext, FiveQClassifier
 
-        log.info('intent_router_warmup_starting')
+        log.info('five_q_classifier_warmup_starting')
         await asyncio.wait_for(
-            asyncio.to_thread(get_intent_router().classify_intent, 'List indexed files.'),
+            asyncio.to_thread(
+                FiveQClassifier().classify,
+                'List indexed files.',
+                ClassifierContext(chat_mode='researcher', scope_kind='indexed_corpus', has_prior_turns=False),
+            ),
             timeout=_WARMUP_TIMEOUT_SECONDS,
         )
-        log.info('intent_router_warmup_completed')
+        log.info('five_q_classifier_warmup_completed')
     except asyncio.CancelledError:
-        log.info('intent_router_warmup_cancelled')
+        log.info('five_q_classifier_warmup_cancelled')
         raise
     except TimeoutError:
         log.warning(
-            'intent_router_warmup_timeout',
+            'five_q_classifier_warmup_timeout',
             timeout_seconds=int(_WARMUP_TIMEOUT_SECONDS),
-            msg='Intent router warmup timed out — router will initialize on first classification',
+            msg='5Q classifier warmup timed out — classifier will initialize on first classification',
         )
     except _STARTUP_RUNTIME_EXCEPTIONS as exc:
-        log.warning('intent_router_warmup_failed', error=str(exc))
+        log.warning('five_q_classifier_warmup_failed', error=str(exc))
 
 
 async def _backfill_page_counts(conn: object) -> None:
@@ -494,7 +498,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Skipped in dev mode (reload) to avoid double-warmup on code changes.
     if not settings.dev_reload and not _DESKTOP_SESSION_MODE:
         await asyncio.gather(_run_llm_warmup(), _run_embedder_warmup())
-        await _run_intent_router_warmup()
+        await _run_five_q_classifier_warmup()
 
     # Start file watcher for incremental indexing (if watched_directories configured)
     loop = asyncio.get_running_loop()

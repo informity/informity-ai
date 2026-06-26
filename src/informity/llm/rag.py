@@ -150,6 +150,8 @@ async def answer_question(
                         classify_query_with_timing(
                             question,
                             history=history,
+                            chat_mode=normalized_chat_mode,
+                            scope_kind='assistant_mode',
                         ),
                         timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
                     )
@@ -162,7 +164,7 @@ async def answer_question(
                     base_classification = QueryClassification(intent=QueryType.SIMPLE)
                     classify_elapsed_ms = _CLASSIFICATION_TIMEOUT_SECONDS * 1000.0
 
-            # Assistant always routes to SimpleHandler, but we preserve PromptCue
+            # Assistant always routes to SimpleHandler, but we preserve routing
             # freshness/action signals on the forced-simple classification.
             if isinstance(base_classification, QueryClassification):
                 forced_classification = dataclasses.replace(
@@ -226,6 +228,8 @@ async def answer_question(
                     classify_query_with_timing(
                         question,
                         history=history,
+                        chat_mode=normalized_chat_mode,
+                        scope_kind='indexed_corpus',
                     ),
                     timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
                 )

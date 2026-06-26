@@ -35,6 +35,7 @@ from informity.config import settings
 from informity.exceptions import LLMError
 from informity.llm.model_adapter import (
     get_effective_context_length,
+    get_model_alias_filenames,
     get_profile,
     get_profile_for_filename,
 )
@@ -520,9 +521,11 @@ class XllamaCppProvider:
     # Wraps an xllamacpp Server with lazy loading, automatic download,
     # and async streaming generation. Configured for Apple Metal GPU by default.
 
-    def __init__(self) -> None:
+    def __init__(self, model_filename: str | None = None, *, model_dir: Path | None = None) -> None:
         self._server: object | None = None
         self._chat_template: str = ''
+        self._model_filename_override = str(model_filename or '').strip() or None
+        self._model_dir_override = model_dir
 
     # -- Internal server accessor ---------------------------------------------
 
@@ -556,7 +559,9 @@ class XllamaCppProvider:
     # -- Model path -----------------------------------------------------------
 
     def _get_model_path(self) -> Path:
-        return settings.models_dir / settings.llm_model_filename
+        model_filename = self._model_filename_override or settings.llm_model_filename
+        model_dir = self._model_dir_override or settings.models_dir
+        return model_dir / model_filename
 
     # -- Model loading --------------------------------------------------------
 
@@ -575,8 +580,14 @@ class XllamaCppProvider:
         if self._server is not None:
             self.unload()
 
-        model_path = self._get_model_path()
-        profile_filename = model_filename if model_filename is not None else settings.llm_model_filename
+        profile_filename = (
+            model_filename
+            if model_filename is not None
+            else self._model_filename_override
+            or settings.llm_model_filename
+        )
+        model_dir = self._model_dir_override or settings.models_dir
+        model_path = model_dir / profile_filename
 
         if not model_path.exists():
             local_only = settings.full_privacy or settings.llm_local_only
@@ -584,7 +595,7 @@ class XllamaCppProvider:
                 raise LLMError(
                     f'LLM model not found at {model_path}. '
                     'Place your GGUF file in the models directory '
-                    f'({settings.models_dir}) or turn off Full Privacy Mode (Settings) '
+                    f'({model_dir}) or turn off Full Privacy Mode (Settings) '
                     'or set INFORMITY_FULL_PRIVACY=false to allow download.'
                 )
             log.info('model_not_found_locally', path=str(model_path), filename=profile_filename)
@@ -1151,9 +1162,10 @@ class XllamaCppProvider:
 class OllamaProvider:
     """Ollama-backed provider using /api/chat compatible streaming."""
 
-    def __init__(self) -> None:
+    def __init__(self, model_id: str | None = None) -> None:
         self._base_url = str(getattr(settings, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip().rstrip('/')
         self._timeout_seconds = float(getattr(settings, 'ollama_timeout_seconds', 120.0) or 120.0)
+        self._model_id_override = str(model_id or '').strip().lower() or None
 
     @property
     def is_loaded(self) -> bool:
@@ -1167,6 +1179,10 @@ class OllamaProvider:
         return _count_tokens(text)
 
     def _get_model_path(self) -> Path:
+        if self._model_id_override:
+            alias_filenames = get_model_alias_filenames(self._model_id_override)
+            if alias_filenames:
+                return settings.models_dir / alias_filenames[0]
         return settings.models_dir / settings.llm_model_filename
 
     def _download_model(
@@ -1183,7 +1199,7 @@ class OllamaProvider:
         raise LLMError('Ollama provider does not support local GGUF download')
 
     def _resolve_model(self) -> str:
-        model = str(getattr(settings, 'llm_model_id', '') or '').strip()
+        model = self._model_id_override or str(getattr(settings, 'llm_model_id', '') or '').strip()
         if model:
             return model
         raise LLMError('Ollama provider requires llm_model_id to be set')
@@ -1489,12 +1505,19 @@ class LLMEngine:
     Keeps legacy LLMEngine API stable while routing calls to a concrete provider.
     """
 
-    def __init__(self) -> None:
-        provider_name = str(getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
+    def __init__(
+        self,
+        provider_name: str | None = None,
+        *,
+        model_id: str | None = None,
+        model_filename: str | None = None,
+        model_dir: Path | None = None,
+    ) -> None:
+        provider_name = str(provider_name or getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
         if provider_name == 'local_gguf':
-            self._provider: LLMProvider = XllamaCppProvider()
+            self._provider = XllamaCppProvider(model_filename=model_filename, model_dir=model_dir)
         elif provider_name == 'ollama':
-            self._provider = OllamaProvider()
+            self._provider = OllamaProvider(model_id=model_id)
         else:
             raise LLMError(f'Unsupported llm_provider: {provider_name}')
         self.provider_name = provider_name
