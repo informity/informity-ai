@@ -120,7 +120,7 @@ qa-typecheck: ## On-demand TypeScript strict checks (tracked separately from rel
 	cd src/frontend && npm run typecheck
 
 qa-tauri-quit-smoke: ## Maintainers: sidecar quit smoke test (scan/no-scan matrix + lingering-process guard)
-	uv run python tools/diagnostics/tauri_backend_quit_smoke.py
+	uv run python tools/diagnostics/smoke/tauri_backend_quit_smoke.py
 
 qa-security: ## On-demand security gate (dependency vulnerability audit)
 	@echo "Running pip-audit (CVE-2025-69872 ignored until upstream diskcache fix is available)."
