@@ -10,7 +10,6 @@ import pytest
 from informity.llm.model_adapter import (
     DEFAULT_PROFILE,
     OLLAMA_DEFAULT_PROFILE,
-    QWEN3_5_2B_ROUTER_PROFILE,
     QWEN3_5_4B_ROUTER_PROFILE,
     QWEN3_5_9B_PROFILE,
     QWEN3_6_35B_A3B_PROFILE,
@@ -44,10 +43,6 @@ class TestGetProfileForFilename:
         profile = get_profile_for_filename('Qwen3.5-4B-Q4_K_M.gguf')
         assert profile is QWEN3_5_4B_ROUTER_PROFILE
 
-    def test_qwen3_5_2b_classifier_detected(self) -> None:
-        profile = get_profile_for_filename('Qwen3.5-2B-Q4_K_M.gguf')
-        assert profile is QWEN3_5_2B_ROUTER_PROFILE
-
     def test_qwen2_5_3b_returns_default(self) -> None:
         # No dedicated Qwen2.5-3B profile; falls through to default
         profile = get_profile_for_filename('Qwen2.5-3B-Instruct-Q4_K_M.gguf')
@@ -57,10 +52,6 @@ class TestGetProfileForFilename:
         # Qwen3 14B has a dedicated analysis profile
         profile = get_profile_for_filename('Qwen3-14B-Q4_K_M.gguf')
         assert profile is QWEN3_14B_PROFILE
-
-    def test_qwen3_5_2b_detected(self) -> None:
-        profile = get_profile_for_filename('Qwen3.5-2B-Q4_K_M.gguf')
-        assert profile is QWEN3_5_2B_ROUTER_PROFILE
 
     def test_qwen3_8b_returns_default(self) -> None:
         profile = get_profile_for_filename('Qwen3-8B-Q5_K_M.gguf')

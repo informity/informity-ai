@@ -49,6 +49,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from informity.api.routes_chat import router as chat_router
+from informity.api.routes_debug import router as debug_router
 from informity.api.routes_index import router as index_router
 from informity.api.routes_logs import router as logs_router
 from informity.api.routes_plugins import router as plugins_router
@@ -715,6 +716,7 @@ async def health_check() -> HealthResponse:
 app.include_router(scan_router)
 app.include_router(index_router)
 app.include_router(chat_router)
+app.include_router(debug_router)
 app.include_router(translate_router)
 app.include_router(search_router)
 app.include_router(settings_router)

@@ -190,9 +190,10 @@ def _fallback_decision(query: str, context: ClassifierContext) -> FiveQDecision:
 
 
 class FiveQClassifier:
-    def __init__(self) -> None:
-        self._model_path = _discover_classifier_model_path()
+    def __init__(self, model_path: Path | None = None) -> None:
+        self._model_path = model_path or _discover_classifier_model_path()
         self._model_filename = self._model_path.name if self._model_path is not None else None
+        self._engine: LLMEngine | None = None
 
     def classify(self, query: str, context: ClassifierContext) -> FiveQClassificationResult:
         text = str(query or '').strip()
@@ -221,13 +222,14 @@ class FiveQClassifier:
             {'role': 'system', 'content': _SYSTEM_PROMPT},
             {'role': 'user', 'content': '\n'.join(user_lines)},
         ]
-        engine = LLMEngine(
-            provider_name='local_gguf',
-            model_filename=self._model_filename,
-            model_dir=self._model_path.parent,
-        )
+        if self._engine is None:
+            self._engine = LLMEngine(
+                provider_name='local_gguf',
+                model_filename=self._model_filename,
+                model_dir=self._model_path.parent,
+            )
         try:
-            response = engine.chat_complete(
+            response = self._engine.chat_complete(
                 messages=messages,
                 max_tokens=_ROUTER_MAX_TOKENS,
                 temperature=_ROUTER_TEMPERATURE,
@@ -247,8 +249,6 @@ class FiveQClassifier:
             )
             decision = _fallback_decision(text, context)
             return FiveQClassificationResult(decision=decision, raw_output='', model_name=self._model_filename)
-        finally:
-            engine.unload()
 
 
 __all__ = ['ClassifierContext', 'FiveQClassifier', 'FiveQClassificationResult']
