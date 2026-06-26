@@ -41,17 +41,27 @@ Rules:
 - source=app_knowledge for questions about the app itself.
 - source=document_content for questions that need reading documents.
 - scope=none unless source=document_content.
-- scope=targeted for one document or one narrow target.
-- scope=broad for many/all documents.
+- scope=targeted only when the user asks about one document or one explicitly named item.
+- scope=broad for everything/all/across/overall/entire-set questions or multi-document synthesis.
 - partitions are explicit grouping values such as years.
-- exhaustive=true only when every matching document must contribute.
+- operation lookup for a single fact, field, or attribute.
+- operation summarize_synthesize for "what does ... say", "tell me everything", "summarize",
+  "explain", "overview", or combined understanding across evidence.
+- exhaustive=true only when the user explicitly asks for totals, every matching item, full
+  inventory, or complete coverage across all matches.
+- Do not set exhaustive=true just because the query is broad or summary-like.
+- Broad synthesis questions like "tell me everything we know about X" should usually be
+  exhaustive=false unless the user explicitly asks for every matching item or total coverage.
 - personal finance / property / loan / mortgage / closing / escrow / statement questions are document_content when the answer should come from the user's documents.
 
 Examples:
 - "What kind of documents do you have indexed?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "How many PDFs do I have from 2024?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2024"], exhaustive=false
 - "Summarize our last conversation." -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What does this app do?" -> source=app_knowledge, scope=none, operation=lookup, partitions=[], exhaustive=false
 - "What is the interest rate on my mortgage?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
+- "What does the 2025 closing package say about escrow?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
+- "Tell me everything we know about my Escondido property." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Compare the 2023 and 2025 closing documents." -> source=document_content, scope=broad, operation=compare, partitions=["2023","2025"], exhaustive=false
 """
 
