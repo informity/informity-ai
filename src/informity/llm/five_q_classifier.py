@@ -36,42 +36,67 @@ Return this object:
 }
 
 Rules:
-- source=index_metadata for counts, lists, inventory, file/document metadata, or asking what is in the library.
-- source=chat_history for recaps/summaries of the conversation.
-- source=app_knowledge for questions about the app itself.
-- source=document_content for questions that need reading documents.
+- source=index_metadata for counts, lists, inventory, or asking what documents/files exist
+  in the library, including topic-scoped or category-scoped inventory requests.
+- source=chat_history for recaps or summaries of the conversation itself.
+- source=app_knowledge for questions about what the app does or how to use it.
+- source=document_content when answering requires reading the contents of documents.
+- If answering requires reading a document, use document_content regardless of domain.
+- "List all X", "find all X", "show me all X", "what X documents do we have", "which X
+  files exist" are always index_metadata even when X is a topic, category, entity, or
+  property name. A topic modifier does not make a request document_content.
 - scope=none unless source=document_content.
-- If the user asks what files/documents they have, which documents exist, list all, show me all,
-  what W-2s, find all, or how many documents/files they have, classify as index_metadata unless
-  they explicitly ask about the contents of one named document.
-- Words like documents, files, list, show me all, and compare do not by themselves mean
-  document_content.
-- scope=targeted only when the user asks about one document or one explicitly named item.
-- scope=broad for everything/all/across/overall/entire-set questions or multi-document synthesis.
-- partitions are explicit grouping values such as years.
-- operation lookup for a single fact, field, or attribute.
-- operation summarize_synthesize for "what does ... say", "tell me everything", "summarize",
+- scope=targeted only when the user names exactly one specific document. A named category,
+  collection, set, or topic is scope=broad even when it sounds specific.
+- scope=broad for any compare operation, any multi-document synthesis, any year-scoped
+  question implying multiple documents, or any named collection or document set.
+- Compare operations are always scope=broad regardless of how many documents are named.
+- partitions are ONLY explicit time periods or grouping codes the user supplies as a
+  dimension to group results by, such as years or quarters.
+- Document names, policy names, topic phrases, entity names, and category labels are
+  NEVER partitions. Leave partitions=[] for those.
+- Ask: "is this a value on a grouping axis the user wants rows for?" If not, it is not
+  a partition.
+- operation=lookup for a single fact, field, or attribute from a document.
+- operation=count_enumerate for counts, lists, or inventories.
+- operation=summarize_synthesize for "what does X say", "tell me everything", "summarize",
   "explain", "overview", or combined understanding across evidence.
-- exhaustive=true only when the user explicitly asks for totals, every matching item, full
-  inventory, or complete coverage across all matches.
-- Do not set exhaustive=true just because the query is broad or summary-like.
-- Broad synthesis questions like "tell me everything we know about X" should usually be
-  exhaustive=false unless the user explicitly asks for every matching item or total coverage.
-- personal finance / property / loan / mortgage / closing / escrow / statement questions are document_content when the answer should come from the user's documents.
+- operation=compare for side-by-side comparisons of two or more things.
+- exhaustive=true only when the user explicitly asks for totals, every matching item for
+  an aggregate calculation, or a complete audit across all matches.
+- Plain list or inventory requests are exhaustive=false even when they say "all" or "every".
+- Broad synthesis questions are exhaustive=false unless the user explicitly asks for
+  totals or complete coverage across all matches.
 
 Examples:
 - "What kind of documents do you have indexed?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
-- "How many PDFs do I have from 2024?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2024"], exhaustive=false
-- "Which insurance documents do we have?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
-- "What property documents do we have for Property A?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
-- "What tax forms do we have?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
-- "What files do we have related to Asset B?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "How many documents do I have from 2024?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2024"], exhaustive=false
+- "Which Category A documents do we have?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "What documents do we have for Entity A?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "What Type X forms do we have?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "List all documents about Topic A." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "Show me all files related to Category B." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "Find all documents of Type X." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "List the Category Y documents from 2020." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2020"], exhaustive=false
+- "Show me all documents for Entity Z." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "What files do we have related to Subject B?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
 - "Summarize our last conversation." -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What does this app do?" -> source=app_knowledge, scope=none, operation=lookup, partitions=[], exhaustive=false
 - "What is the interest rate on my mortgage?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
-- "What does Document Set A say about escrow?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["Year X"], exhaustive=false
-- "Tell me everything we know about Property A." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
-- "Compare Document Set A and Document Set B." -> source=document_content, scope=broad, operation=compare, partitions=["Set A","Set B"], exhaustive=false
+- "What does Document A say about Topic X?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "What does the 2023 Package A say about Topic X and Topic Y?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
+- "Tell me everything we know about Subject A." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "What do the checklist and forms include?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Summarize the documents in Collection C." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "What items of Type X were recorded in 2023?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
+- "Compare Document A with Document B." -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
+- "Compare Package A and Package B." -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
+- "Compare the 2023 package and the 2025 package." -> source=document_content, scope=broad, operation=compare, partitions=["2023","2025"], exhaustive=false
+- "Compare Policy Type A and Policy Type B." -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
+- "Compare the Category A, Category B, and Category C documents." -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
+- "Compare the Type X documents and the Type Y documents." -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
+- "What is the total of Field X across all my Type Y documents?" -> source=document_content, scope=broad, operation=lookup, partitions=[], exhaustive=true
+- "Give me Field X for every Type Y document I have." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=true
 """
 
 _APP_HELP_PATTERN = re.compile(r'\b(what does this app do|how do i use|help me use|help with the app)\b', re.IGNORECASE)
