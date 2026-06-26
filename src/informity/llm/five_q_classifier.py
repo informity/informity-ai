@@ -41,6 +41,11 @@ Rules:
 - source=app_knowledge for questions about the app itself.
 - source=document_content for questions that need reading documents.
 - scope=none unless source=document_content.
+- If the user asks what files/documents they have, which documents exist, list all, show me all,
+  what W-2s, find all, or how many documents/files they have, classify as index_metadata unless
+  they explicitly ask about the contents of one named document.
+- Words like documents, files, list, show me all, and compare do not by themselves mean
+  document_content.
 - scope=targeted only when the user asks about one document or one explicitly named item.
 - scope=broad for everything/all/across/overall/entire-set questions or multi-document synthesis.
 - partitions are explicit grouping values such as years.
@@ -57,12 +62,16 @@ Rules:
 Examples:
 - "What kind of documents do you have indexed?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
 - "How many PDFs do I have from 2024?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2024"], exhaustive=false
+- "Which insurance documents do we have?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "What property documents do we have for Property A?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "What tax forms do we have?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "What files do we have related to Asset B?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
 - "Summarize our last conversation." -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What does this app do?" -> source=app_knowledge, scope=none, operation=lookup, partitions=[], exhaustive=false
 - "What is the interest rate on my mortgage?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
-- "What does the 2025 closing package say about escrow?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
-- "Tell me everything we know about my Escondido property." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
-- "Compare the 2023 and 2025 closing documents." -> source=document_content, scope=broad, operation=compare, partitions=["2023","2025"], exhaustive=false
+- "What does Document Set A say about escrow?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["Year X"], exhaustive=false
+- "Tell me everything we know about Property A." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Compare Document Set A and Document Set B." -> source=document_content, scope=broad, operation=compare, partitions=["Set A","Set B"], exhaustive=false
 """
 
 _APP_HELP_PATTERN = re.compile(r'\b(what does this app do|how do i use|help me use|help with the app)\b', re.IGNORECASE)
