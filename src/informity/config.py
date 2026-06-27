@@ -627,6 +627,10 @@ class Settings(BaseSettings):
     # When True, show a control to fetch and display raw model output (with <think> blocks)
     # for each assistant message. Useful for debugging. Disabled by default.
     enable_raw_output_control: bool = False
+    # When true, unload the 5Q classifier before generation begins.
+    # Last-resort memory option for hardware that cannot keep the classifier and
+    # main LLM resident at the same time.
+    classifier_unload_before_generation: bool = False
 
     # -- MCP (Model Context Protocol) ----------------------------------------
     # Optional local MCP server exposure for external clients.

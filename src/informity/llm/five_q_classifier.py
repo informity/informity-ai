@@ -323,5 +323,8 @@ class FiveQClassifier:
                 guardrail_applied=guardrail_applied,
             )
 
+    def unload(self) -> None:
+        if self._engine is not None:
+            self._engine.unload()
 
 __all__ = ['ClassifierContext', 'FiveQClassifier', 'FiveQClassificationResult', 'apply_guardrails']

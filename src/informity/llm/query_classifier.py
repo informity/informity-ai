@@ -7,7 +7,8 @@ import structlog
 
 from informity.config import settings
 from informity.db.models import ChatMessage
-from informity.llm.five_q_classifier import ClassifierContext, FiveQClassifier
+from informity.llm.classifier_service import get_classifier
+from informity.llm.five_q_classifier import ClassifierContext
 from informity.llm.five_q_decision import FiveQDecision
 from informity.llm.types import (
     BlockType,
@@ -257,7 +258,9 @@ def classify_query(
         scope_kind=scope_kind,
         prior_user_query=prior_user_query,
     )
-    classifier = FiveQClassifier()
+    classifier = get_classifier()
+    if settings.dev_reload:
+        log.info('five_q_classifier_singleton_instance', classifier_id=id(classifier))
     result = classifier.classify(text, context)
     classification = _map_decision_to_classification(text, result.decision)
     classification.shadow_classifier_raw_output = result.raw_output or None

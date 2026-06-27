@@ -19,6 +19,7 @@ from informity.db.models import ChatMessage
 from informity.db.sqlite import get_chunk_count
 from informity.llm.chat_mode import is_assistant_mode, resolve_chat_mode
 from informity.llm.classification_policy import classify_query_with_timing
+from informity.llm.classifier_service import get_classifier
 from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.rag import RAGHandler
 from informity.llm.handlers.simple import SimpleHandler
@@ -109,6 +110,16 @@ def _should_execute_secondary_path(
     if _COMPOUND_SECONDARY_BROAD_SCOPE_PATTERN.search(str(question or '')):
         return False, 'secondary_focused_broad_scope_budget_block'
     return True, None
+
+
+def _maybe_unload_classifier_before_generation() -> None:
+    if settings.classifier_unload_before_generation:
+        classifier = get_classifier()
+        classifier.unload()
+        log.info(
+            'five_q_classifier_unloaded_before_generation',
+            classifier_id=id(classifier),
+        )
 
 
 async def answer_question(
@@ -282,6 +293,8 @@ async def answer_question(
                 confidence=classification.confidence,
                 chat_mode=normalized_chat_mode or 'researcher',
             )
+
+        _maybe_unload_classifier_before_generation()
 
         total_chunks = await get_chunk_count(db)
         if total_chunks == 0:

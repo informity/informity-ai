@@ -291,13 +291,14 @@ async def _run_five_q_classifier_warmup() -> None:
     Warm up the 5Q classifier so first classification is not cold.
     """
     try:
-        from informity.llm.five_q_classifier import ClassifierContext, FiveQClassifier
+        from informity.llm.classifier_service import get_classifier
+        from informity.llm.five_q_classifier import ClassifierContext
 
         log.info('five_q_classifier_warmup_starting')
         await asyncio.wait_for(
             asyncio.to_thread(
-                FiveQClassifier().classify,
-                'List indexed files.',
+                get_classifier().classify,
+                'what documents do I have',
                 ClassifierContext(chat_mode='researcher', scope_kind='indexed_corpus', has_prior_turns=False),
             ),
             timeout=_WARMUP_TIMEOUT_SECONDS,
