@@ -330,16 +330,15 @@ src/informity/
 │   ├── engine.py                   # LLM inference (xllamacpp, Metal)
 │   ├── model_adapter.py            # Per-model profiles (Qwen3 14B, Qwen3.5 9B, Qwen3.6 35B A3B)
 │   ├── rag.py                      # QueryRouter — dispatches to handlers based on intent
-│   ├── query_classifier.py         # Deterministic slot extraction + NLP/promptcue intent routing
+│   ├── query_classifier.py         # 5Q classifier mapping + route/classification normalization
 │   ├── retrieval.py                # Unified retrieval pipeline (vector search → rerank)
 │   ├── term_dictionary.py          # Runtime query expansion via corpus term dictionary
-│   ├── intent_router.py            # Promptcue-backed intent classification router
 │   ├── classification_policy.py    # Intent routing policy and normalization
-│   ├── promptcue_adapter.py        # Adapter for promptcue intent classification
 │   ├── chat_mode.py                # Assistant vs Researcher mode routing policy
 │   ├── contract_gate.py            # Final closeout contract validation/repair
 │   ├── contract_prompt_parser.py   # Parses required output section cues from user prompts
 │   ├── metrics_payload.py          # Normalized diagnostics metrics payload helpers
+│   ├── five_q_classifier.py        # Local 5-question classifier (GGUF LLM + guardrail)
 │   ├── nlp_heuristics.py           # Minimal deterministic lexical cues
 │   ├── prompt_builder.py           # Prompt construction and budget management
 │   ├── streaming.py                # LLM stream wrapper
