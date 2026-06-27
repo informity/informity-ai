@@ -9,7 +9,7 @@
 # - INFORMITY_INSTALL_CLEAN=1           (run uninstall first)
 # - INFORMITY_INSTALL_VERIFY=1          (init DB + run tests at end)
 # - INFORMITY_INSTALL_SKIP_MODELS=1     (install deps only; do not download models)
-#   Example: INFORMITY_INSTALL_PROFILE=dev INFORMITY_INSTALL_SKIP_MODELS=1 ./scripts/install_app.sh
+#   Example: INFORMITY_INSTALL_PROFILE=dev INFORMITY_INSTALL_SKIP_MODELS=1 ./scripts/install/install_app.sh
 #
 # CLI shortcuts (equivalent to env vars):
 # - --no-models
@@ -18,14 +18,14 @@
 # - --dev | --runtime
 # - -h | --help
 #
-# Run from repo root: ./scripts/install_app.sh   or   bash scripts/install_app.sh
+# Run from repo root: ./scripts/install/install_app.sh   or   bash scripts/install/install_app.sh
 # ==============================================================================
 
 set -e
 
-REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$REPO_ROOT"
-source "$REPO_ROOT/scripts/install_common_paths.sh"
+source "$REPO_ROOT/scripts/install/install_common_paths.sh"
 
 DIR_CACHE="cache"
 DIR_MODELS="models"
@@ -41,7 +41,7 @@ print_help() {
 Informity AI install script
 
 Usage:
-  ./scripts/install_app.sh [options]
+  ./scripts/install/install_app.sh [options]
 
 Options:
   --no-models   Install dependencies only; skip model downloads.
@@ -102,7 +102,7 @@ echo ""
 
 if [[ "$INSTALL_CLEAN" == "1" ]]; then
     echo "Running uninstall cleanup first (INFORMITY_INSTALL_CLEAN=1)..."
-    ./scripts/install_uninstall_app.sh
+    ./scripts/install/install_uninstall_app.sh
     echo ""
 fi
 
@@ -161,11 +161,11 @@ if [[ "$INSTALL_SKIP_MODELS" == "1" ]]; then
     echo "First run will show setup and prompt model download."
 else
     echo ""
-    echo "Downloading models (embedding, reranker, docling, optional LLM from scripts/install.conf.json)..."
+    echo "Downloading models (embedding, reranker, docling, optional LLM from scripts/install/install.conf.json)..."
     export INFORMITY_FULL_PRIVACY=false
     export INFORMITY_EMBEDDING_OFFLINE=false
     export INFORMITY_LLM_LOCAL_ONLY=false
-    uv run python scripts/install_bootstrap_models.py
+    uv run python scripts/install/install_bootstrap_models.py
 fi
 
 # ------------------------------------------------------------------------------

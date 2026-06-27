@@ -4,7 +4,7 @@
 # ==============================================================================
 
 .DEFAULT_GOAL := help
-.PHONY: help run dev kill-server dev-restart test lint format reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build tauri-build-mac tauri-build-linux-deb tauri-build-linux-rpm tauri-build-appstore app qa-quick qa-full qa-security qa-lint qa-typecheck qa-tauri-quit-smoke
+.PHONY: help run dev kill-server dev-restart test lint format reset-db reset-all clean-data clean install install-dev uninstall frontend frontend-build tauri-icons tauri-backend tauri-dev tauri-build tauri-build-mac tauri-build-linux-deb tauri-build-linux-rpm tauri-build-appstore app qa-quick qa-full qa-security qa-lint qa-typecheck qa-tauri-quit-smoke index-quality
 
 # ==============================================================================
 # Configuration
@@ -45,13 +45,13 @@ help: ## Show this help message
 	@echo ""
 
 install: ## Install runtime dependencies and download models into app data
-	./scripts/install_app.sh
+	./scripts/install/install_app.sh
 
 install-dev: ## Install runtime + dev dependencies and download models into app data
-	INFORMITY_INSTALL_PROFILE=dev ./scripts/install_app.sh
+	INFORMITY_INSTALL_PROFILE=dev ./scripts/install/install_app.sh
 
 uninstall: ## Remove all user data, downloaded models, and .venv (fresh distribution state)
-	./scripts/install_uninstall_app.sh
+	./scripts/install/install_uninstall_app.sh
 
 run: ## Run the application server (no reload — use for production or heavy indexing)
 	uv run python -m informity.main
@@ -80,25 +80,25 @@ tauri-dev: ## Run desktop shell in development mode (requires Rust toolchain + T
 	cd src/frontend && npm run tauri:dev
 
 tauri-icons: ## Maintainers: generate Tauri icon assets from the master logo
-	uv run python scripts/build_generate_tauri_icons.py
+	uv run python scripts/build/build_generate_tauri_icons.py
 
 tauri-backend: ## Maintainers: build Python backend sidecar artifact for Tauri packaging
-	./scripts/build_tauri_backend_sidecar.sh
+	./scripts/build/build_tauri_backend_sidecar.sh
 
 tauri-build: ## Build desktop bundle artifacts (requires Rust toolchain + Tauri CLI)
 	cd src/frontend && npm run tauri:build
 
 tauri-build-mac: ## Maintainers: build/sign/notarize/staple/verify macOS release artifacts (requires .env.codesign)
-	./scripts/build_tauri_signed_release.sh
+	./scripts/build/build_tauri_signed_release.sh
 
 tauri-build-linux-deb: ## Maintainers: build Linux release artifacts (.deb + AppImage)
-	./scripts/build_tauri_linux_release.sh deb
+	./scripts/build/build_tauri_linux_release.sh deb
 
 tauri-build-linux-rpm: ## Maintainers: build Linux release artifacts (.rpm + AppImage)
-	./scripts/build_tauri_linux_release.sh rpm
+	./scripts/build/build_tauri_linux_release.sh rpm
 
 tauri-build-appstore: ## Maintainers: build/sign/package/upload macOS App Store artifacts (requires .env.appstore)
-	./scripts/build_tauri_appstore_release.sh
+	./scripts/build/build_tauri_appstore_release.sh
 
 app: frontend-build run ## Build frontend and run app on http://127.0.0.1:8420 (single command for testing)
 
@@ -121,6 +121,10 @@ qa-typecheck: ## On-demand TypeScript strict checks (tracked separately from rel
 
 qa-tauri-quit-smoke: ## Maintainers: sidecar quit smoke test (scan/no-scan matrix + lingering-process guard)
 	uv run python tools/diagnostics/smoke/tauri_backend_quit_smoke.py
+
+index-quality: ## Inspect a file through the live indexing pipeline without modifying the index (use FILE=path [VERBOSE=1])
+	@test -n "$(FILE)" || (echo "Usage: make index-quality FILE=path/to/document [VERBOSE=1]" && exit 1)
+	uv run python scripts/diagnostics/index_quality.py --file "$(FILE)"$(if $(VERBOSE), --verbose,)
 
 qa-security: ## On-demand security gate (dependency vulnerability audit)
 	@echo "Running pip-audit (CVE-2025-69872 ignored until upstream diskcache fix is available)."

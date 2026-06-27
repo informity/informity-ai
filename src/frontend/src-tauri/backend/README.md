@@ -14,5 +14,5 @@ The Tauri runtime loads the sidecar executable from:
 Build command:
 - `make tauri-backend`
 
-This runs `scripts/build_tauri_backend_sidecar.sh`, which uses PyInstaller to
+This runs `scripts/build/build_tauri_backend_sidecar.sh`, which uses PyInstaller to
 produce an `onedir` sidecar bundle in this directory.

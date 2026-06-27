@@ -1012,7 +1012,7 @@ def configure_hf_environment(*, fail_on_missing_full_privacy_models: bool = True
                 from informity.exceptions import ConfigurationError
                 raise ConfigurationError(
                     'Full Privacy Mode is enabled but required models are not cached. '
-                    'Please run the install script to download models: ./scripts/install_app.sh or make install\n\n'
+                    'Please run the install script to download models: ./scripts/install/install_app.sh or make install\n\n'
                     'Required models:\n'
                     f'  - Embedding: {settings.embedding_model}\n'
                     f'  - Reranker: {settings.rag_reranker_model}\n'

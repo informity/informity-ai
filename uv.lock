@@ -656,7 +656,6 @@ dependencies = [
     { name = "nltk" },
     { name = "pathspec" },
     { name = "pillow" },
-    { name = "promptcue" },
     { name = "psutil" },
     { name = "pydantic" },
     { name = "pydantic-settings" },
@@ -703,7 +702,6 @@ requires-dist = [
     { name = "nltk", specifier = ">=3.9.4" },
     { name = "pathspec", specifier = "==1.0.4" },
     { name = "pillow", specifier = ">=12.2.0" },
-    { name = "promptcue", specifier = "==0.3.8" },
     { name = "psutil", specifier = ">=7.2.2" },
     { name = "pydantic", specifier = ">=2.13.4" },
     { name = "pydantic-settings", specifier = ">=2.14.1" },
@@ -1471,20 +1469,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/85/68/7717bd9e63ed254617a7d3dc9260904fb736d6ea203e58ffddcb186c64e4/polyfactory-3.3.0.tar.gz", hash = "sha256:237258b6ff43edf362ffd1f68086bb796466f786adfa002b0ac256dbf2246e9a", size = 348668, upload-time = "2026-02-22T09:46:28.01Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/dd/34/b6f19941adcdaf415b5e8a8d577499f5b6a76b59cbae37f9b125a9ffe9f2/polyfactory-3.3.0-py3-none-any.whl", hash = "sha256:686abcaa761930d3df87b91e95b26b8d8cb9fdbbbe0b03d5f918acff5c72606e", size = 62707, upload-time = "2026-02-22T09:46:25.985Z" },
-]
-
-[[package]]
-name = "promptcue"
-version = "0.3.8"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "numpy" },
-    { name = "pydantic" },
-    { name = "pyyaml" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/b7/83/b20d334b9788000d45b97e6e89e562b3d4a16ce73d4ad34d28174b3b283c/promptcue-0.3.8.tar.gz", hash = "sha256:20452e3184129f52374913a925f429aff9b4a4927974a662f247e6578bd2eac8", size = 65416, upload-time = "2026-04-23T03:01:21.5Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/c2/6e/7151baa6b3ae8412fd3b60fffa0fe183a1dc6884119c82f99e3184fc0f60/promptcue-0.3.8-py3-none-any.whl", hash = "sha256:e18faabccab033cac437b8df7a51813cc2dd67f3118085690e26939d0f887cf1", size = 52302, upload-time = "2026-04-23T03:01:19.906Z" },
 ]
 
 [[package]]

@@ -5,7 +5,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage:
-  scripts/release_update_homebrew_cask.sh \
+  scripts/release/release_update_homebrew_cask.sh \
     --version <version> \
     --sha256 <sha256> \
     [--tap-dir <path>] \
@@ -13,7 +13,7 @@ Usage:
     [--dry-run]
 
 Example:
-  scripts/release_update_homebrew_cask.sh \
+  scripts/release/release_update_homebrew_cask.sh \
     --version 0.13.3 \
     --sha256 6b860b60e87e0547e7bec3953042864acef0dfbb9eea70da0abea0bbfe5598eb \
     --tap-dir ../homebrew-tap
