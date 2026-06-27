@@ -317,6 +317,47 @@ async def _run_five_q_classifier_warmup() -> None:
         log.warning('five_q_classifier_warmup_failed', error=str(exc))
 
 
+async def _run_startup_warmups() -> None:
+    """
+    Warm up all models before the server accepts requests.
+
+    The sequence is intentionally serialized so each load is paid at startup
+    rather than on the first user request.
+    """
+    startup_started_at = time.perf_counter()
+
+    warmups = (
+        ('classifier', _run_five_q_classifier_warmup),
+        ('llm', _run_llm_warmup),
+        ('embedder', _run_embedder_warmup),
+    )
+
+    for component, warmup in warmups:
+        component_started_at = time.perf_counter()
+        await warmup()
+        component_duration_ms = round((time.perf_counter() - component_started_at) * 1000, 1)
+        startup_elapsed_ms = round((time.perf_counter() - startup_started_at) * 1000, 1)
+        log.info(
+            f'{component}_model_loaded',
+            component=component,
+            duration_ms=component_duration_ms,
+            elapsed_ms=startup_elapsed_ms,
+            module='main',
+            operation=f'{component}_warmup_completed',
+            status='ok',
+        )
+
+    log.info(
+        'server_ready',
+        component='main',
+        message='all models loaded, accepting requests',
+        module='main',
+        operation='server_ready',
+        startup_elapsed_ms=round((time.perf_counter() - startup_started_at) * 1000, 1),
+        status='ok',
+    )
+
+
 async def _backfill_page_counts(conn: object) -> None:
     """
     Populate page_count for indexed files where it is NULL.
@@ -494,13 +535,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     except (ImportError, _STARTUP_RUNTIME_EXCEPTIONS) as exc:
         log.warning('adaptive_tuning_startup_failed', error=str(exc))
 
-    # Warm up generation, embeddings, and intent-router index.
-    # Server mode: blocking warmup before the server accepts requests.
-    # Desktop mode: skip startup warmup to avoid blocking app launch.
-    # Skipped in dev mode (reload) to avoid double-warmup on code changes.
-    if not settings.dev_reload and not _DESKTOP_SESSION_MODE:
-        await asyncio.gather(_run_llm_warmup(), _run_embedder_warmup())
-        await _run_five_q_classifier_warmup()
+    # Warm up the classifier, generation LLM, and embedder before the server
+    # starts accepting requests. This blocks startup by design so the first
+    # user request does not pay the cold-load penalty.
+    await _run_startup_warmups()
 
     # Start file watcher for incremental indexing (if watched_directories configured)
     loop = asyncio.get_running_loop()
