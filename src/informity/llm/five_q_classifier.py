@@ -48,12 +48,9 @@ Rules:
 - scope=none whenever source is index_metadata, chat_history, or app_knowledge.
   scope is only ever targeted or broad when source=document_content.
 - scope=targeted when the user refers to one specific document, even when that document
-  has a year in its name (e.g. "the 2023 invoice", "the 2024 tax return", "the 2020
-  inspection report"). A year prefix on a singular document name does not make it broad.
-- scope=broad when a year scopes a set or group of documents (e.g. "the 2023 documents",
-  "2023 invoices", "the 2023 closing package and related documents").
-- scope=broad for any compare operation, any multi-document synthesis, or any named
-  collection or document set.
+  has a year in its name or uses package/bundle/statement wording for a single document.
+- scope=broad when a year scopes a set or group of documents, or for any compare
+  operation, multi-document synthesis, or named collection or document set.
 - Compare operations are always scope=broad regardless of how many documents are named.
 - If the user asks what a year-scoped package, bundle, collection, or document set
   includes/covers/tells us, classify scope=broad even when the phrase is singular.
@@ -61,21 +58,29 @@ Rules:
   table", "return as JSON", "bullet points") do not affect source, scope, operation,
   partitions, or exhaustive. Strip the format instruction and classify the underlying
   question.
-- partitions are ONLY explicit time periods or grouping codes the user supplies as a
-  dimension to group results by, such as years or quarters.
+- partitions carry the explicit year or time period the user supplied as a scope or
+  grouping value. Use partitions=["year"] when the user specifies a year for any query
+  type: inventory counts, targeted document questions, broad synthesis, or comparisons.
+- partitions=[] when no year or time period appears in the query.
+- For compare operations with two explicit years, include both
+  (e.g. partitions=["2023","2025"]).
 - Document names, policy names, topic phrases, entity names, and category labels are
-  NEVER partitions. Leave partitions=[] for those.
-- Ask: "is this a value on a grouping axis the user wants rows for?" If not, it is not
-  a partition.
+  NEVER partitions. Only years and explicit time periods are partitions.
 - operation=lookup for a single fact, field, or attribute from a document.
 - operation=count_enumerate for counts, lists, or inventories.
 - operation=summarize_synthesize for "what does X say", "tell me everything", "summarize",
   "explain", "overview", or combined understanding across evidence.
 - operation=compare for side-by-side comparisons of two or more things.
-- operation=lookup for all app_knowledge and chat_history queries. The operation field
-  only meaningfully distinguishes handler behavior for document_content queries.
+- operation=summarize_synthesize for all chat_history queries. Recapping a conversation
+  is always synthesis, never a single-field lookup.
+- operation=lookup for app_knowledge queries asking for a specific fact, capability, or
+  existence check ("what does it do", "does it support", "what is").
+- operation=summarize_synthesize for app_knowledge queries asking for an explanation,
+  overview, or walkthrough ("explain", "overview", "how does it work", "walk me through").
 - exhaustive=true only when the user explicitly asks for totals, every matching item for
   an aggregate calculation, or a complete audit across all matches.
+- A table or breakdown of counts and types is exhaustive=false — it is an inventory
+  operation, not a complete audit.
 - Plain list or inventory requests are exhaustive=false even when they say "all" or "every".
 - Broad synthesis questions are exhaustive=false unless the user explicitly asks for
   totals or complete coverage across all matches.
@@ -93,57 +98,48 @@ Examples:
 - "How many documents do I have from 2024?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2024"], exhaustive=false
 - "Which Category A documents do we have?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
 - "What documents do we have for Entity A?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
-- "What Type X forms do we have?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
 - "List all documents about Topic A." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
-- "Show me all files related to Category B." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
 - "Find all documents of Type X." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
 - "List the Category Y documents from 2020." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2020"], exhaustive=false
 - "Show me all documents for Entity Z." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
-- "What files do we have related to Subject B?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "What uploads are available?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "Use bullets: what documents do I have from 2024?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2024"], exhaustive=false
+- "Create a table of all document types and counts for 2023 and 2025." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2023","2025"], exhaustive=false
 - "Summarize our last conversation." -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "What did we talk about earlier?" -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Recap this conversation." -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "What was the last thing we were talking about?" -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What does this app do?" -> source=app_knowledge, scope=none, operation=lookup, partitions=[], exhaustive=false
-- "How do I use this product?" -> source=app_knowledge, scope=none, operation=lookup, partitions=[], exhaustive=false
-- "What does the system do with my files?" -> source=app_knowledge, scope=none, operation=lookup, partitions=[], exhaustive=false
+- "Does it support file type X?" -> source=app_knowledge, scope=none, operation=lookup, partitions=[], exhaustive=false
 - "Can you explain the workflow?" -> source=app_knowledge, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Can you give me a quick overview of the app?" -> source=app_knowledge, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
-- "Explain the routing at a high level." -> source=app_knowledge, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
-- "What uploads are available?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "How does the application work?" -> source=app_knowledge, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What is the value of Field X in my Document A?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
 - "What does Document A say about Topic X?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=[], exhaustive=false
-- "What does the 2023 Package A say about Topic X and Topic Y?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
-- "What does the full 2023 document package include?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
-- "What is in the 2023 package?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
+- "What did Package A say about Topic X?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Summarize the 2024 Document A." -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2024"], exhaustive=false
+- "What did the 2023 Document A cost?" -> source=document_content, scope=targeted, operation=lookup, partitions=["2023"], exhaustive=false
+- "What did the 2020 Document A recommend?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2020"], exhaustive=false
+- "Summarize the 2023 Document A in a table." -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
+- "Return the answer as JSON: what does Document A cover?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "What is the main issue in Document A?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
+- "What does the 2023 Package A say about Topic X?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
 - "What does the 2023 package include?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
-- "Summarize the 2024 tax return." -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2024"], exhaustive=false
-- "What did the 2023 invoice cost?" -> source=document_content, scope=targeted, operation=lookup, partitions=["2023"], exhaustive=false
-- "What did the 2020 replacement proposal recommend?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2020"], exhaustive=false
-- "Answer in bullet points: what does the 2023 inspection report say?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
-- "Show the answer in bullet points: what does the 2025 refinancing package tell us?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
-- "Show the answer in bullet points: what does the 2025 document package tell us?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
-- "What does the 2025 refinancing package tell us?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
-- "What is the title issue?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
-- "Return as JSON: what does Document A cover?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=[], exhaustive=false
-- "Return the answer as JSON: what does the insurance policy cover?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=[], exhaustive=false
-- "What is the title issue?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
-- "Tell me about the documents." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false, confidence=0.65
-- "Show me what we have on the refinancing." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false, confidence=0.75
+- "What does the 2025 Package A tell us?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
 - "Tell me everything we know about Subject A." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What do the checklist and forms include?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
-- "Summarize the documents in Collection C." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Summarize the 2025 Type X documents." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
-- "Summarize the 2018 Category Y documents." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2018"], exhaustive=false
 - "What items of Type X were recorded in 2023?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
 - "Which documents support Claim X?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Provide a table of the major document groups and what they cover." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
-- "What do the documents cover?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Compare Document A with Document B." -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
-- "Compare Package A and Package B." -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
 - "Compare the 2023 package and the 2025 package." -> source=document_content, scope=broad, operation=compare, partitions=["2023","2025"], exhaustive=false
-- "Compare Policy Type A and Policy Type B." -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
-- "Compare the Category A, Category B, and Category C documents." -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
 - "Compare the Type X documents and the Type Y documents." -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
 - "How do Document A and Document B relate?" -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
-- "Which files support the same conclusion?" -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
+- "Compare the 2022 and 2024 reports." -> source=document_content, scope=broad, operation=compare, partitions=["2022","2024"], exhaustive=false
+- "What changed between 2021 and 2023?" -> source=document_content, scope=broad, operation=compare, partitions=["2021","2023"], exhaustive=false
+- "Tell me about the documents." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false, confidence=0.65
+- "Show me what we have on the refinancing." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false, confidence=0.75
 - "What is the total of Field X across all my Type Y documents?" -> source=document_content, scope=broad, operation=lookup, partitions=[], exhaustive=true
 - "Give me Field X for every Type Y document I have." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=true
 """
