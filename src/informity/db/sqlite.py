@@ -66,7 +66,7 @@ _CHAT_TITLE_WHITESPACE_RE = re.compile(r'\s+')
 # Schema — DDL statements for all tables
 # ==============================================================================
 
-SCHEMA_VERSION = 8
+SCHEMA_VERSION = 9
 
 # Additive columns reconciled on every startup so legacy databases catch up even when
 # schema_version already matches SCHEMA_VERSION (e.g. columns added to _SCHEMA_SQL only).
@@ -356,6 +356,7 @@ CREATE TABLE IF NOT EXISTS response_diagnostics_metrics (
     pre_first_yield_timeout_occurred INTEGER,
     pre_first_yield_elapsed_seconds REAL,
     pre_first_yield_stage TEXT,
+    guardrail_applied   TEXT,
     detected_issues     TEXT,        -- JSON list of IssueType strings
     created_at          TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -724,6 +725,8 @@ async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
             await _migrate_to_v7(conn)
         elif next_version == 8:
             await _migrate_to_v8(conn)
+        elif next_version == 9:
+            await _migrate_to_v9(conn)
         else:
             raise RuntimeError(f'No migration path defined for schema version {next_version}')
         await conn.execute('UPDATE schema_version SET version = ?', (next_version,))
@@ -933,6 +936,18 @@ async def _migrate_to_v8(conn: aiosqlite.Connection) -> None:
     - add chat message retrieval scope, model provenance, and internal-message fields.
     """
     await _reconcile_chat_messages_schema(conn)
+
+
+async def _migrate_to_v9(conn: aiosqlite.Connection) -> None:
+    """
+    v9 migration:
+    - add guardrail_applied to response diagnostics metrics.
+    """
+    cursor = await conn.execute("PRAGMA table_info('response_diagnostics_metrics')")
+    columns = await cursor.fetchall()
+    column_names = {str(row['name']) for row in columns}
+    if 'guardrail_applied' not in column_names:
+        await conn.execute('ALTER TABLE response_diagnostics_metrics ADD COLUMN guardrail_applied TEXT')
 
 
 async def _ensure_chat_translation_indexes(conn: aiosqlite.Connection) -> None:
@@ -2584,6 +2599,7 @@ async def insert_diagnostics_metrics(
         else None
     )
     pre_first_yield_stage = str(getattr(metrics, 'pre_first_yield_stage', '') or '').strip() or None
+    guardrail_applied = str(getattr(metrics, 'guardrail_applied', '') or '').strip() or None
 
     await db.execute(
         """
@@ -2593,8 +2609,9 @@ async def insert_diagnostics_metrics(
             timeout_occurred, has_empty_answer, has_refusal_pattern,
             unsupported_claim_count, evidence_coverage_rate, not_found_count,
             pre_first_yield_timeout_occurred, pre_first_yield_elapsed_seconds, pre_first_yield_stage,
+            guardrail_applied,
             detected_issues
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             metrics.chat_id,
@@ -2616,6 +2633,7 @@ async def insert_diagnostics_metrics(
             1 if pre_first_yield_timeout_occurred else 0,
             pre_first_yield_elapsed_seconds,
             pre_first_yield_stage,
+            guardrail_applied,
             json.dumps(normalized_detected_issues),
         ),
     )

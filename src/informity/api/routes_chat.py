@@ -2337,6 +2337,7 @@ async def chat(
                 pre_first_yield_timeout_occurred=pre_first_yield_timeout_occurred,
                 pre_first_yield_elapsed_seconds=pre_first_yield_elapsed_seconds,
                 pre_first_yield_stage=pre_first_yield_stage,
+                guardrail_applied=getattr(classification, 'guardrail_applied', None) if classification is not None else None,
             )
             detected_issues = detect_issues(refusal_text, metrics_model)
             issue_strings = [issue.value for issue in detected_issues]

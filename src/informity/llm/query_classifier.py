@@ -86,6 +86,7 @@ class QueryClassification:
     shadow_classifier_raw_output: str | None = None
     shadow_classifier_model: str | None = None
     shadow_classifier_decision: dict[str, object] = field(default_factory=dict)
+    guardrail_applied: str | None = None
 
     @property
     def confidence_band(self) -> ConfidenceBand:
@@ -261,6 +262,7 @@ def classify_query(
     classification = _map_decision_to_classification(text, result.decision)
     classification.shadow_classifier_raw_output = result.raw_output or None
     classification.shadow_classifier_model = result.model_name
+    classification.guardrail_applied = result.guardrail_applied
     return classification
 
 

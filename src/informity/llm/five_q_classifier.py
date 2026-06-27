@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -110,11 +110,14 @@ Examples:
 - "Recap this conversation." -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What was the last thing we were talking about?" -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What does this app do?" -> source=app_knowledge, scope=none, operation=lookup, partitions=[], exhaustive=false
+- "Make a table: what does this app do?" -> source=app_knowledge, scope=none, operation=lookup, partitions=[], exhaustive=false
 - "Does it support file type X?" -> source=app_knowledge, scope=none, operation=lookup, partitions=[], exhaustive=false
 - "Can you explain the workflow?" -> source=app_knowledge, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Can you give me a quick overview of the app?" -> source=app_knowledge, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "How does the application work?" -> source=app_knowledge, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What is the value of Field X in my Document A?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
+- "What is the Field X rate?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
+- "What is the mortgage interest rate?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
 - "What does Document A say about Topic X?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What did Package A say about Topic X?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Summarize the 2024 Document A." -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2024"], exhaustive=false
@@ -126,6 +129,12 @@ Examples:
 - "What does the 2023 Package A say about Topic X?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
 - "What does the 2023 package include?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
 - "What does the 2025 Package A tell us?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
+- "What do the Category A documents tell me?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Give me an overview of the Category B files." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Create a short table summarizing the Type X documents." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "How are the Type X and Type Y records related?" -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
+- "Explain the Category A documents at a high level." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "What do we know about Subject A?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Tell me everything we know about Subject A." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What do the checklist and forms include?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Summarize the 2025 Type X documents." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
@@ -168,6 +177,18 @@ class FiveQClassificationResult:
     decision: FiveQDecision
     raw_output: str
     model_name: str
+    guardrail_applied: str | None = None
+
+
+def apply_guardrails(decision: FiveQDecision, query: str) -> tuple[FiveQDecision, str | None]:
+    if decision.source == 'app_knowledge' and decision.operation != 'lookup':
+        log.info(
+            'five_q_classifier_guardrail_applied',
+            guardrail_applied='app_knowledge_operation',
+            query=str(query or ''),
+        )
+        return replace(decision, operation='lookup'), 'app_knowledge_operation'
+    return decision, None
 
 
 def _discover_classifier_model_path() -> Path | None:
@@ -280,7 +301,13 @@ class FiveQClassifier:
             if not isinstance(parsed, dict):
                 raise ValueError('five_q_classifier_expected_object')
             decision = _normalize_decision(parsed)
-            return FiveQClassificationResult(decision=decision, raw_output=raw_output, model_name=self._model_filename)
+            decision, guardrail_applied = apply_guardrails(decision, text)
+            return FiveQClassificationResult(
+                decision=decision,
+                raw_output=raw_output,
+                model_name=self._model_filename,
+                guardrail_applied=guardrail_applied,
+            )
         except (LLMError, json.JSONDecodeError, TypeError, ValueError) as exc:
             log.warning(
                 'five_q_classifier_fallback',
@@ -288,7 +315,13 @@ class FiveQClassifier:
                 model_filename=self._model_filename,
             )
             decision = _fallback_decision(text, context)
-            return FiveQClassificationResult(decision=decision, raw_output='', model_name=self._model_filename)
+            decision, guardrail_applied = apply_guardrails(decision, text)
+            return FiveQClassificationResult(
+                decision=decision,
+                raw_output='',
+                model_name=self._model_filename,
+                guardrail_applied=guardrail_applied,
+            )
 
 
-__all__ = ['ClassifierContext', 'FiveQClassifier', 'FiveQClassificationResult']
+__all__ = ['ClassifierContext', 'FiveQClassifier', 'FiveQClassificationResult', 'apply_guardrails']

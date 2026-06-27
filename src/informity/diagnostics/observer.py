@@ -73,6 +73,7 @@ class EvalMetrics:
     pre_first_yield_timeout_occurred: bool = False
     pre_first_yield_elapsed_seconds: float | None = None
     pre_first_yield_stage: str | None = None
+    guardrail_applied: str | None = None
 
 
 def detect_issues(answer: str, metrics: EvalMetrics) -> list[IssueType]:
