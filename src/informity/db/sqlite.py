@@ -26,6 +26,7 @@ from informity.db.models import (
     ScanErrorRecord,
     ScanRecord,
     ScanStatus,
+    ScanSkippedFileRecord,
 )
 from informity.db.utils import (
     parse_file_category,
@@ -244,6 +245,20 @@ CREATE TABLE IF NOT EXISTS scan_errors (
 
 CREATE INDEX IF NOT EXISTS idx_scan_errors_scan_id ON scan_errors(scan_id);
 CREATE INDEX IF NOT EXISTS idx_scan_errors_created_at ON scan_errors(created_at);
+
+CREATE TABLE IF NOT EXISTS scan_skipped_files (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    scan_id       INTEGER NOT NULL REFERENCES scan_history(id) ON DELETE CASCADE,
+    path          TEXT NOT NULL,
+    filename      TEXT NOT NULL,
+    extension     TEXT NOT NULL,
+    reason        TEXT NOT NULL,
+    error_code    TEXT,
+    created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_scan_skipped_files_scan_id ON scan_skipped_files(scan_id);
+CREATE INDEX IF NOT EXISTS idx_scan_skipped_files_created_at ON scan_skipped_files(created_at);
 
 CREATE TABLE IF NOT EXISTS log_events (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1148,6 +1163,20 @@ def _row_to_scan_error_record(row: aiosqlite.Row) -> ScanErrorRecord:
     )
 
 
+def _row_to_scan_skipped_file_record(row: aiosqlite.Row) -> ScanSkippedFileRecord:
+    # Convert a SQLite row to a ScanSkippedFileRecord model.
+    return ScanSkippedFileRecord(
+        id=row['id'],
+        scan_id=row['scan_id'],
+        path=row['path'] or '',
+        filename=row['filename'] or '',
+        extension=row['extension'] or '',
+        reason=row['reason'] or '',
+        error_code=row['error_code'],
+        created_at=parse_timestamp(row['created_at']),
+    )
+
+
 def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
     # Convert a SQLite row to a ChatMessage model.
     row_keys = set(row.keys()) if hasattr(row, 'keys') else set()
@@ -1762,6 +1791,32 @@ async def insert_scan_error_record(db: aiosqlite.Connection, record: ScanErrorRe
     return record
 
 
+async def insert_scan_skipped_file_record(
+    db: aiosqlite.Connection,
+    record: ScanSkippedFileRecord,
+) -> ScanSkippedFileRecord:
+    # Insert a per-file scan skip row.
+    cursor = await db.execute(
+        """
+        INSERT INTO scan_skipped_files (
+            scan_id, path, filename, extension, reason, error_code
+        )
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (
+            record.scan_id,
+            record.path,
+            record.filename,
+            record.extension,
+            record.reason,
+            record.error_code,
+        ),
+    )
+    await db.commit()
+    record.id = cursor.lastrowid
+    return record
+
+
 async def get_scan_error_records(
     db: aiosqlite.Connection,
     scan_id: int,
@@ -1805,6 +1860,44 @@ async def get_scan_error_records_page(
     )
     rows = await cursor.fetchall()
     return [_row_to_scan_error_record(row) for row in rows]
+
+
+async def get_scan_skipped_file_records(
+    db: aiosqlite.Connection,
+    scan_id: int,
+    limit: int = 200,
+) -> list[ScanSkippedFileRecord]:
+    # Return most recent per-file scan skips for a scan.
+    safe_limit = max(1, min(int(limit), 1000))
+    cursor = await db.execute(
+        """
+        SELECT *
+        FROM scan_skipped_files
+        WHERE scan_id = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        (scan_id, safe_limit),
+    )
+    rows = await cursor.fetchall()
+    return [_row_to_scan_skipped_file_record(row) for row in rows]
+
+
+async def get_scan_skipped_file_count(
+    db: aiosqlite.Connection,
+    scan_id: int,
+) -> int:
+    # Return count of skipped files recorded for a scan.
+    cursor = await db.execute(
+        """
+        SELECT COUNT(*) AS cnt
+        FROM scan_skipped_files
+        WHERE scan_id = ?
+        """,
+        (scan_id,),
+    )
+    row = await cursor.fetchone()
+    return int(row['cnt']) if row else 0
 
 
 async def get_scan_timeout_error_count(

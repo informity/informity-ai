@@ -30,6 +30,7 @@ from informity.api.schemas import (
     ScanErrorItem,
     ScanErrorsResponse,
     ScanRequest,
+    ScanSkippedFileItem,
     ScanStatusResponse,
 )
 from informity.api.security import EndpointGuard, raise_if_index_reset_in_progress
@@ -38,7 +39,7 @@ from informity.config import (
     get_supported_extensions_for_scan,
     settings,
 )
-from informity.db.models import ScanErrorRecord, ScanRecord, ScanStatus
+from informity.db.models import ScanErrorRecord, ScanRecord, ScanSkippedFileRecord, ScanStatus
 from informity.db.sqlite import (
     clear_file_failure,
     get_all_files_for_scan,
@@ -51,7 +52,10 @@ from informity.db.sqlite import (
     get_scan_error_records,
     get_scan_error_records_page,
     get_scan_timeout_error_count,
+    get_scan_skipped_file_count,
+    get_scan_skipped_file_records,
     insert_scan_error_record,
+    insert_scan_skipped_file_record,
     insert_scan_record,
     record_file_failure,
     should_skip_file_retry,
@@ -144,6 +148,20 @@ def _scan_error_items(records: list[ScanErrorRecord]) -> list[ScanErrorItem]:
             error_code=item.error_code,
             error_message=item.error_message,
             is_timeout=item.is_timeout,
+            created_at=item.created_at,
+        )
+        for item in records
+    ]
+
+
+def _scan_skipped_items(records) -> list[ScanSkippedFileItem]:
+    return [
+        ScanSkippedFileItem(
+            path=item.path,
+            filename=item.filename,
+            extension=item.extension,
+            reason=item.reason,
+            error_code=item.error_code,
             created_at=item.created_at,
         )
         for item in records
@@ -261,13 +279,16 @@ async def get_scan_status(
     elapsed = (latest.completed_at or now) - latest.started_at
 
     recent_errors = await get_scan_error_records(db, latest.id or 0, limit=8)
+    skipped_files = await get_scan_skipped_file_records(db, latest.id or 0, limit=200)
     return ScanStatusResponse(
         status=latest.status.value,
         files_scanned=latest.files_scanned,
         files_indexed=latest.files_indexed,
         errors=latest.errors,
+        skipped_count=await get_scan_skipped_file_count(db, latest.id or 0),
         timeout_errors=await get_scan_timeout_error_count(db, latest.id or 0),
         recent_errors=_scan_error_items(recent_errors),
+        skipped_files=_scan_skipped_items(skipped_files),
         started_at=latest.started_at,
         elapsed_seconds=elapsed.total_seconds(),
     )
@@ -663,6 +684,7 @@ async def _run_scan_task(
     files_scanned    = 0
     files_indexed    = 0
     errors           = 0
+    skipped_files_count = 0
     processed        = 0
     total_to_process = 0
     chunks_total_created = 0
@@ -717,7 +739,7 @@ async def _run_scan_task(
         # Shared logic: run handler, update counters, persist progress after each file
         # to keep scan record in sync with database state.
         # Wrapped in try/except to ensure one file failure doesn't stop the entire scan.
-        nonlocal processed, files_indexed, errors, chunks_total_created, ocr_used_count
+        nonlocal processed, files_indexed, errors, skipped_files_count, chunks_total_created, ocr_used_count
         processed += 1
         timeout_seconds_effective = _resolve_scan_timeout_seconds_for_file(sf)
         log.info(
@@ -786,6 +808,26 @@ async def _run_scan_task(
                     extractor_success_counts[result.extractor] += 1
                 if result.ocr_used:
                     ocr_used_count += 1
+            elif result.skipped:
+                skipped_files_count += 1
+                await insert_scan_skipped_file_record(
+                    db,
+                    ScanSkippedFileRecord(
+                        scan_id=scan_id,
+                        path=str(sf.path),
+                        filename=sf.filename,
+                        extension=sf.extension,
+                        reason=result.skip_reason or result.error or 'file skipped',
+                        error_code=result.error_code,
+                    ),
+                )
+                log.info(
+                    'scan_file_skipped',
+                    operation=action,
+                    path=str(sf.path),
+                    reason=result.skip_reason or result.error,
+                    error_code=result.error_code,
+                )
             else:
                 errors += 1
                 errors_by_extension[sf.extension] += 1
@@ -1235,18 +1277,20 @@ async def _run_scan_task(
             scanned  = files_scanned,
             indexed  = files_indexed,
             errors   = errors,
+            skipped  = skipped_files_count,
             deleted  = len(changes.deleted),
         )
         await emit_log_event(
             event_name='scan_completed',
             source='Scanner',
-            message=f'Scan completed. {files_scanned} files checked, {files_indexed} indexed.',
+            message=f'Scan completed. {files_scanned} files checked, {files_indexed} indexed, {skipped_files_count} skipped.',
             scan_id=scan_id,
             correlation_id=f'scan:{scan_id}',
             details={
                 'files_scanned': files_scanned,
                 'files_indexed': files_indexed,
                 'errors': errors,
+                'skipped': skipped_files_count,
                 'deleted': len(changes.deleted),
             },
             db=db,

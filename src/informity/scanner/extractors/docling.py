@@ -84,6 +84,19 @@ def _classify_docling_exception(exc: Exception) -> tuple[str, bool]:
     return 'docling_extraction_error', True
 
 
+def _classify_extraction_status_from_error_text(error_text: str | None) -> tuple[str, str | None, bool]:
+    lowered = str(error_text or '').casefold()
+    if not lowered:
+        return 'skipped_empty', 'file skipped — no extractable text found', False
+    if 'password' in lowered or 'encrypted' in lowered:
+        return 'skipped_encrypted', 'file skipped — password protected', False
+    if 'corrupt' in lowered or 'invalid' in lowered:
+        return 'skipped_corrupted', 'file skipped — file is corrupted', False
+    if 'unsupported' in lowered or 'not known' in lowered:
+        return 'skipped_unsupported', 'file skipped — unsupported format', False
+    return 'failed_unknown', None, True
+
+
 class DoclingExtractor:
     """
     Unified extractor for docling-supported document formats.
@@ -176,6 +189,9 @@ class DoclingExtractor:
             'table of contents',
             '[image]',
             '<image>',
+            '<!-- image -->',
+            '<!-- figure -->',
+            '<!-- table -->',
         )
         lowered = stripped.casefold()
         if any(pattern in lowered for pattern in low_signal_patterns) and alpha_tokens <= _SPARSE_EXTRACTION_ALPHA_TOKEN_THRESHOLD:
@@ -242,6 +258,7 @@ class DoclingExtractor:
                 return ExtractedDocument(
                     text='',
                     source_path=path,
+                    status='failed_unknown',
                     extraction_time_ms=elapsed_ms(start_time),
                     preview_text='',
                     error=f'File too large: {file_size} bytes',
@@ -258,16 +275,19 @@ class DoclingExtractor:
                         preflight_doc.close()
                 except _DOCLING_RUNTIME_EXCEPTIONS as preflight_exc:
                     error_code, retryable = _classify_docling_exception(preflight_exc)
+                    status, skip_reason, status_retryable = _classify_extraction_status_from_error_text(str(preflight_exc))
                     return ExtractedDocument(
                         text='',
                         source_path=path,
                         metadata={
-                            'error_code': error_code,
-                            'retryable': 'false' if not retryable else 'true',
+                            'error_code': status if status.startswith('skipped_') else error_code,
+                            'retryable': 'false' if not (retryable and status_retryable) else 'true',
                         },
+                        status=status,
+                        skip_reason=skip_reason,
                         extraction_time_ms=elapsed_ms(start_time),
                         preview_text='',
-                        error=f'Docling extraction failed: {preflight_exc}',
+                        error=skip_reason or f'Docling extraction failed: {preflight_exc}',
                     )
 
             # Get reusable converter instance (lazy-loaded, periodically reset)
@@ -511,10 +531,26 @@ class DoclingExtractor:
                 except _DOCLING_RUNTIME_EXCEPTIONS:
                     preview_text = text[:MAX_EXTRACTED_TEXT_PREVIEW]
 
+            if not text.strip():
+                return ExtractedDocument(
+                    text='',
+                    source_path=path,
+                    metadata={
+                        'error_code': 'skipped_empty',
+                        'retryable': 'false',
+                    },
+                    status='skipped_empty',
+                    skip_reason='file skipped — no extractable text found',
+                    extraction_time_ms=elapsed_ms(start_time),
+                    preview_text='',
+                    error='file skipped — no extractable text found',
+                )
+
             return ExtractedDocument(
                 text=text,
                 source_path=path,
                 metadata=metadata,
+                status='ok',
                 page_count=page_count,
                 word_count=word_count,
                 extraction_time_ms=elapsed_ms(start_time),
@@ -534,6 +570,7 @@ class DoclingExtractor:
                         'error_code': 'docling_models_unavailable_offline',
                         'retryable': 'true',
                     },
+                    status='failed_unknown',
                     extraction_time_ms=elapsed_ms(start_time),
                     preview_text='',
                     error='Docling extraction failed: Models not cached and offline mode enabled. Run install script to download models, or disable full_privacy temporarily.',
@@ -570,6 +607,7 @@ class DoclingExtractor:
                         text=ocr_attempt.text,
                         source_path=path,
                         metadata=metadata,
+                        status='ok',
                         page_count=ocr_attempt.page_count,
                         word_count=word_count,
                         extraction_time_ms=elapsed_ms(start_time),
@@ -585,12 +623,14 @@ class DoclingExtractor:
                         text='',
                         source_path=path,
                         metadata={
-                            'error_code': error_code,
-                            'retryable': 'false' if not retryable else 'true',
+                            'error_code': 'skipped_empty',
+                            'retryable': 'false',
                         },
+                        status='skipped_empty',
+                        skip_reason='file skipped — no extractable text found',
                         extraction_time_ms=elapsed_ms(start_time),
                         preview_text='',
-                        error=f'Docling extraction failed: {exc}. OCR fallback also returned empty text.',
+                        error='file skipped — no extractable text found',
                     )
                 log.warning(
                     'ocr_fallback_failed_after_exception',
@@ -607,6 +647,7 @@ class DoclingExtractor:
                         'error_code': error_code,
                         'retryable': 'false' if not retryable else 'true',
                     },
+                    status='failed_unknown',
                     extraction_time_ms=elapsed_ms(start_time),
                     preview_text='',
                     error=f'Docling extraction failed: {exc}. OCR fallback also failed: {ocr_attempt.error}',
@@ -620,6 +661,7 @@ class DoclingExtractor:
                     'error_code': error_code,
                     'retryable': 'false' if not retryable else 'true',
                 },
+                status='failed_unknown',
                 extraction_time_ms=elapsed_ms(start_time),
                 preview_text='',
                 error=f'Docling extraction failed: {exc}',

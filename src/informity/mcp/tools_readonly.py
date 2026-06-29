@@ -13,6 +13,8 @@ from informity.db.sqlite import (
     get_files,
     get_files_by_ids,
     get_latest_scan,
+    get_scan_skipped_file_count,
+    get_scan_skipped_file_records,
 )
 from informity.db.vectors import vector_store
 from informity.indexer.embedder import embedder
@@ -367,12 +369,24 @@ async def tool_scan_status(db: aiosqlite.Connection) -> dict[str, Any]:
     latest = await get_latest_scan(db)
     if latest is None:
         return {'status': 'never_run'}
+    skipped_files = await get_scan_skipped_file_records(db, int(latest.id or 0), limit=20)
     return {
         'scan_id': int(latest.id or 0),
         'status': latest.status.value,
         'files_scanned': int(latest.files_scanned),
         'files_indexed': int(latest.files_indexed),
         'errors': int(latest.errors),
+        'skipped_count': await get_scan_skipped_file_count(db, int(latest.id or 0)),
+        'skipped_files': [
+            {
+                'path': item.path,
+                'filename': item.filename,
+                'extension': item.extension,
+                'reason': item.reason,
+                'error_code': item.error_code,
+            }
+            for item in skipped_files
+        ],
         'started_at': latest.started_at.isoformat() if latest.started_at else None,
         'completed_at': latest.completed_at.isoformat() if latest.completed_at else None,
     }
