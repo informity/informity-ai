@@ -272,6 +272,17 @@ def _apply_reranker_score_threshold(
     return chunks[:1]
 
 
+def _resolve_rerank_min_score(
+    *,
+    query_type: QueryType,
+    prefer_within_file_diversity: bool,
+    base_min_score: float,
+) -> float:
+    if query_type == QueryType.COVERAGE:
+        return 0.0
+    return base_min_score
+
+
 def _file_breadth_bonus(chunks: list[dict]) -> float:
     page_numbers: set[int] = set()
     section_paths: set[str] = set()
@@ -657,6 +668,11 @@ async def retrieve_chunks(
     fts5_augmented_count: int = 0  # Net-new candidates added by FTS5 augmentation (focused only)
     profile = get_profile()
     rerank_min_score = float(getattr(profile, 'rag_rerank_min_score', 0.0) or 0.0)
+    effective_rerank_min_score = _resolve_rerank_min_score(
+        query_type=query_type,
+        prefer_within_file_diversity=prefer_within_file_diversity,
+        base_min_score=rerank_min_score,
+    )
     # 3. Vector retrieval (single path, no coverage-specific fallback branch)
     search_k = max(top_k * 2, int(getattr(profile, 'retrieval_top_k_candidates', 25)))
     results = await asyncio.to_thread(
@@ -932,10 +948,10 @@ async def retrieve_chunks(
         prefer_within_file_diversity=prefer_within_file_diversity,
     )
     rerank_threshold_removed_count = 0
-    if rerank_enabled and rerank_min_score > 0:
+    if rerank_enabled and effective_rerank_min_score > 0:
         filtered_reranked_children = _apply_reranker_score_threshold(
             chunks=reranked_children,
-            min_score=rerank_min_score,
+            min_score=effective_rerank_min_score,
         )
         rerank_threshold_removed_count = max(len(reranked_children) - len(filtered_reranked_children), 0)
         reranked_children = filtered_reranked_children
