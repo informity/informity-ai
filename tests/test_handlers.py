@@ -3,13 +3,14 @@
 # Tests QueryHandler implementations (MetadataHandler, RAGHandler, SimpleHandler)
 # ==============================================================================
 
+from datetime import datetime
 from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from informity.config import settings
-from informity.db.models import ChatMessage
+from informity.db.models import ChatMessage, IndexedFile
 from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.query_handler import QueryHandler
 from informity.llm.handlers.rag import (
@@ -205,6 +206,91 @@ class TestMetadataHandler:
 
         assert any(isinstance(item, str) and 'fewest files' in item.lower() for item in results)
         assert results[-1] == []
+
+    @pytest.mark.asyncio
+    async def test_handle_extremum_recent_query_uses_indexed_at_order(self) -> None:
+        handler = MetadataHandler()
+        classification = QueryClassification(intent='metadata', year_filter=2023)
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone = AsyncMock(return_value={'id': 7})
+        mock_db = MagicMock()
+        mock_db.execute = AsyncMock(return_value=mock_cursor)
+
+        matched_file = IndexedFile(
+            id=7,
+            path='/tmp/recent.pdf',
+            filename='recent.pdf',
+            extension='.pdf',
+            size_bytes=2048,
+            content_hash='hash',
+            extracted_text_preview='',
+            category='document',
+            modified_at=datetime(2024, 1, 1, 0, 0, 0),
+            indexed_at=datetime(2024, 1, 2, 0, 0, 0),
+        )
+        with patch('informity.llm.handlers.metadata.row_to_indexed_file', return_value=matched_file):
+            results = []
+            async for item in handler.handle('What is the most recent document date?', classification, None, mock_db, None):
+                results.append(item)
+
+        assert len(results) >= 1
+        assert 'Most recently indexed document' in results[0]
+        assert 'recent.pdf' in results[0]
+        execute_sql = mock_db.execute.await_args_list[0].args[0]
+        assert 'indexed_at IS NOT NULL' in execute_sql
+        assert 'ORDER BY indexed_at DESC' in execute_sql
+        assert 'year = ?' in execute_sql
+        assert list(mock_db.execute.await_args_list[0].args[1]) == [2023]
+
+    @pytest.mark.asyncio
+    async def test_handle_extremum_size_query_uses_size_order(self) -> None:
+        handler = MetadataHandler()
+        classification = QueryClassification(intent='metadata')
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone = AsyncMock(return_value={'id': 8})
+        mock_db = MagicMock()
+        mock_db.execute = AsyncMock(return_value=mock_cursor)
+
+        matched_file = IndexedFile(
+            id=8,
+            path='/tmp/largest.pdf',
+            filename='largest.pdf',
+            extension='.pdf',
+            size_bytes=1024 * 1024 * 12,
+            content_hash='hash',
+            extracted_text_preview='',
+            category='document',
+            modified_at=datetime(2024, 1, 1, 0, 0, 0),
+        )
+        with patch('informity.llm.handlers.metadata.row_to_indexed_file', return_value=matched_file):
+            results = []
+            async for item in handler.handle("What's the largest file I have?", classification, None, mock_db, None):
+                results.append(item)
+
+        assert len(results) >= 1
+        assert 'Largest file' in results[0]
+        assert 'largest.pdf' in results[0]
+        assert '12.0 MB' in results[0]
+        execute_sql = mock_db.execute.await_args_list[0].args[0]
+        assert 'size_bytes IS NOT NULL' in execute_sql
+        assert 'ORDER BY size_bytes DESC' in execute_sql
+
+    @pytest.mark.asyncio
+    async def test_handle_extremum_missing_indexed_metadata_returns_clear_message(self) -> None:
+        handler = MetadataHandler()
+        classification = QueryClassification(intent='metadata')
+        mock_cursor = MagicMock()
+        mock_cursor.fetchone = AsyncMock(return_value=None)
+        mock_db = MagicMock()
+        mock_db.execute = AsyncMock(return_value=mock_cursor)
+
+        with patch('informity.llm.handlers.metadata.row_to_indexed_file') as mock_row_to_file:
+            results = []
+            async for item in handler.handle('What is my oldest indexed document?', classification, None, mock_db, None):
+                results.append(item)
+
+        assert 'No indexed date metadata available.' in results[0]
+        mock_row_to_file.assert_not_called()
 
     def test_format_enumeration_response_as_table_when_requested(self) -> None:
         handler = MetadataHandler()

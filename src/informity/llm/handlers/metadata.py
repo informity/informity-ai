@@ -3,6 +3,7 @@
 # Handles metadata queries (count, enumeration, file listing) using SQLite directly
 # ==============================================================================
 
+import re
 from collections.abc import AsyncGenerator
 from dataclasses import replace
 
@@ -37,6 +38,11 @@ _AGGREGATION_PATTERN = build_aggregation_pattern()
 _COUNT_PATTERN = build_count_pattern()
 _ENUMERATION_PATTERN = build_enumeration_pattern()
 _FILE_LIST_PATTERN = build_file_list_pattern()
+_EXTREMUM_TARGET_PATTERN = re.compile(r'\b(file|files|document|documents|indexed|modified)\b', re.IGNORECASE)
+_EXTREMUM_RECENT_PATTERN = re.compile(r'\b(most\s+recent|latest|newest)\b', re.IGNORECASE)
+_EXTREMUM_OLDEST_PATTERN = re.compile(r'\b(oldest|first\s+indexed|earliest\s+indexed)\b', re.IGNORECASE)
+_EXTREMUM_LAST_PATTERN = re.compile(r'\blast\b.*\b(indexed|modified)\b', re.IGNORECASE)
+_EXTREMUM_SIZE_PATTERN = re.compile(r'\b(largest|biggest|smallest)\b', re.IGNORECASE)
 
 
 def _apply_filename_filter(conditions: list[str], params: list[str | int], filename_filter: str) -> None:
@@ -114,7 +120,20 @@ class MetadataHandler:
             yield []
             return
 
-        # 1. Aggregation queries: "date range", "earliest", "latest", "per year"
+        # 1. Extremum queries: newest / oldest / largest / smallest single-file lookups.
+        extremum = self._resolve_extremum_lookup(question_lower)
+        if extremum is not None:
+            file_result = await self._get_extremum_file(db, effective_classification, extremum)
+            if file_result is None:
+                response = self._format_extremum_missing_response(extremum['kind'])
+            else:
+                response = self._format_extremum_response(file_result, extremum)
+            yield response
+            yield (StreamSignalTag.METRICS, {'query_type': QueryType.METADATA, 'raw_chunks_count': 0})
+            yield []
+            return
+
+        # 2. Aggregation queries: "date range", "earliest", "latest", "per year"
         # Check aggregation before count to handle "how many files are from each year"
         if _AGGREGATION_PATTERN.search(question_lower):
             aggregation = await self._get_aggregation(db, question_lower, effective_classification)
@@ -124,7 +143,7 @@ class MetadataHandler:
             yield []
             return
 
-        # 2. Enumeration queries: "what years", "how many years", "what categories"
+        # 3. Enumeration queries: "what years", "how many years", "what categories"
         # Check before count so "how many years" returns years count, not file count
         if _ENUMERATION_PATTERN.search(question_lower):
             enumeration = await self._get_enumeration(db, question_lower, effective_classification)
@@ -134,7 +153,7 @@ class MetadataHandler:
             yield []
             return
 
-        # 3. Count queries: "how many files", "how many PDFs"
+        # 4. Count queries: "how many files", "how many PDFs"
         if _COUNT_PATTERN.search(question_lower):
             count = await self._get_count(db, effective_classification)
             response = self._format_count_response(count, effective_classification, as_table=prefer_table)
@@ -143,7 +162,7 @@ class MetadataHandler:
             yield []
             return
 
-        # 4. File listing queries: explicit inventory/list requests only
+        # 5. File listing queries: explicit inventory/list requests only
         if _FILE_LIST_PATTERN.search(question_lower) or classification.is_file_list_query:
             files, total = await self._get_files_with_filters(db, effective_classification)
             response = self._format_file_list_response(files, total, effective_classification)
@@ -152,7 +171,7 @@ class MetadataHandler:
             yield []
             return
 
-        # 5. Fallback: generic metadata response
+        # 6. Fallback: generic metadata response
         yield "I can help you with file counts, enumerations (years, categories, file types), aggregations (date ranges, per year), and file listings. Could you rephrase your question?"
         yield (StreamSignalTag.METRICS, {'query_type': QueryType.METADATA, 'raw_chunks_count': 0})
         yield []
@@ -170,6 +189,105 @@ class MetadataHandler:
 
     def _normalize_extension(self, extension: str) -> str:
         return normalize_extension(extension)
+
+    def _resolve_extremum_lookup(self, question_lower: str) -> dict[str, str] | None:
+        if not _EXTREMUM_TARGET_PATTERN.search(question_lower):
+            return None
+
+        size_match = _EXTREMUM_SIZE_PATTERN.search(question_lower)
+        recent_match = _EXTREMUM_RECENT_PATTERN.search(question_lower)
+        oldest_match = _EXTREMUM_OLDEST_PATTERN.search(question_lower)
+        last_match = _EXTREMUM_LAST_PATTERN.search(question_lower)
+
+        if size_match:
+            direction = 'ASC' if size_match.group(1).lower() == 'smallest' else 'DESC'
+            label = 'Smallest file' if direction == 'ASC' else 'Largest file'
+            return {'kind': 'size', 'direction': direction, 'label': label}
+
+        if recent_match or last_match:
+            return {
+                'kind': 'indexed_at',
+                'direction': 'DESC',
+                'label': 'Most recently indexed document',
+            }
+
+        if oldest_match:
+            return {
+                'kind': 'indexed_at',
+                'direction': 'ASC',
+                'label': 'Oldest indexed document',
+            }
+
+        return None
+
+    async def _get_extremum_file(
+        self,
+        db: aiosqlite.Connection,
+        classification: QueryClassification,
+        extremum: dict[str, str],
+    ) -> IndexedFile | None:
+        conditions: list[str] = []
+        params: list[str | int] = []
+
+        if classification.year_filter:
+            conditions.append('year = ?')
+            params.append(classification.year_filter)
+
+        if classification.category_filter:
+            conditions.append('category = ?')
+            params.append(classification.category_filter)
+
+        if classification.file_type_filter:
+            extension = self._normalize_extension(classification.file_type_filter)
+            conditions.append('extension = ?')
+            params.append(extension)
+
+        if classification.filename_filter:
+            _apply_filename_filter(conditions, params, classification.filename_filter)
+
+        if extremum['kind'] == 'size':
+            conditions.append('size_bytes IS NOT NULL')
+            order_field = 'size_bytes'
+        else:
+            conditions.append('indexed_at IS NOT NULL')
+            order_field = 'indexed_at'
+
+        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ''
+        query = f'''
+            SELECT * FROM files
+            {where_clause}
+            ORDER BY {order_field} {extremum['direction']}, filename ASC
+            LIMIT 1
+        '''
+        cursor = await db.execute(query, params)
+        row = await cursor.fetchone()
+        return row_to_indexed_file(row) if row else None
+
+    def _format_file_size(self, size_bytes: int) -> str:
+        value = max(0, int(size_bytes))
+        units = ('B', 'KB', 'MB', 'GB', 'TB', 'PB')
+        size = float(value)
+        for unit in units:
+            if size < 1024.0 or unit == units[-1]:
+                if unit == 'B':
+                    return f'{int(size)} {unit}'
+                return f'{size:.1f} {unit}'
+            size /= 1024.0
+        return f'{value} B'
+
+    def _format_extremum_missing_response(self, kind: str) -> str:
+        if kind == 'size':
+            return 'No file size metadata available.'
+        return 'No indexed date metadata available.'
+
+    def _format_extremum_response(self, file: IndexedFile, extremum: dict[str, str]) -> str:
+        label = extremum['label']
+        details = [file.filename]
+        if extremum['kind'] == 'size':
+            details.append(self._format_file_size(file.size_bytes))
+        elif file.indexed_at is not None:
+            details.append(file.indexed_at.strftime('indexed %Y-%m-%d %H:%M:%S'))
+        return f"**{label}:**\n\n- " + ' — '.join(details)
 
     async def _get_count(
         self,
