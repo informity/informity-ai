@@ -358,7 +358,7 @@ describe('ChatView new chat behavior', () => {
       ],
     })
     window.localStorage.setItem(CHAT_FILE_SCOPE_MAP_STORAGE_KEY, JSON.stringify({
-      'chat-history-file-1': { fileId: 77, filename: 'The Ethics of Aristotle.txt' },
+      'chat-history-file-1': { fileId: 77, filename: 'sample-document.txt' },
     }))
 
     render(
@@ -935,7 +935,7 @@ describe('ChatView new chat behavior', () => {
       ],
     })
     window.localStorage.setItem(CHAT_FILE_SCOPE_MAP_STORAGE_KEY, JSON.stringify({
-      'chat-history-scope-1': { fileId: 77, filename: 'The Ethics of Aristotle.txt' },
+      'chat-history-scope-1': { fileId: 77, filename: 'sample-document.txt' },
     }))
 
     render(

@@ -39,7 +39,10 @@ from informity.scanner.extractors.base import (
     get_extractor,
 )
 from informity.scanner.extractors.docling import DoclingExtractor
-from informity.scanner.extractors.pdf_orchestrator import extract_pdf_with_orchestrator
+from informity.scanner.extractors.pdf_orchestrator import (
+    _should_trace_path,
+    extract_pdf_with_orchestrator,
+)
 from informity.scanner.extractors.text_utils import get_max_file_size_bytes
 from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE, IngestionItem
 from informity.utils.file_utils import normalize_extension
@@ -1127,7 +1130,7 @@ async def reindex_file(
                 extracted_chars=len(doc.text or ''),
                 method=doc.metadata.get('converter') or doc.metadata.get('extractor_strategy'),
             )
-        if scanned.filename == '2023 Taxes - Completed and Signed.pdf':
+        if _should_trace_path(path):
             log.debug(
                 'reindex_trace_extraction_result',
                 path=str(path),
@@ -1228,7 +1231,7 @@ async def reindex_file(
         result.ocr_used = bool(file_metadata['ocr_used'])
         result.extracted_chars = len(doc.text or '')
         result.method = file_metadata['extractor'] if isinstance(file_metadata['extractor'], str) else None
-        if scanned.filename == '2023 Taxes - Completed and Signed.pdf':
+        if _should_trace_path(path):
             log.debug(
                 'reindex_trace_final_result',
                 path=str(path),

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import multiprocessing as mp
+import os
 import queue
 import tempfile
 import time
@@ -28,7 +29,7 @@ from informity.scanner.extractors.text_utils import elapsed_ms
 PdfStrategy = Literal['docling_full', 'docling_fast', 'pdf_text_layer']
 _ALLOWED_STRATEGIES: set[str] = set(PDF_EXTRACTION_STRATEGIES)
 OCR_ESCALATION_MAX_PAGES = 10
-_LIVE_TRACE_FILENAME = '2023 Taxes - Completed and Signed.pdf'
+_TRACE_FILE_ENV_KEY = 'INFORMITY_TRACE_FILE'
 log = structlog.get_logger(__name__)
 
 _DOCLING_WORKER_EXCEPTIONS = (
@@ -79,6 +80,13 @@ def _deserialize_doc(payload: dict[str, object], *, source_path: Path, elapsed_m
         char_to_block_type_ranges=payload.get('char_to_block_type_ranges') if isinstance(payload.get('char_to_block_type_ranges'), list) else None,
         char_to_header_level_ranges=payload.get('char_to_header_level_ranges') if isinstance(payload.get('char_to_header_level_ranges'), list) else None,
     )
+
+
+def _should_trace_path(path: Path) -> bool:
+    configured_trace_file = str(os.getenv(_TRACE_FILE_ENV_KEY) or '').strip()
+    if not configured_trace_file:
+        return False
+    return path.name == configured_trace_file or str(path) == configured_trace_file
 
 
 def _docling_extract_worker(
@@ -321,7 +329,7 @@ def extract_pdf_with_orchestrator(path: Path, *, timeout_seconds: int) -> Extrac
     strategy_order = [s for s in settings.pdf_extraction_strategy_order if s in _ALLOWED_STRATEGIES]
     if not strategy_order:
         strategy_order = list(DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER)
-    trace_live_path = path.name == _LIVE_TRACE_FILENAME
+    trace_live_path = _should_trace_path(path)
     if trace_live_path:
         log.debug(
             'pdf_orchestrator_trace_start',
