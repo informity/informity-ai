@@ -2,7 +2,7 @@
 
 This file is the **single source of truth** for types, interfaces, and module responsibilities. When generating code for any module, consult this file first.
 
-**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `upload_policy.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, security, chat_completion_policy, chat_out_of_corpus, chat_sources, error_messages, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry, context_scope_manager); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils, file_utils, number_utils); `sources/` (base, filesystem_adapter, registry, orchestrator); `scanner/` (crawler, watcher, extractors — docling unified extractor + EPUB extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, model_adapter, five_q_classifier, five_q_decision, query_classifier, query_patterns, rag_patterns, nlp_heuristics, specializations, prompt_signals, types, retrieval, prompt_builder, streaming, metadata_filters, classification_policy, term_dictionary, chat_mode, contract_gate, contract_prompt_parser, metrics_payload, system_prompts, timeout_policy, user_messages, web_search, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics runtime modules: `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
+**Project structure:** `src/informity/` holds all backend code: `main.py`, `config.py`, `logging_config.py`, `chat_trace.py`, `file_types.py`, `file_patterns.py`, `upload_policy.py`, `exceptions.py`, `category_patterns.py`; `api/` (routes_scan, routes_index, routes_search, routes_chat, routes_settings, routes_system, schemas, env_vars_metadata, config_reference_metadata, operation_state, setup_state, security, chat_completion_policy, chat_out_of_scope, chat_sources, error_messages, chat_orchestrator, chat_continuation, chat_sse, chat_closeout, chat_stream_registry, context_scope_manager); `db/` (sqlite, vectors, models, utils); `utils/` (path_utils, json_utils, directory_utils, file_utils, number_utils); `sources/` (base, filesystem_adapter, registry, orchestrator); `scanner/` (crawler, watcher, extractors — docling unified extractor + EPUB extractor + text extractor); `indexer/` (chunker, embedder, classifier, reranker, pipeline, post_process, adaptive_tuning, term_dictionary_builder); `llm/` (engine, classifier_service, model_adapter, five_q_classifier, five_q_decision, query_classifier, query_patterns, rag_patterns, nlp_heuristics, specializations, prompt_signals, types, retrieval, prompt_builder, streaming, metadata_filters, classification_policy, term_dictionary, chat_mode, contract_gate, contract_prompt_parser, metrics_payload, system_prompts, timeout_policy, user_messages, web_search, rag_runtime/, handlers/ — metadata, rag, simple). Diagnostics runtime modules: `src/informity/diagnostics/` (issue_types, observer, resource_snapshot). Frontend: `src/frontend/` (React + Vite; build output `dist/` served by FastAPI; context/: ChatContext, ToastContext, ConfirmContext). Vanilla backup archived at `.archive/frontend-bak/`. Tests: `tests/`. Scripts: `scripts/`.
 
 ## Extensibility Vocabulary
 
@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     db_path:       Path | None = Field(default=None)  # Computed: app_data_dir / 'db' / f'{APP_SLUG}.db'
     # Note: vectors_dir removed - vectors now stored in SQLite database (vec_chunks table) via sqlite-vec extension
     models_dir:    Path | None = Field(default=None)  # Computed: app_data_dir/models/llm (shared between desktop and dev)
+    classifier_models_dir: Path | None = Field(default=None)  # Computed: app_data_dir/models/classifier
     logs_dir:      Path | None = Field(default=None)   # Computed: app_data_dir / 'logs'
 
     # Scanner
@@ -80,8 +81,8 @@ class Settings(BaseSettings):
     llm_local_only: bool = True   # Synced from full_privacy when set via UI
 
     # LLM — model configurable via env / config.json
-    # Current default: Qwen3.6 35B A3B (Q4_K_M quantization)
-    llm_model_filename:   str   = 'Qwen3.6-35B-A3B-Q4_K_M.gguf'
+    # Current default: Qwen3.6 35B A3B (UD-Q4_K_M quantization)
+    llm_model_filename:   str   = 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'
     llm_context_length:   int   = 16384  # 16K is ample; profile may override for other models
     llm_max_tokens:      int   = 2048
     llm_temperature:      float = 0.2
@@ -105,6 +106,10 @@ class Settings(BaseSettings):
     # Diagnostics Evaluation (optional)
     diagnostics_metrics_enabled:      bool = False   # Enable diagnostics metrics collection during chat
     diagnostics_dir:               Path | None = Field(default=None)  # Computed: app_data_dir / 'diagnostics'
+    # When true, unload the 5Q classifier before generation begins.
+    # Last-resort memory option for hardware that cannot keep the classifier and
+    # main generation model in memory simultaneously.
+    classifier_unload_before_generation: bool = False
 
     model_config = {'env_prefix': 'INFORMITY_'}
 
@@ -523,8 +528,9 @@ class HealthResponse(BaseModel):
 - **Imported by:** indexer.pipeline
 
 ### `indexer/pipeline.py`
-- Orchestrates indexing for a single file: extract → `post_process_extracted_text(doc.text)` → classify/tag/year → insert file → chunk (parent-child: parents first, then children with `parent_id`) → insert chunks → embed (clean content-only, no metadata prefix) → store in SQLite `vec_chunks` table via sqlite-vec with structured metadata fields (filename, category, extension, year).
+- Orchestrates indexing for a single file: extract → `post_process_extracted_text(doc.text)` → classify/tag/year → insert file → chunk (parent-child: parents first, then children with `parent_id`) → insert chunks → embed child chunks only (clean content-only, no metadata prefix) → store in SQLite `vec_chunks` table via sqlite-vec with structured metadata fields (filename, category, extension, year). Parent chunks remain in `chunks` for parent-document retrieval.
 - `index_file(db, scanned) -> IndexResult`, `reindex_file(db, scanned) -> IndexResult`, `remove_file(db, file) -> bool`. `IndexResult`: path, success, chunks_created, error.
+- PDFs may be routed through the PDF orchestrator first, which tries Docling / text-layer strategies and OCR escalation before falling back to the generic extractor path.
 - Deduplicates embedding cache-missing errors per scan; `reset_repeated_embedding_errors()` called at scan start.
 - **Imports:** db.sqlite, db.vectors (ChunkEmbedding), chunker, classifier, embedder, extractors.base, indexer.post_process
 - **Imported by:** api.routes_scan, api.routes_index
@@ -543,7 +549,7 @@ class HealthResponse(BaseModel):
 - **Imported by:** main (lifespan), api.routes_scan, api.routes_index, llm.model_adapter (get_retrieval_top_k)
 
 ### `llm/engine.py`
-- Loads GGUF via xllamacpp (CommonParams + Server, in-process); default `llm_model_filename` = `Qwen3.6-35B-A3B-Q4_K_M.gguf`; Apple Metal by default.
+- Loads GGUF via xllamacpp (CommonParams + Server, in-process); default `llm_model_filename` = `Qwen3.6-35B-A3B-UD-Q4_K_M.gguf`; Apple Metal by default.
 - Chat template extracted from GGUF metadata via `gguf.GGUFReader` at load time. Token counting via tiktoken cl100k_base (±15% approximation).
 - Provides `generate_stream`; `count_tokens(text)` for RAG prompt budget. Handles model download when not local-only.
 - Uses `utils.directory_utils.ensure_file_directory()` for model directory creation.
@@ -561,22 +567,23 @@ class HealthResponse(BaseModel):
 - **Imported by:** llm.rag, llm.handlers.rag, api.routes_chat
 
 ### `llm/rag.py`
-- `_resolve_handler_for_classification`: classifies query via `query_classifier.classify_query()` → dispatches to handler (MetadataHandler, SimpleHandler, or RAGHandler) based on the 5Q decision mapped into `QueryClassification`.
+- `_resolve_handler_for_classification`: classifies query via `query_classifier.classify_query()` → dispatches to handler (MetadataHandler, SimpleHandler, or RAGHandler) based on the 5Q decision mapped into `QueryClassification`. Assistant mode forces `SimpleHandler`; researcher mode can also run compound primary/secondary paths when the classifier produces them and the budget gate allows it. The classifier singleton can be unloaded before generation only when `classifier_unload_before_generation=True`.
 - **Imports:** query_classifier, handlers (metadata, simple, rag), db.models (ChatMessage), chat_trace (TraceWriter)
 - **Imported by:** api.routes_chat
 
 ### `llm/query_classifier.py`
-- Normalization layer for the 5Q classifier. Calls `FiveQClassifier`, maps the resulting `FiveQDecision` into `QueryClassification`, and adds lightweight local enrichments such as year/file-name extraction, output-format detection, group-by inference, and routing reason codes.
-- Applies the `app_knowledge → lookup` guardrail when needed via the classifier layer, then returns a `QueryClassification` object used by handlers and routing.
+- Normalization layer for the 5Q classifier. Calls the process-wide singleton from `classifier_service.get_classifier()`, maps the resulting `FiveQDecision` into `QueryClassification`, and adds lightweight local enrichments such as year/file-name extraction, output-format detection, group-by inference, and routing reason codes.
+- Applies the `app_knowledge → lookup` guardrail when needed via the classifier layer, then returns a `QueryClassification` object used by handlers and routing. Shadow fields preserve raw model output and the underlying decision for diagnostics.
 - **Imports:** structlog, re, five_q_classifier, five_q_decision, config, db.models, llm.types
 - **Imported by:** llm.rag, llm.handlers.*
 
 ### `llm/five_q_classifier.py`
 - Primary classifier for chat routing. Uses the local GGUF model to answer exactly five schema questions: source, scope, operation, partitions, and exhaustive.
 - Runs at temperature 0.0 with a strict JSON contract and falls back only when the model is unavailable or returns unparseable output.
-- Applies a small guardrail layer after classification for known production invariants.
+- Applies a small guardrail layer after classification for known production invariants; currently this includes forcing `app_knowledge.operation = lookup`.
+- Discovers classifier models from `settings.classifier_models_dir` first, then `settings.models_dir`, with `classifier/` treated as the dedicated classifier-model location.
 - **Imports:** json, os, re, dataclasses, pathlib, structlog, config, exceptions, llm.engine, llm.five_q_decision
-- **Imported by:** llm.query_classifier, api.routes_debug, main warmup path
+- **Imported by:** llm.query_classifier, api.routes_debug, classifier_service, main warmup path
 
 ### `llm/query_patterns.py`
 - Standardized patterns for query intent classification: count, file-listing, coverage, aggregation, continuation, referential follow-up, entity inventory, structured output, and more.
@@ -605,9 +612,9 @@ class HealthResponse(BaseModel):
 - **Imported by:** API routes and chat/runtime specialization-selection paths
 
 ### `llm/retrieval.py`
-- Unified retrieval pipeline (v2): embed query → vector search with WHERE clauses (year, category, extension filters, upload-source exclusion for unscoped corpus turns) → rerank (when enabled by settings) → top-k. For coverage queries, uses file-anchored retrieval (one chunk per file, exhaustive). Supports summary-oriented substantive-section preference to de-prioritize structural sections (appendix/contents/etc.) when synthesis intent is detected.
+- Unified retrieval pipeline (v2): term-dictionary expansion → embed query → vector search with WHERE clauses (year, category, extension filters, upload-source exclusion for unscoped corpus turns) → optional FTS5 candidate augmentation → fetch child chunks → rerank → structural/title/diversity adjustments → top-k child selection → parent document retrieval. For coverage queries, uses file-anchored retrieval (one chunk per file, exhaustive). Supports summary-oriented substantive-section preference to de-prioritize structural sections (appendix/contents/etc.) when synthesis intent is detected.
 - Records metrics in trace writer: `raw_chunks_count`, `children_reranked`, `children_after_structural_filter`, `children_returned`, `parents_returned`.
-- **Imports:** embedder, reranker, db.vectors, db.sqlite (get_chunks_by_parent_ids, get_file_ids_matching_filters), metadata_filters, upload_policy (`UPLOAD_PROVIDER`, `UPLOAD_ENTITY_TYPE`), chat_trace (TraceWriter)
+- **Imports:** embedder, reranker, db.vectors, db.sqlite (get_chunks_by_parent_ids, get_file_ids_matching_filters), metadata_filters, term_dictionary, upload_policy (`UPLOAD_PROVIDER`, `UPLOAD_ENTITY_TYPE`), chat_trace (TraceWriter)
 - **Imported by:** llm.handlers.rag
 
 ### `llm/prompt_builder.py`
@@ -640,7 +647,7 @@ class HealthResponse(BaseModel):
 - **Imported by:** llm.rag
 
 ### `llm/handlers/rag.py`
-- RAGHandler: handles focused and coverage queries using vector search → rerank → LLM pipeline.
+- RAGHandler: handles focused and coverage queries using the retrieval stack, answerability gate, and generation closeout. It can retry summary/comparison queries when evidence is weak before failing closed.
 - **Imports:** query_handler, retrieval, prompt_builder, streaming, model_adapter, query_classifier, db.sqlite, db.models
 - **Imported by:** llm.rag
 
@@ -687,6 +694,7 @@ class HealthResponse(BaseModel):
   - `GET /api/chat/chats/{chat_id}/uploads` — list chat-scoped uploads
   - `POST /api/chat/uploads` — upload + index a temporary chat attachment
 - `DELETE /api/chat/uploads/{upload_id}` — delete one chat attachment (bytes + index artifacts)
+- Chat completion policy uses `api.chat_out_of_scope.resolve_out_of_scope_next_action()` for the final out-of-scope decision path.
 
 ### `api/context_scope_manager.py`
 - Resolves retrieval/generation scope continuity across turns (topic shift vs referential follow-up cues).
