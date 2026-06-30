@@ -178,12 +178,13 @@ def _apply_title_alignment_bias(
     *,
     chunks: list[dict],
     query: str | None,
+    query_terms: set[str] | None = None,
     prefer_title_alignment: bool,
     strict_title_alignment: bool = False,
 ) -> list[dict]:
     if not prefer_title_alignment or len(chunks) <= 1:
         return chunks
-    query_terms = _tokenize_title_alignment_terms(query or '')
+    query_terms = query_terms if query_terms is not None else _tokenize_title_alignment_terms(query or '')
     if not query_terms:
         return chunks
 
@@ -218,11 +219,12 @@ def _apply_strict_title_file_focus(
     *,
     chunks: list[dict],
     query: str | None,
+    query_terms: set[str] | None = None,
     strict_title_alignment: bool,
 ) -> list[dict]:
     if not strict_title_alignment or len(chunks) <= 1:
         return chunks
-    query_terms = _tokenize_title_alignment_terms(query or '')
+    query_terms = query_terms if query_terms is not None else _tokenize_title_alignment_terms(query or '')
     if not query_terms:
         return chunks
 
@@ -931,15 +933,18 @@ async def retrieve_chunks(
         chunks=reranked_children,
         prefer_substantive_sections=prefer_substantive_sections,
     )
+    title_alignment_terms = _tokenize_title_alignment_terms(title_alignment_query or query)
     reranked_children = _apply_title_alignment_bias(
         chunks=reranked_children,
         query=title_alignment_query or query,
+        query_terms=title_alignment_terms,
         prefer_title_alignment=prefer_title_alignment,
         strict_title_alignment=strict_title_alignment,
     )
     reranked_children = _apply_strict_title_file_focus(
         chunks=reranked_children,
         query=title_alignment_query or query,
+        query_terms=title_alignment_terms,
         strict_title_alignment=strict_title_alignment,
     )
     reranked_children = _apply_coverage_document_breadth_bias(

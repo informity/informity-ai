@@ -5,17 +5,16 @@
 
 from __future__ import annotations
 
-from functools import lru_cache
 from typing import TYPE_CHECKING
 
 import structlog
-import tiktoken
 
 from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.chat_mode import normalize_chat_mode
 from informity.llm.model_adapter import get_effective_context_length
 from informity.llm.specializations import compose_prompt
+from informity.llm.tokenization import count_tokens
 
 if TYPE_CHECKING:
     from informity.llm.model_adapter import ModelProfile
@@ -41,23 +40,8 @@ def _coerce_source_rank(value: object) -> int | None:
     return rank if rank > 0 else None
 
 
-@lru_cache(maxsize=1)
-def _encoding() -> tiktoken.Encoding:
-    return tiktoken.get_encoding('cl100k_base')
-
-
-def _count_tokens(text: str) -> int:
-    value = str(text or '')
-    if not value:
-        return 0
-    try:
-        return len(_encoding().encode(value))
-    except Exception:  # noqa: BLE001 - fallback must remain non-fatal
-        return max(1, len(value) // 4)
-
-
 def _estimate_message_tokens(*, role: str, content: str) -> int:
-    return _MESSAGE_OVERHEAD_TOKENS + _count_tokens(role) + _count_tokens(content)
+    return _MESSAGE_OVERHEAD_TOKENS + count_tokens(role) + count_tokens(content)
 
 
 def _reorder_context_chunks_for_attention(context_chunks: list[dict]) -> list[dict]:

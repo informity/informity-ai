@@ -314,7 +314,13 @@ async def _chunk_embed_store(
 
         # Step 3: Create child chunks from parents (smaller, ~150 tokens for precise matching)
         child_chunks = create_child_chunks(parent_chunks)
-        child_chunks, noise_chunks_filtered = filter_noise_chunks(child_chunks)
+        original_child_chunks = list(child_chunks)
+        filtered_child_chunks, noise_chunks_filtered = filter_noise_chunks(child_chunks)
+        if filtered_child_chunks:
+            child_chunks = filtered_child_chunks
+        else:
+            child_chunks = original_child_chunks
+            noise_chunks_filtered = 0
 
         # Log chunking summary at INFO level for operational visibility
         log.info(
@@ -677,7 +683,8 @@ async def index_file(
             filename = file_path.name
             extension = file_path.suffix
             # Compute content hash (Path doesn't have pre-computed hash)
-            content_hash = hashlib.sha256(file_path.read_bytes()).hexdigest()
+            file_bytes = await asyncio.to_thread(file_path.read_bytes)
+            content_hash = hashlib.sha256(file_bytes).hexdigest()
             doc_text = ''
             file_metadata = {}
 

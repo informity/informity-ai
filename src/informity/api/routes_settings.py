@@ -553,7 +553,7 @@ async def get_settings() -> SettingsResponse:
         llm_provider         = str(getattr(s, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower(),
         llm_local_only          = s.llm_local_only,
         llm_model_id         = effective_llm_model_id,
-        ollama_base_url      = str(getattr(s, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip(),
+        ollama_base_url      = str(getattr(s, 'ollama_base_url', config.DEFAULT_OLLAMA_BASE_URL) or config.DEFAULT_OLLAMA_BASE_URL).strip(),
         ollama_timeout_seconds = float(getattr(s, 'ollama_timeout_seconds', 120.0) or 120.0),
         llm_model_filename   = effective_llm_model_filename,
         # rag_max_score and rag_context_ratio are now in model_profile (read-only, model-specific)

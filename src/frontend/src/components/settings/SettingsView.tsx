@@ -18,6 +18,7 @@ import {
 import { sortFileTypeOptions } from '../../utils/fileTypeOrdering'
 import { formatDuration } from '../../utils/formatDuration'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
+import { DEFAULT_OLLAMA_BASE_URL } from '../../constants'
 import {
   cancelModelDownload,
   downloadModel,
@@ -436,7 +437,7 @@ function buildFormState(settings: SettingsData): FormState {
     translate_pinned_languages_limit: translatePinnedLanguageLimit,
     llm_provider: settings.llm_provider === 'ollama' ? 'ollama' : 'local_gguf',
     llm_model_id: String(settings.llm_model_id || ''),
-    ollama_base_url: String(settings.ollama_base_url || 'http://127.0.0.1:11434'),
+    ollama_base_url: String(settings.ollama_base_url || DEFAULT_OLLAMA_BASE_URL),
     ollama_timeout_seconds: Number(settings.ollama_timeout_seconds ?? 120),
     llm_model_filename: canonicalizeModelFilename(settings.llm_model_filename),
   }

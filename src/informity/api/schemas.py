@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from informity.api.setup_state import SetupState
 from informity.config import (
     APP_DISPLAY_NAME,
+    DEFAULT_OLLAMA_BASE_URL,
     DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER,
     DEFAULT_RERANKER_MODEL,
 )
@@ -383,7 +384,7 @@ class SettingsResponse(BaseModel):
     llm_provider:         Literal['local_gguf', 'ollama'] = 'local_gguf'
     llm_local_only:          bool
     llm_model_id:         str
-    ollama_base_url:      str = 'http://127.0.0.1:11434'
+    ollama_base_url:      str = DEFAULT_OLLAMA_BASE_URL
     ollama_timeout_seconds: float = 120.0
     llm_model_filename:   str
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (in ModelProfile, read-only)

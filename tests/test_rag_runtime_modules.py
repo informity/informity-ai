@@ -137,9 +137,7 @@ def test_generation_closeout_source_references_fallback_to_top_when_no_overlap()
         truncate_preview_fn=lambda text: text,
         normalize_relevance_score_fn=lambda score: float(score),
     )
-    assert len(sources) == 5
-    assert sources[0].filename == 'doc_0.pdf'
-    assert sources[-1].filename == 'doc_4.pdf'
+    assert sources == []
 
 
 def test_generation_closeout_source_references_keep_all_when_answer_empty() -> None:
@@ -167,7 +165,7 @@ def test_generation_closeout_source_references_keep_all_when_answer_empty() -> N
     assert {source.filename for source in sources} == {'a.pdf', 'b.pdf'}
 
 
-def test_generation_closeout_keeps_fallback_sources_when_verification_finds_none() -> None:
+def test_generation_closeout_fail_closed_when_assessment_finds_thin_evidence() -> None:
     chunks = [
         {
             'filename': 'a.pdf',
@@ -188,8 +186,7 @@ def test_generation_closeout_keeps_fallback_sources_when_verification_finds_none
         truncate_preview_fn=lambda text: text,
         normalize_relevance_score_fn=lambda score: float(score),
     )
-    assert len(sources) == 2
-    assert {source.filename for source in sources} == {'a.pdf', 'b.pdf'}
+    assert sources == []
 
 
 def test_citation_verification_support_assessment_flags_thin_evidence() -> None:

@@ -21,11 +21,6 @@ class IntentProfileId(StrEnum):
     CLARIFICATION_OR_DISAMBIGUATION = 'clarification_or_disambiguation'
 
 
-class RetrievalMode(StrEnum):
-    FOCUSED = 'focused'
-    COVERAGE = 'coverage'
-
-
 class OutputShape(StrEnum):
     STRUCTURED_EXTRACT = 'structured_extract'
     NARRATIVE_SYNTHESIS = 'narrative_synthesis'
@@ -86,10 +81,6 @@ class TimeoutReason(StrEnum):
     UNKNOWN_TIMEOUT = 'unknown_timeout'
 
 
-class FallbackReason(StrEnum):
-    COVERAGE_EVIDENCE_FLOOR_OVERRIDE = 'coverage_evidence_floor_override'
-
-
 class FilterOperator(StrEnum):
     EQ = 'eq'
     NE = 'ne'
@@ -148,7 +139,6 @@ __all__ = [
     'ContinuationResolutionReason',
     'ConfidenceBand',
     'DiagnosticsQueryType',
-    'FallbackReason',
     'FilterOperator',
     'GroupBy',
     'IntentLabel',
@@ -158,7 +148,6 @@ __all__ = [
     'OutputShape',
     'QuerySubtype',
     'QueryType',
-    'RetrievalMode',
     'StreamSignalTag',
     'StructuralGapReason',
     'TimeoutReason',

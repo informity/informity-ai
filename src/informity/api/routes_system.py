@@ -46,6 +46,7 @@ from informity.api.setup_models import (
 from informity.api.setup_state import SetupState
 from informity.config import (
     APP_DISPLAY_NAME,
+    DEFAULT_OLLAMA_BASE_URL,
     DirNames,
     are_required_models_cached,
     configure_hf_environment,
@@ -224,7 +225,7 @@ def _is_model_file_ready(model_filename: str) -> bool:
 
 
 def _probe_ollama_status(*, base_url: str | None = None, model: str | None = None) -> tuple[bool, bool, str | None]:
-    resolved_base_url = str(base_url if base_url is not None else getattr(settings, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip().rstrip('/')
+    resolved_base_url = str(base_url if base_url is not None else getattr(settings, 'ollama_base_url', DEFAULT_OLLAMA_BASE_URL) or DEFAULT_OLLAMA_BASE_URL).strip().rstrip('/')
     resolved_model = str(model if model is not None else getattr(settings, 'llm_model_id', '') or '').strip()
     if not resolved_model:
         return False, False, 'llm_model_id is required for ollama provider'
@@ -882,7 +883,7 @@ async def get_ollama_status(
     base_url: str | None = None,
     model: str | None = None,
 ) -> OllamaStatusResponse:
-    resolved_base_url = str(base_url if base_url is not None else getattr(settings, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip()
+    resolved_base_url = str(base_url if base_url is not None else getattr(settings, 'ollama_base_url', DEFAULT_OLLAMA_BASE_URL) or DEFAULT_OLLAMA_BASE_URL).strip()
     resolved_model = str(model if model is not None else getattr(settings, 'llm_model_id', '') or '').strip()
     reachable, model_ready, detail = _probe_ollama_status(base_url=resolved_base_url, model=resolved_model)
     if not reachable:

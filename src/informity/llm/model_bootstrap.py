@@ -69,6 +69,8 @@ def download_gguf_model(
         if expected_sha256:
             actual_sha256 = _compute_sha256(target_path)
             if actual_sha256.lower() != expected_sha256.strip().lower():
+                with suppress(OSError):
+                    target_path.unlink(missing_ok=True)
                 raise LLMError(
                     f'{model_label} integrity verification failed for {filename}: '
                     f'expected {expected_sha256}, got {actual_sha256}.'
@@ -212,30 +214,3 @@ def download_gguf_model(
         elapsed_s=round(elapsed_s, 1),
     )
     return target_path
-
-
-def download_gguf_model_from_spec(
-    spec: GGUFModelSpec,
-    target_path: Path,
-    *,
-    progress_callback: Callable[[int, int | None, float], None] | None = None,
-    cancel_event: Event | None = None,
-) -> Path:
-    return download_gguf_model(
-        repo_id=spec.repo_id,
-        filename=spec.filename,
-        target_path=target_path,
-        expected_sha256=spec.expected_sha256,
-        model_label=spec.model_label,
-        revision=spec.revision,
-        progress_callback=progress_callback,
-        cancel_event=cancel_event,
-    )
-
-
-__all__ = [
-    'CLASSIFIER_GGUF_SPEC',
-    'GGUFModelSpec',
-    'download_gguf_model',
-    'download_gguf_model_from_spec',
-]

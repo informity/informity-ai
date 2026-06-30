@@ -20,6 +20,7 @@ log = structlog.get_logger(__name__)
 _ALLOWED_SOURCES = {'index_metadata', 'document_content', 'chat_history', 'app_knowledge'}
 _ALLOWED_SCOPES = {'targeted', 'broad', 'none'}
 _ALLOWED_OPERATIONS = {'lookup', 'count_enumerate', 'summarize_synthesize', 'compare'}
+_ALLOWED_APP_KNOWLEDGE_OPERATIONS = {'lookup', 'summarize_synthesize'}
 _ROUTER_MAX_TOKENS = 220
 _ROUTER_TEMPERATURE = 0.0
 
@@ -176,7 +177,7 @@ class FiveQClassificationResult:
 
 
 def apply_guardrails(decision: FiveQDecision, query: str) -> tuple[FiveQDecision, str | None]:
-    if decision.source == 'app_knowledge' and decision.operation != 'lookup':
+    if decision.source == 'app_knowledge' and decision.operation not in _ALLOWED_APP_KNOWLEDGE_OPERATIONS:
         log.info(
             'five_q_classifier_guardrail_applied',
             guardrail_applied='app_knowledge_operation',
@@ -254,7 +255,13 @@ class FiveQClassifier:
 
         if os.environ.get('PYTEST_CURRENT_TEST') or self._model_path is None:
             decision = _fallback_decision(text, context)
-            return FiveQClassificationResult(decision=decision, raw_output='{"mode":"fallback"}', model_name='fallback')
+            decision, guardrail_applied = apply_guardrails(decision, text)
+            return FiveQClassificationResult(
+                decision=decision,
+                raw_output='{"mode":"fallback"}',
+                model_name='fallback',
+                guardrail_applied=guardrail_applied,
+            )
 
         if context.prior_user_query:
             prior_user_query = str(context.prior_user_query or '').strip()

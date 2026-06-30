@@ -8,6 +8,7 @@ import json
 import os
 from pathlib import Path
 
+from informity import config
 from informity.api.schemas import EnvVarGroup, EnvVarItem, EnvVarsResponse
 from informity.config import APP_SLUG, DirNames, Settings
 from informity.file_types import SUPPORTED_EXTENSIONS_CANONICAL_ORDER
@@ -191,7 +192,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             ('llm_model_id', 'Canonical model identifier used for profile matching and diagnostics metadata.'),
             ('llm_model_filename', 'Filename of the GGUF model file inside the models directory.'),
             ('llm_provider', 'LLM runtime provider: local_gguf (default) or ollama.'),
-            ('ollama_base_url', 'Base URL for Ollama API when llm_provider=ollama (default: http://127.0.0.1:11434).'),
+            ('ollama_base_url', f'Base URL for Ollama API when llm_provider=ollama (default: {config.DEFAULT_OLLAMA_BASE_URL}).'),
             ('ollama_timeout_seconds', 'Request timeout in seconds for Ollama chat requests.'),
             ('llm_temperature', 'Sampling temperature (0 = deterministic; higher = more varied).'),
             # NOTE: rag_context_ratio, rag_max_score, rag_top_k, coverage_top_k are model-specific (ModelProfile, not configurable via env)

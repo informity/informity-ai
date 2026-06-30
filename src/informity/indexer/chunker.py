@@ -9,13 +9,11 @@ from dataclasses import dataclass
 
 import pysbd
 import structlog
-import tiktoken
 
 from informity.config import settings
+from informity.llm.tokenization import count_tokens
 
 log = structlog.get_logger(__name__)
-
-_TIKTOKEN_ENCODER = tiktoken.get_encoding('cl100k_base')
 _SENTENCE_SEGMENTER = pysbd.Segmenter(language='en', clean=False)
 _HEADER_MIN_CONTENT_CHARS = 50
 _TABLE_HEADER_LINE_PATTERN = re.compile(r'^\s*\|.*\|\s*$')
@@ -34,13 +32,6 @@ class ChunkData:
     section_path: str | None = None
     block_type:   str | None = None  # Block type: 'table', 'form', 'narrative' (from docling provenance)
     parent_chunk_index: int | None = None  # For child chunks: index of parent chunk (before DB insertion)
-
-
-def _count_tokens(text: str) -> int:
-    if not text:
-        return 0
-    return len(_TIKTOKEN_ENCODER.encode(text, disallowed_special=()))
-
 
 def _lookup_range_with_starts(
     ranges: list[tuple[int, int, int | str]] | None,
@@ -195,7 +186,7 @@ def chunk_text(
     chunk_start_section_stack: list[tuple[int, str]] = []  # Section stack when chunk started
 
     for part in parts:
-        part_tokens = _count_tokens(part)
+        part_tokens = count_tokens(part)
 
         # Check if this part is a markdown header and update section stack
         header_match = re.match(r'^(#+)\s+(.+)$', part.strip())
@@ -321,7 +312,7 @@ def chunk_text(
             # Start new chunk with overlap (sentence-aligned)
             overlap_text = _get_overlap_sentences(chunk_content, overlap)
             current_chunk = [overlap_text] if overlap_text else []
-            current_tokens = _count_tokens(overlap_text)
+            current_tokens = count_tokens(overlap_text)
             # Update character position and section stack for overlap
             if overlap_text:
                 chunk_start_char_pos = char_pos - len(overlap_text)
@@ -371,7 +362,7 @@ def chunk_text(
         chunks.append(ChunkData(
             content=chunk_content,
             chunk_index=chunk_index,
-            token_count=_count_tokens(chunk_content),
+            token_count=count_tokens(chunk_content),
             page_number=page_number,
             start_page=start_page,
             end_page=end_page,
@@ -428,7 +419,7 @@ def _get_overlap_sentences(text: str, overlap_tokens: int) -> str:
     overlap_count = 0
 
     for sentence in reversed(sentences):
-        sent_tokens = _count_tokens(sentence)
+        sent_tokens = count_tokens(sentence)
         if overlap_count + sent_tokens <= overlap_tokens:
             overlap_sentences.insert(0, sentence)
             overlap_count += sent_tokens
@@ -509,7 +500,7 @@ def create_child_chunks(
         current_tokens = 0
 
         for sentence in sentences:
-            sent_tokens = _count_tokens(sentence)
+            sent_tokens = count_tokens(sentence)
 
             # If adding this sentence would exceed child_size, finalize current child
             if current_tokens + sent_tokens > child_size and current_child:
@@ -530,7 +521,7 @@ def create_child_chunks(
                 # Start new child with overlap (last N sentences from previous child)
                 overlap_text = _get_overlap_sentences(child_content, overlap)
                 current_child = [overlap_text] if overlap_text else []
-                current_tokens = _count_tokens(overlap_text)
+                current_tokens = count_tokens(overlap_text)
 
             current_child.append(sentence)
             current_tokens += sent_tokens
@@ -541,7 +532,7 @@ def create_child_chunks(
             child_chunks.append(ChunkData(
                 content=child_content,
                 chunk_index=child_index,
-                token_count=_count_tokens(child_content),
+                token_count=count_tokens(child_content),
                 page_number=parent.page_number,
                 start_page=parent.start_page,
                 end_page=parent.end_page,

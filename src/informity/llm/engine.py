@@ -25,12 +25,11 @@ import urllib.request
 from collections.abc import AsyncGenerator, Callable
 from contextlib import suppress
 from pathlib import Path
-from typing import Protocol
 
 import structlog
 from thinkstrip import ThinkStrip, strip_think_prefill
 
-from informity.config import settings
+from informity.config import DEFAULT_OLLAMA_BASE_URL, settings
 from informity.exceptions import LLMError
 from informity.llm.model_adapter import (
     get_effective_context_length,
@@ -40,6 +39,7 @@ from informity.llm.model_adapter import (
 )
 from informity.llm.model_bootstrap import download_gguf_model
 from informity.llm.timeout_policy import normalize_timeout_reason
+from informity.llm.tokenization import count_tokens
 from informity.llm.types import StreamSignalTag, TimeoutReason
 
 log = structlog.get_logger(__name__)
@@ -60,21 +60,6 @@ _FIRST_TOKEN_WATCHDOG_RATIO = 0.30
 _SLOW_PROFILE_TPS_THRESHOLD = 6.0
 _SLOW_PROFILE_WATCHDOG_RATIO = 0.50
 _SLOW_PROFILE_WATCHDOG_MAX_SECONDS = 600.0
-
-
-# ==============================================================================
-# Token counting (tiktoken approximation)
-# ==============================================================================
-
-def _count_tokens(text: str) -> int:
-    # Approximate token count using tiktoken cl100k_base.
-    # Accuracy vs. Qwen3 tokenizer: ±15%. The 100-token safety margin in
-    # _truncate_messages_to_fit absorbs this variance for budget management.
-    if not text:
-        return 0
-    import tiktoken
-    enc = tiktoken.get_encoding('cl100k_base')
-    return len(enc.encode(text))
 
 
 # ==============================================================================
@@ -275,8 +260,8 @@ def _truncate_messages_to_fit(
 
     def _count_prompt(msgs: list[dict[str, str]]) -> int:
         if force_chatml:
-            return _count_tokens(_fallback_chatml_prompt(msgs))
-        return _count_tokens(_messages_to_prompt(chat_template, msgs))
+            return count_tokens(_fallback_chatml_prompt(msgs))
+        return count_tokens(_messages_to_prompt(chat_template, msgs))
 
     total_tokens = _count_prompt(messages)
     truncation_info = {
@@ -472,47 +457,6 @@ def _run_stream_worker(
 
 
 # ==============================================================================
-# Provider interfaces
-# ==============================================================================
-
-class LLMProvider(Protocol):
-    @property
-    def is_loaded(self) -> bool: ...
-
-    def unload(self) -> None: ...
-    def count_tokens(self, text: str) -> int: ...
-    def _get_model_path(self) -> Path: ...
-    def _download_model(
-        self,
-        target_path: Path,
-        repo_id: str | None = None,
-        filename: str | None = None,
-        revision: str | None = None,
-        expected_sha256: str | None = None,
-        progress_callback: Callable[[int, int | None, float], None] | None = None,
-        cancel_event: threading.Event | None = None,
-    ) -> None: ...
-    def chat_complete(
-        self,
-        messages: list[dict],
-        max_tokens: int = 400,
-        temperature: float = 0.0,
-        stop: list[str] | None = None,
-        response_format: dict | None = None,
-    ) -> dict: ...
-    async def generate_stream(
-        self,
-        messages:        list[dict[str, str]],
-        max_tokens:      int | None       = None,
-        temperature:     float | None     = None,
-        top_p:           float | None     = None,
-        stop:            list[str] | None = None,
-        force_chatml:    bool             = False,
-        timeout_seconds: float | None     = None,
-    ) -> AsyncGenerator[str | tuple[str, object]]: ...
-
-
-# ==============================================================================
 # XllamaCppProvider — lazy-loading xllamacpp wrapper
 # ==============================================================================
 
@@ -553,7 +497,7 @@ class XllamaCppProvider:
     def count_tokens(self, text: str) -> int:
         # Count tokens using tiktoken cl100k_base (±15% vs Qwen3 tokenizer).
         # Used by the RAG pipeline for context budget management.
-        return _count_tokens(text)
+        return count_tokens(text)
 
     # -- Model path -----------------------------------------------------------
 
@@ -611,7 +555,7 @@ class XllamaCppProvider:
             context_length = ctx_len,
             profile_context_length = profile_ctx_len,
             configured_context_length = configured_ctx_len if configured_ctx_len > 0 else None,
-            n_batch        = 512,
+            n_batch        = 256,
             n_threads      = settings.llm_cpu_threads,
         )
 
@@ -861,7 +805,7 @@ class XllamaCppProvider:
         start           = time.perf_counter()
         token_count     = 0
         first_token_ms: float | None = None
-        total_text      = ''
+        total_text_parts: list[str] = []
         loop            = asyncio.get_running_loop()
         queue: asyncio.Queue[str | object] = asyncio.Queue()
         exception_holder: list[BaseException] = []
@@ -927,12 +871,12 @@ class XllamaCppProvider:
                 if first_token_ms is None:
                     first_token_ms = (time.perf_counter() - start) * 1000
                 token_count += 1
-                total_text += emit_text
+                total_text_parts.append(emit_text)
                 yield emit_text
 
             if timeout_occurred:
                 timeout_notice = f'\n\n[Response truncated: generation time limit ({int(wall_clock)}s) reached]'
-                total_text += timeout_notice
+                total_text_parts.append(timeout_notice)
                 yield timeout_notice
                 yield (StreamSignalTag.TIMEOUT, {
                     'reason':          timeout_reason or TimeoutReason.UNKNOWN_TIMEOUT.value,
@@ -966,7 +910,7 @@ class XllamaCppProvider:
                         if first_token_ms is None:
                             first_token_ms = (time.perf_counter() - start) * 1000
                         token_count += 1
-                        total_text += cleaned_fallback
+                        total_text_parts.append(cleaned_fallback)
                         yield cleaned_fallback
                 if token_count == 0:
                     raise LLMError('Local model returned no response tokens')
@@ -1022,7 +966,7 @@ class XllamaCppProvider:
                 'llm_stream_completed',
                 messages_count   = len(messages),
                 tokens           = token_count,
-                output_length    = len(total_text),
+                output_length    = len(''.join(total_text_parts)),
                 elapsed_ms       = round(elapsed_ms, 1),
                 first_token_ms   = round(first_token_ms, 1) if first_token_ms is not None else None,
                 finish_reason    = finish_reason,
@@ -1037,7 +981,7 @@ class OllamaProvider:
     """Ollama-backed provider using /api/chat compatible streaming."""
 
     def __init__(self, model_id: str | None = None) -> None:
-        self._base_url = str(getattr(settings, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip().rstrip('/')
+        self._base_url = str(getattr(settings, 'ollama_base_url', DEFAULT_OLLAMA_BASE_URL) or DEFAULT_OLLAMA_BASE_URL).strip().rstrip('/')
         self._timeout_seconds = float(getattr(settings, 'ollama_timeout_seconds', 120.0) or 120.0)
         self._model_id_override = str(model_id or '').strip().lower() or None
 
@@ -1050,7 +994,7 @@ class OllamaProvider:
         return
 
     def count_tokens(self, text: str) -> int:
-        return _count_tokens(text)
+        return count_tokens(text)
 
     def _get_model_path(self) -> Path:
         if self._model_id_override:
@@ -1287,7 +1231,7 @@ class OllamaProvider:
         start           = time.perf_counter()
         token_count     = 0
         first_token_ms: float | None = None
-        total_text      = ''
+        total_text_parts: list[str] = []
         finish_reason: str | None = None
         timeout_occurred = False
         timeout_reason: str | None = None
@@ -1321,12 +1265,12 @@ class OllamaProvider:
                 if first_token_ms is None:
                     first_token_ms = (time.perf_counter() - start) * 1000
                 token_count += 1
-                total_text += emit_text
+                total_text_parts.append(emit_text)
                 yield emit_text
 
             if timeout_occurred:
                 timeout_notice = f'\n\n[Response truncated: generation time limit ({int(wall_clock)}s) reached]'
-                total_text += timeout_notice
+                total_text_parts.append(timeout_notice)
                 yield timeout_notice
                 yield (StreamSignalTag.TIMEOUT, {
                     'reason':          timeout_reason or TimeoutReason.UNKNOWN_TIMEOUT.value,
@@ -1363,7 +1307,7 @@ class OllamaProvider:
                 provider='ollama',
                 messages_count=len(messages),
                 tokens=token_count,
-                output_length=len(total_text),
+                output_length=len(''.join(total_text_parts)),
                 elapsed_ms=round(elapsed_ms, 1),
                 first_token_ms=round(first_token_ms, 1) if first_token_ms is not None else None,
                 finish_reason=finish_reason,

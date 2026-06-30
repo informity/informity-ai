@@ -213,14 +213,17 @@ def _prune_file_reindex_history_locked() -> None:
         return
     overflow = len(_FILE_REINDEX_OPERATIONS) - _FILE_REINDEX_MAX_HISTORY
     removed = 0
+    deferred_running: list[tuple[str, FileReindexOperation]] = []
     while removed < overflow and _FILE_REINDEX_OPERATIONS:
         op_id, op = _FILE_REINDEX_OPERATIONS.popitem(last=False)
         if op['status'] == 'running':
             # Never evict running operations.
-            _FILE_REINDEX_OPERATIONS[op_id] = op
-            break
+            deferred_running.append((op_id, op))
+            continue
         _FILE_REINDEX_RUNNING_BY_FILE_ID.pop(op['file_id'], None)
         removed += 1
+    for op_id, op in deferred_running:
+        _FILE_REINDEX_OPERATIONS[op_id] = op
 
 
 # ==============================================================================

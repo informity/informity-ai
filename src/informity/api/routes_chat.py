@@ -41,6 +41,7 @@ from informity.api.chat_continuation import (
 from informity.api.chat_continuation import (
     is_duplicate_continuation_pass as _is_duplicate_continuation_pass,
 )
+from informity.api.chat_continuation import normalize_continuation_classification
 from informity.api.chat_continuation import (
     resolve_auto_continue_policy as _resolve_auto_continue_policy,
 )
@@ -152,6 +153,8 @@ from informity.upload_policy import (
 )
 from informity.utils.json_utils import serialize_api_response
 from informity.utils.number_utils import safe_float, safe_int
+
+_normalize_continuation_classification = normalize_continuation_classification
 
 # Trace logging constants
 MAX_ANSWER_PREVIEW_LENGTH = 1500  # Maximum length of answer preview in trace logs

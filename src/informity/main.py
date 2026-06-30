@@ -537,6 +537,7 @@ async def _run_startup_sequence(app: FastAPI) -> None:
     and MCP startup happen in a predictable order while /api/health reports progress.
     """
     startup_started_at = time.perf_counter()
+    sidecar_startup_attempted = False
     try:
         await _ensure_classifier_model_present(app)
 
@@ -562,18 +563,13 @@ async def _run_startup_sequence(app: FastAPI) -> None:
                     status='ok',
                 )
 
-        loop = asyncio.get_running_loop()
-        start_watcher(loop)
-        if settings.mcp_enabled and settings.mcp_auto_start:
-            await mcp_lifecycle.start_from_settings()
-
         _set_startup_state(
             app,
             status='ok',
             reason='ready',
             detail='Startup complete.',
-            progress_done=None,
-            progress_total=None,
+            progress_done=1,
+            progress_total=1,
             progress_percent=100.0,
         )
         log.info(
@@ -600,6 +596,16 @@ async def _run_startup_sequence(app: FastAPI) -> None:
         _set_startup_state(app, status='error', reason='startup_sequence', detail=detail)
         log.exception('startup_sequence_unexpected_failure', error=str(exc))
         raise
+    finally:
+        if not sidecar_startup_attempted:
+            sidecar_startup_attempted = True
+            try:
+                loop = asyncio.get_running_loop()
+                start_watcher(loop)
+                if settings.mcp_enabled and settings.mcp_auto_start:
+                    await mcp_lifecycle.start_from_settings()
+            except Exception as exc:
+                log.warning('startup_sidecars_failed', error=str(exc))
 
 
 async def _backfill_page_counts(conn: object) -> None:

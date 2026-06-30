@@ -334,27 +334,37 @@ class VectorStore:
         where_sql = ' AND '.join(where_parts)
 
         query = f'''
-            WITH ranked AS (
+            WITH scored AS (
                 SELECT
                     chunk_id,
                     file_id,
                     file_path,
                     filename,
                     chunk_text,
-                    vec_distance_cosine(vector, ?) AS distance,
-                    ROW_NUMBER() OVER (
-                        PARTITION BY file_id
-                        ORDER BY vec_distance_cosine(vector, ?) ASC
-                    ) AS rn
+                    vec_distance_cosine(vector, ?) AS distance
                 FROM vec_chunks
                 WHERE {where_sql}
+            ),
+            ranked AS (
+                SELECT
+                    chunk_id,
+                    file_id,
+                    file_path,
+                    filename,
+                    chunk_text,
+                    distance,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY file_id
+                        ORDER BY distance ASC
+                    ) AS rn
+                FROM scored
             )
             SELECT chunk_id, file_id, file_path, filename, chunk_text, distance
             FROM ranked
             WHERE rn = 1
             ORDER BY distance ASC
         '''
-        params: list[object] = [query_blob, query_blob, *file_ids_unique]
+        params: list[object] = [query_blob, *file_ids_unique]
         if where_clause and where_params:
             params.extend(where_params)
 
