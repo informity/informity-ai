@@ -7,8 +7,9 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import queue
-import time
 import tempfile
+import time
+from contextlib import suppress
 from pathlib import Path
 from typing import Literal
 
@@ -167,21 +168,15 @@ def _pdf_is_image_only(file_path: Path) -> bool:
                 if str(page_text or '').strip():
                     return False
             finally:
-                try:
+                with suppress(Exception):
                     if text_page is not None:
                         text_page.close()
-                except Exception:
-                    pass
-                try:
+                with suppress(Exception):
                     page.close()
-                except Exception:
-                    pass
         return True
     finally:
-        try:
+        with suppress(Exception):
             document.close()
-        except Exception:
-            pass
 
 
 def _get_page_count(file_path: Path) -> int:
@@ -193,10 +188,8 @@ def _get_page_count(file_path: Path) -> int:
         try:
             return len(document)
         finally:
-            try:
+            with suppress(Exception):
                 document.close()
-            except Exception:
-                pass
     except Exception:
         return 0
 

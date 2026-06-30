@@ -25,8 +25,8 @@ from informity.db.models import (
     IssueType,
     ScanErrorRecord,
     ScanRecord,
-    ScanStatus,
     ScanSkippedFileRecord,
+    ScanStatus,
 )
 from informity.db.utils import (
     parse_file_category,

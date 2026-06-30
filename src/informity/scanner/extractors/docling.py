@@ -194,10 +194,10 @@ class DoclingExtractor:
             '<!-- table -->',
         )
         lowered = stripped.casefold()
-        if any(pattern in lowered for pattern in low_signal_patterns) and alpha_tokens <= _SPARSE_EXTRACTION_ALPHA_TOKEN_THRESHOLD:
-            return True
-
-        return False
+        return (
+            any(pattern in lowered for pattern in low_signal_patterns)
+            and alpha_tokens <= _SPARSE_EXTRACTION_ALPHA_TOKEN_THRESHOLD
+        )
 
     @staticmethod
     def _is_image_source(path: Path) -> bool:

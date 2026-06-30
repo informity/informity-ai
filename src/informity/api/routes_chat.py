@@ -42,9 +42,6 @@ from informity.api.chat_continuation import (
     is_duplicate_continuation_pass as _is_duplicate_continuation_pass,
 )
 from informity.api.chat_continuation import (
-    normalize_continuation_classification as _normalize_continuation_classification,
-)
-from informity.api.chat_continuation import (
     resolve_auto_continue_policy as _resolve_auto_continue_policy,
 )
 from informity.api.chat_continuation import (
@@ -2337,7 +2334,11 @@ async def chat(
                 pre_first_yield_timeout_occurred=pre_first_yield_timeout_occurred,
                 pre_first_yield_elapsed_seconds=pre_first_yield_elapsed_seconds,
                 pre_first_yield_stage=pre_first_yield_stage,
-                guardrail_applied=getattr(classification, 'guardrail_applied', None) if classification is not None else None,
+                guardrail_applied=(
+                    getattr(locked_classification, 'guardrail_applied', None)
+                    if locked_classification is not None
+                    else None
+                ),
             )
             detected_issues = detect_issues(refusal_text, metrics_model)
             issue_strings = [issue.value for issue in detected_issues]

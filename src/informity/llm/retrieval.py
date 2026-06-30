@@ -13,10 +13,10 @@ import structlog
 
 from informity.config import settings
 from informity.db.sqlite import get_chunks_by_parent_ids
+from informity.db.utils import parse_json_tags
 from informity.db.vectors import vector_store
 from informity.indexer.embedder import embedder
 from informity.indexer.reranker import reranker
-from informity.db.utils import parse_json_tags
 from informity.llm.metadata_filters import (
     MetadataFilter,
     build_where_clause_and_params,
