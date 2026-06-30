@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import 'remixicon/fonts/remixicon.css'
 import './index.css'
 import App from './App'
+import { BootOverlay } from './components/BootOverlay'
 import { bootstrapDesktopBackend } from './tauriRuntime'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_STORAGE_KEY } from './utils/uiTheme'
 
@@ -35,11 +36,6 @@ async function initializeTheme() {
   }
 }
 
-function setBootStatus(message: string) {
-  const status = document.getElementById('boot-status')
-  if (status) status.textContent = message
-}
-
 function hideBootOverlay() {
   const overlay = document.getElementById('boot-overlay')
   if (!overlay) return
@@ -49,22 +45,48 @@ function hideBootOverlay() {
 
 async function renderApp() {
   let startupError: string | null = null
-  setBootStatus('Starting Informity AI…')
+  const bootOverlayElement = document.getElementById('boot-overlay')
+  const bootOverlayRoot = bootOverlayElement ? createRoot(bootOverlayElement) : null
+  const bootStartedAt = Date.now()
+  let bootMessage = 'Starting application...'
+  const renderBootOverlay = () => {
+    if (!bootOverlayRoot) return
+    bootOverlayRoot.render(
+      <StrictMode>
+        <BootOverlay
+          title={bootMessage}
+          elapsedSeconds={Math.max(0, Math.floor((Date.now() - bootStartedAt) / 1000))}
+        />
+      </StrictMode>,
+    )
+  }
+
+  renderBootOverlay()
   await initializeTheme()
+  const elapsedTimerId = window.setInterval(renderBootOverlay, 1000)
   const longStartTimerId = window.setTimeout(() => {
-    setBootStatus('Still working, this may take a moment…')
+    bootMessage = 'Still starting…'
+    renderBootOverlay()
   }, 20000)
 
   try {
-    await bootstrapDesktopBackend((message) => {
-      setBootStatus(message)
+    await bootstrapDesktopBackend((payload) => {
+      const message = payload.reason === 'downloading_classifier_model'
+        ? 'Setting up application...'
+        : payload.message
+      bootMessage = message
+      renderBootOverlay()
     })
     window.clearTimeout(longStartTimerId)
-    setBootStatus('Loading interface…')
+    window.clearInterval(elapsedTimerId)
+    bootMessage = 'Loading interface...'
+    renderBootOverlay()
   } catch (error) {
     window.clearTimeout(longStartTimerId)
+    window.clearInterval(elapsedTimerId)
     startupError = error instanceof Error ? error.message : String(error)
-    setBootStatus('Startup failed. Rendering diagnostics…')
+    bootMessage = 'Startup failed.'
+    renderBootOverlay()
   }
 
   createRoot(document.getElementById('root')!).render(
@@ -73,9 +95,14 @@ async function renderApp() {
     </StrictMode>,
   )
 
-  requestAnimationFrame(() => {
-    hideBootOverlay()
-  })
+  if (!startupError) {
+    requestAnimationFrame(() => {
+      if (bootOverlayRoot) {
+        bootOverlayRoot.unmount()
+      }
+      hideBootOverlay()
+    })
+  }
 }
 
 void renderApp()

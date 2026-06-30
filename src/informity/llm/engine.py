@@ -15,7 +15,6 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import os
 import shutil
@@ -39,9 +38,9 @@ from informity.llm.model_adapter import (
     get_profile,
     get_profile_for_filename,
 )
+from informity.llm.model_bootstrap import download_gguf_model
 from informity.llm.timeout_policy import normalize_timeout_reason
 from informity.llm.types import StreamSignalTag, TimeoutReason
-from informity.utils.directory_utils import ensure_file_directory
 
 log = structlog.get_logger(__name__)
 _PROMPT_RENDER_EXCEPTIONS = (ValueError, TypeError, AttributeError, RuntimeError)
@@ -683,12 +682,8 @@ class XllamaCppProvider:
         progress_callback: Callable[[int, int | None, float], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> None:
-        # Download the GGUF model from Hugging Face Hub to the local models dir.
-        # Streams bytes to a temporary file so callers can receive real-time
-        # progress and can cooperatively cancel in-flight downloads.
         repo = repo_id or settings.llm_hf_repo
         fname = filename or target_path.name
-
         log.info(
             'downloading_llm_model',
             repo=repo,
@@ -696,138 +691,17 @@ class XllamaCppProvider:
             revision=revision,
             target=str(target_path),
         )
-        start = time.perf_counter()
-
-        try:
-            from huggingface_hub import hf_hub_url
-            from huggingface_hub.utils import build_hf_headers, get_session
-
-            from informity.config import configure_hf_environment
-
-            configure_hf_environment(fail_on_missing_full_privacy_models=False)
-            ensure_file_directory(target_path)
-
-            tmp_path = target_path.parent / f'{target_path.name}.incomplete'
-            bytes_done = int(tmp_path.stat().st_size) if tmp_path.exists() else 0
-
-            url = hf_hub_url(repo_id=repo, filename=fname, revision=revision)
-            headers = build_hf_headers()
-            if bytes_done > 0:
-                headers['Range'] = f'bytes={bytes_done}-'
-
-            def _extract_total_bytes(response_obj: object, completed: int) -> int | None:
-                headers_obj = getattr(response_obj, 'headers', None)
-                if headers_obj is None:
-                    return None
-                content_range = headers_obj.get('Content-Range', '')
-                content_length = headers_obj.get('Content-Length')
-                if content_range and '/' in content_range:
-                    with suppress(ValueError):
-                        return int(content_range.split('/')[-1])
-                    return None
-                if content_length:
-                    with suppress(ValueError):
-                        return completed + int(content_length)
-                return None
-
-            def _status_code(response_obj: object) -> int | None:
-                status = getattr(response_obj, 'status_code', None)
-                return status if isinstance(status, int) else None
-
-            def _iter_chunks(response_obj: object, size: int):
-                iter_bytes = getattr(response_obj, 'iter_bytes', None)
-                if callable(iter_bytes):
-                    yield from iter_bytes(chunk_size=size)
-                    return
-                iter_content = getattr(response_obj, 'iter_content', None)
-                if callable(iter_content):
-                    yield from iter_content(chunk_size=size)
-                    return
-                raise LLMError('Unsupported HTTP response stream interface')
-
-            session = get_session()
-            last_report = time.perf_counter()
-            report_interval_s = 0.20
-            chunk_size = 1024 * 1024
-
-            def _consume_response(response_obj: object) -> int | None:
-                nonlocal bytes_done, last_report
-                response_obj.raise_for_status()
-
-                # If resume was requested but the server ignored Range and returned
-                # the full file (200), restart from scratch to avoid duplicate bytes.
-                if bytes_done > 0 and _status_code(response_obj) == 200:
-                    with suppress(OSError):
-                        tmp_path.unlink(missing_ok=True)
-                    bytes_done = 0
-
-                total_bytes_local = _extract_total_bytes(response_obj, bytes_done)
-                with tmp_path.open('ab' if bytes_done > 0 else 'wb') as f:
-                    for chunk in _iter_chunks(response_obj, chunk_size):
-                        if cancel_event is not None and cancel_event.is_set():
-                            raise RuntimeError('download cancelled')
-                        if not chunk:
-                            continue
-                        f.write(chunk)
-                        bytes_done += len(chunk)
-
-                        now = time.perf_counter()
-                        if progress_callback and (now - last_report >= report_interval_s):
-                            elapsed = max(now - start, 0.001)
-                            speed_bps = float(bytes_done / elapsed)
-                            progress_callback(bytes_done, total_bytes_local, speed_bps)
-                            last_report = now
-                return total_bytes_local
-
-            total_bytes: int | None = None
-            session_stream = getattr(session, 'stream', None)
-            if callable(session_stream):
-                with session.stream('GET', url, headers=headers, timeout=(10, 60)) as response:
-                    total_bytes = _consume_response(response)
-            else:
-                response = session.get(url, headers=headers, stream=True, timeout=(10, 60))
-                total_bytes = _consume_response(response)
-
-            if progress_callback:
-                elapsed = max(time.perf_counter() - start, 0.001)
-                speed_bps = float(bytes_done / elapsed)
-                progress_callback(bytes_done, total_bytes or bytes_done, speed_bps)
-
-            tmp_path.replace(target_path)
-            if expected_sha256:
-                actual_sha256 = self._compute_file_sha256(target_path)
-                if actual_sha256.lower() != expected_sha256.strip().lower():
-                    with suppress(OSError):
-                        target_path.unlink(missing_ok=True)
-                    raise LLMError(
-                        f'Model integrity verification failed for {fname}: '
-                        f'expected {expected_sha256}, got {actual_sha256}.'
-                    )
-
-        except ImportError as exc:
-            raise LLMError(f'huggingface-hub is not installed: {exc}') from exc
-        except OSError as exc:
-            raise LLMError(f'Failed to download model from {repo}/{fname}: {exc}') from exc
-        except Exception as exc:
-            raise LLMError(f'Failed to download model from {repo}/{fname}: {exc}') from exc
-
-        elapsed_s = time.perf_counter() - start
-        size_mb = target_path.stat().st_size / (1024 * 1024) if target_path.exists() else 0
-        log.info(
-            'llm_model_downloaded',
-            repo=repo,
+        download_gguf_model(
+            repo_id=repo,
             filename=fname,
-            size_mb=round(size_mb, 1),
-            elapsed_s=round(elapsed_s, 1),
+            target_path=target_path,
+            expected_sha256=expected_sha256,
+            model_label='llm',
+            revision=revision,
+            progress_callback=progress_callback,
+            cancel_event=cancel_event,
         )
         remove_models_dir_cache()
-
-    def _compute_file_sha256(self, path: Path) -> str:
-        sha256 = hashlib.sha256()
-        with path.open('rb') as f:
-            for chunk in iter(lambda: f.read(1024 * 1024), b''):
-                sha256.update(chunk)
-        return sha256.hexdigest()
 
     # -- Synchronous chat completion ------------------------------------------
 

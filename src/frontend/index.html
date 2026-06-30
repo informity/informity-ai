@@ -27,75 +27,8 @@
       }
     </script>
     <style>
-      html, body, #root { height: 100%; }
-      html, body, #root { margin: 0; background: #090909; }
-      :root {
-        --boot-bg: #090909;
-        --boot-accent: #8f8f8f;
-        --boot-text: #9a9a9a;
-      }
-      html[data-accent='graphite'] {
-        --boot-accent: #8f8f8f;
-        --boot-text: #a8a8a8;
-      }
-      html[data-accent='canvas'] {
-        --boot-bg: #faf6ef;
-        --boot-accent: #ab6a43;
-        --boot-text: #6a5a4a;
-      }
-      html[data-accent='ember'] {
-        --boot-bg: #1b1713;
-        --boot-accent: #bc7b43;
-        --boot-text: #b4a998;
-      }
-      html[data-accent='sage'] {
-        --boot-bg: #121713;
-        --boot-accent: #7a9a6c;
-        --boot-text: #aebaa8;
-      }
-      html[data-accent='onyx'] {
-        --boot-accent: #8f8f8f;
-        --boot-text: #9a9a9a;
-      }
-      html[data-accent='midnight'] {
-        --boot-bg: #07070a;
-        --boot-accent: #9d8fff;
-        --boot-text: #9898a8;
-      }
-      #boot-overlay {
-        position: fixed;
-        inset: 0;
-        z-index: 9999;
-        display: flex;
-        flex-direction: column;
-        align-items: center;
-        justify-content: center;
-        gap: 14px;
-        background: var(--boot-bg);
-        color: var(--boot-text);
-        transition: opacity 180ms ease;
-      }
-      #boot-overlay.boot-overlay--hidden {
-        opacity: 0;
-        pointer-events: none;
-      }
-      .boot-loader {
-        width: 26px;
-        height: 26px;
-        border: 2px solid rgba(255, 255, 255, 0.18);
-        border-top-color: var(--boot-accent);
-        border-radius: 50%;
-        animation: boot-spin 900ms linear infinite;
-      }
-      .boot-status {
-        margin: 0;
-        font: 500 13px/1.3 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-        letter-spacing: 0.01em;
-        color: var(--boot-text);
-      }
-      @keyframes boot-spin {
-        to { transform: rotate(360deg); }
-      }
+      html, body, #root, #boot-overlay { height: 100%; }
+      html, body, #root, #boot-overlay { margin: 0; background: #090909; }
     </style>
     <link rel="icon" type="image/png" href="/favicon.png?v=1" />
     <link rel="apple-touch-icon" href="/favicon.png" />
@@ -103,10 +36,7 @@
     <title>Informity AI</title>
   </head>
   <body style="margin: 0; background: #090909;">
-    <div id="boot-overlay" aria-live="polite" aria-label="Application startup">
-      <div class="boot-loader" aria-hidden="true"></div>
-      <p id="boot-status" class="boot-status">Starting Informity AI...</p>
-    </div>
+    <div id="boot-overlay"></div>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -1,0 +1,29 @@
+.boot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-background, #090909);
+  color: var(--color-text-muted);
+  transition: opacity 180ms ease;
+}
+
+.boot-overlay--hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.boot-overlay__message {
+  width: min(900px, calc(100vw - 48px));
+}
+
+.boot-overlay__message .state-message__title {
+  font-size: var(--font-size-body);
+}
+
+.boot-overlay__message .state-message__description {
+  font-size: var(--font-size-body);
+  font-variant-numeric: tabular-nums;
+}

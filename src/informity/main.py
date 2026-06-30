@@ -36,7 +36,9 @@ import types
 import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
+from dataclasses import dataclass, field
 from pathlib import Path
+from threading import Lock
 
 import structlog
 import uvicorn
@@ -68,6 +70,7 @@ from informity.api.security import (
     is_tauri_session_authorized,
 )
 from informity.config import APP_DISPLAY_NAME, configure_hf_environment, settings
+from informity.exceptions import LLMError
 from informity.version import APP_VERSION
 
 # Set Hugging Face cache paths and offline flags before importing models.
@@ -87,6 +90,8 @@ from informity.indexer.adaptive_tuning import update_tuning_cache
 from informity.indexer.embedder import embedder
 from informity.indexer.reranker import reranker
 from informity.llm.engine import llm_engine, remove_models_dir_cache
+from informity.llm.five_q_classifier import resolve_classifier_model_path
+from informity.llm.model_bootstrap import CLASSIFIER_GGUF_SPEC, download_gguf_model
 from informity.logging_config import configure_logging
 from informity.mcp.lifecycle import mcp_lifecycle
 from informity.scanner.watcher import start_watcher, stop_watcher
@@ -110,7 +115,7 @@ configure_logging()
 # ==============================================================================
 
 log = structlog.get_logger(__name__)
-_STARTUP_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, TimeoutError)
+_STARTUP_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, TimeoutError, LLMError)
 _REQUEST_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, TimeoutError)
 _WARMUP_TIMEOUT_SECONDS = 300.0
 _TAURI_SESSION_TOKEN = get_tauri_session_token_from_env()
@@ -121,6 +126,89 @@ _MANAGED_PID_FILE_PATH: Path | None = (
     Path(_MANAGED_PID_FILE_RAW).expanduser() if _MANAGED_PID_FILE_RAW else None
 )
 _STARTUP_RAM_HEADROOM_RATIO = 0.85
+_STARTUP_STATE_UNSET = object()
+
+
+@dataclass
+class StartupHealthState:
+    status: str = 'initializing'
+    reason: str | None = 'starting'
+    detail: str | None = None
+    progress_done: int | None = None
+    progress_total: int | None = None
+    progress_percent: float | None = None
+    _lock: Lock = field(default_factory=Lock, repr=False, compare=False)
+
+    def update(
+        self,
+        *,
+        status: str | object = _STARTUP_STATE_UNSET,
+        reason: str | object = _STARTUP_STATE_UNSET,
+        detail: str | object = _STARTUP_STATE_UNSET,
+        progress_done: int | None | object = _STARTUP_STATE_UNSET,
+        progress_total: int | None | object = _STARTUP_STATE_UNSET,
+        progress_percent: float | None | object = _STARTUP_STATE_UNSET,
+    ) -> None:
+        with self._lock:
+            if status is not _STARTUP_STATE_UNSET:
+                self.status = status
+            if reason is not _STARTUP_STATE_UNSET:
+                self.reason = reason
+            if detail is not _STARTUP_STATE_UNSET:
+                self.detail = detail
+            if progress_done is not _STARTUP_STATE_UNSET:
+                self.progress_done = progress_done
+            if progress_total is not _STARTUP_STATE_UNSET:
+                self.progress_total = progress_total
+            if progress_percent is not _STARTUP_STATE_UNSET:
+                self.progress_percent = progress_percent
+
+    def snapshot(self) -> dict[str, object | None]:
+        with self._lock:
+            return {
+                'status': self.status,
+                'reason': self.reason,
+                'detail': self.detail,
+                'progress_done': self.progress_done,
+                'progress_total': self.progress_total,
+                'progress_percent': self.progress_percent,
+            }
+
+
+def _set_startup_state(
+    app: FastAPI,
+    *,
+    status: str | object = _STARTUP_STATE_UNSET,
+    reason: str | object = _STARTUP_STATE_UNSET,
+    detail: str | object = _STARTUP_STATE_UNSET,
+    progress_done: int | None | object = _STARTUP_STATE_UNSET,
+    progress_total: int | None | object = _STARTUP_STATE_UNSET,
+    progress_percent: float | None | object = _STARTUP_STATE_UNSET,
+) -> None:
+    tracker = getattr(app.state, 'startup_health_state', None)
+    if isinstance(tracker, StartupHealthState):
+        tracker.update(
+            status=status,
+            reason=reason,
+            detail=detail,
+            progress_done=progress_done,
+            progress_total=progress_total,
+            progress_percent=progress_percent,
+        )
+
+
+def _get_startup_state_snapshot(app: FastAPI) -> dict[str, object | None]:
+    tracker = getattr(app.state, 'startup_health_state', None)
+    if isinstance(tracker, StartupHealthState):
+        return tracker.snapshot()
+    return {
+        'status': 'ok',
+        'reason': None,
+        'detail': None,
+        'progress_done': None,
+        'progress_total': None,
+        'progress_percent': None,
+    }
 
 # ==============================================================================
 # Process Cleanup
@@ -370,46 +458,148 @@ async def _run_five_q_classifier_warmup() -> bool:
         return False
 
 
-async def _run_startup_warmups() -> None:
-    """
-    Warm up all models before the server accepts requests.
+async def _ensure_classifier_model_present(app: FastAPI) -> Path:
+    model_path = resolve_classifier_model_path()
+    if model_path is not None and model_path.exists():
+        return model_path
 
-    The sequence is intentionally serialized so each load is paid at startup
-    rather than on the first user request.
+    classifier_target_dir = settings.classifier_models_dir
+    classifier_target_path = classifier_target_dir / CLASSIFIER_GGUF_SPEC.filename
+    _set_startup_state(
+        app,
+        status='initializing',
+        reason='downloading_classifier_model',
+        detail='Downloading classifier model before startup.',
+        progress_done=0,
+        progress_total=None,
+        progress_percent=None,
+    )
+    log.info(
+        'classifier_model_missing_starting_download',
+        model_path=str(classifier_target_path),
+        repo=CLASSIFIER_GGUF_SPEC.repo_id,
+        filename=CLASSIFIER_GGUF_SPEC.filename,
+    )
+
+    def _progress(bytes_done: int, total_bytes: int | None, _speed_bps: float) -> None:
+        percent: float | None = None
+        if total_bytes and total_bytes > 0:
+            percent = min(100.0, max(0.0, (bytes_done / total_bytes) * 100.0))
+        _set_startup_state(
+            app,
+            status='initializing',
+            reason='downloading_classifier_model',
+            progress_done=bytes_done,
+            progress_total=total_bytes,
+            progress_percent=percent,
+        )
+
+    try:
+        await asyncio.to_thread(
+            download_gguf_model,
+            repo_id=CLASSIFIER_GGUF_SPEC.repo_id,
+            filename=CLASSIFIER_GGUF_SPEC.filename,
+            target_path=classifier_target_path,
+            expected_sha256=CLASSIFIER_GGUF_SPEC.expected_sha256,
+            model_label=CLASSIFIER_GGUF_SPEC.model_label,
+            revision=CLASSIFIER_GGUF_SPEC.revision,
+            progress_callback=_progress,
+        )
+    except Exception as exc:
+        detail = f'classifier model download failed: {exc}'
+        _set_startup_state(app, status='error', reason='downloading_classifier_model', detail=detail)
+        log.warning('classifier_model_download_failed', error=str(exc))
+        raise
+
+    model_path = resolve_classifier_model_path()
+    if model_path is None or not model_path.exists():
+        detail = f'classifier model download completed but file is still missing: {classifier_target_path}'
+        _set_startup_state(app, status='error', reason='downloading_classifier_model', detail=detail)
+        raise LLMError(detail)
+
+    _set_startup_state(
+        app,
+        status='initializing',
+        reason='warming_models',
+        detail='Classifier model ready. Warming startup models.',
+        progress_done=None,
+        progress_total=None,
+        progress_percent=None,
+    )
+    return model_path
+
+
+async def _run_startup_sequence(app: FastAPI) -> None:
+    """
+    Run startup initialization after the server is already able to answer health checks.
+
+    The sequence remains serialized so the classifier download, warmups, watcher,
+    and MCP startup happen in a predictable order while /api/health reports progress.
     """
     startup_started_at = time.perf_counter()
+    try:
+        await _ensure_classifier_model_present(app)
 
-    warmups = (
-        ('classifier', _run_five_q_classifier_warmup),
-        ('llm', _run_llm_warmup),
-        ('embedder', _run_embedder_warmup),
-    )
+        warmups = (
+            ('classifier', _run_five_q_classifier_warmup),
+            ('llm', _run_llm_warmup),
+            ('embedder', _run_embedder_warmup),
+        )
 
-    for component, warmup in warmups:
-        component_started_at = time.perf_counter()
-        warmed = await warmup()
-        component_duration_ms = round((time.perf_counter() - component_started_at) * 1000, 1)
-        startup_elapsed_ms = round((time.perf_counter() - startup_started_at) * 1000, 1)
-        if warmed:
-            log.info(
-                f'{component}_model_loaded',
-                component=component,
-                duration_ms=component_duration_ms,
-                elapsed_ms=startup_elapsed_ms,
-                module='main',
-                operation=f'{component}_warmup_completed',
-                status='ok',
-            )
+        for component, warmup in warmups:
+            component_started_at = time.perf_counter()
+            warmed = await warmup()
+            component_duration_ms = round((time.perf_counter() - component_started_at) * 1000, 1)
+            startup_elapsed_ms = round((time.perf_counter() - startup_started_at) * 1000, 1)
+            if warmed:
+                log.info(
+                    f'{component}_model_loaded',
+                    component=component,
+                    duration_ms=component_duration_ms,
+                    elapsed_ms=startup_elapsed_ms,
+                    module='main',
+                    operation=f'{component}_warmup_completed',
+                    status='ok',
+                )
 
-    log.info(
-        'server_ready',
-        component='main',
-        message='all models loaded, accepting requests',
-        module='main',
-        operation='server_ready',
-        startup_elapsed_ms=round((time.perf_counter() - startup_started_at) * 1000, 1),
-        status='ok',
-    )
+        loop = asyncio.get_running_loop()
+        start_watcher(loop)
+        if settings.mcp_enabled and settings.mcp_auto_start:
+            await mcp_lifecycle.start_from_settings()
+
+        _set_startup_state(
+            app,
+            status='ok',
+            reason='ready',
+            detail='Startup complete.',
+            progress_done=None,
+            progress_total=None,
+            progress_percent=100.0,
+        )
+        log.info(
+            'server_ready',
+            component='main',
+            message='all models loaded, accepting requests',
+            module='main',
+            operation='server_ready',
+            startup_elapsed_ms=round((time.perf_counter() - startup_started_at) * 1000, 1),
+            status='ok',
+        )
+    except asyncio.CancelledError:
+        _set_startup_state(app, status='error', reason='startup_cancelled', detail='Startup was cancelled.')
+        raise
+    except LLMError:
+        raise
+    except _STARTUP_RUNTIME_EXCEPTIONS as exc:
+        detail = f'startup sequence failed: {exc}'
+        _set_startup_state(app, status='error', reason='startup_sequence', detail=detail)
+        log.warning('startup_sequence_failed', error=str(exc))
+        raise
+    except Exception as exc:
+        detail = f'unexpected startup sequence failure: {exc}'
+        _set_startup_state(app, status='error', reason='startup_sequence', detail=detail)
+        log.exception('startup_sequence_unexpected_failure', error=str(exc))
+        raise
 
 
 async def _backfill_page_counts(conn: object) -> None:
@@ -482,6 +672,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # -- Startup --------------------------------------------------------------
     _register_signal_handlers()
     _write_managed_pid_file()
+    app.state.startup_health_state = StartupHealthState()
+    app.state.startup_task = None
 
     # Lower process priority so scans/indexing yield CPU time to foreground apps.
     # 0 disables priority changes.
@@ -589,17 +781,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     except (ImportError, _STARTUP_RUNTIME_EXCEPTIONS) as exc:
         log.warning('adaptive_tuning_startup_failed', error=str(exc))
 
-    # Warm up the classifier, generation LLM, and embedder before the server
-    # starts accepting requests. This blocks startup by design so the first
-    # user request does not pay the cold-load penalty.
-    await _run_startup_warmups()
-
-    # Start file watcher for incremental indexing (if watched_directories configured)
-    loop = asyncio.get_running_loop()
-    start_watcher(loop)
-
-    if settings.mcp_enabled and settings.mcp_auto_start:
-        await mcp_lifecycle.start_from_settings()
+    # Start the remaining startup sequence in the background so /api/health can
+    # report model download and warmup progress while the backend boots.
+    app.state.startup_task = asyncio.create_task(_run_startup_sequence(app), name='informity-startup-sequence')
 
     log.info('application_started')
 
@@ -608,6 +792,12 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # -- Shutdown -------------------------------------------------------------
     log.info('application_shutting_down')
     _remove_managed_pid_file()
+
+    startup_task = getattr(app.state, 'startup_task', None)
+    if isinstance(startup_task, asyncio.Task) and not startup_task.done():
+        startup_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await startup_task
 
     stop_watcher()
     await mcp_lifecycle.stop()
@@ -799,7 +989,16 @@ app.add_middleware(
 @app.get('/api/health', response_model=HealthResponse)
 async def health_check() -> HealthResponse:
     # Simple health check endpoint.
-    return HealthResponse(app_display_name=APP_DISPLAY_NAME)
+    startup_state = _get_startup_state_snapshot(app)
+    return HealthResponse(
+        app_display_name=APP_DISPLAY_NAME,
+        status=str(startup_state.get('status') or 'ok'),
+        reason=startup_state.get('reason'),
+        detail=startup_state.get('detail'),
+        progress_done=startup_state.get('progress_done'),
+        progress_total=startup_state.get('progress_total'),
+        progress_percent=startup_state.get('progress_percent'),
+    )
 
 
 # ==============================================================================

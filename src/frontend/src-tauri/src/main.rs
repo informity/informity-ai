@@ -92,13 +92,30 @@ struct BackendStopPayload {
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct BackendStartupStatusPayload {
+    status: String,
+    reason: Option<String>,
+    detail: Option<String>,
     message: String,
+    progress_done: Option<u64>,
+    progress_total: Option<u64>,
+    progress_percent: Option<f64>,
 }
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct MenuActionPayload {
     action: String,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct BackendHealthPayload {
+    status: String,
+    reason: Option<String>,
+    detail: Option<String>,
+    progress_done: Option<u64>,
+    progress_total: Option<u64>,
+    progress_percent: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -118,9 +135,9 @@ async fn backend_start(
     app: AppHandle,
     controller: State<'_, BackendController>,
 ) -> Result<BackendStartPayload, String> {
-    emit_backend_startup_status(&app, "Starting Informity AI...");
+    emit_backend_startup_message(&app, "initializing", None, None, "Starting application...");
 
-    {
+    let running_backend = {
         let mut guard = controller
             .inner
             .lock()
@@ -132,24 +149,42 @@ async fn backend_start(
                     guard.child = None;
                     guard.base_url = None;
                     guard.session_token = None;
+                    None
                 }
                 Ok(None) => {
                     if let (Some(base_url), Some(session_token)) =
                         (guard.base_url.clone(), guard.session_token.clone())
                     {
-                        let port = parse_port(&base_url)?;
-                        return Ok(BackendStartPayload {
-                            base_url,
-                            session_token,
-                            port,
-                            launch_mode: "already-running".to_string(),
-                        });
+                        Some((base_url, session_token))
+                    } else {
+                        None
                     }
                 }
                 Err(error) => {
                     guard.startup_error =
                         Some(format!("failed to query backend process state: {error}"));
+                    None
                 }
+            }
+        } else {
+            None
+        }
+    };
+
+    if let Some((base_url, session_token)) = running_backend {
+        match check_health(&base_url, &session_token).await {
+            Ok(health) if health.status.as_str() == "ok" => {
+                let port = parse_port(&base_url)?;
+                emit_backend_startup_status(&app, &health);
+                return Ok(BackendStartPayload {
+                    base_url,
+                    session_token,
+                    port,
+                    launch_mode: "already-running".to_string(),
+                });
+            }
+            _ => {
+                let _ = backend_stop_internal(&controller).await;
             }
         }
     }
@@ -169,7 +204,7 @@ async fn backend_start(
     }
     let pid_file_path = managed_backend_pid_file_path(&app_data_dir);
 
-    emit_backend_startup_status(&app, "Initializing application...");
+    emit_backend_startup_message(&app, "initializing", Some("starting_backend"), None, "Initializing application...");
 
     {
         let mut guard = controller
@@ -285,21 +320,38 @@ async fn backend_start(
     }
 
     let startup_timeout = if launched_mode == "packaged-sidecar" {
-        Duration::from_secs(180)
+        Duration::from_secs(1800)
     } else {
-        Duration::from_secs(45)
+        Duration::from_secs(900)
     };
     let startup_timeout_secs = startup_timeout.as_secs();
     let start = Instant::now();
     while start.elapsed() < startup_timeout {
-        if check_health(&base_url, &session_token).await {
-            emit_backend_startup_status(&app, "Loading interface...");
-            return Ok(BackendStartPayload {
-                base_url,
-                session_token,
-                port,
-                launch_mode: launched_mode,
-            });
+        match check_health(&base_url, &session_token).await {
+            Ok(health) => {
+                emit_backend_startup_status(&app, &health);
+                match health.status.as_str() {
+                    "ok" => {
+                        return Ok(BackendStartPayload {
+                            base_url,
+                            session_token,
+                            port,
+                            launch_mode: launched_mode,
+                        });
+                    }
+                    "error" => {
+                        let detail = health
+                            .detail
+                            .clone()
+                            .or_else(|| health.reason.clone())
+                            .unwrap_or_else(|| "backend reported startup error".to_string());
+                        append_backend_startup_error(&app, &detail);
+                        return Err(detail);
+                    }
+                    _ => {}
+                }
+            }
+            Err(_) => {}
         }
 
         {
@@ -359,9 +411,53 @@ async fn backend_start(
     Err(detail)
 }
 
-fn emit_backend_startup_status(app: &AppHandle, message: &str) {
+fn emit_backend_startup_message(
+    app: &AppHandle,
+    status: &str,
+    reason: Option<&str>,
+    detail: Option<&str>,
+    message: &str,
+) {
     let payload = BackendStartupStatusPayload {
+        status: status.to_string(),
+        reason: reason.map(|value| value.to_string()),
+        detail: detail.map(|value| value.to_string()),
         message: message.to_string(),
+        progress_done: None,
+        progress_total: None,
+        progress_percent: None,
+    };
+    let _ = app.emit(BACKEND_STARTUP_STATUS_EVENT, payload);
+}
+
+fn emit_backend_startup_status(app: &AppHandle, health: &BackendHealthPayload) {
+    let message = match health.status.as_str() {
+        "ok" => "Loading interface...".to_string(),
+        "error" => health
+            .detail
+            .clone()
+            .or_else(|| health.reason.clone())
+            .unwrap_or_else(|| "Backend startup failed.".to_string()),
+        "initializing" if health.reason.as_deref() == Some("downloading_classifier_model") => {
+            "Setting up application...".to_string()
+        }
+        "initializing" => health
+            .detail
+            .clone()
+            .unwrap_or_else(|| "Initializing application...".to_string()),
+        _ => health
+            .detail
+            .clone()
+            .unwrap_or_else(|| "Initializing application...".to_string()),
+    };
+    let payload = BackendStartupStatusPayload {
+        status: health.status.clone(),
+        reason: health.reason.clone(),
+        detail: health.detail.clone(),
+        message,
+        progress_done: health.progress_done,
+        progress_total: health.progress_total,
+        progress_percent: health.progress_percent,
     };
     let _ = app.emit(BACKEND_STARTUP_STATUS_EVENT, payload);
 }
@@ -1003,25 +1099,34 @@ fn parse_port(base_url: &str) -> Result<u16, String> {
         .map_err(|error| format!("invalid backend port in URL {base_url}: {error}"))
 }
 
-async fn check_health(base_url: &str, session_token: &str) -> bool {
+async fn check_health(base_url: &str, session_token: &str) -> Result<BackendHealthPayload, String> {
     let health_url = format!("{}{}", base_url, HEALTH_PATH);
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
     {
         Ok(client) => client,
-        Err(_) => return false,
+        Err(error) => return Err(format!("failed to create health client: {error}")),
     };
 
-    match client
+    let response = match client
         .get(health_url)
         .header(SESSION_HEADER_NAME, session_token)
         .send()
         .await
     {
-        Ok(response) => response.status().is_success(),
-        Err(_) => false,
+        Ok(response) => response,
+        Err(error) => return Err(format!("health request failed: {error}")),
+    };
+
+    if !response.status().is_success() {
+        return Err(format!("health request returned {}", response.status()));
     }
+
+    response
+        .json::<BackendHealthPayload>()
+        .await
+        .map_err(|error| format!("failed to parse health response: {error}"))
 }
 
 fn show_main_window(app: &AppHandle) {

@@ -6,14 +6,30 @@ interface BackendStartPayload {
 }
 
 interface StartupStatusEventPayload {
+  status?: unknown
+  reason?: unknown
+  detail?: unknown
   message?: unknown
+  progressDone?: unknown
+  progressTotal?: unknown
+  progressPercent?: unknown
 }
 
 interface MenuActionEventPayload {
   action?: unknown
 }
 
-type StartupStatusCallback = (message: string) => void
+export interface StartupStatusPayload {
+  status: string
+  reason: string | null
+  detail: string | null
+  message: string
+  progressDone: number | null
+  progressTotal: number | null
+  progressPercent: number | null
+}
+
+type StartupStatusCallback = (status: StartupStatusPayload) => void
 type MenuActionCallback = (action: string) => void
 
 const BACKEND_STARTUP_STATUS_EVENT = 'informity://backend-startup-status'
@@ -75,9 +91,24 @@ async function listenStartupStatus(
   try {
     return await listen(BACKEND_STARTUP_STATUS_EVENT, (event) => {
       const payload = event.payload as StartupStatusEventPayload | undefined
-      if (typeof payload?.message === 'string' && payload.message.trim().length > 0) {
-        onStatus(payload.message)
-      }
+      const status = typeof payload?.status === 'string' ? payload.status : 'initializing'
+      const reason = typeof payload?.reason === 'string' ? payload.reason : null
+      const detail = typeof payload?.detail === 'string' ? payload.detail : null
+      const message = typeof payload?.message === 'string' && payload.message.trim().length > 0
+        ? payload.message
+        : detail ?? 'Starting application...'
+      const progressDone = typeof payload?.progressDone === 'number' ? payload.progressDone : null
+      const progressTotal = typeof payload?.progressTotal === 'number' ? payload.progressTotal : null
+      const progressPercent = typeof payload?.progressPercent === 'number' ? payload.progressPercent : null
+      onStatus({
+        status,
+        reason,
+        detail,
+        message,
+        progressDone,
+        progressTotal,
+        progressPercent,
+      })
     })
   } catch {
     return null

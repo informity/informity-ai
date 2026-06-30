@@ -13,6 +13,7 @@ from informity.config import settings
 from informity.exceptions import LLMError
 from informity.llm.engine import LLMEngine
 from informity.llm.five_q_decision import FiveQDecision
+from informity.llm.model_bootstrap import CLASSIFIER_GGUF_SPEC
 
 log = structlog.get_logger(__name__)
 
@@ -158,12 +159,6 @@ _CHAT_HISTORY_PATTERN = re.compile(r'\b(what did we discuss|what have we been ch
 _INDEX_METADATA_PATTERN = re.compile(r'\b(how many|list all|what kinds|what type|inventory|enumerate|count)\b', re.IGNORECASE)
 _DOCUMENT_CONTENT_PATTERN = re.compile(r'\b(mortgage|loan|property|document|file|agreement|statement|closing)\b', re.IGNORECASE)
 _YEAR_PATTERN = re.compile(r'\b(?:19|20)\d{2}\b')
-_CLASSIFIER_MODEL_PRIORITY = (
-    ('4b', re.compile(r'\b4b\b', re.IGNORECASE)),
-    ('2b', re.compile(r'\b2b\b', re.IGNORECASE)),
-)
-
-
 @dataclass(frozen=True)
 class ClassifierContext:
     chat_mode: str | None = None
@@ -191,19 +186,14 @@ def apply_guardrails(decision: FiveQDecision, query: str) -> tuple[FiveQDecision
     return decision, None
 
 
-def _discover_classifier_model_path() -> Path | None:
-    preferred_dirs = [Path(settings.classifier_models_dir), Path(settings.models_dir)]
-    for models_dir in preferred_dirs:
+def resolve_classifier_model_path() -> Path | None:
+    candidate_dirs = [Path(settings.classifier_models_dir), Path(settings.models_dir)]
+    for models_dir in candidate_dirs:
         if not models_dir.exists():
             continue
-        candidates = sorted(path for path in models_dir.glob('*.gguf') if path.is_file())
-        if not candidates:
-            continue
-        for _, pattern in _CLASSIFIER_MODEL_PRIORITY:
-            for path in candidates:
-                if pattern.search(path.name):
-                    return path
-        return candidates[0]
+        candidate = models_dir / CLASSIFIER_GGUF_SPEC.filename
+        if candidate.is_file():
+            return candidate
     return None
 
 
@@ -252,7 +242,7 @@ def _fallback_decision(query: str, context: ClassifierContext) -> FiveQDecision:
 
 class FiveQClassifier:
     def __init__(self, model_path: Path | None = None) -> None:
-        self._model_path = model_path or _discover_classifier_model_path()
+        self._model_path = model_path or resolve_classifier_model_path()
         self._model_filename = self._model_path.name if self._model_path is not None else None
         self._engine: LLMEngine | None = None
 
@@ -327,4 +317,4 @@ class FiveQClassifier:
         if self._engine is not None:
             self._engine.unload()
 
-__all__ = ['ClassifierContext', 'FiveQClassifier', 'FiveQClassificationResult', 'apply_guardrails']
+__all__ = ['ClassifierContext', 'FiveQClassifier', 'FiveQClassificationResult', 'apply_guardrails', 'resolve_classifier_model_path']

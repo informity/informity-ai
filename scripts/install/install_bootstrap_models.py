@@ -10,7 +10,6 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import sys
@@ -186,15 +185,16 @@ def _download_docling_models(app_data: Path) -> None:
 
 
 def _download_llm(app_data: Path, llm: dict) -> None:
-    repo_id       = llm.get('repo_id') or ''
-    revision      = llm.get('revision') or None
-    filename      = llm.get('filename') or ''
-    local_fname   = llm.get('local_filename') or filename
+    from informity.config import DirNames
+    from informity.llm.model_bootstrap import download_gguf_model
+
+    repo_id = str(llm.get('repo_id') or '').strip()
+    revision = llm.get('revision') or None
+    filename = str(llm.get('filename') or '').strip()
+    local_fname = str(llm.get('local_filename') or filename).strip()
     expected_sha256 = str(llm.get('sha256') or '').strip().lower() or None
     if not repo_id or not filename:
         raise SystemExit('llm must have repo_id and filename in install config.')
-
-    from informity.config import DirNames
 
     models_dir = app_data / DirNames.MODELS / DirNames.LLM
     target_path = models_dir / local_fname
@@ -203,39 +203,18 @@ def _download_llm(app_data: Path, llm: dict) -> None:
         return
 
     print(f'Downloading LLM: {repo_id} / {filename}')
-    from huggingface_hub import hf_hub_download
-
-    cache_dir = _get_cache_dir()
-    hf_home = cache_dir / DirNames.HUGGINGFACE
-    hf_hub  = hf_home / DirNames.HUB
-
-    models_dir.mkdir(parents=True, exist_ok=True)
-    downloaded = hf_hub_download(
-        repo_id   = repo_id,
-        filename  = filename,
-        revision  = revision,
-        local_dir = str(models_dir),
-        cache_dir = str(hf_hub),
-    )
-    downloaded_path = Path(downloaded)
-    if downloaded_path.name != local_fname and downloaded_path.exists():
-        downloaded_path.rename(target_path)
-    if expected_sha256:
-        actual_sha256 = _compute_sha256(target_path)
-        if actual_sha256.lower() != expected_sha256:
-            raise SystemExit(
-                f'LLM integrity verification failed for {local_fname}: '
-                f'expected {expected_sha256}, got {actual_sha256}'
-            )
+    try:
+        download_gguf_model(
+            repo_id=repo_id,
+            filename=filename,
+            target_path=target_path,
+            expected_sha256=expected_sha256,
+            model_label='llm',
+            revision=revision,
+        )
+    except Exception as exc:
+        raise SystemExit(f'Failed to download LLM: {exc}') from exc
     print(f'LLM saved as {target_path.name}')
-
-
-def _compute_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open('rb') as f:
-        for chunk in iter(lambda: f.read(1024 * 1024), b''):
-            digest.update(chunk)
-    return digest.hexdigest()
 
 
 def _is_hf_model_cached(model_name: str, hf_hub_cache: Path) -> bool:
@@ -269,6 +248,7 @@ def _is_hf_model_cached(model_name: str, hf_hub_cache: Path) -> bool:
 def _verify_models_cached(install_config: dict) -> bool:
     """Verify that all required models are cached before enabling Full Privacy."""
     from informity.config import DirNames
+    from informity.llm.model_bootstrap import CLASSIFIER_GGUF_SPEC
 
     cache_dir = _get_cache_dir()
     hf_hub_cache = cache_dir / DirNames.HUGGINGFACE / DirNames.HUB
@@ -295,7 +275,19 @@ def _verify_models_cached(install_config: dict) -> bool:
             if not model_path.exists() or not model_path.is_file():
                 return False
 
-    return True
+    classifier_cfg = install_config.get('classifier')
+    classifier_dir = _app_data_dir() / DirNames.MODELS / DirNames.CLASSIFIER
+    classifier_fname = (
+        classifier_cfg.get('local_filename')
+        if isinstance(classifier_cfg, dict)
+        else None
+    ) or (
+        classifier_cfg.get('filename')
+        if isinstance(classifier_cfg, dict)
+        else None
+    ) or CLASSIFIER_GGUF_SPEC.filename
+    classifier_path = classifier_dir / classifier_fname
+    return classifier_path.is_file()
 
 
 def _write_offline_config(app_data: Path, install_config: dict) -> None:
@@ -339,6 +331,39 @@ def _write_offline_config(app_data: Path, install_config: dict) -> None:
     print(f'Config written: {config_path} (full_privacy={privacy_status})')
 
 
+def _download_classifier(app_data: Path, classifier: dict) -> None:
+    from informity.config import DirNames
+    from informity.llm.model_bootstrap import download_gguf_model
+
+    repo_id = str(classifier.get('repo_id') or '').strip()
+    revision = classifier.get('revision') or None
+    filename = str(classifier.get('filename') or '').strip()
+    local_fname = str(classifier.get('local_filename') or filename).strip()
+    expected_sha256 = str(classifier.get('sha256') or '').strip().lower() or None
+    if not repo_id or not filename:
+        raise SystemExit('classifier must have repo_id and filename in install config.')
+
+    models_dir = app_data / DirNames.MODELS / DirNames.CLASSIFIER
+    target_path = models_dir / local_fname
+    if target_path.exists():
+        print(f'Classifier already present: {target_path}')
+        return
+
+    print(f'Downloading classifier: {repo_id} / {filename}')
+    try:
+        download_gguf_model(
+            repo_id=repo_id,
+            filename=filename,
+            target_path=target_path,
+            expected_sha256=expected_sha256,
+            model_label='classifier',
+            revision=revision,
+        )
+    except Exception as exc:
+        raise SystemExit(f'Failed to download classifier: {exc}') from exc
+    print(f'Classifier saved as {target_path.name}')
+
+
 def main() -> int:
     script_dir = Path(__file__).resolve().parent
     config_path = script_dir / 'install.conf.json'
@@ -366,6 +391,15 @@ def main() -> int:
         print(
             'No LLM in install config; skip. '
             f'Place a .gguf in {app_data}/{DirNames.MODELS}/{DirNames.LLM}/ if needed.'
+        )
+
+    if install_config.get('classifier') and isinstance(install_config['classifier'], dict):
+        _download_classifier(app_data, install_config['classifier'])
+    else:
+        from informity.config import DirNames
+        print(
+            'No classifier in install config; skip. '
+            f'Place Qwen3.5-4B-Q4_K_M.gguf in {app_data}/{DirNames.MODELS}/{DirNames.CLASSIFIER}/ if needed.'
         )
 
     _write_offline_config(app_data, install_config)

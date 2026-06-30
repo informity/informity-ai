@@ -667,6 +667,11 @@ class HealthResponse(BaseModel):
     status:           str = 'ok'
     version:          str = APP_VERSION
     app_display_name: str   # Product name for UI (from config.APP_DISPLAY_NAME)
+    reason:           str | None = None
+    detail:           str | None = None
+    progress_done:    int | None = None
+    progress_total:   int | None = None
+    progress_percent: float | None = None
 
 
 class SetupTierOption(BaseModel):
