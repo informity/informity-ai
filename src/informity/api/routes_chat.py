@@ -1984,13 +1984,8 @@ async def chat(
                     stopped_by_user=False,
                     continuation_resolution_reason=continuation_resolution_reason,
                     chat_mode=resolved_chat_mode,
-<<<<<<< HEAD
                     researcher_out_of_scope=researcher_out_of_scope,
                     answer_signals_out_of_scope=_answer_signals_out_of_scope(cleaned_answer),
-=======
-                    researcher_out_of_scope=researcher_out_of_scope,
-                    answer_signals_out_of_scope=_answer_signals_out_of_scope(cleaned_answer),
->>>>>>> feature/5-qc-retrieval
                 )
                 assistant_message = ChatMessage(
                     chat_id=chat_id,
@@ -2283,13 +2278,8 @@ async def chat(
                     stopped_by_user=stopped_by_user,
                     continuation_resolution_reason=continuation_resolution_reason,
                     chat_mode=resolved_chat_mode,
-<<<<<<< HEAD
                     researcher_out_of_scope=researcher_out_of_scope,
                     answer_signals_out_of_scope=_answer_signals_out_of_scope(cleaned_answer),
-=======
-                    researcher_out_of_scope=researcher_out_of_scope,
-                    answer_signals_out_of_scope=_answer_signals_out_of_scope(cleaned_answer),
->>>>>>> feature/5-qc-retrieval
                 )
             )
             resolved_completion_mode = completion_mode
