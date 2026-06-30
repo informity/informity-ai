@@ -22,7 +22,7 @@ def test_resolve_completion_and_action_defaults_to_complete_no_action() -> None:
     assert reason is None
 
 
-def test_resolve_completion_and_action_sets_assistant_switch_for_out_of_corpus() -> None:
+def test_resolve_completion_and_action_sets_assistant_switch_for_out_of_scope() -> None:
     mode, has_remaining_scope, next_action, reason = resolve_completion_and_action(
         completion_mode_override=None,
         timeout_occurred=False,

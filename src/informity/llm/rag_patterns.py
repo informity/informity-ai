@@ -8,7 +8,7 @@ import re
 from typing import TYPE_CHECKING
 
 from informity.db.models import ChatMessage
-from informity.llm.promptcue_signals import extract_prompt_signals
+from informity.llm.prompt_signals import extract_prompt_signals
 from informity.llm.query_patterns import build_supported_filename_extension_pattern
 from informity.llm.types import QueryType
 

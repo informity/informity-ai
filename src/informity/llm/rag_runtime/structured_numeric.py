@@ -1,7 +1,7 @@
 import re
 
 from informity.llm import contract_prompt_parser as _contract_prompt_parser
-from informity.llm.promptcue_signals import action_hint_enabled
+from informity.llm.prompt_signals import action_hint_enabled
 
 _NUMBER_PATTERN = re.compile(r'\(?\$?\d[\d,]*(?:\.\d{1,2})?\)?')
 _FIELD_LABEL_NEAR_NUMBER_PATTERN = re.compile(r'([A-Za-z][A-Za-z0-9\s/_-]{1,36})$')

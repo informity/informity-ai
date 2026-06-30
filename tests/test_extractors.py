@@ -205,6 +205,57 @@ class TestDoclingExtractor:
         assert doc.word_count > 0
         assert doc.page_count == 1
 
+    def test_extract_sparse_image_text_triggers_ocr_fallback(self, monkeypatch, tmp_path: Path) -> None:
+        image_file = tmp_path / 'scan-sparse.png'
+        image_file.write_bytes(b'not-a-real-image-but-good-enough-for-a-mocked-test')
+
+        class _SparseDocument:
+            tables: list[object] = []
+            form_items: list[object] = []
+            key_value_items: list[object] = []
+            pictures: list[object] = []
+            pages: list[object] = [object()]
+
+            def iterate_items(self, with_groups: bool = True):  # type: ignore[no-untyped-def]
+                return iter(())
+
+            def export_to_markdown(self) -> str:
+                return 'Figure 1'
+
+            def export_to_text(self) -> str:
+                return 'Figure 1'
+
+        class _SparseResult:
+            def __init__(self) -> None:
+                self.document = _SparseDocument()
+                self.input = type('Input', (), {'page_count': 1, 'document_hash': 'hash'})()
+
+        class _OcrDocument:
+            pages: list[object] = [object()]
+
+            def export_to_markdown(self) -> str:
+                return 'OCR text from sparse image'
+
+            def export_to_text(self) -> str:
+                return 'OCR text from sparse image'
+
+        class _OcrResult:
+            def __init__(self) -> None:
+                self.document = _OcrDocument()
+                self.input = type('Input', (), {'page_count': 1})()
+
+        monkeypatch.setattr(self.extractor, '_get_converter', lambda: type('Converter', (), {'convert': lambda _self, _path: _SparseResult()})())
+        monkeypatch.setattr(self.extractor, '_create_ocr_converter', lambda: type('OcrConverter', (), {'convert': lambda _self, _path: _OcrResult()})())
+
+        doc = self.extractor.extract(image_file)
+
+        assert doc.error is None
+        assert doc.text == 'OCR text from sparse image'
+        assert doc.metadata.get('ocr_used') == 'true'
+        assert doc.metadata.get('converter') == 'docling+ocr'
+        assert doc.word_count > 0
+        assert doc.page_count == 1
+
     @pytest.mark.parametrize('fixture_name', ['sample_ocr_png', 'sample_ocr_jpeg'])
     def test_extract_real_image_uses_ocr(self, request, fixture_name: str) -> None:
         image_file: Path = request.getfixturevalue(fixture_name)

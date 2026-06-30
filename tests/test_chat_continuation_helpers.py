@@ -10,7 +10,7 @@ def test_assistant_switch_forces_terminal_completion_state() -> None:
         completion_mode=CompletionMode.PARTIAL,
         has_remaining_scope=True,
         next_action=NextAction.ASSISTANT_SWITCH,
-        next_action_reason='out_of_corpus',
+        next_action_reason='out_of_scope',
     )
     assert completion_mode == CompletionMode.COMPLETE
     assert has_remaining_scope is False

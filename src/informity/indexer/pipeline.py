@@ -6,6 +6,7 @@
 import asyncio
 import hashlib
 import mimetypes
+import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -15,6 +16,7 @@ from typing import TYPE_CHECKING, Union
 import aiosqlite
 import structlog
 
+from informity.config import settings
 from informity.db.models import Chunk, IndexedFile
 from informity.db.sqlite import (
     delete_chunks_for_file,
@@ -50,6 +52,66 @@ log = structlog.get_logger(__name__)
 _INDEXER_RUNTIME_EXCEPTIONS = (aiosqlite.Error, sqlite3.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError, MemoryError)
 _EMBEDDING_MODEL_MAX_TOKENS = 8192
 _PLAINTEXT_MAX_LINE_CHARS = 200_000
+_STRUCTURAL_SEPARATOR_RE = re.compile(r'([|._=-])\1{10,}')
+_PAGE_NUMBER_OR_HEADER_RE = re.compile(r'^(?:page\s*)?\d+(?:\s*(?:/|of)\s*\d+)?$', re.IGNORECASE)
+_ROMAN_NUMERAL_RE = re.compile(r'^[ivxlcdm]+$', re.IGNORECASE)
+
+
+def is_noise_chunk(chunk_text: str) -> bool:
+    """
+    Returns True if the chunk contains no meaningful semantic content.
+    """
+    stripped = (chunk_text or '').strip()
+    if not stripped:
+        return True
+
+    non_whitespace_chars = [character for character in stripped if not character.isspace()]
+    if not non_whitespace_chars:
+        return True
+
+    structural_chars = sum(1 for character in non_whitespace_chars if character in '|-_.')
+    if structural_chars / len(non_whitespace_chars) > 0.6:
+        return True
+
+    semantic_chars = re.sub(r'[\W_]+', '', stripped, flags=re.UNICODE)
+    if len(semantic_chars) < 20:
+        return True
+
+    compact = re.sub(r'[\s\W_]+', '', stripped, flags=re.UNICODE)
+    if compact:
+        if _PAGE_NUMBER_OR_HEADER_RE.fullmatch(stripped.casefold()) is not None:
+            return True
+        if compact.isdigit() or _ROMAN_NUMERAL_RE.fullmatch(compact) is not None:
+            return True
+
+    if _STRUCTURAL_SEPARATOR_RE.search(stripped) is not None:
+        return True
+
+    try:
+        from informity.indexer.chunker import _is_header_only_chunk
+
+        if _is_header_only_chunk(stripped):
+            return True
+    except Exception:
+        pass
+
+    return False
+
+
+def filter_noise_chunks(chunks: list[Chunk]) -> tuple[list[Chunk], int]:
+    """
+    Returns clean child chunks and the number of filtered noise chunks.
+    """
+    clean_chunks = [chunk for chunk in chunks if not is_noise_chunk(chunk.content)]
+    noise_count = len(chunks) - len(clean_chunks)
+    if noise_count > 0:
+        log.info(
+            'noise_chunks_filtered',
+            noise_count=noise_count,
+            clean_count=len(clean_chunks),
+            total_count=len(chunks),
+        )
+    return clean_chunks, noise_count
 
 @dataclass
 class IndexResult:
@@ -60,6 +122,10 @@ class IndexResult:
     ocr_used: bool = False
     error_code: str | None = None
     retryable: bool = True
+    skipped: bool = False
+    skip_reason: str | None = None
+    extracted_chars: int = 0
+    method: str | None = None
 
 
 def _no_extractor_result(extension: str) -> IndexResult:
@@ -99,6 +165,58 @@ def _build_file_metadata(path: Path, doc_metadata: dict[str, str]) -> dict[str, 
         'pictures_count': _parse_int_metadata(doc_metadata, 'pictures_count'),
         'document_hash': doc_metadata.get('document_hash'),
     }
+
+
+def _build_document_shape_tags(
+    *,
+    ocr_used: bool,
+    page_count: int | None,
+    tables_count: int | None,
+    form_items_count: int | None,
+    key_value_items_count: int | None,
+    pictures_count: int | None,
+) -> list[str]:
+    # Derive corpus-agnostic document shape tags from extraction metadata.
+    tags: list[str] = []
+    normalized_page_count = int(page_count or 0)
+    normalized_tables = int(tables_count or 0)
+    normalized_forms = int(form_items_count or 0)
+    normalized_key_values = int(key_value_items_count or 0)
+    normalized_pictures = int(pictures_count or 0)
+    structured_count = normalized_tables + normalized_forms + normalized_key_values
+
+    if normalized_tables > 0 and normalized_tables >= max(normalized_forms, normalized_key_values):
+        tags.append('shape:table_heavy')
+    elif normalized_forms > 0 or normalized_key_values > 0:
+        tags.append('shape:form_heavy')
+    elif normalized_pictures > 0:
+        tags.append('shape:image_heavy')
+    else:
+        tags.append('shape:narrative')
+
+    if ocr_used:
+        tags.append('shape:ocr')
+    if normalized_page_count >= 5 and structured_count > 0:
+        tags.append('shape:multisection')
+    if structured_count > 0 and normalized_pictures > 0:
+        tags.append('shape:mixed')
+
+    return list(dict.fromkeys(tags))
+
+
+def _merge_tags_with_document_shape(tags: list[str], *, file_metadata: dict[str, object]) -> list[str]:
+    merged_tags = list(tags)
+    merged_tags.extend(
+        _build_document_shape_tags(
+            ocr_used=bool(file_metadata.get('ocr_used', False)),
+            page_count=file_metadata.get('page_count') if isinstance(file_metadata.get('page_count'), int) else None,
+            tables_count=file_metadata.get('tables_count') if isinstance(file_metadata.get('tables_count'), int) else None,
+            form_items_count=file_metadata.get('form_items_count') if isinstance(file_metadata.get('form_items_count'), int) else None,
+            key_value_items_count=file_metadata.get('key_value_items_count') if isinstance(file_metadata.get('key_value_items_count'), int) else None,
+            pictures_count=file_metadata.get('pictures_count') if isinstance(file_metadata.get('pictures_count'), int) else None,
+        )
+    )
+    return list(dict.fromkeys(tag for tag in merged_tags if tag))
 
 
 def _max_line_length(path: Path) -> int:
@@ -193,6 +311,7 @@ async def _chunk_embed_store(
 
         # Step 3: Create child chunks from parents (smaller, ~150 tokens for precise matching)
         child_chunks = create_child_chunks(parent_chunks)
+        child_chunks, noise_chunks_filtered = filter_noise_chunks(child_chunks)
 
         # Log chunking summary at INFO level for operational visibility
         log.info(
@@ -201,8 +320,18 @@ async def _chunk_embed_store(
             filename=filename,
             parent_chunks=len(parent_chunks),
             child_chunks=len(child_chunks),
+            noise_chunks_filtered=noise_chunks_filtered,
             total_chunks=len(parent_chunks) + len(child_chunks)
         )
+
+        if noise_chunks_filtered > 0:
+            log.info(
+                'chunk_noise_filter_applied',
+                file_id=file_id,
+                filename=filename,
+                noise_chunks_filtered=noise_chunks_filtered,
+                child_chunks_after_filter=len(child_chunks),
+            )
 
         # Step 4: Map child chunks to their parent IDs
         # Build mapping: parent_chunk_index -> parent SQLite ID
@@ -596,6 +725,27 @@ async def index_file(
             else:
                 doc = await asyncio.to_thread(extractor.extract, file_path)
             if doc.error:
+                if getattr(doc, 'status', 'ok') != 'ok' and str(getattr(doc, 'status', '')).startswith('skipped_'):
+                    skip_reason = doc.skip_reason or doc.error or 'file skipped'
+                    log.info(
+                        'extraction_skipped',
+                        path=str(file_path),
+                        filename=filename,
+                        status=doc.status,
+                        reason=skip_reason,
+                        error_code=doc.metadata.get('error_code'),
+                    )
+                    return IndexResult(
+                        success=False,
+                        chunks_created=0,
+                        error=skip_reason,
+                        extractor=doc.metadata.get('converter'),
+                        ocr_used=doc.metadata.get('ocr_used', 'false') == 'true',
+                        error_code=doc.metadata.get('error_code') or doc.status,
+                        retryable=False,
+                        skipped=True,
+                        skip_reason=skip_reason,
+                    )
                 retryable = doc.metadata.get('retryable', 'true').lower() != 'false'
                 error_code = doc.metadata.get('error_code')
                 log.error(
@@ -613,13 +763,34 @@ async def index_file(
                     error_code=error_code,
                     retryable=retryable,
                 )
+            if getattr(doc, 'status', 'ok') != 'ok' and str(getattr(doc, 'status', '')).startswith('skipped_'):
+                skip_reason = doc.skip_reason or doc.error or 'file skipped'
+                log.info(
+                    'extraction_skipped',
+                    path=str(file_path),
+                    filename=filename,
+                    status=doc.status,
+                    reason=skip_reason,
+                    error_code=doc.metadata.get('error_code'),
+                )
+                return IndexResult(
+                    success=False,
+                    chunks_created=0,
+                    error=skip_reason,
+                    extractor=doc.metadata.get('converter'),
+                    ocr_used=doc.metadata.get('ocr_used', 'false') == 'true',
+                    error_code=doc.metadata.get('error_code') or doc.status,
+                    retryable=False,
+                    skipped=True,
+                    skip_reason=skip_reason,
+                )
             doc_text = doc.text
             file_metadata = _build_file_metadata(file_path, doc.metadata)
 
         # 2. Classify
         category = classify_file(file_path, extension)
         year = extract_year(file_path, doc_text)
-        tags = generate_tags(file_path)
+        tags = _merge_tags_with_document_shape(generate_tags(file_path), file_metadata=file_metadata)
 
         # 3. Insert file
         # content_hash already computed above (from ScannedFile or computed from Path)
@@ -897,19 +1068,77 @@ async def reindex_file(
             )
             return _no_extractor_result(scanned.extension)
 
+        log.debug(
+            'reindex_extractor_selected',
+            path=str(path),
+            filename=scanned.filename,
+            extension=scanned.extension,
+            extractor_type=type(extractor).__name__,
+            extraction_timeout_seconds=extraction_timeout_seconds,
+            scan_file_timeout_seconds=getattr(settings, 'scan_file_timeout_seconds', None),
+            enable_ocr_for_images=getattr(settings, 'enable_ocr_for_images', None),
+        )
+
         if (
             isinstance(extractor, DoclingExtractor)
             and scanned.extension.lower() == '.pdf'
             and extraction_timeout_seconds is not None
             and extraction_timeout_seconds > 0
         ):
+            log.debug(
+                'reindex_orchestrator_call',
+                path=str(path),
+                filename=scanned.filename,
+                timeout_seconds=int(extraction_timeout_seconds),
+            )
             doc = await asyncio.to_thread(
                 extract_pdf_with_orchestrator,
                 path,
                 timeout_seconds=int(extraction_timeout_seconds),
             )
         else:
+            log.debug(
+                'reindex_direct_extractor_call',
+                path=str(path),
+                filename=scanned.filename,
+                extractor_type=type(extractor).__name__,
+            )
             doc = await asyncio.to_thread(extractor.extract, path)
+        if getattr(doc, 'status', 'ok') != 'ok' and str(getattr(doc, 'status', '')).startswith('skipped_'):
+            skip_reason = doc.skip_reason or doc.error or 'file skipped'
+            log.info(
+                'reindex_extraction_skipped',
+                path=str(path),
+                filename=scanned.filename,
+                status=doc.status,
+                reason=skip_reason,
+                error_code=doc.metadata.get('error_code'),
+            )
+            return IndexResult(
+                success=False,
+                chunks_created=0,
+                error=skip_reason,
+                extractor=doc.metadata.get('converter'),
+                ocr_used=doc.metadata.get('ocr_used', 'false') == 'true',
+                error_code=doc.metadata.get('error_code') or doc.status,
+                retryable=False,
+                skipped=True,
+                skip_reason=skip_reason,
+                extracted_chars=len(doc.text or ''),
+                method=doc.metadata.get('converter') or doc.metadata.get('extractor_strategy'),
+            )
+        if scanned.filename == '2023 Taxes - Completed and Signed.pdf':
+            log.debug(
+                'reindex_trace_extraction_result',
+                path=str(path),
+                filename=scanned.filename,
+                status=getattr(doc, 'status', None),
+                method=doc.metadata.get('converter') or doc.metadata.get('extractor_strategy'),
+                extracted_chars=len(doc.text or ''),
+                error=doc.error,
+                skip_reason=getattr(doc, 'skip_reason', None),
+                ocr_used=doc.metadata.get('ocr_used'),
+            )
         if doc.error:
             retryable = doc.metadata.get('retryable', 'true').lower() != 'false'
             error_code = doc.metadata.get('error_code')
@@ -927,13 +1156,15 @@ async def reindex_file(
                 error=doc.error,
                 error_code=error_code,
                 retryable=retryable,
+                extracted_chars=len(doc.text or ''),
+                method=doc.metadata.get('converter') or doc.metadata.get('extractor_strategy'),
             )
 
         # -- Classify -------------------------------------------------------------
         category = classify_file(path, scanned.extension)
         year = extract_year(path, doc.text)
-        tags = generate_tags(path)
         file_metadata = _build_file_metadata(path, doc.metadata)
+        tags = _merge_tags_with_document_shape(generate_tags(path), file_metadata=file_metadata)
 
         # -- Remove old data ------------------------------------------------------
         try:
@@ -995,6 +1226,21 @@ async def reindex_file(
         )
         result.extractor = file_metadata['extractor'] if isinstance(file_metadata['extractor'], str) else None
         result.ocr_used = bool(file_metadata['ocr_used'])
+        result.extracted_chars = len(doc.text or '')
+        result.method = file_metadata['extractor'] if isinstance(file_metadata['extractor'], str) else None
+        if scanned.filename == '2023 Taxes - Completed and Signed.pdf':
+            log.debug(
+                'reindex_trace_final_result',
+                path=str(path),
+                filename=scanned.filename,
+                success=result.success,
+                status=getattr(doc, 'status', None),
+                method=result.method,
+                extracted_chars=result.extracted_chars,
+                chunks_created=result.chunks_created,
+                error=result.error,
+                ocr_used=result.ocr_used,
+            )
 
         if result.success:
             log.info(

@@ -43,14 +43,25 @@ class ScanErrorItem(BaseModel):
     created_at: datetime | None = None
 
 
+class ScanSkippedFileItem(BaseModel):
+    path: str
+    filename: str
+    extension: str
+    reason: str
+    error_code: str | None = None
+    created_at: datetime | None = None
+
+
 class ScanStatusResponse(BaseModel):
     # Current status of a scan operation.
     status:          str        # running, completed, failed, cancelled
     files_scanned:   int
     files_indexed:   int
     errors:          int
+    skipped_count:   int = 0
     timeout_errors:  int = 0
     recent_errors:   list[ScanErrorItem] = Field(default_factory=list)
+    skipped_files:   list[ScanSkippedFileItem] = Field(default_factory=list)
     started_at:      datetime
     elapsed_seconds: float
 

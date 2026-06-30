@@ -25,6 +25,8 @@ class ExtractedDocument:
     text:                 str                         # Full extracted text
     source_path:          Path                        # Absolute path to source file
     metadata:             dict[str, str] = field(default_factory=dict)  # Format-specific metadata
+    status:               str            = 'ok'       # ok | skipped_* | failed_unknown
+    skip_reason:          str | None     = None       # Human-readable skip reason
     page_count:           int | None     = None       # For PDFs, PPTX
     word_count:           int            = 0          # Computed from text
     extraction_time_ms:   float          = 0.0        # How long extraction took
@@ -36,6 +38,14 @@ class ExtractedDocument:
     char_to_page_ranges:     list[tuple[int, int, int]] | None = None  # (start, end, page_no) ranges
     char_to_block_type_ranges: list[tuple[int, int, str]] | None = None  # (start, end, block_type) ranges
     char_to_header_level_ranges: list[tuple[int, int, int]] | None = None  # (start, end, header_level) ranges
+
+    @property
+    def method(self) -> str:
+        return str(self.metadata.get('converter') or self.metadata.get('extractor_strategy') or 'unknown')
+
+    @property
+    def extracted_chars(self) -> int:
+        return len(self.text or '')
 
 
 # ==============================================================================

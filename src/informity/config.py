@@ -55,6 +55,7 @@ _LLM_MODEL_ID_TO_CANONICAL_FILENAME = {
     'qwen3.5:9b': 'Qwen_Qwen3.5-9B-Q4_K_M.gguf',
     'qwen3:14b': 'Qwen3-14B-Q5_K_M.gguf',
     'qwen3.6:35b': 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf',
+    'qwen3.5:4b': 'Qwen3.5-4B-Q4_K_M.gguf',
 }
 
 # Default embedding model (sentence-transformers)
@@ -125,6 +126,7 @@ class DirNames:
 
     # Model/cache subdirectories
     LLM = 'llm'  # LLM models (*.gguf files)
+    CLASSIFIER = 'classifier'  # Classifier models (*.gguf files)
     HUGGINGFACE = 'huggingface'  # HuggingFace cache under cache/huggingface/
     HUB = 'hub'  # HuggingFace hub cache under cache/huggingface/hub/
     DOCLING = 'docling'  # Docling models under cache/docling/ (flat, docling creates its own structure inside)
@@ -366,6 +368,7 @@ class Settings(BaseSettings):
     cache_dir:     Path | None = Field(default=None)   # Unified cache root; default app_data_dir/DirNames.CACHE. Override via INFORMITY_CACHE_DIR.
     db_path:       Path | None = Field(default=None)   # Computed: app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
     models_dir:    Path | None = Field(default=None)   # Computed: desktop -> app_data_dir/DirNames.MODELS/DirNames.LLM; otherwise cache_dir/DirNames.LLM
+    classifier_models_dir: Path | None = Field(default=None)  # Computed: app_data_dir/DirNames.MODELS/DirNames.CLASSIFIER
     logs_dir:      Path | None = Field(default=None)   # Computed: app_data_dir / DirNames.LOGS
     diagnostics_dir: Path | None = Field(default=None)  # Computed: app_data_dir / DirNames.DIAGNOSTICS
 
@@ -624,6 +627,10 @@ class Settings(BaseSettings):
     # When True, show a control to fetch and display raw model output (with <think> blocks)
     # for each assistant message. Useful for debugging. Disabled by default.
     enable_raw_output_control: bool = False
+    # When true, unload the 5Q classifier before generation begins.
+    # Last-resort memory option for hardware that cannot keep the classifier and
+    # main LLM resident at the same time.
+    classifier_unload_before_generation: bool = False
 
     # -- MCP (Model Context Protocol) ----------------------------------------
     # Optional local MCP server exposure for external clients.
@@ -684,6 +691,12 @@ class Settings(BaseSettings):
         else:
             self.models_dir = normalize_path(self.models_dir, expand_user=True)
 
+        # Classifier models directory: kept separate from user-visible chat models.
+        if self.classifier_models_dir is None:
+            self.classifier_models_dir = self.app_data_dir / DirNames.MODELS / DirNames.CLASSIFIER
+        else:
+            self.classifier_models_dir = normalize_path(self.classifier_models_dir, expand_user=True)
+
         # User data paths derive from app_data_dir
         if self.db_path is None:
             self.db_path = self.app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
@@ -726,6 +739,7 @@ class Settings(BaseSettings):
         # - app_data_dir/cache/docling/ - Docling models
         cache_root = self.cache_dir
         llm_dir = self.models_dir
+        classifier_dir = self.classifier_models_dir
         hf_cache      = cache_root / DirNames.HUGGINGFACE
         hf_hub        = hf_cache / DirNames.HUB
         docling_cache = cache_root / DirNames.DOCLING
@@ -739,6 +753,7 @@ class Settings(BaseSettings):
             # Cache structure (non-model artifacts)
             cache_root,
             llm_dir,
+            classifier_dir,
             hf_cache,
             hf_hub,
             docling_cache,
@@ -997,7 +1012,7 @@ def configure_hf_environment(*, fail_on_missing_full_privacy_models: bool = True
                 from informity.exceptions import ConfigurationError
                 raise ConfigurationError(
                     'Full Privacy Mode is enabled but required models are not cached. '
-                    'Please run the install script to download models: ./scripts/install_app.sh or make install\n\n'
+                    'Please run the install script to download models: ./scripts/install/install_app.sh or make install\n\n'
                     'Required models:\n'
                     f'  - Embedding: {settings.embedding_model}\n'
                     f'  - Reranker: {settings.rag_reranker_model}\n'

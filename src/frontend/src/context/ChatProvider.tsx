@@ -137,7 +137,7 @@ function setForceNewChatFlag(enabled: boolean): void {
 
 function buildRecoveryCallout(
   nextAction: 'none' | 'continue' | 'regenerate' | 'assistant_switch',
-  nextActionReason?: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_corpus' | null,
+  nextActionReason?: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_scope' | null,
 ): DisplayBlock | null {
   if (nextAction === 'none') return null
   if (nextActionReason === 'stalled') {
@@ -609,7 +609,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 storedMode
                 ?? explicitMessageMode
                 ?? lockedChatMode
-                ?? (nextActionReason === 'out_of_corpus' ? 'researcher' : undefined)
+                ?? (nextActionReason === 'out_of_scope' ? 'researcher' : undefined)
                 ?? ((m.sources?.length || 0) > 0 ? 'researcher' : undefined)
               )
             : (explicitMessageMode ?? lockedChatMode)
@@ -1003,7 +1003,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           ? data.continuation_passes
           : 0
         const nextAction: 'none' | 'continue' | 'regenerate' | 'assistant_switch' = data?.next_action ?? 'none'
-        const nextActionReason: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_corpus' | null =
+        const nextActionReason: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_scope' | null =
           data?.next_action_reason ?? null
         const chatMode = isChatMode(data?.chat_mode) ? data.chat_mode : undefined
         const webSearchUsed = data?.web_search_used === true

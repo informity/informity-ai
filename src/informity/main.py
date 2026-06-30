@@ -49,6 +49,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from structlog.contextvars import bind_contextvars, clear_contextvars
 
 from informity.api.routes_chat import router as chat_router
+from informity.api.routes_debug import router as debug_router
 from informity.api.routes_index import router as index_router
 from informity.api.routes_logs import router as logs_router
 from informity.api.routes_plugins import router as plugins_router
@@ -91,6 +92,11 @@ from informity.mcp.lifecycle import mcp_lifecycle
 from informity.scanner.watcher import start_watcher, stop_watcher
 from informity.storage_migrations import migrate_legacy_upload_storage_layout
 
+try:
+    import psutil  # type: ignore[import-not-found]
+except ImportError:  # pragma: no cover - fallback for minimal environments
+    psutil = None
+
 # ==============================================================================
 # Initialize Logging
 # ==============================================================================
@@ -114,6 +120,7 @@ _MANAGED_PID_FILE_RAW = _os.environ.get(_MANAGED_PID_FILE_ENV, '').strip()
 _MANAGED_PID_FILE_PATH: Path | None = (
     Path(_MANAGED_PID_FILE_RAW).expanduser() if _MANAGED_PID_FILE_RAW else None
 )
+_STARTUP_RAM_HEADROOM_RATIO = 0.85
 
 # ==============================================================================
 # Process Cleanup
@@ -199,7 +206,7 @@ def _register_signal_handlers() -> None:
 # LLM Warmup
 # ==============================================================================
 
-async def _run_llm_warmup() -> None:
+async def _run_llm_warmup() -> bool:
     """
     Warm up the generation LLM by running a minimal production-path call.
 
@@ -218,16 +225,27 @@ async def _run_llm_warmup() -> None:
                 model_path=str(model_path),
                 msg='Model file not found — will load on first query',
             )
-            return
+            return False
         model_size_gb = model_path.stat().st_size / (1024 ** 3)
-        if model_size_gb > 20:
+        available_ram_gb = _get_available_ram_gb()
+        will_warm = model_size_gb <= available_ram_gb * _STARTUP_RAM_HEADROOM_RATIO
+        log.info(
+            'startup_warmup_check',
+            model=model_path.name,
+            model_size_gb=round(model_size_gb, 1),
+            available_ram_gb=round(available_ram_gb, 1),
+            will_warm=will_warm,
+        )
+        if not will_warm:
             log.info(
-                'llm_warmup_skipped_large_model',
-                model_size_gb=round(model_size_gb, 1),
+                'llm_warmup_skipped_insufficient_ram',
                 model=model_path.name,
-                msg='Skipping warmup for large model — will load on first query',
+                model_size_gb=round(model_size_gb, 1),
+                available_ram_gb=round(available_ram_gb, 1),
+                headroom_ratio=_STARTUP_RAM_HEADROOM_RATIO,
+                msg='Skipping warmup for current model — will load on first query',
             )
-            return
+            return False
         log.info('llm_warmup_starting', model=model_path.name, model_size_gb=round(model_size_gb, 1))
         from informity.llm.model_adapter import get_profile
         profile = get_profile()
@@ -245,6 +263,7 @@ async def _run_llm_warmup() -> None:
             timeout=_WARMUP_TIMEOUT_SECONDS,
         )
         log.info('llm_warmup_completed')
+        return True
     except asyncio.CancelledError:
         log.info('llm_warmup_cancelled')
         raise
@@ -254,11 +273,40 @@ async def _run_llm_warmup() -> None:
             timeout_seconds=int(_WARMUP_TIMEOUT_SECONDS),
             msg='LLM warmup timed out — model will respond on first query',
         )
+        return False
     except _STARTUP_RUNTIME_EXCEPTIONS as exc:
         log.warning('llm_warmup_failed', error=str(exc))
+        return False
 
 
-async def _run_embedder_warmup() -> None:
+def _get_available_ram_gb() -> float:
+    """
+    Return available RAM in GiB when possible, otherwise fall back to total RAM.
+    """
+    if psutil is not None:
+        try:
+            return float(psutil.virtual_memory().available) / (1024 ** 3)
+        except Exception:
+            pass
+
+    try:
+        pages = int(_os.sysconf('SC_AVPHYS_PAGES'))
+        page_size = int(_os.sysconf('SC_PAGE_SIZE'))
+        available_bytes = pages * page_size
+        return float(available_bytes) / (1024 ** 3)
+    except (AttributeError, ValueError, OSError):
+        pass
+
+    try:
+        pages = int(_os.sysconf('SC_PHYS_PAGES'))
+        page_size = int(_os.sysconf('SC_PAGE_SIZE'))
+        total_bytes = pages * page_size
+        return float(total_bytes) / (1024 ** 3)
+    except (AttributeError, ValueError, OSError):
+        return 0.0
+
+
+async def _run_embedder_warmup() -> bool:
     """
     Warm up the embedding model by running a minimal encode call.
 
@@ -272,6 +320,7 @@ async def _run_embedder_warmup() -> None:
             timeout=_WARMUP_TIMEOUT_SECONDS,
         )
         log.info('embedder_warmup_completed')
+        return True
     except asyncio.CancelledError:
         log.info('embedder_warmup_cancelled')
         raise
@@ -281,34 +330,86 @@ async def _run_embedder_warmup() -> None:
             timeout_seconds=int(_WARMUP_TIMEOUT_SECONDS),
             msg='Embedder warmup timed out — model will load on first query',
         )
+        return False
     except _STARTUP_RUNTIME_EXCEPTIONS as exc:
         log.warning('embedder_warmup_failed', error=str(exc))
+        return False
 
 
-async def _run_intent_router_warmup() -> None:
+async def _run_five_q_classifier_warmup() -> bool:
     """
-    Warm up intent-router embeddings so first classification is not cold.
+    Warm up the 5Q classifier so first classification is not cold.
     """
     try:
-        from informity.llm.intent_router import get_intent_router
+        from informity.llm.classifier_service import get_classifier
+        from informity.llm.five_q_classifier import ClassifierContext
 
-        log.info('intent_router_warmup_starting')
+        log.info('five_q_classifier_warmup_starting')
         await asyncio.wait_for(
-            asyncio.to_thread(get_intent_router().classify_intent, 'List indexed files.'),
+            asyncio.to_thread(
+                get_classifier().classify,
+                'what documents do I have',
+                ClassifierContext(chat_mode='researcher', scope_kind='indexed_corpus', has_prior_turns=False),
+            ),
             timeout=_WARMUP_TIMEOUT_SECONDS,
         )
-        log.info('intent_router_warmup_completed')
+        log.info('five_q_classifier_warmup_completed')
+        return True
     except asyncio.CancelledError:
-        log.info('intent_router_warmup_cancelled')
+        log.info('five_q_classifier_warmup_cancelled')
         raise
     except TimeoutError:
         log.warning(
-            'intent_router_warmup_timeout',
+            'five_q_classifier_warmup_timeout',
             timeout_seconds=int(_WARMUP_TIMEOUT_SECONDS),
-            msg='Intent router warmup timed out — router will initialize on first classification',
+            msg='5Q classifier warmup timed out — classifier will initialize on first classification',
         )
+        return False
     except _STARTUP_RUNTIME_EXCEPTIONS as exc:
-        log.warning('intent_router_warmup_failed', error=str(exc))
+        log.warning('five_q_classifier_warmup_failed', error=str(exc))
+        return False
+
+
+async def _run_startup_warmups() -> None:
+    """
+    Warm up all models before the server accepts requests.
+
+    The sequence is intentionally serialized so each load is paid at startup
+    rather than on the first user request.
+    """
+    startup_started_at = time.perf_counter()
+
+    warmups = (
+        ('classifier', _run_five_q_classifier_warmup),
+        ('llm', _run_llm_warmup),
+        ('embedder', _run_embedder_warmup),
+    )
+
+    for component, warmup in warmups:
+        component_started_at = time.perf_counter()
+        warmed = await warmup()
+        component_duration_ms = round((time.perf_counter() - component_started_at) * 1000, 1)
+        startup_elapsed_ms = round((time.perf_counter() - startup_started_at) * 1000, 1)
+        if warmed:
+            log.info(
+                f'{component}_model_loaded',
+                component=component,
+                duration_ms=component_duration_ms,
+                elapsed_ms=startup_elapsed_ms,
+                module='main',
+                operation=f'{component}_warmup_completed',
+                status='ok',
+            )
+
+    log.info(
+        'server_ready',
+        component='main',
+        message='all models loaded, accepting requests',
+        module='main',
+        operation='server_ready',
+        startup_elapsed_ms=round((time.perf_counter() - startup_started_at) * 1000, 1),
+        status='ok',
+    )
 
 
 async def _backfill_page_counts(conn: object) -> None:
@@ -488,13 +589,10 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     except (ImportError, _STARTUP_RUNTIME_EXCEPTIONS) as exc:
         log.warning('adaptive_tuning_startup_failed', error=str(exc))
 
-    # Warm up generation, embeddings, and intent-router index.
-    # Server mode: blocking warmup before the server accepts requests.
-    # Desktop mode: skip startup warmup to avoid blocking app launch.
-    # Skipped in dev mode (reload) to avoid double-warmup on code changes.
-    if not settings.dev_reload and not _DESKTOP_SESSION_MODE:
-        await asyncio.gather(_run_llm_warmup(), _run_embedder_warmup())
-        await _run_intent_router_warmup()
+    # Warm up the classifier, generation LLM, and embedder before the server
+    # starts accepting requests. This blocks startup by design so the first
+    # user request does not pay the cold-load penalty.
+    await _run_startup_warmups()
 
     # Start file watcher for incremental indexing (if watched_directories configured)
     loop = asyncio.get_running_loop()
@@ -711,6 +809,7 @@ async def health_check() -> HealthResponse:
 app.include_router(scan_router)
 app.include_router(index_router)
 app.include_router(chat_router)
+app.include_router(debug_router)
 app.include_router(translate_router)
 app.include_router(search_router)
 app.include_router(settings_router)

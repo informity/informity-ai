@@ -42,9 +42,6 @@ from informity.api.chat_continuation import (
     is_duplicate_continuation_pass as _is_duplicate_continuation_pass,
 )
 from informity.api.chat_continuation import (
-    normalize_continuation_classification as _normalize_continuation_classification,
-)
-from informity.api.chat_continuation import (
     resolve_auto_continue_policy as _resolve_auto_continue_policy,
 )
 from informity.api.chat_continuation import (
@@ -107,7 +104,6 @@ from informity.diagnostics.observer import EvalMetrics, detect_issues, estimate_
 from informity.diagnostics.resource_snapshot import build_resource_delta, capture_resource_snapshot
 from informity.indexer.pipeline import remove_file
 from informity.llm.chat_mode import resolve_chat_mode
-from informity.llm.classification_policy import classify_query_with_timing
 from informity.llm.contract_gate import (
     build_contract_spec,
     build_repair_guidance,
@@ -183,7 +179,7 @@ _FILENAME_CANDIDATE_PATTERN = re.compile(
     r'(?i)\b([a-z0-9][a-z0-9_\-\(\)\[\]\.]{0,140}\.[a-z0-9]{1,10})\b'
 )
 _QUOTED_TEXT_PATTERN = re.compile(r'["\']([^"\']{1,180})["\']')
-_OUT_OF_CORPUS_RESPONSE_PATTERN = re.compile(
+_OUT_OF_SCOPE_RESPONSE_PATTERN = re.compile(
     r'(?is)\b(?:provided|indexed|these)?\s*(?:documents?|records?|context)\b.{0,120}\b'
     r'(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b'
     r'(?:contain|include|cover|mention|provide|have)\b'
@@ -207,8 +203,8 @@ def _normalize_diagnostics_query_type(value: object) -> str:
         return DiagnosticsQueryType.UNKNOWN.value
 
 
-def _answer_signals_out_of_corpus(text: str) -> bool:
-    return bool(_OUT_OF_CORPUS_RESPONSE_PATTERN.search(str(text or '')))
+def _answer_signals_out_of_scope(text: str) -> bool:
+    return bool(_OUT_OF_SCOPE_RESPONSE_PATTERN.search(str(text or '')))
 
 
 def _looks_per_file_separate_request(text: str) -> bool:
@@ -1364,7 +1360,7 @@ async def chat(
             metrics_raw_chunks_count = 0
             continuation_passes = 0
             pass_details: list[dict[str, object]] = []
-            researcher_out_of_corpus = False
+            researcher_out_of_scope = False
             continuation_resolution_reason: (
                 ContinuationResolutionReason | StructuralGapReason | TimeoutReason | str | None
             ) = None
@@ -1398,38 +1394,7 @@ async def chat(
                     history=history,
                 )
 
-                # Pre-classify to gate planning and lock classification for all passes.
-                # Planning adds structural value only for multi-section synthesis routes;
-                # running it on focused/simple/metadata queries wastes 9-28s with no benefit.
-                # On failure, falls through to None so planning runs unconditionally (safe fallback).
                 locked_classification = None
-                if resolved_chat_mode != 'assistant':
-                    try:
-                        locked_classification, pre_classification_elapsed_ms = await classify_query_with_timing(
-                            continuation_anchor_question,
-                            scoped_file_active=bool(scoped_file_ids),
-                            scoped_file_count=len(scoped_file_ids or []),
-                            history=history,
-                        )
-                        log.info(
-                            'query_pre_classified',
-                            chat_id=chat_id,
-                            route_candidate=locked_classification.route_candidate,
-                            confidence=locked_classification.confidence,
-                            chat_mode=resolved_chat_mode,
-                        )
-                    except (RuntimeError, ValueError, TypeError, OSError) as exc:
-                        log.warning('pre_classification_failed', chat_id=chat_id, error=str(exc), chat_mode=resolved_chat_mode)
-                        locked_classification = None
-
-                # Override continuation_request with the authoritative classifier result.
-                if locked_classification is not None:
-                    continuation_request = bool(continuation_request or locked_classification.is_continuation)
-                    if continuation_request:
-                        locked_classification = _normalize_continuation_classification(
-                            classification=locked_classification,
-                            continuation_anchor_question=continuation_anchor_question,
-                        )
 
                 auto_continue_enabled, max_auto_continue_rounds, auto_continue_prompt = _resolve_auto_continue_policy()
                 base_history = list(history)
@@ -1712,7 +1677,7 @@ async def chat(
                                     and not bool(metrics_payload.get('answerability_passed'))
                                     and not bool(getattr(locked_classification, 'is_metadata_query', False))
                                 ):
-                                    researcher_out_of_corpus = True
+                                    researcher_out_of_scope = True
                                 log.info(
                                     'chat_answer_stream_metrics_received',
                                     chat_id=chat_id,
@@ -2019,8 +1984,13 @@ async def chat(
                     stopped_by_user=False,
                     continuation_resolution_reason=continuation_resolution_reason,
                     chat_mode=resolved_chat_mode,
-                    researcher_out_of_scope=researcher_out_of_corpus,
-                    answer_signals_out_of_scope=_answer_signals_out_of_corpus(cleaned_answer),
+<<<<<<< HEAD
+                    researcher_out_of_scope=researcher_out_of_scope,
+                    answer_signals_out_of_scope=_answer_signals_out_of_scope(cleaned_answer),
+=======
+                    researcher_out_of_scope=researcher_out_of_scope,
+                    answer_signals_out_of_scope=_answer_signals_out_of_scope(cleaned_answer),
+>>>>>>> feature/5-qc-retrieval
                 )
                 assistant_message = ChatMessage(
                     chat_id=chat_id,
@@ -2313,8 +2283,13 @@ async def chat(
                     stopped_by_user=stopped_by_user,
                     continuation_resolution_reason=continuation_resolution_reason,
                     chat_mode=resolved_chat_mode,
-                    researcher_out_of_scope=researcher_out_of_corpus,
-                    answer_signals_out_of_scope=_answer_signals_out_of_corpus(cleaned_answer),
+<<<<<<< HEAD
+                    researcher_out_of_scope=researcher_out_of_scope,
+                    answer_signals_out_of_scope=_answer_signals_out_of_scope(cleaned_answer),
+=======
+                    researcher_out_of_scope=researcher_out_of_scope,
+                    answer_signals_out_of_scope=_answer_signals_out_of_scope(cleaned_answer),
+>>>>>>> feature/5-qc-retrieval
                 )
             )
             resolved_completion_mode = completion_mode
@@ -2369,6 +2344,11 @@ async def chat(
                 pre_first_yield_timeout_occurred=pre_first_yield_timeout_occurred,
                 pre_first_yield_elapsed_seconds=pre_first_yield_elapsed_seconds,
                 pre_first_yield_stage=pre_first_yield_stage,
+                guardrail_applied=(
+                    getattr(locked_classification, 'guardrail_applied', None)
+                    if locked_classification is not None
+                    else None
+                ),
             )
             detected_issues = detect_issues(refusal_text, metrics_model)
             issue_strings = [issue.value for issue in detected_issues]

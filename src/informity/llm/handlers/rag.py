@@ -80,6 +80,7 @@ _WEAK_SUMMARY_SUBSTANTIVE_RATIO_THRESHOLD = 0.55
 _WEAK_SUMMARY_DOMINANT_FILE_RATIO_THRESHOLD = 0.6
 _SUMMARY_TITLE_MAX_TEMPERATURE = 0.3
 _SUMMARY_TITLE_MAX_TOP_P = 0.9
+_WEAK_COMPARISON_DISTINCT_FILE_THRESHOLD = 2
 
 
 def _dominant_file_ratio(chunks: list[dict]) -> float:
@@ -94,6 +95,15 @@ def _dominant_file_ratio(chunks: list[dict]) -> float:
     if not counts:
         return 0.0
     return max(counts.values()) / max(1, len(chunks))
+
+
+def _distinct_file_count(chunks: list[dict]) -> int:
+    file_ids: set[int] = set()
+    for chunk in chunks:
+        file_id = chunk.get('file_id')
+        if isinstance(file_id, int):
+            file_ids.add(file_id)
+    return len(file_ids)
 
 
 def _collapse_duplicate_insufficient_context_message(
@@ -563,6 +573,7 @@ class RAGHandler:
                 'term_expansion_enabled': not disable_term_expansion_for_focused_title,
             })
         retrieval_start = time.perf_counter()
+        comparison_style_request = has_comparison_cue(question)
         chunks = await retrieve_chunks(
             query=retrieval_query,
             top_k=effective_top_k,
@@ -585,7 +596,7 @@ class RAGHandler:
             title_alignment_query=title_alignment_query if prefer_title_alignment else None,
             strict_title_alignment=strict_title_alignment,
             enable_term_expansion=not disable_term_expansion_for_focused_title,
-            prefer_within_file_diversity=summary_style_request,
+            prefer_within_file_diversity=summary_style_request or comparison_style_request,
             query_type=effective_query_type,
             db=db,
             trace=trace,
@@ -642,6 +653,45 @@ class RAGHandler:
                         'initial_dominant_file_ratio': round(dominant_ratio, 4),
                         'retry_used': bool(chunks is retry_chunks and retry_chunks),
                     })
+        if comparison_style_request and _distinct_file_count(chunks) < _WEAK_COMPARISON_DISTINCT_FILE_THRESHOLD:
+            initial_distinct_file_count = _distinct_file_count(chunks)
+            comparison_retry_timing: dict[str, float] = {}
+            comparison_retry_chunks = await retrieve_chunks(
+                query=question,
+                top_k=min(max(effective_top_k + 4, effective_top_k), 16),
+                max_score=None,
+                year_filter=classification.year_filter,
+                category_filter=classification.category_filter,
+                extension_filter=classification.file_type_filter,
+                filename_filter=classification.filename_filter,
+                filename_exclude=classification.filename_exclude,
+                block_type_filter=classification.block_type_filter,
+                block_type_exclude=effective_block_type_exclude or None,
+                section_filter=classification.section_filter,
+                file_ids_filter=file_ids,
+                exclude_upload_sources=not bool(file_ids),
+                prefer_substantive_sections=False,
+                prefer_title_alignment=False,
+                title_alignment_query=None,
+                strict_title_alignment=False,
+                enable_term_expansion=True,
+                prefer_within_file_diversity=True,
+                query_type=effective_query_type,
+                db=db,
+                trace=None,
+                timing_output=comparison_retry_timing,
+            )
+            comparison_retry_distinct_file_count = _distinct_file_count(comparison_retry_chunks)
+            if comparison_retry_distinct_file_count > initial_distinct_file_count:
+                chunks = comparison_retry_chunks
+                retrieval_timing = comparison_retry_timing
+            if trace is not None:
+                trace.record('retrieval.comparison_retry', {
+                    'triggered': True,
+                    'initial_distinct_file_count': initial_distinct_file_count,
+                    'retry_distinct_file_count': comparison_retry_distinct_file_count,
+                    'retry_used': bool(chunks is comparison_retry_chunks and comparison_retry_chunks),
+                })
         retrieval_elapsed_ms = (time.perf_counter() - retrieval_start) * 1000
 
         answerability_passed, answerability_score, answerability_threshold, min_chunks = _evaluate_minimal_answerability(

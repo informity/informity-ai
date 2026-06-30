@@ -19,6 +19,7 @@ from informity.db.models import ChatMessage
 from informity.db.sqlite import get_chunk_count
 from informity.llm.chat_mode import is_assistant_mode, resolve_chat_mode
 from informity.llm.classification_policy import classify_query_with_timing
+from informity.llm.classifier_service import get_classifier
 from informity.llm.handlers.metadata import MetadataHandler
 from informity.llm.handlers.rag import RAGHandler
 from informity.llm.handlers.simple import SimpleHandler
@@ -111,6 +112,16 @@ def _should_execute_secondary_path(
     return True, None
 
 
+def _maybe_unload_classifier_before_generation() -> None:
+    if settings.classifier_unload_before_generation:
+        classifier = get_classifier()
+        classifier.unload()
+        log.info(
+            'five_q_classifier_unloaded_before_generation',
+            classifier_id=id(classifier),
+        )
+
+
 async def answer_question(
     question: str,
     chat_id: str | None = None,
@@ -150,6 +161,8 @@ async def answer_question(
                         classify_query_with_timing(
                             question,
                             history=history,
+                            chat_mode=normalized_chat_mode,
+                            scope_kind='assistant_mode',
                         ),
                         timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
                     )
@@ -162,7 +175,7 @@ async def answer_question(
                     base_classification = QueryClassification(intent=QueryType.SIMPLE)
                     classify_elapsed_ms = _CLASSIFICATION_TIMEOUT_SECONDS * 1000.0
 
-            # Assistant always routes to SimpleHandler, but we preserve PromptCue
+            # Assistant always routes to SimpleHandler, but we preserve routing
             # freshness/action signals on the forced-simple classification.
             if isinstance(base_classification, QueryClassification):
                 forced_classification = dataclasses.replace(
@@ -226,6 +239,8 @@ async def answer_question(
                     classify_query_with_timing(
                         question,
                         history=history,
+                        chat_mode=normalized_chat_mode,
+                        scope_kind='indexed_corpus',
                     ),
                     timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
                 )
@@ -278,6 +293,8 @@ async def answer_question(
                 confidence=classification.confidence,
                 chat_mode=normalized_chat_mode or 'researcher',
             )
+
+        _maybe_unload_classifier_before_generation()
 
         total_chunks = await get_chunk_count(db)
         if total_chunks == 0:

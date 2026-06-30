@@ -10,6 +10,7 @@ import pytest
 from informity.llm.model_adapter import (
     DEFAULT_PROFILE,
     OLLAMA_DEFAULT_PROFILE,
+    QWEN3_5_4B_ROUTER_PROFILE,
     QWEN3_5_9B_PROFILE,
     QWEN3_6_35B_A3B_PROFILE,
     QWEN3_14B_PROFILE,
@@ -37,6 +38,10 @@ class TestGetProfileForFilename:
     def test_qwen3_5_35b_a3b_lowercase(self) -> None:
         profile = get_profile_for_filename('qwen3.6-35b-a3b-q4_k_m.gguf')
         assert profile is QWEN3_6_35B_A3B_PROFILE
+
+    def test_qwen3_5_4b_classifier_detected(self) -> None:
+        profile = get_profile_for_filename('Qwen3.5-4B-Q4_K_M.gguf')
+        assert profile is QWEN3_5_4B_ROUTER_PROFILE
 
     def test_qwen2_5_3b_returns_default(self) -> None:
         # No dedicated Qwen2.5-3B profile; falls through to default

@@ -74,24 +74,24 @@ You can either **run the app and let it download models on first use** (see Offl
 Run once to install Python deps and download the embedding model, reranker (cross-encoder), and optional LLM into app data, then lock the app to cached-only:
 
 ```bash
-./scripts/install_app.sh
+./scripts/install/install_app.sh
 ```
 
 For first-run setup testing (install app/runtime dependencies only, no models preinstalled):
 
 ```bash
-INFORMITY_INSTALL_PROFILE=dev INFORMITY_INSTALL_SKIP_MODELS=1 ./scripts/install_app.sh
+INFORMITY_INSTALL_PROFILE=dev INFORMITY_INSTALL_SKIP_MODELS=1 ./scripts/install/install_app.sh
 ```
 
-- Uses `scripts/install.conf.json` for model IDs: `embedding_model`, `reranker_model` (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`), and optional LLM (default: **Qwen3.6 35B A3B** Q4_K_M via `repo_id` / `filename`).
+- Uses `scripts/install/install.conf.json` for model IDs: `embedding_model`, `reranker_model` (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`), and optional LLM (default: **Qwen3.6 35B A3B** Q4_K_M via `repo_id` / `filename`).
 - Downloads all models to `~/.informity/` by default (override with `INFORMITY_APP_DATA_DIR`) and writes `config.json` with `full_privacy=true` (no network after install).
 - After this, the app will **never** auto-download; it only uses what’s already in app data. With those settings enabled, the app makes **no network requests after install** (no Hugging Face or internet contact).
 
 **Uninstall**  
-To remove all user data and downloaded content and return to a fresh distribution state (as after cloning), run from repo root: `./scripts/install_uninstall_app.sh` or `make uninstall`. This removes the app data directory (config, database, embedding cache, LLM models, vectors, logs), the virtualenv (`.venv`), and local caches. Run `./scripts/install_app.sh` again to reinstall.
+To remove all user data and downloaded content and return to a fresh distribution state (as after cloning), run from repo root: `./scripts/install/install_uninstall_app.sh` or `make uninstall`. This removes the app data directory (config, database, embedding cache, LLM models, vectors, logs), the virtualenv (`.venv`), and local caches. Run `./scripts/install/install_app.sh` again to reinstall.
 
 **Reset (in-app)**  
-Settings → Reset restores all settings to factory defaults (including default LLM: Qwen3.6 35B A3B). Index → Reset deletes all indexed data and chat history and also resets settings to the same defaults. For a full local cleanup and reset, run `./scripts/install_uninstall_app.sh` (or `make uninstall`). Then run `./scripts/install_app.sh` to reinstall.
+Settings → Reset restores all settings to factory defaults (including default LLM: Qwen3.6 35B A3B). Index → Reset deletes all indexed data and chat history and also resets settings to the same defaults. For a full local cleanup and reset, run `./scripts/install/install_uninstall_app.sh` (or `make uninstall`). Then run `./scripts/install/install_app.sh` to reinstall.
 
 **Option B — First-run auto-download**  
 Just run the app. On first search/index/chat it may download the embedding model, reranker, and LLM if not already present. In Settings → Full Privacy Mode you can turn **“Enable”** on so future runs are fully offline.
@@ -127,7 +127,7 @@ Directory layout:
 **One cache only (avoid duplicates)**
 Informity uses **only** the app data cache directory (`cache/` under app data). It does not use the default Hugging Face cache (`~/.cache/huggingface/hub`). If you have the same models in both places, you can remove the copy under `~/.cache/huggingface/hub` to free space.
 
-**If embedding or reranker fails with "cache incomplete"** (e.g. missing `snapshots/` under the model folder), remove the incomplete model dir and re-download: run `./scripts/install_app.sh` or set `INFORMITY_FULL_PRIVACY=false` and run a scan/chat once so the missing model is downloaded.
+**If embedding or reranker fails with "cache incomplete"** (e.g. missing `snapshots/` under the model folder), remove the incomplete model dir and re-download: run `./scripts/install/install_app.sh` or set `INFORMITY_FULL_PRIVACY=false` and run a scan/chat once so the missing model is downloaded.
 
 
 ## PDF Processing
@@ -147,7 +147,7 @@ The app is **offline-first by default**. With **Full Privacy Mode** on (Settings
 - **Two models in the Hugging Face cache** (`cache/huggingface/hub/` under app data): (1) **Embedding model** (`nomic-ai/nomic-embed-text-v1.5`) for document and query vectors; (2) **Reranker** (`cross-encoder/ms-marco-MiniLM-L-6-v2`) for re-ranking search results. Settings → System shows both for transparency.
 - With `full_privacy=true` (default after install), embedding and reranker are loaded only from this cache. Set `INFORMITY_FULL_PRIVACY=false` (or turn off in Settings) once to allow downloads, then turn Full Privacy Mode back on for offline use.
 - **LLM (GGUF):** App default model is **Qwen3.6 35B A3B** (`Qwen3.6-35B-A3B-UD-Q4_K_M.gguf`), stored in `models/llm/` under the app data directory. With `llm_local_only=true` (default), the app only loads from this directory and never downloads. Place your `.gguf` file there, or set `INFORMITY_LLM_LOCAL_ONLY=false` once to allow a one-time download, then set it back to true.  
-  Note: the optional installer seed in `scripts/install.conf.json` points to Qwen3.6 35B A3B.
+  Note: the optional installer seed in `scripts/install/install.conf.json` points to Qwen3.6 35B A3B.
 
 After models are in place, the app runs fully offline with no internet required.
 
@@ -330,16 +330,15 @@ src/informity/
 │   ├── engine.py                   # LLM inference (xllamacpp, Metal)
 │   ├── model_adapter.py            # Per-model profiles (Qwen3 14B, Qwen3.5 9B, Qwen3.6 35B A3B)
 │   ├── rag.py                      # QueryRouter — dispatches to handlers based on intent
-│   ├── query_classifier.py         # Deterministic slot extraction + NLP/promptcue intent routing
+│   ├── query_classifier.py         # 5Q classifier mapping + route/classification normalization
 │   ├── retrieval.py                # Unified retrieval pipeline (vector search → rerank)
 │   ├── term_dictionary.py          # Runtime query expansion via corpus term dictionary
-│   ├── intent_router.py            # Promptcue-backed intent classification router
 │   ├── classification_policy.py    # Intent routing policy and normalization
-│   ├── promptcue_adapter.py        # Adapter for promptcue intent classification
 │   ├── chat_mode.py                # Assistant vs Researcher mode routing policy
 │   ├── contract_gate.py            # Final closeout contract validation/repair
 │   ├── contract_prompt_parser.py   # Parses required output section cues from user prompts
 │   ├── metrics_payload.py          # Normalized diagnostics metrics payload helpers
+│   ├── five_q_classifier.py        # Local 5-question classifier (GGUF LLM + guardrail)
 │   ├── nlp_heuristics.py           # Minimal deterministic lexical cues
 │   ├── prompt_builder.py           # Prompt construction and budget management
 │   ├── streaming.py                # LLM stream wrapper
@@ -375,22 +374,35 @@ src/informity/diagnostics/          # Diagnostics package
 
 ## Release Scripts
 
-`scripts/` is committed and includes both developer setup scripts and maintainer release automation.
+`scripts/` is organized by purpose:
 
-Maintainer-focused build/release scripts:
+- `scripts/install/` — environment setup, model bootstrap, uninstall cleanup
+- `scripts/build/` — Tauri/build packaging helpers
+- `scripts/release/` — release publishing helpers
+- `scripts/dev/` — developer-only local workflow helpers
+- `scripts/diagnostics/` — read-only diagnostics utilities
+
+For a read-only view of what the live indexing pipeline does on a single file, use:
 
 ```bash
-# Generate Tauri icons from source logo
+make index-quality FILE=path/to/document
+# add VERBOSE=1 to print full extracted text and chunk contents
+```
+
+The diagnostic writes a JSON report to `~/.informity/diagnostics/` and never modifies the index.
+
+Common entry points:
+
+```bash
+make install
+make install-dev
+make uninstall
 make tauri-icons
-
-# Build backend sidecar used for Tauri packaging
 make tauri-backend
-
-# Build + sign + notarize macOS release (requires local signing credentials)
 make tauri-build-mac
-
-# Build Linux release artifacts (.deb + AppImage)
-make tauri-build-linux
+make tauri-build-linux-deb
+make tauri-build-linux-rpm
+make tauri-build-appstore
 ```
 
 Runtime chat diagnostics metrics are also persisted in SQLite (`response_diagnostics_metrics`) for operational observability. Use `GET /api/diagnostics/summary` for aggregated counts/rates/query-type breakdowns over a time window.

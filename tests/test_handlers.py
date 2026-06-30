@@ -582,6 +582,53 @@ class TestRAGHandler:
             assert mock_retrieve.await_args.kwargs.get('strict_title_alignment') is True
 
     @pytest.mark.asyncio
+    async def test_handle_runs_comparison_retry_when_retrieval_collapses_to_one_file(self) -> None:
+        handler = RAGHandler()
+        classification = QueryClassification(intent='focused')
+        mock_db = MagicMock()
+        with patch('informity.llm.handlers.rag.retrieve_chunks', new_callable=AsyncMock) as mock_retrieve:
+            mock_retrieve.side_effect = [
+                [
+                    {
+                        'file_id': 1,
+                        'filename': 'alpha.pdf',
+                        'file_path': '/docs/alpha.pdf',
+                        'chunk_text': 'Alpha chunk.',
+                        'score': 1.0,
+                    },
+                ],
+                [
+                    {
+                        'file_id': 1,
+                        'filename': 'alpha.pdf',
+                        'file_path': '/docs/alpha.pdf',
+                        'chunk_text': 'Alpha chunk.',
+                        'score': 1.0,
+                    },
+                    {
+                        'file_id': 2,
+                        'filename': 'beta.pdf',
+                        'file_path': '/docs/beta.pdf',
+                        'chunk_text': 'Beta chunk.',
+                        'score': 0.9,
+                    },
+                ],
+            ]
+
+            async def _fake_stream_llm(*_args, **_kwargs):
+                yield 'Comparison answer token.'
+
+            results: list[object] = []
+            with patch('informity.llm.handlers.rag.stream_llm', _fake_stream_llm):
+                async for item in handler.handle('Compare the mortgage document and the Rocket Mortgage document.', classification, None, mock_db, None):
+                    results.append(item)
+
+        assert mock_retrieve.await_count == 2
+        assert mock_retrieve.await_args_list[1].kwargs.get('prefer_title_alignment') is False
+        assert mock_retrieve.await_args_list[1].kwargs.get('prefer_within_file_diversity') is True
+        assert any(isinstance(item, str) and 'comparison answer token' in item.casefold() for item in results)
+
+    @pytest.mark.asyncio
     async def test_handle_uses_decomposed_retrieval_content_query(self) -> None:
         handler = RAGHandler()
         classification = QueryClassification(

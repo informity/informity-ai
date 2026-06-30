@@ -58,7 +58,7 @@ def test_sanitize_display_answer_strips_bold_inline_answer_label() -> None:
     assert sanitize_display_answer(raw) == "The documents do not contain this information.\n\n1776."
 
 
-def test_sanitize_display_answer_removes_redundant_out_of_corpus_however_sentence() -> None:
+def test_sanitize_display_answer_removes_redundant_out_of_scope_however_sentence() -> None:
     raw = (
         "The provided documents do not contain this information.\n\n"
         "Answer: The US Declaration of Independence was signed in 1776. "

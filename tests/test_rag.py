@@ -73,10 +73,13 @@ async def test_answer_question_calls_classify(mock_db):
     # Should call classify_query_with_timing with the question
     with patch('informity.llm.rag.classify_query_with_timing', AsyncMock()) as mock_classify, \
          patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)):
-        mock_classify.return_value = QueryClassification(
-            intent='focused',
-            year_filter=None,
-            category_filter=None,
+        mock_classify.return_value = (
+            QueryClassification(
+                intent='focused',
+                year_filter=None,
+                category_filter=None,
+            ),
+            0.0,
         )
 
         # Mock handler to avoid actual processing
@@ -86,7 +89,12 @@ async def test_answer_question_calls_classify(mock_db):
                 results.append(item)
 
         # Should have called classify_query_with_timing
-        mock_classify.assert_called_once_with('test question', history=None)
+        mock_classify.assert_called_once_with(
+            'test question',
+            history=None,
+            chat_mode='researcher',
+            scope_kind='indexed_corpus',
+        )
 
 
 @pytest.mark.asyncio
@@ -334,7 +342,12 @@ async def test_answer_question_assistant_mode_forces_simple_handler(mock_db):
         async for item in answer_question('hello there', db=mock_db, chat_mode='assistant'):
             results.append(item)
 
-        mock_classify.assert_called_once_with('hello there', history=None)
+        mock_classify.assert_called_once_with(
+            'hello there',
+            history=None,
+            chat_mode='assistant',
+            scope_kind='assistant_mode',
+        )
         mock_simple_handler.assert_called_once()
         mock_rag_handler.assert_not_called()
         assert results[0] == 'Assistant reply'
@@ -358,7 +371,12 @@ async def test_answer_question_invalid_chat_mode_falls_back_to_researcher(mock_d
         async for item in answer_question('test question', db=mock_db, chat_mode='invalid-mode'):
             results.append(item)
 
-        mock_classify.assert_called_once_with('test question', history=None)
+        mock_classify.assert_called_once_with(
+            'test question',
+            history=None,
+            chat_mode='researcher',
+            scope_kind='indexed_corpus',
+        )
         mock_rag_handler.assert_called_once()
         assert results[-1] == []
 

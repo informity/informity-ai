@@ -128,6 +128,18 @@ class ScanErrorRecord(BaseModel):
     created_at:    datetime | None = None
 
 
+class ScanSkippedFileRecord(BaseModel):
+    # Represents a per-file skip in `scan_skipped_files`.
+    id:            int | None      = None
+    scan_id:       int
+    path:          str
+    filename:      str
+    extension:     str
+    reason:        str
+    error_code:    str | None      = None
+    created_at:    datetime | None = None
+
+
 # ==============================================================================
 # ChatMessage — maps to the `chat_messages` table
 # ==============================================================================
