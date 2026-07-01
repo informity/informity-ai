@@ -19,6 +19,7 @@ import {
 } from './api'
 import { type SetupState, isSetupBlockingState } from './types/setupState'
 import { extractErrorMessage } from './utils/errorMessages'
+import { getStartupErrorMessage, type StartupFailureInfo } from './startupErrors'
 import './App.css'
 
 const ChatPage = lazy(async () => ({ default: (await import('./pages/ChatPage')).ChatPage }))
@@ -32,10 +33,10 @@ const SetupRequiredPage = lazy(async () => ({ default: (await import('./pages/Se
 const TranslatePage = lazy(async () => ({ default: (await import('./pages/TranslatePage')).TranslatePage }))
 
 interface AppProps {
-  startupError?: string | null
+  startupFailure?: StartupFailureInfo | null
 }
 
-function App({ startupError = null }: AppProps) {
+function App({ startupFailure = null }: AppProps) {
   const [setupStatus, setSetupStatus] = useState<SetupStatusResponse | null>(null)
   const [setupEvent, setSetupEvent] = useState<SetupEventResponse | null>(null)
   const [setupError, setSetupError] = useState<string | null>(null)
@@ -86,12 +87,12 @@ function App({ startupError = null }: AppProps) {
     }
   }, [isSetupBlocking])
 
-  if (startupError) {
+  if (startupFailure) {
     return (
       <CenteredState
         icon="ri-alert-line"
-        title="Backend startup failed."
-        description={startupError}
+        title="Startup failed."
+        description={getStartupErrorMessage(startupFailure.reason)}
       />
     )
   }

@@ -1,8 +1,28 @@
+import { getStartupErrorMessage, type StartupFailureInfo } from './startupErrors'
+
 interface BackendStartPayload {
   baseUrl: string
   sessionToken: string
   port: number
   launchMode: string
+}
+
+interface BackendStartFailurePayload {
+  reason?: unknown
+  detail?: unknown
+}
+
+export class StartupFailureError extends Error implements StartupFailureInfo {
+  reason: string | null
+  detail: string | null
+
+  constructor(reason: string | null, detail: string | null) {
+    super(getStartupErrorMessage(reason))
+    this.name = 'StartupFailureError'
+    this.reason = reason
+    this.detail = detail
+    Object.setPrototypeOf(this, StartupFailureError.prototype)
+  }
 }
 
 interface StartupStatusEventPayload {
@@ -59,6 +79,26 @@ function formatUnknownError(error: unknown): string {
     }
   }
   return String(error)
+}
+
+function parseStartupFailurePayload(error: unknown): StartupFailureInfo | null {
+  const rawMessage = formatUnknownError(error).trim()
+  if (!rawMessage) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(rawMessage) as BackendStartFailurePayload
+    const reason = typeof parsed?.reason === 'string' ? parsed.reason : null
+    const detail = typeof parsed?.detail === 'string' ? parsed.detail : null
+    if (reason !== null || detail !== null) {
+      return { reason, detail }
+    }
+  } catch {
+    // fall through to null
+  }
+
+  return null
 }
 
 function hasTauriInvoke(): boolean {
@@ -179,8 +219,12 @@ export async function bootstrapDesktopBackend(onStatus?: StartupStatusCallback):
     window.__INFORMITY_API_BASE__ = payload.baseUrl
     window.__INFORMITY_API_TOKEN__ = payload.sessionToken
   } catch (error) {
+    const failure = parseStartupFailurePayload(error)
+    if (failure) {
+      throw new StartupFailureError(failure.reason, failure.detail)
+    }
     const detail = formatUnknownError(error)
-    throw new Error(`Backend startup failed: ${detail}`)
+    throw new StartupFailureError(null, detail)
   } finally {
     if (unlisten) {
       try {

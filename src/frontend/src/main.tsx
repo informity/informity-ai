@@ -4,7 +4,8 @@ import 'remixicon/fonts/remixicon.css'
 import './index.css'
 import App from './App'
 import { BootOverlay } from './components/BootOverlay'
-import { bootstrapDesktopBackend } from './tauriRuntime'
+import { bootstrapDesktopBackend, StartupFailureError } from './tauriRuntime'
+import { getStartupErrorMessage, type StartupFailureInfo } from './startupErrors'
 import { normalizeUiTheme, UI_THEME_DEFAULT, UI_THEME_STORAGE_KEY } from './utils/uiTheme'
 
 function applyTheme(theme: string | null | undefined) {
@@ -44,11 +45,12 @@ function hideBootOverlay() {
 }
 
 async function renderApp() {
-  let startupError: string | null = null
+  let startupFailure: StartupFailureInfo | null = null
   const bootOverlayElement = document.getElementById('boot-overlay')
   const bootOverlayRoot = bootOverlayElement ? createRoot(bootOverlayElement) : null
   const bootStartedAt = Date.now()
   let bootMessage = 'Starting application...'
+  let bootDescription: string | null = null
   const renderBootOverlay = () => {
     if (!bootOverlayRoot) return
     bootOverlayRoot.render(
@@ -56,6 +58,7 @@ async function renderApp() {
         <BootOverlay
           title={bootMessage}
           elapsedSeconds={Math.max(0, Math.floor((Date.now() - bootStartedAt) / 1000))}
+          description={bootDescription}
         />
       </StrictMode>,
     )
@@ -71,31 +74,35 @@ async function renderApp() {
 
   try {
     await bootstrapDesktopBackend((payload) => {
-      const message = payload.reason === 'downloading_classifier_model'
-        ? 'Setting up application...'
-        : payload.message
-      bootMessage = message
+      bootMessage = payload.message
+      bootDescription = null
       renderBootOverlay()
     })
     window.clearTimeout(longStartTimerId)
     window.clearInterval(elapsedTimerId)
     bootMessage = 'Loading interface...'
+    bootDescription = null
     renderBootOverlay()
   } catch (error) {
     window.clearTimeout(longStartTimerId)
     window.clearInterval(elapsedTimerId)
-    startupError = error instanceof Error ? error.message : String(error)
+    if (error instanceof StartupFailureError) {
+      startupFailure = { reason: error.reason, detail: error.detail }
+    } else {
+      startupFailure = { reason: null, detail: error instanceof Error ? error.message : String(error) }
+    }
     bootMessage = 'Startup failed.'
+    bootDescription = getStartupErrorMessage(startupFailure.reason)
     renderBootOverlay()
   }
 
   createRoot(document.getElementById('root')!).render(
     <StrictMode>
-      <App startupError={startupError} />
+      <App startupFailure={startupFailure} />
     </StrictMode>,
   )
 
-  if (!startupError) {
+  if (!startupFailure) {
     requestAnimationFrame(() => {
       if (bootOverlayRoot) {
         bootOverlayRoot.unmount()
