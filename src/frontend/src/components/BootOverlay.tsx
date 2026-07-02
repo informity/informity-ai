@@ -17,7 +17,7 @@ export function BootOverlay({ title, elapsedSeconds, description = null }: BootO
       <StateMessage
         icon="ri-loader-4-line"
         title={resolvedTitle}
-        description={description ?? undefined}
+        description={description ?? ''}
         className="boot-overlay__message"
       />
     </div>
