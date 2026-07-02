@@ -408,16 +408,19 @@ describe('SettingsView tabs and action bar behavior', () => {
     expect(startingButton.querySelector('.settings-btn__icon--spin')).toBeTruthy()
   })
 
-  it('switches to the Indexing configuration tab and keeps the existing controls', () => {
+  it('switches to the Indexing and Extraction tabs and keeps the existing controls', () => {
     renderSettingsView({ section: 'indexing' })
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Configuration' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Indexing' }))
 
     expect(screen.getByText('File Types to Index')).toBeInTheDocument()
+    expect(screen.getByText('Performance & Limits')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Extraction' }))
+
     expect(screen.getByText('Document Extraction')).toBeInTheDocument()
     expect(screen.getByLabelText('Enable OCR for scanned documents')).toBeInTheDocument()
     expect(screen.getByText('Entity Extraction')).toBeInTheDocument()
-    expect(screen.getByText('Performance & Limits')).toBeInTheDocument()
   })
 
   it('keeps hidden settings in save payload (no contract regression)', () => {
@@ -465,8 +468,11 @@ describe('SettingsView tabs and action bar behavior', () => {
     cleanup()
 
     renderSettingsView({ section: 'indexing' })
-    fireEvent.click(screen.getByRole('tab', { name: 'Configuration' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Indexing' }))
     expect(screen.getByLabelText(/File Processing Timeout/i)).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Extraction' }))
+    expect(screen.getByLabelText('Enable OCR for scanned documents')).toBeInTheDocument()
   })
 
   it('clears MCP token when switching HTTP to STDIO after confirmation', async () => {

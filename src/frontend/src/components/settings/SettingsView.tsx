@@ -531,7 +531,7 @@ export function SettingsView({
   const [mcpTokenGeneratePending, setMcpTokenGeneratePending] = useState(false)
   const [mcpGeneratedToken, setMcpGeneratedToken] = useState('')
   const [integrationTab, setIntegrationTab] = useState<'web-search' | 'mcp'>('web-search')
-  const [indexingTab, setIndexingTab] = useState<'overview' | 'settings'>('overview')
+  const [indexingTab, setIndexingTab] = useState<'overview' | 'indexing' | 'extraction'>('overview')
   const [mcpTokenError, setMcpTokenError] = useState<string | null>(null)
   const [mcpTokenVisible, setMcpTokenVisible] = useState(false)
   const modelEventStateRef = useRef<ModelOperationEventResponse['state'] | null>(null)
@@ -1505,12 +1505,22 @@ export function SettingsView({
             <button
               type="button"
               role="tab"
-              aria-selected={indexingTab === 'settings'}
-              className={`integration-tab${indexingTab === 'settings' ? ' integration-tab--active' : ''}`}
-              onClick={() => setIndexingTab('settings')}
+              aria-selected={indexingTab === 'indexing'}
+              className={`integration-tab${indexingTab === 'indexing' ? ' integration-tab--active' : ''}`}
+              onClick={() => setIndexingTab('indexing')}
             >
-              <i className="ri-equalizer-line" aria-hidden="true" />
-              <span>Configuration</span>
+              <i className="ri-stack-line" aria-hidden="true" />
+              <span>Indexing</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={indexingTab === 'extraction'}
+              className={`integration-tab${indexingTab === 'extraction' ? ' integration-tab--active' : ''}`}
+              onClick={() => setIndexingTab('extraction')}
+            >
+              <i className="ri-arrow-right-down-box-line" aria-hidden="true" />
+              <span>Extraction</span>
             </button>
           </div>
 
@@ -1609,7 +1619,7 @@ export function SettingsView({
             </div>
           )}
 
-          {indexingTab === 'settings' && (
+          {indexingTab === 'indexing' && (
             <>
               <div className="settings-subsection">
                 <div className="settings-subsection-head ui-subsection-head">
@@ -1648,7 +1658,7 @@ export function SettingsView({
               <div className="settings-subsection">
                 <div className="settings-subsection-head ui-subsection-head">
                   <div className="settings-subsection-title ui-subsection-title">
-                    <i className="ri-fingerprint-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                    <i className="ri-speed-up-line subsection-icon ui-subsection-icon" aria-hidden="true" />
                     Performance & Limits
                   </div>
                   <p className="settings-subsection-description ui-subsection-description">
@@ -1705,18 +1715,24 @@ export function SettingsView({
                     min={1}
                     max={600}
                     value={form.scan_file_timeout_seconds ?? 600}
-                  onChange={(e) => update('scan_file_timeout_seconds', clamp(parseInteger(e.target.value, 600), 1, 600))}
+                    onChange={(e) => update('scan_file_timeout_seconds', clamp(parseInteger(e.target.value, 600), 1, 600))}
                   />
                 </div>
               </div>
+            </>
+          )}
 
+          {indexingTab === 'extraction' && (
+            <>
               <div className="settings-subsection">
                 <div className="settings-subsection-head ui-subsection-head">
                   <div className="settings-subsection-title ui-subsection-title">
                     <i className="ri-arrow-right-down-box-line subsection-icon ui-subsection-icon" aria-hidden="true" />
                     Document Extraction
                   </div>
-                  <p className="settings-subsection-description ui-subsection-description">Options for extracting text from documents, including image-based documents and image-only PDFs.</p>
+                  <p className="settings-subsection-description ui-subsection-description">
+                    Options for extracting text from documents, including image-based documents and image-only PDFs.
+                  </p>
                 </div>
                 <label className="settings-checkbox-row">
                   <input

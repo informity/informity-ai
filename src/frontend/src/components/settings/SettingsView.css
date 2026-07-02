@@ -7,6 +7,7 @@
   --page-content-width: 100%;
   --settings-narrow-width: 20rem;
   --settings-control-max-width: 48rem;
+  --settings-tab-width: 8.5rem;
   max-width: none;
   width: 100%;
   flex: 1;
@@ -54,8 +55,9 @@
   justify-content: center;
   gap: var(--space-xs);
   height: var(--min-touch-height);
-  min-width: 9rem;
-  padding: 0 var(--space-xl) 3px;
+  width: var(--settings-tab-width);
+  min-width: var(--settings-tab-width);
+  padding: 0 var(--space-lg) 3px;
   border: none;
   border-radius: 0;
   background: transparent;
@@ -104,6 +106,9 @@
 
 .settings-indexing-tabs {
   margin-bottom: var(--settings-subsection-gap);
+  display: grid;
+  grid-template-columns: repeat(3, var(--settings-tab-width));
+  width: fit-content;
 }
 
 .settings-indexing-tabs + .settings-subsection {
