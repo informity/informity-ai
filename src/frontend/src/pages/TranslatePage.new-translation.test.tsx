@@ -1,4 +1,4 @@
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useEffect } from 'react'
@@ -64,12 +64,33 @@ function TranslateHarness() {
   )
 }
 
-function renderPage() {
+function TranslateRouteHarness() {
+  const navigate = useNavigate()
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => navigate('/translate', {
+          state: {
+            scopedFileId: 84,
+            scopedFileName: 'updated-contract.pdf',
+          },
+        })}
+      >
+        Select updated file
+      </button>
+    </div>
+  )
+}
+
+function renderPage(includeHarness = true) {
   return render(
         <MemoryRouter>
           <TranslateProvider>
             <TranslatePage />
-            <TranslateHarness />
+            {includeHarness && <TranslateHarness />}
+            <TranslateRouteHarness />
             <TranslateProbe />
           </TranslateProvider>
         </MemoryRouter>,
@@ -93,7 +114,7 @@ describe('TranslatePage new translation reset', () => {
       translate_default_tone: 'formal',
       translate_pinned_languages: ['Spanish', 'German', 'French'],
     })
-    renderPage()
+    renderPage(false)
 
     await waitFor(() => expect(screen.getByTestId('language')).toHaveTextContent('German'))
     await waitFor(() => expect(screen.getByTestId('tone')).toHaveTextContent('formal'))
@@ -208,6 +229,35 @@ describe('TranslatePage new translation reset', () => {
     await waitFor(() => expect(screen.getByTestId('translate-run-language-0')).toHaveTextContent('Spanish'))
     await waitFor(() => expect(screen.getByTestId('tone')).toHaveTextContent('natural'))
     await waitFor(() => expect(screen.getByText('0m 7s')).toBeInTheDocument())
+  })
+
+  it('clears the previous translation screen when a different file is selected from route state', async () => {
+    getSettingsMock.mockResolvedValue({
+      translate_default_language: 'German',
+      translate_default_tone: 'formal',
+      translate_pinned_languages: ['Spanish', 'German', 'French'],
+    })
+    sessionStorage.setItem(
+      'informity_completed_translate_runs',
+      JSON.stringify([{
+        sections: [{ section_index: 0, section_title: null, text: 'Old translation result' }],
+        language: 'Spanish',
+        tone: 'natural',
+        completedAt: Date.now(),
+        totalSections: 1,
+        elapsedSeconds: 4,
+        fileLabel: 'old-file.pdf',
+      }]),
+    )
+
+    renderPage()
+
+    await waitFor(() => expect(screen.getByText('Old translation result')).toBeInTheDocument())
+
+    fireEvent.click(screen.getByRole('button', { name: 'Select updated file' }))
+
+    await waitFor(() => expect(screen.getByText('updated-contract.pdf')).toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByText('Old translation result')).toBeNull())
   })
 
   it('preserves the saved translation language in the footer after live target settings change', async () => {

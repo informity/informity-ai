@@ -703,9 +703,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
 
   useEffect(() => {
     if (!isNearBottomRef.current) return
-    if (!isStreaming && (!activeChatTranslation || activeChatTranslation.chatId !== contextChatId)) return
+    if (messages.length === 0) return
     scheduleAutoFollow()
-  }, [activeChatTranslation, contextChatId, isStreaming, messages.length, scheduleAutoFollow])
+  }, [messages, scheduleAutoFollow])
 
   const handleContinue = useCallback((anchorMessageId?: number) => {
     if (offline) return

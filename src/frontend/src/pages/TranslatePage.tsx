@@ -110,6 +110,27 @@ export function TranslatePage() {
   const isTranslateBlocked = isTranslating || isChatOperationActive
   const canTranslate = !!fileId && !isTranslateBlocked  // button morphs to Stop when streaming/translating
 
+  const resetTranslationDisplay = useCallback(() => {
+    activeRunRef.current = null
+    runStartRef.current = 0
+    setRuns([])
+    setExportMenuRun(null)
+    setAnimateToDocked(false)
+    wasDocked.current = false
+    setMenuOpen(null)
+  }, [])
+
+  const selectTranslationFile = useCallback((file: {
+    id: number
+    name: string
+    pageCount: number | null
+    isUpload: boolean
+  } | null) => {
+    resetTranslationSession()
+    resetTranslationDisplay()
+    setFile(file)
+  }, [resetTranslationDisplay, resetTranslationSession, setFile])
+
   const primeActiveRun = useCallback(() => {
     if (activeRunRef.current) return
     const run: RunRecord = {
@@ -143,10 +164,14 @@ export function TranslatePage() {
   useEffect(() => {
     const state = location.state as { scopedFileId?: number; scopedFileName?: string } | null
     if (state?.scopedFileId && state.scopedFileName) {
-      setFile({ id: state.scopedFileId, name: state.scopedFileName, pageCount: null, isUpload: false })
+      selectTranslationFile({
+        id: state.scopedFileId,
+        name: state.scopedFileName,
+        pageCount: null,
+        isUpload: false,
+      })
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+  }, [location.key, location.state, selectTranslationFile])
 
   const finalizeActiveRun = useCallback(() => {
     const run = activeRunRef.current
@@ -306,18 +331,18 @@ export function TranslatePage() {
     setUploadLoading(true)
     try {
       const res = await uploadTranslateFile(file)
-      setFile({ id: res.file_id, name: res.filename, pageCount: res.page_count ?? null, isUpload: true })
+      selectTranslationFile({ id: res.file_id, name: res.filename, pageCount: res.page_count ?? null, isUpload: true })
     } catch (err) {
       showToast('error', extractErrorMessage(err, 'Upload failed'))
     } finally { setUploadLoading(false) }
-  }, [setFile])
+  }, [selectTranslationFile])
 
   const handleDismiss = useCallback(async () => {
     if (fileId && isUpload) {
       try { await deleteTranslateUpload(fileId) } catch { /* best-effort */ }
     }
-    setFile(null)
-  }, [fileId, isUpload, setFile])
+    selectTranslationFile(null)
+  }, [fileId, isUpload, selectTranslationFile])
 
   const handleTranslate = useCallback(async () => {
     if (!fileId || isTranslating) return
@@ -327,14 +352,11 @@ export function TranslatePage() {
   }, [fileId, finalizeActiveRun, isTranslating, primeActiveRun, startTranslation])
 
   const handleNewTranslation = useCallback(async () => {
-    activeRunRef.current = null
     if (isTranslating) cancelTranslation()
     resetTranslationSession()
-    clearCompletedRuns()
-    setRuns([])
-    wasDocked.current = false
+    resetTranslationDisplay()
     await resetTranslationDefaults()
-  }, [isTranslating, cancelTranslation, resetTranslationSession, resetTranslationDefaults])
+  }, [isTranslating, cancelTranslation, resetTranslationSession, resetTranslationDefaults, resetTranslationDisplay])
 
   const handleCopyRun = useCallback((run: RunRecord) => {
     navigator.clipboard.writeText(run.sections.map(s => s.text).join('\n\n'))
