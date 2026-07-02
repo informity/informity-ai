@@ -86,6 +86,17 @@ from informity.version import APP_VERSION
 log = structlog.get_logger(__name__)
 _SYSTEM_DIAGNOSTICS_EXCEPTIONS = (OSError, RuntimeError, ValueError, TypeError)
 _SYSTEM_WORKFLOW_EXCEPTIONS = (LLMError, OSError, RuntimeError, ValueError, TypeError, TimeoutError)
+
+
+def _llm_engine_get_model_path() -> Path:
+    """Get the active LLM model path with backward-compatible fallback."""
+    model_path_getter = getattr(llm_engine, "get_model_path", None)
+    if callable(model_path_getter):
+        return model_path_getter()
+    legacy_model_path_getter = getattr(llm_engine, "_get_model_path")
+    return legacy_model_path_getter()
+
+
 _SETUP_STATE_FILE = "setup_state.json"
 _SETUP_CONFIG_FILE = "config.json"
 _setup_runtime: dict[str, object] = {
@@ -630,7 +641,7 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
             )
 
         await asyncio.to_thread(
-            llm_engine._download_model,
+            llm_engine.download_model,
             target_path,
             repo_id,
             model_filename,
@@ -803,7 +814,7 @@ async def _run_model_download_workflow(
             )
 
         await asyncio.to_thread(
-            llm_engine._download_model,
+            llm_engine.download_model,
             target_path,
             repo_id,
             model_filename,
@@ -1349,7 +1360,7 @@ async def get_diagnostics(request: Request) -> DiagnosticsResponse:
     model_size_gb = None
     if model_loaded:
         try:
-            model_path = llm_engine._get_model_path()
+            model_path = _llm_engine_get_model_path()
             if model_path.exists():
                 model_filename = model_path.name
                 model_size_gb = model_path.stat().st_size / (1024**3)

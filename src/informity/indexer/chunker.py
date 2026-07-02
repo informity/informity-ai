@@ -441,8 +441,16 @@ def chunk_text(*args: object, **kwargs: object) -> list[ChunkData]:
             remaining_args = args[1:]
             if len(remaining_args) > 2:
                 raise TypeError("chunk_text() takes at most 3 positional arguments")
-            chunk_size = remaining_args[0] if len(remaining_args) > 0 else kwargs.pop("chunk_size", None)
-            overlap = remaining_args[1] if len(remaining_args) > 1 else kwargs.pop("overlap", None)
+            chunk_size = (
+                remaining_args[0]
+                if len(remaining_args) > 0
+                else kwargs.pop("chunk_size", None)
+            )
+            overlap = (
+                remaining_args[1]
+                if len(remaining_args) > 1
+                else kwargs.pop("overlap", None)
+            )
         else:
             text = kwargs.pop("text", None)
             chunk_size = kwargs.pop("chunk_size", None)

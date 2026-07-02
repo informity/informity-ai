@@ -474,8 +474,9 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
                     (
                         "chat_trace_redaction_mode",
                         (
-                            "Trace payload redaction level: off (full payload), minimal (truncate"
-                            " sensitive fields), strict (redact sensitive fields with metadata only)."
+                            "Trace payload redaction level: off (full payload), minimal "
+                            "(truncate sensitive fields), strict (redact sensitive fields "
+                            "with metadata only)."
                         ),
                     ),
             (

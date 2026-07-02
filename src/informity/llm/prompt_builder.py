@@ -328,10 +328,18 @@ def build_messages(*args: object, **kwargs: object) -> list[dict[str, str]]:
 
         request = BuildMessagesRequest(
             question=str(question),
-            context_chunks=list(context_chunks) if not isinstance(context_chunks, list) else context_chunks,
+            context_chunks=(
+                list(context_chunks)
+                if not isinstance(context_chunks, list)
+                else context_chunks
+            ),
             history=history,  # legacy API accepts any sequence-like history list
-            output_constraints=output_constraints if isinstance(output_constraints, dict) else None,
-            format_requirements=format_requirements if isinstance(format_requirements, list) else None,
+            output_constraints=(
+                output_constraints if isinstance(output_constraints, dict) else None
+            ),
+            format_requirements=(
+                format_requirements if isinstance(format_requirements, list) else None
+            ),
             model_profile=model_profile,
             system_prompt=str(system_prompt) if system_prompt is not None else None,
             chat_mode=str(chat_mode) if chat_mode is not None else None,

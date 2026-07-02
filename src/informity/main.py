@@ -133,6 +133,15 @@ _STARTUP_RAM_HEADROOM_RATIO = 0.85
 _STARTUP_STATE_UNSET = object()
 
 
+def _llm_engine_get_model_path() -> Path:
+    """Get the active LLM model path with backward-compatible fallback."""
+    model_path_getter = getattr(llm_engine, "get_model_path", None)
+    if callable(model_path_getter):
+        return model_path_getter()
+    legacy_model_path_getter = getattr(llm_engine, "_get_model_path")
+    return legacy_model_path_getter()
+
+
 @dataclass
 class StartupHealthState:
     """StartupHealthState model."""
@@ -324,7 +333,7 @@ async def _run_llm_warmup() -> bool:
     the background). Models over 20 GB load lazily on first query.
     """
     try:
-        model_path = llm_engine._get_model_path()
+        model_path = _llm_engine_get_model_path()
         if not model_path.exists():
             log.info(
                 "llm_warmup_skipped_model_not_found",
