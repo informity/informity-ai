@@ -49,7 +49,7 @@ async function renderApp() {
   const bootOverlayElement = document.getElementById('boot-overlay')
   const bootOverlayRoot = bootOverlayElement ? createRoot(bootOverlayElement) : null
   const bootStartedAt = Date.now()
-  let bootMessage = 'Starting application...'
+  let bootMessage = 'Starting application…'
   let bootDescription: string | null = null
   const renderBootOverlay = () => {
     if (!bootOverlayRoot) return
@@ -80,7 +80,7 @@ async function renderApp() {
     })
     window.clearTimeout(longStartTimerId)
     window.clearInterval(elapsedTimerId)
-    bootMessage = 'Loading interface...'
+    bootMessage = 'Loading interface…'
     bootDescription = null
     renderBootOverlay()
   } catch (error) {

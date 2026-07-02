@@ -96,7 +96,7 @@ function formatStageLabel(stage: string | null | undefined): string {
     .replace(/_/g, ' ')
     .replace(/\s+/g, ' ')
     .toLowerCase()
-  return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}...`
+  return `${normalized.charAt(0).toUpperCase()}${normalized.slice(1)}…`
 }
 
 function formatBytes(value: number): string {

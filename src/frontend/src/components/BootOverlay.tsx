@@ -8,14 +8,16 @@ interface BootOverlayProps {
 }
 
 export function BootOverlay({ title, elapsedSeconds, description = null }: BootOverlayProps) {
-  const resolvedDescription = description ?? (elapsedSeconds === null ? '' : `${elapsedSeconds}s elapsed`)
+  const resolvedTitle = elapsedSeconds === null || elapsedSeconds <= 0
+    ? title
+    : `${title} ${elapsedSeconds}s`
 
   return (
     <div className="boot-overlay" aria-live="polite" aria-label="Application startup">
       <StateMessage
         icon="ri-loader-4-line"
-        title={title}
-        description={resolvedDescription}
+        title={resolvedTitle}
+        description={description ?? undefined}
         className="boot-overlay__message"
       />
     </div>

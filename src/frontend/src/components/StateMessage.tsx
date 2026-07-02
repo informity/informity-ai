@@ -28,7 +28,7 @@ export function StateMessage({
     <div className={rootClassName} role="status" aria-live="polite">
       <i className={iconClassName} aria-hidden="true" />
       <p className="state-message__title">{title}</p>
-      <p className="state-message__description">{description}</p>
+      {description ? <p className="state-message__description">{description}</p> : null}
     </div>
   )
 }
