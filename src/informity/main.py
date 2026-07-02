@@ -534,12 +534,8 @@ async def _ensure_classifier_model_present(startup_app: FastAPI) -> Path:
     try:
         await asyncio.to_thread(
             download_gguf_model,
-            repo_id=CLASSIFIER_GGUF_SPEC.repo_id,
-            filename=CLASSIFIER_GGUF_SPEC.filename,
+            spec=CLASSIFIER_GGUF_SPEC,
             target_path=classifier_target_path,
-            expected_sha256=CLASSIFIER_GGUF_SPEC.expected_sha256,
-            model_label=CLASSIFIER_GGUF_SPEC.model_label,
-            revision=CLASSIFIER_GGUF_SPEC.revision,
             progress_callback=_progress,
         )
     except Exception as exc:
