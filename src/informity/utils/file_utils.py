@@ -12,4 +12,3 @@ def normalize_extension(extension: str | None) -> str:
     if not normalized:
         return ''
     return normalized if normalized.startswith('.') else f'.{normalized}'
-

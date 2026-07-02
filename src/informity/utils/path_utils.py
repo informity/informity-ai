@@ -3,6 +3,8 @@
 # Standardized path resolution and normalization
 # ==============================================================================
 
+"""Helpers for normalizing and resolving filesystem paths."""
+
 from pathlib import Path
 
 

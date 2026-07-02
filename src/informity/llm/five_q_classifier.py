@@ -1,3 +1,5 @@
+"""Five-Q classifier helpers for routing and query classification."""
+
 from __future__ import annotations
 
 import json
@@ -17,10 +19,10 @@ from informity.llm.model_bootstrap import CLASSIFIER_GGUF_SPEC
 
 log = structlog.get_logger(__name__)
 
-_ALLOWED_SOURCES = {'index_metadata', 'document_content', 'chat_history', 'app_knowledge'}
-_ALLOWED_SCOPES = {'targeted', 'broad', 'none'}
-_ALLOWED_OPERATIONS = {'lookup', 'count_enumerate', 'summarize_synthesize', 'compare'}
-_ALLOWED_APP_KNOWLEDGE_OPERATIONS = {'lookup', 'summarize_synthesize'}
+_ALLOWED_SOURCES = {"index_metadata", "document_content", "chat_history", "app_knowledge"}
+_ALLOWED_SCOPES = {"targeted", "broad", "none"}
+_ALLOWED_OPERATIONS = {"lookup", "count_enumerate", "summarize_synthesize", "compare"}
+_ALLOWED_APP_KNOWLEDGE_OPERATIONS = {"lookup", "summarize_synthesize"}
 _ROUTER_MAX_TOKENS = 220
 _ROUTER_TEMPERATURE = 0.0
 
@@ -155,13 +157,26 @@ Examples:
 - "Give me Field X for every Type Y document I have." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=true
 """
 
-_APP_HELP_PATTERN = re.compile(r'\b(what does this app do|how do i use|help me use|help with the app)\b', re.IGNORECASE)
-_CHAT_HISTORY_PATTERN = re.compile(r'\b(what did we discuss|what have we been chatting about|recap (?:our|this) chat|summarize (?:our|this) chat)\b', re.IGNORECASE)
-_INDEX_METADATA_PATTERN = re.compile(r'\b(how many|list all|what kinds|what type|inventory|enumerate|count)\b', re.IGNORECASE)
-_DOCUMENT_CONTENT_PATTERN = re.compile(r'\b(mortgage|loan|property|document|file|agreement|statement|closing)\b', re.IGNORECASE)
-_YEAR_PATTERN = re.compile(r'\b(?:19|20)\d{2}\b')
+_APP_HELP_PATTERN = re.compile(
+    r"\b(what does this app do|how do i use|help me use|help with the app)\b", re.IGNORECASE
+)
+_CHAT_HISTORY_PATTERN = re.compile(
+    r"\b(what did we discuss|what have we been chatting about|recap (?:our|this) chat|"
+    r"summarize (?:our|this) chat)\b",
+    re.IGNORECASE,
+)
+_INDEX_METADATA_PATTERN = re.compile(
+    r"\b(how many|list all|what kinds|what type|inventory|enumerate|count)\b", re.IGNORECASE
+)
+_DOCUMENT_CONTENT_PATTERN = re.compile(
+    r"\b(mortgage|loan|property|document|file|agreement|statement|closing)\b", re.IGNORECASE
+)
+_YEAR_PATTERN = re.compile(r"\b(?:19|20)\d{2}\b")
+
+
 @dataclass(frozen=True)
 class ClassifierContext:
+    """ClassifierContext model."""
     chat_mode: str | None = None
     scope_kind: str | None = None
     has_prior_turns: bool = False
@@ -170,6 +185,7 @@ class ClassifierContext:
 
 @dataclass(frozen=True)
 class FiveQClassificationResult:
+    """FiveQClassificationResult model."""
     decision: FiveQDecision
     raw_output: str
     model_name: str
@@ -177,17 +193,22 @@ class FiveQClassificationResult:
 
 
 def apply_guardrails(decision: FiveQDecision, query: str) -> tuple[FiveQDecision, str | None]:
-    if decision.source == 'app_knowledge' and decision.operation not in _ALLOWED_APP_KNOWLEDGE_OPERATIONS:
+    """apply guardrails."""
+    if (
+        decision.source == "app_knowledge"
+        and decision.operation not in _ALLOWED_APP_KNOWLEDGE_OPERATIONS
+    ):
         log.info(
-            'five_q_classifier_guardrail_applied',
-            guardrail_applied='app_knowledge_operation',
-            query=str(query or ''),
+            "five_q_classifier_guardrail_applied",
+            guardrail_applied="app_knowledge_operation",
+            query=str(query or ""),
         )
-        return replace(decision, operation='lookup'), 'app_knowledge_operation'
+        return replace(decision, operation="lookup"), "app_knowledge_operation"
     return decision, None
 
 
 def resolve_classifier_model_path() -> Path | None:
+    """resolve classifier model path."""
     candidate_dirs = [Path(settings.classifier_models_dir), Path(settings.models_dir)]
     for models_dir in candidate_dirs:
         if not models_dir.exists():
@@ -199,19 +220,20 @@ def resolve_classifier_model_path() -> Path | None:
 
 
 def _normalize_decision(data: dict[str, Any]) -> FiveQDecision:
-    source = str(data.get('source') or '').strip()
+    """ normalize decision."""
+    source = str(data.get("source") or "").strip()
     if source not in _ALLOWED_SOURCES:
-        source = 'document_content'
-    scope = str(data.get('scope') or 'none').strip()
+        source = "document_content"
+    scope = str(data.get("scope") or "none").strip()
     if scope not in _ALLOWED_SCOPES:
-        scope = 'none'
-    operation = str(data.get('operation') or 'lookup').strip()
+        scope = "none"
+    operation = str(data.get("operation") or "lookup").strip()
     if operation not in _ALLOWED_OPERATIONS:
-        operation = 'lookup'
-    partitions_value = data.get('partitions') or []
+        operation = "lookup"
+    partitions_value = data.get("partitions") or []
     partitions = [str(item).strip() for item in partitions_value if str(item).strip()]
-    exhaustive = bool(data.get('exhaustive', False))
-    confidence = float(data.get('confidence') or 0.0)
+    exhaustive = bool(data.get("exhaustive", False))
+    confidence = float(data.get("confidence") or 0.0)
     confidence = max(0.0, min(1.0, confidence))
     return FiveQDecision(
         source=source,  # type: ignore[arg-type]
@@ -224,65 +246,96 @@ def _normalize_decision(data: dict[str, Any]) -> FiveQDecision:
 
 
 def _fallback_decision(query: str, context: ClassifierContext) -> FiveQDecision:
-    text = str(query or '').strip()
+    """ fallback decision."""
+    text = str(query or "").strip()
     lowered = text.casefold()
     if _CHAT_HISTORY_PATTERN.search(text):
-        return FiveQDecision(source='chat_history', scope='none', operation='summarize_synthesize', confidence=0.95)
+        return FiveQDecision(
+            source="chat_history", scope="none", operation="summarize_synthesize", confidence=0.95
+        )
     if _APP_HELP_PATTERN.search(text):
-        return FiveQDecision(source='app_knowledge', scope='none', operation='lookup', confidence=0.9)
+        return FiveQDecision(
+            source="app_knowledge", scope="none", operation="lookup", confidence=0.9
+        )
     if _INDEX_METADATA_PATTERN.search(text) and not _DOCUMENT_CONTENT_PATTERN.search(text):
-        return FiveQDecision(source='index_metadata', scope='none', operation='count_enumerate', confidence=0.92)
-    if context.chat_mode == 'assistant' and not context.has_prior_turns:
-        return FiveQDecision(source='app_knowledge', scope='none', operation='lookup', confidence=0.72)
-    if _YEAR_PATTERN.search(lowered) and 'compare' in lowered:
-        return FiveQDecision(source='document_content', scope='broad', operation='compare', partitions=_YEAR_PATTERN.findall(lowered), confidence=0.8)
-    if _YEAR_PATTERN.search(lowered) and ('all' in lowered or 'every' in lowered or 'across' in lowered):
-        return FiveQDecision(source='document_content', scope='broad', operation='summarize_synthesize', partitions=_YEAR_PATTERN.findall(lowered), exhaustive=True, confidence=0.82)
-    return FiveQDecision(source='document_content', scope='targeted', operation='lookup', confidence=0.75)
+        return FiveQDecision(
+            source="index_metadata", scope="none", operation="count_enumerate", confidence=0.92
+        )
+    if context.chat_mode == "assistant" and not context.has_prior_turns:
+        return FiveQDecision(
+            source="app_knowledge", scope="none", operation="lookup", confidence=0.72
+        )
+    if _YEAR_PATTERN.search(lowered) and "compare" in lowered:
+        return FiveQDecision(
+            source="document_content",
+            scope="broad",
+            operation="compare",
+            partitions=_YEAR_PATTERN.findall(lowered),
+            confidence=0.8,
+        )
+    if _YEAR_PATTERN.search(lowered) and (
+        "all" in lowered or "every" in lowered or "across" in lowered
+    ):
+        return FiveQDecision(
+            source="document_content",
+            scope="broad",
+            operation="summarize_synthesize",
+            partitions=_YEAR_PATTERN.findall(lowered),
+            exhaustive=True,
+            confidence=0.82,
+        )
+    return FiveQDecision(
+        source="document_content", scope="targeted", operation="lookup", confidence=0.75
+    )
 
 
 class FiveQClassifier:
+    """FiveQClassifier model."""
     def __init__(self, model_path: Path | None = None) -> None:
+        """  init  ."""
         self._model_path = model_path or resolve_classifier_model_path()
         self._model_filename = self._model_path.name if self._model_path is not None else None
         self._engine: LLMEngine | None = None
 
     def classify(self, query: str, context: ClassifierContext) -> FiveQClassificationResult:
-        text = str(query or '').strip()
+        """classify."""
+        text = str(query or "").strip()
         if not text:
-            decision = FiveQDecision(source='app_knowledge', scope='none', operation='lookup', confidence=0.0)
-            return FiveQClassificationResult(decision=decision, raw_output='', model_name='empty')
+            decision = FiveQDecision(
+                source="app_knowledge", scope="none", operation="lookup", confidence=0.0
+            )
+            return FiveQClassificationResult(decision=decision, raw_output="", model_name="empty")
 
-        if os.environ.get('PYTEST_CURRENT_TEST') or self._model_path is None:
+        if os.environ.get("PYTEST_CURRENT_TEST") or self._model_path is None:
             decision = _fallback_decision(text, context)
             decision, guardrail_applied = apply_guardrails(decision, text)
             return FiveQClassificationResult(
                 decision=decision,
                 raw_output='{"mode":"fallback"}',
-                model_name='fallback',
+                model_name="fallback",
                 guardrail_applied=guardrail_applied,
             )
 
         if context.prior_user_query:
-            prior_user_query = str(context.prior_user_query or '').strip()
+            prior_user_query = str(context.prior_user_query or "").strip()
         else:
-            prior_user_query = ''
+            prior_user_query = ""
 
         user_lines = [
-            f'chat_mode: {context.chat_mode or "unknown"}',
-            f'scope_kind: {context.scope_kind or "unknown"}',
-            f'has_prior_turns: {str(bool(context.has_prior_turns)).lower()}',
-            f'prior_user_query: {prior_user_query or "none"}',
-            '',
-            f'query: {text}',
+            f"chat_mode: {context.chat_mode or 'unknown'}",
+            f"scope_kind: {context.scope_kind or 'unknown'}",
+            f"has_prior_turns: {str(bool(context.has_prior_turns)).lower()}",
+            f"prior_user_query: {prior_user_query or 'none'}",
+            "",
+            f"query: {text}",
         ]
         messages = [
-            {'role': 'system', 'content': _SYSTEM_PROMPT},
-            {'role': 'user', 'content': '\n'.join(user_lines)},
+            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "user", "content": "\n".join(user_lines)},
         ]
         if self._engine is None:
             self._engine = LLMEngine(
-                provider_name='local_gguf',
+                provider_name="local_gguf",
                 model_filename=self._model_filename,
                 model_dir=self._model_path.parent,
             )
@@ -291,12 +344,14 @@ class FiveQClassifier:
                 messages=messages,
                 max_tokens=_ROUTER_MAX_TOKENS,
                 temperature=_ROUTER_TEMPERATURE,
-                response_format={'type': 'json_object'},
+                response_format={"type": "json_object"},
             )
-            raw_output = str((response.get('choices') or [{}])[0].get('message', {}).get('content') or '').strip()
-            parsed = json.loads(raw_output or '{}')
+            raw_output = str(
+                (response.get("choices") or [{}])[0].get("message", {}).get("content") or ""
+            ).strip()
+            parsed = json.loads(raw_output or "{}")
             if not isinstance(parsed, dict):
-                raise ValueError('five_q_classifier_expected_object')
+                raise ValueError("five_q_classifier_expected_object")
             decision = _normalize_decision(parsed)
             decision, guardrail_applied = apply_guardrails(decision, text)
             return FiveQClassificationResult(
@@ -307,7 +362,7 @@ class FiveQClassifier:
             )
         except (LLMError, json.JSONDecodeError, TypeError, ValueError) as exc:
             log.warning(
-                'five_q_classifier_fallback',
+                "five_q_classifier_fallback",
                 error=str(exc),
                 model_filename=self._model_filename,
             )
@@ -315,13 +370,21 @@ class FiveQClassifier:
             decision, guardrail_applied = apply_guardrails(decision, text)
             return FiveQClassificationResult(
                 decision=decision,
-                raw_output='',
+                raw_output="",
                 model_name=self._model_filename,
                 guardrail_applied=guardrail_applied,
             )
 
     def unload(self) -> None:
+        """unload."""
         if self._engine is not None:
             self._engine.unload()
 
-__all__ = ['ClassifierContext', 'FiveQClassifier', 'FiveQClassificationResult', 'apply_guardrails', 'resolve_classifier_model_path']
+
+__all__ = [
+    "ClassifierContext",
+    "FiveQClassifier",
+    "FiveQClassificationResult",
+    "apply_guardrails",
+    "resolve_classifier_model_path",
+]

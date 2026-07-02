@@ -3,6 +3,8 @@
 # Standardized directory creation and management
 # ==============================================================================
 
+"""Helpers for creating and hardening directories and file parents."""
+
 from contextlib import suppress
 from pathlib import Path
 

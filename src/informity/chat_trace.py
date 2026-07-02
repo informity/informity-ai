@@ -157,11 +157,9 @@ class TraceWriter(Protocol):
 
     def record(self, step: str, data: dict[str, Any]) -> None:
         """Record one trace step (e.g. 'request', 'embed', 'vector_search')."""
-        ...
 
     def get_summary_envelope(self) -> dict[str, Any]:
         """Return stable trace summary envelope for diagnostics consumers."""
-        ...
 
 
 class _ChatTraceWriter:

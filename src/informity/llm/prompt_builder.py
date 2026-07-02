@@ -3,8 +3,11 @@
 # Static system prompt + context formatting + token-budget-aware history trim
 # ==============================================================================
 
+"""Prompt assembly helpers for LLM chat and retrieval requests."""
+
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 import structlog
@@ -30,7 +33,23 @@ _TOKENIZER_MISMATCH_BUFFER_RATIO = 0.12
 _MESSAGE_OVERHEAD_TOKENS = 6
 
 
+@dataclass(frozen=True)
+class BuildMessagesRequest:
+    """BuildMessagesRequest model."""
+
+    question: str
+    context_chunks: list[dict]
+    history: list[ChatMessage] | None = None
+    output_constraints: dict[str, int] | None = None
+    format_requirements: list[str] | None = None
+    model_profile: ModelProfile | None = None
+    system_prompt: str | None = None
+    chat_mode: str | None = None
+    specialization_id: str | None = None
+
+
 def _coerce_source_rank(value: object) -> int | None:
+    """ coerce source rank."""
     if isinstance(value, bool):
         return None
     try:
@@ -41,16 +60,18 @@ def _coerce_source_rank(value: object) -> int | None:
 
 
 def _estimate_message_tokens(*, role: str, content: str) -> int:
+    """ estimate message tokens."""
     return _MESSAGE_OVERHEAD_TOKENS + count_tokens(role) + count_tokens(content)
 
 
 def _reorder_context_chunks_for_attention(context_chunks: list[dict]) -> list[dict]:
+    """ reorder context chunks for attention."""
     if len(context_chunks) <= 2:
         return context_chunks
 
     ranked_chunks = [
         (
-            _coerce_source_rank(chunk.get('source_rank')) or index,
+            _coerce_source_rank(chunk.get("source_rank")) or index,
             index,
             chunk,
         )
@@ -68,13 +89,60 @@ def _reorder_context_chunks_for_attention(context_chunks: list[dict]) -> list[di
 
 
 def resolve_history_limit(chat_mode: str | None) -> int:
+    """resolve history limit."""
     mode = normalize_chat_mode(chat_mode)
-    if mode == 'assistant':
+    if mode == "assistant":
         return max(0, int(settings.chat_history_messages_assistant))
-    if mode == 'researcher':
+    if mode == "researcher":
         return max(0, int(settings.chat_history_messages_researcher))
     # Fallback for unresolved modes.
     return max(0, int(settings.chat_history_messages))
+
+
+def _compute_history_budget(
+    *,
+    history: list[ChatMessage],
+    system_content: str,
+    question: str,
+    model_profile: ModelProfile,
+    chat_mode: str | None,
+) -> tuple[list[ChatMessage], int, int, float, int]:
+    """ compute history budget."""
+    history_limit = resolve_history_limit(chat_mode)
+    capped_history = history[-history_limit:]
+    context_length = get_effective_context_length(model_profile)
+    rag_context_ratio = float(getattr(model_profile, "rag_context_ratio", 0.75) or 0.75)
+    rag_context_ratio = min(max(rag_context_ratio, 0.0), 0.95)
+    base_tokens = _estimate_message_tokens(
+        role="system", content=system_content
+    ) + _estimate_message_tokens(role="user", content=question)
+    prompt_budget = max(0, context_length - _GENERATION_RESERVE_TOKENS)
+    history_budget_by_window = max(0, prompt_budget - base_tokens)
+    history_budget_by_ratio = max(0, int(context_length * (1.0 - rag_context_ratio)))
+    raw_history_budget = min(history_budget_by_window, history_budget_by_ratio)
+    effective_history_budget = max(
+        0, int(raw_history_budget * (1.0 - _TOKENIZER_MISMATCH_BUFFER_RATIO))
+    )
+    return capped_history, effective_history_budget, context_length, rag_context_ratio, base_tokens
+
+
+def _select_history_messages(
+    capped_history: list[ChatMessage], effective_history_budget: int
+) -> tuple[list[ChatMessage], int]:
+    """ select history messages."""
+    selected_reversed: list[ChatMessage] = []
+    used_history_tokens = 0
+    for message in reversed(capped_history):
+        message_tokens = _estimate_message_tokens(role=message.role, content=message.content or "")
+        if selected_reversed and used_history_tokens + message_tokens > effective_history_budget:
+            break
+        if not selected_reversed and message_tokens > effective_history_budget:
+            selected_reversed.append(message)
+            used_history_tokens += message_tokens
+            break
+        selected_reversed.append(message)
+        used_history_tokens += message_tokens
+    return selected_reversed, used_history_tokens
 
 
 def _trim_history_by_token_budget(
@@ -85,6 +153,7 @@ def _trim_history_by_token_budget(
     model_profile: ModelProfile | None,
     chat_mode: str | None,
 ) -> list[ChatMessage]:
+    """ trim history by token budget."""
     history_limit = resolve_history_limit(chat_mode)
     if history_limit == 0:
         return []
@@ -92,40 +161,27 @@ def _trim_history_by_token_budget(
     if not capped_history or model_profile is None:
         return capped_history
 
-    context_length = get_effective_context_length(model_profile)
-    rag_context_ratio = float(getattr(model_profile, 'rag_context_ratio', 0.75) or 0.75)
-    rag_context_ratio = min(max(rag_context_ratio, 0.0), 0.95)
-
-    base_tokens = (
-        _estimate_message_tokens(role='system', content=system_content)
-        + _estimate_message_tokens(role='user', content=question)
+    (
+        capped_history,
+        effective_history_budget,
+        context_length,
+        rag_context_ratio,
+        base_tokens,
+    ) = _compute_history_budget(
+        history=history,
+        system_content=system_content,
+        question=question,
+        model_profile=model_profile,
+        chat_mode=chat_mode,
     )
-    prompt_budget = max(0, context_length - _GENERATION_RESERVE_TOKENS)
-    history_budget_by_window = max(0, prompt_budget - base_tokens)
-    history_budget_by_ratio = max(0, int(context_length * (1.0 - rag_context_ratio)))
-    raw_history_budget = min(history_budget_by_window, history_budget_by_ratio)
-    effective_history_budget = max(0, int(raw_history_budget * (1.0 - _TOKENIZER_MISMATCH_BUFFER_RATIO)))
-
-    selected_reversed: list[ChatMessage] = []
-    used_history_tokens = 0
-    for message in reversed(capped_history):
-        message_tokens = _estimate_message_tokens(role=message.role, content=message.content or '')
-        if selected_reversed and used_history_tokens + message_tokens > effective_history_budget:
-            break
-        if not selected_reversed and message_tokens > effective_history_budget:
-            # Keep the most recent turn as a floor; engine-level truncation remains
-            # the final backstop if this still overflows.
-            selected_reversed.append(message)
-            used_history_tokens += message_tokens
-            break
-        selected_reversed.append(message)
-        used_history_tokens += message_tokens
-
+    selected_reversed, used_history_tokens = _select_history_messages(
+        capped_history, effective_history_budget
+    )
     selected = list(reversed(selected_reversed))
     trimmed_count = len(capped_history) - len(selected)
     if trimmed_count > 0:
         log.warning(
-            'history_trimmed_by_token_budget',
+            "history_trimmed_by_token_budget",
             trimmed_count=trimmed_count,
             kept_count=len(selected),
             history_limit=history_limit,
@@ -138,89 +194,147 @@ def _trim_history_by_token_budget(
     return selected
 
 
-def build_messages(
-    question: str,
-    context_chunks: list[dict],
-    history: list[ChatMessage] | None = None,
-    output_constraints: dict[str, int] | None = None,
-    format_requirements: list[str] | None = None,
-    model_profile: ModelProfile | None = None,
-    system_prompt: str | None = None,
-    chat_mode: str | None = None,
-    specialization_id: str | None = None,
-) -> list[dict[str, str]]:
+def _build_context_text(context_chunks: list[dict]) -> str:
+    """ build context text."""
+    ordered_context_chunks = _reorder_context_chunks_for_attention(context_chunks)
+    context_parts: list[str] = []
+    for i, chunk in enumerate(ordered_context_chunks, start=1):
+        source_rank = _coerce_source_rank(chunk.get("source_rank")) or i
+        source_label = f"[Source: {source_rank}] {chunk.get('filename', 'unknown')}"
+        if isinstance(chunk.get("year"), int):
+            source_label += f", Year: {chunk['year']}"
+        category = str(chunk.get("category", "") or "").strip()
+        if category:
+            source_label += f", Category: {category}"
+        start_page = chunk.get("start_page")
+        end_page = chunk.get("end_page")
+        if start_page and end_page and start_page != end_page:
+            source_label += f", Pages {start_page}-{end_page}"
+        elif chunk.get("page_number"):
+            source_label += f", Page {chunk['page_number']}"
+        if chunk.get("section_path"):
+            source_label += f", Section: {chunk['section_path']}"
+        if chunk.get("block_type"):
+            source_label += f", Block: {chunk['block_type']}"
+        context_parts.append(f"{source_label}\n{chunk.get('chunk_text', '')}")
+    return "\n\n".join(context_parts)
+
+
+def _build_output_contract_block(
+    output_constraints: dict[str, int] | None,
+    format_requirements: list[str] | None,
+) -> str:
+    """ build output contract block."""
+    contract_lines: list[str] = []
+    if isinstance(output_constraints, dict):
+        max_words = output_constraints.get("max_words")
+        if isinstance(max_words, int) and max_words > 0:
+            contract_lines.append(f"- Maximum words: {max_words}")
+        exact_bullets = output_constraints.get("exact_top_level_bullets")
+        if isinstance(exact_bullets, int) and exact_bullets > 0:
+            contract_lines.append(
+                f"- Exactly {exact_bullets} top-level bullets when bullets are requested"
+            )
+
+    if isinstance(format_requirements, list):
+        for requirement in format_requirements:
+            text = str(requirement or "").strip()
+            if text:
+                contract_lines.append(f"- {text}")
+
+    if not contract_lines:
+        return ""
+    return "\n\nOutput Contract:\n" + "\n".join(contract_lines[:24])
+
+
+def _build_messages_impl(request: BuildMessagesRequest) -> list[dict[str, str]]:
     # Build messages for LLM. Context chunks formatted with [Source: N] labels
     # for LLM understanding (document boundaries, structure, provenance).
     # Labels are informational only — not for citation in answers.
     # Format context
-    ordered_context_chunks = _reorder_context_chunks_for_attention(context_chunks)
-    context_parts = []
-    for i, chunk in enumerate(ordered_context_chunks, start=1):
-        source_rank = _coerce_source_rank(chunk.get('source_rank')) or i
-        source_label = f"[Source: {source_rank}] {chunk.get('filename', 'unknown')}"
-        if isinstance(chunk.get('year'), int):
-            source_label += f", Year: {chunk['year']}"
-        category = str(chunk.get('category', '') or '').strip()
-        if category:
-            source_label += f", Category: {category}"
-        start_page = chunk.get('start_page')
-        end_page = chunk.get('end_page')
-        if start_page and end_page and start_page != end_page:
-            source_label += f", Pages {start_page}-{end_page}"
-        elif chunk.get('page_number'):
-            source_label += f", Page {chunk['page_number']}"
-        if chunk.get('section_path'):
-            source_label += f", Section: {chunk['section_path']}"
-        if chunk.get('block_type'):
-            source_label += f", Block: {chunk['block_type']}"
-        context_parts.append(f"{source_label}\n{chunk.get('chunk_text', '')}")
-
-    context_text = "\n\n".join(context_parts)
-
-    contract_lines: list[str] = []
-    if isinstance(output_constraints, dict):
-        max_words = output_constraints.get('max_words')
-        if isinstance(max_words, int) and max_words > 0:
-            contract_lines.append(f'- Maximum words: {max_words}')
-        exact_bullets = output_constraints.get('exact_top_level_bullets')
-        if isinstance(exact_bullets, int) and exact_bullets > 0:
-            contract_lines.append(f'- Exactly {exact_bullets} top-level bullets when bullets are requested')
-
-    if isinstance(format_requirements, list):
-        for requirement in format_requirements:
-            text = str(requirement or '').strip()
-            if text:
-                contract_lines.append(f'- {text}')
-
-    contract_block = ''
-    if contract_lines:
-        contract_block = '\n\nOutput Contract:\n' + '\n'.join(contract_lines[:24])
+    """build messages."""
+    context_text = _build_context_text(request.context_chunks)
+    contract_block = _build_output_contract_block(
+        request.output_constraints, request.format_requirements
+    )
 
     # Build system message
     active_system_prompt = (
-        compose_prompt(mode_id='researcher_rag', chat_mode=chat_mode, specialization_id=specialization_id)
-        if system_prompt is None
-        else str(system_prompt)
+        compose_prompt(
+            mode_id="researcher_rag",
+            chat_mode=request.chat_mode,
+            specialization_id=request.specialization_id,
+        )
+        if request.system_prompt is None
+        else str(request.system_prompt)
     )
     system_content = f"{active_system_prompt}{contract_block}\n\nContext:\n{context_text}"
 
     # Build messages list
-    messages = [{'role': 'system', 'content': system_content}]
+    messages = [{"role": "system", "content": system_content}]
 
     # Add history (count ceiling + token-budget-aware trim when model profile is available)
-    if history:
+    if request.history:
         selected_history = _trim_history_by_token_budget(
-            history=history,
+            history=request.history,
             system_content=system_content,
-            question=question,
-            model_profile=model_profile,
-            chat_mode=chat_mode,
+            question=request.question,
+            model_profile=request.model_profile,
+            chat_mode=request.chat_mode,
         )
         for msg in selected_history:
-            history_content = msg.content or ''
-            messages.append({'role': msg.role, 'content': history_content})
+            history_content = msg.content or ""
+            messages.append({"role": msg.role, "content": history_content})
 
     # Add current question
-    messages.append({'role': 'user', 'content': question})
+    messages.append({"role": "user", "content": request.question})
 
     return messages
+
+
+def build_messages(*args: object, **kwargs: object) -> list[dict[str, str]]:
+    """Build messages using either the request object or the legacy call signature."""
+    if len(args) == 1 and isinstance(args[0], BuildMessagesRequest) and not kwargs:
+        request = args[0]
+    else:
+        if args and isinstance(args[0], str):
+            question = args[0]
+            context_chunks = args[1] if len(args) > 1 else kwargs.pop("context_chunks", None)
+            history = args[2] if len(args) > 2 else kwargs.pop("history", None)
+            if len(args) > 3:
+                raise TypeError("build_messages() takes at most 3 positional arguments")
+        else:
+            question = kwargs.pop("question", None)
+            context_chunks = kwargs.pop("context_chunks", None)
+            history = kwargs.pop("history", None)
+
+        output_constraints = kwargs.pop("output_constraints", None)
+        format_requirements = kwargs.pop("format_requirements", None)
+        model_profile = kwargs.pop("model_profile", None)
+        system_prompt = kwargs.pop("system_prompt", None)
+        chat_mode = kwargs.pop("chat_mode", None)
+        specialization_id = kwargs.pop("specialization_id", None)
+
+        if kwargs:
+            unexpected = ", ".join(sorted(str(key) for key in kwargs))
+            raise TypeError(f"build_messages() got unexpected keyword argument(s): {unexpected}")
+        if question is None or context_chunks is None:
+            missing = []
+            if question is None:
+                missing.append("question")
+            if context_chunks is None:
+                missing.append("context_chunks")
+            raise TypeError(f"build_messages() missing required argument(s): {', '.join(missing)}")
+
+        request = BuildMessagesRequest(
+            question=str(question),
+            context_chunks=list(context_chunks) if not isinstance(context_chunks, list) else context_chunks,
+            history=history,  # legacy API accepts any sequence-like history list
+            output_constraints=output_constraints if isinstance(output_constraints, dict) else None,
+            format_requirements=format_requirements if isinstance(format_requirements, list) else None,
+            model_profile=model_profile,
+            system_prompt=str(system_prompt) if system_prompt is not None else None,
+            chat_mode=str(chat_mode) if chat_mode is not None else None,
+            specialization_id=str(specialization_id) if specialization_id is not None else None,
+        )
+    return _build_messages_impl(request)

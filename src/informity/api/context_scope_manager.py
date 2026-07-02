@@ -55,8 +55,7 @@ def _max_indexed_generation(history: list[ChatMessage], *, chat_mode: str) -> in
         if generation is None:
             # Legacy indexed-corpus rows (including pre-scope) are generation 0.
             generation = 0
-        if generation > max_generation:
-            max_generation = generation
+        max_generation = max(max_generation, generation)
     return max_generation
 
 

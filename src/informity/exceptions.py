@@ -55,4 +55,3 @@ class ConfigurationError(InformityError):
     # Raised when configuration is invalid or incompatible.
     # Examples: Full Privacy enabled but models not cached, invalid settings combination.
     pass
-

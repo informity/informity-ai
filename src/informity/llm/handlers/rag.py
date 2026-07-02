@@ -19,7 +19,7 @@ from informity.db.sqlite import get_chunk_count
 from informity.llm.metrics_payload import build_metrics_payload
 from informity.llm.model_adapter import get_profile, get_retrieval_top_k
 from informity.llm.nlp_heuristics import BY_PER_YEAR_PATTERN
-from informity.llm.prompt_builder import build_messages, resolve_history_limit
+from informity.llm.prompt_builder import BuildMessagesRequest, build_messages, resolve_history_limit
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.query_patterns import (
     build_acronym_entity_listing_pattern,
@@ -778,14 +778,16 @@ class RAGHandler:
 
         prompt_build_start = time.perf_counter()
         messages = build_messages(
-            question=question,
-            context_chunks=chunks,
-            history=history,
-            output_constraints=output_constraints,
-            format_requirements=format_requirements,
-            model_profile=profile,
-            chat_mode='researcher',
-            specialization_id=specialization_id,
+            BuildMessagesRequest(
+                question=question,
+                context_chunks=chunks,
+                history=history,
+                output_constraints=output_constraints,
+                format_requirements=format_requirements,
+                model_profile=profile,
+                chat_mode='researcher',
+                specialization_id=specialization_id,
+            )
         )
         messages = profile.prepare_messages(messages, effective_query_type)
         prompt_build_ms = (time.perf_counter() - prompt_build_start) * 1000

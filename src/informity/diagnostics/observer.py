@@ -182,8 +182,7 @@ def estimate_evidence_metrics(
         max_overlap = 0
         for source_tokens in source_token_sets:
             overlap = len(claim_tokens.intersection(source_tokens))
-            if overlap > max_overlap:
-                max_overlap = overlap
+            max_overlap = max(max_overlap, overlap)
         if max_overlap >= threshold:
             supported_claims += 1
 

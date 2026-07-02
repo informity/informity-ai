@@ -183,7 +183,7 @@ class MetadataHandler:
         if len(years) != 1:
             return None
         year = next(iter(years))
-        if not (1900 <= year <= 2099):
+        if not 1900 <= year <= 2099:
             return None
         return year
 

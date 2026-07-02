@@ -134,8 +134,7 @@ def _edit_distance(a: str, b: str, max_distance: int = 1) -> int:
             cost = 0 if ca == cb else 1
             value = min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
             curr.append(value)
-            if value < min_row:
-                min_row = value
+            min_row = min(min_row, value)
         if min_row > max_distance:
             return max_distance + 1
         prev = curr

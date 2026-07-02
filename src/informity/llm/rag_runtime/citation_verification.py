@@ -25,7 +25,7 @@ class CitationVerificationResult:
 
     @property
     def has_thin_evidence(self) -> bool:
-        return self.evaluated_claim_count > 0 and self.supported_claim_count <= 0
+        return self.supported_claim_count <= 0 < self.evaluated_claim_count
 
     @property
     def should_fail_closed(self) -> bool:
@@ -118,8 +118,7 @@ def assess_answer_support(
         max_overlap = 0
         for source_tokens in source_token_sets:
             overlap = len(claim_tokens.intersection(source_tokens))
-            if overlap > max_overlap:
-                max_overlap = overlap
+            max_overlap = max(max_overlap, overlap)
         if max_overlap >= threshold:
             supported_claims += 1
 

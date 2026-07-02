@@ -267,7 +267,7 @@ def _compute_file_hash_and_stat(file_path: str) -> tuple[str, int, float] | None
         size_bytes = stat_result.st_size
         mtime = stat_result.st_mtime
         max_hash_bytes = int(getattr(settings, 'scan_hash_max_file_size_bytes', 0) or 0)
-        if max_hash_bytes > 0 and size_bytes > max_hash_bytes:
+        if 0 < max_hash_bytes < size_bytes:
             pseudo_hash = hashlib.sha256(f'oversized:{size_bytes}'.encode()).hexdigest()
             log.warning(
                 'scan_hash_skipped_oversized_file',

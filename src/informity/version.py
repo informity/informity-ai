@@ -3,6 +3,8 @@
 # Single source of truth for runtime app version.
 # ==============================================================================
 
+"""Application version resolution helpers."""
+
 import os
 import tomllib
 from importlib import metadata
@@ -14,6 +16,7 @@ _DEFAULT_FALLBACK_VERSION = '0.14.1'
 
 
 def _resolve_pyproject_version() -> str | None:
+    """Resolve the project version from the nearest pyproject.toml."""
     current = Path(__file__).resolve()
     for parent in current.parents:
         pyproject_path = parent / 'pyproject.toml'
@@ -31,6 +34,7 @@ def _resolve_pyproject_version() -> str | None:
 
 
 def _resolve_app_version() -> str:
+    """Resolve the runtime application version."""
     env_version = str(os.getenv(_ENV_VERSION_KEY, '')).strip()
     if env_version:
         return env_version
