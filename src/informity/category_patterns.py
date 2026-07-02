@@ -4,6 +4,8 @@
 # Used by indexer (file storage) and query classifier (metadata queries only)
 # ==============================================================================
 
+"""Canonical file extension to category mappings."""
+
 from informity.db.models import FileCategory
 
 # ==============================================================================

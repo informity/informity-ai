@@ -130,6 +130,7 @@ class DoclingExtractor:
                 del cls._converter
                 gc.collect()
 
+            docling_cache = None
             try:
                 from informity.scanner.extractors.docling_runtime import (
                     _DOCLING_RUNTIME_EXCEPTIONS,
@@ -145,7 +146,7 @@ class DoclingExtractor:
                 log.error(
                     'docling_converter_failed',
                     error=str(exc),
-                    cache_path=str(docling_cache),
+                    cache_path=str(docling_cache) if docling_cache else 'unknown',
                     suggestion='If Full Privacy is enabled, ensure install script completed successfully',
                     exc_info=True,
                 )

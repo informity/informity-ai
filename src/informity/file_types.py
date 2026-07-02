@@ -5,6 +5,8 @@
 # Extensions must match backend extractors and classifier where applicable.
 # ==============================================================================
 
+"""Canonical file type option lists used throughout the app."""
+
 from __future__ import annotations
 
 # ==============================================================================
@@ -18,13 +20,41 @@ FILE_TYPE_OPTIONS: list[dict[str, str | list[str]]] = [
         'label': 'Images',
         'extensions': ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp'],
     },
-    {'id': 'docx',        'label': 'Word Documents',                'extensions': ['.docx']},
-    {'id': 'spreadsheet', 'label': 'Spreadsheets',                  'extensions': ['.xlsx', '.csv']},
-    {'id': 'pptx',        'label': 'PowerPoint Presentations',      'extensions': ['.pptx']},
-    {'id': 'epub',        'label': 'EPUB E-books',                  'extensions': ['.epub']},
-    {'id': 'web',         'label': 'Web Pages',                     'extensions': ['.html', '.htm']},
-    {'id': 'text',        'label': 'Text and Markdown Files',       'extensions': ['.txt', '.md', '.rst', '.log']},
-    {'id': 'data',        'label': 'Data and Configuration Files',  'extensions': ['.json', '.yaml', '.yml', '.toml']},
+    {
+        'id': 'docx',
+        'label': 'Word Documents',
+        'extensions': ['.docx'],
+    },
+    {
+        'id': 'spreadsheet',
+        'label': 'Spreadsheets',
+        'extensions': ['.xlsx', '.csv'],
+    },
+    {
+        'id': 'pptx',
+        'label': 'PowerPoint Presentations',
+        'extensions': ['.pptx'],
+    },
+    {
+        'id': 'epub',
+        'label': 'EPUB E-books',
+        'extensions': ['.epub'],
+    },
+    {
+        'id': 'web',
+        'label': 'Web Pages',
+        'extensions': ['.html', '.htm'],
+    },
+    {
+        'id': 'text',
+        'label': 'Text and Markdown Files',
+        'extensions': ['.txt', '.md', '.rst', '.log'],
+    },
+    {
+        'id': 'data',
+        'label': 'Data and Configuration Files',
+        'extensions': ['.json', '.yaml', '.yml', '.toml'],
+    },
 ]
 
 SUPPORTED_EXTENSIONS_CANONICAL_ORDER: tuple[str, ...] = tuple(

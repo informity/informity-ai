@@ -442,7 +442,7 @@ async def translate_job_events(
 @router.get('/api/translate/jobs/{job_id}/result')
 async def get_translate_result(
     job_id: str,
-    format: str = 'markdown',
+    format: str = 'markdown',  # pylint: disable=redefined-builtin
     db: aiosqlite.Connection = Depends(get_db),
 ) -> PlainTextResponse:
     row = await get_translate_job(db, job_id)
@@ -842,7 +842,7 @@ async def _extract_glossary(
                 if isinstance(token, str) and token and token != '__timeout__':
                     parts.append(token)
                 break
-            elif isinstance(item, str):
+            if isinstance(item, str):
                 parts.append(item)
 
         content = ''.join(parts).strip()
@@ -1027,7 +1027,7 @@ async def _translate_section(
                     if isinstance(token, str) and token:
                         parts.append(token)
                 break
-            elif isinstance(item, str):
+            if isinstance(item, str):
                 parts.append(item)
     except Exception as exc:
         raise RuntimeError(f'Translation stream error: {exc}') from exc

@@ -1,3 +1,5 @@
+"""Upload policy constants and validation helpers."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,18 +29,22 @@ ALLOWED_MIME_PREFIXES: tuple[str, ...] = (
 
 
 def upload_root_dir() -> Path:
+    """Return the root directory used for uploaded files."""
     return settings.app_data_dir / UPLOAD_STORAGE_DIRNAME
 
 
 def max_upload_file_size_bytes() -> int:
+    """Return the per-file upload size limit in bytes."""
     return MAX_UPLOAD_FILE_SIZE_MB * 1024 * 1024
 
 
 def max_upload_total_size_bytes() -> int:
+    """Return the total upload size limit in bytes."""
     return MAX_UPLOAD_TOTAL_SIZE_MB * 1024 * 1024
 
 
 def _extract_extension(filename: str) -> str:
+    """Extract and normalize a file extension."""
     ext = Path(str(filename or '')).suffix.lower().strip()
     if not ext:
         return ''
@@ -48,13 +54,19 @@ def _extract_extension(filename: str) -> str:
 
 
 def allowed_extensions() -> set[str]:
-    configured = {str(ext).strip().lower() for ext in (settings.supported_extensions or []) if str(ext).strip()}
+    """Return the allowed file extensions for uploads."""
+    configured = {
+        normalized
+        for ext in (settings.supported_extensions or [])
+        if (normalized := str(ext).strip().lower())
+    }
     # Keep text as safe fallback even if settings are misconfigured.
     configured.update({'.txt', '.md'})
     return configured
 
 
 def is_allowed_extension(filename: str) -> bool:
+    """Return whether the uploaded filename has an allowed extension."""
     ext = _extract_extension(filename)
     if not ext:
         return False
@@ -62,6 +74,7 @@ def is_allowed_extension(filename: str) -> bool:
 
 
 def is_allowed_mime(content_type: str | None) -> bool:
+    """Return whether the upload MIME type is allowed."""
     value = str(content_type or '').strip().lower()
     if not value:
         return True

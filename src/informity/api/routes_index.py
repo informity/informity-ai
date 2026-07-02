@@ -326,8 +326,6 @@ async def _run_reset_task(
     source_provider: str | None = None,
     entity_type: str | None = None,
 ) -> None:
-    from informity.db.sqlite import get_connection
-
     clear_contextvars()
     reset_operation_id = f'reset-{uuid.uuid4().hex[:8]}'
     bind_contextvars(
@@ -492,7 +490,7 @@ async def _run_rebuild_task(scan_id: int) -> None:
     # For each file: re-crawl (to verify it still exists), re-extract,
     # re-chunk, re-embed, and re-store.
 
-    from informity.db.sqlite import get_all_files_for_scan, get_connection
+    from informity.db.sqlite import get_all_files_for_scan
 
     clear_contextvars()
     rebuild_operation_id = f'rebuild-{scan_id}-{uuid.uuid4().hex[:8]}'

@@ -249,4 +249,3 @@ BUILTIN_SPECIALIZATION_PLUGIN_SPECS: tuple[SpecializationPluginSpec, ...] = (
 SPECIALIZATION_PLUGIN_SPEC_REGISTRY: dict[str, SpecializationPluginSpec] = {
     spec.id: spec for spec in BUILTIN_SPECIALIZATION_PLUGIN_SPECS
 }
-

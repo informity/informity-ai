@@ -3,43 +3,54 @@
 # Simple Markdown header/paragraph splitting, one chunk size, sentence-aligned overlap
 # ==============================================================================
 
+"""Document chunking utilities for indexing and retrieval."""
+
 import bisect
 import re
 from dataclasses import dataclass
 
 import pysbd
 import structlog
-import tiktoken
 
 from informity.config import settings
+from informity.llm.tokenization import count_tokens
 
 log = structlog.get_logger(__name__)
-
-_TIKTOKEN_ENCODER = tiktoken.get_encoding('cl100k_base')
-_SENTENCE_SEGMENTER = pysbd.Segmenter(language='en', clean=False)
+_SENTENCE_SEGMENTER = pysbd.Segmenter(language="en", clean=False)
 _HEADER_MIN_CONTENT_CHARS = 50
-_TABLE_HEADER_LINE_PATTERN = re.compile(r'^\s*\|.*\|\s*$')
-_TABLE_SEPARATOR_LINE_PATTERN = re.compile(r'^\s*\|[\s\-:]+\|\s*$')
+_TABLE_HEADER_LINE_PATTERN = re.compile(r"^\s*\|.*\|\s*$")
+_TABLE_SEPARATOR_LINE_PATTERN = re.compile(r"^\s*\|[\s\-:]+\|\s*$")
 
 
 @dataclass(frozen=True)
 class ChunkData:
     # A single chunk of text.
-    content:      str
-    chunk_index:  int
-    token_count:  int
-    page_number:  int | None = None
-    start_page:   int | None = None
-    end_page:     int | None = None
+    """ChunkData model."""
+    content: str
+    chunk_index: int
+    token_count: int
+    page_number: int | None = None
+    start_page: int | None = None
+    end_page: int | None = None
     section_path: str | None = None
-    block_type:   str | None = None  # Block type: 'table', 'form', 'narrative' (from docling provenance)
-    parent_chunk_index: int | None = None  # For child chunks: index of parent chunk (before DB insertion)
+    block_type: str | None = (
+        None  # Block type: 'table', 'form', 'narrative' (from docling provenance)
+    )
+    parent_chunk_index: int | None = (
+        None  # For child chunks: index of parent chunk (before DB insertion)
+    )
 
 
-def _count_tokens(text: str) -> int:
-    if not text:
-        return 0
-    return len(_TIKTOKEN_ENCODER.encode(text, disallowed_special=()))
+@dataclass(frozen=True)
+class ChunkTextRequest:
+    """ChunkTextRequest model."""
+
+    text: str
+    chunk_size: int | None = None
+    overlap: int | None = None
+    char_to_page_ranges: list[tuple[int, int, int]] | None = None
+    char_to_block_type_ranges: list[tuple[int, int, str]] | None = None
+    char_to_header_level_ranges: list[tuple[int, int, int]] | None = None
 
 
 def _lookup_range_with_starts(
@@ -48,6 +59,7 @@ def _lookup_range_with_starts(
     pos: int,
 ) -> int | str | None:
     # Same as _lookup_range_with_starts but reuses precomputed start positions for speed.
+    """ lookup range with starts."""
     if not ranges or not starts:
         return None
 
@@ -66,6 +78,7 @@ def _lookup_page_span(
     chunk_end: int,
 ) -> tuple[int | None, int | None]:
     # Resolve page span for a chunk using start/end character positions.
+    """ lookup page span."""
     if not page_ranges:
         return None, None
     if chunk_end <= chunk_start:
@@ -99,7 +112,7 @@ def _is_header_only_chunk(content: str) -> bool:
     if not content or len(content.strip()) < _HEADER_MIN_CONTENT_CHARS:
         return False
 
-    lines = content.strip().split('\n')
+    lines = content.strip().split("\n")
     if not lines:
         return False
 
@@ -136,27 +149,24 @@ def _is_header_only_chunk(content: str) -> bool:
     # 1. Header ratio exceeds threshold, AND
     # 2. Content is short (< min_content_chars chars), OR
     # 3. Very few content lines (< min_content_lines lines of actual content)
-    is_header_only = (
-        header_ratio > header_ratio_threshold and
-        (len(content) < min_content_chars or content_lines < min_content_lines)
+    is_header_only = header_ratio > header_ratio_threshold and (
+        len(content) < min_content_chars or content_lines < min_content_lines
     )
 
     return is_header_only
 
 
-def chunk_text(
-    text: str,
-    chunk_size: int | None = None,
-    overlap: int | None = None,
-    char_to_page_ranges: list[tuple[int, int, int]] | None = None,
-    char_to_block_type_ranges: list[tuple[int, int, str]] | None = None,
-    char_to_header_level_ranges: list[tuple[int, int, int]] | None = None,
-) -> list[ChunkData]:
+def _chunk_text_impl(request: ChunkTextRequest) -> list[ChunkData]:
     # Simple chunking: split on Markdown headers and paragraphs, sentence-aligned overlap.
     # Optionally assigns page numbers and section paths to chunks based on character positions.
     # Preserves table boundaries (tables are atomic units, never split mid-row).
-    chunk_size = chunk_size or settings.chunk_size_tokens
-    overlap = overlap or settings.chunk_overlap_tokens
+    """chunk text."""
+    text = request.text
+    chunk_size = request.chunk_size or settings.chunk_size_tokens
+    overlap = request.overlap or settings.chunk_overlap_tokens
+    char_to_page_ranges = request.char_to_page_ranges
+    char_to_block_type_ranges = request.char_to_block_type_ranges
+    char_to_header_level_ranges = request.char_to_header_level_ranges
 
     if not text.strip():
         return []
@@ -165,24 +175,28 @@ def chunk_text(
     char_pos = 0
     section_stack: list[tuple[int, str]] = []  # [(header_level, "Section Name"), ...]
     page_starts = [r[0] for r in char_to_page_ranges] if char_to_page_ranges else None
-    block_type_starts = [r[0] for r in char_to_block_type_ranges] if char_to_block_type_ranges else None
-    header_level_starts = [r[0] for r in char_to_header_level_ranges] if char_to_header_level_ranges else None
+    block_type_starts = (
+        [r[0] for r in char_to_block_type_ranges] if char_to_block_type_ranges else None
+    )
+    header_level_starts = (
+        [r[0] for r in char_to_header_level_ranges] if char_to_header_level_ranges else None
+    )
 
     def _is_table_part(part: str) -> bool:
         """Check if a part is a markdown table (starts with | on first line)."""
-        lines = part.strip().split('\n')
+        lines = part.strip().split("\n")
         if not lines:
             return False
         # Check if first non-empty line starts with |
         for line in lines:
             stripped = line.strip()
             if stripped:
-                return stripped.startswith('|') and not stripped.startswith('||')
+                return stripped.startswith("|") and not stripped.startswith("||")
         return False
 
     # Split on double newlines (paragraphs) and Markdown headers
     # re.split with capturing group includes separators in result
-    parts = re.split(r'(\n\n+|^#+\s+[^\n]+\n)', text, flags=re.MULTILINE)
+    parts = re.split(r"(\n\n+|^#+\s+[^\n]+\n)", text, flags=re.MULTILINE)
 
     # Filter out empty parts
     parts = [p for p in parts if p.strip()]
@@ -195,10 +209,10 @@ def chunk_text(
     chunk_start_section_stack: list[tuple[int, str]] = []  # Section stack when chunk started
 
     for part in parts:
-        part_tokens = _count_tokens(part)
+        part_tokens = count_tokens(part)
 
         # Check if this part is a markdown header and update section stack
-        header_match = re.match(r'^(#+)\s+(.+)$', part.strip())
+        header_match = re.match(r"^(#+)\s+(.+)$", part.strip())
         if header_match:
             # Use char_to_header_level_ranges if available (more reliable than regex counting)
             if char_to_header_level_ranges:
@@ -230,7 +244,7 @@ def chunk_text(
         # finalize current chunk BEFORE the table, then add table as atomic unit
         if would_exceed and current_chunk and is_table:
             # Finalize current chunk before table
-            chunk_content = '\n'.join(current_chunk)
+            chunk_content = "\n".join(current_chunk)
 
             # Assign metadata using range lookup (binary search)
             chunk_end_char_pos = chunk_start_char_pos + len(chunk_content)
@@ -254,18 +268,20 @@ def chunk_text(
 
             section_path: str | None = None
             if chunk_start_section_stack:
-                section_path = '/'.join([name for _, name in chunk_start_section_stack])
+                section_path = "/".join([name for _, name in chunk_start_section_stack])
 
-            chunks.append(ChunkData(
-                content=chunk_content,
-                chunk_index=chunk_index,
-                token_count=current_tokens,
-                page_number=page_number,
-                start_page=start_page,
-                end_page=end_page,
-                section_path=section_path,
-                block_type=block_type,
-            ))
+            chunks.append(
+                ChunkData(
+                    content=chunk_content,
+                    chunk_index=chunk_index,
+                    token_count=current_tokens,
+                    page_number=page_number,
+                    start_page=start_page,
+                    end_page=end_page,
+                    section_path=section_path,
+                    block_type=block_type,
+                )
+            )
             chunk_index += 1
 
             # Start new chunk with table (no overlap, table is atomic)
@@ -278,7 +294,7 @@ def chunk_text(
 
         # If adding this part would exceed chunk size (non-table), finalize current chunk
         if would_exceed and current_chunk:
-            chunk_content = '\n'.join(current_chunk)
+            chunk_content = "\n".join(current_chunk)
 
             # Assign metadata based on character position using range lookup (binary search)
             chunk_end_char_pos = chunk_start_char_pos + len(chunk_content)
@@ -304,24 +320,26 @@ def chunk_text(
             # Build section path from section stack when chunk started
             section_path: str | None = None
             if chunk_start_section_stack:
-                section_path = '/'.join([name for _, name in chunk_start_section_stack])
+                section_path = "/".join([name for _, name in chunk_start_section_stack])
 
-            chunks.append(ChunkData(
-                content=chunk_content,
-                chunk_index=chunk_index,
-                token_count=current_tokens,
-                page_number=page_number,
-                start_page=start_page,
-                end_page=end_page,
-                section_path=section_path,
-                block_type=block_type,
-            ))
+            chunks.append(
+                ChunkData(
+                    content=chunk_content,
+                    chunk_index=chunk_index,
+                    token_count=current_tokens,
+                    page_number=page_number,
+                    start_page=start_page,
+                    end_page=end_page,
+                    section_path=section_path,
+                    block_type=block_type,
+                )
+            )
             chunk_index += 1
 
             # Start new chunk with overlap (sentence-aligned)
             overlap_text = _get_overlap_sentences(chunk_content, overlap)
             current_chunk = [overlap_text] if overlap_text else []
-            current_tokens = _count_tokens(overlap_text)
+            current_tokens = count_tokens(overlap_text)
             # Update character position and section stack for overlap
             if overlap_text:
                 chunk_start_char_pos = char_pos - len(overlap_text)
@@ -341,7 +359,7 @@ def chunk_text(
 
     # Add final chunk
     if current_chunk:
-        chunk_content = '\n'.join(current_chunk)
+        chunk_content = "\n".join(current_chunk)
 
         # Assign metadata for final chunk using range lookup (binary search)
         chunk_end_char_pos = chunk_start_char_pos + len(chunk_content)
@@ -366,36 +384,35 @@ def chunk_text(
 
         section_path: str | None = None
         if chunk_start_section_stack:
-            section_path = '/'.join([name for _, name in chunk_start_section_stack])
+            section_path = "/".join([name for _, name in chunk_start_section_stack])
 
-        chunks.append(ChunkData(
-            content=chunk_content,
-            chunk_index=chunk_index,
-            token_count=_count_tokens(chunk_content),
-            page_number=page_number,
-            start_page=start_page,
-            end_page=end_page,
-            section_path=section_path,
-            block_type=block_type,
-        ))
+        chunks.append(
+            ChunkData(
+                content=chunk_content,
+                chunk_index=chunk_index,
+                token_count=count_tokens(chunk_content),
+                page_number=page_number,
+                start_page=start_page,
+                end_page=end_page,
+                section_path=section_path,
+                block_type=block_type,
+            )
+        )
 
     # Filter out header-only chunks if enabled (quality improvement: prevents indexing noise)
     # This is app-compliant because it's a quality filter at indexing time, not query-time cleaning.
     # Filtering is configurable to allow tuning for different document types (some documents
     # genuinely contain header-only structures that may or may not be useful for RAG).
     if settings.chunk_filter_header_only:
-        filtered_chunks = [
-            chunk for chunk in chunks
-            if not _is_header_only_chunk(chunk.content)
-        ]
+        filtered_chunks = [chunk for chunk in chunks if not _is_header_only_chunk(chunk.content)]
 
         # Log if any chunks were filtered
         if len(filtered_chunks) < len(chunks):
             log.debug(
-                'header_only_chunks_filtered',
+                "header_only_chunks_filtered",
                 total_chunks=len(chunks),
                 filtered_out=len(chunks) - len(filtered_chunks),
-                remaining=len(filtered_chunks)
+                remaining=len(filtered_chunks),
             )
 
         # Never return an empty chunk set for non-empty text. If filtering removes
@@ -403,39 +420,80 @@ def chunk_text(
         # without chunks.
         if chunks and not filtered_chunks:
             log.warning(
-                'header_only_filter_fallback_applied',
+                "header_only_filter_fallback_applied",
                 total_chunks=len(chunks),
                 fallback_chunk_index=chunks[0].chunk_index,
             )
             return [chunks[0]]
 
         return filtered_chunks
+    # Filter disabled, return all chunks
+    return chunks
+
+
+def chunk_text(*args: object, **kwargs: object) -> list[ChunkData]:
+    """Chunk text using either the request object or the legacy call signature."""
+    if len(args) == 1 and isinstance(args[0], ChunkTextRequest) and not kwargs:
+        request = args[0]
     else:
-        # Filter disabled, return all chunks
-        return chunks
+        if args and isinstance(args[0], str):
+            text = args[0]
+            remaining_args = args[1:]
+            if len(remaining_args) > 2:
+                raise TypeError("chunk_text() takes at most 3 positional arguments")
+            chunk_size = remaining_args[0] if len(remaining_args) > 0 else kwargs.pop("chunk_size", None)
+            overlap = remaining_args[1] if len(remaining_args) > 1 else kwargs.pop("overlap", None)
+        else:
+            text = kwargs.pop("text", None)
+            chunk_size = kwargs.pop("chunk_size", None)
+            overlap = kwargs.pop("overlap", None)
+        char_to_page_ranges = kwargs.pop("char_to_page_ranges", None)
+        char_to_block_type_ranges = kwargs.pop("char_to_block_type_ranges", None)
+        char_to_header_level_ranges = kwargs.pop("char_to_header_level_ranges", None)
+        if kwargs:
+            unexpected = ", ".join(sorted(str(key) for key in kwargs))
+            raise TypeError(f"chunk_text() got unexpected keyword argument(s): {unexpected}")
+        if not isinstance(text, str):
+            raise TypeError("chunk_text() missing required text argument")
+        request = ChunkTextRequest(
+            text=text,
+            chunk_size=chunk_size if isinstance(chunk_size, int) else None,
+            overlap=overlap if isinstance(overlap, int) else None,
+            char_to_page_ranges=char_to_page_ranges
+            if isinstance(char_to_page_ranges, (list, tuple))
+            else None,
+            char_to_block_type_ranges=char_to_block_type_ranges
+            if isinstance(char_to_block_type_ranges, (list, tuple))
+            else None,
+            char_to_header_level_ranges=char_to_header_level_ranges
+            if isinstance(char_to_header_level_ranges, (list, tuple))
+            else None,
+        )
+    return _chunk_text_impl(request)
 
 
 def _get_overlap_sentences(text: str, overlap_tokens: int) -> str:
     # Get last N sentences that fit within overlap_tokens.
+    """ get overlap sentences."""
     if not text.strip():
-        return ''
+        return ""
 
     sentences = _SENTENCE_SEGMENTER.segment(text)
     if not sentences:
-        return ''
+        return ""
 
     overlap_sentences = []
     overlap_count = 0
 
     for sentence in reversed(sentences):
-        sent_tokens = _count_tokens(sentence)
+        sent_tokens = count_tokens(sentence)
         if overlap_count + sent_tokens <= overlap_tokens:
             overlap_sentences.insert(0, sentence)
             overlap_count += sent_tokens
         else:
             break
 
-    return ' '.join(overlap_sentences)
+    return " ".join(overlap_sentences)
 
 
 def create_child_chunks(
@@ -451,8 +509,10 @@ def create_child_chunks(
 
     Args:
         parent_chunks: List of parent chunks (from chunk_text())
-        child_size: Target size for child chunks in tokens (default: settings.chunk_child_size_tokens)
-        overlap: Overlap between child chunks in tokens (default: settings.chunk_overlap_tokens)
+        child_size: Target size for child chunks in tokens
+            (default: settings.chunk_child_size_tokens)
+        overlap: Overlap between child chunks in tokens
+            (default: settings.chunk_overlap_tokens)
 
     Returns:
         List of child ChunkData objects with parent_chunk_index set to their parent's chunk_index.
@@ -471,17 +531,19 @@ def create_child_chunks(
 
         # If parent is smaller than child_size, use it as-is (no need to split)
         if parent.token_count <= child_size:
-            child_chunks.append(ChunkData(
-                content=parent_text,
-                chunk_index=child_index,
-                token_count=parent.token_count,
-                page_number=parent.page_number,
-                start_page=parent.start_page,
-                end_page=parent.end_page,
-                section_path=parent.section_path,
-                block_type=parent.block_type,
-                parent_chunk_index=parent.chunk_index,
-            ))
+            child_chunks.append(
+                ChunkData(
+                    content=parent_text,
+                    chunk_index=child_index,
+                    token_count=parent.token_count,
+                    page_number=parent.page_number,
+                    start_page=parent.start_page,
+                    end_page=parent.end_page,
+                    section_path=parent.section_path,
+                    block_type=parent.block_type,
+                    parent_chunk_index=parent.chunk_index,
+                )
+            )
             child_index += 1
             continue
 
@@ -490,17 +552,19 @@ def create_child_chunks(
         sentences = _SENTENCE_SEGMENTER.segment(parent_text)
         if not sentences:
             # Fallback: if sentence segmentation fails, use the parent as-is
-            child_chunks.append(ChunkData(
-                content=parent_text,
-                chunk_index=child_index,
-                token_count=parent.token_count,
-                page_number=parent.page_number,
-                start_page=parent.start_page,
-                end_page=parent.end_page,
-                section_path=parent.section_path,
-                block_type=parent.block_type,
-                parent_chunk_index=parent.chunk_index,
-            ))
+            child_chunks.append(
+                ChunkData(
+                    content=parent_text,
+                    chunk_index=child_index,
+                    token_count=parent.token_count,
+                    page_number=parent.page_number,
+                    start_page=parent.start_page,
+                    end_page=parent.end_page,
+                    section_path=parent.section_path,
+                    block_type=parent.block_type,
+                    parent_chunk_index=parent.chunk_index,
+                )
+            )
             child_index += 1
             continue
 
@@ -509,46 +573,50 @@ def create_child_chunks(
         current_tokens = 0
 
         for sentence in sentences:
-            sent_tokens = _count_tokens(sentence)
+            sent_tokens = count_tokens(sentence)
 
             # If adding this sentence would exceed child_size, finalize current child
             if current_tokens + sent_tokens > child_size and current_child:
-                child_content = ' '.join(current_child)
-                child_chunks.append(ChunkData(
-                    content=child_content,
-                    chunk_index=child_index,
-                    token_count=current_tokens,
-                    page_number=parent.page_number,  # Inherit from parent
-                    start_page=parent.start_page,
-                    end_page=parent.end_page,
-                    section_path=parent.section_path,  # Inherit from parent
-                    block_type=parent.block_type,  # Inherit from parent
-                    parent_chunk_index=parent.chunk_index,
-                ))
+                child_content = " ".join(current_child)
+                child_chunks.append(
+                    ChunkData(
+                        content=child_content,
+                        chunk_index=child_index,
+                        token_count=current_tokens,
+                        page_number=parent.page_number,  # Inherit from parent
+                        start_page=parent.start_page,
+                        end_page=parent.end_page,
+                        section_path=parent.section_path,  # Inherit from parent
+                        block_type=parent.block_type,  # Inherit from parent
+                        parent_chunk_index=parent.chunk_index,
+                    )
+                )
                 child_index += 1
 
                 # Start new child with overlap (last N sentences from previous child)
                 overlap_text = _get_overlap_sentences(child_content, overlap)
                 current_child = [overlap_text] if overlap_text else []
-                current_tokens = _count_tokens(overlap_text)
+                current_tokens = count_tokens(overlap_text)
 
             current_child.append(sentence)
             current_tokens += sent_tokens
 
         # Add final child chunk
         if current_child:
-            child_content = ' '.join(current_child)
-            child_chunks.append(ChunkData(
-                content=child_content,
-                chunk_index=child_index,
-                token_count=_count_tokens(child_content),
-                page_number=parent.page_number,
-                start_page=parent.start_page,
-                end_page=parent.end_page,
-                section_path=parent.section_path,
-                block_type=parent.block_type,
-                parent_chunk_index=parent.chunk_index,
-            ))
+            child_content = " ".join(current_child)
+            child_chunks.append(
+                ChunkData(
+                    content=child_content,
+                    chunk_index=child_index,
+                    token_count=count_tokens(child_content),
+                    page_number=parent.page_number,
+                    start_page=parent.start_page,
+                    end_page=parent.end_page,
+                    section_path=parent.section_path,
+                    block_type=parent.block_type,
+                    parent_chunk_index=parent.chunk_index,
+                )
+            )
             child_index += 1
 
     return child_chunks

@@ -3,6 +3,8 @@
 # Endpoints for system operations: shutdown, diagnostics
 # ==============================================================================
 
+"""System API routes for diagnostics, shutdown, and app-level operations."""
+
 import asyncio
 import json
 import math
@@ -46,6 +48,7 @@ from informity.api.setup_models import (
 from informity.api.setup_state import SetupState
 from informity.config import (
     APP_DISPLAY_NAME,
+    DEFAULT_OLLAMA_BASE_URL,
     DirNames,
     are_required_models_cached,
     configure_hf_environment,
@@ -67,6 +70,7 @@ from informity.db.vectors import vector_store
 from informity.indexer.embedder import embedder
 from informity.indexer.reranker import reranker
 from informity.llm.engine import llm_engine
+from informity.exceptions import LLMError
 from informity.llm.model_adapter import (
     get_model_alias_filenames,
     infer_model_id_from_filename,
@@ -81,56 +85,57 @@ from informity.version import APP_VERSION
 
 log = structlog.get_logger(__name__)
 _SYSTEM_DIAGNOSTICS_EXCEPTIONS = (OSError, RuntimeError, ValueError, TypeError)
-_SETUP_STATE_FILE = 'setup_state.json'
-_SETUP_CONFIG_FILE = 'config.json'
+_SYSTEM_WORKFLOW_EXCEPTIONS = (LLMError, OSError, RuntimeError, ValueError, TypeError, TimeoutError)
+_SETUP_STATE_FILE = "setup_state.json"
+_SETUP_CONFIG_FILE = "config.json"
 _setup_runtime: dict[str, object] = {
-    'state': SetupState.REQUIRED.value,
-    'stage': 'idle',
-    'overall_pct': 0,
-    'artifact': None,
-    'artifact_pct': 0,
-    'bytes_done': 0,
-    'bytes_total': 0,
-    'speed_bps': 0.0,
-    'eta_sec': None,
-    'paused': False,
-    'error': None,
-    'selected_tier': None,
-    'model_filename': None,
-    'cancel_requested': False,
-    'updated_at': None,
+    "state": SetupState.REQUIRED.value,
+    "stage": "idle",
+    "overall_pct": 0,
+    "artifact": None,
+    "artifact_pct": 0,
+    "bytes_done": 0,
+    "bytes_total": 0,
+    "speed_bps": 0.0,
+    "eta_sec": None,
+    "paused": False,
+    "error": None,
+    "selected_tier": None,
+    "model_filename": None,
+    "cancel_requested": False,
+    "updated_at": None,
 }
 _setup_task: asyncio.Task[None] | None = None
+_setup_cancel_event: threading.Event | None = None
 _setup_lock = asyncio.Lock()
-_setup_download_cancel_event: threading.Event | None = None
-_MODEL_STATE_IDLE = 'idle'
-_MODEL_STATE_IN_PROGRESS = 'in_progress'
-_MODEL_STATE_FAILED = 'failed'
-_MODEL_STATE_COMPLETED = 'completed'
-_MODEL_STATE_CANCELLED = 'cancelled'
+_MODEL_STATE_IDLE = "idle"
+_MODEL_STATE_IN_PROGRESS = "in_progress"
+_MODEL_STATE_FAILED = "failed"
+_MODEL_STATE_COMPLETED = "completed"
+_MODEL_STATE_CANCELLED = "cancelled"
 _model_runtime: dict[str, object] = {
-    'state': _MODEL_STATE_IDLE,
-    'stage': 'idle',
-    'model_filename': None,
-    'overall_pct': 0,
-    'bytes_done': 0,
-    'bytes_total': 0,
-    'speed_bps': 0.0,
-    'eta_sec': None,
-    'paused': False,
-    'error': None,
-    'cancel_requested': False,
-    'updated_at': None,
+    "state": _MODEL_STATE_IDLE,
+    "stage": "idle",
+    "model_filename": None,
+    "overall_pct": 0,
+    "bytes_done": 0,
+    "bytes_total": 0,
+    "speed_bps": 0.0,
+    "eta_sec": None,
+    "paused": False,
+    "error": None,
+    "cancel_requested": False,
+    "updated_at": None,
 }
 _model_task: asyncio.Task[None] | None = None
+_model_cancel_event: threading.Event | None = None
 _model_lock = asyncio.Lock()
-_model_download_cancel_event: threading.Event | None = None
 
 # ==============================================================================
 # Router
 # ==============================================================================
 
-router = APIRouter(prefix='/api', tags=['system'])
+router = APIRouter(prefix="/api", tags=["system"])
 
 # ==============================================================================
 # Schemas
@@ -139,75 +144,105 @@ router = APIRouter(prefix='/api', tags=['system'])
 
 class ShutdownResponse(BaseModel):
     """Shutdown confirmation."""
+
     message: str
     shutdown_initiated: bool = True
 
 
 def _load_setup_state_file(path: Path) -> tuple[dict[str, object] | None, str | None]:
+    """ load setup state file."""
     if not path.exists():
         return None, None
     try:
-        raw = path.read_text(encoding='utf-8')
+        raw = path.read_text(encoding="utf-8")
         payload = json.loads(raw)
         if isinstance(payload, dict):
             return payload, None
-        return None, 'setup_state_invalid_format'
+        return None, "setup_state_invalid_format"
     except (OSError, ValueError, TypeError):
-        return None, 'setup_state_unreadable'
+        return None, "setup_state_unreadable"
 
 
 def _recommend_setup_tier(*, ram_total_gb: float, free_disk_gb: float) -> tuple[str, str]:
+    """ recommend setup tier."""
     if free_disk_gb < 14.0:
-        return 'small', 'Low free disk detected; smaller model is safer for setup.'
+        return "small", "Low free disk detected; smaller model is safer for setup."
     if ram_total_gb >= 32.0:
-        return 'quality', 'Detected >=32 GB RAM; quality tier fits this device best.'
+        return "quality", "Detected >=32 GB RAM; quality tier fits this device best."
     if ram_total_gb >= 24.0:
-        return 'balanced', 'Detected >=24 GB RAM; balanced tier is recommended.'
-    return 'small', 'Detected <24 GB RAM; small tier is recommended for reliability.'
+        return "balanced", "Detected >=24 GB RAM; balanced tier is recommended."
+    return "small", "Detected <24 GB RAM; small tier is recommended for reliability."
 
 
 def _setup_state_path() -> Path:
+    """ setup state path."""
     return settings.app_data_dir / _SETUP_STATE_FILE
 
 
 def _setup_config_path() -> Path:
+    """ setup config path."""
     return settings.app_data_dir / _SETUP_CONFIG_FILE
 
 
 def _read_setup_config() -> dict[str, object]:
+    """ read setup config."""
     config_path = _setup_config_path()
     if not config_path.exists():
         return {}
     try:
-        parsed = json.loads(config_path.read_text(encoding='utf-8'))
+        parsed = json.loads(config_path.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError):
         return {}
     return parsed if isinstance(parsed, dict) else {}
 
 
 def _write_setup_config(config_data: dict[str, object]) -> None:
+    """ write setup config."""
     config_path = _setup_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_path.write_text(json.dumps(config_data, indent=2), encoding='utf-8')
+    try:
+        config_path.write_text(json.dumps(config_data, indent=2), encoding="utf-8")
+    except OSError as exc:
+        log.warning("setup_config_write_skipped", error=str(exc), path=str(config_path))
 
 
-def _update_setup_config(model_filename: str, *, full_privacy: bool, llm_local_only: bool, embedding_offline: bool) -> None:
+def _task_is_active(task: object | None) -> bool:
+    """Return whether a task-like object is still running."""
+    if task is None:
+        return False
+    done = getattr(task, "done", None)
+    if not callable(done):
+        return True
+    try:
+        return not bool(done())
+    except Exception:  # pragma: no cover - defensive for task doubles
+        return True
+
+
+def _update_setup_config(
+    model_filename: str, *, full_privacy: bool, llm_local_only: bool, embedding_offline: bool
+) -> None:
+    """ update setup config."""
     config_data = _read_setup_config()
-    model_id = infer_model_id_from_filename(model_filename) or str(getattr(settings, 'llm_model_id', '') or '').strip()
+    model_id = (
+        infer_model_id_from_filename(model_filename)
+        or str(getattr(settings, "llm_model_id", "") or "").strip()
+    )
     if model_id:
-        config_data['llm_model_id'] = model_id
-    config_data['llm_model_filename'] = model_filename
-    config_data['full_privacy'] = full_privacy
-    config_data['llm_local_only'] = llm_local_only
-    config_data['embedding_offline'] = embedding_offline
+        config_data["llm_model_id"] = model_id
+    config_data["llm_model_filename"] = model_filename
+    config_data["full_privacy"] = full_privacy
+    config_data["llm_local_only"] = llm_local_only
+    config_data["embedding_offline"] = embedding_offline
     _write_setup_config(config_data)
 
 
 def _required_model_filename(setup_state_payload: dict[str, object] | None = None) -> str:
-    selected = str((setup_state_payload or {}).get('model_filename') or '').strip()
+    """ required model filename."""
+    selected = str((setup_state_payload or {}).get("model_filename") or "").strip()
     if selected:
         return selected
-    model_id = str(getattr(settings, 'llm_model_id', '') or '').strip().lower()
+    model_id = str(getattr(settings, "llm_model_id", "") or "").strip().lower()
     if model_id:
         aliases = get_model_alias_filenames(model_id)
         for alias in aliases:
@@ -219,52 +254,69 @@ def _required_model_filename(setup_state_payload: dict[str, object] | None = Non
 
 
 def _is_model_file_ready(model_filename: str) -> bool:
+    """ is model file ready."""
     model_path = settings.models_dir / model_filename
     return model_path.exists() and model_path.is_file()
 
 
-def _probe_ollama_status(*, base_url: str | None = None, model: str | None = None) -> tuple[bool, bool, str | None]:
-    resolved_base_url = str(base_url if base_url is not None else getattr(settings, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip().rstrip('/')
-    resolved_model = str(model if model is not None else getattr(settings, 'llm_model_id', '') or '').strip()
+def _probe_ollama_status(
+    *, base_url: str | None = None, model: str | None = None
+) -> tuple[bool, bool, str | None]:
+    """ probe ollama status."""
+    resolved_base_url = (
+        str(
+            base_url
+            if base_url is not None
+            else getattr(settings, "ollama_base_url", DEFAULT_OLLAMA_BASE_URL)
+            or DEFAULT_OLLAMA_BASE_URL
+        )
+        .strip()
+        .rstrip("/")
+    )
+    resolved_model = str(
+        model if model is not None else getattr(settings, "llm_model_id", "") or ""
+    ).strip()
     if not resolved_model:
-        return False, False, 'llm_model_id is required for ollama provider'
-    timeout = float(getattr(settings, 'ollama_timeout_seconds', 120.0) or 120.0)
-    req = urllib.request.Request(url=f'{resolved_base_url}/api/tags', method='GET')
+        return False, False, "llm_model_id is required for ollama provider"
+    timeout = float(getattr(settings, "ollama_timeout_seconds", 120.0) or 120.0)
+    req = urllib.request.Request(url=f"{resolved_base_url}/api/tags", method="GET")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
-            body = resp.read().decode('utf-8', errors='replace')
+            body = resp.read().decode("utf-8", errors="replace")
             parsed = json.loads(body) if body else {}
             if not isinstance(parsed, dict):
-                return True, False, 'invalid ollama /api/tags payload'
-            models = parsed.get('models') if isinstance(parsed.get('models'), list) else []
+                return True, False, "invalid ollama /api/tags payload"
+            models = parsed.get("models") if isinstance(parsed.get("models"), list) else []
             names = {
-                str(item.get('name') or '').strip().lower()
+                str(item.get("name") or "").strip().lower()
                 for item in models
                 if isinstance(item, dict)
             }
             model_normalized = resolved_model.lower()
             ready = model_normalized in names
-            if not ready and ':' not in model_normalized:
-                ready = f'{model_normalized}:latest' in names
-            return True, ready, (None if ready else f'Ollama model not found: {resolved_model}')
+            if not ready and ":" not in model_normalized:
+                ready = f"{model_normalized}:latest" in names
+            return True, ready, (None if ready else f"Ollama model not found: {resolved_model}")
     except urllib.error.HTTPError as exc:
-        return False, False, f'Ollama HTTP error ({exc.code})'
+        return False, False, f"Ollama HTTP error ({exc.code})"
     except urllib.error.URLError as exc:
-        return False, False, f'Ollama connection failed: {exc.reason}'
+        return False, False, f"Ollama connection failed: {exc.reason}"
     except TimeoutError:
-        return False, False, 'Ollama request timed out'
+        return False, False, "Ollama request timed out"
     except json.JSONDecodeError:
-        return False, False, 'Invalid Ollama response JSON'
+        return False, False, "Invalid Ollama response JSON"
 
 
 def _is_setup_ready() -> bool:
     # Setup gating remains local-model based to preserve the stable first-run flow.
+    """ is setup ready."""
     return are_required_models_cached(include_llm=True)
 
 
 def _pick_first_ready_local_model_filename() -> str | None:
     # Prefer known setup tier models when available so auto-heal picks canonical
     # SKUs first, then fall back to any installed GGUF.
+    """ pick first ready local model filename."""
     preferred = [opt.model_filename for opt in SETUP_TIER_OPTIONS]
     for filename in preferred:
         if _is_model_file_ready(filename):
@@ -272,9 +324,7 @@ def _pick_first_ready_local_model_filename() -> str | None:
 
     try:
         candidates = sorted(
-            path.name
-            for path in settings.models_dir.glob('*.gguf')
-            if path.is_file()
+            path.name for path in settings.models_dir.glob("*.gguf") if path.is_file()
         )
     except OSError:
         return None
@@ -282,11 +332,12 @@ def _pick_first_ready_local_model_filename() -> str | None:
 
 
 def _auto_heal_local_model_selection_if_invalid() -> bool:
-    provider = str(getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
-    if provider != 'local_gguf':
+    """ auto heal local model selection if invalid."""
+    provider = str(getattr(settings, "llm_provider", "local_gguf") or "local_gguf").strip().lower()
+    if provider != "local_gguf":
         return False
 
-    current_filename = str(getattr(settings, 'llm_model_filename', '') or '').strip()
+    current_filename = str(getattr(settings, "llm_model_filename", "") or "").strip()
     if current_filename and _is_model_file_ready(current_filename):
         return False
 
@@ -300,7 +351,7 @@ def _auto_heal_local_model_selection_if_invalid() -> bool:
     if resolved_model_id:
         settings.llm_model_id = resolved_model_id
     log.warning(
-        'setup_model_selection_auto_healed',
+        "setup_model_selection_auto_healed",
         previous_model_filename=current_filename or None,
         replacement_model_filename=replacement,
     )
@@ -308,76 +359,89 @@ def _auto_heal_local_model_selection_if_invalid() -> bool:
 
 
 def _update_setup_runtime(**updates: object) -> None:
+    """ update setup runtime."""
     _setup_runtime.update(updates)
-    _setup_runtime['updated_at'] = datetime.now(UTC).isoformat()
+    _setup_runtime["updated_at"] = datetime.now(UTC).isoformat()
 
 
 def _update_model_runtime(**updates: object) -> None:
+    """ update model runtime."""
     _model_runtime.update(updates)
-    _model_runtime['updated_at'] = datetime.now(UTC).isoformat()
+    _model_runtime["updated_at"] = datetime.now(UTC).isoformat()
 
 
 def _runtime_event_snapshot() -> SetupEventResponse:
-    state = SetupState(str(_setup_runtime.get('state') or SetupState.REQUIRED.value))
+    """ runtime event snapshot."""
+    state = SetupState(str(_setup_runtime.get("state") or SetupState.REQUIRED.value))
     return SetupEventResponse(
         state=state,
-        stage=str(_setup_runtime.get('stage') or 'idle'),
-        overall_pct=int(_setup_runtime.get('overall_pct') or 0),
-        artifact=str(_setup_runtime.get('artifact')) if _setup_runtime.get('artifact') else None,
-        artifact_pct=int(_setup_runtime.get('artifact_pct') or 0),
-        bytes_done=int(_setup_runtime.get('bytes_done') or 0),
-        bytes_total=int(_setup_runtime.get('bytes_total') or 0),
-        speed_bps=float(_setup_runtime.get('speed_bps') or 0.0),
-        eta_sec=int(_setup_runtime.get('eta_sec')) if _setup_runtime.get('eta_sec') is not None else None,
-        paused=bool(_setup_runtime.get('paused')),
-        error=str(_setup_runtime.get('error')) if _setup_runtime.get('error') else None,
+        stage=str(_setup_runtime.get("stage") or "idle"),
+        overall_pct=int(_setup_runtime.get("overall_pct") or 0),
+        artifact=str(_setup_runtime.get("artifact")) if _setup_runtime.get("artifact") else None,
+        artifact_pct=int(_setup_runtime.get("artifact_pct") or 0),
+        bytes_done=int(_setup_runtime.get("bytes_done") or 0),
+        bytes_total=int(_setup_runtime.get("bytes_total") or 0),
+        speed_bps=float(_setup_runtime.get("speed_bps") or 0.0),
+        eta_sec=int(_setup_runtime.get("eta_sec"))
+        if _setup_runtime.get("eta_sec") is not None
+        else None,
+        paused=bool(_setup_runtime.get("paused")),
+        error=str(_setup_runtime.get("error")) if _setup_runtime.get("error") else None,
     )
 
 
 def _model_event_snapshot() -> ModelOperationEventResponse:
+    """ model event snapshot."""
     return ModelOperationEventResponse(
-        state=str(_model_runtime.get('state') or 'idle'),
-        stage=str(_model_runtime.get('stage') or 'idle'),
-        model_filename=str(_model_runtime.get('model_filename')) if _model_runtime.get('model_filename') else None,
-        overall_pct=int(_model_runtime.get('overall_pct') or 0),
-        bytes_done=int(_model_runtime.get('bytes_done') or 0),
-        bytes_total=int(_model_runtime.get('bytes_total') or 0),
-        speed_bps=float(_model_runtime.get('speed_bps') or 0.0),
-        eta_sec=int(_model_runtime.get('eta_sec')) if _model_runtime.get('eta_sec') is not None else None,
-        paused=bool(_model_runtime.get('paused')),
-        error=str(_model_runtime.get('error')) if _model_runtime.get('error') else None,
+        state=str(_model_runtime.get("state") or "idle"),
+        stage=str(_model_runtime.get("stage") or "idle"),
+        model_filename=str(_model_runtime.get("model_filename"))
+        if _model_runtime.get("model_filename")
+        else None,
+        overall_pct=int(_model_runtime.get("overall_pct") or 0),
+        bytes_done=int(_model_runtime.get("bytes_done") or 0),
+        bytes_total=int(_model_runtime.get("bytes_total") or 0),
+        speed_bps=float(_model_runtime.get("speed_bps") or 0.0),
+        eta_sec=int(_model_runtime.get("eta_sec"))
+        if _model_runtime.get("eta_sec") is not None
+        else None,
+        paused=bool(_model_runtime.get("paused")),
+        error=str(_model_runtime.get("error")) if _model_runtime.get("error") else None,
     )
 
 
 def _persist_setup_state_file() -> None:
+    """ persist setup state file."""
     path = _setup_state_path()
     payload = {
-        'state': _setup_runtime.get('state'),
-        'stage': _setup_runtime.get('stage'),
-        'overall_pct': _setup_runtime.get('overall_pct'),
-        'artifact': _setup_runtime.get('artifact'),
-        'artifact_pct': _setup_runtime.get('artifact_pct'),
-        'bytes_done': _setup_runtime.get('bytes_done'),
-        'bytes_total': _setup_runtime.get('bytes_total'),
-        'speed_bps': _setup_runtime.get('speed_bps'),
-        'eta_sec': _setup_runtime.get('eta_sec'),
-        'paused': _setup_runtime.get('paused'),
-        'cancel_requested': _setup_runtime.get('cancel_requested'),
-        'error': _setup_runtime.get('error'),
-        'selected_tier': _setup_runtime.get('selected_tier'),
-        'model_filename': _setup_runtime.get('model_filename'),
-        'updated_at': _setup_runtime.get('updated_at'),
+        "state": _setup_runtime.get("state"),
+        "stage": _setup_runtime.get("stage"),
+        "overall_pct": _setup_runtime.get("overall_pct"),
+        "artifact": _setup_runtime.get("artifact"),
+        "artifact_pct": _setup_runtime.get("artifact_pct"),
+        "bytes_done": _setup_runtime.get("bytes_done"),
+        "bytes_total": _setup_runtime.get("bytes_total"),
+        "speed_bps": _setup_runtime.get("speed_bps"),
+        "eta_sec": _setup_runtime.get("eta_sec"),
+        "paused": _setup_runtime.get("paused"),
+        "cancel_requested": _setup_runtime.get("cancel_requested"),
+        "error": _setup_runtime.get("error"),
+        "selected_tier": _setup_runtime.get("selected_tier"),
+        "model_filename": _setup_runtime.get("model_filename"),
+        "updated_at": _setup_runtime.get("updated_at"),
     }
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2), encoding='utf-8')
+    path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 
 def _clear_setup_state_file() -> None:
+    """ clear setup state file."""
     path = _setup_state_path()
     path.unlink(missing_ok=True)
 
 
 def _cleanup_setup_artifacts(model_filename: str | None) -> None:
+    """ cleanup setup artifacts."""
     if not model_filename:
         return
     model_name = str(model_filename).strip()
@@ -388,16 +452,16 @@ def _cleanup_setup_artifacts(model_filename: str | None) -> None:
     # and download flow writes to temp artifacts before atomic replace.
     # Cleanup is intentionally limited to partial/lock artifacts.
     patterns = (
-        f'{model_name}.part*',
-        f'{model_name}.tmp*',
-        f'{model_name}.incomplete*',
-        f'*{model_name}*.incomplete*',
-        f'*{model_name}*.lock',
+        f"{model_name}.part*",
+        f"{model_name}.tmp*",
+        f"{model_name}.incomplete*",
+        f"*{model_name}*.incomplete*",
+        f"*{model_name}*.lock",
     )
 
     search_roots = [
         settings.models_dir,
-        settings.models_dir / '.cache' / 'huggingface' / 'download',
+        settings.models_dir / ".cache" / "huggingface" / "download",
     ]
 
     for root in search_roots:
@@ -412,15 +476,18 @@ def _cleanup_setup_artifacts(model_filename: str | None) -> None:
 
 
 def _cleanup_model_artifacts(model_filename: str | None) -> None:
+    """ cleanup model artifacts."""
     _cleanup_setup_artifacts(model_filename)
 
 
 def _is_cancelled_download_error(exc: Exception) -> bool:
+    """ is cancelled download error."""
     message = str(exc).strip().lower()
-    return 'download cancelled' in message or 'cancelled' in message
+    return "download cancelled" in message or "cancelled" in message
 
 
 def _eta_seconds(*, bytes_done: int, bytes_total: int | None, speed_bps: float) -> int | None:
+    """ eta seconds."""
     if bytes_total is None or bytes_total <= 0:
         return None
     if speed_bps <= 0:
@@ -430,6 +497,7 @@ def _eta_seconds(*, bytes_done: int, bytes_total: int | None, speed_bps: float) 
 
 
 def _apply_setup_completion_config(model_filename: str) -> None:
+    """ apply setup completion config."""
     _update_setup_config(
         model_filename,
         full_privacy=True,
@@ -462,23 +530,23 @@ def _cache_required_runtime_dependencies() -> None:
     configure_hf_environment(fail_on_missing_full_privacy_models=False)
 
     # Embedding model cache
-    embedder.embed_query('setup_warmup')
+    embedder.embed_query("setup_warmup")
 
     # Reranker model cache
     reranker.rerank(
-        'setup warmup',
-        [{'chunk_text': 'setup warmup placeholder'}],
+        "setup warmup",
+        [{"chunk_text": "setup warmup placeholder"}],
     )
 
     # Docling runtime artifacts cache
     docling_cache = settings.cache_dir / DirNames.DOCLING
     docling_cache.mkdir(parents=True, exist_ok=True)
-    os.environ['DOCLING_ARTIFACTS_PATH'] = str(docling_cache)
+    os.environ["DOCLING_ARTIFACTS_PATH"] = str(docling_cache)
 
     try:
         from docling.utils.model_downloader import download_models
     except ImportError as exc:
-        raise RuntimeError('Docling model downloader is unavailable in packaged runtime') from exc
+        raise RuntimeError("Docling model downloader is unavailable in packaged runtime") from exc
 
     download_models(
         output_dir=docling_cache,
@@ -488,16 +556,21 @@ def _cache_required_runtime_dependencies() -> None:
 
 
 def _apply_model_default_config(model_filename: str) -> None:
+    """ apply model default config."""
     config_data = _read_setup_config()
-    model_id = infer_model_id_from_filename(model_filename) or str(getattr(settings, 'llm_model_id', '') or '').strip()
+    model_id = (
+        infer_model_id_from_filename(model_filename)
+        or str(getattr(settings, "llm_model_id", "") or "").strip()
+    )
     if model_id:
-        config_data['llm_model_id'] = model_id
-    config_data['llm_model_filename'] = model_filename
+        config_data["llm_model_id"] = model_id
+    config_data["llm_model_filename"] = model_filename
     _write_setup_config(config_data)
 
 
 async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
-    global _setup_task, _setup_download_cancel_event
+    """ run setup workflow."""
+    global _setup_cancel_event, _setup_task
     target_path = settings.models_dir / model_filename
     repo_id = SETUP_TIER_REPOS.get(tier)
     revision = SETUP_TIER_REVISIONS.get(tier)
@@ -505,7 +578,7 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
     try:
         _update_setup_runtime(
             state=SetupState.IN_PROGRESS.value,
-            stage='preparing',
+            stage="preparing",
             overall_pct=5,
             artifact=model_filename,
             artifact_pct=0,
@@ -520,11 +593,11 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
             cancel_requested=False,
         )
         _persist_setup_state_file()
-        if bool(_setup_runtime.get('cancel_requested')):
+        if bool(_setup_runtime.get("cancel_requested")):
             _cleanup_setup_artifacts(model_filename)
             _update_setup_runtime(
                 state=SetupState.REQUIRED.value,
-                stage='cancelled',
+                stage="cancelled",
                 overall_pct=0,
                 artifact=None,
                 paused=False,
@@ -533,22 +606,27 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
             )
             _persist_setup_state_file()
             return
-        _update_setup_runtime(stage='downloading_model', overall_pct=20, artifact_pct=0)
+        _update_setup_runtime(stage="downloading_model", overall_pct=20, artifact_pct=0)
         _persist_setup_state_file()
         cancel_event = threading.Event()
-        _setup_download_cancel_event = cancel_event
+        _setup_cancel_event = cancel_event
 
         def _on_progress(bytes_done: int, bytes_total: int | None, speed_bps: float) -> None:
-            artifact_pct = int((bytes_done / bytes_total) * 100) if bytes_total and bytes_total > 0 else 0
+            """ on progress."""
+            artifact_pct = (
+                int((bytes_done / bytes_total) * 100) if bytes_total and bytes_total > 0 else 0
+            )
             overall_pct = min(84, 20 + int(artifact_pct * 0.64))
             _update_setup_runtime(
-                stage='downloading_model',
+                stage="downloading_model",
                 overall_pct=overall_pct,
                 artifact_pct=artifact_pct,
                 bytes_done=int(bytes_done),
                 bytes_total=int(bytes_total or 0),
                 speed_bps=float(speed_bps),
-                eta_sec=_eta_seconds(bytes_done=int(bytes_done), bytes_total=bytes_total, speed_bps=float(speed_bps)),
+                eta_sec=_eta_seconds(
+                    bytes_done=int(bytes_done), bytes_total=bytes_total, speed_bps=float(speed_bps)
+                ),
             )
 
         await asyncio.to_thread(
@@ -561,11 +639,11 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
             _on_progress,
             cancel_event,
         )
-        if bool(_setup_runtime.get('cancel_requested')):
+        if bool(_setup_runtime.get("cancel_requested")):
             _cleanup_setup_artifacts(model_filename)
             _update_setup_runtime(
                 state=SetupState.REQUIRED.value,
-                stage='cancelled',
+                stage="cancelled",
                 overall_pct=0,
                 artifact=None,
                 paused=False,
@@ -576,21 +654,21 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
             return
         after_size = target_path.stat().st_size if target_path.exists() else 0
         _update_setup_runtime(
-            stage='downloaded',
+            stage="downloaded",
             overall_pct=85,
             artifact_pct=100,
             bytes_done=int(after_size),
             bytes_total=int(after_size),
-            speed_bps=float(_setup_runtime.get('speed_bps') or 0.0),
+            speed_bps=float(_setup_runtime.get("speed_bps") or 0.0),
             eta_sec=0,
         )
         _persist_setup_state_file()
-        _update_setup_runtime(stage='caching_dependencies', overall_pct=92)
+        _update_setup_runtime(stage="caching_dependencies", overall_pct=92)
         _persist_setup_state_file()
         await asyncio.to_thread(_cache_required_runtime_dependencies)
         if not are_required_models_cached():
-            raise RuntimeError('Required runtime dependency cache warmup did not complete')
-        _update_setup_runtime(stage='finalizing', overall_pct=97)
+            raise RuntimeError("Required runtime dependency cache warmup did not complete")
+        _update_setup_runtime(stage="finalizing", overall_pct=97)
         _persist_setup_state_file()
         _apply_setup_completion_config(model_filename)
         resolved_model_id = infer_model_id_from_filename(model_filename)
@@ -602,7 +680,7 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
         settings.embedding_offline = True
         _update_setup_runtime(
             state=SetupState.READY.value,
-            stage='completed',
+            stage="completed",
             overall_pct=100,
             paused=False,
             error=None,
@@ -612,7 +690,7 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
         _cleanup_setup_artifacts(model_filename)
         _update_setup_runtime(
             state=SetupState.REQUIRED.value,
-            stage='cancelled',
+            stage="cancelled",
             overall_pct=0,
             artifact=None,
             paused=False,
@@ -621,12 +699,12 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
         )
         _persist_setup_state_file()
         raise
-    except Exception as exc:  # noqa: BLE001
+    except _SYSTEM_WORKFLOW_EXCEPTIONS as exc:
         if _is_cancelled_download_error(exc):
             _cleanup_setup_artifacts(model_filename)
             _update_setup_runtime(
                 state=SetupState.REQUIRED.value,
-                stage='cancelled',
+                stage="cancelled",
                 overall_pct=0,
                 artifact=None,
                 artifact_pct=0,
@@ -641,28 +719,29 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
             _persist_setup_state_file()
             return
         log.error(
-            'setup_workflow_failed',
+            "setup_workflow_failed",
             error=str(exc),
             exc_info=True,
-            stage=_setup_runtime.get('stage'),
+            stage=_setup_runtime.get("stage"),
             model_filename=model_filename,
             selected_tier=tier,
         )
         _update_setup_runtime(
             state=SetupState.FAILED.value,
-            stage='failed',
+            stage="failed",
             paused=False,
             cancel_requested=False,
             error=str(exc),
         )
         _persist_setup_state_file()
     finally:
-        _setup_download_cancel_event = None
+        _setup_cancel_event = None
         async with _setup_lock:
             _setup_task = None
 
 
 def _resolve_tier_for_model(model_filename: str) -> tuple[str, str, str | None, str | None]:
+    """ resolve tier for model."""
     for option in SETUP_TIER_OPTIONS:
         if option.model_filename == model_filename:
             tier = option.tier
@@ -672,7 +751,7 @@ def _resolve_tier_for_model(model_filename: str) -> tuple[str, str, str | None, 
                 SETUP_TIER_REVISIONS.get(tier),
                 SETUP_MODEL_SHA256.get(model_filename),
             )
-    raise HTTPException(status_code=400, detail='Unknown model filename')
+    raise HTTPException(status_code=400, detail="Unknown model filename")
 
 
 async def _run_model_download_workflow(
@@ -682,12 +761,13 @@ async def _run_model_download_workflow(
     revision: str | None,
     expected_sha256: str | None,
 ) -> None:
-    global _model_task, _model_download_cancel_event
+    """ run model download workflow."""
+    global _model_cancel_event, _model_task
     target_path = settings.models_dir / model_filename
     try:
         _update_model_runtime(
             state=_MODEL_STATE_IN_PROGRESS,
-            stage='preparing',
+            stage="preparing",
             model_filename=model_filename,
             overall_pct=5,
             bytes_done=0,
@@ -698,23 +778,26 @@ async def _run_model_download_workflow(
             error=None,
             cancel_requested=False,
         )
-        if bool(_model_runtime.get('cancel_requested')):
-            _update_model_runtime(state=_MODEL_STATE_CANCELLED, stage='cancelled', paused=False)
+        if bool(_model_runtime.get("cancel_requested")):
+            _update_model_runtime(state=_MODEL_STATE_CANCELLED, stage="cancelled", paused=False)
             return
-        _update_model_runtime(stage='downloading_model', overall_pct=20)
+        _update_model_runtime(stage="downloading_model", overall_pct=20)
         cancel_event = threading.Event()
-        _model_download_cancel_event = cancel_event
+        _model_cancel_event = cancel_event
 
         def _on_progress(bytes_done: int, bytes_total: int | None, speed_bps: float) -> None:
+            """ on progress."""
             pct = int((bytes_done / bytes_total) * 100) if bytes_total and bytes_total > 0 else 0
             _update_model_runtime(
                 state=_MODEL_STATE_IN_PROGRESS,
-                stage='downloading_model',
+                stage="downloading_model",
                 overall_pct=pct,
                 bytes_done=int(bytes_done),
                 bytes_total=int(bytes_total or 0),
                 speed_bps=float(speed_bps),
-                eta_sec=_eta_seconds(bytes_done=int(bytes_done), bytes_total=bytes_total, speed_bps=float(speed_bps)),
+                eta_sec=_eta_seconds(
+                    bytes_done=int(bytes_done), bytes_total=bytes_total, speed_bps=float(speed_bps)
+                ),
                 paused=False,
                 error=None,
             )
@@ -730,11 +813,11 @@ async def _run_model_download_workflow(
             cancel_event,
         )
         after_size = target_path.stat().st_size if target_path.exists() else 0
-        if bool(_model_runtime.get('cancel_requested')):
+        if bool(_model_runtime.get("cancel_requested")):
             _cleanup_model_artifacts(model_filename)
             _update_model_runtime(
                 state=_MODEL_STATE_CANCELLED,
-                stage='cancelled',
+                stage="cancelled",
                 overall_pct=0,
                 bytes_done=0,
                 bytes_total=0,
@@ -747,21 +830,21 @@ async def _run_model_download_workflow(
 
         _update_model_runtime(
             state=_MODEL_STATE_COMPLETED,
-            stage='completed',
+            stage="completed",
             overall_pct=100,
             bytes_done=int(after_size),
             bytes_total=int(after_size),
-            speed_bps=float(_model_runtime.get('speed_bps') or 0.0),
+            speed_bps=float(_model_runtime.get("speed_bps") or 0.0),
             eta_sec=0,
             paused=False,
             error=None,
         )
-    except Exception as exc:  # noqa: BLE001
+    except _SYSTEM_WORKFLOW_EXCEPTIONS as exc:
         if _is_cancelled_download_error(exc):
             _cleanup_model_artifacts(model_filename)
             _update_model_runtime(
                 state=_MODEL_STATE_CANCELLED,
-                stage='cancelled',
+                stage="cancelled",
                 overall_pct=0,
                 bytes_done=0,
                 bytes_total=0,
@@ -774,12 +857,12 @@ async def _run_model_download_workflow(
             return
         _update_model_runtime(
             state=_MODEL_STATE_FAILED,
-            stage='failed',
+            stage="failed",
             paused=False,
             error=str(exc),
         )
     finally:
-        _model_download_cancel_event = None
+        _model_cancel_event = None
         async with _model_lock:
             _model_task = None
 
@@ -789,30 +872,30 @@ async def _run_model_download_workflow(
 # ==============================================================================
 
 
-@router.get('/setup/status', response_model=SetupStatusResponse)
+@router.get("/setup/status", response_model=SetupStatusResponse)
 async def get_setup_status() -> SetupStatusResponse:
     """
     Return startup setup/readiness status for desktop route gating.
     """
     setup_state_path = _setup_state_path()
     setup_state_payload, read_error = _load_setup_state_file(setup_state_path)
-    provider = str(getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
-    if provider == 'local_gguf':
+    provider = str(getattr(settings, "llm_provider", "local_gguf") or "local_gguf").strip().lower()
+    if provider == "local_gguf":
         _auto_heal_local_model_selection_if_invalid()
     # Keep first-run onboarding stable: setup gate applies to local provider only.
     # Ollama is treated as a post-setup integration path and should not redirect
     # users back into local-model setup.
-    required_models_ready = True if provider == 'ollama' else _is_setup_ready()
+    required_models_ready = True if provider == "ollama" else _is_setup_ready()
     vm = psutil.virtual_memory()
     disk = psutil.disk_usage(settings.app_data_dir)
-    machine_ram_gb = int(round(float(vm.total / (1024 ** 3))))
+    machine_ram_gb = int(round(float(vm.total / (1024**3))))
     recommended_tier, recommended_reason = _recommend_setup_tier(
-        ram_total_gb=float(vm.total / (1024 ** 3)),
-        free_disk_gb=float(disk.free / (1024 ** 3)),
+        ram_total_gb=float(vm.total / (1024**3)),
+        free_disk_gb=float(disk.free / (1024**3)),
     )
     ollama_reachable: bool | None = None
     ollama_model_ready: bool | None = None
-    if provider == 'ollama':
+    if provider == "ollama":
         ollama_reachable, ollama_model_ready, _ = _probe_ollama_status()
     tier_options = list(SETUP_TIER_OPTIONS)
 
@@ -825,7 +908,7 @@ async def get_setup_status() -> SetupStatusResponse:
             machine_ram_gb=machine_ram_gb,
             recommended_tier=recommended_tier,
             recommended_reason=recommended_reason,
-            llm_provider=provider if provider in {'local_gguf', 'ollama'} else 'local_gguf',
+            llm_provider=provider if provider in {"local_gguf", "ollama"} else "local_gguf",
             ollama_reachable=ollama_reachable,
             ollama_model_ready=ollama_model_ready,
             tier_options=tier_options,
@@ -841,14 +924,14 @@ async def get_setup_status() -> SetupStatusResponse:
             machine_ram_gb=machine_ram_gb,
             recommended_tier=recommended_tier,
             recommended_reason=recommended_reason,
-            llm_provider=provider if provider in {'local_gguf', 'ollama'} else 'local_gguf',
+            llm_provider=provider if provider in {"local_gguf", "ollama"} else "local_gguf",
             ollama_reachable=ollama_reachable,
             ollama_model_ready=ollama_model_ready,
             tier_options=tier_options,
         )
 
-    runtime_state = str(_setup_runtime.get('state') or '').strip().lower()
-    persisted_state = str((setup_state_payload or {}).get('state') or '').strip().lower()
+    runtime_state = str(_setup_runtime.get("state") or "").strip().lower()
+    persisted_state = str((setup_state_payload or {}).get("state") or "").strip().lower()
     if runtime_state in {SetupState.IN_PROGRESS.value, SetupState.FAILED.value}:
         state_value = runtime_state
     else:
@@ -860,8 +943,8 @@ async def get_setup_status() -> SetupStatusResponse:
     else:
         state = SetupState.REQUIRED
     detail = None
-    if _setup_runtime.get('error'):
-        detail = str(_setup_runtime.get('error'))
+    if _setup_runtime.get("error"):
+        detail = str(_setup_runtime.get("error"))
     return SetupStatusResponse(
         state=state,
         required_models_ready=False,
@@ -870,27 +953,37 @@ async def get_setup_status() -> SetupStatusResponse:
         machine_ram_gb=machine_ram_gb,
         recommended_tier=recommended_tier,
         recommended_reason=recommended_reason,
-        llm_provider=provider if provider in {'local_gguf', 'ollama'} else 'local_gguf',
+        llm_provider=provider if provider in {"local_gguf", "ollama"} else "local_gguf",
         ollama_reachable=ollama_reachable,
         ollama_model_ready=ollama_model_ready,
         tier_options=tier_options,
     )
 
 
-@router.get('/setup/ollama-status', response_model=OllamaStatusResponse)
+@router.get("/setup/ollama-status", response_model=OllamaStatusResponse)
 async def get_ollama_status(
     base_url: str | None = None,
     model: str | None = None,
 ) -> OllamaStatusResponse:
-    resolved_base_url = str(base_url if base_url is not None else getattr(settings, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip()
-    resolved_model = str(model if model is not None else getattr(settings, 'llm_model_id', '') or '').strip()
-    reachable, model_ready, detail = _probe_ollama_status(base_url=resolved_base_url, model=resolved_model)
+    """get ollama status."""
+    resolved_base_url = str(
+        base_url
+        if base_url is not None
+        else getattr(settings, "ollama_base_url", DEFAULT_OLLAMA_BASE_URL)
+        or DEFAULT_OLLAMA_BASE_URL
+    ).strip()
+    resolved_model = str(
+        model if model is not None else getattr(settings, "llm_model_id", "") or ""
+    ).strip()
+    reachable, model_ready, detail = _probe_ollama_status(
+        base_url=resolved_base_url, model=resolved_model
+    )
     if not reachable:
         await emit_log_event(
-            event_name='ollama_unavailable',
-            source='Ollama',
-            message='Ollama is unreachable.',
-            details={'base_url': resolved_base_url, 'detail': detail},
+            event_name="ollama_unavailable",
+            source="Ollama",
+            message="Ollama is unreachable.",
+            details={"base_url": resolved_base_url, "detail": detail},
             dedupe_bucket_seconds=300,
         )
     return OllamaStatusResponse(
@@ -902,20 +995,22 @@ async def get_ollama_status(
     )
 
 
-@router.post('/setup/start', response_model=SetupStartResponse)
+@router.post("/setup/start", response_model=SetupStartResponse)
 async def start_setup(payload: SetupStartRequest) -> SetupStartResponse:
+    """start setup."""
     global _setup_task
     valid_tiers = {opt.tier: opt for opt in SETUP_TIER_OPTIONS}
-    selected_tier = str(payload.tier or '').strip().lower()
-    selected_model = str(payload.model_filename or '').strip()
+    selected_tier = str(payload.tier or "").strip().lower()
+    selected_model = str(payload.model_filename or "").strip()
     option = valid_tiers.get(selected_tier)
     if option is None:
-        raise HTTPException(status_code=400, detail='Unknown setup tier')
+        raise HTTPException(status_code=400, detail="Unknown setup tier")
     if selected_model != option.model_filename:
-        raise HTTPException(status_code=400, detail='model_filename does not match selected tier')
+        raise HTTPException(status_code=400, detail="model_filename does not match selected tier")
 
     async with _setup_lock:
-        if _setup_task is not None and not _setup_task.done():
+        setup_task = _setup_task
+        if _task_is_active(setup_task):
             return SetupStartResponse(accepted=True, state=SetupState.IN_PROGRESS)
         _apply_setup_bootstrap_config(selected_model)
         resolved_model_id = infer_model_id_from_filename(selected_model)
@@ -927,7 +1022,7 @@ async def start_setup(payload: SetupStartRequest) -> SetupStartResponse:
         settings.embedding_offline = False
         _update_setup_runtime(
             state=SetupState.IN_PROGRESS.value,
-            stage='queued',
+            stage="queued",
             overall_pct=0,
             selected_tier=selected_tier,
             model_filename=selected_model,
@@ -936,13 +1031,16 @@ async def start_setup(payload: SetupStartRequest) -> SetupStartResponse:
             error=None,
         )
         _persist_setup_state_file()
-        _setup_task = asyncio.create_task(_run_setup_workflow(tier=selected_tier, model_filename=selected_model))
+        _setup_task = asyncio.create_task(
+            _run_setup_workflow(tier=selected_tier, model_filename=selected_model)
+        )
 
     return SetupStartResponse(accepted=True, state=SetupState.IN_PROGRESS)
 
 
-@router.post('/setup/retry', response_model=SetupActionResponse)
+@router.post("/setup/retry", response_model=SetupActionResponse)
 async def retry_setup() -> SetupActionResponse:
+    """retry setup."""
     global _setup_task
     _update_setup_runtime(
         state=SetupState.REQUIRED.value,
@@ -951,14 +1049,25 @@ async def retry_setup() -> SetupActionResponse:
         cancel_requested=False,
     )
     state_payload, _ = _load_setup_state_file(_setup_state_path())
-    selected_tier = str((state_payload or {}).get('selected_tier') or _setup_runtime.get('selected_tier') or '').strip().lower()
-    model_filename = str((state_payload or {}).get('model_filename') or _setup_runtime.get('model_filename') or '').strip()
+    selected_tier = (
+        str((state_payload or {}).get("selected_tier") or _setup_runtime.get("selected_tier") or "")
+        .strip()
+        .lower()
+    )
+    model_filename = str(
+        (state_payload or {}).get("model_filename") or _setup_runtime.get("model_filename") or ""
+    ).strip()
     if not selected_tier or not model_filename:
-        return SetupActionResponse(accepted=False, state=SetupState.REQUIRED, detail='No setup session to retry')
+        return SetupActionResponse(
+            accepted=False, state=SetupState.REQUIRED, detail="No setup session to retry"
+        )
 
     async with _setup_lock:
-        if _setup_task is not None and not _setup_task.done():
-            return SetupActionResponse(accepted=True, state=SetupState.IN_PROGRESS, detail='Setup already in progress')
+        setup_task = _setup_task
+        if _task_is_active(setup_task):
+            return SetupActionResponse(
+                accepted=True, state=SetupState.IN_PROGRESS, detail="Setup already in progress"
+            )
         _apply_setup_bootstrap_config(model_filename)
         resolved_model_id = infer_model_id_from_filename(model_filename)
         if resolved_model_id:
@@ -970,27 +1079,29 @@ async def retry_setup() -> SetupActionResponse:
         _update_setup_runtime(
             state=SetupState.IN_PROGRESS.value,
             paused=False,
-            stage='queued',
+            stage="queued",
             error=None,
             selected_tier=selected_tier,
             model_filename=model_filename,
         )
         _persist_setup_state_file()
-        _setup_task = asyncio.create_task(_run_setup_workflow(tier=selected_tier, model_filename=model_filename))
+        _setup_task = asyncio.create_task(
+            _run_setup_workflow(tier=selected_tier, model_filename=model_filename)
+        )
 
-    return SetupActionResponse(accepted=True, state=SetupState.IN_PROGRESS, detail='Retry started')
+    return SetupActionResponse(accepted=True, state=SetupState.IN_PROGRESS, detail="Retry started")
 
 
-@router.post('/setup/cancel', response_model=SetupActionResponse)
+@router.post("/setup/cancel", response_model=SetupActionResponse)
 async def cancel_setup() -> SetupActionResponse:
-    global _setup_task
-    model_filename = str(_setup_runtime.get('model_filename') or '').strip()
+    """cancel setup."""
+    model_filename = str(_setup_runtime.get("model_filename") or "").strip()
     if not model_filename:
         state_payload, _ = _load_setup_state_file(_setup_state_path())
-        model_filename = str((state_payload or {}).get('model_filename') or '').strip()
+        model_filename = str((state_payload or {}).get("model_filename") or "").strip()
     _update_setup_runtime(
         state=SetupState.REQUIRED.value,
-        stage='cancelled',
+        stage="cancelled",
         overall_pct=0,
         artifact=None,
         artifact_pct=0,
@@ -1003,34 +1114,42 @@ async def cancel_setup() -> SetupActionResponse:
         error=None,
     )
     _persist_setup_state_file()
-    if _setup_download_cancel_event is not None:
-        _setup_download_cancel_event.set()
+    setup_cancel_event = _setup_cancel_event
+    if isinstance(setup_cancel_event, threading.Event):
+        setup_cancel_event.set()
     _cleanup_setup_artifacts(model_filename)
     async with _setup_lock:
-        if _setup_task is not None and not _setup_task.done():
-            _setup_task.cancel()
-    _update_setup_runtime(cancel_requested=False, stage='idle')
+        setup_task = _setup_task
+        if _task_is_active(setup_task):
+            setup_task.cancel()
+    _update_setup_runtime(cancel_requested=False, stage="idle")
     _persist_setup_state_file()
-    return SetupActionResponse(accepted=True, state=SetupState.REQUIRED, detail='Setup cancelled')
+    return SetupActionResponse(accepted=True, state=SetupState.REQUIRED, detail="Setup cancelled")
 
 
-@router.get('/setup/events', response_model=SetupEventResponse)
+@router.get("/setup/events", response_model=SetupEventResponse)
 async def get_setup_events() -> SetupEventResponse:
+    """get setup events."""
     return _runtime_event_snapshot()
 
 
-@router.get('/models', response_model=ModelsCatalogResponse)
+@router.get("/models", response_model=ModelsCatalogResponse)
 async def get_models_catalog() -> ModelsCatalogResponse:
+    """get models catalog."""
     default_model = str(settings.llm_model_filename).strip()
-    default_model_id = str(getattr(settings, 'llm_model_id', '') or '').strip().lower()
-    inferred_default_model_id = infer_model_id_from_filename(default_model) or ''
+    default_model_id = str(getattr(settings, "llm_model_id", "") or "").strip().lower()
+    inferred_default_model_id = infer_model_id_from_filename(default_model) or ""
     if inferred_default_model_id:
         default_model_id = inferred_default_model_id
 
     models: list[ModelsCatalogItem] = []
     for option in SETUP_MODEL_RELEASES:
         installed = _is_model_file_ready(option.model_filename)
-        if option.release_label == 'Legacy' and not installed and option.model_filename != default_model:
+        if (
+            option.release_label == "Legacy"
+            and not installed
+            and option.model_filename != default_model
+        ):
             continue
         models.append(
             ModelsCatalogItem(
@@ -1058,24 +1177,28 @@ async def get_models_catalog() -> ModelsCatalogResponse:
     )
 
 
-@router.post('/models/download', response_model=ModelActionResponse)
+@router.post("/models/download", response_model=ModelActionResponse)
 async def download_model(payload: ModelActionRequest) -> ModelActionResponse:
+    """download model."""
     global _model_task
-    model_filename = str(payload.model_filename or '').strip()
+    model_filename = str(payload.model_filename or "").strip()
     _, repo_id, revision, expected_sha256 = _resolve_tier_for_model(model_filename)
     if _is_model_file_ready(model_filename):
-        return ModelActionResponse(accepted=False, detail='Model is already installed')
+        return ModelActionResponse(accepted=False, detail="Model is already installed")
 
     async with _model_lock:
-        active_filename = str(_model_runtime.get('model_filename') or '').strip()
-        state = str(_model_runtime.get('state') or '')
-        if _model_task is not None and not _model_task.done():
+        active_filename = str(_model_runtime.get("model_filename") or "").strip()
+        state = str(_model_runtime.get("state") or "")
+        model_task = _model_task
+        if _task_is_active(model_task):
             if active_filename == model_filename and state == _MODEL_STATE_IN_PROGRESS:
-                return ModelActionResponse(accepted=True, detail='Download already in progress')
-            return ModelActionResponse(accepted=False, detail='Another model operation is already in progress')
+                return ModelActionResponse(accepted=True, detail="Download already in progress")
+            return ModelActionResponse(
+                accepted=False, detail="Another model operation is already in progress"
+            )
         _update_model_runtime(
             state=_MODEL_STATE_IN_PROGRESS,
-            stage='queued',
+            stage="queued",
             model_filename=model_filename,
             overall_pct=0,
             paused=False,
@@ -1090,18 +1213,18 @@ async def download_model(payload: ModelActionRequest) -> ModelActionResponse:
                 expected_sha256=expected_sha256,
             )
         )
-    return ModelActionResponse(accepted=True, detail='Download started')
+    return ModelActionResponse(accepted=True, detail="Download started")
 
 
-@router.post('/models/cancel', response_model=ModelActionResponse)
+@router.post("/models/cancel", response_model=ModelActionResponse)
 async def cancel_model_download() -> ModelActionResponse:
-    global _model_task
-    model_filename = str(_model_runtime.get('model_filename') or '').strip()
+    """cancel model download."""
+    model_filename = str(_model_runtime.get("model_filename") or "").strip()
     if not model_filename:
-        return ModelActionResponse(accepted=False, detail='No model operation found')
+        return ModelActionResponse(accepted=False, detail="No model operation found")
     _update_model_runtime(
         state=_MODEL_STATE_CANCELLED,
-        stage='cancelled',
+        stage="cancelled",
         paused=False,
         cancel_requested=True,
         overall_pct=0,
@@ -1111,70 +1234,81 @@ async def cancel_model_download() -> ModelActionResponse:
         eta_sec=None,
         error=None,
     )
-    if _model_download_cancel_event is not None:
-        _model_download_cancel_event.set()
+    model_cancel_event = _model_cancel_event
+    if isinstance(model_cancel_event, threading.Event):
+        model_cancel_event.set()
     _cleanup_model_artifacts(model_filename)
     async with _model_lock:
-        if _model_task is not None and not _model_task.done():
-            _model_task.cancel()
+        model_task = _model_task
+        if _task_is_active(model_task):
+            model_task.cancel()
     _update_model_runtime(cancel_requested=False)
-    return ModelActionResponse(accepted=True, detail='Cancelled')
+    return ModelActionResponse(accepted=True, detail="Cancelled")
 
 
-@router.post('/models/remove', response_model=ModelActionResponse)
+@router.post("/models/remove", response_model=ModelActionResponse)
 async def remove_model(payload: ModelActionRequest) -> ModelActionResponse:
-    model_filename = str(payload.model_filename or '').strip()
+    """remove model."""
+    model_filename = str(payload.model_filename or "").strip()
     if not model_filename:
-        raise HTTPException(status_code=400, detail='model_filename is required')
-    if not model_filename.endswith('.gguf'):
-        raise HTTPException(status_code=400, detail='model_filename must be a .gguf file')
+        raise HTTPException(status_code=400, detail="model_filename is required")
+    if not model_filename.endswith(".gguf"):
+        raise HTTPException(status_code=400, detail="model_filename must be a .gguf file")
 
-    current_model_filename = str(getattr(settings, 'llm_model_filename', '') or '').strip()
+    current_model_filename = str(getattr(settings, "llm_model_filename", "") or "").strip()
     if current_model_filename == model_filename:
-        raise HTTPException(status_code=400, detail='Cannot remove the active model')
+        raise HTTPException(status_code=400, detail="Cannot remove the active model")
 
     async with _model_lock:
-        if _model_task is not None and not _model_task.done():
-            return ModelActionResponse(accepted=False, detail='Another model operation is already in progress')
+        model_task = _model_task
+        if _task_is_active(model_task):
+            return ModelActionResponse(
+                accepted=False, detail="Another model operation is already in progress"
+            )
     async with _setup_lock:
-        if _setup_task is not None and not _setup_task.done():
-            return ModelActionResponse(accepted=False, detail='Another model operation is already in progress')
+        setup_task = _setup_task
+        if _task_is_active(setup_task):
+            return ModelActionResponse(
+                accepted=False, detail="Another model operation is already in progress"
+            )
 
     path = settings.models_dir / model_filename
     if not path.exists() or not path.is_file():
-        return ModelActionResponse(accepted=False, detail='Model is not installed')
+        return ModelActionResponse(accepted=False, detail="Model is not installed")
     try:
         path.unlink()
     except OSError as exc:
-        raise HTTPException(status_code=500, detail=f'Failed to remove model file: {exc}') from exc
+        raise HTTPException(status_code=500, detail=f"Failed to remove model file: {exc}") from exc
 
-    return ModelActionResponse(accepted=True, detail='Model removed')
+    return ModelActionResponse(accepted=True, detail="Model removed")
 
 
-@router.post('/models/set-default', response_model=ModelActionResponse)
+@router.post("/models/set-default", response_model=ModelActionResponse)
 async def set_default_model(payload: ModelActionRequest) -> ModelActionResponse:
-    model_filename = str(payload.model_filename or '').strip()
+    """set default model."""
+    model_filename = str(payload.model_filename or "").strip()
     if not model_filename:
-        raise HTTPException(status_code=400, detail='model_filename is required')
-    if not model_filename.endswith('.gguf'):
-        raise HTTPException(status_code=400, detail='model_filename must be a .gguf file')
+        raise HTTPException(status_code=400, detail="model_filename is required")
+    if not model_filename.endswith(".gguf"):
+        raise HTTPException(status_code=400, detail="model_filename must be a .gguf file")
     if not _is_model_file_ready(model_filename):
-        raise HTTPException(status_code=400, detail='model_filename is not installed')
+        raise HTTPException(status_code=400, detail="model_filename is not installed")
 
     _apply_model_default_config(model_filename)
     resolved_model_id = infer_model_id_from_filename(model_filename)
     if resolved_model_id:
         settings.llm_model_id = resolved_model_id
     settings.llm_model_filename = model_filename
-    return ModelActionResponse(accepted=True, detail='Default model updated')
+    return ModelActionResponse(accepted=True, detail="Default model updated")
 
 
-@router.get('/models/events', response_model=ModelOperationEventResponse)
+@router.get("/models/events", response_model=ModelOperationEventResponse)
 async def get_model_events() -> ModelOperationEventResponse:
+    """get model events."""
     return _model_event_snapshot()
 
 
-@router.get('/diagnostics', response_model=DiagnosticsResponse)
+@router.get("/diagnostics", response_model=DiagnosticsResponse)
 async def get_diagnostics(request: Request) -> DiagnosticsResponse:
     """
     Returns system diagnostics: app version, Python version, OS, RAM, disk space,
@@ -1184,7 +1318,7 @@ async def get_diagnostics(request: Request) -> DiagnosticsResponse:
     if not is_loopback_host(client_host):
         raise HTTPException(
             status_code=403,
-            detail='Diagnostics endpoint is only accessible from localhost',
+            detail="Diagnostics endpoint is only accessible from localhost",
         )
 
     # Get Python and platform info
@@ -1195,19 +1329,21 @@ async def get_diagnostics(request: Request) -> DiagnosticsResponse:
 
     # Get RAM info
     ram = psutil.virtual_memory()
-    ram_total_gb = ram.total / (1024 ** 3)
-    ram_available_gb = ram.available / (1024 ** 3)
-    ram_used_gb = ram.used / (1024 ** 3)
+    ram_total_gb = ram.total / (1024**3)
+    ram_available_gb = ram.available / (1024**3)
+    ram_used_gb = ram.used / (1024**3)
 
     # Get disk info (for app data directory)
     disk = psutil.disk_usage(settings.app_data_dir)
-    disk_total_gb = disk.total / (1024 ** 3)
-    disk_available_gb = disk.free / (1024 ** 3)
-    disk_used_gb = disk.used / (1024 ** 3)
+    disk_total_gb = disk.total / (1024**3)
+    disk_available_gb = disk.free / (1024**3)
+    disk_used_gb = disk.used / (1024**3)
 
     # Get model info
-    llm_provider = str(getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
-    llm_model_id = str(getattr(settings, 'llm_model_id', '') or '').strip() or None
+    llm_provider = (
+        str(getattr(settings, "llm_provider", "local_gguf") or "local_gguf").strip().lower()
+    )
+    llm_model_id = str(getattr(settings, "llm_model_id", "") or "").strip() or None
     model_loaded = llm_engine.is_loaded
     model_filename = None
     model_size_gb = None
@@ -1216,7 +1352,7 @@ async def get_diagnostics(request: Request) -> DiagnosticsResponse:
             model_path = llm_engine._get_model_path()
             if model_path.exists():
                 model_filename = model_path.name
-                model_size_gb = model_path.stat().st_size / (1024 ** 3)
+                model_size_gb = model_path.stat().st_size / (1024**3)
         except _SYSTEM_DIAGNOSTICS_EXCEPTIONS:
             pass
 
@@ -1225,15 +1361,15 @@ async def get_diagnostics(request: Request) -> DiagnosticsResponse:
     db_size_bytes = 0
     if settings.db_path and settings.db_path.exists():
         db_size_bytes = settings.db_path.stat().st_size
-    db_size_mb = db_size_bytes / (1024 ** 2)
+    db_size_mb = db_size_bytes / (1024**2)
 
     # Get vectors info
     vectors_size_bytes = 0
     vectors_size_mb = 0.0
     try:
         stats = await asyncio.to_thread(vector_store.get_stats)
-        vectors_size_bytes = stats.get('storage_bytes', 0)
-        vectors_size_mb = vectors_size_bytes / (1024 ** 2)
+        vectors_size_bytes = stats.get("storage_bytes", 0)
+        vectors_size_mb = vectors_size_bytes / (1024**2)
     except _SYSTEM_DIAGNOSTICS_EXCEPTIONS:
         pass
 
@@ -1246,7 +1382,7 @@ async def get_diagnostics(request: Request) -> DiagnosticsResponse:
     finally:
         await db.close()
 
-    indexed_content_size_mb = indexed_content_size_bytes / (1024 ** 2)
+    indexed_content_size_mb = indexed_content_size_bytes / (1024**2)
 
     # Calculate uptime (if app started timestamp available)
     # For now, we don't track this, so return None
@@ -1266,7 +1402,7 @@ async def get_diagnostics(request: Request) -> DiagnosticsResponse:
         disk_available_gb=round(disk_available_gb, 2),
         disk_used_gb=round(disk_used_gb, 2),
         model_loaded=model_loaded,
-        llm_provider=llm_provider if llm_provider in {'local_gguf', 'ollama'} else 'local_gguf',
+        llm_provider=llm_provider if llm_provider in {"local_gguf", "ollama"} else "local_gguf",
         llm_model_id=llm_model_id,
         model_filename=model_filename,
         model_size_gb=round(model_size_gb, 2) if model_size_gb else None,
@@ -1283,7 +1419,7 @@ async def get_diagnostics(request: Request) -> DiagnosticsResponse:
     )
 
 
-@router.post('/shutdown', response_model=ShutdownResponse)
+@router.post("/shutdown", response_model=ShutdownResponse)
 async def shutdown(request: Request) -> ShutdownResponse:
     """
     Gracefully shuts down the application. Only callable from localhost.
@@ -1294,10 +1430,10 @@ async def shutdown(request: Request) -> ShutdownResponse:
     if not is_loopback_host(client_host):
         raise HTTPException(
             status_code=403,
-            detail='Shutdown endpoint is only accessible from localhost',
+            detail="Shutdown endpoint is only accessible from localhost",
         )
 
-    log.info('shutdown_requested', client_host=client_host)
+    log.info("shutdown_requested", client_host=client_host)
 
     # Note: We can't actually shut down the FastAPI app from within a request handler.
     # The shutdown logic is handled by the lifespan context manager and signal handlers.
@@ -1305,15 +1441,15 @@ async def shutdown(request: Request) -> ShutdownResponse:
     # Tauri will kill the process after calling this endpoint.
 
     return ShutdownResponse(
-        message='Shutdown requested. Application will terminate.',
+        message="Shutdown requested. Application will terminate.",
         shutdown_initiated=True,
     )
 
 
-@router.get('/diagnostics/summary', response_model=DiagnosticsMetricsSummaryResponse)
+@router.get("/diagnostics/summary", response_model=DiagnosticsMetricsSummaryResponse)
 async def get_diagnostics_summary(
     days: int = Query(default=30, ge=1, le=365),
-    type_filter: Literal['user', 'evaluation'] | None = Query(default=None),
+    type_filter: Literal["user", "evaluation"] | None = Query(default=None),
     run_id_filter: str | None = Query(default=None),
 ) -> DiagnosticsMetricsSummaryResponse:
     """
@@ -1345,49 +1481,50 @@ async def get_diagnostics_summary(
     created_at_values: list[datetime] = []
 
     for row in rows:
-        metric_type = str(row.get('type') or '').strip().lower()
+        metric_type = str(row.get("type") or "").strip().lower()
         if metric_type in CANONICAL_DIAGNOSTICS_TYPES:
             by_type[metric_type] = by_type.get(metric_type, 0) + 1
         else:
-            log.warning('diagnostics_summary_unknown_type', raw_type=metric_type)
+            log.warning("diagnostics_summary_unknown_type", raw_type=metric_type)
 
-        query_type = str(row.get('query_type') or '').strip().lower()
+        query_type = str(row.get("query_type") or "").strip().lower()
         if query_type not in CANONICAL_DIAGNOSTICS_QUERY_TYPES:
             query_type = DiagnosticsQueryType.UNKNOWN.value
-            log.warning('diagnostics_summary_unknown_query_type')
+            log.warning("diagnostics_summary_unknown_query_type")
         by_query_type[query_type] = by_query_type.get(query_type, 0) + 1
 
-        if bool(row.get('timeout_occurred')):
+        if bool(row.get("timeout_occurred")):
             timeout_count += 1
-        if bool(row.get('has_empty_answer')):
+        if bool(row.get("has_empty_answer")):
             empty_answer_count += 1
-        if bool(row.get('has_refusal_pattern')):
+        if bool(row.get("has_refusal_pattern")):
             refusal_pattern_count += 1
 
-        generation_seconds = row.get('generation_seconds')
+        generation_seconds = row.get("generation_seconds")
         if isinstance(generation_seconds, int | float):
             generation_seconds_values.append(float(generation_seconds))
 
-        sources_count = row.get('sources_count')
+        sources_count = row.get("sources_count")
         if isinstance(sources_count, int):
             sources_counts.append(sources_count)
 
-        raw_chunks_count = row.get('raw_chunks_count')
+        raw_chunks_count = row.get("raw_chunks_count")
         if isinstance(raw_chunks_count, int):
             raw_chunks_counts.append(raw_chunks_count)
 
-        detected_issues = row.get('detected_issues') or []
+        detected_issues = row.get("detected_issues") or []
         if isinstance(detected_issues, list):
             for issue in detected_issues:
-                issue_name = str(issue or '').strip().lower()
+                issue_name = str(issue or "").strip().lower()
                 if issue_name and issue_name in CANONICAL_DIAGNOSTICS_ISSUE_TYPES:
                     issue_counts[issue_name] = issue_counts.get(issue_name, 0) + 1
 
-        created_at = row.get('created_at')
+        created_at = row.get("created_at")
         if isinstance(created_at, datetime):
             created_at_values.append(created_at)
 
     def _avg(values: list[int] | list[float]) -> float:
+        """ avg."""
         if not values:
             return 0.0
         return round(float(sum(values)) / len(values), 3)

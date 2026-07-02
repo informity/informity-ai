@@ -215,7 +215,7 @@ async def tool_search_semantic(
             continue
         if normalized_category and indexed_file.category.value != normalized_category:
             continue
-        if normalized_file_types and str(indexed_file.extension or '').strip().lower() not in normalized_file_types:
+        if normalized_file_types is not None and str(indexed_file.extension or '').strip().lower() not in normalized_file_types:  # pylint: disable=unsupported-membership-test
             continue
         content_hash = str(getattr(indexed_file, 'content_hash', '') or '').strip().lower()
         if content_hash:

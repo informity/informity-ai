@@ -12,10 +12,11 @@
 # word-count gate (generation_runtime.py) is the enforcement mechanism.
 # ==============================================================================
 
+"""LLM engine and model-loading utilities for local GGUF inference."""
+
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import os
 import shutil
@@ -26,12 +27,11 @@ import urllib.request
 from collections.abc import AsyncGenerator, Callable
 from contextlib import suppress
 from pathlib import Path
-from typing import Protocol
 
 import structlog
 from thinkstrip import ThinkStrip, strip_think_prefill
 
-from informity.config import settings
+from informity.config import DEFAULT_OLLAMA_BASE_URL, settings
 from informity.exceptions import LLMError
 from informity.llm.model_adapter import (
     get_effective_context_length,
@@ -39,9 +39,10 @@ from informity.llm.model_adapter import (
     get_profile,
     get_profile_for_filename,
 )
+from informity.llm.model_bootstrap import GGUFModelSpec, download_gguf_model
 from informity.llm.timeout_policy import normalize_timeout_reason
+from informity.llm.tokenization import count_tokens
 from informity.llm.types import StreamSignalTag, TimeoutReason
-from informity.utils.directory_utils import ensure_file_directory
 
 log = structlog.get_logger(__name__)
 _PROMPT_RENDER_EXCEPTIONS = (ValueError, TypeError, AttributeError, RuntimeError)
@@ -54,7 +55,7 @@ _PROMPT_RENDER_EXCEPTIONS = (ValueError, TypeError, AttributeError, RuntimeError
 _STREAM_END: object = object()
 _FIRST_TOKEN_WATCHDOG_MIN_SECONDS = max(
     45.0,
-    float(getattr(settings, 'diagnostics_alert_max_first_token_seconds', 90.0) or 90.0),
+    float(getattr(settings, "diagnostics_alert_max_first_token_seconds", 90.0) or 90.0),
 )
 _FIRST_TOKEN_WATCHDOG_MAX_SECONDS = 180.0
 _FIRST_TOKEN_WATCHDOG_RATIO = 0.30
@@ -64,36 +65,28 @@ _SLOW_PROFILE_WATCHDOG_MAX_SECONDS = 600.0
 
 
 # ==============================================================================
-# Token counting (tiktoken approximation)
-# ==============================================================================
-
-def _count_tokens(text: str) -> int:
-    # Approximate token count using tiktoken cl100k_base.
-    # Accuracy vs. Qwen3 tokenizer: ±15%. The 100-token safety margin in
-    # _truncate_messages_to_fit absorbs this variance for budget management.
-    if not text:
-        return 0
-    import tiktoken
-    enc = tiktoken.get_encoding('cl100k_base')
-    return len(enc.encode(text))
-
-
-# ==============================================================================
 # Finish reason normalisation
 # ==============================================================================
 
+
 def _normalize_finish_reason(reason: str | None) -> str | None:
+    """ normalize finish reason."""
     if not reason:
         return None
     reason_lower = str(reason).lower().strip()
-    if reason_lower in ('stop', 'eos', 'end_of_sequence'):
-        return 'stop'
-    if reason_lower in ('length', 'max_tokens', 'max_tokens_reached'):
-        return 'length'
-    if reason_lower == 'cancelled':
-        return 'cancelled'
-    log.debug('llm_unknown_finish_reason', reason=reason)
+    if reason_lower in ("stop", "eos", "end_of_sequence"):
+        return "stop"
+    if reason_lower in ("length", "max_tokens", "max_tokens_reached"):
+        return "length"
+    if reason_lower == "cancelled":
+        return "cancelled"
+    log.debug("llm_unknown_finish_reason", reason=reason)
     return reason_lower
+
+
+def _raise_llm_streaming_failed(exc: Exception) -> None:
+    """ raise llm streaming failed."""
+    raise LLMError(f"LLM streaming failed: {exc}") from exc
 
 
 def _resolve_first_token_deadline_seconds(*, wall_clock: float, profile_tps: float) -> float:
@@ -113,29 +106,36 @@ def _resolve_first_token_deadline_seconds(*, wall_clock: float, profile_tps: flo
 
 async def _stream_from_queue(
     queue: asyncio.Queue[str | object],
-    cancel_event: threading.Event,
+    _cancel_event: threading.Event,
     *,
     start: float,
     wall_clock: float,
     first_token_deadline_seconds: float,
     stripper: ThinkStrip,
 ) -> AsyncGenerator[tuple[str, object]]:
+    """ stream from queue."""
     first_token_seen = False
     while True:
         elapsed = time.perf_counter() - start
         if elapsed >= wall_clock:
-            yield ('timeout', {
-                'reason': TimeoutReason.UNKNOWN_TIMEOUT.value,
-                'elapsed_seconds': round(elapsed, 1),
-                'timeout_seconds': wall_clock,
-            })
+            yield (
+                "timeout",
+                {
+                    "reason": TimeoutReason.UNKNOWN_TIMEOUT.value,
+                    "elapsed_seconds": round(elapsed, 1),
+                    "timeout_seconds": wall_clock,
+                },
+            )
             return
         if not first_token_seen and elapsed >= first_token_deadline_seconds:
-            yield ('timeout', {
-                'reason': TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT.value,
-                'elapsed_seconds': round(elapsed, 1),
-                'timeout_seconds': wall_clock,
-            })
+            yield (
+                "timeout",
+                {
+                    "reason": TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT.value,
+                    "elapsed_seconds": round(elapsed, 1),
+                    "timeout_seconds": wall_clock,
+                },
+            )
             return
 
         remaining_timeout = wall_clock - elapsed
@@ -149,10 +149,10 @@ async def _stream_from_queue(
             emit_text = stripper.flush()
             if emit_text:
                 first_token_seen = True
-                yield ('text', emit_text)
+                yield ("text", emit_text)
             return
         if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.FINISH_REASON:
-            yield ('finish_reason', item[1])
+            yield ("finish_reason", item[1])
             continue
 
         raw_token = str(item)
@@ -161,53 +161,60 @@ async def _stream_from_queue(
             continue
 
         first_token_seen = True
-        yield ('text', emit_text)
+        yield ("text", emit_text)
 
 
 # ==============================================================================
 # HuggingFace cache cleanup
 # ==============================================================================
 
+
 def remove_models_dir_cache() -> None:
     # Remove any nested .cache directories left by huggingface_hub after download.
+    """remove models dir cache."""
     for models_dir in [settings.models_dir]:
         if models_dir is None:
             continue
-        cache_dir = models_dir / '.cache'
+        cache_dir = models_dir / ".cache"
         if cache_dir.is_dir():
             try:
                 shutil.rmtree(cache_dir)
-                log.info('models_dir_cache_removed', path=str(cache_dir))
+                log.info("models_dir_cache_removed", path=str(cache_dir))
             except OSError as exc:
-                log.warning('models_dir_cache_remove_failed', path=str(cache_dir), error=str(exc))
+                log.warning("models_dir_cache_remove_failed", path=str(cache_dir), error=str(exc))
 
 
 # ==============================================================================
 # GGUF metadata
 # ==============================================================================
 
+
 def _read_gguf_chat_template(model_path: Path) -> str:
     # Read the chat template from GGUF metadata using gguf.GGUFReader.
     # Returns empty string if not found or on any error.
+    """ read gguf chat template."""
     try:
         from gguf import GGUFReader  # type: ignore[import-untyped]
-        reader = GGUFReader(str(model_path), mode='r')
-        field = reader.fields.get('tokenizer.chat_template')
+
+        reader = GGUFReader(str(model_path), mode="r")
+        field = reader.fields.get("tokenizer.chat_template")
         if field is not None and field.parts:
-            return bytes(field.parts[-1]).decode('utf-8')
-    except Exception as exc:
-        log.debug('gguf_template_read_failed', error=str(exc))
-    return ''
+            return bytes(field.parts[-1]).decode("utf-8")
+    except (ImportError, OSError, RuntimeError, ValueError, TypeError) as exc:
+        log.debug("gguf_template_read_failed", error=str(exc))
+    return ""
 
 
 # ==============================================================================
 # Prompt rendering
 # ==============================================================================
 
+
 def _messages_to_prompt(chat_template: str, messages: list[dict[str, str]]) -> str:
     # Convert chat messages to a prompt string.
     # Uses the GGUF's embedded Jinja2 chat template when available (preferred),
     # falls back to ChatML when the template is empty or fails to render.
+    """ messages to prompt."""
     if chat_template:
         try:
             prompt = _render_gguf_template(chat_template, messages)
@@ -217,41 +224,48 @@ def _messages_to_prompt(chat_template: str, messages: list[dict[str, str]]) -> s
                 # breaks our streaming <think> block detection.
                 prompt = strip_think_prefill(prompt)
                 log.debug(
-                    'gguf_template_used',
-                    prompt_len  = len(prompt),
-                    prompt_tail = repr(prompt[-80:]),
+                    "gguf_template_used",
+                    prompt_len=len(prompt),
+                    prompt_tail=repr(prompt[-80:]),
                 )
                 return prompt
-            log.warning('gguf_template_empty', msg='GGUF template rendered to empty string; using ChatML fallback')
+            log.warning(
+                "gguf_template_empty",
+                msg="GGUF template rendered to empty string; using ChatML fallback",
+            )
         except _PROMPT_RENDER_EXCEPTIONS as exc:
-            log.warning('gguf_template_render_failed', error=str(exc))
+            log.warning("gguf_template_render_failed", error=str(exc))
     else:
-        log.debug('gguf_template_not_found', msg='No chat template in GGUF metadata')
+        log.debug("gguf_template_not_found", msg="No chat template in GGUF metadata")
 
     prompt = _fallback_chatml_prompt(messages)
-    log.debug('chatml_fallback_used', prompt_len=len(prompt), prompt_tail=repr(prompt[-80:]))
+    log.debug("chatml_fallback_used", prompt_len=len(prompt), prompt_tail=repr(prompt[-80:]))
     return prompt
 
 
 def _render_gguf_template(template_str: str, messages: list[dict[str, str]]) -> str:
+    """ render gguf template."""
     from jinja2 import BaseLoader, Environment
+
     env = Environment(loader=BaseLoader())
-    env.globals['raise_exception'] = lambda msg: (_ for _ in ()).throw(ValueError(msg))
+    env.globals["raise_exception"] = lambda msg: (_ for _ in ()).throw(ValueError(msg))
     template = env.from_string(template_str)
     return template.render(messages=messages, add_generation_prompt=True)
 
 
 def _fallback_chatml_prompt(messages: list[dict[str, str]]) -> str:
+    """ fallback chatml prompt."""
     parts: list[str] = []
     for msg in messages:
-        parts.append(f'<|im_start|>{msg["role"]}\n{msg["content"]}<|im_end|>\n')
-    parts.append('<|im_start|>assistant\n')
-    return ''.join(parts)
+        parts.append(f"<|im_start|>{msg['role']}\n{msg['content']}<|im_end|>\n")
+    parts.append("<|im_start|>assistant\n")
+    return "".join(parts)
 
 
 # ==============================================================================
 # Context budget truncation
 # ==============================================================================
+
 
 def _truncate_messages_to_fit(
     chat_template: str,
@@ -275,23 +289,24 @@ def _truncate_messages_to_fit(
     available_budget = context_length - max_tokens - safety_margin
 
     def _count_prompt(msgs: list[dict[str, str]]) -> int:
+        """ count prompt."""
         if force_chatml:
-            return _count_tokens(_fallback_chatml_prompt(msgs))
-        return _count_tokens(_messages_to_prompt(chat_template, msgs))
+            return count_tokens(_fallback_chatml_prompt(msgs))
+        return count_tokens(_messages_to_prompt(chat_template, msgs))
 
     total_tokens = _count_prompt(messages)
     truncation_info = {
-        'truncated': False,
-        'original_tokens': total_tokens,
-        'available_budget': available_budget,
-        'history_messages_removed': 0,
-        'system_content_truncated': False,
+        "truncated": False,
+        "original_tokens": total_tokens,
+        "available_budget": available_budget,
+        "history_messages_removed": 0,
+        "system_content_truncated": False,
     }
 
     if total_tokens <= available_budget:
         return messages, truncation_info
 
-    truncation_info['truncated'] = True
+    truncation_info["truncated"] = True
     truncated_messages = [msg.copy() for msg in messages]
 
     # Strategy 1: remove oldest history messages
@@ -299,33 +314,33 @@ def _truncate_messages_to_fit(
         history_start = 1
         history_end = len(truncated_messages) - 1
         for i in range(history_start, history_end):
-            test_messages = [truncated_messages[0]] + truncated_messages[i + 1:]
+            test_messages = [truncated_messages[0]] + truncated_messages[i + 1 :]
             test_tokens = _count_prompt(test_messages)
             if test_tokens <= available_budget:
                 truncated_messages = test_messages
-                truncation_info['history_messages_removed'] = i - history_start + 1
+                truncation_info["history_messages_removed"] = i - history_start + 1
                 total_tokens = _count_prompt(truncated_messages)
                 if total_tokens <= available_budget:
-                    truncation_info['final_tokens'] = total_tokens
+                    truncation_info["final_tokens"] = total_tokens
                     return truncated_messages, truncation_info
                 break
 
     # Strategy 2: truncate system message context chunks from end
-    system_content = truncated_messages[0]['content']
-    context_marker = 'Context:\n'
+    system_content = truncated_messages[0]["content"]
+    context_marker = "Context:\n"
     marker_pos = system_content.find(context_marker)
 
     if marker_pos != -1:
-        system_prompt_part = system_content[:marker_pos + len(context_marker)]
-        context_part = system_content[marker_pos + len(context_marker):]
+        system_prompt_part = system_content[: marker_pos + len(context_marker)]
+        context_part = system_content[marker_pos + len(context_marker) :]
         chunks: list[str] = []
         if context_part:
-            parts = context_part.split('\n\n')
+            parts = context_part.split("\n\n")
             current_chunk: list[str] = []
             for part in parts:
-                if part.strip().startswith('[Source:'):
+                if part.strip().startswith("[Source:"):
                     if current_chunk:
-                        chunks.append('\n\n'.join(current_chunk))
+                        chunks.append("\n\n".join(current_chunk))
                     current_chunk = [part]
                 else:
                     if current_chunk:
@@ -333,30 +348,33 @@ def _truncate_messages_to_fit(
                     else:
                         chunks.append(part)
             if current_chunk:
-                chunks.append('\n\n'.join(current_chunk))
+                chunks.append("\n\n".join(current_chunk))
 
         if chunks:
             for i in range(len(chunks) - 1, -1, -1):
                 remaining_chunks = chunks[:i]
-                new_context = '\n\n'.join(remaining_chunks) if remaining_chunks else ''
+                new_context = "\n\n".join(remaining_chunks) if remaining_chunks else ""
                 new_system_content = system_prompt_part + new_context
-                test_messages = [{'role': 'system', 'content': new_system_content}] + truncated_messages[1:]
+                test_messages = [
+                    {"role": "system", "content": new_system_content}
+                ] + truncated_messages[1:]
                 test_tokens = _count_prompt(test_messages)
                 if test_tokens <= available_budget:
-                    truncated_messages[0]['content'] = new_system_content
-                    truncation_info['system_content_truncated'] = True
-                    truncation_info['chunks_removed'] = len(chunks) - len(remaining_chunks)
-                    truncation_info['final_tokens'] = _count_prompt(truncated_messages)
+                    truncated_messages[0]["content"] = new_system_content
+                    truncation_info["system_content_truncated"] = True
+                    truncation_info["chunks_removed"] = len(chunks) - len(remaining_chunks)
+                    truncation_info["final_tokens"] = _count_prompt(truncated_messages)
                     return truncated_messages, truncation_info
 
-    truncation_info['final_tokens'] = _count_prompt(truncated_messages)
-    truncation_info['warning'] = 'Prompt still exceeds budget after truncation'
+    truncation_info["final_tokens"] = _count_prompt(truncated_messages)
+    truncation_info["warning"] = "Prompt still exceeds budget after truncation"
     return truncated_messages, truncation_info
 
 
 # ==============================================================================
 # Stream worker — runs in a background thread
 # ==============================================================================
+
 
 def _run_stream_worker(
     server: object,
@@ -383,22 +401,25 @@ def _run_stream_worker(
     # Cancellation: when cancel_event is set (consumer disconnect or timeout),
     # the callback stops pushing tokens. C++ generation may continue briefly
     # until the current n_predict budget is exhausted; output is discarded.
+    """ run stream worker."""
     try:
-        from informity.llm.model_adapter import get_profile
         _tmpl_kwargs = get_profile().chat_template_kwargs
-        payload = json.dumps({
-            'messages':    messages,
-            'max_tokens':  max_tok,
-            'temperature': temp,
-            'top_p':       top_p_val,
-            'stop':        stop_seqs or [],
-            'stream':      True,
-            **({'chat_template_kwargs': _tmpl_kwargs} if _tmpl_kwargs else {}),
-        })
+        payload = json.dumps(
+            {
+                "messages": messages,
+                "max_tokens": max_tok,
+                "temperature": temp,
+                "top_p": top_p_val,
+                "stop": stop_seqs or [],
+                "stream": True,
+                **({"chat_template_kwargs": _tmpl_kwargs} if _tmpl_kwargs else {}),
+            }
+        )
 
         finish_reason: str | None = None
 
         def _callback(chunk: object) -> None:
+            """ callback."""
             nonlocal finish_reason
             if cancel_event.is_set():
                 return
@@ -407,9 +428,9 @@ def _run_stream_worker(
             if isinstance(chunk, dict):
                 data = chunk
             elif isinstance(chunk, (str, bytes)):
-                raw = chunk if isinstance(chunk, str) else chunk.decode('utf-8', errors='replace')
+                raw = chunk if isinstance(chunk, str) else chunk.decode("utf-8", errors="replace")
                 # Strip SSE "data: " prefix if present
-                if raw.startswith('data:'):
+                if raw.startswith("data:"):
                     raw = raw[5:].strip()
                 try:
                     data = json.loads(raw)
@@ -425,47 +446,47 @@ def _run_stream_worker(
                 return
 
             # OpenAI chat completions streaming format: choices[0].delta.content
-            choices = data.get('choices') or []
+            choices = data.get("choices") or []
             choice = choices[0] if choices else {}
-            delta = choice.get('delta') or {}
-            token = delta.get('content') or ''
+            delta = choice.get("delta") or {}
+            token = delta.get("content") or ""
 
             # Some local adapters emit chat-completions chunks as choices[0].message.content
             # (without delta). Accept that shape to preserve streaming compatibility.
             if not token:
-                token = (choice.get('message') or {}).get('content') or ''
+                token = (choice.get("message") or {}).get("content") or ""
 
             # Alternate llama.cpp completions payload uses top-level 'content'
             if not token:
-                token = data.get('content') or ''
+                token = data.get("content") or ""
 
             if token and not cancel_event.is_set():
                 loop.call_soon_threadsafe(queue.put_nowait, token)
 
             # Finish reason from OpenAI format
-            fr = choice.get('finish_reason')
+            fr = choice.get("finish_reason")
             if fr:
                 finish_reason = _normalize_finish_reason(fr)
-            elif data.get('stop', False):
+            elif data.get("stop", False):
                 # Alternate llama.cpp stop payload format
-                if data.get('stopped_eos', False) or data.get('stopped_word', False):
-                    finish_reason = 'stop'
-                elif data.get('stopped_limit', False):
-                    finish_reason = 'length'
+                if data.get("stopped_eos", False) or data.get("stopped_word", False):
+                    finish_reason = "stop"
+                elif data.get("stopped_limit", False):
+                    finish_reason = "length"
                 else:
-                    finish_reason = _normalize_finish_reason(data.get('stop_type'))
+                    finish_reason = _normalize_finish_reason(data.get("stop_type"))
 
         server.handle_chat_completions(payload, _callback)  # type: ignore[attr-defined]
 
         if cancel_event.is_set():
-            finish_reason = 'cancelled'
+            finish_reason = "cancelled"
 
         loop.call_soon_threadsafe(
             queue.put_nowait,
             (StreamSignalTag.FINISH_REASON, finish_reason),
         )
 
-    except BaseException as exc:
+    except (AttributeError, IndexError, KeyError, RuntimeError, TypeError, UnicodeError, ValueError) as exc:
         exception_holder.append(exc)
     finally:
         with suppress(RuntimeError):
@@ -473,64 +494,27 @@ def _run_stream_worker(
 
 
 # ==============================================================================
-# Provider interfaces
-# ==============================================================================
-
-class LLMProvider(Protocol):
-    @property
-    def is_loaded(self) -> bool: ...
-
-    def unload(self) -> None: ...
-    def count_tokens(self, text: str) -> int: ...
-    def _get_model_path(self) -> Path: ...
-    def _download_model(
-        self,
-        target_path: Path,
-        repo_id: str | None = None,
-        filename: str | None = None,
-        revision: str | None = None,
-        expected_sha256: str | None = None,
-        progress_callback: Callable[[int, int | None, float], None] | None = None,
-        cancel_event: threading.Event | None = None,
-    ) -> None: ...
-    def chat_complete(
-        self,
-        messages: list[dict],
-        max_tokens: int = 400,
-        temperature: float = 0.0,
-        stop: list[str] | None = None,
-        response_format: dict | None = None,
-    ) -> dict: ...
-    async def generate_stream(
-        self,
-        messages:        list[dict[str, str]],
-        max_tokens:      int | None       = None,
-        temperature:     float | None     = None,
-        top_p:           float | None     = None,
-        stop:            list[str] | None = None,
-        force_chatml:    bool             = False,
-        timeout_seconds: float | None     = None,
-    ) -> AsyncGenerator[str | tuple[str, object]]: ...
-
-
-# ==============================================================================
 # XllamaCppProvider — lazy-loading xllamacpp wrapper
 # ==============================================================================
+
 
 class XllamaCppProvider:
     # Wraps an xllamacpp Server with lazy loading, automatic download,
     # and async streaming generation. Configured for Apple Metal GPU by default.
 
+    """XllamaCppProvider model."""
     def __init__(self, model_filename: str | None = None, *, model_dir: Path | None = None) -> None:
+        """  init  ."""
         self._server: object | None = None
-        self._chat_template: str = ''
-        self._model_filename_override = str(model_filename or '').strip() or None
+        self._chat_template: str = ""
+        self._model_filename_override = str(model_filename or "").strip() or None
         self._model_dir_override = model_dir
 
     # -- Internal server accessor ---------------------------------------------
 
     @property
     def _loaded_server(self) -> object:
+        """ loaded server."""
         if self._server is None:
             self._load_model()
         return self._server  # type: ignore[return-value]
@@ -539,6 +523,7 @@ class XllamaCppProvider:
 
     @property
     def is_loaded(self) -> bool:
+        """is loaded."""
         return self._server is not None
 
     def unload(self) -> None:
@@ -546,19 +531,22 @@ class XllamaCppProvider:
         if self._server is not None:
             del self._server
             self._server = None
-            self._chat_template = ''
+            self._chat_template = ""
             import gc
+
             gc.collect()
-            log.debug('llm_model_unloaded')
+            log.debug("llm_model_unloaded")
 
     def count_tokens(self, text: str) -> int:
         # Count tokens using tiktoken cl100k_base (±15% vs Qwen3 tokenizer).
         # Used by the RAG pipeline for context budget management.
-        return _count_tokens(text)
+        """count tokens."""
+        return count_tokens(text)
 
     # -- Model path -----------------------------------------------------------
 
     def _get_model_path(self) -> Path:
+        """ get model path."""
         model_filename = self._model_filename_override or settings.llm_model_filename
         model_dir = self._model_dir_override or settings.models_dir
         return model_dir / model_filename
@@ -583,8 +571,7 @@ class XllamaCppProvider:
         profile_filename = (
             model_filename
             if model_filename is not None
-            else self._model_filename_override
-            or settings.llm_model_filename
+            else self._model_filename_override or settings.llm_model_filename
         )
         model_dir = self._model_dir_override or settings.models_dir
         model_path = model_dir / profile_filename
@@ -593,27 +580,27 @@ class XllamaCppProvider:
             local_only = settings.full_privacy or settings.llm_local_only
             if local_only:
                 raise LLMError(
-                    f'LLM model not found at {model_path}. '
-                    'Place your GGUF file in the models directory '
-                    f'({model_dir}) or turn off Full Privacy Mode (Settings) '
-                    'or set INFORMITY_FULL_PRIVACY=false to allow download.'
+                    f"LLM model not found at {model_path}. "
+                    "Place your GGUF file in the models directory "
+                    f"({model_dir}) or turn off Full Privacy Mode (Settings) "
+                    "or set INFORMITY_FULL_PRIVACY=false to allow download."
                 )
-            log.info('model_not_found_locally', path=str(model_path), filename=profile_filename)
+            log.info("model_not_found_locally", path=str(model_path), filename=profile_filename)
             self._download_model(model_path)
 
         profile = get_profile_for_filename(profile_filename)
         profile_ctx_len = int(profile.context_length)
-        configured_ctx_len = int(getattr(settings, 'llm_context_length', 0) or 0)
+        configured_ctx_len = int(getattr(settings, "llm_context_length", 0) or 0)
         ctx_len = get_effective_context_length(profile)
 
         log.info(
-            'loading_llm_model',
-            path           = str(model_path),
-            context_length = ctx_len,
-            profile_context_length = profile_ctx_len,
-            configured_context_length = configured_ctx_len if configured_ctx_len > 0 else None,
-            n_batch        = 512,
-            n_threads      = settings.llm_cpu_threads,
+            "loading_llm_model",
+            path=str(model_path),
+            context_length=ctx_len,
+            profile_context_length=profile_ctx_len,
+            configured_context_length=configured_ctx_len if configured_ctx_len > 0 else None,
+            n_batch=256,
+            n_threads=settings.llm_cpu_threads,
         )
 
         start = time.perf_counter()
@@ -622,11 +609,13 @@ class XllamaCppProvider:
             from xllamacpp import CommonParams, Server  # type: ignore[import-untyped]
 
             params = CommonParams()
-            params.model.path             = str(model_path)
-            params.n_ctx                  = ctx_len
-            params.n_gpu_layers           = -1    # Offload all layers to Metal GPU
-            params.n_batch                = 256   # Reduce peak CPU during prompt prefill (lowered from 512 to reduce fan noise; raise if TTFT regresses)
-            params.cpuparams.n_threads    = settings.llm_cpu_threads  # Cap CPU threads
+            params.model.path = str(model_path)
+            params.n_ctx = ctx_len
+            params.n_gpu_layers = -1  # Offload all layers to Metal GPU
+            params.n_batch = 256
+            # Reduce peak CPU during prompt prefill (lowered from 512 to reduce fan noise; raise if
+            # TTFT regresses)
+            params.cpuparams.n_threads = settings.llm_cpu_threads  # Cap CPU threads
             params.cpuparams_batch.n_threads = settings.llm_cpu_threads
 
             # Read chat template from GGUF metadata before constructing Server,
@@ -655,20 +644,20 @@ class XllamaCppProvider:
                 os.close(_saved_err)
 
         except ImportError as exc:
-            raise LLMError(f'xllamacpp is not installed: {exc}') from exc
+            raise LLMError(f"xllamacpp is not installed: {exc}") from exc
         except AttributeError as exc:
-            raise LLMError(f'xllamacpp parameter mapping failed — API mismatch: {exc}') from exc
+            raise LLMError(f"xllamacpp parameter mapping failed — API mismatch: {exc}") from exc
         except ValueError as exc:
-            raise LLMError(f'Invalid model configuration: {exc}') from exc
+            raise LLMError(f"Invalid model configuration: {exc}") from exc
         except RuntimeError as exc:
             raise LLMError(f'Failed to load LLM model "{model_path.name}": {exc}') from exc
 
         elapsed_ms = (time.perf_counter() - start) * 1000
         log.info(
-            'llm_model_loaded',
-            model               = model_path.name,
-            elapsed_ms          = round(elapsed_ms, 1),
-            chat_template_found = bool(self._chat_template),
+            "llm_model_loaded",
+            model=model_path.name,
+            elapsed_ms=round(elapsed_ms, 1),
+            chat_template_found=bool(self._chat_template),
         )
 
     # -- Model download -------------------------------------------------------
@@ -683,151 +672,29 @@ class XllamaCppProvider:
         progress_callback: Callable[[int, int | None, float], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> None:
-        # Download the GGUF model from Hugging Face Hub to the local models dir.
-        # Streams bytes to a temporary file so callers can receive real-time
-        # progress and can cooperatively cancel in-flight downloads.
+        """ download model."""
         repo = repo_id or settings.llm_hf_repo
         fname = filename or target_path.name
-
         log.info(
-            'downloading_llm_model',
+            "downloading_llm_model",
             repo=repo,
             filename=fname,
             revision=revision,
             target=str(target_path),
         )
-        start = time.perf_counter()
-
-        try:
-            from huggingface_hub import hf_hub_url
-            from huggingface_hub.utils import build_hf_headers, get_session
-
-            from informity.config import configure_hf_environment
-
-            configure_hf_environment(fail_on_missing_full_privacy_models=False)
-            ensure_file_directory(target_path)
-
-            tmp_path = target_path.parent / f'{target_path.name}.incomplete'
-            bytes_done = int(tmp_path.stat().st_size) if tmp_path.exists() else 0
-
-            url = hf_hub_url(repo_id=repo, filename=fname, revision=revision)
-            headers = build_hf_headers()
-            if bytes_done > 0:
-                headers['Range'] = f'bytes={bytes_done}-'
-
-            def _extract_total_bytes(response_obj: object, completed: int) -> int | None:
-                headers_obj = getattr(response_obj, 'headers', None)
-                if headers_obj is None:
-                    return None
-                content_range = headers_obj.get('Content-Range', '')
-                content_length = headers_obj.get('Content-Length')
-                if content_range and '/' in content_range:
-                    with suppress(ValueError):
-                        return int(content_range.split('/')[-1])
-                    return None
-                if content_length:
-                    with suppress(ValueError):
-                        return completed + int(content_length)
-                return None
-
-            def _status_code(response_obj: object) -> int | None:
-                status = getattr(response_obj, 'status_code', None)
-                return status if isinstance(status, int) else None
-
-            def _iter_chunks(response_obj: object, size: int):
-                iter_bytes = getattr(response_obj, 'iter_bytes', None)
-                if callable(iter_bytes):
-                    yield from iter_bytes(chunk_size=size)
-                    return
-                iter_content = getattr(response_obj, 'iter_content', None)
-                if callable(iter_content):
-                    yield from iter_content(chunk_size=size)
-                    return
-                raise LLMError('Unsupported HTTP response stream interface')
-
-            session = get_session()
-            last_report = time.perf_counter()
-            report_interval_s = 0.20
-            chunk_size = 1024 * 1024
-
-            def _consume_response(response_obj: object) -> int | None:
-                nonlocal bytes_done, last_report
-                response_obj.raise_for_status()
-
-                # If resume was requested but the server ignored Range and returned
-                # the full file (200), restart from scratch to avoid duplicate bytes.
-                if bytes_done > 0 and _status_code(response_obj) == 200:
-                    with suppress(OSError):
-                        tmp_path.unlink(missing_ok=True)
-                    bytes_done = 0
-
-                total_bytes_local = _extract_total_bytes(response_obj, bytes_done)
-                with tmp_path.open('ab' if bytes_done > 0 else 'wb') as f:
-                    for chunk in _iter_chunks(response_obj, chunk_size):
-                        if cancel_event is not None and cancel_event.is_set():
-                            raise RuntimeError('download cancelled')
-                        if not chunk:
-                            continue
-                        f.write(chunk)
-                        bytes_done += len(chunk)
-
-                        now = time.perf_counter()
-                        if progress_callback and (now - last_report >= report_interval_s):
-                            elapsed = max(now - start, 0.001)
-                            speed_bps = float(bytes_done / elapsed)
-                            progress_callback(bytes_done, total_bytes_local, speed_bps)
-                            last_report = now
-                return total_bytes_local
-
-            total_bytes: int | None = None
-            session_stream = getattr(session, 'stream', None)
-            if callable(session_stream):
-                with session.stream('GET', url, headers=headers, timeout=(10, 60)) as response:
-                    total_bytes = _consume_response(response)
-            else:
-                response = session.get(url, headers=headers, stream=True, timeout=(10, 60))
-                total_bytes = _consume_response(response)
-
-            if progress_callback:
-                elapsed = max(time.perf_counter() - start, 0.001)
-                speed_bps = float(bytes_done / elapsed)
-                progress_callback(bytes_done, total_bytes or bytes_done, speed_bps)
-
-            tmp_path.replace(target_path)
-            if expected_sha256:
-                actual_sha256 = self._compute_file_sha256(target_path)
-                if actual_sha256.lower() != expected_sha256.strip().lower():
-                    with suppress(OSError):
-                        target_path.unlink(missing_ok=True)
-                    raise LLMError(
-                        f'Model integrity verification failed for {fname}: '
-                        f'expected {expected_sha256}, got {actual_sha256}.'
-                    )
-
-        except ImportError as exc:
-            raise LLMError(f'huggingface-hub is not installed: {exc}') from exc
-        except OSError as exc:
-            raise LLMError(f'Failed to download model from {repo}/{fname}: {exc}') from exc
-        except Exception as exc:
-            raise LLMError(f'Failed to download model from {repo}/{fname}: {exc}') from exc
-
-        elapsed_s = time.perf_counter() - start
-        size_mb = target_path.stat().st_size / (1024 * 1024) if target_path.exists() else 0
-        log.info(
-            'llm_model_downloaded',
-            repo=repo,
-            filename=fname,
-            size_mb=round(size_mb, 1),
-            elapsed_s=round(elapsed_s, 1),
+        download_gguf_model(
+            spec=GGUFModelSpec(
+                repo_id=repo,
+                filename=fname,
+                expected_sha256=expected_sha256,
+                revision=revision,
+                model_label="llm",
+            ),
+            target_path=target_path,
+            progress_callback=progress_callback,
+            cancel_event=cancel_event,
         )
         remove_models_dir_cache()
-
-    def _compute_file_sha256(self, path: Path) -> str:
-        sha256 = hashlib.sha256()
-        with path.open('rb') as f:
-            for chunk in iter(lambda: f.read(1024 * 1024), b''):
-                sha256.update(chunk)
-        return sha256.hexdigest()
 
     # -- Synchronous chat completion ------------------------------------------
 
@@ -854,29 +721,29 @@ class XllamaCppProvider:
         """
         server = self._loaded_server
 
-        from informity.llm.model_adapter import get_profile
         _tmpl_kwargs = get_profile().chat_template_kwargs
         payload_dict: dict = {
-            'messages':    messages,
-            'max_tokens':  max_tokens,
-            'temperature': temperature,
-            'stop':        stop or [],
-            'stream':      False,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "stop": stop or [],
+            "stream": False,
         }
         if response_format is not None:
-            payload_dict['response_format'] = response_format
+            payload_dict["response_format"] = response_format
         if _tmpl_kwargs:
-            payload_dict['chat_template_kwargs'] = _tmpl_kwargs
+            payload_dict["chat_template_kwargs"] = _tmpl_kwargs
         payload = json.dumps(payload_dict)
 
         collected: list[dict] = []
 
         def _cb(chunk: object) -> None:
+            """ cb."""
             if isinstance(chunk, dict):
                 collected.append(chunk)
             elif isinstance(chunk, (str, bytes)):
-                raw = chunk if isinstance(chunk, str) else chunk.decode('utf-8', errors='replace')
-                if raw.startswith('data:'):
+                raw = chunk if isinstance(chunk, str) else chunk.decode("utf-8", errors="replace")
+                if raw.startswith("data:"):
                     raw = raw[5:].strip()
                 with suppress(json.JSONDecodeError, ValueError):
                     collected.append(json.loads(raw))
@@ -884,34 +751,34 @@ class XllamaCppProvider:
         try:
             server.handle_chat_completions(payload, _cb)  # type: ignore[attr-defined]
         except Exception as exc:
-            raise LLMError(f'Chat completion inference failed: {exc}') from exc
+            raise LLMError(f"Chat completion inference failed: {exc}") from exc
 
         # Assemble content from collected chunks.
         # Non-streaming: {'choices': [{'message': {'content': '...'}}]}
         # Streaming delta: {'choices': [{'delta': {'content': '...'}}]}
         content_parts: list[str] = []
         for chunk in collected:
-            for choice in chunk.get('choices', []):
-                msg = choice.get('message', {})
-                if msg.get('content'):
-                    content_parts.append(msg['content'])
-                delta = choice.get('delta', {})
-                if delta.get('content'):
-                    content_parts.append(delta['content'])
+            for choice in chunk.get("choices", []):
+                msg = choice.get("message", {})
+                if msg.get("content"):
+                    content_parts.append(msg["content"])
+                delta = choice.get("delta", {})
+                if delta.get("content"):
+                    content_parts.append(delta["content"])
 
-        return {'choices': [{'message': {'content': ''.join(content_parts)}}]}
+        return {"choices": [{"message": {"content": "".join(content_parts)}}]}
 
     # -- Streaming generation -------------------------------------------------
 
     async def generate_stream(
         self,
-        messages:        list[dict[str, str]],
-        max_tokens:      int | None       = None,
-        temperature:     float | None     = None,
-        top_p:           float | None     = None,
-        stop:            list[str] | None = None,
-        force_chatml:    bool             = False,
-        timeout_seconds: float | None     = None,
+        messages: list[dict[str, str]],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | None = None,
+        force_chatml: bool = False,
+        timeout_seconds: float | None = None,
     ) -> AsyncGenerator[str | tuple[str, object]]:
         # Stream generated tokens one at a time as an async generator.
         # Sends messages via handle_chat_completions in a background thread.
@@ -939,66 +806,79 @@ class XllamaCppProvider:
         #
         # Raises:
         #   LLMError: If messages are empty or generation fails.
+        """generate stream."""
         if not messages:
-            raise LLMError('Cannot generate from empty messages')
+            raise LLMError("Cannot generate from empty messages")
 
-        max_tok   = max_tokens if max_tokens is not None else settings.llm_max_tokens
-        temp      = temperature if temperature is not None else settings.llm_temperature
+        max_tok = max_tokens if max_tokens is not None else settings.llm_max_tokens
+        temp = temperature if temperature is not None else settings.llm_temperature
         top_p_val = 1.0 if top_p is None else top_p
         stop_seqs = stop if stop is not None else []
         wall_clock = 120.0 if timeout_seconds is None else float(timeout_seconds)
 
-        profile     = get_profile()
+        profile = get_profile()
         context_len = get_effective_context_length(profile)
-        server      = self._loaded_server
+        server = self._loaded_server
 
         truncated_messages, truncation_info = _truncate_messages_to_fit(
-            chat_template  = self._chat_template,
-            messages       = messages,
-            context_length = context_len,
-            max_tokens     = max_tok,
-            force_chatml   = force_chatml,
+            chat_template=self._chat_template,
+            messages=messages,
+            context_length=context_len,
+            max_tokens=max_tok,
+            force_chatml=force_chatml,
         )
 
-        if truncation_info['truncated']:
+        if truncation_info["truncated"]:
             log.warning(
-                'prompt_truncated',
-                original_tokens          = truncation_info['original_tokens'],
-                final_tokens             = truncation_info.get('final_tokens', truncation_info['original_tokens']),
-                available_budget         = truncation_info['available_budget'],
-                history_messages_removed = truncation_info.get('history_messages_removed', 0),
-                system_content_truncated = truncation_info.get('system_content_truncated', False),
-                chunks_removed           = truncation_info.get('chunks_removed', 0),
-                warning                  = truncation_info.get('warning'),
+                "prompt_truncated",
+                original_tokens=truncation_info["original_tokens"],
+                final_tokens=truncation_info.get(
+                    "final_tokens", truncation_info["original_tokens"]
+                ),
+                available_budget=truncation_info["available_budget"],
+                history_messages_removed=truncation_info.get("history_messages_removed", 0),
+                system_content_truncated=truncation_info.get("system_content_truncated", False),
+                chunks_removed=truncation_info.get("chunks_removed", 0),
+                warning=truncation_info.get("warning"),
             )
 
         messages = truncated_messages
 
         log.debug(
-            'llm_streaming',
-            messages_count  = len(messages),
-            max_tokens      = max_tok,
-            temperature     = temp,
-            top_p           = top_p_val,
-            timeout_seconds = wall_clock,
-            context_length  = context_len,
+            "llm_streaming",
+            messages_count=len(messages),
+            max_tokens=max_tok,
+            temperature=temp,
+            top_p=top_p_val,
+            timeout_seconds=wall_clock,
+            context_length=context_len,
         )
 
-        start           = time.perf_counter()
-        token_count     = 0
+        start = time.perf_counter()
+        token_count = 0
         first_token_ms: float | None = None
-        total_text      = ''
-        loop            = asyncio.get_running_loop()
+        total_text_parts: list[str] = []
+        loop = asyncio.get_running_loop()
         queue: asyncio.Queue[str | object] = asyncio.Queue()
         exception_holder: list[BaseException] = []
         cancel_event = threading.Event()
 
         worker = threading.Thread(
-            target = _run_stream_worker,
-            args   = (server, messages, max_tok, temp, top_p_val,
-                      stop_seqs, loop, queue, exception_holder, cancel_event),
-            name   = 'llm-stream-worker',
-            daemon = True,
+            target=_run_stream_worker,
+            args=(
+                server,
+                messages,
+                max_tok,
+                temp,
+                top_p_val,
+                stop_seqs,
+                loop,
+                queue,
+                exception_holder,
+                cancel_event,
+            ),
+            name="llm-stream-worker",
+            daemon=True,
         )
         worker.start()
 
@@ -1007,7 +887,7 @@ class XllamaCppProvider:
         timeout_reason: str | None = None
         first_token_deadline_seconds = _resolve_first_token_deadline_seconds(
             wall_clock=wall_clock,
-            profile_tps=float(getattr(profile, 'generation_tokens_per_second', 12.0) or 12.0),
+            profile_tps=float(getattr(profile, "generation_tokens_per_second", 12.0) or 12.0),
         )
 
         stripper = ThinkStrip()
@@ -1021,31 +901,36 @@ class XllamaCppProvider:
                 first_token_deadline_seconds=first_token_deadline_seconds,
                 stripper=stripper,
             ):
-                if event_kind == 'timeout':
+                if event_kind == "timeout":
                     timeout_payload = payload if isinstance(payload, dict) else {}
-                    timeout_reason_value = str(normalize_timeout_reason(timeout_payload.get('reason')))
+                    timeout_reason_value = str(
+                        normalize_timeout_reason(timeout_payload.get("reason"))
+                    )
                     if timeout_reason_value == TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT.value:
                         log.warning(
-                            'llm_stream_first_token_watchdog_timeout',
-                            elapsed_seconds=timeout_payload.get('elapsed_seconds'),
+                            "llm_stream_first_token_watchdog_timeout",
+                            elapsed_seconds=timeout_payload.get("elapsed_seconds"),
                             first_token_deadline_seconds=round(first_token_deadline_seconds, 1),
-                            timeout_seconds=timeout_payload.get('timeout_seconds'),
+                            timeout_seconds=timeout_payload.get("timeout_seconds"),
                             tokens_generated=token_count,
-                            msg='No first token observed before watchdog deadline; stopping generation',
+                            msg=(
+                                "No first token observed before watchdog deadline; stopping"
+                                "generation"
+                            ),
                         )
                     else:
                         log.warning(
-                            'llm_stream_wall_clock_timeout',
-                            elapsed_seconds=timeout_payload.get('elapsed_seconds'),
-                            timeout_seconds=timeout_payload.get('timeout_seconds'),
+                            "llm_stream_wall_clock_timeout",
+                            elapsed_seconds=timeout_payload.get("elapsed_seconds"),
+                            timeout_seconds=timeout_payload.get("timeout_seconds"),
                             tokens_generated=token_count,
-                            msg='Hard timeout reached; stopping generation',
+                            msg="Hard timeout reached; stopping generation",
                         )
                     cancel_event.set()
                     timeout_occurred = True
                     timeout_reason = timeout_reason_value or TimeoutReason.UNKNOWN_TIMEOUT.value
                     break
-                if event_kind == 'finish_reason':
+                if event_kind == "finish_reason":
                     finish_reason = payload if isinstance(payload, str) else None
                     continue
 
@@ -1053,23 +938,28 @@ class XllamaCppProvider:
                 if first_token_ms is None:
                     first_token_ms = (time.perf_counter() - start) * 1000
                 token_count += 1
-                total_text += emit_text
+                total_text_parts.append(emit_text)
                 yield emit_text
 
             if timeout_occurred:
-                timeout_notice = f'\n\n[Response truncated: generation time limit ({int(wall_clock)}s) reached]'
-                total_text += timeout_notice
+                timeout_notice = (
+                    f"\n\n[Response truncated: generation time limit ({int(wall_clock)}s) reached]"
+                )
+                total_text_parts.append(timeout_notice)
                 yield timeout_notice
-                yield (StreamSignalTag.TIMEOUT, {
-                    'reason':          timeout_reason or TimeoutReason.UNKNOWN_TIMEOUT.value,
-                    'elapsed_seconds': round(time.perf_counter() - start, 1),
-                    'timeout_seconds': wall_clock,
-                })
+                yield (
+                    StreamSignalTag.TIMEOUT,
+                    {
+                        "reason": timeout_reason or TimeoutReason.UNKNOWN_TIMEOUT.value,
+                        "elapsed_seconds": round(time.perf_counter() - start, 1),
+                        "timeout_seconds": wall_clock,
+                    },
+                )
 
             if token_count == 0 and not timeout_occurred and not cancel_event.is_set():
                 log.warning(
-                    'llm_stream_empty_completion_local_fallback',
-                    msg='Streaming returned zero output; attempting non-stream completion fallback',
+                    "llm_stream_empty_completion_local_fallback",
+                    msg="Streaming returned zero output; attempting non-stream completion fallback",
                 )
                 fallback_response = self.chat_complete(
                     messages=messages,
@@ -1079,51 +969,51 @@ class XllamaCppProvider:
                 )
                 fallback_text = str(
                     (
-                        (fallback_response.get('choices') or [{}])[0]
-                        .get('message', {})
-                        .get('content')
-                    ) or '',
+                        (fallback_response.get("choices") or [{}])[0]
+                        .get("message", {})
+                        .get("content")
+                    )
+                    or "",
                 )
                 if fallback_text:
                     fallback_stripper = ThinkStrip()
-                    cleaned_fallback = fallback_stripper.feed(fallback_text) + fallback_stripper.flush()
+                    cleaned_fallback = (
+                        fallback_stripper.feed(fallback_text) + fallback_stripper.flush()
+                    )
                     cleaned_fallback = cleaned_fallback.strip()
                     if cleaned_fallback:
                         if first_token_ms is None:
                             first_token_ms = (time.perf_counter() - start) * 1000
                         token_count += 1
-                        total_text += cleaned_fallback
+                        total_text_parts.append(cleaned_fallback)
                         yield cleaned_fallback
                 if token_count == 0:
-                    raise LLMError('Local model returned no response tokens')
+                    raise LLMError("Local model returned no response tokens")
 
             if exception_holder:
                 exc = exception_holder[0]
                 if not isinstance(exc, Exception):
                     raise exc
-                raise LLMError(f'LLM streaming failed: {exc}') from exc
+                raise LLMError(f"LLM streaming failed: {exc}") from exc
 
-        except LLMError:
-            raise
-
-        except RuntimeError as exc:
-            raise LLMError(f'LLM streaming failed: {exc}') from exc
+        except RuntimeError as exc:  # pylint: disable=try-except-raise
+            _raise_llm_streaming_failed(exc)
 
         except GeneratorExit:
             cancel_event.set()
             log.debug(
-                'llm_stream_cancelled',
-                tokens_generated = token_count,
-                msg              = 'Stream cancelled (GeneratorExit); worker signaled to stop',
+                "llm_stream_cancelled",
+                tokens_generated=token_count,
+                msg="Stream cancelled (GeneratorExit); worker signaled to stop",
             )
             return
 
         except asyncio.CancelledError:
             cancel_event.set()
             log.debug(
-                'llm_stream_cancelled',
-                tokens_generated = token_count,
-                msg              = 'Stream cancelled (CancelledError); worker signaled to stop',
+                "llm_stream_cancelled",
+                tokens_generated=token_count,
+                msg="Stream cancelled (CancelledError); worker signaled to stop",
             )
             raise
 
@@ -1137,25 +1027,25 @@ class XllamaCppProvider:
                 await asyncio.to_thread(worker.join, 0.25)
                 if worker.is_alive():
                     log.info(
-                        'llm_stream_worker_detached',
-                        msg='Worker still running after cancellation signal; leaving it detached',
+                        "llm_stream_worker_detached",
+                        msg="Worker still running after cancellation signal; leaving it detached",
                         cancelled=cancel_event.is_set(),
                         timeout_occurred=timeout_occurred,
                     )
 
             elapsed_ms = (time.perf_counter() - start) * 1000
             log.info(
-                'llm_stream_completed',
-                messages_count   = len(messages),
-                tokens           = token_count,
-                output_length    = len(total_text),
-                elapsed_ms       = round(elapsed_ms, 1),
-                first_token_ms   = round(first_token_ms, 1) if first_token_ms is not None else None,
-                finish_reason    = finish_reason,
-                cancelled        = cancel_event.is_set(),
-                timeout_occurred = timeout_occurred,
-                timeout_reason   = timeout_reason,
-                provider         = 'local_gguf',
+                "llm_stream_completed",
+                messages_count=len(messages),
+                tokens=token_count,
+                output_length=len("".join(total_text_parts)),
+                elapsed_ms=round(elapsed_ms, 1),
+                first_token_ms=round(first_token_ms, 1) if first_token_ms is not None else None,
+                finish_reason=finish_reason,
+                cancelled=cancel_event.is_set(),
+                timeout_occurred=timeout_occurred,
+                timeout_reason=timeout_reason,
+                provider="local_gguf",
             )
 
 
@@ -1163,22 +1053,34 @@ class OllamaProvider:
     """Ollama-backed provider using /api/chat compatible streaming."""
 
     def __init__(self, model_id: str | None = None) -> None:
-        self._base_url = str(getattr(settings, 'ollama_base_url', 'http://127.0.0.1:11434') or 'http://127.0.0.1:11434').strip().rstrip('/')
-        self._timeout_seconds = float(getattr(settings, 'ollama_timeout_seconds', 120.0) or 120.0)
-        self._model_id_override = str(model_id or '').strip().lower() or None
+        """  init  ."""
+        self._base_url = (
+            str(
+                getattr(settings, "ollama_base_url", DEFAULT_OLLAMA_BASE_URL)
+                or DEFAULT_OLLAMA_BASE_URL
+            )
+            .strip()
+            .rstrip("/")
+        )
+        self._timeout_seconds = float(getattr(settings, "ollama_timeout_seconds", 120.0) or 120.0)
+        self._model_id_override = str(model_id or "").strip().lower() or None
 
     @property
     def is_loaded(self) -> bool:
         # Ollama manages model lifecycle in its daemon process.
+        """is loaded."""
         return True
 
     def unload(self) -> None:
+        """unload."""
         return
 
     def count_tokens(self, text: str) -> int:
-        return _count_tokens(text)
+        """count tokens."""
+        return count_tokens(text)
 
     def _get_model_path(self) -> Path:
+        """ get model path."""
         if self._model_id_override:
             alias_filenames = get_model_alias_filenames(self._model_id_override)
             if alias_filenames:
@@ -1195,14 +1097,24 @@ class OllamaProvider:
         progress_callback: Callable[[int, int | None, float], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> None:
-        _ = (target_path, repo_id, filename, revision, expected_sha256, progress_callback, cancel_event)
-        raise LLMError('Ollama provider does not support local GGUF download')
+        """ download model."""
+        _ = (
+            target_path,
+            repo_id,
+            filename,
+            revision,
+            expected_sha256,
+            progress_callback,
+            cancel_event,
+        )
+        raise LLMError("Ollama provider does not support local GGUF download")
 
     def _resolve_model(self) -> str:
-        model = self._model_id_override or str(getattr(settings, 'llm_model_id', '') or '').strip()
+        """ resolve model."""
+        model = self._model_id_override or str(getattr(settings, "llm_model_id", "") or "").strip()
         if model:
             return model
-        raise LLMError('Ollama provider requires llm_model_id to be set')
+        raise LLMError("Ollama provider requires llm_model_id to be set")
 
     def _post_chat(
         self,
@@ -1210,18 +1122,19 @@ class OllamaProvider:
         payload: dict,
         stream: bool,
     ) -> dict | list[dict]:
+        """ post chat."""
         req = urllib.request.Request(
-            url=f'{self._base_url}/api/chat',
-            data=json.dumps(payload).encode('utf-8'),
-            headers={'Content-Type': 'application/json'},
-            method='POST',
+            url=f"{self._base_url}/api/chat",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
         try:
             with urllib.request.urlopen(req, timeout=self._timeout_seconds) as resp:  # noqa: S310
                 if stream:
                     events: list[dict] = []
                     for raw_line in resp:
-                        line = raw_line.decode('utf-8', errors='replace').strip()
+                        line = raw_line.decode("utf-8", errors="replace").strip()
                         if not line:
                             continue
                         with suppress(json.JSONDecodeError, ValueError):
@@ -1229,22 +1142,22 @@ class OllamaProvider:
                             if isinstance(data, dict):
                                 events.append(data)
                     return events
-                body = resp.read().decode('utf-8', errors='replace')
+                body = resp.read().decode("utf-8", errors="replace")
                 parsed = json.loads(body) if body else {}
                 if not isinstance(parsed, dict):
-                    raise LLMError('Invalid Ollama response format')
+                    raise LLMError("Invalid Ollama response format")
                 return parsed
         except urllib.error.HTTPError as exc:
-            detail = ''
+            detail = ""
             with suppress(Exception):
-                detail = exc.read().decode('utf-8', errors='replace').strip()
-            raise LLMError(f'Ollama HTTP error ({exc.code}): {detail or exc.reason}') from exc
+                detail = exc.read().decode("utf-8", errors="replace").strip()
+            raise LLMError(f"Ollama HTTP error ({exc.code}): {detail or exc.reason}") from exc
         except urllib.error.URLError as exc:
-            raise LLMError(f'Ollama connection failed: {exc.reason}') from exc
+            raise LLMError(f"Ollama connection failed: {exc.reason}") from exc
         except TimeoutError as exc:
-            raise LLMError('Ollama request timed out') from exc
+            raise LLMError("Ollama request timed out") from exc
         except json.JSONDecodeError as exc:
-            raise LLMError(f'Invalid Ollama JSON response: {exc}') from exc
+            raise LLMError(f"Invalid Ollama JSON response: {exc}") from exc
 
     def chat_complete(
         self,
@@ -1254,68 +1167,72 @@ class OllamaProvider:
         stop: list[str] | None = None,
         response_format: dict | None = None,
     ) -> dict:
+        """chat complete."""
         model = self._resolve_model()
         options: dict[str, object] = {
-            'num_predict': int(max_tokens),
-            'temperature': float(temperature),
+            "num_predict": int(max_tokens),
+            "temperature": float(temperature),
         }
         if stop:
-            options['stop'] = stop
+            options["stop"] = stop
         payload: dict[str, object] = {
-            'model': model,
-            'messages': messages,
-            'stream': False,
-            'think': False,
-            'options': options,
+            "model": model,
+            "messages": messages,
+            "stream": False,
+            "think": False,
+            "options": options,
         }
         if response_format is not None:
-            payload['format'] = response_format
+            payload["format"] = response_format
 
         parsed = self._post_chat(payload=payload, stream=False)
         if not isinstance(parsed, dict):
-            raise LLMError('Invalid Ollama response format')
-        content = str((parsed.get('message') or {}).get('content') or '')
-        return {'choices': [{'message': {'content': content}}]}
+            raise LLMError("Invalid Ollama response format")
+        content = str((parsed.get("message") or {}).get("content") or "")
+        return {"choices": [{"message": {"content": content}}]}
 
     async def generate_stream(
         self,
-        messages:        list[dict[str, str]],
-        max_tokens:      int | None       = None,
-        temperature:     float | None     = None,
-        top_p:           float | None     = None,
-        stop:            list[str] | None = None,
-        force_chatml:    bool             = False,
-        timeout_seconds: float | None     = None,
+        messages: list[dict[str, str]],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | None = None,
+        force_chatml: bool = False,
+        timeout_seconds: float | None = None,
     ) -> AsyncGenerator[str | tuple[str, object]]:
+        """generate stream."""
         if not messages:
-            raise LLMError('Cannot generate from empty messages')
+            raise LLMError("Cannot generate from empty messages")
 
-        max_tok   = max_tokens if max_tokens is not None else settings.llm_max_tokens
-        temp      = temperature if temperature is not None else settings.llm_temperature
+        max_tok = max_tokens if max_tokens is not None else settings.llm_max_tokens
+        temp = temperature if temperature is not None else settings.llm_temperature
         top_p_val = 1.0 if top_p is None else top_p
         stop_seqs = stop if stop is not None else []
         wall_clock = 120.0 if timeout_seconds is None else float(timeout_seconds)
 
-        profile     = get_profile()
+        profile = get_profile()
         context_len = get_effective_context_length(profile)
 
         truncated_messages, truncation_info = _truncate_messages_to_fit(
-            chat_template  = '',
-            messages       = messages,
-            context_length = context_len,
-            max_tokens     = max_tok,
-            force_chatml   = force_chatml if force_chatml else True,
+            chat_template="",
+            messages=messages,
+            context_length=context_len,
+            max_tokens=max_tok,
+            force_chatml=force_chatml if force_chatml else True,
         )
-        if truncation_info['truncated']:
+        if truncation_info["truncated"]:
             log.warning(
-                'prompt_truncated',
-                original_tokens          = truncation_info['original_tokens'],
-                final_tokens             = truncation_info.get('final_tokens', truncation_info['original_tokens']),
-                available_budget         = truncation_info['available_budget'],
-                history_messages_removed = truncation_info.get('history_messages_removed', 0),
-                system_content_truncated = truncation_info.get('system_content_truncated', False),
-                chunks_removed           = truncation_info.get('chunks_removed', 0),
-                warning                  = truncation_info.get('warning'),
+                "prompt_truncated",
+                original_tokens=truncation_info["original_tokens"],
+                final_tokens=truncation_info.get(
+                    "final_tokens", truncation_info["original_tokens"]
+                ),
+                available_budget=truncation_info["available_budget"],
+                history_messages_removed=truncation_info.get("history_messages_removed", 0),
+                system_content_truncated=truncation_info.get("system_content_truncated", False),
+                chunks_removed=truncation_info.get("chunks_removed", 0),
+                warning=truncation_info.get("warning"),
             )
         messages = truncated_messages
 
@@ -1326,15 +1243,15 @@ class OllamaProvider:
 
         model = self._resolve_model()
         payload = {
-            'model': model,
-            'messages': messages,
-            'stream': True,
-            'think': False,
-            'options': {
-                'num_predict': int(max_tok),
-                'temperature': float(temp),
-                'top_p': float(top_p_val),
-                **({'stop': stop_seqs} if stop_seqs else {}),
+            "model": model,
+            "messages": messages,
+            "stream": True,
+            "think": False,
+            "options": {
+                "num_predict": int(max_tok),
+                "temperature": float(temp),
+                "top_p": float(top_p_val),
+                **({"stop": stop_seqs} if stop_seqs else {}),
             },
         }
         raw_frame_count = 0
@@ -1346,24 +1263,26 @@ class OllamaProvider:
         done_frame_snapshot: dict[str, object] | None = None
 
         def _worker() -> None:
+            """ worker."""
             nonlocal raw_frame_count, parsed_frame_count, non_dict_frame_count
             nonlocal json_decode_error_count, empty_content_frame_count
             nonlocal raw_frame_samples, done_frame_snapshot
             finish_reason: str | None = None
             req = urllib.request.Request(
-                url=f'{self._base_url}/api/chat',
-                data=json.dumps(payload).encode('utf-8'),
-                headers={'Content-Type': 'application/json'},
-                method='POST',
+                url=f"{self._base_url}/api/chat",
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST",
             )
             try:
-                with urllib.request.urlopen(req, timeout=self._timeout_seconds) as resp:  # noqa: S310
+                with urllib.request.urlopen(req, timeout=self._timeout_seconds) as resp:
+                # noqa: S310
                     for raw_line in resp:
                         raw_frame_count += 1
                         if cancel_event.is_set():
-                            finish_reason = 'cancelled'
+                            finish_reason = "cancelled"
                             break
-                        line = raw_line.decode('utf-8', errors='replace').strip()
+                        line = raw_line.decode("utf-8", errors="replace").strip()
                         if len(raw_frame_samples) < 5:
                             raw_frame_samples.append(line[:300])
                         if not line:
@@ -1377,49 +1296,64 @@ class OllamaProvider:
                         if not isinstance(data, dict):
                             non_dict_frame_count += 1
                             continue
-                        token = str((data.get('message') or {}).get('content') or '')
+                        token = str((data.get("message") or {}).get("content") or "")
                         if token:
                             loop.call_soon_threadsafe(queue.put_nowait, token)
                         else:
                             empty_content_frame_count += 1
-                        if data.get('done') is True:
+                        if data.get("done") is True:
                             done_frame_snapshot = {
-                                'done': data.get('done'),
-                                'done_reason': data.get('done_reason'),
-                                'has_message': isinstance(data.get('message'), dict),
-                                'content_length': len(token),
+                                "done": data.get("done"),
+                                "done_reason": data.get("done_reason"),
+                                "has_message": isinstance(data.get("message"), dict),
+                                "content_length": len(token),
                             }
-                            finish_reason = _normalize_finish_reason(str(data.get('done_reason') or 'stop'))
+                            finish_reason = _normalize_finish_reason(
+                                str(data.get("done_reason") or "stop")
+                            )
                             break
             except urllib.error.HTTPError as exc:
-                detail = ''
+                detail = ""
                 with suppress(Exception):
-                    detail = exc.read().decode('utf-8', errors='replace').strip()
-                exception_holder.append(LLMError(f'Ollama HTTP error ({exc.code}): {detail or exc.reason}'))
+                    detail = exc.read().decode("utf-8", errors="replace").strip()
+                exception_holder.append(
+                    LLMError(f"Ollama HTTP error ({exc.code}): {detail or exc.reason}")
+                )
             except urllib.error.URLError as exc:
-                exception_holder.append(LLMError(f'Ollama connection failed: {exc.reason}'))
+                exception_holder.append(LLMError(f"Ollama connection failed: {exc.reason}"))
             except TimeoutError:
-                exception_holder.append(LLMError('Ollama request timed out'))
-            except BaseException as exc:  # noqa: BLE001
+                exception_holder.append(LLMError("Ollama request timed out"))
+            except (
+                AttributeError,
+                IndexError,
+                KeyError,
+                OSError,
+                RuntimeError,
+                TypeError,
+                UnicodeError,
+                ValueError,
+            ) as exc:
                 exception_holder.append(exc)
             finally:
-                loop.call_soon_threadsafe(queue.put_nowait, (StreamSignalTag.FINISH_REASON, finish_reason))
+                loop.call_soon_threadsafe(
+                    queue.put_nowait, (StreamSignalTag.FINISH_REASON, finish_reason)
+                )
                 with suppress(RuntimeError):
                     loop.call_soon_threadsafe(queue.put_nowait, _STREAM_END)
 
-        worker = threading.Thread(target=_worker, name='ollama-stream-worker', daemon=True)
+        worker = threading.Thread(target=_worker, name="ollama-stream-worker", daemon=True)
         worker.start()
 
-        start           = time.perf_counter()
-        token_count     = 0
+        start = time.perf_counter()
+        token_count = 0
         first_token_ms: float | None = None
-        total_text      = ''
+        total_text_parts: list[str] = []
         finish_reason: str | None = None
         timeout_occurred = False
         timeout_reason: str | None = None
         first_token_deadline_seconds = _resolve_first_token_deadline_seconds(
             wall_clock=wall_clock,
-            profile_tps=float(getattr(profile, 'generation_tokens_per_second', 12.0) or 12.0),
+            profile_tps=float(getattr(profile, "generation_tokens_per_second", 12.0) or 12.0),
         )
         stripper = ThinkStrip()
 
@@ -1432,14 +1366,16 @@ class OllamaProvider:
                 first_token_deadline_seconds=first_token_deadline_seconds,
                 stripper=stripper,
             ):
-                if event_kind == 'timeout':
+                if event_kind == "timeout":
                     timeout_payload = payload if isinstance(payload, dict) else {}
-                    timeout_reason_value = str(normalize_timeout_reason(timeout_payload.get('reason')))
+                    timeout_reason_value = str(
+                        normalize_timeout_reason(timeout_payload.get("reason"))
+                    )
                     cancel_event.set()
                     timeout_occurred = True
                     timeout_reason = timeout_reason_value or TimeoutReason.UNKNOWN_TIMEOUT.value
                     break
-                if event_kind == 'finish_reason':
+                if event_kind == "finish_reason":
                     finish_reason = payload if isinstance(payload, str) else None
                     continue
 
@@ -1447,27 +1383,32 @@ class OllamaProvider:
                 if first_token_ms is None:
                     first_token_ms = (time.perf_counter() - start) * 1000
                 token_count += 1
-                total_text += emit_text
+                total_text_parts.append(emit_text)
                 yield emit_text
 
             if timeout_occurred:
-                timeout_notice = f'\n\n[Response truncated: generation time limit ({int(wall_clock)}s) reached]'
-                total_text += timeout_notice
+                timeout_notice = (
+                    f"\n\n[Response truncated: generation time limit ({int(wall_clock)}s) reached]"
+                )
+                total_text_parts.append(timeout_notice)
                 yield timeout_notice
-                yield (StreamSignalTag.TIMEOUT, {
-                    'reason':          timeout_reason or TimeoutReason.UNKNOWN_TIMEOUT.value,
-                    'elapsed_seconds': round(time.perf_counter() - start, 1),
-                    'timeout_seconds': wall_clock,
-                })
+                yield (
+                    StreamSignalTag.TIMEOUT,
+                    {
+                        "reason": timeout_reason or TimeoutReason.UNKNOWN_TIMEOUT.value,
+                        "elapsed_seconds": round(time.perf_counter() - start, 1),
+                        "timeout_seconds": wall_clock,
+                    },
+                )
 
             if exception_holder:
                 exc = exception_holder[0]
                 if isinstance(exc, LLMError):
                     raise exc
-                raise LLMError(f'LLM streaming failed: {exc}') from exc
+                raise LLMError(f"LLM streaming failed: {exc}") from exc
             if token_count == 0 and not timeout_occurred:
                 log.warning(
-                    'ollama_stream_empty_completion',
+                    "ollama_stream_empty_completion",
                     model=model,
                     raw_frame_count=raw_frame_count,
                     parsed_frame_count=parsed_frame_count,
@@ -1477,7 +1418,7 @@ class OllamaProvider:
                     done_frame_snapshot=done_frame_snapshot,
                     raw_frame_samples=raw_frame_samples,
                 )
-                raise LLMError('Ollama returned no response tokens')
+                raise LLMError("Ollama returned no response tokens")
         finally:
             if worker.is_alive():
                 cancel_event.set()
@@ -1485,11 +1426,11 @@ class OllamaProvider:
 
             elapsed_ms = (time.perf_counter() - start) * 1000
             log.info(
-                'llm_stream_completed',
-                provider='ollama',
+                "llm_stream_completed",
+                provider="ollama",
                 messages_count=len(messages),
                 tokens=token_count,
-                output_length=len(total_text),
+                output_length=len("".join(total_text_parts)),
                 elapsed_ms=round(elapsed_ms, 1),
                 first_token_ms=round(first_token_ms, 1) if first_token_ms is not None else None,
                 finish_reason=finish_reason,
@@ -1513,49 +1454,62 @@ class LLMEngine:
         model_filename: str | None = None,
         model_dir: Path | None = None,
     ) -> None:
-        provider_name = str(provider_name or getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
-        if provider_name == 'local_gguf':
+        """  init  ."""
+        provider_name = (
+            str(provider_name or getattr(settings, "llm_provider", "local_gguf") or "local_gguf")
+            .strip()
+            .lower()
+        )
+        if provider_name == "local_gguf":
             self._provider = XllamaCppProvider(model_filename=model_filename, model_dir=model_dir)
-        elif provider_name == 'ollama':
+        elif provider_name == "ollama":
             self._provider = OllamaProvider(model_id=model_id)
         else:
-            raise LLMError(f'Unsupported llm_provider: {provider_name}')
+            raise LLMError(f"Unsupported llm_provider: {provider_name}")
         self.provider_name = provider_name
 
     # Backward-compatible private hooks relied on by runtime/tests.
     @property
     def _server(self) -> object | None:
+        """ server."""
         if isinstance(self._provider, XllamaCppProvider):
             return self._provider._server
         return None
 
     @_server.setter
     def _server(self, value: object | None) -> None:
+        """ server."""
         if isinstance(self._provider, XllamaCppProvider):
             self._provider._server = value
 
     @property
     def _chat_template(self) -> str:
+        """ chat template."""
         if isinstance(self._provider, XllamaCppProvider):
             return self._provider._chat_template
-        return ''
+        return ""
 
     @_chat_template.setter
     def _chat_template(self, value: str) -> None:
+        """ chat template."""
         if isinstance(self._provider, XllamaCppProvider):
             self._provider._chat_template = value
 
     @property
     def is_loaded(self) -> bool:
+        """is loaded."""
         return self._provider.is_loaded
 
     def unload(self) -> None:
+        """unload."""
         self._provider.unload()
 
     def count_tokens(self, text: str) -> int:
+        """count tokens."""
         return self._provider.count_tokens(text)
 
     def _get_model_path(self) -> Path:
+        """ get model path."""
         return self._provider._get_model_path()
 
     def _download_model(
@@ -1568,6 +1522,7 @@ class LLMEngine:
         progress_callback: Callable[[int, int | None, float], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> None:
+        """ download model."""
         self._provider._download_model(
             target_path=target_path,
             repo_id=repo_id,
@@ -1579,6 +1534,7 @@ class LLMEngine:
         )
 
     def _load_model(self, model_filename: str | None = None) -> None:
+        """ load model."""
         if isinstance(self._provider, XllamaCppProvider):
             self._provider._load_model(model_filename=model_filename)
             return
@@ -1592,6 +1548,7 @@ class LLMEngine:
         stop: list[str] | None = None,
         response_format: dict | None = None,
     ) -> dict:
+        """chat complete."""
         return self._provider.chat_complete(
             messages=messages,
             max_tokens=max_tokens,
@@ -1602,14 +1559,15 @@ class LLMEngine:
 
     async def generate_stream(
         self,
-        messages:        list[dict[str, str]],
-        max_tokens:      int | None       = None,
-        temperature:     float | None     = None,
-        top_p:           float | None     = None,
-        stop:            list[str] | None = None,
-        force_chatml:    bool             = False,
-        timeout_seconds: float | None     = None,
+        messages: list[dict[str, str]],
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+        top_p: float | None = None,
+        stop: list[str] | None = None,
+        force_chatml: bool = False,
+        timeout_seconds: float | None = None,
     ) -> AsyncGenerator[str | tuple[str, object]]:
+        """generate stream."""
         async for item in self._provider.generate_stream(
             messages=messages,
             max_tokens=max_tokens,

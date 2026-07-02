@@ -77,6 +77,13 @@ struct BackendStartPayload {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct BackendStartupFailurePayload {
+    reason: Option<String>,
+    detail: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct BackendStatusPayload {
     running: bool,
     base_url: Option<String>,
@@ -92,13 +99,30 @@ struct BackendStopPayload {
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct BackendStartupStatusPayload {
+    status: String,
+    reason: Option<String>,
+    detail: Option<String>,
     message: String,
+    progress_done: Option<u64>,
+    progress_total: Option<u64>,
+    progress_percent: Option<f64>,
 }
 
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct MenuActionPayload {
     action: String,
+}
+
+#[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct BackendHealthPayload {
+    status: String,
+    reason: Option<String>,
+    detail: Option<String>,
+    progress_done: Option<u64>,
+    progress_total: Option<u64>,
+    progress_percent: Option<f64>,
 }
 
 #[derive(Deserialize)]
@@ -118,9 +142,9 @@ async fn backend_start(
     app: AppHandle,
     controller: State<'_, BackendController>,
 ) -> Result<BackendStartPayload, String> {
-    emit_backend_startup_status(&app, "Starting Informity AI...");
+    emit_backend_startup_message(&app, "initializing", None, None, "Starting application...");
 
-    {
+    let running_backend = {
         let mut guard = controller
             .inner
             .lock()
@@ -132,24 +156,42 @@ async fn backend_start(
                     guard.child = None;
                     guard.base_url = None;
                     guard.session_token = None;
+                    None
                 }
                 Ok(None) => {
                     if let (Some(base_url), Some(session_token)) =
                         (guard.base_url.clone(), guard.session_token.clone())
                     {
-                        let port = parse_port(&base_url)?;
-                        return Ok(BackendStartPayload {
-                            base_url,
-                            session_token,
-                            port,
-                            launch_mode: "already-running".to_string(),
-                        });
+                        Some((base_url, session_token))
+                    } else {
+                        None
                     }
                 }
                 Err(error) => {
                     guard.startup_error =
                         Some(format!("failed to query backend process state: {error}"));
+                    None
                 }
+            }
+        } else {
+            None
+        }
+    };
+
+    if let Some((base_url, session_token)) = running_backend {
+        match check_health(&base_url, &session_token).await {
+            Ok(health) if health.status.as_str() == "ok" => {
+                let port = parse_port(&base_url)?;
+                emit_backend_startup_status(&app, &health);
+                return Ok(BackendStartPayload {
+                    base_url,
+                    session_token,
+                    port,
+                    launch_mode: "already-running".to_string(),
+                });
+            }
+            _ => {
+                let _ = backend_stop_internal(&controller).await;
             }
         }
     }
@@ -162,14 +204,17 @@ async fn backend_start(
     std::fs::create_dir_all(&app_data_dir)
         .map_err(|error| format!("failed to create app data directory: {error}"))?;
     if let Err(error) = ensure_mcp_stdio_launcher(&app, &app_data_dir) {
-        append_backend_startup_error(
-            &app,
-            &format!("mcp launcher install warning: {error}"),
-        );
+        append_backend_startup_error(&app, &format!("mcp launcher install warning: {error}"));
     }
     let pid_file_path = managed_backend_pid_file_path(&app_data_dir);
 
-    emit_backend_startup_status(&app, "Initializing application...");
+    emit_backend_startup_message(
+        &app,
+        "initializing",
+        Some("starting_backend"),
+        None,
+        "Initializing application...",
+    );
 
     {
         let mut guard = controller
@@ -268,7 +313,13 @@ async fn backend_start(
                 launch_errors.join(" | ")
             );
             append_backend_startup_error(&app, &detail);
-            return Err(detail);
+            let failure = BackendStartupFailurePayload {
+                reason: None,
+                detail: Some(detail),
+            };
+            let error = serde_json::to_string(&failure)
+                .unwrap_or_else(|serialize_error| format!("{{\"detail\":\"{serialize_error}\"}}"));
+            return Err(error);
         }
     };
 
@@ -285,56 +336,94 @@ async fn backend_start(
     }
 
     let startup_timeout = if launched_mode == "packaged-sidecar" {
-        Duration::from_secs(180)
+        Duration::from_secs(1800)
     } else {
-        Duration::from_secs(45)
+        Duration::from_secs(900)
     };
     let startup_timeout_secs = startup_timeout.as_secs();
     let start = Instant::now();
     while start.elapsed() < startup_timeout {
-        if check_health(&base_url, &session_token).await {
-            emit_backend_startup_status(&app, "Loading interface...");
-            return Ok(BackendStartPayload {
-                base_url,
-                session_token,
-                port,
-                launch_mode: launched_mode,
-            });
-        }
-
-        {
-            let mut guard = controller
-                .inner
-                .lock()
-                .map_err(|_| "backend state lock poisoned".to_string())?;
-            if let Some(child) = guard.child.as_mut() {
-                match child.try_wait() {
-                    Ok(Some(status)) => {
-                        guard.startup_error = Some(format!(
-                            "backend exited before health check completed: {}",
-                            status
-                        ));
-                        guard.child = None;
-                        guard.base_url = None;
-                        guard.session_token = None;
-                        if let Some(path) = guard.pid_file_path.take() {
-                            let _ = remove_pid_file(&path);
-                        }
-                        let detail = guard
-                            .startup_error
+        match check_health(&base_url, &session_token).await {
+            Ok(health) => {
+                emit_backend_startup_status(&app, &health);
+                match health.status.as_str() {
+                    "ok" => {
+                        return Ok(BackendStartPayload {
+                            base_url,
+                            session_token,
+                            port,
+                            launch_mode: launched_mode,
+                        });
+                    }
+                    "error" => {
+                        let detail = health
+                            .detail
                             .clone()
-                            .unwrap_or_else(|| "backend exited during startup".to_string());
+                            .or_else(|| health.reason.clone())
+                            .unwrap_or_else(|| "backend reported startup error".to_string());
                         append_backend_startup_error(&app, &detail);
-                        return Err(detail);
+                        let failure = collect_startup_failure(
+                            &base_url,
+                            &session_token,
+                            detail,
+                            health.reason.clone(),
+                        )
+                        .await;
+                        let error =
+                            serde_json::to_string(&failure).unwrap_or_else(|serialize_error| {
+                                format!("{{\"detail\":\"{serialize_error}\"}}")
+                            });
+                        return Err(error);
                     }
-                    Ok(None) => {}
-                    Err(error) => {
-                        guard.startup_error = Some(format!(
-                            "failed to inspect backend state during startup: {error}"
-                        ));
-                    }
+                    _ => {}
                 }
             }
+            Err(_) => {}
+        }
+
+        let exited_during_startup =
+            {
+                let mut guard = controller
+                    .inner
+                    .lock()
+                    .map_err(|_| "backend state lock poisoned".to_string())?;
+                let mut exited_detail: Option<String> = None;
+                if let Some(child) = guard.child.as_mut() {
+                    match child.try_wait() {
+                        Ok(Some(status)) => {
+                            guard.startup_error = Some(format!(
+                                "backend exited before health check completed: {}",
+                                status
+                            ));
+                            guard.child = None;
+                            guard.base_url = None;
+                            guard.session_token = None;
+                            if let Some(path) = guard.pid_file_path.take() {
+                                let _ = remove_pid_file(&path);
+                            }
+                            exited_detail =
+                                Some(guard.startup_error.clone().unwrap_or_else(|| {
+                                    "backend exited during startup".to_string()
+                                }));
+                        }
+                        Ok(None) => {}
+                        Err(error) => {
+                            guard.startup_error = Some(format!(
+                                "failed to inspect backend state during startup: {error}"
+                            ));
+                        }
+                    }
+                }
+                exited_detail
+            };
+        if let Some(detail) = exited_during_startup {
+            append_backend_startup_error(&app, &detail);
+            let failure =
+                collect_startup_failure(base_url.as_str(), session_token.as_str(), detail, None)
+                    .await;
+            let error = serde_json::to_string(&failure)
+                .unwrap_or_else(|serialize_error| format!("{{\"detail\":\"{serialize_error}\"}}"));
+            return Err(error);
         }
 
         sleep(Duration::from_millis(500)).await;
@@ -356,12 +445,59 @@ async fn backend_start(
         startup_timeout_secs
     );
     append_backend_startup_error(&app, &detail);
-    Err(detail)
+    let failure = collect_startup_failure(&base_url, &session_token, detail, None).await;
+    let error = serde_json::to_string(&failure)
+        .unwrap_or_else(|serialize_error| format!("{{\"detail\":\"{serialize_error}\"}}"));
+    Err(error)
 }
 
-fn emit_backend_startup_status(app: &AppHandle, message: &str) {
+fn emit_backend_startup_message(
+    app: &AppHandle,
+    status: &str,
+    reason: Option<&str>,
+    detail: Option<&str>,
+    message: &str,
+) {
     let payload = BackendStartupStatusPayload {
+        status: status.to_string(),
+        reason: reason.map(|value| value.to_string()),
+        detail: detail.map(|value| value.to_string()),
         message: message.to_string(),
+        progress_done: None,
+        progress_total: None,
+        progress_percent: None,
+    };
+    let _ = app.emit(BACKEND_STARTUP_STATUS_EVENT, payload);
+}
+
+fn emit_backend_startup_status(app: &AppHandle, health: &BackendHealthPayload) {
+    let message = match health.status.as_str() {
+        "ok" => "Loading interface...".to_string(),
+        "error" => health
+            .detail
+            .clone()
+            .or_else(|| health.reason.clone())
+            .unwrap_or_else(|| "Backend startup failed.".to_string()),
+        "initializing" if health.reason.as_deref() == Some("downloading_classifier_model") => {
+            "Setting up application...".to_string()
+        }
+        "initializing" => health
+            .detail
+            .clone()
+            .unwrap_or_else(|| "Initializing application...".to_string()),
+        _ => health
+            .detail
+            .clone()
+            .unwrap_or_else(|| "Initializing application...".to_string()),
+    };
+    let payload = BackendStartupStatusPayload {
+        status: health.status.clone(),
+        reason: health.reason.clone(),
+        detail: health.detail.clone(),
+        message,
+        progress_done: health.progress_done,
+        progress_total: health.progress_total,
+        progress_percent: health.progress_percent,
     };
     let _ = app.emit(BACKEND_STARTUP_STATUS_EVENT, payload);
 }
@@ -589,7 +725,12 @@ fn ensure_mcp_stdio_launcher(app: &AppHandle, app_data_dir: &Path) -> Result<(),
         }
 
         let mut permissions = fs::metadata(&launcher_path)
-            .map_err(|error| format!("failed to stat MCP launcher {}: {error}", launcher_path.display()))?
+            .map_err(|error| {
+                format!(
+                    "failed to stat MCP launcher {}: {error}",
+                    launcher_path.display()
+                )
+            })?
             .permissions();
         permissions.set_mode(0o755);
         fs::set_permissions(&launcher_path, permissions).map_err(|error| {
@@ -1003,24 +1144,52 @@ fn parse_port(base_url: &str) -> Result<u16, String> {
         .map_err(|error| format!("invalid backend port in URL {base_url}: {error}"))
 }
 
-async fn check_health(base_url: &str, session_token: &str) -> bool {
+async fn check_health(base_url: &str, session_token: &str) -> Result<BackendHealthPayload, String> {
     let health_url = format!("{}{}", base_url, HEALTH_PATH);
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(2))
         .build()
     {
         Ok(client) => client,
-        Err(_) => return false,
+        Err(error) => return Err(format!("failed to create health client: {error}")),
     };
 
-    match client
+    let response = match client
         .get(health_url)
         .header(SESSION_HEADER_NAME, session_token)
         .send()
         .await
     {
-        Ok(response) => response.status().is_success(),
-        Err(_) => false,
+        Ok(response) => response,
+        Err(error) => return Err(format!("health request failed: {error}")),
+    };
+
+    if !response.status().is_success() {
+        return Err(format!("health request returned {}", response.status()));
+    }
+
+    response
+        .json::<BackendHealthPayload>()
+        .await
+        .map_err(|error| format!("failed to parse health response: {error}"))
+}
+
+async fn collect_startup_failure(
+    base_url: &str,
+    session_token: &str,
+    fallback_detail: String,
+    fallback_reason: Option<String>,
+) -> BackendStartupFailurePayload {
+    match check_health(base_url, session_token).await {
+        Ok(health) => {
+            let detail = health.detail.clone().or(Some(fallback_detail.clone()));
+            let reason = health.reason.clone().or(fallback_reason.clone());
+            BackendStartupFailurePayload { reason, detail }
+        }
+        Err(_) => BackendStartupFailurePayload {
+            reason: fallback_reason,
+            detail: Some(fallback_detail),
+        },
     }
 }
 
@@ -1073,25 +1242,28 @@ fn ensure_menu_bar_icon(app: &AppHandle) -> Result<(), String> {
                 PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(MENU_BAR_ICON_RELATIVE_PATH);
             TauriImage::from_path(tray_icon_path).ok()
         });
-    let tray_icon = tray_icon
-        .ok_or_else(|| "failed to initialize menu bar icon: no suitable icon image found".to_string())?;
+    let tray_icon = tray_icon.ok_or_else(|| {
+        "failed to initialize menu bar icon: no suitable icon image found".to_string()
+    })?;
 
-    let open_item = match MenuItemBuilder::with_id(MENU_BAR_OPEN_MENU_ID, "Open Informity AI")
-        .build(app)
-    {
-        Ok(item) => item,
-        Err(error) => {
-            return Err(format!("failed to initialize menu bar icon open item: {error}"));
-        }
-    };
-    let quit_item = match MenuItemBuilder::with_id(MENU_BAR_QUIT_MENU_ID, "Quit Informity AI")
-        .build(app)
-    {
-        Ok(item) => item,
-        Err(error) => {
-            return Err(format!("failed to initialize menu bar icon quit item: {error}"));
-        }
-    };
+    let open_item =
+        match MenuItemBuilder::with_id(MENU_BAR_OPEN_MENU_ID, "Open Informity AI").build(app) {
+            Ok(item) => item,
+            Err(error) => {
+                return Err(format!(
+                    "failed to initialize menu bar icon open item: {error}"
+                ));
+            }
+        };
+    let quit_item =
+        match MenuItemBuilder::with_id(MENU_BAR_QUIT_MENU_ID, "Quit Informity AI").build(app) {
+            Ok(item) => item,
+            Err(error) => {
+                return Err(format!(
+                    "failed to initialize menu bar icon quit item: {error}"
+                ));
+            }
+        };
     let tray_menu = match MenuBuilder::new(app)
         .item(&open_item)
         .separator()
@@ -1199,7 +1371,8 @@ fn main() {
             MENU_FILE_CLOSE_WINDOW_ID => app.exit(0),
             MENU_VIEW_TOGGLE_SIDEBAR_ID => emit_menu_action(app, "toggle-sidebar"),
             MENU_VIEW_SEARCH_ID => emit_menu_action(app, "focus-search"),
-            MENU_VIEW_RELOAD_ID => {
+            MENU_VIEW_RELOAD_ID =>
+            {
                 #[cfg(debug_assertions)]
                 if let Some(window) = app.get_webview_window("main") {
                     let _ = window.eval("window.location.reload()");
@@ -1215,14 +1388,14 @@ fn main() {
                     Some(Modifiers::SUPER | Modifiers::ALT | Modifiers::CONTROL),
                     Code::Semicolon,
                 );
-                if let Err(error) =
-                    app.global_shortcut()
-                        .on_shortcut(raise_shortcut, move |_app, _shortcut, event| {
-                            if event.state() == ShortcutState::Pressed {
-                                show_main_window(&app_handle);
-                            }
-                        })
-                {
+                if let Err(error) = app.global_shortcut().on_shortcut(
+                    raise_shortcut,
+                    move |_app, _shortcut, event| {
+                        if event.state() == ShortcutState::Pressed {
+                            show_main_window(&app_handle);
+                        }
+                    },
+                ) {
                     eprintln!(
                         "[global-shortcut] failed to install Cmd+Alt+Ctrl+; handler: {error}"
                     );
@@ -1258,10 +1431,9 @@ fn main() {
                     .quit_with_text("Quit Informity AI")
                     .build()?;
 
-                let new_chat_item =
-                    MenuItemBuilder::with_id(MENU_FILE_NEW_CHAT_ID, "New Chat")
-                        .accelerator("Cmd+N")
-                        .build(app)?;
+                let new_chat_item = MenuItemBuilder::with_id(MENU_FILE_NEW_CHAT_ID, "New Chat")
+                    .accelerator("Cmd+N")
+                    .build(app)?;
                 let scan_now_item =
                     MenuItemBuilder::with_id(MENU_FILE_SCAN_NOW_ID, "Scan Now").build(app)?;
                 let close_window_item =
@@ -1347,17 +1519,15 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application");
 
-    app.run(|app, event| {
-        match event {
-            #[cfg(target_os = "macos")]
-            RunEvent::Ready => {
-                setup_menu_bar_icon(app);
-            }
-            RunEvent::ExitRequested { .. } | RunEvent::Exit => {
-                let controller = app.state::<BackendController>();
-                let _ = tauri::async_runtime::block_on(backend_stop_internal(&controller));
-            }
-            _ => {}
+    app.run(|app, event| match event {
+        #[cfg(target_os = "macos")]
+        RunEvent::Ready => {
+            setup_menu_bar_icon(app);
         }
+        RunEvent::ExitRequested { .. } | RunEvent::Exit => {
+            let controller = app.state::<BackendController>();
+            let _ = tauri::async_runtime::block_on(backend_stop_internal(&controller));
+        }
+        _ => {}
     });
 }

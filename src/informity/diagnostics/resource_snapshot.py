@@ -3,6 +3,8 @@
 # Lightweight CPU/RAM snapshots for per-query diagnostics and troubleshooting.
 # ==============================================================================
 
+"""Runtime CPU and memory snapshot helpers for diagnostics."""
+
 from __future__ import annotations
 
 import time

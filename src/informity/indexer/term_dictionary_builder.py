@@ -487,8 +487,7 @@ def _add_candidate(
         )
         candidates[key] = existing
 
-    if confidence > existing.confidence:
-        existing.confidence = confidence
+    existing.confidence = max(existing.confidence, confidence)
     if alias_norm not in existing.aliases or confidence > existing.aliases[alias_norm][1]:
         existing.aliases[alias_norm] = (alias.strip(), confidence)
 

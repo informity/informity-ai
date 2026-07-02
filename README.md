@@ -5,10 +5,11 @@
 </p>
 
 [![Version](https://img.shields.io/github/v/tag/informity/informity-ai?label=version)](https://github.com/informity/informity-ai/releases)
+[![Pylint 9.63/10](https://img.shields.io/badge/pylint-9.63%2F10-brightgreen)]
 [![Python](https://img.shields.io/badge/python-3.13+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-macOS-black?logo=apple)](#)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
-[![CI](https://github.com/informity/informity-ai/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/informity/informity-ai/actions/workflows/ci.yml)
+[![CI](https://github.com/informity/informity-ai/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/informity/informity-ai/actions/workflows/ci.yml)
 
 Privacy-first local document intelligence for macOS.
 Informity scans and indexes local files, then answers questions with a local RAG pipeline backed by local embeddings and local LLM inference. Your documents and vectors stay on your machine.
@@ -83,7 +84,7 @@ For first-run setup testing (install app/runtime dependencies only, no models pr
 INFORMITY_INSTALL_PROFILE=dev INFORMITY_INSTALL_SKIP_MODELS=1 ./scripts/install/install_app.sh
 ```
 
-- Uses `scripts/install/install.conf.json` for model IDs: `embedding_model`, `reranker_model` (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`), and optional LLM (default: **Qwen3.6 35B A3B** Q4_K_M via `repo_id` / `filename`).
+- Uses `scripts/install/install.conf.json` for model IDs: `embedding_model`, `reranker_model` (default: `cross-encoder/ms-marco-MiniLM-L-6-v2`), and optional LLM (default: **Qwen3.6 35B A3B** Q4_K_M via `repo_id` / `filename`); the classifier GGUF is installed from the built-in bootstrap spec into `models/classifier/`.
 - Downloads all models to `~/.informity/` by default (override with `INFORMITY_APP_DATA_DIR`) and writes `config.json` with `full_privacy=true` (no network after install).
 - After this, the app will **never** auto-download; it only uses what’s already in app data. With those settings enabled, the app makes **no network requests after install** (no Hugging Face or internet contact).
 
@@ -117,6 +118,7 @@ Directory layout:
   logs/                    # Runtime log files
   models/
     llm/                   # LLM models (*.gguf files)
+    classifier/            # Classifier models (*.gguf files)
   cache/                   # Unified cache (not committed)
     huggingface/           # Embedding + reranker (cross-encoder) models
       hub/                 # Model blobs + snapshots (required)

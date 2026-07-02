@@ -4,6 +4,8 @@
 # Route handlers and workers must import from here; no inline magic values.
 # ==============================================================================
 
+"""Translation policy constants used by the translate workflow."""
+
 from __future__ import annotations
 
 # ---------------------------------------------------------------------------
@@ -45,13 +47,13 @@ TRANSLATE_TEMPERATURE = 0.2
 # Timeouts and retry
 # ---------------------------------------------------------------------------
 
-TRANSLATE_SECTION_RETRY_MAX     = 1    # retries per section on failure/timeout
-TRANSLATE_SECTION_TIMEOUT_S     = 360  # per-section generation wall-clock (seconds)
-                                        # = TRANSLATE_CALL_MAX_TOKENS / 5 tok/s = 1800/5 = 360s ✓
-TRANSLATE_GLOSSARY_TIMEOUT_S    = 150  # glossary timeout: 512 max tokens / 5 tok/s = 102s + buffer
-TRANSLATE_JOB_STALL_S           = 600  # no section has *started* for N seconds → stalled
-                                        # resets at section START so active sections never trigger it
-TRANSLATE_JOB_MAX_RUNTIME_S     = 7200 # hard ceiling: 2 hours
+TRANSLATE_SECTION_RETRY_MAX = 1  # retries per section on failure/timeout
+TRANSLATE_SECTION_TIMEOUT_S = 360  # per-section generation wall-clock (seconds)
+# = TRANSLATE_CALL_MAX_TOKENS / 5 tok/s = 1800/5 = 360s ✓
+TRANSLATE_GLOSSARY_TIMEOUT_S = 150  # glossary timeout: 512 max tokens / 5 tok/s = 102s + buffer
+TRANSLATE_JOB_STALL_S = 600  # no section has *started* for N seconds → stalled
+# resets at section START so active sections never trigger it
+TRANSLATE_JOB_MAX_RUNTIME_S = 7200  # hard ceiling: 2 hours
 
 # On retry, cap section input to this many tokens (a tiny stub to confirm the pipeline works).
 TRANSLATE_RETRY_TOKEN_CAP = 400
@@ -60,16 +62,16 @@ TRANSLATE_RETRY_TOKEN_CAP = 400
 # Upload / lifecycle
 # ---------------------------------------------------------------------------
 
-TRANSLATE_CLEANUP_AGE_HOURS  = 24  # sweep deletes translate.local files older than this
-TRANSLATE_SOFT_PAGE_LIMIT    = 50  # warn user; does not block
-TRANSLATE_SOFT_SECTION_LIMIT = 25  # also warn when section count exceeds this (for files lacking page_count)
+TRANSLATE_CLEANUP_AGE_HOURS = 24  # sweep deletes translate.local files older than this
+TRANSLATE_SOFT_PAGE_LIMIT = 50  # warn user; does not block
+TRANSLATE_SOFT_SECTION_LIMIT = 25  # also warn when section count exceeds this.
 
 # ---------------------------------------------------------------------------
 # Timing estimate (for pre-flight estimate endpoint)
 # ---------------------------------------------------------------------------
 
-TRANSLATE_AVG_TOKENS_PER_PAGE  = 650   # words ≈ 250/page × 1.3 token/word × ~2 pages/block
-TRANSLATE_AVG_SECTION_SECONDS  = 20    # measured: ~17s/section at 1K tokens on Qwen3.6 35B A3B
+TRANSLATE_AVG_TOKENS_PER_PAGE = 650  # words ≈ 250/page × 1.3 token/word × ~2 pages/block
+TRANSLATE_AVG_SECTION_SECONDS = 20  # measured: ~17s/section at 1K tokens on Qwen3.6 35B A3B
 
 # ---------------------------------------------------------------------------
 # Tone instructions injected into the translation system prompt
@@ -77,9 +79,17 @@ TRANSLATE_AVG_SECTION_SECONDS  = 20    # measured: ~17s/section at 1K tokens on 
 # ---------------------------------------------------------------------------
 
 TONE_INSTRUCTIONS: dict[str, str] = {
-    'natural': 'Use natural, fluent {language}. Prioritise readability over literal accuracy.',
-    'literal': 'Translate into {language} as literally as possible. Preserve sentence structure and word order where grammatically permissible.',
-    'formal':  'Use formal, professional {language} register appropriate for business or academic contexts.',
+    'natural': (
+        'Use natural, fluent {language}. Prioritise readability over literal accuracy.'
+    ),
+    'literal': (
+        'Translate into {language} as literally as possible. Preserve sentence structure '
+        'and word order where grammatically permissible.'
+    ),
+    'formal': (
+        'Use formal, professional {language} register appropriate for business '
+        'or academic contexts.'
+    ),
 }
 
 # Per-tone generation temperature.

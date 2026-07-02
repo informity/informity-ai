@@ -27,7 +27,6 @@ class QueryHandler(Protocol):
         Returns:
             True if this handler should process the query
         """
-        ...
 
     async def handle(
         self,
@@ -53,4 +52,3 @@ class QueryHandler(Protocol):
         Yields:
             str tokens (response text) followed by list[ChatSourceReference] (sources)
         """
-        ...

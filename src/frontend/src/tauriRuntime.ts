@@ -1,3 +1,5 @@
+import { getStartupErrorMessage, type StartupFailureInfo } from './startupErrors'
+
 interface BackendStartPayload {
   baseUrl: string
   sessionToken: string
@@ -5,15 +7,49 @@ interface BackendStartPayload {
   launchMode: string
 }
 
+interface BackendStartFailurePayload {
+  reason?: unknown
+  detail?: unknown
+}
+
+export class StartupFailureError extends Error implements StartupFailureInfo {
+  reason: string | null
+  detail: string | null
+
+  constructor(reason: string | null, detail: string | null) {
+    super(getStartupErrorMessage(reason))
+    this.name = 'StartupFailureError'
+    this.reason = reason
+    this.detail = detail
+    Object.setPrototypeOf(this, StartupFailureError.prototype)
+  }
+}
+
 interface StartupStatusEventPayload {
+  status?: unknown
+  reason?: unknown
+  detail?: unknown
   message?: unknown
+  progressDone?: unknown
+  progressTotal?: unknown
+  progressPercent?: unknown
 }
 
 interface MenuActionEventPayload {
   action?: unknown
 }
 
-type StartupStatusCallback = (message: string) => void
+export interface StartupStatusPayload {
+  status: string
+  reason: string | null
+  detail: string | null
+  message: string
+  progressDone: number | null
+  progressTotal: number | null
+  progressPercent: number | null
+}
+
+type StartupStatusCallback = (status: StartupStatusPayload) => void
 type MenuActionCallback = (action: string) => void
 
 const BACKEND_STARTUP_STATUS_EVENT = 'informity://backend-startup-status'
@@ -43,6 +79,26 @@ function formatUnknownError(error: unknown): string {
     }
   }
   return String(error)
+}
+
+function parseStartupFailurePayload(error: unknown): StartupFailureInfo | null {
+  const rawMessage = formatUnknownError(error).trim()
+  if (!rawMessage) {
+    return null
+  }
+
+  try {
+    const parsed = JSON.parse(rawMessage) as BackendStartFailurePayload
+    const reason = typeof parsed?.reason === 'string' ? parsed.reason : null
+    const detail = typeof parsed?.detail === 'string' ? parsed.detail : null
+    if (reason !== null || detail !== null) {
+      return { reason, detail }
+    }
+  } catch {
+    // fall through to null
+  }
+
+  return null
 }
 
 function hasTauriInvoke(): boolean {
@@ -75,9 +131,24 @@ async function listenStartupStatus(
   try {
     return await listen(BACKEND_STARTUP_STATUS_EVENT, (event) => {
       const payload = event.payload as StartupStatusEventPayload | undefined
-      if (typeof payload?.message === 'string' && payload.message.trim().length > 0) {
-        onStatus(payload.message)
-      }
+      const status = typeof payload?.status === 'string' ? payload.status : 'initializing'
+      const reason = typeof payload?.reason === 'string' ? payload.reason : null
+      const detail = typeof payload?.detail === 'string' ? payload.detail : null
+      const message = typeof payload?.message === 'string' && payload.message.trim().length > 0
+        ? payload.message
+        : detail ?? 'Starting application...'
+      const progressDone = typeof payload?.progressDone === 'number' ? payload.progressDone : null
+      const progressTotal = typeof payload?.progressTotal === 'number' ? payload.progressTotal : null
+      const progressPercent = typeof payload?.progressPercent === 'number' ? payload.progressPercent : null
+      onStatus({
+        status,
+        reason,
+        detail,
+        message,
+        progressDone,
+        progressTotal,
+        progressPercent,
+      })
     })
   } catch {
     return null
@@ -148,8 +219,12 @@ export async function bootstrapDesktopBackend(onStatus?: StartupStatusCallback):
     window.__INFORMITY_API_BASE__ = payload.baseUrl
     window.__INFORMITY_API_TOKEN__ = payload.sessionToken
   } catch (error) {
+    const failure = parseStartupFailurePayload(error)
+    if (failure) {
+      throw new StartupFailureError(failure.reason, failure.detail)
+    }
     const detail = formatUnknownError(error)
-    throw new Error(`Backend startup failed: ${detail}`)
+    throw new StartupFailureError(null, detail)
   } finally {
     if (unlisten) {
       try {

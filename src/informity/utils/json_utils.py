@@ -3,6 +3,8 @@
 # Standardized JSON serialization patterns
 # ==============================================================================
 
+"""Helpers for JSON serialization used across the app."""
+
 import json
 from typing import Any
 

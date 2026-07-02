@@ -1,2 +1,1 @@
 """MCP integration package."""
-

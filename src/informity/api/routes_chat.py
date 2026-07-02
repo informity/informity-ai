@@ -4,6 +4,8 @@
 # chats, and retrieve chat history.
 # ==============================================================================
 
+"""Chat API routes for message streaming, history, and chat management."""
+
 import asyncio
 import contextlib
 import hashlib
@@ -41,6 +43,7 @@ from informity.api.chat_continuation import (
 from informity.api.chat_continuation import (
     is_duplicate_continuation_pass as _is_duplicate_continuation_pass,
 )
+from informity.api.chat_continuation import normalize_continuation_classification
 from informity.api.chat_continuation import (
     resolve_auto_continue_policy as _resolve_auto_continue_policy,
 )
@@ -153,6 +156,8 @@ from informity.upload_policy import (
 from informity.utils.json_utils import serialize_api_response
 from informity.utils.number_utils import safe_float, safe_int
 
+_normalize_continuation_classification = normalize_continuation_classification
+
 # Trace logging constants
 MAX_ANSWER_PREVIEW_LENGTH = 1500  # Maximum length of answer preview in trace logs
 MAX_CHAT_MESSAGE_CHARS = 20000
@@ -163,40 +168,48 @@ _VALID_COMPLETION_MODES = {
     CompletionMode.STOPPED,
 }
 _PERSISTENCE_EXCEPTIONS = (aiosqlite.Error, ValueError, RuntimeError, OSError)
-_STREAM_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, ConnectionError, aiosqlite.Error)
+_STREAM_RUNTIME_EXCEPTIONS = (
+    RuntimeError,
+    ValueError,
+    TypeError,
+    OSError,
+    ConnectionError,
+    aiosqlite.Error,
+)
 _STOP_FINALIZE_GRACE_SECONDS = 2.5
 _STOP_FINALIZATION_TASKS: dict[str, asyncio.Task[None]] = {}
-_CONTINUING_STATUS_MESSAGE = 'Continuing response...'
+_CONTINUING_STATUS_MESSAGE = "Continuing response..."
 _ANSWER_STREAM_HEARTBEAT_SECONDS = 12.0
 _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS = max(
     _ANSWER_STREAM_HEARTBEAT_SECONDS * 2.0,
-    float(getattr(settings, 'diagnostics_alert_max_first_token_seconds', 45.0) or 45.0),
+    float(getattr(settings, "diagnostics_alert_max_first_token_seconds", 45.0) or 45.0),
 )
-_ACTIVE_UPLOAD_STATES = {'uploading', 'indexing', 'ready'}
+_ACTIVE_UPLOAD_STATES = {"uploading", "indexing", "ready"}
 _UPLOAD_DELETE_RETRY_ATTEMPTS = 3
-_SCOPE_SIGNAL_PATTERN = re.compile(r'(?i)\b(compare|vs|versus|only|just|between)\b')
+_SCOPE_SIGNAL_PATTERN = re.compile(r"(?i)\b(compare|vs|versus|only|just|between)\b")
 _FILENAME_CANDIDATE_PATTERN = re.compile(
-    r'(?i)\b([a-z0-9][a-z0-9_\-\(\)\[\]\.]{0,140}\.[a-z0-9]{1,10})\b'
+    r"(?i)\b([a-z0-9][a-z0-9_\-\(\)\[\]\.]{0,140}\.[a-z0-9]{1,10})\b"
 )
 _QUOTED_TEXT_PATTERN = re.compile(r'["\']([^"\']{1,180})["\']')
 _OUT_OF_SCOPE_RESPONSE_PATTERN = re.compile(
-    r'(?is)\b(?:provided|indexed|these)?\s*(?:documents?|records?|context)\b.{0,120}\b'
-    r'(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b'
-    r'(?:contain|include|cover|mention|provide|have)\b'
+    r"(?is)\b(?:provided|indexed|these)?\s*(?:documents?|records?|context)\b.{0,120}\b"
+    r"(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b"
+    r"(?:contain|include|cover|mention|provide|have)\b"
 )
 _PER_FILE_SEPARATE_REQUEST_PATTERN = re.compile(
-    r'(?i)\b('
-    r'each\s+(?:document|doc|file|attachment)s?'
-    r'|'
-    r'(?:document|doc|file|attachment)s?\s+separately'
-    r'|'
-    r'separately\s+(?:for\s+)?(?:each\s+)?(?:document|doc|file|attachment)s?'
-    r')\b'
+    r"(?i)\b("
+    r"each\s+(?:document|doc|file|attachment)s?"
+    r"|"
+    r"(?:document|doc|file|attachment)s?\s+separately"
+    r"|"
+    r"separately\s+(?:for\s+)?(?:each\s+)?(?:document|doc|file|attachment)s?"
+    r")\b"
 )
 
 
 def _normalize_diagnostics_query_type(value: object) -> str:
-    normalized = str(value or '').strip().lower()
+    """ normalize diagnostics query type."""
+    normalized = str(value or "").strip().lower()
     try:
         return DiagnosticsQueryType(normalized).value
     except ValueError:
@@ -204,52 +217,60 @@ def _normalize_diagnostics_query_type(value: object) -> str:
 
 
 def _answer_signals_out_of_scope(text: str) -> bool:
-    return bool(_OUT_OF_SCOPE_RESPONSE_PATTERN.search(str(text or '')))
+    """ answer signals out of scope."""
+    return bool(_OUT_OF_SCOPE_RESPONSE_PATTERN.search(str(text or "")))
 
 
 def _looks_per_file_separate_request(text: str) -> bool:
-    return bool(_PER_FILE_SEPARATE_REQUEST_PATTERN.search(str(text or '')))
+    """ looks per file separate request."""
+    return bool(_PER_FILE_SEPARATE_REQUEST_PATTERN.search(str(text or "")))
 
 
 def _build_per_file_separate_guidance(file_names: list[str]) -> str | None:
-    normalized = [str(name or '').strip() for name in file_names if str(name or '').strip()]
+    """ build per file separate guidance."""
+    normalized = [str(name or "").strip() for name in file_names if str(name or "").strip()]
     if len(normalized) <= 1:
         return None
-    heading_lines = '\n'.join(f'- {name}' for name in normalized)
+    heading_lines = "\n".join(f"- {name}" for name in normalized)
     return (
-        'Output contract (strict): summarize each scoped file exactly once.\n'
-        f'- Return exactly {len(normalized)} top-level sections, one per file.\n'
-        '- Use these exact section headings (same order):\n'
-        f'{heading_lines}\n'
-        '- Do not invent additional document sections.'
+        "Output contract (strict): summarize each scoped file exactly once.\n"
+        f"- Return exactly {len(normalized)} top-level sections, one per file.\n"
+        "- Use these exact section headings (same order):\n"
+        f"{heading_lines}\n"
+        "- Do not invent additional document sections."
     )
 
 
 def _sanitize_upload_filename(filename: str) -> str:
-    name = Path(str(filename or '')).name.strip()
+    """ sanitize upload filename."""
+    name = Path(str(filename or "")).name.strip()
     if not name:
-        return 'upload.txt'
-    return ''.join(ch for ch in name if ch.isprintable())[:255] or 'upload.txt'
+        return "upload.txt"
+    return "".join(ch for ch in name if ch.isprintable())[:255] or "upload.txt"
 
 
 def _upload_chat_dir(chat_id: str) -> Path:
+    """ upload chat dir."""
     return upload_root_dir() / str(chat_id).strip()
 
 
 def _upload_file_dir(chat_id: str, upload_id: str) -> Path:
+    """ upload file dir."""
     return _upload_chat_dir(chat_id) / str(upload_id).strip()
 
 
 def _normalize_filename_token(value: str) -> str:
-    token = ' '.join(str(value or '').strip().split())
-    token = token.strip('.,;:()[]{}')
-    token = re.sub(r'(?i)^(?:compare|vs|versus|and|with|between)\s+', '', token).strip()
-    token = token.strip('.,;:()[]{}')
+    """ normalize filename token."""
+    token = " ".join(str(value or "").strip().split())
+    token = token.strip(".,;:()[]{}")
+    token = re.sub(r"(?i)^(?:compare|vs|versus|and|with|between)\s+", "", token).strip()
+    token = token.strip(".,;:()[]{}")
     return token
 
 
 def _extract_filename_candidates(text: str) -> list[str]:
-    message = str(text or '')
+    """ extract filename candidates."""
+    message = str(text or "")
     candidates: list[str] = []
     seen: set[str] = set()
     for match in _FILENAME_CANDIDATE_PATTERN.finditer(message):
@@ -260,7 +281,7 @@ def _extract_filename_candidates(text: str) -> list[str]:
             candidates.append(token)
     for match in _QUOTED_TEXT_PATTERN.finditer(message):
         token = _normalize_filename_token(match.group(1))
-        if '.' not in token:
+        if "." not in token:
             continue
         lowered = token.lower()
         if token and lowered not in seen:
@@ -274,6 +295,7 @@ def _resolve_upload_scope_from_filename_candidates(
     candidates: list[str],
     attachments: list[ChatUploadAttachment],
 ) -> tuple[list[ChatUploadAttachment], str | None]:
+    """ resolve upload scope from filename candidates."""
     if not candidates:
         return [], None
     selected_by_upload_id: dict[str, ChatUploadAttachment] = {}
@@ -288,7 +310,13 @@ def _resolve_upload_scope_from_filename_candidates(
             selected_by_upload_id[exact_matches[0].upload_id] = exact_matches[0]
             continue
         if len(exact_matches) > 1:
-            return [], f'Ambiguous upload reference "{raw_candidate}". Select files explicitly in the attachment pills.'
+            return (
+                [],
+                (
+                    f'Ambiguous upload reference "{raw_candidate}". '
+                    "Select files explicitly in the attachment pills."
+                ),
+            )
         partial_matches = [
             attachment
             for attachment in attachments
@@ -298,15 +326,21 @@ def _resolve_upload_scope_from_filename_candidates(
             selected_by_upload_id[partial_matches[0].upload_id] = partial_matches[0]
             continue
         if len(partial_matches) > 1:
-            return [], f'Ambiguous upload reference "{raw_candidate}". Select files explicitly in the attachment pills.'
+            return (
+                [],
+                (
+                    f'Ambiguous upload reference "{raw_candidate}". '
+                    "Select files explicitly in the attachment pills."
+                ),
+            )
         return [], f'No uploaded file matched "{raw_candidate}".'
     return list(selected_by_upload_id.values()), None
 
 
-_RETRIEVAL_SCOPE_ASSISTANT = 'assistant_mode'
-_RETRIEVAL_SCOPE_INDEXED_CORPUS = 'indexed_corpus'
-_RETRIEVAL_SCOPE_INDEXED_FILES = 'indexed_files'
-_RETRIEVAL_SCOPE_CHAT_UPLOADS = 'chat_uploads'
+_RETRIEVAL_SCOPE_ASSISTANT = "assistant_mode"
+_RETRIEVAL_SCOPE_INDEXED_CORPUS = "indexed_corpus"
+_RETRIEVAL_SCOPE_INDEXED_FILES = "indexed_files"
+_RETRIEVAL_SCOPE_CHAT_UPLOADS = "chat_uploads"
 
 
 def _build_retrieval_scope(
@@ -317,25 +351,28 @@ def _build_retrieval_scope(
     upload_attachments_all: list[ChatUploadAttachment] | None = None,
     selected_upload_ids: list[str] | None = None,
 ) -> tuple[str, str]:
-    if chat_mode != 'researcher':
+    """ build retrieval scope."""
+    if chat_mode != "researcher":
         return _RETRIEVAL_SCOPE_ASSISTANT, _RETRIEVAL_SCOPE_ASSISTANT
     active_uploads = [
         attachment
         for attachment in (upload_attachments or [])
-        if attachment.state in _ACTIVE_UPLOAD_STATES and str(attachment.upload_id or '').strip()
+        if attachment.state in _ACTIVE_UPLOAD_STATES and str(attachment.upload_id or "").strip()
     ]
     if active_uploads:
         # Reconstruct active-count transitions from upload/remove timestamps so
         # we can keep one stable key for the current contiguous upload session.
         events: list[tuple[str, int, str]] = []
-        for attachment in (upload_attachments_all or upload_attachments or []):
-            upload_id = str(attachment.upload_id or '').strip()
+        for attachment in upload_attachments_all or upload_attachments or []:
+            upload_id = str(attachment.upload_id or "").strip()
             if not upload_id:
                 continue
             if attachment.uploaded_at is not None:
                 events.append((attachment.uploaded_at.isoformat(), 1, upload_id))  # upload (+1)
             if attachment.removed_at is not None:
-                events.append((attachment.removed_at.isoformat(), 0, upload_id))  # remove (-1), process first on tie
+                events.append(
+                    (attachment.removed_at.isoformat(), 0, upload_id)
+                )  # remove (-1), process first on tie
         events.sort(key=lambda item: (item[0], item[1], item[2]))
 
         active_count = 0
@@ -349,25 +386,31 @@ def _build_retrieval_scope(
             active_count += 1
         if not session_anchor_upload_id:
             # All uploads are expected to carry uploaded_at; this path should not occur.
-            session_anchor_upload_id = str(active_uploads[0].upload_id or '').strip()
+            session_anchor_upload_id = str(active_uploads[0].upload_id or "").strip()
 
-        scope_key = f'{_RETRIEVAL_SCOPE_CHAT_UPLOADS}:{session_anchor_upload_id}'
+        scope_key = f"{_RETRIEVAL_SCOPE_CHAT_UPLOADS}:{session_anchor_upload_id}"
         active_upload_ids = {
-            str(item.upload_id or '').strip()
+            str(item.upload_id or "").strip()
             for item in active_uploads
-            if str(item.upload_id or '').strip()
+            if str(item.upload_id or "").strip()
         }
-        normalized_selected_ids = sorted({
-            str(upload_id).strip()
-            for upload_id in (selected_upload_ids or [])
-            if str(upload_id).strip() in active_upload_ids
-        })
+        normalized_selected_ids = sorted(
+            {
+                str(upload_id).strip()
+                for upload_id in (selected_upload_ids or [])
+                if str(upload_id).strip() in active_upload_ids
+            }
+        )
         if normalized_selected_ids and set(normalized_selected_ids) != active_upload_ids:
-            scope_key = f'{scope_key}|sel:{",".join(normalized_selected_ids)}'
+            scope_key = f"{scope_key}|sel:{','.join(normalized_selected_ids)}"
         return _RETRIEVAL_SCOPE_CHAT_UPLOADS, scope_key
-    normalized_file_ids = sorted({int(file_id) for file_id in (scoped_file_ids or []) if int(file_id) > 0})
+    normalized_file_ids = sorted(
+        {int(file_id) for file_id in (scoped_file_ids or []) if int(file_id) > 0}
+    )
     if normalized_file_ids:
-        return _RETRIEVAL_SCOPE_INDEXED_FILES, ','.join(str(file_id) for file_id in normalized_file_ids)
+        return _RETRIEVAL_SCOPE_INDEXED_FILES, ",".join(
+            str(file_id) for file_id in normalized_file_ids
+        )
     return _RETRIEVAL_SCOPE_INDEXED_CORPUS, _RETRIEVAL_SCOPE_INDEXED_CORPUS
 
 
@@ -378,9 +421,10 @@ def _filter_history_for_scope(
     retrieval_scope_kind: str,
     retrieval_scope_key: str,
 ) -> list[ChatMessage]:
-    if chat_mode != 'researcher':
+    """ filter history for scope."""
+    if chat_mode != "researcher":
         return list(history)
-    target_scope_key = str(retrieval_scope_key or '').strip()
+    target_scope_key = str(retrieval_scope_key or "").strip()
     target_scope_key_normalized = (
         normalize_indexed_corpus_scope_key(target_scope_key)
         if retrieval_scope_kind == INDEXED_CORPUS_SCOPE_KIND
@@ -388,11 +432,11 @@ def _filter_history_for_scope(
     )
     scoped: list[ChatMessage] = []
     for message in history:
-        message_chat_mode = str(message.chat_mode or '').strip()
+        message_chat_mode = str(message.chat_mode or "").strip()
         if message_chat_mode and message_chat_mode != chat_mode:
             continue
-        message_scope_kind = str(message.retrieval_scope_kind or '').strip()
-        message_scope_key = str(message.retrieval_scope_key or '').strip()
+        message_scope_kind = str(message.retrieval_scope_kind or "").strip()
+        message_scope_key = str(message.retrieval_scope_key or "").strip()
         if message_scope_kind and message_scope_key:
             message_scope_key_normalized = (
                 normalize_indexed_corpus_scope_key(message_scope_key)
@@ -412,6 +456,7 @@ async def _sweep_chat_upload_orphans(
     db: aiosqlite.Connection,
     chat_id: str,
 ) -> dict[str, int]:
+    """ sweep chat upload orphans."""
     removed_orphan_dirs = 0
     removed_deleted_dirs = 0
     repaired_failed_states = 0
@@ -431,25 +476,25 @@ async def _sweep_chat_upload_orphans(
                     removed_orphan_dirs += 1
                 except (OSError, RuntimeError) as exc:
                     log.warning(
-                        'chat_upload_orphan_dir_remove_failed',
+                        "chat_upload_orphan_dir_remove_failed",
                         chat_id=chat_id,
                         upload_id=upload_id,
                         error=str(exc),
                     )
                 continue
-            if attachment.state == 'deleted':
+            if attachment.state == "deleted":
                 try:
                     shutil.rmtree(child)
                     removed_deleted_dirs += 1
                 except (OSError, RuntimeError) as exc:
                     log.warning(
-                        'chat_upload_deleted_dir_remove_failed',
+                        "chat_upload_deleted_dir_remove_failed",
                         chat_id=chat_id,
                         upload_id=upload_id,
                         error=str(exc),
                     )
     for attachment in attachments:
-        if attachment.state not in {'uploading', 'indexing'}:
+        if attachment.state not in {"uploading", "indexing"}:
             continue
         attachment_dir = _upload_file_dir(chat_id, attachment.upload_id)
         if attachment_dir.exists():
@@ -458,7 +503,7 @@ async def _sweep_chat_upload_orphans(
             db,
             upload_id=attachment.upload_id,
             chat_id=chat_id,
-            state='failed',
+            state="failed",
         )
         repaired_failed_states += 1
     if chat_dir.exists():
@@ -470,10 +515,10 @@ async def _sweep_chat_upload_orphans(
             # Best-effort cleanup only; stale empty dirs are harmless.
             pass
     return {
-        'removed_orphan_dirs': removed_orphan_dirs,
-        'removed_deleted_dirs': removed_deleted_dirs,
-        'repaired_failed_states': repaired_failed_states,
-        'removed_empty_chat_dirs': removed_empty_chat_dirs,
+        "removed_orphan_dirs": removed_orphan_dirs,
+        "removed_deleted_dirs": removed_deleted_dirs,
+        "repaired_failed_states": repaired_failed_states,
+        "removed_empty_chat_dirs": removed_empty_chat_dirs,
     }
 
 
@@ -487,9 +532,9 @@ log = structlog.get_logger(__name__)
 # Router
 # ==============================================================================
 
-router = APIRouter(tags=['chat'])
+router = APIRouter(tags=["chat"])
 CHAT_GUARD = EndpointGuard(
-    name='chat',
+    name="chat",
     max_in_flight=1,
     max_requests_per_window=30,
     window_seconds=60,
@@ -501,31 +546,40 @@ class UserStopRequestedError(Exception):
 
 
 def _resolve_chat_translation_language(requested_language: str | None) -> str:
-    default_language = normalize_translate_language(getattr(settings, 'translate_default_language', None))
-    raw_language = str(requested_language or '').strip()
+    """ resolve chat translation language."""
+    default_language = normalize_translate_language(
+        getattr(settings, "translate_default_language", None)
+    )
+    raw_language = str(requested_language or "").strip()
     if not raw_language:
         return default_language
     if find_translate_language_option(raw_language) is None:
-        raise HTTPException(status_code=400, detail=f'Invalid translation language: {raw_language}')
+        raise HTTPException(status_code=400, detail=f"Invalid translation language: {raw_language}")
     return normalize_translate_language(raw_language)
 
 
 def _resolve_chat_translation_tone(requested_tone: str | None) -> str:
-    default_tone = str(getattr(settings, 'translate_default_tone', 'natural') or 'natural').strip().lower()
-    default_tone = default_tone if default_tone in TONE_INSTRUCTIONS else 'natural'
-    raw_tone = str(requested_tone or '').strip().lower()
+    """ resolve chat translation tone."""
+    default_tone = (
+        str(getattr(settings, "translate_default_tone", "natural") or "natural").strip().lower()
+    )
+    default_tone = default_tone if default_tone in TONE_INSTRUCTIONS else "natural"
+    raw_tone = str(requested_tone or "").strip().lower()
     if not raw_tone:
         return default_tone
     if raw_tone not in TONE_INSTRUCTIONS:
-        raise HTTPException(status_code=400, detail=f'Invalid tone. Choose: {list(TONE_INSTRUCTIONS)}')
+        raise HTTPException(
+            status_code=400, detail=f"Invalid tone. Choose: {list(TONE_INSTRUCTIONS)}"
+        )
     return raw_tone
 
 
 def _build_chat_translation_display_payload(message: ChatMessage) -> dict[str, object]:
-    display_content, _ = build_display_answer(str(message.content or ''))
-    payload = message.model_dump(mode='json')
-    payload['content'] = display_content
-    payload['display_blocks'] = build_display_blocks(display_content)
+    """ build chat translation display payload."""
+    display_content, _ = build_display_answer(str(message.content or ""))
+    payload = message.model_dump(mode="json")
+    payload["content"] = display_content
+    payload["display_blocks"] = build_display_blocks(display_content)
     return payload
 
 
@@ -534,17 +588,20 @@ def _source_message_display_payload(
     messages: list[ChatMessage],
     source_message: ChatMessage,
 ) -> tuple[str, bool]:
-    latest_user_prompt = ''
+    """ source message display payload."""
+    latest_user_prompt = ""
     for message in messages:
         if message.role == ChatRole.USER and not bool(message.is_internal):
-            latest_user_prompt = str(message.content or '')
+            latest_user_prompt = str(message.content or "")
         if message.id == source_message.id:
-            preserve_task_checkboxes = answer_sanitization.should_preserve_task_checkboxes(latest_user_prompt)
+            preserve_task_checkboxes = answer_sanitization.should_preserve_task_checkboxes(
+                latest_user_prompt
+            )
             return build_display_answer(
-                str(source_message.content or ''),
+                str(source_message.content or ""),
                 preserve_task_checkboxes=preserve_task_checkboxes,
             )
-    raise HTTPException(status_code=404, detail='Message not found')
+    raise HTTPException(status_code=404, detail="Message not found")
 
 
 async def _finalize_stopped_stream_if_active(
@@ -553,6 +610,7 @@ async def _finalize_stopped_stream_if_active(
     chat_id: str | None,
     request_id: str | None,
 ) -> None:
+    """ finalize stopped stream if active."""
     try:
         await asyncio.sleep(_STOP_FINALIZE_GRACE_SECONDS)
         if not await CHAT_STREAM_REGISTRY.has_stream(stream_id):
@@ -563,12 +621,15 @@ async def _finalize_stopped_stream_if_active(
                 persist_db = await get_connection()
                 try:
                     history = await get_chat(persist_db, chat_id)
-                    latest_assistant = next((m for m in reversed(history) if m.role == ChatRole.ASSISTANT), None)
+                    latest_assistant = next(
+                        (m for m in reversed(history) if m.role == ChatRole.ASSISTANT), None
+                    )
                     has_terminal_assistant = bool(
                         latest_assistant
                         and (
                             bool(latest_assistant.stopped_by_user)
-                            or latest_assistant.completion_mode in {CompletionMode.STOPPED, CompletionMode.PARTIAL}
+                            or latest_assistant.completion_mode
+                            in {CompletionMode.STOPPED, CompletionMode.PARTIAL}
                         )
                     )
                     if not has_terminal_assistant:
@@ -576,22 +637,30 @@ async def _finalize_stopped_stream_if_active(
                             persist_db,
                             ChatMessage(
                                 chat_id=chat_id,
-                                role='assistant',
-                                content='',
+                                role="assistant",
+                                content="",
                                 sources=[],
                                 model_filename=settings.llm_model_filename,
                                 completion_mode=CompletionMode.STOPPED,
                                 stopped_by_user=True,
                                 has_remaining_scope=True,
                                 next_action=NextAction.REGENERATE,
-                                next_action_reason='stopped',
-                                chat_mode=latest_assistant.chat_mode if latest_assistant is not None else None,
-                                specialization_id=latest_assistant.specialization_id if latest_assistant is not None else None,
+                                next_action_reason="stopped",
+                                chat_mode=latest_assistant.chat_mode
+                                if latest_assistant is not None
+                                else None,
+                                specialization_id=latest_assistant.specialization_id
+                                if latest_assistant is not None
+                                else None,
                                 retrieval_scope_kind=(
-                                    latest_assistant.retrieval_scope_kind if latest_assistant is not None else None
+                                    latest_assistant.retrieval_scope_kind
+                                    if latest_assistant is not None
+                                    else None
                                 ),
                                 retrieval_scope_key=(
-                                    latest_assistant.retrieval_scope_key if latest_assistant is not None else None
+                                    latest_assistant.retrieval_scope_key
+                                    if latest_assistant is not None
+                                    else None
                                 ),
                                 is_internal=False,
                             ),
@@ -601,7 +670,7 @@ async def _finalize_stopped_stream_if_active(
                     await persist_db.close()
             except _PERSISTENCE_EXCEPTIONS as persist_err:
                 log.warning(
-                    'chat_stop_forced_finalize_persist_failed',
+                    "chat_stop_forced_finalize_persist_failed",
                     chat_id=chat_id,
                     stream_id=stream_id,
                     request_id=request_id,
@@ -611,22 +680,22 @@ async def _finalize_stopped_stream_if_active(
         if not removed:
             return
         log.info(
-            'chat_response_cancelled',
+            "chat_response_cancelled",
             chat_id=chat_id,
             stream_id=stream_id,
             request_id=request_id,
-            cancellation_reason='user_stop_forced_finalize',
+            cancellation_reason="user_stop_forced_finalize",
             stopped_by_user=True,
             tokens_streamed=0,
             generation_seconds=None,
             message_persisted=message_persisted,
         )
         log.info(
-            'chat_stream_unregistered',
+            "chat_stream_unregistered",
             chat_id=chat_id,
             stream_id=stream_id,
             request_id=request_id,
-            terminal_state='stopped_forced',
+            terminal_state="stopped_forced",
         )
     finally:
         _STOP_FINALIZATION_TASKS.pop(stream_id, None)
@@ -653,7 +722,7 @@ async def _persist_terminal_assistant_message(
     """
     assistant_message = ChatMessage(
         chat_id=chat_id,
-        role='assistant',
+        role="assistant",
         content=content,
         sources=sources,
         model_filename=settings.llm_model_filename,
@@ -677,35 +746,41 @@ async def _persist_terminal_assistant_message(
         finally:
             await persist_db.close()
     except _PERSISTENCE_EXCEPTIONS as persist_err:
-        log.warning('chat_terminal_persist_failed', chat_id=chat_id, error=str(persist_err))
+        log.warning("chat_terminal_persist_failed", chat_id=chat_id, error=str(persist_err))
         return None, False
 
 
-@router.get('/api/chat/chats/{chat_id}/uploads')
+@router.get("/api/chat/chats/{chat_id}/uploads")
 async def list_chat_uploads(
     chat_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    """list chat uploads."""
     sweep_summary = await _sweep_chat_upload_orphans(db=db, chat_id=chat_id)
     attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
     return {
-        'chat_id': chat_id,
-        'sweep_summary': sweep_summary,
-        'attachments': [attachment.model_dump(mode='json') for attachment in attachments],
+        "chat_id": chat_id,
+        "sweep_summary": sweep_summary,
+        "attachments": [attachment.model_dump(mode="json") for attachment in attachments],
     }
 
 
-@router.post('/api/chat/uploads')
+@router.post("/api/chat/uploads")
 async def upload_chat_file(
     chat_id: str | None = Form(default=None),
     file: UploadFile = File(...),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
-    resolved_chat_id = str(chat_id or '').strip() or str(uuid.uuid4())
+    """upload chat file."""
+    resolved_chat_id = str(chat_id or "").strip() or str(uuid.uuid4())
     existing_history = await get_chat(db, resolved_chat_id)
     if existing_history:
         first_user_message = next(
-            (message for message in existing_history if message.role == ChatRole.USER and not bool(message.is_internal)),
+            (
+                message
+                for message in existing_history
+                if message.role == ChatRole.USER and not bool(message.is_internal)
+            ),
             None,
         )
         first_user_chat_mode = (
@@ -715,43 +790,53 @@ async def upload_chat_file(
         )
         first_assistant_chat_mode = next(
             (
-                resolve_chat_mode(str(message.chat_mode or '').strip())
+                resolve_chat_mode(str(message.chat_mode or "").strip())
                 for message in existing_history
-                if message.role == ChatRole.ASSISTANT and (str(message.chat_mode or '').strip())
+                if message.role == ChatRole.ASSISTANT and (str(message.chat_mode or "").strip())
             ),
             None,
         )
         locked_chat_mode = first_user_chat_mode or first_assistant_chat_mode
-        if locked_chat_mode == 'assistant':
-            raise HTTPException(status_code=409, detail='Uploaded files are available only in Researcher mode.')
-    filename = _sanitize_upload_filename(file.filename or '')
+        if locked_chat_mode == "assistant":
+            raise HTTPException(
+                status_code=409, detail="Uploaded files are available only in Researcher mode."
+            )
+    filename = _sanitize_upload_filename(file.filename or "")
     if not is_allowed_extension(filename):
-        raise HTTPException(status_code=400, detail='Unsupported file type for chat upload.')
+        raise HTTPException(status_code=400, detail="Unsupported file type for chat upload.")
     if not is_allowed_mime(file.content_type):
-        raise HTTPException(status_code=400, detail='Unsupported upload MIME type.')
+        raise HTTPException(status_code=400, detail="Unsupported upload MIME type.")
 
-    existing_attachments = await get_chat_upload_attachments(db, chat_id=resolved_chat_id, include_deleted=False)
+    existing_attachments = await get_chat_upload_attachments(
+        db, chat_id=resolved_chat_id, include_deleted=False
+    )
     active_attachments = [a for a in existing_attachments if a.state in _ACTIVE_UPLOAD_STATES]
     if len(active_attachments) >= MAX_UPLOAD_FILES_PER_CHAT:
         raise HTTPException(
             status_code=413,
-            detail=f'Maximum uploads per chat reached ({MAX_UPLOAD_FILES_PER_CHAT}).',
+            detail=f"Maximum uploads per chat reached ({MAX_UPLOAD_FILES_PER_CHAT}).",
         )
 
     raw_bytes = await file.read()
     size_bytes = len(raw_bytes)
     if size_bytes <= 0:
-        raise HTTPException(status_code=400, detail='Uploaded file is empty.')
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
     if size_bytes > max_upload_file_size_bytes():
         raise HTTPException(
             status_code=413,
-            detail=f'File exceeds max upload size ({max_upload_file_size_bytes() // (1024 * 1024)} MB).',
+            detail=(
+                "File exceeds max upload size ("
+                f"{max_upload_file_size_bytes() // (1024 * 1024)} MB)."
+            ),
         )
     current_chat_upload_size = await get_chat_upload_size_bytes(db, chat_id=resolved_chat_id)
     if current_chat_upload_size + size_bytes > max_upload_total_size_bytes():
         raise HTTPException(
             status_code=413,
-            detail=f'Chat upload total size limit exceeded ({max_upload_total_size_bytes() // (1024 * 1024)} MB).',
+            detail=(
+                "Chat upload total size limit exceeded ("
+                f"{max_upload_total_size_bytes() // (1024 * 1024)} MB)."
+            ),
         )
 
     upload_id = str(uuid.uuid4())
@@ -761,7 +846,7 @@ async def upload_chat_file(
         chat_id=resolved_chat_id,
         filename_at_upload=filename,
         size_bytes=size_bytes,
-        state='uploading',
+        state="uploading",
     )
     file_dir = _upload_file_dir(resolved_chat_id, upload_id)
     file_path = file_dir / filename
@@ -772,11 +857,13 @@ async def upload_chat_file(
             db,
             upload_id=upload_id,
             chat_id=resolved_chat_id,
-            state='indexing',
+            state="indexing",
         )
         scanned = scanned_file_for_path(file_path)
         if scanned is None:
-            raise HTTPException(status_code=422, detail='Unable to process uploaded file for indexing.')
+            raise HTTPException(
+                status_code=422, detail="Unable to process uploaded file for indexing."
+            )
         index_result, file_record = await index_uploaded_file(
             db,
             scanned,
@@ -788,22 +875,27 @@ async def upload_chat_file(
                 db,
                 upload_id=upload_id,
                 chat_id=resolved_chat_id,
-                state='failed',
+                state="failed",
             )
-            raise HTTPException(status_code=422, detail=f'Failed to index upload: {index_result.error or "unknown error"}')
+            raise HTTPException(
+                status_code=422,
+                detail=f"Failed to index upload: {index_result.error or 'unknown error'}",
+            )
         if file_record is None or file_record.id is None:
             await update_chat_upload_attachment_state(
                 db,
                 upload_id=upload_id,
                 chat_id=resolved_chat_id,
-                state='failed',
+                state="failed",
             )
-            raise HTTPException(status_code=500, detail='Upload indexed but file record was not found.')
+            raise HTTPException(
+                status_code=500, detail="Upload indexed but file record was not found."
+            )
         await update_chat_upload_attachment_state(
             db,
             upload_id=upload_id,
             chat_id=resolved_chat_id,
-            state='ready',
+            state="ready",
             file_id=file_record.id,
             content_hash=file_record.content_hash,
         )
@@ -813,9 +905,13 @@ async def upload_chat_file(
             chat_id=resolved_chat_id,
         )
         return {
-            'chat_id': resolved_chat_id,
-            'upload_id': upload_id,
-            'attachment': (latest_attachment.model_dump(mode='json') if latest_attachment else attachment.model_dump(mode='json')),
+            "chat_id": resolved_chat_id,
+            "upload_id": upload_id,
+            "attachment": (
+                latest_attachment.model_dump(mode="json")
+                if latest_attachment
+                else attachment.model_dump(mode="json")
+            ),
         }
     except HTTPException:
         raise
@@ -824,17 +920,17 @@ async def upload_chat_file(
             db,
             upload_id=upload_id,
             chat_id=resolved_chat_id,
-            state='failed',
+            state="failed",
         )
         log.error(
-            'chat_upload_failed',
+            "chat_upload_failed",
             chat_id=resolved_chat_id,
             upload_id=upload_id,
             filename=filename,
             error=str(exc),
             exc_info=True,
         )
-        raise HTTPException(status_code=500, detail='Upload failed during processing.') from exc
+        raise HTTPException(status_code=500, detail="Upload failed during processing.") from exc
 
 
 async def _delete_chat_upload_artifacts(
@@ -842,6 +938,7 @@ async def _delete_chat_upload_artifacts(
     db: aiosqlite.Connection,
     attachment: ChatUploadAttachment,
 ) -> bool:
+    """ delete chat upload artifacts."""
     upload_id = str(attachment.upload_id)
     chat_id = str(attachment.chat_id)
     file_id = attachment.file_id
@@ -849,7 +946,7 @@ async def _delete_chat_upload_artifacts(
         db,
         upload_id=upload_id,
         chat_id=chat_id,
-        state='deleting',
+        state="deleting",
     )
 
     deletion_succeeded = True
@@ -863,7 +960,12 @@ async def _delete_chat_upload_artifacts(
                     break
                 await asyncio.sleep(0.05 * attempt)
             if not removed:
-                log.warning('chat_upload_file_remove_failed', chat_id=chat_id, upload_id=upload_id, file_id=file_id)
+                log.warning(
+                    "chat_upload_file_remove_failed",
+                    chat_id=chat_id,
+                    upload_id=upload_id,
+                    file_id=file_id,
+                )
                 deletion_succeeded = False
 
     file_dir = _upload_file_dir(chat_id, upload_id)
@@ -876,66 +978,81 @@ async def _delete_chat_upload_artifacts(
                 break
             except (OSError, RuntimeError) as exc:
                 if attempt >= _UPLOAD_DELETE_RETRY_ATTEMPTS:
-                    log.warning('chat_upload_storage_remove_failed', chat_id=chat_id, upload_id=upload_id, error=str(exc))
+                    log.warning(
+                        "chat_upload_storage_remove_failed",
+                        chat_id=chat_id,
+                        upload_id=upload_id,
+                        error=str(exc),
+                    )
                     break
                 await asyncio.sleep(0.05 * attempt)
         if not deleted_from_disk and file_dir.exists():
-            log.warning('chat_upload_storage_delete_incomplete', chat_id=chat_id, upload_id=upload_id)
+            log.warning(
+                "chat_upload_storage_delete_incomplete", chat_id=chat_id, upload_id=upload_id
+            )
             deletion_succeeded = False
 
     await update_chat_upload_attachment_state(
         db,
         upload_id=upload_id,
         chat_id=chat_id,
-        state='deleted' if deletion_succeeded else 'failed',
+        state="deleted" if deletion_succeeded else "failed",
         removed_at=datetime.now(UTC) if deletion_succeeded else None,
     )
     return deletion_succeeded
 
 
-@router.delete('/api/chat/uploads/{upload_id}')
+@router.delete("/api/chat/uploads/{upload_id}")
 async def delete_chat_upload(
     upload_id: str,
     chat_id: str = Query(..., min_length=1),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    """delete chat upload."""
     attachment = await get_chat_upload_attachment_by_upload_id(
         db,
         upload_id=upload_id,
         chat_id=chat_id,
     )
     if attachment is None:
-        raise HTTPException(status_code=404, detail='Upload not found.')
+        raise HTTPException(status_code=404, detail="Upload not found.")
 
-    if attachment.state == 'deleted':
-        return {'chat_id': chat_id, 'upload_id': upload_id, 'deleted': True, 'fallback_to_scanned_documents': False}
+    if attachment.state == "deleted":
+        return {
+            "chat_id": chat_id,
+            "upload_id": upload_id,
+            "deleted": True,
+            "fallback_to_scanned_documents": False,
+        }
     deletion_succeeded = await _delete_chat_upload_artifacts(db=db, attachment=attachment)
     if not deletion_succeeded:
         raise HTTPException(
             status_code=500,
-            detail='Failed to fully delete uploaded file artifacts. Please retry.',
+            detail="Failed to fully delete uploaded file artifacts. Please retry.",
         )
     sweep_summary = await _sweep_chat_upload_orphans(db=db, chat_id=chat_id)
     remaining = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
-    active_remaining = [item for item in remaining if item.state in {'uploading', 'indexing', 'ready'}]
+    active_remaining = [
+        item for item in remaining if item.state in {"uploading", "indexing", "ready"}
+    ]
     fallback_to_scanned_documents = len(active_remaining) == 0
     return {
-        'chat_id': chat_id,
-        'upload_id': upload_id,
-        'deleted': True,
-        'fallback_to_scanned_documents': fallback_to_scanned_documents,
-        'toast_message': (
-            'No uploaded files. Using your scanned documents.'
+        "chat_id": chat_id,
+        "upload_id": upload_id,
+        "deleted": True,
+        "fallback_to_scanned_documents": fallback_to_scanned_documents,
+        "toast_message": (
+            "No uploaded files. Using your scanned documents."
             if fallback_to_scanned_documents
             else None
         ),
-        'sweep_summary': sweep_summary,
+        "sweep_summary": sweep_summary,
     }
 
 
-
-@router.get('/api/specializations', response_model=list[ChatSpecializationDefinition])
+@router.get("/api/specializations", response_model=list[ChatSpecializationDefinition])
 async def list_specializations() -> list[ChatSpecializationDefinition]:
+    """list specializations."""
     profiles = list_specialization_profiles(visible_only=True)
     return [
         ChatSpecializationDefinition(
@@ -953,19 +1070,21 @@ async def list_specializations() -> list[ChatSpecializationDefinition]:
 # POST /api/chat — send a message and stream the response via SSE
 # ==============================================================================
 
-@router.post('/api/chat')
+
+@router.post("/api/chat")
 async def chat(
     request: ChatRequest,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> EventSourceResponse:
     # Validate the incoming message
+    """chat."""
     message_text = request.message.strip()
     if not message_text:
-        raise HTTPException(status_code=400, detail='Message cannot be empty')
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
     if len(message_text) > MAX_CHAT_MESSAGE_CHARS:
         raise HTTPException(
             status_code=413,
-            detail=f'Message too large (max {MAX_CHAT_MESSAGE_CHARS} characters).',
+            detail=f"Message too large (max {MAX_CHAT_MESSAGE_CHARS} characters).",
         )
     preserve_task_checkboxes = answer_sanitization.should_preserve_task_checkboxes(message_text)
     requested_scoped_file_ids: list[int] | None = None
@@ -974,8 +1093,10 @@ async def chat(
         files_by_id = await get_files_by_ids(db, candidate_file_ids)
         missing_file_ids = [file_id for file_id in candidate_file_ids if file_id not in files_by_id]
         if missing_file_ids:
-            missing_ids_text = ', '.join(str(file_id) for file_id in missing_file_ids)
-            raise HTTPException(status_code=404, detail=f'Files not found in index: {missing_ids_text}.')
+            missing_ids_text = ", ".join(str(file_id) for file_id in missing_file_ids)
+            raise HTTPException(
+                status_code=404, detail=f"Files not found in index: {missing_ids_text}."
+            )
         requested_scoped_file_ids = candidate_file_ids
     requested_scoped_upload_ids: list[str] | None = None
     if request.scoped_upload_ids is not None:
@@ -985,9 +1106,9 @@ async def chat(
             if str(upload_id).strip()
         ]
     await CHAT_GUARD.check_rate_limit()
-    requested_run_id = str(request.run_id or '').strip() or None
+    requested_run_id = str(request.run_id or "").strip() or None
     resolved_chat_mode = resolve_chat_mode(request.mode)
-    requested_specialization_id = str(request.specialization_id or '').strip() or None
+    requested_specialization_id = str(request.specialization_id or "").strip() or None
     requested_specialization = (
         describe_specialization(requested_specialization_id)
         if requested_specialization_id is not None
@@ -997,90 +1118,98 @@ async def chat(
         try:
             get_specialization_profile(requested_specialization_id)
         except KeyError as exc:
-            raise HTTPException(status_code=400, detail=f'Unknown specialization_id: {requested_specialization_id}') from exc
+            raise HTTPException(
+                status_code=400, detail=f"Unknown specialization_id: {requested_specialization_id}"
+            ) from exc
     _enforce_continuation_chat_binding(question=message_text, chat_id=request.chat_id)
 
     # Resolve chat ID — create a new one if not provided
     chat_id = request.chat_id or str(uuid.uuid4())
     full_history = await get_chat(db, chat_id)
     first_user_message = next(
-        (message for message in full_history if message.role == ChatRole.USER and not bool(message.is_internal)),
+        (
+            message
+            for message in full_history
+            if message.role == ChatRole.USER and not bool(message.is_internal)
+        ),
         None,
     )
     first_user_chat_mode = (
-        resolve_chat_mode(first_user_message.chat_mode)
-        if first_user_message is not None
-        else None
+        resolve_chat_mode(first_user_message.chat_mode) if first_user_message is not None else None
     )
     first_assistant_chat_mode = next(
         (
-            resolve_chat_mode(str(message.chat_mode or '').strip())
+            resolve_chat_mode(str(message.chat_mode or "").strip())
             for message in full_history
-            if message.role == ChatRole.ASSISTANT and (str(message.chat_mode or '').strip())
+            if message.role == ChatRole.ASSISTANT and (str(message.chat_mode or "").strip())
         ),
         None,
     )
     locked_chat_mode = first_user_chat_mode or first_assistant_chat_mode
     resolved_chat_mode = locked_chat_mode if locked_chat_mode is not None else resolved_chat_mode
     stream_id = str(uuid.uuid4())
-    client_request_id = str(request.request_id or '').strip()
+    client_request_id = str(request.request_id or "").strip()
     request_id = (
         client_request_id
-        or str(get_contextvars().get('request_id') or '').strip()
+        or str(get_contextvars().get("request_id") or "").strip()
         or str(uuid.uuid4())
     )
     artifact_request_id = request_id
 
-    upload_attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
+    upload_attachments = await get_chat_upload_attachments(
+        db, chat_id=chat_id, include_deleted=False
+    )
     await _sweep_chat_upload_orphans(db=db, chat_id=chat_id)
-    upload_attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=False)
-    upload_attachments_all = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=True)
+    upload_attachments = await get_chat_upload_attachments(
+        db, chat_id=chat_id, include_deleted=False
+    )
+    upload_attachments_all = await get_chat_upload_attachments(
+        db, chat_id=chat_id, include_deleted=True
+    )
     uploads_by_id = {str(item.upload_id): item for item in upload_attachments}
-    upload_ready_file_ids = sorted({
-        int(item.file_id)
-        for item in upload_attachments
-        if item.state == 'ready' and item.file_id is not None
-    })
+    upload_ready_file_ids = sorted(
+        {
+            int(item.file_id)
+            for item in upload_attachments
+            if item.state == "ready" and item.file_id is not None
+        }
+    )
     upload_indexing_ids = [
-        item.upload_id
-        for item in upload_attachments
-        if item.state in {'uploading', 'indexing'}
+        item.upload_id for item in upload_attachments if item.state in {"uploading", "indexing"}
     ]
     upload_active_ids = [
-        item.upload_id
-        for item in upload_attachments
-        if item.state in _ACTIVE_UPLOAD_STATES
+        item.upload_id for item in upload_attachments if item.state in _ACTIVE_UPLOAD_STATES
     ]
     if requested_scoped_file_ids is not None and requested_scoped_upload_ids is not None:
         raise HTTPException(
             status_code=409,
-            detail='Provide either scoped_file_ids or scoped_upload_ids, not both.',
+            detail="Provide either scoped_file_ids or scoped_upload_ids, not both.",
         )
-    if resolved_chat_mode != 'researcher' and requested_scoped_file_ids is not None:
+    if resolved_chat_mode != "researcher" and requested_scoped_file_ids is not None:
         raise HTTPException(
             status_code=409,
-            detail='Scoped file retrieval is available only in Researcher mode.',
+            detail="Scoped file retrieval is available only in Researcher mode.",
         )
-    if resolved_chat_mode != 'researcher' and (upload_active_ids or requested_scoped_upload_ids):
+    if resolved_chat_mode != "researcher" and (upload_active_ids or requested_scoped_upload_ids):
         raise HTTPException(
             status_code=409,
-            detail='Uploaded files are available only in Researcher mode.',
+            detail="Uploaded files are available only in Researcher mode.",
         )
     if requested_scoped_file_ids is not None and upload_active_ids:
         raise HTTPException(
             status_code=409,
-            detail='Mixed library scope and chat uploads are not supported in one turn.',
+            detail="Mixed library scope and chat uploads are not supported in one turn.",
         )
     scoped_file_ids: list[int] | None = requested_scoped_file_ids
     upload_scope_omitted_ids: list[str] = []
     upload_scope_selected_ids: list[str] = []
-    upload_scope_resolution_mode = 'default'
+    upload_scope_resolution_mode = "default"
     message_filename_candidates = _extract_filename_candidates(message_text)
     message_scope_signal = bool(_SCOPE_SIGNAL_PATTERN.search(message_text))
     if requested_scoped_upload_ids is not None:
-        upload_scope_resolution_mode = 'explicit_upload_ids'
+        upload_scope_resolution_mode = "explicit_upload_ids"
         if not upload_attachments:
-            raise HTTPException(status_code=404, detail='No uploaded files found for this chat.')
+            raise HTTPException(status_code=404, detail="No uploaded files found for this chat.")
         selected_uploads: list[ChatUploadAttachment] = []
         missing_upload_ids: list[str] = []
         for upload_id in requested_scoped_upload_ids:
@@ -1092,69 +1221,87 @@ async def chat(
         if missing_upload_ids:
             raise HTTPException(
                 status_code=404,
-                detail=f'Upload not found or inactive: {", ".join(missing_upload_ids)}.',
+                detail=f"Upload not found or inactive: {', '.join(missing_upload_ids)}.",
             )
-        indexing_selected = [item.upload_id for item in selected_uploads if item.state in {'uploading', 'indexing'}]
+        indexing_selected = [
+            item.upload_id for item in selected_uploads if item.state in {"uploading", "indexing"}
+        ]
         if indexing_selected:
             raise HTTPException(
                 status_code=409,
-                detail='Selected uploaded file is still indexing. Please retry in a moment.',
+                detail="Selected uploaded file is still indexing. Please retry in a moment.",
             )
-        selected_ready_file_ids = sorted({
-            int(item.file_id)
-            for item in selected_uploads
-            if item.state == 'ready' and item.file_id is not None
-        })
+        selected_ready_file_ids = sorted(
+            {
+                int(item.file_id)
+                for item in selected_uploads
+                if item.state == "ready" and item.file_id is not None
+            }
+        )
         if not selected_ready_file_ids:
             raise HTTPException(
                 status_code=409,
-                detail='Selected uploaded files are not ready yet. Please retry in a moment.',
+                detail="Selected uploaded files are not ready yet. Please retry in a moment.",
             )
         scoped_file_ids = selected_ready_file_ids
         upload_scope_selected_ids = [item.upload_id for item in selected_uploads]
     elif scoped_file_ids is None and upload_active_ids:
         resolved_selected_uploads: list[ChatUploadAttachment] = []
         if message_filename_candidates or message_scope_signal:
-            resolved_selected_uploads, resolution_error = _resolve_upload_scope_from_filename_candidates(
-                candidates=message_filename_candidates,
-                attachments=[item for item in upload_attachments if item.state in _ACTIVE_UPLOAD_STATES],
+            resolved_selected_uploads, resolution_error = (
+                _resolve_upload_scope_from_filename_candidates(
+                    candidates=message_filename_candidates,
+                    attachments=[
+                        item for item in upload_attachments if item.state in _ACTIVE_UPLOAD_STATES
+                    ],
+                )
             )
             if resolution_error:
                 raise HTTPException(status_code=409, detail=resolution_error)
             if resolved_selected_uploads:
-                upload_scope_resolution_mode = 'nlp_filename_scope'
+                upload_scope_resolution_mode = "nlp_filename_scope"
                 selected_indexing = [
-                    item.upload_id for item in resolved_selected_uploads if item.state in {'uploading', 'indexing'}
+                    item.upload_id
+                    for item in resolved_selected_uploads
+                    if item.state in {"uploading", "indexing"}
                 ]
                 if selected_indexing:
                     raise HTTPException(
                         status_code=409,
-                        detail='Selected uploaded file is still indexing. Please retry in a moment.',
+                        detail=(
+                            "Selected uploaded file is still indexing. Please retry in a"
+                            "moment."
+                        ),
                     )
-                selected_ready_ids = sorted({
-                    int(item.file_id)
-                    for item in resolved_selected_uploads
-                    if item.file_id is not None and item.state == 'ready'
-                })
+                selected_ready_ids = sorted(
+                    {
+                        int(item.file_id)
+                        for item in resolved_selected_uploads
+                        if item.file_id is not None and item.state == "ready"
+                    }
+                )
                 if not selected_ready_ids:
                     raise HTTPException(
                         status_code=409,
-                        detail='Selected uploaded files are not ready yet. Please retry in a moment.',
+                        detail=(
+                            "Selected uploaded files are not ready yet. Please retry in a"
+                            "moment."
+                        ),
                     )
                 scoped_file_ids = selected_ready_ids
                 upload_scope_selected_ids = [item.upload_id for item in resolved_selected_uploads]
             elif message_scope_signal and not message_filename_candidates:
-                upload_scope_resolution_mode = 'nlp_scope_all_uploads'
+                upload_scope_resolution_mode = "nlp_scope_all_uploads"
         if upload_ready_file_ids:
             if not scoped_file_ids:
                 scoped_file_ids = upload_ready_file_ids
                 upload_scope_omitted_ids = list(upload_indexing_ids)
                 upload_scope_selected_ids = list(upload_active_ids)
-                upload_scope_resolution_mode = 'default_all_uploads'
+                upload_scope_resolution_mode = "default_all_uploads"
         else:
             raise HTTPException(
                 status_code=409,
-                detail='Uploaded files are still indexing. Please retry in a moment.',
+                detail="Uploaded files are still indexing. Please retry in a moment.",
             )
     retrieval_scope_kind, retrieval_scope_key = _build_retrieval_scope(
         chat_mode=resolved_chat_mode,
@@ -1171,33 +1318,36 @@ async def chat(
                 continue
             file_id = int(attachment.file_id)
             if file_id not in filenames_by_file_id:
-                filenames_by_file_id[file_id] = str(attachment.filename_at_upload or '').strip()
-        missing_file_ids = [file_id for file_id in scoped_file_ids if file_id not in filenames_by_file_id]
+                filenames_by_file_id[file_id] = str(attachment.filename_at_upload or "").strip()
+        missing_file_ids = [
+            file_id for file_id in scoped_file_ids if file_id not in filenames_by_file_id
+        ]
         if missing_file_ids:
             indexed_files = await get_files_by_ids(db, missing_file_ids)
             for file_id, indexed_file in indexed_files.items():
-                filenames_by_file_id[int(file_id)] = str(indexed_file.filename or '').strip()
+                filenames_by_file_id[int(file_id)] = str(indexed_file.filename or "").strip()
         scoped_file_names = [
-            filenames_by_file_id.get(file_id) or f'File {file_id}'
-            for file_id in scoped_file_ids
+            filenames_by_file_id.get(file_id) or f"File {file_id}" for file_id in scoped_file_ids
         ]
 
     first_user_specialization_id = (
-        str(first_user_message.specialization_id or '').strip() or None
+        str(first_user_message.specialization_id or "").strip() or None
         if first_user_message is not None
         else None
     )
     first_assistant_specialization_id = next(
         (
-            str(message.specialization_id or '').strip()
+            str(message.specialization_id or "").strip()
             for message in full_history
-            if message.role == ChatRole.ASSISTANT and (str(message.specialization_id or '').strip())
+            if message.role == ChatRole.ASSISTANT and (str(message.specialization_id or "").strip())
         ),
         None,
     )
     locked_specialization_id = first_user_specialization_id or first_assistant_specialization_id
     resolved_specialization_id = (
-        locked_specialization_id if locked_specialization_id is not None else requested_specialization_id
+        locked_specialization_id
+        if locked_specialization_id is not None
+        else requested_specialization_id
     )
     retrieval_scope_key, context_scope_resolution = resolve_retrieval_context_scope_key(
         chat_mode=resolved_chat_mode,
@@ -1215,12 +1365,12 @@ async def chat(
     )
     existing_chat_preferences = await get_chat_preferences(db, chat_id)
     resolved_chat_web_search_enabled = (
-        bool(existing_chat_preferences.get('chat_web_search_enabled'))
+        bool(existing_chat_preferences.get("chat_web_search_enabled"))
         if request.chat_web_search_enabled is None
         else bool(request.chat_web_search_enabled)
     )
     resolved_chat_web_search_privacy_override = (
-        bool(existing_chat_preferences.get('chat_web_search_privacy_override'))
+        bool(existing_chat_preferences.get("chat_web_search_privacy_override"))
         if request.chat_web_search_privacy_override is None
         else bool(request.chat_web_search_privacy_override)
     )
@@ -1228,15 +1378,15 @@ async def chat(
 
     # Persist the user message
     user_message = ChatMessage(
-        chat_id = chat_id,
-        role    = 'user',
-        content = message_text,
-        chat_mode = resolved_chat_mode,
-        specialization_id = resolved_specialization_id,
-        retrieval_scope_kind = retrieval_scope_kind,
-        retrieval_scope_key = retrieval_scope_key,
-        model_filename = settings.llm_model_filename,
-        is_internal = user_message_is_internal,
+        chat_id=chat_id,
+        role="user",
+        content=message_text,
+        chat_mode=resolved_chat_mode,
+        specialization_id=resolved_specialization_id,
+        retrieval_scope_kind=retrieval_scope_kind,
+        retrieval_scope_key=retrieval_scope_key,
+        model_filename=settings.llm_model_filename,
+        is_internal=user_message_is_internal,
     )
     await insert_chat_message(db, user_message)
     await upsert_chat_preferences(
@@ -1247,42 +1397,46 @@ async def chat(
     )
 
     log.info(
-        'chat_message_received',
-        chat_id          = chat_id,
-        client_request_id = client_request_id or None,
-        stream_request_id = request_id,
-        run_id           = requested_run_id,
-        chat_mode        = resolved_chat_mode,
-        specialization_id = requested_specialization_id,
-        specialization_name = (requested_specialization or {}).get('name'),
-        topic_shift_reset = bool(context_scope_resolution.get('topic_shift_reset')),
-        scope_transition_reset = bool(context_scope_resolution.get('scope_transition_reset')),
-        context_generation = context_scope_resolution.get('generation'),
-        message_length   = len(message_text),
-        history_messages = len(history),
+        "chat_message_received",
+        chat_id=chat_id,
+        client_request_id=client_request_id or None,
+        stream_request_id=request_id,
+        run_id=requested_run_id,
+        chat_mode=resolved_chat_mode,
+        specialization_id=requested_specialization_id,
+        specialization_name=(requested_specialization or {}).get("name"),
+        topic_shift_reset=bool(context_scope_resolution.get("topic_shift_reset")),
+        scope_transition_reset=bool(context_scope_resolution.get("scope_transition_reset")),
+        context_generation=context_scope_resolution.get("generation"),
+        message_length=len(message_text),
+        history_messages=len(history),
     )
 
     message_id = str(uuid.uuid4())
     trace_writer = get_trace_writer(chat_id, message_id, run_id=requested_run_id)
     request_resource_snapshot = capture_resource_snapshot()
     if trace_writer is not None:
-        trace_writer.record('request', {
-            'chat_id':          chat_id,
-            'question':         message_text,
-            'question_length':  len(message_text),
-            'history_messages': len(history),
-            'chat_mode':        resolved_chat_mode,
-            'specialization_id': requested_specialization_id,
-            'specialization':    requested_specialization,
-            'resolved_specialization_id': resolved_specialization_id,
-            'model_filename':   settings.llm_model_filename,
-            'chat_web_search_enabled': resolved_chat_web_search_enabled,
-            'chat_web_search_privacy_override': resolved_chat_web_search_privacy_override,
-            'resource_snapshot': request_resource_snapshot,
-        })
+        trace_writer.record(
+            "request",
+            {
+                "chat_id": chat_id,
+                "question": message_text,
+                "question_length": len(message_text),
+                "history_messages": len(history),
+                "chat_mode": resolved_chat_mode,
+                "specialization_id": requested_specialization_id,
+                "specialization": requested_specialization,
+                "resolved_specialization_id": resolved_specialization_id,
+                "model_filename": settings.llm_model_filename,
+                "chat_web_search_enabled": resolved_chat_web_search_enabled,
+                "chat_web_search_privacy_override": resolved_chat_web_search_privacy_override,
+                "resource_snapshot": request_resource_snapshot,
+            },
+        )
 
     # Build the SSE event generator
     async def _event_stream() -> AsyncGenerator[dict]:
+        """ event stream."""
         async with CHAT_GUARD.slot(check_rate=False):
             start_time = time.time()
             sse_tracker = SseContractTracker()
@@ -1298,24 +1452,26 @@ async def chat(
             )
             registry_registered = True
             log.info(
-                'chat_stream_registered',
+                "chat_stream_registered",
                 chat_id=chat_id,
                 stream_id=stream_id,
                 request_id=request_id,
             )
 
             def _raise_if_user_stopped() -> None:
+                """ raise if user stopped."""
                 if stop_event.is_set() and CHAT_STREAM_REGISTRY.is_stopped_by_user(stream_id):
                     raise UserStopRequestedError
 
             async def _flush_trace_writer_safe() -> None:
+                """ flush trace writer safe."""
                 if trace_writer is None:
                     return
                 try:
                     await trace_writer.flush()
                 except (RuntimeError, ValueError, TypeError, OSError) as trace_exc:
                     log.warning(
-                        'chat_trace_flush_failed',
+                        "chat_trace_flush_failed",
                         chat_id=chat_id,
                         stream_id=stream_id,
                         request_id=request_id,
@@ -1323,22 +1479,23 @@ async def chat(
                     )
 
             def _update_sse_phase(event_name: str) -> None:
+                """ update sse phase."""
                 if not sse_tracker.update(event_name):
                     log.warning(
-                        'chat_sse_out_of_order',
+                        "chat_sse_out_of_order",
                         chat_id=chat_id,
                         event_name=event_name,
                         current_phase=sse_tracker.current_phase,
                         event_phase=SSE_PHASE_ORDER.get(event_name, 0),
                     )
 
-            _update_sse_phase('chat')
+            _update_sse_phase("chat")
             chat_event = prepare_chat_request(
                 chat_id=chat_id,
                 stream_id=stream_id,
                 request_id=request_id if request_id else None,
             )
-            yield {'event': chat_event['event'], 'data': serialize_api_response(chat_event['data'])}
+            yield {"event": chat_event["event"], "data": serialize_api_response(chat_event["data"])}
 
             answer_parts: list[str] = []
             sources: list[ChatSourceReference] = []
@@ -1348,7 +1505,7 @@ async def chat(
             assistant_message_id: int | None = None
             assistant_message_record: ChatMessage | None = None
             message_persisted = False
-            cleaned_answer = ''
+            cleaned_answer = ""
             completion_mode_override: CompletionMode | str | None = None
             budget_metrics: dict[str, object] = {}
             budget_checkpoints: list[dict[str, object]] = []
@@ -1374,14 +1531,14 @@ async def chat(
             pre_first_yield_timeout_occurred = False
             pre_first_yield_elapsed_seconds: float | None = None
             pre_first_yield_stage: str | None = None
-            terminal_state = 'unknown'
+            terminal_state = "unknown"
 
             try:
                 _raise_if_user_stopped()
-                if resolved_chat_mode != 'assistant':
+                if resolved_chat_mode != "assistant":
                     classifying_status = status_emitter.build_event(
-                        'classifying',
-                        message='Analyzing your request...',
+                        "classifying",
+                        message="Analyzing your request...",
                     )
                     if classifying_status is not None:
                         yield classifying_status
@@ -1396,12 +1553,16 @@ async def chat(
 
                 locked_classification = None
 
-                auto_continue_enabled, max_auto_continue_rounds, auto_continue_prompt = _resolve_auto_continue_policy()
+                auto_continue_enabled, max_auto_continue_rounds, auto_continue_prompt = (
+                    _resolve_auto_continue_policy()
+                )
                 base_history = list(history)
                 max_total_passes = 1 + (max_auto_continue_rounds if auto_continue_enabled else 0)
                 contract_spec = build_contract_spec(
                     question=continuation_anchor_question,
-                    classification=locked_classification if resolved_chat_mode != 'assistant' else None,
+                    classification=locked_classification
+                    if resolved_chat_mode != "assistant"
+                    else None,
                 )
                 per_file_separate_guidance = (
                     _build_per_file_separate_guidance(scoped_file_names)
@@ -1421,18 +1582,20 @@ async def chat(
                             original_question=continuation_anchor_question,
                         )
                         if continuation_contract_guidance:
-                            pass_question = f"{pass_question}\n\n{continuation_contract_guidance}".strip()
+                            pass_question = (
+                                f"{pass_question}\n\n{continuation_contract_guidance}".strip()
+                            )
                     elif per_file_separate_guidance:
                         pass_question = f"{pass_question}\n\n{per_file_separate_guidance}".strip()
                     pass_history = history
                     if pass_index > 1:
-                        assistant_history_content = ''.join(answer_parts).strip()
+                        assistant_history_content = "".join(answer_parts).strip()
                         pass_history = [
                             *base_history,
                             user_message,
                             ChatMessage(
                                 chat_id=chat_id,
-                                role='assistant',
+                                role="assistant",
                                 content=assistant_history_content,
                                 sources=serialize_sources(list(source_map.values())),
                                 model_filename=settings.llm_model_filename,
@@ -1445,7 +1608,7 @@ async def chat(
                             ),
                         ]
                         continuing_status = status_emitter.build_event(
-                            'continuing',
+                            "continuing",
                             message=_CONTINUING_STATUS_MESSAGE,
                             pass_index=pass_index,
                             pass_total=max_total_passes,
@@ -1457,25 +1620,31 @@ async def chat(
                     pass_has_remaining_scope = False
                     pass_completion_mode_override: CompletionMode | str | None = None
                     pass_answer_parts: list[str] = []
-                    answer_before_pass = ''.join(answer_parts)
+                    answer_before_pass = "".join(answer_parts)
                     answer_length_before_pass = len(answer_before_pass)
 
                     # Emit "retrieving" status for pass 1 when classification is pre-computed.
                     # Normally this fires from the __classification__ intercept below, but when
                     # locked_classification is pre-set answer_question() skips classification
                     # and never yields ('__classification__', ...).
-                    if pass_index == 1 and locked_classification is not None and resolved_chat_mode != 'assistant':
+                    if (
+                        pass_index == 1
+                        and locked_classification is not None
+                        and resolved_chat_mode != "assistant"
+                    ):
                         _retrieval_message = (
-                            'Checking document index...'
+                            "Checking document index..."
                             if locked_classification.is_metadata_query
-                            else 'Searching for relevant information...'
+                            else "Searching for relevant information..."
                         )
-                        retrieving_status = status_emitter.build_event('retrieving', message=_retrieval_message)
+                        retrieving_status = status_emitter.build_event(
+                            "retrieving", message=_retrieval_message
+                        )
                         if retrieving_status is not None:
                             yield retrieving_status
 
                     log.info(
-                        'chat_answer_stream_begin',
+                        "chat_answer_stream_begin",
                         chat_id=chat_id,
                         request_id=request_id,
                         pass_index=pass_index,
@@ -1488,32 +1657,38 @@ async def chat(
                     answer_tokens_seen = 0
                     answer_list_events = 0
                     answer_next_task: asyncio.Task[object] | None = None
-                    answer_iter = answer_question(
-                        question=pass_question,
-                        chat_id=chat_id,
-                        file_ids=scoped_file_ids,
-                        history=pass_history,
-                        db=db,
-                        trace=trace_writer,
-                        classification=locked_classification,
-                        chat_mode=resolved_chat_mode,
-                        specialization_id=resolved_specialization_id,
-                        chat_web_search_enabled=resolved_chat_web_search_enabled,
-                        chat_web_search_privacy_override=resolved_chat_web_search_privacy_override,
-                    ).__aiter__()
+                    answer_iter = aiter(
+                        answer_question(
+                            question=pass_question,
+                            chat_id=chat_id,
+                            file_ids=scoped_file_ids,
+                            history=pass_history,
+                            db=db,
+                            trace=trace_writer,
+                            classification=locked_classification,
+                            chat_mode=resolved_chat_mode,
+                            specialization_id=resolved_specialization_id,
+                            chat_web_search_enabled=resolved_chat_web_search_enabled,
+                            chat_web_search_privacy_override=(
+                                resolved_chat_web_search_privacy_override
+                            ),
+                        )
+                    )
                     try:
                         while True:
                             _raise_if_user_stopped()
                             if answer_next_task is None:
-                                answer_next_task = asyncio.create_task(answer_iter.__anext__())
+                                answer_next_task = asyncio.create_task(anext(answer_iter))
                             done, _ = await asyncio.wait(
                                 {answer_next_task},
                                 timeout=_ANSWER_STREAM_HEARTBEAT_SECONDS,
                             )
                             if not done:
-                                elapsed_wait_seconds = time.perf_counter() - answer_stream_started_at
+                                elapsed_wait_seconds = (
+                                    time.perf_counter() - answer_stream_started_at
+                                )
                                 log.warning(
-                                    'chat_answer_stream_heartbeat_waiting',
+                                    "chat_answer_stream_heartbeat_waiting",
                                     chat_id=chat_id,
                                     request_id=request_id,
                                     pass_index=pass_index,
@@ -1526,47 +1701,68 @@ async def chat(
                                 )
                                 if (
                                     answer_items_seen == 0
-                                    and elapsed_wait_seconds >= _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS
+                                    and elapsed_wait_seconds
+                                    >= _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS
                                 ):
                                     pre_first_yield_timeout_occurred = True
-                                    pre_first_yield_elapsed_seconds = float(round(elapsed_wait_seconds, 3))
-                                    pre_first_yield_stage = 'answer_question_first_item'
-                                    budget_metrics['pre_first_yield_timeout_occurred'] = True
-                                    budget_metrics['pre_first_yield_elapsed_seconds'] = pre_first_yield_elapsed_seconds
-                                    budget_metrics['pre_first_yield_stage'] = pre_first_yield_stage
+                                    pre_first_yield_elapsed_seconds = float(
+                                        round(elapsed_wait_seconds, 3)
+                                    )
+                                    pre_first_yield_stage = "answer_question_first_item"
+                                    budget_metrics["pre_first_yield_timeout_occurred"] = True
+                                    budget_metrics["pre_first_yield_elapsed_seconds"] = (
+                                        pre_first_yield_elapsed_seconds
+                                    )
+                                    budget_metrics["pre_first_yield_stage"] = pre_first_yield_stage
                                     timeout_occurred = True
                                     timeout_reason = TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT
-                                    timeout_allows_continuation = not is_terminal_timeout_reason(timeout_reason)
+                                    timeout_allows_continuation = not is_terminal_timeout_reason(
+                                        timeout_reason
+                                    )
                                     pass_has_remaining_scope = timeout_allows_continuation
                                     if timeout_allows_continuation:
                                         has_remaining_scope = True
                                     if continuation_resolution_reason is None:
                                         continuation_resolution_reason = timeout_reason
                                     log.error(
-                                        'chat_answer_stream_first_item_watchdog_timeout',
+                                        "chat_answer_stream_first_item_watchdog_timeout",
                                         chat_id=chat_id,
                                         request_id=request_id,
                                         pass_index=pass_index,
                                         elapsed_seconds=round(elapsed_wait_seconds, 1),
-                                        timeout_seconds=round(_ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS, 1),
+                                        timeout_seconds=round(
+                                            _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS, 1
+                                        ),
                                     )
                                     if answer_next_task is not None and not answer_next_task.done():
                                         answer_next_task.cancel()
                                         with contextlib.suppress(asyncio.CancelledError):
                                             await answer_next_task
                                     answer_next_task = None
-                                    _update_sse_phase('timeout')
+                                    first_item_timeout_seconds = int(
+                                        _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS
+                                    )
+                                    _update_sse_phase("timeout")
                                     yield {
-                                        'event': 'timeout',
-                                        'data': serialize_api_response({
-                                            'message': (
-                                                'Response truncated: generation did not start in time '
-                                                f'({int(_ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS)}s watchdog)'
-                                            ),
-                                            'elapsed_seconds': round(time.time() - start_time, 1),
-                                            'timeout_seconds': _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS,
-                                            'timeout_reason': timeout_reason,
-                                        }),
+                                        "event": "timeout",
+                                        "data": serialize_api_response(
+                                            {
+                                                "message": (
+                                                    "Response truncated: generation did not "
+                                                    "start in time "
+                                                    "("
+                                                    f"{first_item_timeout_seconds}s "
+                                                    "watchdog)"
+                                                ),
+                                                "elapsed_seconds": round(
+                                                    time.time() - start_time, 1
+                                                ),
+                                                "timeout_seconds": (
+                                                    _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS
+                                                ),
+                                                "timeout_reason": timeout_reason,
+                                            }
+                                        ),
                                     }
                                     break
                                 continue
@@ -1578,115 +1774,178 @@ async def chat(
                             answer_next_task = None
                             answer_items_seen += 1
 
-                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.CLASSIFICATION:
+                            if (
+                                isinstance(item, tuple)
+                                and len(item) == 2
+                                and item[0] == StreamSignalTag.CLASSIFICATION
+                            ):
                                 locked_classification = item[1]
                                 _classification = item[1]
-                                if resolved_chat_mode != 'assistant':
+                                if resolved_chat_mode != "assistant":
                                     _retrieval_message = (
-                                        'Checking document index...'
+                                        "Checking document index..."
                                         if _classification.is_metadata_query
-                                        else 'Searching for relevant information...'
+                                        else "Searching for relevant information..."
                                     )
                                     retrieving_status = status_emitter.build_event(
-                                        'retrieving',
+                                        "retrieving",
                                         message=_retrieval_message,
                                     )
                                     if retrieving_status is not None:
                                         yield retrieving_status
                                 continue
 
-                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.SEARCHING_STATUS:
+                            if (
+                                isinstance(item, tuple)
+                                and len(item) == 2
+                                and item[0] == StreamSignalTag.SEARCHING_STATUS
+                            ):
                                 searching_payload = item[1] if isinstance(item[1], dict) else {}
                                 searching_status = status_emitter.build_event(
-                                    'searching',
-                                    message=str(searching_payload.get('message') or 'Searching the web...'),
+                                    "searching",
+                                    message=str(
+                                        searching_payload.get("message") or "Searching the web..."
+                                    ),
                                 )
                                 if searching_status is not None:
                                     yield searching_status
                                 continue
 
-                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.TIMEOUT:
+                            if (
+                                isinstance(item, tuple)
+                                and len(item) == 2
+                                and item[0] == StreamSignalTag.TIMEOUT
+                            ):
                                 timeout_occurred = True
                                 timeout_payload = item[1] if isinstance(item[1], dict) else {}
-                                timeout_seconds = float(timeout_payload.get('timeout_seconds') or 0.0)
-                                timeout_reason = normalize_timeout_reason(timeout_payload.get('reason'))
-                                timeout_allows_continuation = not is_terminal_timeout_reason(timeout_reason)
+                                timeout_seconds = float(
+                                    timeout_payload.get("timeout_seconds") or 0.0
+                                )
+                                timeout_reason = normalize_timeout_reason(
+                                    timeout_payload.get("reason")
+                                )
+                                timeout_allows_continuation = not is_terminal_timeout_reason(
+                                    timeout_reason
+                                )
                                 pass_has_remaining_scope = timeout_allows_continuation
                                 if timeout_allows_continuation:
                                     has_remaining_scope = True
                                 if continuation_resolution_reason is None:
                                     continuation_resolution_reason = timeout_reason
-                                _update_sse_phase('timeout')
+                                timeout_seconds_display = (
+                                    int(timeout_seconds) if timeout_seconds else "unknown"
+                                )
+                                _update_sse_phase("timeout")
                                 yield {
-                                    'event': 'timeout',
-                                    'data': serialize_api_response({
-                                        'message': f'Response truncated: generation time limit ({int(timeout_seconds) if timeout_seconds else "unknown"}s) reached',
-                                        'elapsed_seconds': round(time.time() - start_time, 1),
-                                        'timeout_seconds': timeout_seconds if timeout_seconds else None,
-                                        'timeout_reason': timeout_reason,
-                                    }),
+                                    "event": "timeout",
+                                    "data": serialize_api_response(
+                                        {
+                                            "message": (
+                                                "Response truncated: generation time limit "
+                                                "("
+                                                f"{timeout_seconds_display}s "
+                                                "reached"
+                                            ),
+                                            "elapsed_seconds": round(
+                                                time.time() - start_time, 1
+                                            ),
+                                            "timeout_seconds": (
+                                                timeout_seconds if timeout_seconds else None
+                                            ),
+                                            "timeout_reason": timeout_reason,
+                                        }
+                                    ),
                                 }
                                 continue
 
-                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.BUDGET_CHECKPOINT:
+                            if (
+                                isinstance(item, tuple)
+                                and len(item) == 2
+                                and item[0] == StreamSignalTag.BUDGET_CHECKPOINT
+                            ):
                                 checkpoint_payload = item[1] if isinstance(item[1], dict) else {}
                                 budget_checkpoints.append(checkpoint_payload)
-                                _update_sse_phase('budget')
+                                _update_sse_phase("budget")
                                 yield {
-                                    'event': 'budget',
-                                    'data': serialize_api_response(checkpoint_payload),
+                                    "event": "budget",
+                                    "data": serialize_api_response(checkpoint_payload),
                                 }
                                 continue
 
-                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.PLAN_STEP:
+                            if (
+                                isinstance(item, tuple)
+                                and len(item) == 2
+                                and item[0] == StreamSignalTag.PLAN_STEP
+                            ):
                                 step_payload = item[1] if isinstance(item[1], dict) else {}
-                                _update_sse_phase('plan_step')
+                                _update_sse_phase("plan_step")
                                 yield {
-                                    'event': 'plan_step',
-                                    'data': serialize_api_response(step_payload),
+                                    "event": "plan_step",
+                                    "data": serialize_api_response(step_payload),
                                 }
                                 continue
 
-                            if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.METRICS:
+                            if (
+                                isinstance(item, tuple)
+                                and len(item) == 2
+                                and item[0] == StreamSignalTag.METRICS
+                            ):
                                 metrics_payload = item[1] if isinstance(item[1], dict) else {}
                                 budget_metrics = metrics_payload
-                                metrics_query_value = metrics_payload.get('query_type')
-                                if isinstance(metrics_query_value, str) and metrics_query_value.strip():
-                                    metrics_query_type = _normalize_diagnostics_query_type(metrics_query_value)
+                                metrics_query_value = metrics_payload.get("query_type")
+                                if (
+                                    isinstance(metrics_query_value, str)
+                                    and metrics_query_value.strip()
+                                ):
+                                    metrics_query_type = _normalize_diagnostics_query_type(
+                                        metrics_query_value
+                                    )
                                 metrics_raw_chunks_count = safe_int(
-                                    metrics_payload.get('raw_chunks_count'),
+                                    metrics_payload.get("raw_chunks_count"),
                                     default=metrics_raw_chunks_count,
                                 )
-                                remaining_scope_value = metrics_payload.get('has_remaining_scope')
+                                remaining_scope_value = metrics_payload.get("has_remaining_scope")
                                 if isinstance(remaining_scope_value, bool):
                                     pass_has_remaining_scope = remaining_scope_value
                                     has_remaining_scope = remaining_scope_value
-                                suggested_mode = metrics_payload.get('suggested_completion_mode')
+                                suggested_mode = metrics_payload.get("suggested_completion_mode")
                                 if isinstance(suggested_mode, str):
                                     try:
-                                        normalized_mode = CompletionMode(suggested_mode.strip().lower())
+                                        normalized_mode = CompletionMode(
+                                            suggested_mode.strip().lower()
+                                        )
                                     except ValueError:
                                         normalized_mode = None
                                     if normalized_mode is not None:
                                         pass_completion_mode_override = normalized_mode
                                         completion_mode_override = normalized_mode
                                 if (
-                                    resolved_chat_mode == 'researcher'
-                                    and metrics_query_type in {DiagnosticsQueryType.FOCUSED.value, DiagnosticsQueryType.COVERAGE.value}
-                                    and bool(metrics_payload.get('generation_skipped'))
-                                    and not bool(metrics_payload.get('answerability_passed'))
-                                    and not bool(getattr(locked_classification, 'is_metadata_query', False))
+                                    resolved_chat_mode == "researcher"
+                                    and metrics_query_type
+                                    in {
+                                        DiagnosticsQueryType.FOCUSED.value,
+                                        DiagnosticsQueryType.COVERAGE.value,
+                                    }
+                                    and bool(metrics_payload.get("generation_skipped"))
+                                    and not bool(metrics_payload.get("answerability_passed"))
+                                    and not bool(
+                                        getattr(locked_classification, "is_metadata_query", False)
+                                    )
                                 ):
                                     researcher_out_of_scope = True
                                 log.info(
-                                    'chat_answer_stream_metrics_received',
+                                    "chat_answer_stream_metrics_received",
                                     chat_id=chat_id,
                                     request_id=request_id,
                                     pass_index=pass_index,
                                     raw_chunks_count=metrics_raw_chunks_count,
-                                    answerability_passed=metrics_payload.get('answerability_passed'),
-                                    generation_skipped=metrics_payload.get('generation_skipped'),
-                                    elapsed_seconds=round(time.perf_counter() - answer_stream_started_at, 2),
+                                    answerability_passed=metrics_payload.get(
+                                        "answerability_passed"
+                                    ),
+                                    generation_skipped=metrics_payload.get("generation_skipped"),
+                                    elapsed_seconds=round(
+                                        time.perf_counter() - answer_stream_started_at, 2
+                                    ),
                                 )
                                 continue
 
@@ -1695,22 +1954,24 @@ async def chat(
                                 if not generation_started:
                                     generation_started = True
                                     log.info(
-                                        'chat_answer_stream_first_token',
+                                        "chat_answer_stream_first_token",
                                         chat_id=chat_id,
                                         request_id=request_id,
                                         pass_index=pass_index,
-                                        elapsed_seconds=round(time.perf_counter() - answer_stream_started_at, 2),
+                                        elapsed_seconds=round(
+                                            time.perf_counter() - answer_stream_started_at, 2
+                                        ),
                                     )
                                     generating_status = status_emitter.build_event(
-                                        'generating',
-                                        message='Generating response...',
+                                        "generating",
+                                        message="Generating response...",
                                     )
                                     if generating_status is not None:
                                         yield generating_status
                                 answer_parts.append(item)
                                 pass_answer_parts.append(item)
-                                _update_sse_phase('token')
-                                yield {'event': 'token', 'data': item}
+                                _update_sse_phase("token")
+                                yield {"event": "token", "data": item}
                             elif isinstance(item, list):
                                 answer_list_events += 1
                                 pass_sources = item
@@ -1720,7 +1981,7 @@ async def chat(
                             with contextlib.suppress(asyncio.CancelledError):
                                 await answer_next_task
                     log.info(
-                        'chat_answer_stream_end',
+                        "chat_answer_stream_end",
                         chat_id=chat_id,
                         request_id=request_id,
                         pass_index=pass_index,
@@ -1732,29 +1993,36 @@ async def chat(
 
                     merge_sources(source_map, pass_sources)
 
-                    pass_raw_answer = ''.join(pass_answer_parts).strip()
+                    pass_raw_answer = "".join(pass_answer_parts).strip()
                     pass_cleaned_answer = (
                         sanitize_display_answer(
                             pass_raw_answer,
                             preserve_task_checkboxes=preserve_task_checkboxes,
                         )
                         if pass_raw_answer
-                        else ''
+                        else ""
                     )
-                    pass_reasoning_only_output = bool(pass_raw_answer) and not pass_cleaned_answer and (
-                        '<think>' in pass_raw_answer.lower() or '<<think>>' in pass_raw_answer.lower()
+                    pass_reasoning_only_output = (
+                        bool(pass_raw_answer)
+                        and not pass_cleaned_answer
+                        and (
+                            "<think>" in pass_raw_answer.lower()
+                            or "<<think>>" in pass_raw_answer.lower()
+                        )
                     )
                     if pass_reasoning_only_output:
                         log.warning(
-                            'chat_pass_reasoning_only_output_detected',
+                            "chat_pass_reasoning_only_output_detected",
                             chat_id=chat_id,
                             pass_index=pass_index,
                         )
 
-                    added_answer_chars = len(''.join(answer_parts)) - answer_length_before_pass
+                    added_answer_chars = len("".join(answer_parts)) - answer_length_before_pass
                     if pass_completion_mode_override is not None:
                         completion_mode_override = pass_completion_mode_override
-                    contract_answer_text = pass_cleaned_answer if pass_cleaned_answer else pass_raw_answer
+                    contract_answer_text = (
+                        pass_cleaned_answer if pass_cleaned_answer else pass_raw_answer
+                    )
                     contract_validation = validate_contract(
                         answer=contract_answer_text,
                         spec=contract_spec,
@@ -1767,23 +2035,25 @@ async def chat(
                     pass_sources_exhausted = len(pass_sources) == 0
                     pass_continue_worthy_gap = pass_has_remaining_scope or has_contract_gap
                     pass_detail = {
-                        'pass_index': pass_index,
-                        'is_continuation': pass_index > 1,
-                        'raw_answer_length': len(pass_raw_answer),
-                        'cleaned_answer_length': len(pass_cleaned_answer),
-                        'reasoning_only_output_detected': pass_reasoning_only_output,
-                        'sources_count': len(pass_sources),
-                        'pass_requires_more_work': pass_continue_worthy_gap,
-                        'raw_has_remaining_scope_signal': pass_has_remaining_scope,
-                        'missing_required_headings': contract_validation.missing_required_headings,
-                        'required_year_count': contract_validation.required_year_count,
-                        'observed_year_count': contract_validation.observed_year_count,
+                        "pass_index": pass_index,
+                        "is_continuation": pass_index > 1,
+                        "raw_answer_length": len(pass_raw_answer),
+                        "cleaned_answer_length": len(pass_cleaned_answer),
+                        "reasoning_only_output_detected": pass_reasoning_only_output,
+                        "sources_count": len(pass_sources),
+                        "pass_requires_more_work": pass_continue_worthy_gap,
+                        "raw_has_remaining_scope_signal": pass_has_remaining_scope,
+                        "missing_required_headings": contract_validation.missing_required_headings,
+                        "required_year_count": contract_validation.required_year_count,
+                        "observed_year_count": contract_validation.observed_year_count,
                     }
                     pass_details.append(pass_detail)
                     pass_artifact_has_remaining_scope = pass_continue_worthy_gap
                     pass_completion_mode = pass_completion_mode_override
                     try:
-                        pass_completion_mode = CompletionMode(str(pass_completion_mode).strip().lower())
+                        pass_completion_mode = CompletionMode(
+                            str(pass_completion_mode).strip().lower()
+                        )
                     except ValueError:
                         pass_completion_mode = (
                             CompletionMode.SCOPED_COMPLETE
@@ -1792,16 +2062,20 @@ async def chat(
                         )
                     if pass_continue_worthy_gap and pass_completion_mode == CompletionMode.COMPLETE:
                         pass_completion_mode = CompletionMode.SCOPED_COMPLETE
-                    elif (not pass_continue_worthy_gap) and pass_completion_mode == CompletionMode.SCOPED_COMPLETE:
+                    elif (
+                        not pass_continue_worthy_gap
+                    ) and pass_completion_mode == CompletionMode.SCOPED_COMPLETE:
                         pass_completion_mode = CompletionMode.COMPLETE
                     pass_artifact_has_remaining_scope = pass_completion_mode in {
                         CompletionMode.PARTIAL,
                         CompletionMode.SCOPED_COMPLETE,
                         CompletionMode.STOPPED,
                     }
-                    pass_next_action_reason = timeout_reason if timeout_occurred and timeout_reason else None
+                    pass_next_action_reason = (
+                        timeout_reason if timeout_occurred and timeout_reason else None
+                    )
                     pass_sources_payload = serialize_sources(pass_sources)
-                    pass_stitch_mode = 'append'
+                    pass_stitch_mode = "append"
                     pass_artifact = ContinuationPassArtifact(
                         chat_id=chat_id,
                         request_id=artifact_request_id,
@@ -1820,22 +2094,21 @@ async def chat(
                         await insert_continuation_pass_artifact(db, pass_artifact)
                     except _PERSISTENCE_EXCEPTIONS as artifact_error:
                         log.warning(
-                            'chat_pass_artifact_persist_failed',
+                            "chat_pass_artifact_persist_failed",
                             chat_id=chat_id,
                             request_id=artifact_request_id,
                             pass_index=pass_index,
                             error=str(artifact_error),
                         )
-                    pass_has_unresolved_targets = (
-                        pass_continue_worthy_gap
-                    )
-                    pass_duplicate_of_previous = (
-                        pass_index > 1
-                        and _is_duplicate_continuation_pass(previous_pass_raw_answer, pass_raw_answer)
+                    pass_has_unresolved_targets = pass_continue_worthy_gap
+                    pass_duplicate_of_previous = pass_index > 1 and _is_duplicate_continuation_pass(
+                        previous_pass_raw_answer, pass_raw_answer
                     )
                     if pass_duplicate_of_previous and pass_has_unresolved_targets:
-                        continuation_resolution_reason = ContinuationResolutionReason.DUPLICATE_CONTINUATION_DETECTED
-                        continuation_progress_state = 'stalled'
+                        continuation_resolution_reason = (
+                            ContinuationResolutionReason.DUPLICATE_CONTINUATION_DETECTED
+                        )
+                        continuation_progress_state = "stalled"
                         completion_mode_override = CompletionMode.SCOPED_COMPLETE
                         has_remaining_scope = False
                         break
@@ -1859,29 +2132,29 @@ async def chat(
                 _raise_if_user_stopped()
 
                 finalizing_status = status_emitter.build_event(
-                    'finalizing',
-                    message='Finalizing answer...',
+                    "finalizing",
+                    message="Finalizing answer...",
                 )
                 if finalizing_status is not None:
                     yield finalizing_status
 
                 source_dicts = serialize_sources(sources)
-                _update_sse_phase('sources')
-                yield {'event': 'sources', 'data': serialize_api_response(source_dicts)}
+                _update_sse_phase("sources")
+                yield {"event": "sources", "data": serialize_api_response(source_dicts)}
                 finalized_sources = True
 
-                full_answer = ''.join(answer_parts).strip()
+                full_answer = "".join(answer_parts).strip()
                 model_raw_answer = full_answer
                 if not full_answer:
                     if timeout_reason == TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT:
                         full_answer = (
-                            'The model did not respond in time. '
-                            'Please try again or choose a faster/smaller model.'
+                            "The model did not respond in time. "
+                            "Please try again or choose a faster/smaller model."
                         )
                     else:
-                        full_answer = 'I could not find enough information to answer your question.'
+                        full_answer = "I could not find enough information to answer your question."
                     model_raw_answer = full_answer
-                    log.warning('chat_empty_after_cleaning', chat_id=chat_id)
+                    log.warning("chat_empty_after_cleaning", chat_id=chat_id)
                 requested_max_words = answer_sanitization.extract_requested_max_words(message_text)
                 if isinstance(requested_max_words, int) and requested_max_words > 0:
                     before_word_count = answer_sanitization.count_words(full_answer)
@@ -1892,7 +2165,7 @@ async def chat(
                     if word_limit_applied:
                         after_word_count = answer_sanitization.count_words(full_answer)
                         log.info(
-                            'chat_word_limit_enforced',
+                            "chat_word_limit_enforced",
                             chat_id=chat_id,
                             max_words=requested_max_words,
                             before_words=before_word_count,
@@ -1920,38 +2193,51 @@ async def chat(
                             preserve_task_checkboxes=preserve_task_checkboxes,
                         )
                     log.info(
-                        'contract_sections_filled_at_closeout',
+                        "contract_sections_filled_at_closeout",
                         chat_id=chat_id,
                         missing_required_headings=missing_sections_filled,
                     )
-                structural_incomplete_reason = _detect_structural_incomplete_reason(cleaned_answer or full_answer)
-                if structural_incomplete_reason and completion_mode_override != CompletionMode.STOPPED:
+                structural_incomplete_reason = _detect_structural_incomplete_reason(
+                    cleaned_answer or full_answer
+                )
+                if (
+                    structural_incomplete_reason
+                    and completion_mode_override != CompletionMode.STOPPED
+                ):
                     log.info(
-                        'structural_gap_triggers_continuation',
-                        source='structural_incomplete_reason',
+                        "structural_gap_triggers_continuation",
+                        source="structural_incomplete_reason",
                         reason=structural_incomplete_reason,
                     )
                     has_remaining_scope = True
                     completion_mode_override = CompletionMode.SCOPED_COMPLETE
                     if continuation_resolution_reason is None:
                         continuation_resolution_reason = structural_incomplete_reason
-                estimated_unsupported_claim_count, estimated_evidence_coverage_rate, estimated_not_found_count = (
-                    estimate_evidence_metrics(
-                        answer=cleaned_answer if cleaned_answer else full_answer,
-                        source_texts=[str(source.get('chunk_preview', '') or '') for source in source_dicts],
-                    )
+                (
+                    estimated_unsupported_claim_count,
+                    estimated_evidence_coverage_rate,
+                    estimated_not_found_count,
+                ) = estimate_evidence_metrics(
+                    answer=cleaned_answer if cleaned_answer else full_answer,
+                    source_texts=[
+                        str(source.get("chunk_preview", "") or "") for source in source_dicts
+                    ],
                 )
-                budget_metrics['unsupported_claim_count'] = estimated_unsupported_claim_count
-                budget_metrics['evidence_coverage_rate'] = estimated_evidence_coverage_rate
-                budget_metrics['not_found_count'] = estimated_not_found_count
+                budget_metrics["unsupported_claim_count"] = estimated_unsupported_claim_count
+                budget_metrics["evidence_coverage_rate"] = estimated_evidence_coverage_rate
+                budget_metrics["not_found_count"] = estimated_not_found_count
                 query_type = DiagnosticsQueryType.UNKNOWN.value
-                if trace_writer is not None and hasattr(trace_writer, 'get_sections'):
+                if trace_writer is not None and hasattr(trace_writer, "get_sections"):
                     sections = trace_writer.get_sections()
-                    query_type = str(sections.get('intent', {}).get('query_type', DiagnosticsQueryType.UNKNOWN.value))
+                    query_type = str(
+                        sections.get("intent", {}).get(
+                            "query_type", DiagnosticsQueryType.UNKNOWN.value
+                        )
+                    )
 
                 if reasoning_only_output:
                     log.warning(
-                        'chat_reasoning_only_output_detected',
+                        "chat_reasoning_only_output_detected",
                         chat_id=chat_id,
                         query_type=query_type,
                         answer_length=len(full_answer),
@@ -1961,14 +2247,18 @@ async def chat(
                 if metrics_query_type == DiagnosticsQueryType.UNKNOWN.value:
                     metrics_query_type = _normalize_diagnostics_query_type(query_type)
                 if continuation_passes > 0 and continuation_progress_state is None:
-                    continuation_progress_state = 'progressed' if not has_remaining_scope else 'budget_exhausted'
+                    continuation_progress_state = (
+                        "progressed" if not has_remaining_scope else "budget_exhausted"
+                    )
                 if pre_classification_elapsed_ms is not None:
-                    budget_metrics['classification_duration_ms'] = round(pre_classification_elapsed_ms, 1)
+                    budget_metrics["classification_duration_ms"] = round(
+                        pre_classification_elapsed_ms, 1
+                    )
                 if sanitization_elapsed_ms is not None:
-                    budget_metrics['sanitization_duration_ms'] = round(sanitization_elapsed_ms, 1)
+                    budget_metrics["sanitization_duration_ms"] = round(sanitization_elapsed_ms, 1)
 
-                _update_sse_phase('cleaned')
-                yield {'event': 'cleaned', 'data': cleaned_answer}
+                _update_sse_phase("cleaned")
+                yield {"event": "cleaned", "data": cleaned_answer}
                 finalized_cleaned = True
 
                 (
@@ -1989,7 +2279,7 @@ async def chat(
                 )
                 assistant_message = ChatMessage(
                     chat_id=chat_id,
-                    role='assistant',
+                    role="assistant",
                     content=model_raw_answer,
                     sources=source_dicts,
                     model_filename=settings.llm_model_filename,
@@ -2011,7 +2301,9 @@ async def chat(
                     assistant_message_id = assistant_message.id
                     message_persisted = assistant_message_id is not None
                 except _PERSISTENCE_EXCEPTIONS as persist_error:
-                    log.warning('chat_response_persist_retry', chat_id=chat_id, error=str(persist_error))
+                    log.warning(
+                        "chat_response_persist_retry", chat_id=chat_id, error=str(persist_error)
+                    )
                     assistant_message = await insert_chat_message(db, assistant_message)
                     assistant_message_record = assistant_message
                     assistant_message_id = assistant_message.id
@@ -2022,7 +2314,7 @@ async def chat(
                 if assistant_message_id is not None:
                     seen_source_file_ids: set[int] = set()
                     for source in source_dicts:
-                        file_id_raw = source.get('file_id')
+                        file_id_raw = source.get("file_id")
                         try:
                             file_id = int(file_id_raw) if file_id_raw is not None else None
                         except (TypeError, ValueError):
@@ -2042,67 +2334,78 @@ async def chat(
                 if trace_writer is not None:
                     resource_end_snapshot = capture_resource_snapshot()
                     resource_metrics = {
-                        'before': request_resource_snapshot,
-                        'after': resource_end_snapshot,
-                        'delta': build_resource_delta(before=request_resource_snapshot, after=resource_end_snapshot),
+                        "before": request_resource_snapshot,
+                        "after": resource_end_snapshot,
+                        "delta": build_resource_delta(
+                            before=request_resource_snapshot, after=resource_end_snapshot
+                        ),
                     }
                     timing_trace_payload: dict[str, object] = {
-                        'elapsed_seconds': round(generation_seconds, 3),
+                        "elapsed_seconds": round(generation_seconds, 3),
                     }
                     for key in (
-                        'classification_duration_ms',
-                        'retrieval_duration_ms',
-                        'embed_ms',
-                        'vector_search_ms',
-                        'rerank_ms',
-                        'prompt_duration_ms',
-                        'prompt_build_ms',
-                        'llm_submit_ms',
-                        'llm_queue_wait_ms',
-                        'llm_decode_first_token_ms',
-                        'first_token_latency_ms',
-                        'ttft_ms',
-                        'stream_duration_ms',
-                        'sanitization_duration_ms',
+                        "classification_duration_ms",
+                        "retrieval_duration_ms",
+                        "embed_ms",
+                        "vector_search_ms",
+                        "rerank_ms",
+                        "prompt_duration_ms",
+                        "prompt_build_ms",
+                        "llm_submit_ms",
+                        "llm_queue_wait_ms",
+                        "llm_decode_first_token_ms",
+                        "first_token_latency_ms",
+                        "ttft_ms",
+                        "stream_duration_ms",
+                        "sanitization_duration_ms",
                     ):
                         value = budget_metrics.get(key)
                         if isinstance(value, bool):
                             continue
                         if isinstance(value, (int, float)):
                             timing_trace_payload[key] = round(float(value), 3)
-                    trace_writer.record('timing', timing_trace_payload)
-                    trace_writer.record('response', {
-                        'answer_length': len(full_answer),
-                        'display_answer_length': len(cleaned_answer),
-                        'answer_preview': cleaned_answer[:MAX_ANSWER_PREVIEW_LENGTH] if cleaned_answer else '',
-                        'display_answer_preview': cleaned_answer[:MAX_ANSWER_PREVIEW_LENGTH] if cleaned_answer else '',
-                        'raw_answer_preview': full_answer[:MAX_ANSWER_PREVIEW_LENGTH] if full_answer else '',
-                        'sources_count': len(sources),
-                        'sources': source_dicts,
-                        'unsupported_claim_count': safe_int(
-                            budget_metrics.get('unsupported_claim_count'),
-                            default=0,
-                        ),
-                        'evidence_coverage_rate': safe_float(
-                            budget_metrics.get('evidence_coverage_rate'),
-                            default=0.0,
-                        ),
-                        'not_found_count': safe_int(
-                            budget_metrics.get('not_found_count'),
-                            default=0,
-                        ),
-                        'continuation_passes': continuation_passes,
-                        'pass_details': pass_details,
-                        'status_transitions': status_transitions,
-                        'resource_metrics': resource_metrics,
-                    })
+                    trace_writer.record("timing", timing_trace_payload)
+                    trace_writer.record(
+                        "response",
+                        {
+                            "answer_length": len(full_answer),
+                            "display_answer_length": len(cleaned_answer),
+                            "answer_preview": cleaned_answer[:MAX_ANSWER_PREVIEW_LENGTH]
+                            if cleaned_answer
+                            else "",
+                            "display_answer_preview": cleaned_answer[:MAX_ANSWER_PREVIEW_LENGTH]
+                            if cleaned_answer
+                            else "",
+                            "raw_answer_preview": full_answer[:MAX_ANSWER_PREVIEW_LENGTH]
+                            if full_answer
+                            else "",
+                            "sources_count": len(sources),
+                            "sources": source_dicts,
+                            "unsupported_claim_count": safe_int(
+                                budget_metrics.get("unsupported_claim_count"),
+                                default=0,
+                            ),
+                            "evidence_coverage_rate": safe_float(
+                                budget_metrics.get("evidence_coverage_rate"),
+                                default=0.0,
+                            ),
+                            "not_found_count": safe_int(
+                                budget_metrics.get("not_found_count"),
+                                default=0,
+                            ),
+                            "continuation_passes": continuation_passes,
+                            "pass_details": pass_details,
+                            "status_transitions": status_transitions,
+                            "resource_metrics": resource_metrics,
+                        },
+                    )
                     await _flush_trace_writer_safe()
 
             except UserStopRequestedError:
-                terminal_state = 'stopped'
+                terminal_state = "stopped"
                 stopped_by_user = True
                 generation_seconds = time.time() - start_time
-                partial_answer = ''.join(answer_parts).strip()
+                partial_answer = "".join(answer_parts).strip()
                 partial_sources = serialize_sources(sources) if sources else []
                 has_remaining_scope = True
                 completion_mode_override = CompletionMode.STOPPED
@@ -2112,23 +2415,23 @@ async def chat(
                         preserve_task_checkboxes=preserve_task_checkboxes,
                     )
                     if partial_answer
-                    else ''
+                    else ""
                 )
 
                 finalizing_status = status_emitter.build_event(
-                    'finalizing',
-                    message='Finalizing answer...',
+                    "finalizing",
+                    message="Finalizing answer...",
                 )
                 if finalizing_status is not None:
                     yield finalizing_status
 
                 if not finalized_sources:
-                    _update_sse_phase('sources')
-                    yield {'event': 'sources', 'data': serialize_api_response(partial_sources)}
+                    _update_sse_phase("sources")
+                    yield {"event": "sources", "data": serialize_api_response(partial_sources)}
                     finalized_sources = True
                 if not finalized_cleaned:
-                    _update_sse_phase('cleaned')
-                    yield {'event': 'cleaned', 'data': cleaned_answer}
+                    _update_sse_phase("cleaned")
+                    yield {"event": "cleaned", "data": cleaned_answer}
                     finalized_cleaned = True
 
                 persisted_message, persisted = await _persist_terminal_assistant_message(
@@ -2140,7 +2443,7 @@ async def chat(
                     stopped_by_user=True,
                     has_remaining_scope=True,
                     next_action=NextAction.REGENERATE,
-                    next_action_reason='stopped',
+                    next_action_reason="stopped",
                     chat_mode=resolved_chat_mode,
                     specialization_id=resolved_specialization_id,
                     retrieval_scope_kind=retrieval_scope_kind,
@@ -2153,32 +2456,39 @@ async def chat(
                 if trace_writer is not None:
                     resource_end_snapshot = capture_resource_snapshot()
                     resource_metrics = {
-                        'before': request_resource_snapshot,
-                        'after': resource_end_snapshot,
-                        'delta': build_resource_delta(before=request_resource_snapshot, after=resource_end_snapshot),
+                        "before": request_resource_snapshot,
+                        "after": resource_end_snapshot,
+                        "delta": build_resource_delta(
+                            before=request_resource_snapshot, after=resource_end_snapshot
+                        ),
                     }
-                    trace_writer.record('response_cancelled', {
-                        'generation_seconds': generation_seconds,
-                        'tokens_generated': len(answer_parts),
-                        'stopped_by_user': True,
-                        'resource_metrics': resource_metrics,
-                    })
+                    trace_writer.record(
+                        "response_cancelled",
+                        {
+                            "generation_seconds": generation_seconds,
+                            "tokens_generated": len(answer_parts),
+                            "stopped_by_user": True,
+                            "resource_metrics": resource_metrics,
+                        },
+                    )
                     await _flush_trace_writer_safe()
                 log.info(
-                    'chat_response_cancelled',
+                    "chat_response_cancelled",
                     chat_id=chat_id,
                     stream_id=stream_id,
                     request_id=request_id,
-                    cancellation_reason='user_stop',
+                    cancellation_reason="user_stop",
                     tokens_streamed=len(answer_parts),
                     generation_seconds=round(generation_seconds, 3),
                 )
 
             except asyncio.CancelledError:
-                terminal_state = 'cancelled'
+                terminal_state = "cancelled"
                 generation_seconds = time.time() - start_time
-                partial_answer = ''.join(answer_parts).strip()
-                stream_stopped_by_user = CHAT_STREAM_REGISTRY.is_stopped_by_user(stream_id) or stop_event.is_set()
+                partial_answer = "".join(answer_parts).strip()
+                stream_stopped_by_user = (
+                    CHAT_STREAM_REGISTRY.is_stopped_by_user(stream_id) or stop_event.is_set()
+                )
                 if partial_answer or stream_stopped_by_user:
                     cancelled_next_action, cancelled_next_action_reason = _resolve_next_action(
                         stopped_by_user=stream_stopped_by_user,
@@ -2193,7 +2503,9 @@ async def chat(
                         sources=cancelled_sources,
                         generation_seconds=generation_seconds,
                         completion_mode=(
-                            CompletionMode.STOPPED if stream_stopped_by_user else CompletionMode.PARTIAL
+                            CompletionMode.STOPPED
+                            if stream_stopped_by_user
+                            else CompletionMode.PARTIAL
                         ),
                         stopped_by_user=stream_stopped_by_user,
                         has_remaining_scope=stream_stopped_by_user,
@@ -2207,23 +2519,28 @@ async def chat(
                 if trace_writer is not None:
                     resource_end_snapshot = capture_resource_snapshot()
                     resource_metrics = {
-                        'before': request_resource_snapshot,
-                        'after': resource_end_snapshot,
-                        'delta': build_resource_delta(before=request_resource_snapshot, after=resource_end_snapshot),
+                        "before": request_resource_snapshot,
+                        "after": resource_end_snapshot,
+                        "delta": build_resource_delta(
+                            before=request_resource_snapshot, after=resource_end_snapshot
+                        ),
                     }
-                    trace_writer.record('response_cancelled', {
-                        'generation_seconds': generation_seconds,
-                        'tokens_generated': len(answer_parts),
-                        'stopped_by_user': stream_stopped_by_user,
-                        'resource_metrics': resource_metrics,
-                    })
+                    trace_writer.record(
+                        "response_cancelled",
+                        {
+                            "generation_seconds": generation_seconds,
+                            "tokens_generated": len(answer_parts),
+                            "stopped_by_user": stream_stopped_by_user,
+                            "resource_metrics": resource_metrics,
+                        },
+                    )
                     await _flush_trace_writer_safe()
                 log.info(
-                    'chat_response_cancelled',
+                    "chat_response_cancelled",
                     chat_id=chat_id,
                     stream_id=stream_id,
                     request_id=request_id,
-                    cancellation_reason='task_cancelled',
+                    cancellation_reason="task_cancelled",
                     stopped_by_user=stream_stopped_by_user,
                     tokens_streamed=len(answer_parts),
                     generation_seconds=round(generation_seconds, 3),
@@ -2233,7 +2550,7 @@ async def chat(
                     registry_registered = False
                     if removed:
                         log.info(
-                            'chat_stream_unregistered',
+                            "chat_stream_unregistered",
                             chat_id=chat_id,
                             stream_id=stream_id,
                             request_id=request_id,
@@ -2242,10 +2559,10 @@ async def chat(
                 raise
 
             except _STREAM_RUNTIME_EXCEPTIONS as exc:
-                terminal_state = 'error'
+                terminal_state = "error"
                 generation_seconds = time.time() - start_time
                 log.error(
-                    'chat_stream_error',
+                    "chat_stream_error",
                     chat_id=chat_id,
                     error=str(exc),
                     generation_seconds=generation_seconds,
@@ -2254,19 +2571,24 @@ async def chat(
                 if trace_writer is not None:
                     resource_end_snapshot = capture_resource_snapshot()
                     resource_metrics = {
-                        'before': request_resource_snapshot,
-                        'after': resource_end_snapshot,
-                        'delta': build_resource_delta(before=request_resource_snapshot, after=resource_end_snapshot),
+                        "before": request_resource_snapshot,
+                        "after": resource_end_snapshot,
+                        "delta": build_resource_delta(
+                            before=request_resource_snapshot, after=resource_end_snapshot
+                        ),
                     }
-                    trace_writer.record('response_error', {
-                        'error': str(exc),
-                        'resource_metrics': resource_metrics,
-                    })
+                    trace_writer.record(
+                        "response_error",
+                        {
+                            "error": str(exc),
+                            "resource_metrics": resource_metrics,
+                        },
+                    )
                     await _flush_trace_writer_safe()
-                _update_sse_phase('error')
+                _update_sse_phase("error")
                 yield {
-                    'event': 'error',
-                    'data': serialize_api_response({'error': to_client_error_message(exc)}),
+                    "event": "error",
+                    "data": serialize_api_response({"error": to_client_error_message(exc)}),
                 }
 
             completion_mode, done_has_remaining_scope, next_action, next_action_reason = (
@@ -2287,33 +2609,41 @@ async def chat(
             resolved_next_action = next_action
             resolved_next_action_reason = next_action_reason
             if assistant_message_record is not None:
-                resolved_completion_mode = assistant_message_record.completion_mode or resolved_completion_mode
+                resolved_completion_mode = (
+                    assistant_message_record.completion_mode or resolved_completion_mode
+                )
                 resolved_has_remaining_scope = bool(assistant_message_record.has_remaining_scope)
                 resolved_next_action = assistant_message_record.next_action
                 resolved_next_action_reason = assistant_message_record.next_action_reason
 
-            if metrics_raw_chunks_count <= 0 and trace_writer is not None and hasattr(trace_writer, 'get_sections'):
+            if (
+                metrics_raw_chunks_count <= 0
+                and trace_writer is not None
+                and hasattr(trace_writer, "get_sections")
+            ):
                 sections = trace_writer.get_sections()
-                retrieval = sections.get('retrieval', {}) if isinstance(sections, dict) else {}
-                metrics_raw_chunks_count = safe_int(retrieval.get('raw_chunks_count'), default=0)
+                retrieval = sections.get("retrieval", {}) if isinstance(sections, dict) else {}
+                metrics_raw_chunks_count = safe_int(retrieval.get("raw_chunks_count"), default=0)
                 if metrics_query_type == DiagnosticsQueryType.UNKNOWN.value:
-                    intent = sections.get('intent', {}) if isinstance(sections, dict) else {}
-                    inferred_query_type = intent.get('query_type') if isinstance(intent, dict) else None
+                    intent = sections.get("intent", {}) if isinstance(sections, dict) else {}
+                    inferred_query_type = (
+                        intent.get("query_type") if isinstance(intent, dict) else None
+                    )
                     if isinstance(inferred_query_type, str) and inferred_query_type.strip():
                         metrics_query_type = _normalize_diagnostics_query_type(inferred_query_type)
 
-            final_answer = ''.join(answer_parts).strip()
+            final_answer = "".join(answer_parts).strip()
             refusal_text = cleaned_answer if cleaned_answer else final_answer
             metrics_unsupported_claim_count = safe_int(
-                budget_metrics.get('unsupported_claim_count'),
+                budget_metrics.get("unsupported_claim_count"),
                 default=0,
             )
             metrics_evidence_coverage_rate = safe_float(
-                budget_metrics.get('evidence_coverage_rate'),
+                budget_metrics.get("evidence_coverage_rate"),
                 default=0.0,
             )
             metrics_not_found_count = safe_int(
-                budget_metrics.get('not_found_count'),
+                budget_metrics.get("not_found_count"),
                 default=0,
             )
             metrics_model = EvalMetrics(
@@ -2335,7 +2665,7 @@ async def chat(
                 pre_first_yield_elapsed_seconds=pre_first_yield_elapsed_seconds,
                 pre_first_yield_stage=pre_first_yield_stage,
                 guardrail_applied=(
-                    getattr(locked_classification, 'guardrail_applied', None)
+                    getattr(locked_classification, "guardrail_applied", None)
                     if locked_classification is not None
                     else None
                 ),
@@ -2351,7 +2681,7 @@ async def chat(
                 )
             except _PERSISTENCE_EXCEPTIONS as metrics_exc:
                 log.warning(
-                    'chat_metrics_persist_failed',
+                    "chat_metrics_persist_failed",
                     chat_id=chat_id,
                     error=str(metrics_exc),
                 )
@@ -2360,9 +2690,11 @@ async def chat(
                 resource_end_snapshot = capture_resource_snapshot()
             if not resource_metrics:
                 resource_metrics = {
-                    'before': request_resource_snapshot,
-                    'after': resource_end_snapshot,
-                    'delta': build_resource_delta(before=request_resource_snapshot, after=resource_end_snapshot),
+                    "before": request_resource_snapshot,
+                    "after": resource_end_snapshot,
+                    "delta": build_resource_delta(
+                        before=request_resource_snapshot, after=resource_end_snapshot
+                    ),
                 }
             done_data = build_done_payload(
                 elapsed_seconds=generation_seconds,
@@ -2388,22 +2720,22 @@ async def chat(
                 resource_metrics=resource_metrics,
                 message_id=assistant_message_id,
             )
-            done_data['upload_scope'] = {
-                'active_upload_ids': upload_active_ids,
-                'selected_upload_ids': upload_scope_selected_ids,
-                'ready_file_ids': upload_ready_file_ids,
-                'indexing_upload_ids': upload_indexing_ids,
-                'omitted_upload_ids': upload_scope_omitted_ids,
-                'resolution_mode': upload_scope_resolution_mode,
+            done_data["upload_scope"] = {
+                "active_upload_ids": upload_active_ids,
+                "selected_upload_ids": upload_scope_selected_ids,
+                "ready_file_ids": upload_ready_file_ids,
+                "indexing_upload_ids": upload_indexing_ids,
+                "omitted_upload_ids": upload_scope_omitted_ids,
+                "resolution_mode": upload_scope_resolution_mode,
             }
             log.info(
-                'chat_response_completed',
+                "chat_response_completed",
                 chat_id=chat_id,
                 chat_mode=resolved_chat_mode,
-                completion_mode=done_data.get('completion_mode'),
-                has_remaining_scope=done_data.get('has_remaining_scope'),
-                next_action=done_data.get('next_action'),
-                next_action_reason=done_data.get('next_action_reason'),
+                completion_mode=done_data.get("completion_mode"),
+                has_remaining_scope=done_data.get("has_remaining_scope"),
+                next_action=done_data.get("next_action"),
+                next_action_reason=done_data.get("next_action_reason"),
                 timeout_occurred=timeout_occurred,
                 timeout_reason=timeout_reason,
                 message_persisted=message_persisted,
@@ -2411,22 +2743,28 @@ async def chat(
                 tokens_streamed=len(answer_parts),
                 continuation_passes=continuation_passes,
                 duration_ms=round((generation_seconds or 0.0) * 1000, 1),
-                process_rss_mb=resource_end_snapshot.get('process_rss_mb') if isinstance(resource_end_snapshot, dict) else None,
-                process_cpu_percent=resource_end_snapshot.get('process_cpu_percent') if isinstance(resource_end_snapshot, dict) else None,
-                system_cpu_percent=resource_end_snapshot.get('system_cpu_percent') if isinstance(resource_end_snapshot, dict) else None,
+                process_rss_mb=resource_end_snapshot.get("process_rss_mb")
+                if isinstance(resource_end_snapshot, dict)
+                else None,
+                process_cpu_percent=resource_end_snapshot.get("process_cpu_percent")
+                if isinstance(resource_end_snapshot, dict)
+                else None,
+                system_cpu_percent=resource_end_snapshot.get("system_cpu_percent")
+                if isinstance(resource_end_snapshot, dict)
+                else None,
             )
             # Application-tier counterpart to translate_job_completed: a compact event
             # that tags chat_id + mode + duration in a shape comparable across pipelines.
             # Supplements (does not replace) chat_response_completed which carries the
             # full diagnostic context.
             if stopped_by_user:
-                derived_finish_reason = 'cancelled'
+                derived_finish_reason = "cancelled"
             elif timeout_occurred:
-                derived_finish_reason = 'timeout'
+                derived_finish_reason = "timeout"
             else:
-                derived_finish_reason = 'stop'
+                derived_finish_reason = "stop"
             log.info(
-                'chat_generation_completed',
+                "chat_generation_completed",
                 chat_id=str(chat_id) if chat_id else None,
                 chat_mode=resolved_chat_mode,
                 generation_seconds=round(generation_seconds or 0.0, 3),
@@ -2439,37 +2777,34 @@ async def chat(
             # User-facing activity log — always emitted (not gated by chat_trace_logging,
             # which controls detailed diagnostic traces, not this lightweight summary).
             gen_s = round(generation_seconds or 0.0, 1)
-            gen_str = (
-                f'{int(gen_s) // 60}m {int(gen_s) % 60}s'
-                if gen_s >= 60 else f'{gen_s:.1f}s'
-            )
-            src_note = f' · {len(sources)} sources' if sources else ''
-            mode_label = str(resolved_chat_mode or 'assistant').replace('_', ' ').title()
+            gen_str = f"{int(gen_s) // 60}m {int(gen_s) % 60}s" if gen_s >= 60 else f"{gen_s:.1f}s"
+            src_note = f" · {len(sources)} sources" if sources else ""
+            mode_label = str(resolved_chat_mode or "assistant").replace("_", " ").title()
             with contextlib.suppress(Exception):
                 await emit_log_event(
-                    event_name='chat_message_generated',
-                    source='chat',
-                    message=f'AI reply · {mode_label} mode · {gen_str}{src_note}',
+                    event_name="chat_message_generated",
+                    source="chat",
+                    message=f"AI reply · {mode_label} mode · {gen_str}{src_note}",
                     details={
-                        'chat_id': str(chat_id) if chat_id else None,
-                        'chat_mode': resolved_chat_mode,
-                        'specialization_id': resolved_specialization_id,
-                        'specialization': requested_specialization,
-                        'generation_seconds': gen_s,
-                        'sources_count': len(sources),
+                        "chat_id": str(chat_id) if chat_id else None,
+                        "chat_mode": resolved_chat_mode,
+                        "specialization_id": resolved_specialization_id,
+                        "specialization": requested_specialization,
+                        "generation_seconds": gen_s,
+                        "sources_count": len(sources),
                     },
                     correlation_id=str(chat_id) if chat_id else None,
                 )
 
-            terminal_state = 'done'
-            _update_sse_phase('done')
-            yield {'event': 'done', 'data': serialize_api_response(done_data)}
+            terminal_state = "done"
+            _update_sse_phase("done")
+            yield {"event": "done", "data": serialize_api_response(done_data)}
             if registry_registered:
                 removed = await CHAT_STREAM_REGISTRY.unregister(stream_id)
                 registry_registered = False
                 if removed:
                     log.info(
-                        'chat_stream_unregistered',
+                        "chat_stream_unregistered",
                         chat_id=chat_id,
                         stream_id=stream_id,
                         request_id=request_id,
@@ -2479,8 +2814,9 @@ async def chat(
     return EventSourceResponse(_event_stream())
 
 
-@router.post('/api/chat/stop')
+@router.post("/api/chat/stop")
 async def stop_chat(request: ChatStopRequest) -> dict:
+    """stop chat."""
     stop_outcome = await CHAT_STREAM_REGISTRY.mark_stopped_by_user(
         stream_id=request.stream_id,
         request_id=request.request_id,
@@ -2491,13 +2827,13 @@ async def stop_chat(request: ChatStopRequest) -> dict:
     resolved_request_id = stop_outcome.request_id or request.request_id
     resolved_chat_id = stop_outcome.chat_id or request.chat_id
     log.info(
-        'chat_stop_acknowledged',
+        "chat_stop_acknowledged",
         chat_id=resolved_chat_id,
         stream_id=resolved_stream_id,
         request_id=resolved_request_id,
         stop_status=stop_status,
     )
-    if stop_status == 'stopped_now' and resolved_stream_id:
+    if stop_status == "stopped_now" and resolved_stream_id:
         existing = _STOP_FINALIZATION_TASKS.get(resolved_stream_id)
         if existing is None or existing.done():
             _STOP_FINALIZATION_TASKS[resolved_stream_id] = asyncio.create_task(
@@ -2508,10 +2844,10 @@ async def stop_chat(request: ChatStopRequest) -> dict:
                 ),
             )
     return {
-        'status': stop_status,
-        'stopped': stop_status == 'stopped_now',
-        'stream_id': resolved_stream_id,
-        'request_id': resolved_request_id,
+        "status": stop_status,
+        "stopped": stop_status == "stopped_now",
+        "stream_id": resolved_stream_id,
+        "request_id": resolved_request_id,
     }
 
 
@@ -2519,7 +2855,8 @@ async def stop_chat(request: ChatStopRequest) -> dict:
 # GET /api/chat/messages/{message_id}/raw — fetch raw content for a message
 # ==============================================================================
 
-@router.get('/api/chat/messages/{message_id}/raw')
+
+@router.get("/api/chat/messages/{message_id}/raw")
 async def get_message_raw(
     message_id: int,
     db: aiosqlite.Connection = Depends(get_db),
@@ -2527,18 +2864,20 @@ async def get_message_raw(
     # Return raw content for a message (with <think> blocks). Used for on-demand
     # display when enable_raw_output_control is enabled. Only assistant messages
     # have meaningful raw content; user messages return their content as-is.
+    """get message raw."""
     message = await get_chat_message_by_id(db, message_id)
     if message is None:
-        raise HTTPException(status_code=404, detail='Message not found')
-    return {'content': message.content}
+        raise HTTPException(status_code=404, detail="Message not found")
+    return {"content": message.content}
 
 
 # ==============================================================================
 # POST /api/chat/chats/{chat_id}/messages/{message_id}/translate — translate assistant reply
 # ==============================================================================
 
+
 @router.post(
-    '/api/chat/chats/{chat_id}/messages/{message_id}/translate',
+    "/api/chat/chats/{chat_id}/messages/{message_id}/translate",
     response_model=ChatMessageTranslationResponse,
 )
 async def translate_chat_message(
@@ -2547,30 +2886,35 @@ async def translate_chat_message(
     request: ChatMessageTranslateRequest,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> ChatMessageTranslationResponse:
+    """translate chat message."""
     await CHAT_GUARD.check_rate_limit()
     async with CHAT_GUARD.slot(check_rate=False):
         messages = await get_chat(db, chat_id)
         if not messages:
-            raise HTTPException(status_code=404, detail='Chat not found')
+            raise HTTPException(status_code=404, detail="Chat not found")
 
         source_message = next((message for message in messages if message.id == message_id), None)
         if source_message is None:
-            raise HTTPException(status_code=404, detail='Message not found')
+            raise HTTPException(status_code=404, detail="Message not found")
         if source_message.role != ChatRole.ASSISTANT or bool(source_message.is_internal):
-            raise HTTPException(status_code=409, detail='Only assistant replies can be translated.')
+            raise HTTPException(status_code=409, detail="Only assistant replies can be translated.")
         if source_message.translated_from_message_id is not None:
-            raise HTTPException(status_code=409, detail='Translated replies cannot be translated again.')
+            raise HTTPException(
+                status_code=409, detail="Translated replies cannot be translated again."
+            )
 
         source_display_text, reasoning_only_output = _source_message_display_payload(
             messages=messages,
             source_message=source_message,
         )
-        if reasoning_only_output or not str(source_display_text or '').strip():
-            raise HTTPException(status_code=409, detail='This assistant reply cannot be translated.')
+        if reasoning_only_output or not str(source_display_text or "").strip():
+            raise HTTPException(
+                status_code=409, detail="This assistant reply cannot be translated."
+            )
 
         target_language = _resolve_chat_translation_language(request.target_language)
         tone = _resolve_chat_translation_tone(request.tone)
-        source_hash = hashlib.sha256(str(source_display_text).encode('utf-8')).hexdigest()
+        source_hash = hashlib.sha256(str(source_display_text).encode("utf-8")).hexdigest()
 
         existing_translation = await get_chat_translation_by_source(
             db,
@@ -2583,13 +2927,13 @@ async def translate_chat_message(
         if existing_translation is not None:
             payload = _build_chat_translation_display_payload(existing_translation)
             return {
-                'chat_id': chat_id,
-                'source_message_id': int(message_id),
-                'translated_message_id': int(existing_translation.id or 0),
-                'target_language': target_language,
-                'tone': tone,
-                'reused_existing_translation': True,
-                'translated_message': payload,
+                "chat_id": chat_id,
+                "source_message_id": int(message_id),
+                "translated_message_id": int(existing_translation.id or 0),
+                "target_language": target_language,
+                "tone": tone,
+                "reused_existing_translation": True,
+                "translated_message": payload,
             }
 
         started_at = time.perf_counter()
@@ -2599,8 +2943,8 @@ async def translate_chat_message(
             tone=tone,
         )
         elapsed_seconds = round(time.perf_counter() - started_at, 3)
-        if finish_reason == 'timeout' or not translated_text:
-            raise HTTPException(status_code=504, detail='Translation timed out. Please try again.')
+        if finish_reason == "timeout" or not translated_text:
+            raise HTTPException(status_code=504, detail="Translation timed out. Please try again.")
 
         translated_message = await insert_chat_message(
             db,
@@ -2630,13 +2974,13 @@ async def translate_chat_message(
         )
         payload = _build_chat_translation_display_payload(translated_message)
         return {
-            'chat_id': chat_id,
-            'source_message_id': int(message_id),
-            'translated_message_id': int(translated_message.id or 0),
-            'target_language': target_language,
-            'tone': tone,
-            'reused_existing_translation': False,
-            'translated_message': payload,
+            "chat_id": chat_id,
+            "source_message_id": int(message_id),
+            "translated_message_id": int(translated_message.id or 0),
+            "target_language": target_language,
+            "tone": tone,
+            "reused_existing_translation": False,
+            "translated_message": payload,
         }
 
 
@@ -2644,22 +2988,24 @@ async def translate_chat_message(
 # GET /api/chat/chats — list recent chats
 # ==============================================================================
 
-@router.get('/api/chat/chats')
+
+@router.get("/api/chat/chats")
 async def list_chats(
-    limit:  int = Query(default=50, ge=1, le=200),
+    limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     search: str | None = Query(default=None),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    """list chats."""
     search_param = search.strip() if search and search.strip() else None
     chats = await get_chats(db, limit=limit, offset=offset, search=search_param)
     total = await get_chat_count(db, search=search_param)
 
     return {
-        'chats':   chats,
-        'total':   total,
-        'limit':   limit,
-        'offset':  offset,
+        "chats": chats,
+        "total": total,
+        "limit": limit,
+        "offset": offset,
     }
 
 
@@ -2667,63 +3013,69 @@ async def list_chats(
 # GET /api/chat/chats/{chat_id} — get chat messages
 # ==============================================================================
 
-@router.get('/api/chat/chats/{chat_id}')
+
+@router.get("/api/chat/chats/{chat_id}")
 async def get_chat_messages(
     chat_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    """get chat messages."""
     messages = await get_chat(db, chat_id)
 
     if not messages:
-        raise HTTPException(status_code=404, detail='Chat not found')
+        raise HTTPException(status_code=404, detail="Chat not found")
 
     serialized_messages: list[dict[str, object]] = []
-    latest_user_prompt = ''
+    latest_user_prompt = ""
     first_user_message = next(
-        (message for message in messages if message.role == ChatRole.USER and not bool(message.is_internal)),
+        (
+            message
+            for message in messages
+            if message.role == ChatRole.USER and not bool(message.is_internal)
+        ),
         None,
     )
     first_user_chat_mode = (
-        resolve_chat_mode(first_user_message.chat_mode)
-        if first_user_message is not None
-        else None
+        resolve_chat_mode(first_user_message.chat_mode) if first_user_message is not None else None
     )
     first_assistant_chat_mode = next(
         (
-            resolve_chat_mode(str(message.chat_mode or '').strip())
+            resolve_chat_mode(str(message.chat_mode or "").strip())
             for message in messages
-            if message.role == ChatRole.ASSISTANT and (str(message.chat_mode or '').strip())
+            if message.role == ChatRole.ASSISTANT and (str(message.chat_mode or "").strip())
         ),
         None,
     )
     locked_chat_mode = first_user_chat_mode or first_assistant_chat_mode
     first_user_specialization_id = (
-        str(first_user_message.specialization_id or '').strip() or None
+        str(first_user_message.specialization_id or "").strip() or None
         if first_user_message is not None
         else None
     )
     first_assistant_specialization_id = next(
         (
-            str(message.specialization_id or '').strip()
+            str(message.specialization_id or "").strip()
             for message in messages
-            if message.role == ChatRole.ASSISTANT and (str(message.specialization_id or '').strip())
+            if message.role == ChatRole.ASSISTANT and (str(message.specialization_id or "").strip())
         ),
         None,
     )
     locked_specialization_id = first_user_specialization_id or first_assistant_specialization_id
     messages_by_id = {message.id: message for message in messages if message.id is not None}
     for message in messages:
-        payload = message.model_dump(mode='json')
+        payload = message.model_dump(mode="json")
         if message.role == ChatRole.USER:
-            latest_user_prompt = str(message.content or '')
+            latest_user_prompt = str(message.content or "")
         if message.role == ChatRole.ASSISTANT:
-            preserve_task_checkboxes = answer_sanitization.should_preserve_task_checkboxes(latest_user_prompt)
+            preserve_task_checkboxes = answer_sanitization.should_preserve_task_checkboxes(
+                latest_user_prompt
+            )
             cleaned_content, _ = build_display_answer(
                 message.content,
                 preserve_task_checkboxes=preserve_task_checkboxes,
             )
-            payload['content'] = cleaned_content
-            payload['display_blocks'] = build_display_blocks(cleaned_content)
+            payload["content"] = cleaned_content
+            payload["display_blocks"] = build_display_blocks(cleaned_content)
             if message.translated_from_message_id is not None:
                 source_message = messages_by_id.get(message.translated_from_message_id)
                 if source_message is not None:
@@ -2731,21 +3083,27 @@ async def get_chat_messages(
                         messages=messages,
                         source_message=source_message,
                     )
-                    current_source_hash = hashlib.sha256(str(source_display_text).encode('utf-8')).hexdigest()
-                    payload['translation_is_stale'] = current_source_hash != str(message.translation_source_hash or '')
+                    current_source_hash = hashlib.sha256(
+                        str(source_display_text).encode("utf-8")
+                    ).hexdigest()
+                    payload["translation_is_stale"] = current_source_hash != str(
+                        message.translation_source_hash or ""
+                    )
                 else:
-                    payload['translation_is_stale'] = True
+                    payload["translation_is_stale"] = True
         serialized_messages.append(payload)
     chat_preferences = await get_chat_preferences(db, chat_id)
 
     return {
-        'chat_id':                           chat_id,
-        'messages':                          serialized_messages,
-        'total':                             len(messages),
-        'chat_mode':                         locked_chat_mode,
-        'specialization_id':                           locked_specialization_id,
-        'chat_web_search_enabled':           bool(chat_preferences.get('chat_web_search_enabled')),
-        'chat_web_search_privacy_override':  bool(chat_preferences.get('chat_web_search_privacy_override')),
+        "chat_id": chat_id,
+        "messages": serialized_messages,
+        "total": len(messages),
+        "chat_mode": locked_chat_mode,
+        "specialization_id": locked_specialization_id,
+        "chat_web_search_enabled": bool(chat_preferences.get("chat_web_search_enabled")),
+        "chat_web_search_privacy_override": bool(
+            chat_preferences.get("chat_web_search_privacy_override")
+        ),
     }
 
 
@@ -2759,24 +3117,37 @@ def _resolve_markdown_export_payload(
     include_frontmatter: bool,
     template: str,
 ) -> dict[str, object]:
+    """ resolve markdown export payload."""
     assistant_messages = [message for message in messages if message.role == ChatRole.ASSISTANT]
     latest_mode = next(
-        (str(message.chat_mode or '').strip() for message in reversed(messages) if str(message.chat_mode or '').strip()),
+        (
+            str(message.chat_mode or "").strip()
+            for message in reversed(messages)
+            if str(message.chat_mode or "").strip()
+        ),
         None,
     )
     opts = MarkdownExportOptions(
         include_frontmatter=bool(include_frontmatter),
-        template=template if template in {'full_transcript', 'concise_summary'} else 'full_transcript',
+        template=template
+        if template in {"full_transcript", "concise_summary"}
+        else "full_transcript",
     )
-    if scope == 'current_answer':
+    if scope == "current_answer":
         if not assistant_messages:
-            raise HTTPException(status_code=409, detail='No assistant answer is available to export in this chat.')
-        target_message = assistant_messages[-1] if message_id is None else next(
-            (message for message in assistant_messages if message.id == message_id),
-            None,
+            raise HTTPException(
+                status_code=409, detail="No assistant answer is available to export in this chat."
+            )
+        target_message = (
+            assistant_messages[-1]
+            if message_id is None
+            else next(
+                (message for message in assistant_messages if message.id == message_id),
+                None,
+            )
         )
         if target_message is None:
-            raise HTTPException(status_code=404, detail='Assistant message not found for export.')
+            raise HTTPException(status_code=404, detail="Assistant message not found for export.")
         markdown = render_current_answer_markdown(
             chat_title=chat_title,
             chat_id=chat_id,
@@ -2785,13 +3156,13 @@ def _resolve_markdown_export_payload(
             options=opts,
         )
         return {
-            'chat_id': chat_id,
-            'scope': scope,
-            'message_id': target_message.id,
-            'filename': build_markdown_filename(chat_title=chat_title),
-            'markdown': markdown,
-            'template': opts.template,
-            'include_frontmatter': opts.include_frontmatter,
+            "chat_id": chat_id,
+            "scope": scope,
+            "message_id": target_message.id,
+            "filename": build_markdown_filename(chat_title=chat_title),
+            "markdown": markdown,
+            "template": opts.template,
+            "include_frontmatter": opts.include_frontmatter,
         }
     markdown = render_full_chat_markdown(
         chat_title=chat_title,
@@ -2801,12 +3172,12 @@ def _resolve_markdown_export_payload(
         options=opts,
     )
     return {
-        'chat_id': chat_id,
-        'scope': scope,
-        'filename': build_markdown_filename(chat_title=chat_title),
-        'markdown': markdown,
-        'template': opts.template,
-        'include_frontmatter': opts.include_frontmatter,
+        "chat_id": chat_id,
+        "scope": scope,
+        "filename": build_markdown_filename(chat_title=chat_title),
+        "markdown": markdown,
+        "template": opts.template,
+        "include_frontmatter": opts.include_frontmatter,
     }
 
 
@@ -2821,11 +3192,12 @@ def _resolve_chat_export_payload(
     template: str,
     export_format: str,
 ) -> dict[str, object]:
-    resolved_format = str(export_format or '').strip().lower() or 'markdown'
-    if resolved_format not in {'markdown', 'pdf'}:
+    """ resolve chat export payload."""
+    resolved_format = str(export_format or "").strip().lower() or "markdown"
+    if resolved_format not in {"markdown", "pdf"}:
         raise HTTPException(status_code=400, detail='format must be "markdown" or "pdf".')
-    if resolved_format == 'pdf':
-        raise HTTPException(status_code=501, detail='PDF export is not implemented yet.')
+    if resolved_format == "pdf":
+        raise HTTPException(status_code=501, detail="PDF export is not implemented yet.")
 
     markdown_payload = _resolve_markdown_export_payload(
         chat_id=chat_id,
@@ -2837,34 +3209,37 @@ def _resolve_chat_export_payload(
         template=template,
     )
     return {
-        'chat_id': markdown_payload['chat_id'],
-        'scope': markdown_payload['scope'],
-        'message_id': markdown_payload.get('message_id'),
-        'filename': markdown_payload['filename'],
-        'format': 'markdown',
-        'mime_type': 'text/markdown; charset=utf-8',
-        'content': markdown_payload['markdown'],
-        'template': markdown_payload.get('template'),
-        'include_frontmatter': markdown_payload.get('include_frontmatter'),
+        "chat_id": markdown_payload["chat_id"],
+        "scope": markdown_payload["scope"],
+        "message_id": markdown_payload.get("message_id"),
+        "filename": markdown_payload["filename"],
+        "format": "markdown",
+        "mime_type": "text/markdown; charset=utf-8",
+        "content": markdown_payload["markdown"],
+        "template": markdown_payload.get("template"),
+        "include_frontmatter": markdown_payload.get("include_frontmatter"),
     }
 
 
-@router.get('/api/chat/chats/{chat_id}/export')
+@router.get("/api/chat/chats/{chat_id}/export")
 async def export_chat(
     chat_id: str,
-    scope: str = Query(default='full_chat'),
+    scope: str = Query(default="full_chat"),
     message_id: int | None = Query(default=None, ge=1),
     include_frontmatter: bool = Query(default=False),
-    template: str = Query(default='full_transcript'),
-    format: str = Query(default='markdown'),
+    template: str = Query(default="full_transcript"),
+    format: str = Query(default="markdown"),  # pylint: disable=redefined-builtin
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict[str, object]:
-    resolved_scope = str(scope or '').strip().lower()
-    if resolved_scope not in {'full_chat', 'current_answer'}:
-        raise HTTPException(status_code=400, detail='scope must be "full_chat" or "current_answer".')
+    """export chat."""
+    resolved_scope = str(scope or "").strip().lower()
+    if resolved_scope not in {"full_chat", "current_answer"}:
+        raise HTTPException(
+            status_code=400, detail='scope must be "full_chat" or "current_answer".'
+        )
     messages = await get_chat(db, chat_id)
     if not messages:
-        raise HTTPException(status_code=404, detail='Chat not found')
+        raise HTTPException(status_code=404, detail="Chat not found")
     chat_title = await get_chat_title(db, chat_id)
     return _resolve_chat_export_payload(
         chat_id=chat_id,
@@ -2878,32 +3253,33 @@ async def export_chat(
     )
 
 
-@router.get('/api/chat/chats/{chat_id}/export/markdown')
+@router.get("/api/chat/chats/{chat_id}/export/markdown")
 async def export_chat_markdown(
     chat_id: str,
-    scope: str = Query(default='full_chat'),
+    scope: str = Query(default="full_chat"),
     message_id: int | None = Query(default=None, ge=1),
     include_frontmatter: bool = Query(default=False),
-    template: str = Query(default='full_transcript'),
+    template: str = Query(default="full_transcript"),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict[str, object]:
+    """export chat markdown."""
     unified_payload = await export_chat(
         chat_id=chat_id,
         scope=scope,
         message_id=message_id,
         include_frontmatter=include_frontmatter,
         template=template,
-        format='markdown',
+        format="markdown",
         db=db,
     )
     return {
-        'chat_id': unified_payload['chat_id'],
-        'scope': unified_payload['scope'],
-        'message_id': unified_payload.get('message_id'),
-        'filename': unified_payload['filename'],
-        'markdown': unified_payload['content'],
-        'template': unified_payload.get('template'),
-        'include_frontmatter': unified_payload.get('include_frontmatter'),
+        "chat_id": unified_payload["chat_id"],
+        "scope": unified_payload["scope"],
+        "message_id": unified_payload.get("message_id"),
+        "filename": unified_payload["filename"],
+        "markdown": unified_payload["content"],
+        "template": unified_payload.get("template"),
+        "include_frontmatter": unified_payload.get("include_frontmatter"),
     }
 
 
@@ -2911,15 +3287,17 @@ async def export_chat_markdown(
 # PUT /api/chat/chats/{chat_id}/preferences — update chat preferences
 # ==============================================================================
 
-@router.put('/api/chat/chats/{chat_id}/preferences')
+
+@router.put("/api/chat/chats/{chat_id}/preferences")
 async def update_chat_preferences(
     chat_id: str,
     request: ChatPreferencesUpdateRequest,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    """update chat preferences."""
     messages = await get_chat(db, chat_id)
     if not messages:
-        raise HTTPException(status_code=404, detail='Chat not found')
+        raise HTTPException(status_code=404, detail="Chat not found")
     preferences = await upsert_chat_preferences(
         db,
         chat_id,
@@ -2927,9 +3305,11 @@ async def update_chat_preferences(
         chat_web_search_privacy_override=request.chat_web_search_privacy_override,
     )
     return {
-        'chat_id': chat_id,
-        'chat_web_search_enabled': bool(preferences.get('chat_web_search_enabled')),
-        'chat_web_search_privacy_override': bool(preferences.get('chat_web_search_privacy_override')),
+        "chat_id": chat_id,
+        "chat_web_search_enabled": bool(preferences.get("chat_web_search_enabled")),
+        "chat_web_search_privacy_override": bool(
+            preferences.get("chat_web_search_privacy_override")
+        ),
     }
 
 
@@ -2937,22 +3317,24 @@ async def update_chat_preferences(
 # PUT /api/chat/chats/{chat_id}/title — rename chat
 # ==============================================================================
 
-@router.put('/api/chat/chats/{chat_id}/title')
+
+@router.put("/api/chat/chats/{chat_id}/title")
 async def update_chat_title(
     chat_id: str,
     title: str = Query(..., min_length=1, max_length=200),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    """update chat title."""
     messages = await get_chat(db, chat_id)
     if not messages:
-        raise HTTPException(status_code=404, detail='Chat not found')
+        raise HTTPException(status_code=404, detail="Chat not found")
 
     await set_chat_title(db, chat_id, title.strip())
-    log.info('chat_title_updated', chat_id=chat_id, title=title)
+    log.info("chat_title_updated", chat_id=chat_id, title=title)
 
     return {
-        'chat_id': chat_id,
-        'title':   title.strip(),
+        "chat_id": chat_id,
+        "title": title.strip(),
     }
 
 
@@ -2960,16 +3342,18 @@ async def update_chat_title(
 # DELETE /api/chat/chats/{chat_id} — delete chat
 # ==============================================================================
 
-@router.delete('/api/chat/chats/{chat_id}')
+
+@router.delete("/api/chat/chats/{chat_id}")
 async def delete_chat_endpoint(
     chat_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    """delete chat endpoint."""
     attachments = await get_chat_upload_attachments(db, chat_id=chat_id, include_deleted=True)
     uploads_deleted = 0
     upload_delete_failures = 0
     for attachment in attachments:
-        if attachment.state != 'deleted':
+        if attachment.state != "deleted":
             deleted = await _delete_chat_upload_artifacts(db=db, attachment=attachment)
             if not deleted:
                 upload_delete_failures += 1
@@ -2977,23 +3361,26 @@ async def delete_chat_endpoint(
     if upload_delete_failures > 0:
         raise HTTPException(
             status_code=500,
-            detail='Failed to fully delete one or more uploaded file artifacts. Retry chat deletion.',
+            detail=(
+                "Failed to fully delete one or more uploaded file artifacts. Retry chat"
+                "deletion."
+            ),
         )
     chat_upload_dir = _upload_chat_dir(chat_id)
     if chat_upload_dir.exists():
         try:
             shutil.rmtree(chat_upload_dir)
         except (OSError, RuntimeError) as exc:
-            log.warning('chat_upload_chat_dir_remove_failed', chat_id=chat_id, error=str(exc))
+            log.warning("chat_upload_chat_dir_remove_failed", chat_id=chat_id, error=str(exc))
 
     deleted = await delete_chat(db, chat_id)
     if not deleted:
-        raise HTTPException(status_code=404, detail='Chat not found')
+        raise HTTPException(status_code=404, detail="Chat not found")
 
-    log.info('chat_deleted', chat_id=chat_id, uploads_deleted=uploads_deleted)
+    log.info("chat_deleted", chat_id=chat_id, uploads_deleted=uploads_deleted)
 
     return {
-        'chat_id':  chat_id,
-        'deleted':  True,
-        'uploads_deleted': uploads_deleted,
+        "chat_id": chat_id,
+        "deleted": True,
+        "uploads_deleted": uploads_deleted,
     }

@@ -16,6 +16,10 @@
   margin: 0;
 }
 
+.state-message__icon--spin {
+  animation: spin 1s linear infinite;
+}
+
 .state-message__title {
   margin: 0;
   font-size: var(--font-size-body);

@@ -1,0 +1,23 @@
+[MASTER]
+init-hook='import sys; sys.path.insert(0, "src")'
+
+[TYPECHECK]
+ignored-modules=
+    aiosqlite,
+    docling.datamodel.base_models,
+    docling.datamodel.pipeline_options,
+    docling.document_converter,
+    docling_core.types.doc.document,
+    fitz,
+    gguf,
+    nameparser,
+    pydantic_settings,
+    pypdfium2,
+    pysbd,
+    sse_starlette.sse,
+    sqlite_vec,
+    structlog,
+    structlog.contextvars,
+    tiktoken,
+    watchdog.events,
+    watchdog.observers

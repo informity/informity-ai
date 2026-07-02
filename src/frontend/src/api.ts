@@ -170,7 +170,7 @@ export async function getScanErrors(
 // Files
 // -----------------------------------------------------------------------------
 
-export interface GetFilesParams {
+interface GetFilesParams {
   category?: string
   extension?: string | string[]
   search?: string
@@ -484,7 +484,7 @@ function handleEvent(
 // Chats
 // -----------------------------------------------------------------------------
 
-export interface GetChatsParams {
+interface GetChatsParams {
   limit?: number
   offset?: number
   search?: string
@@ -555,7 +555,7 @@ export interface ChatMarkdownExportResponse {
   include_frontmatter?: boolean
 }
 
-export interface ChatExportResponse {
+interface ChatExportResponse {
   chat_id: string
   scope: 'full_chat' | 'current_answer'
   message_id?: number

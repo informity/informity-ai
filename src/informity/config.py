@@ -10,6 +10,8 @@
 # Override with INFORMITY_APP_DATA_DIR to use a custom location.
 # ==============================================================================
 
+"""Application configuration, defaults, and derived runtime settings."""
+
 import json
 import os
 from pathlib import Path
@@ -34,9 +36,11 @@ log = structlog.get_logger(__name__)
 # Application identity (single source of truth for branding and file names)
 # ==============================================================================
 
-APP_SLUG        = 'informity'      # Used for db filename (e.g. informity.db), log filename (e.g. informity.log)
-APP_DISPLAY_NAME = 'Informity AI'  # User-facing product name (UI, prompts, API docs)
-APP_DATA_DIRNAME = '.informity'    # Default app data directory name under user home
+APP_SLUG = (
+    "informity"  # Used for db filename (e.g. informity.db), log filename (e.g. informity.log)
+)
+APP_DISPLAY_NAME = "Informity AI"  # User-facing product name (UI, prompts, API docs)
+APP_DATA_DIRNAME = ".informity"  # Default app data directory name under user home
 
 # ==============================================================================
 # Defaults
@@ -46,61 +50,63 @@ APP_DATA_DIRNAME = '.informity'    # Default app data directory name under user 
 _DEFAULT_APP_DATA_DIR = Path.home() / APP_DATA_DIRNAME
 
 # Default model for reset-to-factory and first load: Qwen3.6 35B A3B.
-_DEFAULT_LLM_MODEL_FILENAME = 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf'
-_DEFAULT_LLM_MODEL_ID = 'qwen3.6:35b'
-_DEFAULT_LLM_PROVIDER = 'local_gguf'
-_DEFAULT_OLLAMA_BASE_URL = 'http://127.0.0.1:11434'
+_DEFAULT_LLM_MODEL_FILENAME = "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+_DEFAULT_LLM_MODEL_ID = "qwen3.6:35b"
+_DEFAULT_LLM_PROVIDER = "local_gguf"
+_DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 _DEFAULT_OLLAMA_TIMEOUT_SECONDS = 120.0
+DEFAULT_OLLAMA_BASE_URL = _DEFAULT_OLLAMA_BASE_URL
+DEFAULT_OLLAMA_TIMEOUT_SECONDS = _DEFAULT_OLLAMA_TIMEOUT_SECONDS
 _LLM_MODEL_ID_TO_CANONICAL_FILENAME = {
-    'qwen3.5:9b': 'Qwen_Qwen3.5-9B-Q4_K_M.gguf',
-    'qwen3:14b': 'Qwen3-14B-Q5_K_M.gguf',
-    'qwen3.6:35b': 'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf',
-    'qwen3.5:4b': 'Qwen3.5-4B-Q4_K_M.gguf',
+    "qwen3.5:9b": "Qwen_Qwen3.5-9B-Q4_K_M.gguf",
+    "qwen3:14b": "Qwen3-14B-Q5_K_M.gguf",
+    "qwen3.6:35b": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+    "qwen3.5:4b": "Qwen3.5-4B-Q4_K_M.gguf",
 }
 
 # Default embedding model (sentence-transformers)
-_DEFAULT_EMBEDDING_MODEL = 'nomic-ai/nomic-embed-text-v1.5'
+_DEFAULT_EMBEDDING_MODEL = "nomic-ai/nomic-embed-text-v1.5"
 
 # Default reranker model (sentence-transformers cross-encoder)
-_DEFAULT_RERANKER_MODEL = 'cross-encoder/ms-marco-MiniLM-L-6-v2'
+_DEFAULT_RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 # Public alias for schema/default consumers.
 DEFAULT_RERANKER_MODEL = _DEFAULT_RERANKER_MODEL
 
 # Default Hugging Face repository for LLM model downloads
-_DEFAULT_LLM_HF_REPO = 'unsloth/Qwen3.6-35B-A3B-GGUF'
+_DEFAULT_LLM_HF_REPO = "unsloth/Qwen3.6-35B-A3B-GGUF"
 
 # Default auto-continuation policy for long responses.
 _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT = (
-    'Continue with the remaining sections from your last answer. '
-    'Keep the same structure and avoid repeating completed sections.'
+    "Continue with the remaining sections from your last answer. "
+    "Keep the same structure and avoid repeating completed sections."
 )
-LOG_LEVEL_ALLOWED_VALUES: tuple[str, ...] = ('debug', 'info', 'warning', 'error')
+LOG_LEVEL_ALLOWED_VALUES: tuple[str, ...] = ("debug", "info", "warning", "error")
 UI_THEME_ALLOWED_VALUES: tuple[str, ...] = (
-    'onyx',
-    'square',
-    'graphite',
-    'midnight',
-    'ember',
-    'sage',
-    'canvas',
+    "onyx",
+    "square",
+    "graphite",
+    "midnight",
+    "ember",
+    "sage",
+    "canvas",
 )
 # Theme migration map for legacy persisted values.
 UI_THEME_ALIAS_MAP: dict[str, str] = {
-    'light': 'canvas',
-    'sand': 'canvas',
-    'linen-dark': 'ember',
-    'linen': 'ember',
-    'mono': 'onyx',
-    'gray': 'graphite',
-    'overcast': 'graphite',
-    'purple': 'graphite',
-    'blue': 'graphite',
-    'green': 'graphite',
-    'orange': 'graphite',
+    "light": "canvas",
+    "sand": "canvas",
+    "linen-dark": "ember",
+    "linen": "ember",
+    "mono": "onyx",
+    "gray": "graphite",
+    "overcast": "graphite",
+    "purple": "graphite",
+    "blue": "graphite",
+    "green": "graphite",
+    "orange": "graphite",
 }
-_DEFAULT_LOG_LEVEL = 'info'
-_DEFAULT_UI_THEME = 'onyx'
-PDF_EXTRACTION_STRATEGIES: tuple[str, ...] = ('docling_full', 'docling_fast', 'pdf_text_layer')
+_DEFAULT_LOG_LEVEL = "info"
+_DEFAULT_UI_THEME = "onyx"
+PDF_EXTRACTION_STRATEGIES: tuple[str, ...] = ("docling_full", "docling_fast", "pdf_text_layer")
 DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER: tuple[str, ...] = PDF_EXTRACTION_STRATEGIES
 
 
@@ -108,58 +114,64 @@ DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER: tuple[str, ...] = PDF_EXTRACTION_STRATEGI
 # Directory Name Constants
 # ==============================================================================
 
+
 class DirNames:
     """
     Directory name constants for application directory structure.
     Single source of truth for all directory names used throughout the application.
     """
+
     # User data directories (under app_data_dir)
-    TOOLS = 'tools'
-    DB = 'db'
-    LOGS = 'logs'
-    DIAGNOSTICS = 'diagnostics'
-    MODELS = 'models'
-    CHAT_LOGS = 'chats'  # Per-message trace logs: app_data_dir/chats/{chat_id}/{message_id}.json
+    TOOLS = "tools"
+    DB = "db"
+    LOGS = "logs"
+    DIAGNOSTICS = "diagnostics"
+    MODELS = "models"
+    CHAT_LOGS = "chats"  # Per-message trace logs: app_data_dir/chats/{chat_id}/{message_id}.json
 
     # Unified cache directory (under app_data_dir, not committed to repo)
-    CACHE = 'cache'
+    CACHE = "cache"
 
     # Model/cache subdirectories
-    LLM = 'llm'  # LLM models (*.gguf files)
-    CLASSIFIER = 'classifier'  # Classifier models (*.gguf files)
-    HUGGINGFACE = 'huggingface'  # HuggingFace cache under cache/huggingface/
-    HUB = 'hub'  # HuggingFace hub cache under cache/huggingface/hub/
-    DOCLING = 'docling'  # Docling models under cache/docling/ (flat, docling creates its own structure inside)
+    LLM = "llm"  # LLM models (*.gguf files)
+    CLASSIFIER = "classifier"  # Classifier models (*.gguf files)
+    HUGGINGFACE = "huggingface"  # HuggingFace cache under cache/huggingface/
+    HUB = "hub"  # HuggingFace hub cache under cache/huggingface/hub/
+    DOCLING = "docling"
+    # Docling models under cache/docling/ (flat, docling creates its own structure inside)
 
     # Diagnostics subdirectories (under diagnostics_dir)
-    RUNS = 'runs'
-    TRACES = 'traces'
-    QUERIES = 'queries'
-    RESULTS = 'results'
-    CHATS = 'chats'
-    REPORTS = 'reports'
-    EVALUATIONS = 'evaluations'
+    RUNS = "runs"
+    TRACES = "traces"
+    QUERIES = "queries"
+    RESULTS = "results"
+    CHATS = "chats"
+    REPORTS = "reports"
+    EVALUATIONS = "evaluations"
 
 
 # ==============================================================================
 # Diagnostics Pipeline Constants
 # ==============================================================================
 
+
 class DiagnosticsConstants:
     """
     Constants for diagnostics evaluation pipeline (run IDs, chat IDs, query IDs).
     Single source of truth for all diagnostics pipeline naming patterns.
     """
+
     # Run ID prefix (e.g., "run-20260214-2009")
-    RUN_ID_PREFIX = 'run-'
+    RUN_ID_PREFIX = "run-"
 
     # Chat ID prefix for evaluation/trace chats (e.g., "trace-1-doc-totals-ModelName")
-    EVAL_CHAT_ID_PREFIX = 'trace-'
+    EVAL_CHAT_ID_PREFIX = "trace-"
 
 
 # ==============================================================================
 # Default Supported Extensions
 # ==============================================================================
+
 
 def _get_default_supported_extensions() -> list[str]:
     """
@@ -177,12 +189,13 @@ def _get_default_supported_extensions() -> list[str]:
     """
     # Extensions to exclude from defaults (even if extractors exist)
     # PDF is now included by default since docling provides reliable extraction
-    excluded_by_default = {'.json', '.yaml', '.yml', '.toml'}
+    excluded_by_default = {".json", ".yaml", ".yml", ".toml"}
 
     # Import here to avoid circular imports (extractors may import config).
     # Keep fallback data-driven (file_types), never hardcoded extension lists.
     try:
         from informity.scanner.extractors.base import get_all_extractable_extensions
+
         all_extensions = get_all_extractable_extensions()
         # Filter out extensions that should be excluded by default
         return [ext for ext in all_extensions if ext not in excluded_by_default]
@@ -193,7 +206,7 @@ def _get_default_supported_extensions() -> list[str]:
         derived: list[str] = []
         seen: set[str] = set()
         for option in options:
-            for raw_ext in option.get('extensions', []):
+            for raw_ext in option.get("extensions", []):
                 ext = str(raw_ext).strip().lower()
                 if not ext or ext in excluded_by_default or ext in seen:
                     continue
@@ -201,40 +214,41 @@ def _get_default_supported_extensions() -> list[str]:
                 derived.append(ext)
         return derived
 
+
 # Preset pattern lists for "Exclude common macOS system and application data" and
 # "Exclude common developer data". Used when the corresponding settings are enabled.
 # Matching is by path component (e.g. "Library" skips any path with that segment).
 EXCLUDE_MACOS_SYSTEM_PATTERNS: tuple[str, ...] = (
-    '*.app',
-    '*.dmg',
-    '*.icloud',
-    '*.ipa',
-    '*.pkg',
-    '*.webloc',
-    '.DocumentRevisions-V100',
-    '.DS_Store',
-    '.Spotlight-V100',
-    '.TemporaryItems',
-    '.VolumeIcon.icns',
-    '.apdisk',
-    '.fseventsd',
-    '.localized',
-    '.Trash',
-    'Library',
+    "*.app",
+    "*.dmg",
+    "*.icloud",
+    "*.ipa",
+    "*.pkg",
+    "*.webloc",
+    ".DocumentRevisions-V100",
+    ".DS_Store",
+    ".Spotlight-V100",
+    ".TemporaryItems",
+    ".VolumeIcon.icns",
+    ".apdisk",
+    ".fseventsd",
+    ".localized",
+    ".Trash",
+    "Library",
 )
 EXCLUDE_DEVELOPER_PATTERNS: tuple[str, ...] = (
-    '.env',
-    '.git',
-    '.mypy_cache',
-    '.next',
-    '.pytest_cache',
-    '.tox',
-    '.venv',
-    '__pycache__',
-    'build',
-    'dist',
-    'node_modules',
-    'venv',
+    ".env",
+    ".git",
+    ".mypy_cache",
+    ".next",
+    ".pytest_cache",
+    ".tox",
+    ".venv",
+    "__pycache__",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
 )
 
 
@@ -242,112 +256,132 @@ EXCLUDE_DEVELOPER_PATTERNS: tuple[str, ...] = (
 # Config file loader
 # ==============================================================================
 
+
 def _config_path_for_loader() -> Path:
     # Config file path using same resolution as _load_config_file_values.
-    raw_dir = os.environ.get('INFORMITY_APP_DATA_DIR', '')
+    """ config path for loader."""
+    raw_dir = os.environ.get("INFORMITY_APP_DATA_DIR", "")
     app_data_dir = Path(raw_dir) if raw_dir else _DEFAULT_APP_DATA_DIR
     app_data_dir = normalize_path(app_data_dir, expand_user=True)
-    return app_data_dir / 'config.json'
+    return app_data_dir / "config.json"
+
+
+def _normalize_loaded_config_data(data: dict) -> tuple[dict, object | None, bool]:
+    """ normalize loaded config data."""
+    original_enabled_specialization_ids = data.get("enabled_specialization_ids")
+
+    # Resolve watched_directories to absolute paths so scans use consistent paths.
+    if "watched_directories" in data and isinstance(data["watched_directories"], list):
+        normalized_paths = normalize_paths(
+            [p for p in data["watched_directories"] if isinstance(p, str)],
+            expand_user=True,
+        )
+        data["watched_directories"] = [str(p) for p in normalized_paths]
+
+    # Guard against invalid theme values in persisted config.json.
+    raw_theme = data.get("ui_theme")
+    if raw_theme is not None:
+        if isinstance(raw_theme, str):
+            normalized_theme = UI_THEME_ALIAS_MAP.get(raw_theme, raw_theme)
+            data["ui_theme"] = (
+                normalized_theme
+                if normalized_theme in UI_THEME_ALLOWED_VALUES
+                else _DEFAULT_UI_THEME
+            )
+        else:
+            data["ui_theme"] = _DEFAULT_UI_THEME
+
+    # Migration: specialization is the canonical term; old role-shaped keys are rewritten on
+    # startup.
+    legacy_enable_roles = data.pop("enable_chat_roles", None)
+    legacy_enabled_role_ids = data.pop("enabled_chat_role_ids", None)
+    has_legacy_specialization_migration = (
+        legacy_enable_roles is not None or legacy_enabled_role_ids is not None
+    )
+    if has_legacy_specialization_migration:
+        if "enable_specializations" not in data and legacy_enable_roles is not None:
+            data["enable_specializations"] = bool(legacy_enable_roles)
+        if "enabled_specialization_ids" not in data and legacy_enabled_role_ids is not None:
+            if isinstance(legacy_enabled_role_ids, list):
+                data["enabled_specialization_ids"] = [
+                    str(item).strip() for item in legacy_enabled_role_ids if str(item).strip()
+                ]
+            else:
+                data["enabled_specialization_ids"] = []
+
+    if isinstance(data.get("enabled_specialization_ids"), list):
+        normalized_enabled_specialization_ids = [
+            str(item).strip()
+            for item in data["enabled_specialization_ids"]
+            if str(item).strip()
+        ]
+        if normalized_enabled_specialization_ids != data["enabled_specialization_ids"]:
+            data["enabled_specialization_ids"] = normalized_enabled_specialization_ids
+            has_legacy_specialization_migration = True
+
+    return data, original_enabled_specialization_ids, has_legacy_specialization_migration
 
 
 def _load_config_file_values() -> dict:
     # Determine the app data dir (env var takes priority over default)
     # so we know where to find config.json before Settings is instantiated.
+    """ load config file values."""
     config_path = _config_path_for_loader()
     if not config_path.exists():
         return {}
 
     try:
-        data = json.loads(config_path.read_text(encoding='utf-8'))
+        data = json.loads(config_path.read_text(encoding="utf-8"))
         if not isinstance(data, dict):
             return {}
-        original_enabled_specialization_ids = data.get('enabled_specialization_ids')
-        # Resolve watched_directories to absolute paths so scans use consistent paths
-        if 'watched_directories' in data and isinstance(data['watched_directories'], list):
-            normalized_paths = normalize_paths(
-                [p for p in data['watched_directories'] if isinstance(p, str)],
-                expand_user=True
-            )
-            data['watched_directories'] = [str(p) for p in normalized_paths]
-        # Guard against invalid theme values in persisted config.json.
-        raw_theme = data.get('ui_theme')
-        if raw_theme is not None:
-            if isinstance(raw_theme, str):
-                normalized_theme = UI_THEME_ALIAS_MAP.get(raw_theme, raw_theme)
-                if normalized_theme in UI_THEME_ALLOWED_VALUES:
-                    data['ui_theme'] = normalized_theme
-                else:
-                    data['ui_theme'] = _DEFAULT_UI_THEME
-            else:
-                data['ui_theme'] = _DEFAULT_UI_THEME
-
-        # Migration: specialization is the canonical term; old role-shaped keys are rewritten on startup.
-        legacy_enable_roles = data.pop('enable_chat_roles', None)
-        legacy_enabled_role_ids = data.pop('enabled_chat_role_ids', None)
-        has_legacy_specialization_migration = (
-            legacy_enable_roles is not None
-            or legacy_enabled_role_ids is not None
+        data, original_enabled_specialization_ids, has_legacy_specialization_migration = (
+            _normalize_loaded_config_data(data)
         )
-        if has_legacy_specialization_migration:
-            if 'enable_specializations' not in data and legacy_enable_roles is not None:
-                data['enable_specializations'] = bool(legacy_enable_roles)
-            if 'enabled_specialization_ids' not in data and legacy_enabled_role_ids is not None:
-                if isinstance(legacy_enabled_role_ids, list):
-                    data['enabled_specialization_ids'] = [
-                        str(item).strip()
-                        for item in legacy_enabled_role_ids
-                        if str(item).strip()
-                    ]
-                else:
-                    data['enabled_specialization_ids'] = []
-        if isinstance(data.get('enabled_specialization_ids'), list):
-            normalized_enabled_specialization_ids = [
-                str(item).strip()
-                for item in data['enabled_specialization_ids']
-                if str(item).strip()
-            ]
-            if normalized_enabled_specialization_ids != data['enabled_specialization_ids']:
-                data['enabled_specialization_ids'] = normalized_enabled_specialization_ids
-                has_legacy_specialization_migration = True
         should_repair_specialization_keys = (
             has_legacy_specialization_migration
-            or data.get('enabled_specialization_ids') != original_enabled_specialization_ids
+            or data.get("enabled_specialization_ids") != original_enabled_specialization_ids
         )
         try:
             if should_repair_specialization_keys:
-                config_path.write_text(serialize_config(data), encoding='utf-8')
+                config_path.write_text(serialize_config(data), encoding="utf-8")
                 ensure_private_file(config_path)
                 log.info(
-                    'repaired_config_specialization_keys',
+                    "repaired_config_specialization_keys",
                     path=str(config_path),
-                    migrated_keys=['enable_chat_roles', 'enabled_chat_role_ids'],
+                    migrated_keys=["enable_chat_roles", "enabled_chat_role_ids"],
                 )
         except OSError as exc:
             if should_repair_specialization_keys:
                 log.warning(
-                    'repair_config_specialization_keys_failed',
+                    "repair_config_specialization_keys_failed",
                     path=str(config_path),
                     error=str(exc),
                 )
-        raw_llm_filename = str(data.get('llm_model_filename', '') or '').strip()
+        raw_llm_filename = str(data.get("llm_model_filename", "") or "").strip()
         if raw_llm_filename:
-            resolved_llm_model_id = str(data.get('llm_model_id', '') or '').strip().lower()
-            canonical_llm_filename = _LLM_MODEL_ID_TO_CANONICAL_FILENAME.get(resolved_llm_model_id, '')
-            models_dir = (config_path.parent / 'models' / 'llm').resolve()
-            if canonical_llm_filename and canonical_llm_filename != raw_llm_filename and not (models_dir / raw_llm_filename).exists():
-                data['llm_model_filename'] = canonical_llm_filename
+            resolved_llm_model_id = str(data.get("llm_model_id", "") or "").strip().lower()
+            canonical_llm_filename = _LLM_MODEL_ID_TO_CANONICAL_FILENAME.get(
+                resolved_llm_model_id, ""
+            )
+            models_dir = (config_path.parent / "models" / "llm").resolve()
+            if (
+                canonical_llm_filename
+                and canonical_llm_filename != raw_llm_filename
+                and not (models_dir / raw_llm_filename).exists()
+            ):
+                data["llm_model_filename"] = canonical_llm_filename
                 try:
-                    config_path.write_text(serialize_config(data), encoding='utf-8')
+                    config_path.write_text(serialize_config(data), encoding="utf-8")
                     ensure_private_file(config_path)
                     log.info(
-                        'repaired_config_llm_model_filename',
+                        "repaired_config_llm_model_filename",
                         path=str(config_path),
                         old_filename=raw_llm_filename,
                         new_filename=canonical_llm_filename,
                     )
                 except OSError as exc:
                     log.warning(
-                        'repair_config_llm_model_filename_failed',
+                        "repair_config_llm_model_filename_failed",
                         path=str(config_path),
                         old_filename=raw_llm_filename,
                         new_filename=canonical_llm_filename,
@@ -362,33 +396,47 @@ def _load_config_file_values() -> dict:
 # Settings
 # ==============================================================================
 
+
 class Settings(BaseSettings):
     # -- Paths ----------------------------------------------------------------
-    app_data_dir:  Path       = _DEFAULT_APP_DATA_DIR
-    cache_dir:     Path | None = Field(default=None)   # Unified cache root; default app_data_dir/DirNames.CACHE. Override via INFORMITY_CACHE_DIR.
-    db_path:       Path | None = Field(default=None)   # Computed: app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
-    models_dir:    Path | None = Field(default=None)   # Computed: desktop -> app_data_dir/DirNames.MODELS/DirNames.LLM; otherwise cache_dir/DirNames.LLM
-    classifier_models_dir: Path | None = Field(default=None)  # Computed: app_data_dir/DirNames.MODELS/DirNames.CLASSIFIER
-    logs_dir:      Path | None = Field(default=None)   # Computed: app_data_dir / DirNames.LOGS
-    diagnostics_dir: Path | None = Field(default=None)  # Computed: app_data_dir / DirNames.DIAGNOSTICS
+    """Settings model."""
+    app_data_dir: Path = _DEFAULT_APP_DATA_DIR
+    cache_dir: Path | None = Field(
+        default=None
+    )  # Unified cache root; default app_data_dir/DirNames.CACHE. Override via INFORMITY_CACHE_DIR.
+    db_path: Path | None = Field(
+        default=None
+    )  # Computed: app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
+    models_dir: Path | None = Field(
+        default=None
+    )
+    # Computed: desktop -> app_data_dir/DirNames.MODELS/DirNames.LLM; otherwise
+    # cache_dir/DirNames.LLM
+    classifier_models_dir: Path | None = Field(
+        default=None
+    )  # Computed: app_data_dir/DirNames.MODELS/DirNames.CLASSIFIER
+    logs_dir: Path | None = Field(default=None)  # Computed: app_data_dir / DirNames.LOGS
+    diagnostics_dir: Path | None = Field(
+        default=None
+    )  # Computed: app_data_dir / DirNames.DIAGNOSTICS
 
     # -- Scanner --------------------------------------------------------------
-    watched_directories:       list[Path] = Field(default_factory=list)
-    ignore_patterns:           list[str]  = Field(default_factory=list)  # Custom only; presets from checkboxes
-    exclude_macos_system:      bool       = True   # When True, apply EXCLUDE_MACOS_SYSTEM_PATTERNS
-    exclude_developer_data:    bool       = True   # When True, apply EXCLUDE_DEVELOPER_PATTERNS
+    watched_directories: list[Path] = Field(default_factory=list)
+    ignore_patterns: list[str] = Field(default_factory=list)  # Custom only; presets from checkboxes
+    exclude_macos_system: bool = True  # When True, apply EXCLUDE_MACOS_SYSTEM_PATTERNS
+    exclude_developer_data: bool = True  # When True, apply EXCLUDE_DEVELOPER_PATTERNS
     supported_extensions: list[str] = Field(default_factory=_get_default_supported_extensions)
     # Default derives from extractor registry (all extensions that have extractors).
     # User can customize via Settings UI to enable/disable specific file types.
     # Note: .json, .yaml, .yml, .toml may be excluded by default even if extractors exist;
     # user can enable them in Settings. PDF (.pdf) is included by default since docling
     # provides reliable extraction.
-    follow_symlinks:  bool = False
+    follow_symlinks: bool = False
     source_scopes_enabled: dict[str, bool] = Field(
         default_factory=lambda: {
-            'filesystem:file': True,
-            'mail.apple:mail': False,
-            'mail.outlook:mail': False,
+            "filesystem:file": True,
+            "mail.apple:mail": False,
+            "mail.outlook:mail": False,
         }
     )
     # User-facing timeout cap (seconds) for single-item processing.
@@ -396,7 +444,9 @@ class Settings(BaseSettings):
     scan_file_timeout_seconds: int = 600
     # Ordered PDF extraction strategies (centralized orchestrator).
     # Allowed values: docling_full, docling_fast, pdf_text_layer
-    pdf_extraction_strategy_order: list[str] = Field(default_factory=lambda: list(DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER))
+    pdf_extraction_strategy_order: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER)
+    )
     # Shared per-item timeout policy by source scope.
     scan_timeout_policy: ScopedTimeoutPolicy = Field(default_factory=default_scoped_timeout_policy)
     # Running-scan stale detection threshold (seconds) used when a new scan/rebuild
@@ -404,7 +454,7 @@ class Settings(BaseSettings):
     scan_stale_threshold_seconds: int = 300
     # Hash executor mode for scan crawling: thread (default) or process.
     # Thread mode avoids process spawn overhead and is usually better for mixed I/O+CPU hashing.
-    scan_hash_pool: Literal['thread', 'process'] = 'thread'
+    scan_hash_pool: Literal["thread", "process"] = "thread"
     # Hash worker count for crawl hashing. 0 = auto (min(4, max(2, cpu_count // 3))).
     scan_hash_workers: int = 0
     # Max file size (bytes) for scan-time SHA-256 hashing. Oversized files are skipped.
@@ -412,21 +462,25 @@ class Settings(BaseSettings):
     scan_hash_max_file_size_bytes: int = 500 * 1024 * 1024  # 500 MB
 
     # -- Indexer --------------------------------------------------------------
-    chunk_size_tokens:    int = 512  # Parent chunk size (for context windows)
+    chunk_size_tokens: int = 512  # Parent chunk size (for context windows)
     chunk_overlap_tokens: int = 60
-    chunk_child_size_tokens: int = 150  # Child chunk size (for precise search matching, 1-2 sentences)
+    chunk_child_size_tokens: int = (
+        150  # Child chunk size (for precise search matching, 1-2 sentences)
+    )
     # Header-only chunk filter: quality heuristic to prevent indexing chunks that contain
     # only table/form headers without body content. Some documents (e.g., form templates,
     # empty tables) genuinely contain header-only structures that provide little value for RAG.
     chunk_filter_header_only: bool = True  # Enable/disable header-only chunk filtering
-    chunk_filter_header_ratio: float = 0.7  # Threshold: chunks with >70% header/separator lines are considered header-only
+    chunk_filter_header_ratio: float = (
+        0.7  # Threshold: chunks with >70% header/separator lines are considered header-only
+    )
     chunk_filter_min_content_chars: int = 300  # Minimum content length (chars) to avoid filtering
     chunk_filter_min_content_lines: int = 3  # Minimum content lines to avoid filtering
-    embedding_model:      str = _DEFAULT_EMBEDDING_MODEL
+    embedding_model: str = _DEFAULT_EMBEDDING_MODEL
     embedding_batch_size: int = 32
     # When True, load embedding model from local cache only (no Hugging Face requests).
     # Synced from full_privacy when that setting is updated via the UI.
-    embedding_offline:    bool = True
+    embedding_offline: bool = True
     # Maximum CPU threads for the embedding model (PyTorch + tokenizers).
     # Set to 0 for automatic (uses all cores — will peg CPU at 100%).
     # Default: 6 (~50% of a 12-core M3 Pro) for a balance between
@@ -448,27 +502,30 @@ class Settings(BaseSettings):
 
     # -- Privacy ------------------------------------------------------------------
     # When True, no network access: embedding and LLM use cache/local only (fully local).
-    # When False, network is allowed (e.g. for model downloads). Synced to embedding_offline and llm_local_only.
-    full_privacy:         bool = True
-    tavily_api_key: str = ''
-    linkup_api_key: str = ''
-    web_search_primary_provider: Literal['tavily', 'linkup'] = 'tavily'
+    # When False, network is allowed (e.g. for model downloads). Synced to embedding_offline and
+    # llm_local_only.
+    full_privacy: bool = True
+    tavily_api_key: str = ""
+    linkup_api_key: str = ""
+    web_search_primary_provider: Literal["tavily", "linkup"] = "tavily"
     web_search_max_results: int = 5
     web_search_timeout_seconds: float = 8.0
 
     # -- LLM ------------------------------------------------------------------
-    llm_provider: Literal['local_gguf', 'ollama'] = _DEFAULT_LLM_PROVIDER
+    llm_provider: Literal["local_gguf", "ollama"] = _DEFAULT_LLM_PROVIDER
     # When True, load LLM only from models_dir; never download from the network.
     # Synced from full_privacy when that setting is updated via the UI.
-    llm_local_only:       bool = True
-    llm_model_id:         str  = _DEFAULT_LLM_MODEL_ID
-    ollama_base_url:      str = _DEFAULT_OLLAMA_BASE_URL
+    llm_local_only: bool = True
+    llm_model_id: str = _DEFAULT_LLM_MODEL_ID
+    ollama_base_url: str = _DEFAULT_OLLAMA_BASE_URL
     ollama_timeout_seconds: float = _DEFAULT_OLLAMA_TIMEOUT_SECONDS
-    llm_model_filename:   str  = _DEFAULT_LLM_MODEL_FILENAME  # Default: Qwen3.6 35B A3B
-    llm_hf_repo:          str  = _DEFAULT_LLM_HF_REPO  # Hugging Face repo for automatic model downloads
-    llm_context_length:   int  = 16384  # 16K is ample (10K chunks + 4K prompt/history + 2K gen); prevents over-assembly
-    llm_max_tokens:     int   = 2048
-    llm_temperature:    float = 0.2     # Low for factual extraction; avoids determinism-induced loops
+    llm_model_filename: str = _DEFAULT_LLM_MODEL_FILENAME  # Default: Qwen3.6 35B A3B
+    llm_hf_repo: str = _DEFAULT_LLM_HF_REPO  # Hugging Face repo for automatic model downloads
+    llm_context_length: int = (
+        16384  # 16K is ample (10K chunks + 4K prompt/history + 2K gen); prevents over-assembly
+    )
+    llm_max_tokens: int = 2048
+    llm_temperature: float = 0.2  # Low for factual extraction; avoids determinism-induced loops
     # Retrieval top-k: model-profile-only (ModelProfile.rag_top_k, coverage_top_k).
     # Use model_adapter.get_retrieval_top_k(query_type). No config/env.
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (moved to ModelProfile).
@@ -478,38 +535,43 @@ class Settings(BaseSettings):
     rag_minimal_mode: bool = True
     # When True, adapt retrieval top-k based on corpus size (file count, parent chunk count).
     # When False, always use model profile base values.
-    adaptive_rag_tuning:  bool  = True
-    # When True, re-rank vector search candidates with a cross-encoder (query, chunk) before taking top_k.
+    adaptive_rag_tuning: bool = True
+    # When True, re-rank vector search candidates with a cross-encoder (query, chunk) before taking
+    # top_k.
     # Disable to trade result quality for speed (skips 100–300ms cross-encoder pass).
-    rag_rerank:          bool  = True
+    rag_rerank: bool = True
     # When True, also apply reranking to coverage queries (comprehensive lists/tables).
     # Only evaluated when rag_rerank is True. Enabled by default: reranking
     # prevents irrelevant files from polluting coverage answers.
-    rag_rerank_coverage: bool  = True
-    # sentence-transformers model ID for the cross-encoder reranker (default: cross-encoder/ms-marco-MiniLM-L-6-v2).
-    rag_reranker_model:   str   = _DEFAULT_RERANKER_MODEL
+    rag_rerank_coverage: bool = True
+    # sentence-transformers model ID for the cross-encoder reranker (default:
+    # cross-encoder/ms-marco-MiniLM-L-6-v2).
+    rag_reranker_model: str = _DEFAULT_RERANKER_MODEL
     # Number of candidates to fetch for re-ranking when rag_rerank is True.
     # Reduced from 35 to 25 for speed (saves ~30-50ms); reranker is most effective on top 20-30.
     rag_rerank_candidates: int = 25
     # Adaptive top-k formula constants (app compliance: no magic numbers). See adaptive-tuning.md.
-    adaptive_top_k_focused_small_threshold:  int   = 500   # Parent chunks below this: use small-corpus formula
-    adaptive_top_k_focused_small_cap:        int   = 12    # Max top-k for small corpus (focused)
-    adaptive_top_k_focused_base:             int   = 8     # Log curve base
-    adaptive_top_k_focused_scale:            int   = 3     # Log curve scale
-    adaptive_top_k_focused_max:              int   = 25    # Max top-k for focused (large corpus)
-    adaptive_top_k_coverage_ratio:           float = 0.25   # Target file coverage (20–25%)
-    adaptive_top_k_coverage_max:             int   = 30    # Max top-k for coverage (timeout prevention)
-    adaptive_top_k_staleness_hours:          int   = 24    # Recompute if cache older than this
-    adaptive_top_k_staleness_delta:          float = 0.2    # Recompute if chunk delta > 20%
+    adaptive_top_k_focused_small_threshold: int = (
+        500  # Parent chunks below this: use small-corpus formula
+    )
+    adaptive_top_k_focused_small_cap: int = 12  # Max top-k for small corpus (focused)
+    adaptive_top_k_focused_base: int = 8  # Log curve base
+    adaptive_top_k_focused_scale: int = 3  # Log curve scale
+    adaptive_top_k_focused_max: int = 25  # Max top-k for focused (large corpus)
+    adaptive_top_k_coverage_ratio: float = 0.25  # Target file coverage (20–25%)
+    adaptive_top_k_coverage_max: int = 30  # Max top-k for coverage (timeout prevention)
+    adaptive_top_k_staleness_hours: int = 24  # Recompute if cache older than this
+    adaptive_top_k_staleness_delta: float = 0.2  # Recompute if chunk delta > 20%
     # Classification confidence band thresholds.
     # confidence_band='high' when confidence >= classification_confidence_high_threshold.
     # confidence_band='medium' when confidence >= classification_confidence_medium_threshold.
     # confidence_band='low' otherwise. These gate route selection and multi-step retrieval.
-    # Last calibration: 2026-03-18 (provenance flags item; values derived from original three-tier constants).
+    # Last calibration: 2026-03-18 (provenance flags item; values derived from original three-tier
+    # constants).
     classification_confidence_high_threshold: float = 0.80
     classification_confidence_medium_threshold: float = 0.55
     # Retrieval quality gates (runtime policy; avoid hardcoded thresholds in handlers).
-    retrieval_relevance_threshold_focused:  float = 0.03
+    retrieval_relevance_threshold_focused: float = 0.03
     retrieval_relevance_threshold_coverage: float = 0.02
     # Minimal RAG answerability thresholds. Applied only when rag_minimal_mode=true.
     rag_minimal_answerability_threshold_focused: float = 0.0
@@ -561,7 +623,7 @@ class Settings(BaseSettings):
     # Number of previous messages to include in prompt context.
     # Lower values free up tokens for more document context, improving answer quality.
     # Higher values maintain better conversation continuity for follow-up questions.
-    chat_history_messages:   int   = 5
+    chat_history_messages: int = 5
     # Mode-specific history window overrides.
     # Assistant mode can keep a larger conversational window because it does not
     # include corpus retrieval chunks in prompt context.
@@ -576,7 +638,7 @@ class Settings(BaseSettings):
     chat_summary_max_chunks: int = 12
     chat_summary_max_chars_per_message: int = 900
     # Default chat mode shown in the Chat UI.
-    default_chat_mode: Literal['assistant', 'researcher'] = 'researcher'
+    default_chat_mode: Literal["assistant", "researcher"] = "researcher"
     # When true, specialization plugins can be selected in chat UI.
     enable_specializations: bool = False
     # Enabled built-in specialization IDs shown in the specialization picker when enabled.
@@ -587,7 +649,7 @@ class Settings(BaseSettings):
     chat_auto_continue_hard_cap: int = 3
     chat_auto_continue_prompt: str = _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT
     # -- Server ---------------------------------------------------------------
-    host: str = '127.0.0.1'
+    host: str = "127.0.0.1"
     port: int = 8420
     # When True, uvicorn runs with --reload (dev only). Leave False for production.
     dev_reload: bool = False
@@ -606,7 +668,7 @@ class Settings(BaseSettings):
     # - standard: privacy-safe defaults and low overhead for daily use
     # - troubleshooting: richer diagnostics for incident analysis
     # - custom: manual override mode (advanced users)
-    diagnostics_profile: Literal['standard', 'troubleshooting', 'custom'] = 'standard'
+    diagnostics_profile: Literal["standard", "troubleshooting", "custom"] = "standard"
     # Application log level: debug, info, warning, error. Default info to reduce noise.
     # Third-party loggers (e.g. aiosqlite) are always set to WARNING in logging_config.
     log_level: str = _DEFAULT_LOG_LEVEL
@@ -617,11 +679,12 @@ class Settings(BaseSettings):
     # - off: full trace payload (max debugging, least privacy)
     # - minimal: keep structure, truncate sensitive text fields
     # - strict: redact sensitive text fields with metadata only
-    chat_trace_redaction_mode: Literal['off', 'minimal', 'strict'] = 'minimal'
+    chat_trace_redaction_mode: Literal["off", "minimal", "strict"] = "minimal"
     # Retention window (days) for user chat trace files under app_data_dir/chats/.
     # <= 0 disables retention pruning.
     chat_trace_user_retention_days: int = 30
-    # Retention window (days) for diagnostics evaluation trace files under diagnostics/runs/*/traces/.
+    # Retention window (days) for diagnostics evaluation trace files under
+    # diagnostics/runs/*/traces/.
     # <= 0 disables retention pruning.
     chat_trace_evaluation_retention_days: int = 30
     # When True, show a control to fetch and display raw model output (with <think> blocks)
@@ -636,12 +699,12 @@ class Settings(BaseSettings):
     # Optional local MCP server exposure for external clients.
     mcp_enabled: bool = False
     mcp_auto_start: bool = False
-    mcp_transport: Literal['stdio', 'http'] = 'stdio'
-    mcp_http_host: str = '127.0.0.1'
+    mcp_transport: Literal["stdio", "http"] = "stdio"
+    mcp_http_host: str = "127.0.0.1"
     mcp_http_port: int = 8431
-    mcp_auth_mode: Literal['token_required'] = 'token_required'
-    mcp_scope_mode: Literal['metadata_only', 'search_snippets', 'full_content'] = 'metadata_only'
-    mcp_access_token: str = ''
+    mcp_auth_mode: Literal["token_required"] = "token_required"
+    mcp_scope_mode: Literal["metadata_only", "search_snippets", "full_content"] = "metadata_only"
+    mcp_access_token: str = ""
     # MCP hardening controls (advanced, env-driven; not exposed in regular Settings UI).
     mcp_tool_call_timeout_seconds: float = 30.0
     mcp_http_max_body_bytes: int = 524288
@@ -654,26 +717,29 @@ class Settings(BaseSettings):
 
     # -- UI (frontend-only; persisted so theme survives restarts) -------------
     # Color theme for the app UI: canvas, ember, sage, graphite, onyx, square.
-    ui_theme: Literal['canvas', 'ember', 'sage', 'graphite', 'onyx', 'square', 'midnight'] = _DEFAULT_UI_THEME
+    ui_theme: Literal["canvas", "ember", "sage", "graphite", "onyx", "square", "midnight"] = (
+        _DEFAULT_UI_THEME
+    )
     # When true, show the macOS menu bar icon while the app is running.
     enable_menu_bar_icon: bool = False
     # Primary target language for the translation screen.
-    translate_default_language: str = 'Spanish'
+    translate_default_language: str = "Spanish"
     # Default tone for the translation screen (natural / formal / literal).
-    translate_default_tone: str = 'natural'
+    translate_default_tone: str = "natural"
     # Additional translation languages shown in the Translate menu.
     translate_pinned_languages: list[str] = Field(default_factory=list)
     # Maximum number of quick-pick translation languages shown in the Translate menu.
     translate_pinned_languages_limit: int = 6
     # -- Pydantic Settings Config ---------------------------------------------
     model_config = {
-        'env_prefix': 'INFORMITY_',
+        "env_prefix": "INFORMITY_",
     }
 
     # -- Computed Defaults ----------------------------------------------------
-    @model_validator(mode='after')
-    def _compute_derived_paths(self) -> 'Settings':
+    @model_validator(mode="after")
+    def _compute_derived_paths(self) -> "Settings":
         # Resolve relative paths (e.g. ./data) to absolute
+        """ compute derived paths."""
         self.app_data_dir = normalize_path(self.app_data_dir, expand_user=True)
 
         # Cache directory: defaults to app_data_dir/cache (same root as models, DB, logs).
@@ -695,11 +761,13 @@ class Settings(BaseSettings):
         if self.classifier_models_dir is None:
             self.classifier_models_dir = self.app_data_dir / DirNames.MODELS / DirNames.CLASSIFIER
         else:
-            self.classifier_models_dir = normalize_path(self.classifier_models_dir, expand_user=True)
+            self.classifier_models_dir = normalize_path(
+                self.classifier_models_dir, expand_user=True
+            )
 
         # User data paths derive from app_data_dir
         if self.db_path is None:
-            self.db_path = self.app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
+            self.db_path = self.app_data_dir / DirNames.DB / f"{APP_SLUG}.db"
         else:
             self.db_path = normalize_path(self.db_path, expand_user=True)
 
@@ -722,10 +790,12 @@ class Settings(BaseSettings):
             normalized_pdf_strategies = list(DEFAULT_PDF_EXTRACTION_STRATEGY_ORDER)
         self.pdf_extraction_strategy_order = normalized_pdf_strategies
         self.scan_timeout_policy.default.max_seconds = timeout_cap
-        if 'filesystem:file' in self.scan_timeout_policy.overrides:
-            self.scan_timeout_policy.overrides['filesystem:file'].max_seconds = timeout_cap
+        if "filesystem:file" in self.scan_timeout_policy.overrides:
+            self.scan_timeout_policy.overrides["filesystem:file"].max_seconds = timeout_cap
 
-        self.mcp_tool_call_timeout_seconds = max(5.0, min(120.0, float(self.mcp_tool_call_timeout_seconds)))
+        self.mcp_tool_call_timeout_seconds = max(
+            5.0, min(120.0, float(self.mcp_tool_call_timeout_seconds))
+        )
         self.mcp_http_max_body_bytes = max(16384, min(2_097_152, int(self.mcp_http_max_body_bytes)))
 
         return self
@@ -737,14 +807,15 @@ class Settings(BaseSettings):
         # - app_data_dir/models/llm/ - Chat/RAG LLM models (*.gguf files)
         # - app_data_dir/cache/huggingface/hub/ - HuggingFace cache
         # - app_data_dir/cache/docling/ - Docling models
+        """ensure directories."""
         cache_root = self.cache_dir
         llm_dir = self.models_dir
         classifier_dir = self.classifier_models_dir
-        hf_cache      = cache_root / DirNames.HUGGINGFACE
-        hf_hub        = hf_cache / DirNames.HUB
+        hf_cache = cache_root / DirNames.HUGGINGFACE
+        hf_hub = hf_cache / DirNames.HUB
         docling_cache = cache_root / DirNames.DOCLING
-        db_dir        = self.app_data_dir / DirNames.DB
-        chats_dir     = self.app_data_dir / DirNames.CHAT_LOGS
+        db_dir = self.app_data_dir / DirNames.DB
+        chats_dir = self.app_data_dir / DirNames.CHAT_LOGS
         # NOTE: diagnostics_chats_dir, diagnostics_reports_dir, and diagnostics_evaluations_dir
         # are NOT created here. The normal pipeline does not use those directories.
         # The normal pipeline uses runs/{run_id}/traces/ for evaluation traces and
@@ -763,13 +834,15 @@ class Settings(BaseSettings):
             self.logs_dir,
             self.diagnostics_dir,
             chats_dir,
-            # diagnostics_chats_dir, diagnostics_reports_dir, and diagnostics_evaluations_dir removed - no longer needed
+            # diagnostics_chats_dir, diagnostics_reports_dir, and diagnostics_evaluations_dir
+            # removed - no longer needed
         ]
         # Filter out None values and ensure directories exist
         directories_to_create = [d for d in dirs if d is not None]
         ensure_directories(directories_to_create)
         for directory in directories_to_create:
-            log.info('created_directory', path=str(directory))
+            log.info("created_directory", path=str(directory))
+
 
 def get_chat_trace_logging() -> bool:
     """
@@ -779,13 +852,14 @@ def get_chat_trace_logging() -> bool:
     was not updated (e.g. race or different code path).
     """
     vals = _load_config_file_values()
-    if 'chat_trace_logging' in vals:
-        return bool(vals['chat_trace_logging'])
+    if "chat_trace_logging" in vals:
+        return bool(vals["chat_trace_logging"])
     return bool(settings.chat_trace_logging)
 
 
 def get_effective_ignore_patterns(s: Settings) -> list[str]:
     # Combine preset patterns (when enabled) with custom ignore_patterns.
+    """get effective ignore patterns."""
     result: list[str] = []
     if s.exclude_macos_system:
         result.extend(EXCLUDE_MACOS_SYSTEM_PATTERNS)
@@ -802,9 +876,11 @@ def get_effective_ignore_patterns_for_scan() -> list[str]:
     ignore patterns immediately, even if in-memory settings are stale.
     """
     vals = _load_config_file_values()
-    exclude_macos_system = bool(vals.get('exclude_macos_system', settings.exclude_macos_system))
-    exclude_developer_data = bool(vals.get('exclude_developer_data', settings.exclude_developer_data))
-    raw_custom_patterns = vals.get('ignore_patterns')
+    exclude_macos_system = bool(vals.get("exclude_macos_system", settings.exclude_macos_system))
+    exclude_developer_data = bool(
+        vals.get("exclude_developer_data", settings.exclude_developer_data)
+    )
+    raw_custom_patterns = vals.get("ignore_patterns")
     custom_patterns = (
         [str(x) for x in raw_custom_patterns if str(x).strip()]
         if isinstance(raw_custom_patterns, list)
@@ -829,7 +905,7 @@ def get_supported_extensions_for_scan() -> list[str]:
     if the key is missing from the file.
     """
     vals = _load_config_file_values()
-    raw = vals.get('supported_extensions')
+    raw = vals.get("supported_extensions")
     if isinstance(raw, list) and raw:
         return [str(x).strip().lower() for x in raw if x]
     return list(settings.supported_extensions)
@@ -839,18 +915,20 @@ def get_supported_extensions_for_scan() -> list[str]:
 # Singleton instance
 # ==============================================================================
 
+
 def _build_settings() -> Settings:
     # Build the Settings instance from config.json with env var overrides.
     # Persisted config (saved from the UI) should win over env so that the
     # checkbox state survives restarts. We do this by temporarily unsetting
     # env vars for any key present in the config file before building Settings.
+    """ build settings."""
     config_values = _load_config_file_values()
 
     # Only log if console logging is not suppressed (for CLI tools)
-    suppress_console = os.environ.get('INFORMITY_SUPPRESS_CONSOLE_LOGS') == '1'
+    suppress_console = os.environ.get("INFORMITY_SUPPRESS_CONSOLE_LOGS") == "1"
     if config_values and not suppress_console:
         log.info(
-            'loaded_config_file',
+            "loaded_config_file",
             path=str(_config_path_for_loader()),
             fields=list(config_values.keys()),
         )
@@ -859,13 +937,12 @@ def _build_settings() -> Settings:
     settings_field_names = set(Settings.model_fields)
     init_kwargs = {k: v for k, v in config_values.items() if k in settings_field_names}
 
-
     # Temporarily unset env vars for keys that we have in config, so that
     # pydantic uses our config values (init_kwargs) instead of env.
     # Otherwise pydantic-settings would let env override init_kwargs.
     saved_env: dict[str, str] = {}
     for key in init_kwargs:
-        env_key = f'INFORMITY_{key.upper()}'
+        env_key = f"INFORMITY_{key.upper()}"
         if env_key in os.environ:
             saved_env[env_key] = os.environ.pop(env_key)
 
@@ -885,46 +962,47 @@ def reset_to_factory_defaults() -> Settings:
     # Writes a minimal config with Qwen3.6 35B A3B model so reset always returns
     # to the default large profile.
     # Returns the new Settings instance with factory defaults.
+    """reset to factory defaults."""
     config_path = _config_path_for_loader()
     if config_path.exists():
         try:
             config_path.unlink()
-            log.info('config_file_deleted_for_reset', path=str(config_path))
+            log.info("config_file_deleted_for_reset", path=str(config_path))
         except OSError as exc:
-            log.warning('config_file_delete_failed', path=str(config_path), error=str(exc))
+            log.warning("config_file_delete_failed", path=str(config_path), error=str(exc))
 
-    # Write minimal config with default models and theme so env vars cannot override the reset result
+    # Write minimal config with default models and theme so env vars cannot override the reset
+    # result
     config_path.parent.mkdir(parents=True, exist_ok=True)
     default_config = {
-        'llm_provider':            _DEFAULT_LLM_PROVIDER,
-        'llm_model_id':            _DEFAULT_LLM_MODEL_ID,
-        'ollama_base_url':         _DEFAULT_OLLAMA_BASE_URL,
-        'ollama_timeout_seconds':  _DEFAULT_OLLAMA_TIMEOUT_SECONDS,
-        'llm_model_filename':      _DEFAULT_LLM_MODEL_FILENAME,
-        'diagnostics_profile':     'standard',
-        'chat_trace_logging':      False,
-        'enable_raw_output_control': False,
-        'default_chat_mode':      'researcher',
-        'enable_specializations': False,
-        'enabled_specialization_ids': [],
-        'rag_minimal_mode':        True,
-        'adaptive_rag_tuning':     True,  # Enabled by default
-        'ui_theme':                 _DEFAULT_UI_THEME,
-        'translate_pinned_languages': [],
+        "llm_provider": _DEFAULT_LLM_PROVIDER,
+        "llm_model_id": _DEFAULT_LLM_MODEL_ID,
+        "ollama_base_url": _DEFAULT_OLLAMA_BASE_URL,
+        "ollama_timeout_seconds": _DEFAULT_OLLAMA_TIMEOUT_SECONDS,
+        "llm_model_filename": _DEFAULT_LLM_MODEL_FILENAME,
+        "diagnostics_profile": "standard",
+        "chat_trace_logging": False,
+        "enable_raw_output_control": False,
+        "default_chat_mode": "researcher",
+        "enable_specializations": False,
+        "enabled_specialization_ids": [],
+        "rag_minimal_mode": True,
+        "adaptive_rag_tuning": True,  # Enabled by default
+        "ui_theme": _DEFAULT_UI_THEME,
+        "translate_pinned_languages": [],
     }
     config_path.write_text(
         serialize_config(default_config),
-        encoding='utf-8',
+        encoding="utf-8",
     )
     ensure_private_file(config_path)
-    log.info('config_file_written_factory_defaults', path=str(config_path))
+    log.info("config_file_written_factory_defaults", path=str(config_path))
 
     # Rebuild settings (will load default config; profile supplies all other defaults)
     new_settings = _build_settings()
 
-    # Update the module-level singleton
-    global settings
-    settings = new_settings
+    # Update the module-level singleton without rebinding a global statement.
+    globals()["settings"] = new_settings
 
     # Reapply thread limits with new settings
     _apply_thread_limits_early()
@@ -939,28 +1017,32 @@ def reset_to_factory_defaults() -> Settings:
 # Since config.py is the first module imported by everything, this is the
 # only reliable place to set them.
 
+
 def _apply_thread_limits_early() -> None:
     # Set CPU thread limits from config before any heavy libraries load.
+    """ apply thread limits early."""
     max_threads = settings.embedding_max_threads
 
     # Always disable tokenizers multiprocessing to prevent zombie processes
     # that survive Ctrl+C and cannot be killed normally.
-    os.environ['TOKENIZERS_PARALLELISM'] = 'false'
+    os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
     thread_env_vars = (
-        'OMP_NUM_THREADS', 'MKL_NUM_THREADS',
-        'OPENBLAS_NUM_THREADS', 'VECLIB_MAXIMUM_THREADS',
+        "OMP_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS",
     )
 
     # Only log if console logging is not suppressed (for CLI tools)
-    suppress_console = os.environ.get('INFORMITY_SUPPRESS_CONSOLE_LOGS') == '1'
+    suppress_console = os.environ.get("INFORMITY_SUPPRESS_CONSOLE_LOGS") == "1"
 
     if max_threads > 0:
         thread_str = str(max_threads)
         for var in thread_env_vars:
             os.environ[var] = thread_str
         if not suppress_console:
-            log.info('cpu_thread_limits_applied', max_threads=max_threads)
+            log.info("cpu_thread_limits_applied", max_threads=max_threads)
     else:
         # 0 means "automatic" — remove any thread-limit env vars so the
         # process truly uses automatic threading (clearing the main.py
@@ -968,7 +1050,7 @@ def _apply_thread_limits_early() -> None:
         for var in thread_env_vars:
             os.environ.pop(var, None)
         if not suppress_console:
-            log.info('cpu_thread_limits_auto')
+            log.info("cpu_thread_limits_auto")
 
 
 _apply_thread_limits_early()
@@ -978,6 +1060,7 @@ _apply_thread_limits_early()
 # Hugging Face environment setup — shared by main.py (LLM downloads), docling, llm/engine
 # ==============================================================================
 
+
 def configure_hf_environment(*, fail_on_missing_full_privacy_models: bool = True) -> bool:
     # Set Hugging Face cache paths and offline flags based on the current settings.
     # Called during LLM model downloads (main.py, llm/engine.py), docling model loading,
@@ -985,6 +1068,7 @@ def configure_hf_environment(*, fail_on_missing_full_privacy_models: bool = True
     # Uses unified cache_dir (under app_data_dir) so all HF artefacts are in one place.
     # Returns True when offline mode is active.
 
+    """configure hf environment."""
     project_hf_home = settings.cache_dir / DirNames.HUGGINGFACE
     project_hf_hub = project_hf_home / DirNames.HUB
 
@@ -993,8 +1077,8 @@ def configure_hf_environment(*, fail_on_missing_full_privacy_models: bool = True
     hf_home = str(project_hf_home)
     hf_hub = str(project_hf_hub)
 
-    os.environ['HF_HOME']      = hf_home
-    os.environ['HF_HUB_CACHE'] = hf_hub
+    os.environ["HF_HOME"] = hf_home
+    os.environ["HF_HUB_CACHE"] = hf_hub
 
     # When full_privacy is on, models must be cached (from install/bootstrap).
     # If Full Privacy is enabled but models aren't cached, fail fast with clear error.
@@ -1003,40 +1087,46 @@ def configure_hf_environment(*, fail_on_missing_full_privacy_models: bool = True
     if use_offline:
         # Check if models are cached before enabling offline mode
         if are_required_models_cached():
-            os.environ['HF_HUB_OFFLINE']      = '1'
-            os.environ['TRANSFORMERS_OFFLINE'] = '1'
-            log.debug('offline_mode_enabled', reason='models_cached')
+            os.environ["HF_HUB_OFFLINE"] = "1"
+            os.environ["TRANSFORMERS_OFFLINE"] = "1"
+            log.debug("offline_mode_enabled", reason="models_cached")
         else:
             # Models not cached - if Full Privacy is enabled, fail fast
             if settings.full_privacy and fail_on_missing_full_privacy_models:
                 from informity.exceptions import ConfigurationError
+
                 raise ConfigurationError(
-                    'Full Privacy Mode is enabled but required models are not cached. '
-                    'Please run the install script to download models: ./scripts/install/install_app.sh or make install\n\n'
-                    'Required models:\n'
-                    f'  - Embedding: {settings.embedding_model}\n'
-                    f'  - Reranker: {settings.rag_reranker_model}\n'
-                    '  - Docling models (for document extraction)\n'
-                    f'  - LLM: {settings.llm_model_filename or "not configured"}\n'
-                    + '\n'
-                    'After install completes, models will be cached and Full Privacy will work without network access.'
+                    "Full Privacy Mode is enabled but required models are not cached. "
+                    "Please run the install script to download models: "
+                    "./scripts/install/install_app.sh or make install\n\n"
+                    "Required models:\n"
+                    f"  - Embedding: {settings.embedding_model}\n"
+                    f"  - Reranker: {settings.rag_reranker_model}\n"
+                    "  - Docling models (for document extraction)\n"
+                    f"  - LLM: {settings.llm_model_filename or 'not configured'}\n"
+                    "\n"
+                    "After install completes, models will be cached and Full Privacy will "
+                    "work without network access."
                 )
             # Allow setup/bootstrap flows to proceed even when full_privacy is configured
             # but required caches are not present yet.
-            os.environ.pop('HF_HUB_OFFLINE', None)
-            os.environ.pop('TRANSFORMERS_OFFLINE', None)
+            os.environ.pop("HF_HUB_OFFLINE", None)
+            os.environ.pop("TRANSFORMERS_OFFLINE", None)
             log.info(
-                'offline_mode_deferred',
-                reason='models_not_cached',
+                "offline_mode_deferred",
+                reason="models_not_cached",
                 full_privacy=settings.full_privacy,
                 fail_on_missing_full_privacy_models=fail_on_missing_full_privacy_models,
                 embedding_offline=settings.embedding_offline,
-                message='Models not cached; allowing download. Offline mode will be enabled after models are cached.',
+                message=(
+                    "Models not cached; allowing download. Offline mode will be enabled"
+                    "after models are cached."
+                ),
             )
             return False
     else:
-        os.environ.pop('HF_HUB_OFFLINE', None)
-        os.environ.pop('TRANSFORMERS_OFFLINE', None)
+        os.environ.pop("HF_HUB_OFFLINE", None)
+        os.environ.pop("TRANSFORMERS_OFFLINE", None)
 
     return use_offline
 
@@ -1045,7 +1135,7 @@ def configure_hf_environment(*, fail_on_missing_full_privacy_models: bool = True
 # Model cache verification — check if models are cached before enabling offline mode
 # ==============================================================================
 
-_WEIGHT_EXTENSIONS = frozenset({'.bin', '.safetensors', '.onnx'})
+_WEIGHT_EXTENSIONS = frozenset({".bin", ".safetensors", ".onnx"})
 
 
 def _is_hf_model_cached(model_name: str, hf_hub_cache: Path) -> bool:
@@ -1058,29 +1148,33 @@ def _is_hf_model_cached(model_name: str, hf_hub_cache: Path) -> bool:
     if not hf_hub_cache.exists():
         return False
 
-    model_dir_pattern = f'models--{model_name.replace("/", "--")}'
+    model_dir_pattern = f"models--{model_name.replace('/', '--')}"
     model_dir = hf_hub_cache / model_dir_pattern
 
     if not model_dir.exists():
         return False
 
     try:
-        snapshots_dir = model_dir / 'snapshots'
+        snapshots_dir = model_dir / "snapshots"
         if not snapshots_dir.exists():
             return False
 
         for snapshot_dir in snapshots_dir.iterdir():
             if not snapshot_dir.is_dir():
                 continue
-            has_config = (snapshot_dir / 'config.json').exists()
+            has_config = (snapshot_dir / "config.json").exists()
             has_weights = any(
-                f.suffix in _WEIGHT_EXTENSIONS for f in snapshot_dir.rglob('*') if f.is_file()
+                f.suffix in _WEIGHT_EXTENSIONS for f in snapshot_dir.rglob("*") if f.is_file()
             )
             if has_config and has_weights:
                 return True
         return False
     except OSError:
         return False
+
+
+# Public alias for install/bootstrap tooling.
+is_hf_model_cached = _is_hf_model_cached
 
 
 def _is_gguf_model_cached(model_filename: str, models_dir: Path | None) -> bool:
@@ -1091,7 +1185,7 @@ def _is_gguf_model_cached(model_filename: str, models_dir: Path | None) -> bool:
     return model_path.exists() and model_path.is_file()
 
 
-_DOCLING_EXTENSIONS = frozenset({'.bin', '.safetensors', '.onnx', '.pt', '.pth'})
+_DOCLING_EXTENSIONS = frozenset({".bin", ".safetensors", ".onnx", ".pt", ".pth"})
 
 
 def _is_docling_cached(cache_dir: Path | None = None) -> bool:
@@ -1106,7 +1200,9 @@ def _is_docling_cached(cache_dir: Path | None = None) -> bool:
     docling_cache = (cache_dir if cache_dir is not None else settings.cache_dir) / DirNames.DOCLING
     try:
         if docling_cache.exists():
-            return any(f.suffix in _DOCLING_EXTENSIONS for f in docling_cache.rglob('*') if f.is_file())
+            return any(
+                f.suffix in _DOCLING_EXTENSIONS for f in docling_cache.rglob("*") if f.is_file()
+            )
     except OSError:
         pass
     return False
@@ -1115,36 +1211,38 @@ def _is_docling_cached(cache_dir: Path | None = None) -> bool:
 def get_docling_download_options(*, progress: bool) -> dict[str, bool]:
     """Centralized docling model download options for bootstrap and runtime setup."""
     return {
-        'force': False,
-        'progress': progress,
-        'with_layout': True,
-        'with_tableformer': True,
-        'with_code_formula': True,
-        'with_picture_classifier': False,
-        'with_smolvlm': False,
-        'with_granitedocling': False,
-        'with_granitedocling_mlx': False,
-        'with_smoldocling': False,
-        'with_smoldocling_mlx': False,
-        'with_granite_vision': False,
-        'with_granite_chart_extraction': False,
-        'with_rapidocr': True,
-        'with_easyocr': False,
+        "force": False,
+        "progress": progress,
+        "with_layout": True,
+        "with_tableformer": True,
+        "with_code_formula": True,
+        "with_picture_classifier": False,
+        "with_smolvlm": False,
+        "with_granitedocling": False,
+        "with_granitedocling_mlx": False,
+        "with_smoldocling": False,
+        "with_smoldocling_mlx": False,
+        "with_granite_vision": False,
+        "with_granite_chart_extraction": False,
+        "with_rapidocr": True,
+        "with_easyocr": False,
     }
 
 
 def ensure_docling_rapidocr_cache_compat(cache_dir: Path | None = None) -> None:
     """Normalize RapidOCR cache filenames for docling/runtime compatibility."""
     docling_cache = (cache_dir if cache_dir is not None else settings.cache_dir) / DirNames.DOCLING
-    src = docling_cache / 'RapidOcr' / 'onnx' / 'PP-OCRv4' / 'det' / 'ch_PP-OCRv4_det_infer.onnx'
-    dst = docling_cache / 'RapidOcr' / 'onnx' / 'PP-OCRv4' / 'det' / 'ch_PP-OCRv4_det_mobile.onnx'
+    src = docling_cache / "RapidOcr" / "onnx" / "PP-OCRv4" / "det" / "ch_PP-OCRv4_det_infer.onnx"
+    dst = docling_cache / "RapidOcr" / "onnx" / "PP-OCRv4" / "det" / "ch_PP-OCRv4_det_mobile.onnx"
     try:
         if src.exists() and not dst.exists():
             dst.parent.mkdir(parents=True, exist_ok=True)
             dst.write_bytes(src.read_bytes())
-            log.info('docling_rapidocr_cache_compat_applied', source=str(src), target=str(dst))
+            log.info("docling_rapidocr_cache_compat_applied", source=str(src), target=str(dst))
     except OSError:
-        log.warning('docling_rapidocr_cache_compat_failed', source=str(src), target=str(dst), exc_info=True)
+        log.warning(
+            "docling_rapidocr_cache_compat_failed", source=str(src), target=str(dst), exc_info=True
+        )
 
 
 def are_required_models_cached(*, include_llm: bool = True) -> bool:
@@ -1167,30 +1265,30 @@ def are_required_models_cached(*, include_llm: bool = True) -> bool:
     # Check embedding model (project cache only)
     embedding_model = settings.embedding_model
     if not _is_hf_model_cached(embedding_model, hf_hub_cache):
-        log.debug('embedding_model_not_cached', model=embedding_model, cache=str(hf_hub_cache))
+        log.debug("embedding_model_not_cached", model=embedding_model, cache=str(hf_hub_cache))
         return False
 
     # Check reranker model (project cache only)
     reranker_model = settings.rag_reranker_model
     if not _is_hf_model_cached(reranker_model, hf_hub_cache):
-        log.debug('reranker_model_not_cached', model=reranker_model, cache=str(hf_hub_cache))
+        log.debug("reranker_model_not_cached", model=reranker_model, cache=str(hf_hub_cache))
         return False
 
     # Check docling models
     if not _is_docling_cached():
-        log.debug('docling_models_not_cached')
+        log.debug("docling_models_not_cached")
         return False
 
     # Check LLM model (if configured and required by provider path).
-    llm_filename = str(settings.llm_model_filename or '').strip()
-    llm_model_id = str(getattr(settings, 'llm_model_id', '') or '').strip().lower()
+    llm_filename = str(settings.llm_model_filename or "").strip()
+    llm_model_id = str(getattr(settings, "llm_model_id", "") or "").strip().lower()
     if include_llm and (llm_filename or llm_model_id):
         from informity.llm.model_adapter import (
             get_model_alias_filenames,
             infer_model_id_from_filename,
         )
 
-        resolved_model_id = llm_model_id or (infer_model_id_from_filename(llm_filename) or '')
+        resolved_model_id = llm_model_id or (infer_model_id_from_filename(llm_filename) or "")
         candidates: list[str] = []
         if llm_filename:
             candidates.append(llm_filename)
@@ -1199,9 +1297,15 @@ def are_required_models_cached(*, include_llm: bool = True) -> bool:
                 if alias not in candidates:
                     candidates.append(alias)
 
-        has_cached_model = any(_is_gguf_model_cached(candidate, settings.models_dir) for candidate in candidates)
+        has_cached_model = any(
+            _is_gguf_model_cached(candidate, settings.models_dir) for candidate in candidates
+        )
         if not has_cached_model:
-            log.debug('llm_model_not_cached', model=llm_filename or None, model_id=resolved_model_id or None)
+            log.debug(
+                "llm_model_not_cached",
+                model=llm_filename or None,
+                model_id=resolved_model_id or None,
+            )
             return False
 
     return True
