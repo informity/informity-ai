@@ -679,7 +679,7 @@ class Settings(BaseSettings):
     # - off: full trace payload (max debugging, least privacy)
     # - minimal: keep structure, truncate sensitive text fields
     # - strict: redact sensitive text fields with metadata only
-    chat_trace_redaction_mode: Literal["off", "minimal", "strict"] = "minimal"
+    chat_trace_redaction_mode: Literal["off", "minimal", "strict"] = "strict"
     # Retention window (days) for user chat trace files under app_data_dir/chats/.
     # <= 0 disables retention pruning.
     chat_trace_user_retention_days: int = 30

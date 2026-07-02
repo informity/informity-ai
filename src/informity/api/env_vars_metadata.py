@@ -471,13 +471,13 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
                     "troubleshooting and diagnostics analysis."
                 ),
             ),
-            (
-                "chat_trace_redaction_mode",
-                (
-                    "Trace payload redaction level: off (full payload), minimal (truncate"
-                    "sensitive fields), strict (redact with metadata only)."
-                ),
-            ),
+                    (
+                        "chat_trace_redaction_mode",
+                        (
+                            "Trace payload redaction level: off (full payload), minimal (truncate"
+                            " sensitive fields), strict (redact sensitive fields with metadata only)."
+                        ),
+                    ),
             (
                 "diagnostics_profile",
                 (

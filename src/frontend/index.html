@@ -3,33 +3,15 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="color-scheme" content="dark light" />
-    <script>
-      try {
-        const allowed = new Set(['canvas', 'ember', 'sage', 'graphite', 'onyx', 'square', 'midnight'])
-        const aliases = {
-          light: 'canvas',
-          sand: 'canvas',
-          'linen-dark': 'ember',
-          linen: 'ember',
-          mono: 'onyx',
-          gray: 'graphite',
-          overcast: 'graphite',
-          purple: 'graphite',
-          blue: 'graphite',
-          green: 'graphite',
-          orange: 'graphite',
-        }
-        const saved = localStorage.getItem('informity-ui-theme')
-        const normalized = aliases[saved] || saved
-        document.documentElement.setAttribute('data-accent', allowed.has(normalized) ? normalized : 'onyx')
-      } catch {
-        document.documentElement.setAttribute('data-accent', 'onyx')
-      }
-    </script>
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http://127.0.0.1:* http://localhost:* ws://127.0.0.1:* ws://localhost:*;"
+    />
     <style>
       html, body, #root, #boot-overlay { height: 100%; }
       html, body, #root, #boot-overlay { margin: 0; background: #090909; }
     </style>
+    <script type="module" src="/src/startupTheme.ts"></script>
     <link rel="icon" type="image/png" href="/favicon.png?v=1" />
     <link rel="apple-touch-icon" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />

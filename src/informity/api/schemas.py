@@ -471,7 +471,7 @@ class SettingsResponse(BaseModel):
     diagnostics_profile_presets: dict[str, DiagnosticsProfilePreset] = Field(default_factory=dict)
     log_level: str = "info"  # debug, info, warning, error
     chat_trace_logging: bool = False  # Per-chat trace file for debugging
-    chat_trace_redaction_mode: str = "minimal"  # off, minimal, strict
+    chat_trace_redaction_mode: str = "strict"  # off, minimal, strict
     chat_trace_user_retention_days: int = 30
     chat_trace_evaluation_retention_days: int = 30
     mcp_enabled: bool = False

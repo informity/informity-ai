@@ -54,8 +54,8 @@ const DIAGNOSTICS_PROFILE_OPTIONS = [
   { value: 'custom', label: 'Custom (Advanced)' },
 ]
 const TRACE_REDACTION_OPTIONS = [
-  { value: 'minimal', label: 'Minimal (Recommended)' },
-  { value: 'strict', label: 'Strict' },
+  { value: 'strict', label: 'Strict (Recommended)' },
+  { value: 'minimal', label: 'Minimal' },
   { value: 'off', label: 'Off (Least Private)' },
 ]
 const LOG_LEVEL_OPTIONS = [
@@ -409,7 +409,7 @@ function buildFormState(settings: SettingsData): FormState {
     log_level: settings.log_level ?? 'info',
     diagnostics_profile: settings.diagnostics_profile ?? 'standard',
     chat_trace_logging: settings.chat_trace_logging ?? false,
-    chat_trace_redaction_mode: settings.chat_trace_redaction_mode ?? 'minimal',
+    chat_trace_redaction_mode: settings.chat_trace_redaction_mode ?? 'strict',
     chat_trace_user_retention_days: settings.chat_trace_user_retention_days ?? 30,
     chat_trace_evaluation_retention_days: settings.chat_trace_evaluation_retention_days ?? 30,
     mcp_enabled: settings.mcp_enabled ?? false,
@@ -2487,7 +2487,7 @@ export function SettingsView({
               <select
                 id="settings-trace-redaction"
                 className="settings-select"
-                value={form.chat_trace_redaction_mode ?? 'minimal'}
+                value={form.chat_trace_redaction_mode ?? 'strict'}
                 onChange={(e) => updateDiagnosticsControl('chat_trace_redaction_mode', e.target.value)}
               >
                 {TRACE_REDACTION_OPTIONS.map((o) => (

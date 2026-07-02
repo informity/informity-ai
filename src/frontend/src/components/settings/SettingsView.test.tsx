@@ -104,7 +104,7 @@ const baseSettings = {
   log_level: 'info',
   diagnostics_profile: 'standard',
   chat_trace_logging: false,
-  chat_trace_redaction_mode: 'minimal',
+  chat_trace_redaction_mode: 'strict',
   chat_trace_user_retention_days: 30,
   chat_trace_evaluation_retention_days: 30,
   enable_raw_output_control: false,

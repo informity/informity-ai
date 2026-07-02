@@ -110,14 +110,14 @@ _DIAGNOSTICS_PROFILE_PRESETS: dict[str, dict[str, object]] = {
     _DIAG_PROFILE_STANDARD: {
         "log_level": "info",
         "chat_trace_logging": False,
-        "chat_trace_redaction_mode": "minimal",
+        "chat_trace_redaction_mode": "strict",
         "chat_trace_user_retention_days": 30,
         "chat_trace_evaluation_retention_days": 30,
     },
     _DIAG_PROFILE_TROUBLESHOOTING: {
         "log_level": "debug",
         "chat_trace_logging": True,
-        "chat_trace_redaction_mode": "minimal",
+        "chat_trace_redaction_mode": "strict",
         "chat_trace_user_retention_days": 14,
         "chat_trace_evaluation_retention_days": 14,
     },
