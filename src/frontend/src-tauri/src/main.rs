@@ -213,7 +213,7 @@ async fn backend_start(
         "initializing",
         Some("starting_backend"),
         None,
-        "Initializing application...",
+        "Initializing Informity AI…",
     );
 
     {
@@ -479,16 +479,16 @@ fn emit_backend_startup_status(app: &AppHandle, health: &BackendHealthPayload) {
             .or_else(|| health.reason.clone())
             .unwrap_or_else(|| "Backend startup failed.".to_string()),
         "initializing" if health.reason.as_deref() == Some("downloading_classifier_model") => {
-            "Setting up application...".to_string()
+        "Setting up Informity AI…".to_string()
         }
         "initializing" => health
             .detail
             .clone()
-            .unwrap_or_else(|| "Initializing application...".to_string()),
+            .unwrap_or_else(|| "Initializing Informity AI…".to_string()),
         _ => health
             .detail
             .clone()
-            .unwrap_or_else(|| "Initializing application...".to_string()),
+            .unwrap_or_else(|| "Initializing Informity AI…".to_string()),
     };
     let payload = BackendStartupStatusPayload {
         status: health.status.clone(),
