@@ -23,7 +23,7 @@
   font-size: var(--font-size-description);
   font-weight: normal;
   white-space: normal;
-  width: 280px;
+  width: 200px;
   max-width: calc(100vw - 2rem);
   text-align: left;
   z-index: var(--z-tooltip);

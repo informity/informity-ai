@@ -630,7 +630,7 @@
   padding: var(--space-sm) var(--space-md);
   line-height: 1;
   font-size: var(--font-size-sm);
-  font-family: var(--font-mono);
+  font-family: inherit;
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius);
   background: var(--surface-control);
@@ -764,7 +764,6 @@
 }
 
 .settings-input--number {
-  font-family: var(--font-mono);
   width: 8rem;
   max-width: 100%;
 }

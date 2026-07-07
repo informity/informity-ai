@@ -122,7 +122,7 @@
   --surface-control: #303030;
   --surface-readonly: color-mix(in srgb, var(--color-bg-elevated) 84%, var(--color-bg-surface));
   --surface-table-head: color-mix(in srgb, var(--surface-nav) 88%, black);
-  --surface-table-row-hover: var(--color-bg-hover);
+  --surface-table-row-hover: color-mix(in srgb, var(--color-bg-surface) 92%, var(--color-bg-elevated));
   --surface-tooltip: var(--color-bg-elevated);
   --text-tooltip: var(--color-text);
   color: var(--color-text);
@@ -306,7 +306,7 @@ html[data-accent='graphite'] {
   --surface-control: #2b313a;
   --surface-readonly: color-mix(in srgb, var(--color-bg-elevated) 84%, var(--color-bg-surface));
   --surface-table-head: color-mix(in srgb, var(--surface-nav) 88%, #0a0d12);
-  --surface-table-row-hover: var(--color-bg-hover);
+  --surface-table-row-hover: color-mix(in srgb, var(--color-bg-surface) 92%, var(--color-bg-elevated));
   --surface-tooltip: #1f242b;
   --layout-divider-color: #444c58;
   --color-control-ring: #687486;
@@ -357,7 +357,7 @@ html[data-accent='canvas'] {
   --surface-control: #fff8ee;
   --surface-readonly: color-mix(in srgb, var(--color-bg-elevated) 78%, var(--color-bg-surface));
   --surface-table-head: color-mix(in srgb, var(--surface-nav) 88%, #f2e5d3);
-  --surface-table-row-hover: var(--color-bg-hover);
+  --surface-table-row-hover: color-mix(in srgb, var(--color-bg-surface) 92%, var(--color-bg-elevated));
   --surface-tooltip: #fff5e9;
   --text-tooltip: var(--color-text);
   --color-parameter-value: #9f6a49;
@@ -415,7 +415,7 @@ html[data-accent='ember'] {
   --surface-control: #382f26;
   --surface-readonly: color-mix(in srgb, var(--color-bg-elevated) 84%, var(--color-bg-surface));
   --surface-table-head: color-mix(in srgb, var(--surface-nav) 88%, #16110d);
-  --surface-table-row-hover: var(--color-bg-hover);
+  --surface-table-row-hover: color-mix(in srgb, var(--color-bg-surface) 92%, var(--color-bg-elevated));
   --surface-tooltip: #2a221b;
   --text-tooltip: var(--color-text);
   --color-parameter-value: #d19a66;
@@ -474,7 +474,7 @@ html[data-accent='sage'] {
   --surface-control: #2a362b;
   --surface-readonly: color-mix(in srgb, var(--color-bg-elevated) 84%, var(--color-bg-surface));
   --surface-table-head: color-mix(in srgb, var(--surface-nav) 88%, #101611);
-  --surface-table-row-hover: var(--color-bg-hover);
+  --surface-table-row-hover: color-mix(in srgb, var(--color-bg-surface) 92%, var(--color-bg-elevated));
   --surface-tooltip: #212b23;
   --text-tooltip: var(--color-text);
   --color-parameter-value: #9fbd92;
@@ -508,7 +508,7 @@ html[data-accent='onyx'] {
   --surface-control: #303030;
   --surface-readonly: color-mix(in srgb, var(--color-bg-elevated) 84%, var(--color-bg-surface));
   --surface-table-head: color-mix(in srgb, var(--surface-nav) 88%, black);
-  --surface-table-row-hover: var(--color-bg-hover);
+  --surface-table-row-hover: color-mix(in srgb, var(--color-bg-surface) 92%, var(--color-bg-elevated));
   --surface-tooltip: #181614;
   --layout-divider-color: #4a4a4a;
   --layout-divider-style: dotted;
@@ -600,7 +600,7 @@ html[data-accent='square'] {
   --surface-control: #303030;
   --surface-readonly: color-mix(in srgb, var(--color-bg-elevated) 84%, var(--color-bg-surface));
   --surface-table-head: color-mix(in srgb, var(--surface-nav) 88%, black);
-  --surface-table-row-hover: var(--color-bg-hover);
+  --surface-table-row-hover: color-mix(in srgb, var(--color-bg-surface) 92%, var(--color-bg-elevated));
   --surface-tooltip: #181614;
   --layout-divider-color: #4a4a4a;
   --layout-divider-style: dotted;
@@ -821,6 +821,11 @@ html[data-accent='midnight'] textarea:focus,
 html[data-accent='midnight'] select:focus {
   border-color: rgba(157, 143, 255, 0.5) !important;
   box-shadow: 0 0 0 3px rgba(157, 143, 255, 0.1);
+}
+
+html[data-accent='midnight'] .filter-search__input:focus,
+html[data-accent='midnight'] .filter-search__input:focus-visible {
+  box-shadow: none;
 }
 
 /* Glass: sidebar gets blur glass treatment */

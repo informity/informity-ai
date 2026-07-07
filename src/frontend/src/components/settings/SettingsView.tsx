@@ -1519,7 +1519,7 @@ export function SettingsView({
               className={`integration-tab${indexingTab === 'extraction' ? ' integration-tab--active' : ''}`}
               onClick={() => setIndexingTab('extraction')}
             >
-              <i className="ri-arrow-right-down-box-line" aria-hidden="true" />
+              <i className="ri-arrow-right-up-box-line" aria-hidden="true" />
               <span>Extraction</span>
             </button>
           </div>
@@ -1727,7 +1727,7 @@ export function SettingsView({
               <div className="settings-subsection">
                 <div className="settings-subsection-head ui-subsection-head">
                   <div className="settings-subsection-title ui-subsection-title">
-                    <i className="ri-arrow-right-down-box-line subsection-icon ui-subsection-icon" aria-hidden="true" />
+                    <i className="ri-file-transfer-line subsection-icon ui-subsection-icon" aria-hidden="true" />
                     Document Extraction
                   </div>
                   <p className="settings-subsection-description ui-subsection-description">

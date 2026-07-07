@@ -31,6 +31,7 @@
   border-bottom: 1px var(--layout-divider-style) color-mix(in srgb, var(--color-border) 82%, white);
   white-space: nowrap;
   position: relative;
+  user-select: none;
 }
 
 .data-table__th--right {
@@ -78,6 +79,7 @@
 .data-table__row {
   cursor: pointer;
   transition: background var(--transition-fast);
+  user-select: none;
 }
 
 .data-table__row:hover {
@@ -104,6 +106,7 @@
   padding: 0.5rem 0.75rem;
   border-bottom: 1px var(--layout-divider-style) var(--layout-divider-color);
   vertical-align: middle;
+  user-select: none;
 }
 
 .data-table__td--icon {

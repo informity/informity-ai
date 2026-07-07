@@ -64,6 +64,7 @@
   font-weight: var(--font-weight-heading);
   line-height: 1;
   color: var(--color-text);
+  user-select: none;
 }
 
 .ui-subsection-title .ui-subsection-icon {
@@ -86,6 +87,7 @@
   font-size: var(--font-size-description);
   color: var(--color-text-muted);
   line-height: 1.5;
+  user-select: none;
 }
 
 /* -----------------------------------------------------------------------------
@@ -119,6 +121,7 @@
   margin: 0;
   font-size: var(--font-size-subtitle);
   color: var(--color-text-muted);
+  user-select: none;
 }
 
 .ui-description {
@@ -126,4 +129,5 @@
   font-size: var(--font-size-description);
   color: var(--color-text-muted);
   line-height: 1.5;
+  user-select: none;
 }

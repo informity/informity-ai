@@ -123,7 +123,7 @@
 .history-page__table-wrapper {
   flex: 1;
   min-height: 0;
-  margin-top: 1rem;
+  margin-top: var(--space-md);
   display: flex;
   flex-direction: column;
 }

@@ -64,17 +64,7 @@ export function FileFilters({ filters, onChange, disabled = false }: FileFilters
     onChange?.(next)
   }
 
-  const handleClearAll = () => {
-    if (disabled) return
-    onChange?.({
-      search: undefined,
-      extension: undefined,
-    })
-  }
-
-  const hasFilters =
-    (filters.search?.trim?.()?.length ?? 0) > 0 ||
-    (Array.isArray(filters.extension) && filters.extension.length > 0)
+  const hasExtensionFilter = Array.isArray(filters.extension) && filters.extension.length > 0
 
   const extMatch = (a: string[], b: string[]) => {
     if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
@@ -103,6 +93,18 @@ export function FileFilters({ filters, onChange, disabled = false }: FileFilters
             onChange={handleSearchChange}
             disabled={disabled}
           />
+          {filters.search?.trim?.() && (
+            <button
+              type="button"
+              className="filter-search__clear"
+              onClick={() => handleClearChip('search')}
+              disabled={disabled}
+              aria-label="Clear search"
+              title="Clear search"
+            >
+              <i className="ri-close-line" aria-hidden />
+            </button>
+          )}
         </div>
         <select
           className="file-filters__select"
@@ -117,30 +119,15 @@ export function FileFilters({ filters, onChange, disabled = false }: FileFilters
             </option>
           ))}
         </select>
-        {hasFilters && (
-          <button type="button" className="file-filters__clear-all filter-clear-btn" onClick={handleClearAll} disabled={disabled}>
-            Clear all
-          </button>
-        )}
       </div>
-      {hasFilters && (
+      {hasExtensionFilter && (
         <div className="file-filters__chips">
-          {filters.search?.trim?.() && (
-            <span className="file-filters__chip">
-              Search: {filters.search}
-              <button type="button" onClick={() => handleClearChip('search')} disabled={disabled}>
-                <i className="ri-close-line" aria-hidden style={{ fontSize: '0.75rem' }} />
-              </button>
-            </span>
-          )}
-          {Array.isArray(filters.extension) && filters.extension.length > 0 && (
-            <span className="file-filters__chip">
-              Type: {fileTypes.find((ft) => ft.id === selectedFileTypeId)?.label ?? filters.extension.join(', ')}
-              <button type="button" onClick={() => handleClearChip('extension')} disabled={disabled}>
-                <i className="ri-close-line" aria-hidden style={{ fontSize: '0.75rem' }} />
-              </button>
-            </span>
-          )}
+          <span className="file-filters__chip">
+            Type: {fileTypes.find((ft) => ft.id === selectedFileTypeId)?.label ?? (filters.extension ?? []).join(', ')}
+            <button type="button" onClick={() => handleClearChip('extension')} disabled={disabled}>
+              <i className="ri-close-line" aria-hidden style={{ fontSize: '0.75rem' }} />
+            </button>
+          </span>
         </div>
       )}
     </div>
