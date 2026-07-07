@@ -15,6 +15,21 @@ def test_sanitize_display_answer_strips_think_and_source_artifacts() -> None:
     assert sanitize_display_answer(raw) == "Answer body"
 
 
+def test_sanitize_display_answer_strips_bracketed_inline_citations() -> None:
+    raw = (
+        "Transaction Details\n"
+        "- Title Company: Rocket Close and Title, Inc. [1, Header].\n"
+        "- Loan Number: 3576695036 [1, §7]\n"
+        "- Date: December 20, 2025 [2, p. 4]"
+    )
+    assert sanitize_display_answer(raw) == (
+        "Transaction Details\n"
+        "- Title Company: Rocket Close and Title, Inc.\n"
+        "- Loan Number: 3576695036\n"
+        "- Date: December 20, 2025"
+    )
+
+
 def test_build_display_answer_uses_fallback_for_reasoning_only_output() -> None:
     cleaned, reasoning_only = build_display_answer("<think>internal only</think>")
     assert reasoning_only is True

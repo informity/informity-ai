@@ -67,6 +67,16 @@ _TASK_CHECKBOX_INTENT_PATTERN = re.compile(
     r'|\-\s*\[\s*[xX ]\s*\]'
     r')\b'
 )
+_BRACKETED_CITATION_PATTERN = re.compile(
+    r'\s*\[\s*'
+    r'(?:'
+    r'\d+\s*,\s*[^\[\]\n]{1,120}'
+    r'|'
+    r'(?:header|section(?:\s+[^\[\],.]+)?|page(?:s)?\s*\d+(?:-\d+)?|p\.\s*\d+|§\s*\d+)'
+    r')'
+    r'\s*\](?P<trailing>[.,;:!?])?',
+    re.IGNORECASE,
+)
 
 
 def should_preserve_task_checkboxes(user_prompt: str | None) -> bool:
@@ -109,12 +119,26 @@ def strip_think_blocks(text: str) -> str:
 
 def strip_source_artifacts(text: str) -> str:
     # Remove citation/source markers from display text.
+    def _replace_bracketed_citation(match: re.Match[str]) -> str:
+        trailing = match.group('trailing') or ''
+        prefix = match.string[: match.start()]
+        previous_non_space: str | None = None
+        for character in reversed(prefix):
+            if character.isspace():
+                continue
+            previous_non_space = character
+            break
+        if previous_non_space in {'.', '!', '?'}:
+            return ''
+        return trailing
+
     cleaned = re.sub(r'\[source:\s*\d+\]', '', text, flags=re.IGNORECASE)
     cleaned = re.sub(r'\(source\s*\d+\)', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'\(\s*source\s*\d+(?:\s*,\s*source\s*\d+)*\s*\)', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'\(\s*sources?\s*\d+(?:\s*,\s*\d+)*\s*\)', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'(?im)^\s*sources?\s*:\s*.*$', '', cleaned)
     cleaned = re.sub(r'(?im)^\s*source\s+\d+(?:\s*,\s*source\s+\d+)*\s*$', '', cleaned)
+    cleaned = _BRACKETED_CITATION_PATTERN.sub(_replace_bracketed_citation, cleaned)
     return cleaned
 
 
