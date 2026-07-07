@@ -7,6 +7,11 @@ afterEach(() => {
 })
 
 describe('SourceCard evidence rank display', () => {
+  it('does not use a browser tooltip on the card itself', () => {
+    const { container } = render(<SourceCard filename="example.pdf" path="/tmp/example.pdf" />)
+    expect(container.querySelector('.source-card')).not.toHaveAttribute('title')
+  })
+
   it('shows 100 for top-ranked source', () => {
     render(<SourceCard filename="example.pdf" rankIndex={0} rankTotal={5} />)
     expect(screen.getByText('100')).toBeInTheDocument()

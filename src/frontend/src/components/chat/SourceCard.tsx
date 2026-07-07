@@ -88,7 +88,6 @@ function SourceCardComponent({
       tabIndex={canOpen ? 0 : undefined}
       onClick={canOpen ? handleClick : undefined}
       onKeyDown={canOpen ? handleKeyDown : undefined}
-      title={canOpen ? 'Open file' : undefined}
       aria-label={canOpen ? `Open ${filename?.trim() || 'file'}` : undefined}
     >
       <div className="source-card__header">

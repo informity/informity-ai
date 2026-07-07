@@ -1,4 +1,4 @@
-import { Children, isValidElement, memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { Children, isValidElement, memo, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { preprocessMarkdown } from '../../utils/markdownPreprocess'
@@ -233,19 +233,6 @@ function MarkdownRenderer({ markdown, onCopyCode, codeBlockCopied }: MarkdownBlo
             preChildren={children}
           />
         ),
-        a: ({ href, children, node, className, ...props }) => {
-          if (typeof href === 'string' && href === '#informity-source-marker') {
-            const sourceLabel = flattenNodeText(Children.toArray(children))
-            return (
-              <SourceMarkerTooltip label={sourceLabel} className={className} />
-            )
-          }
-          return (
-            <a href={href} className={className} {...props}>
-              {children}
-            </a>
-          )
-        },
       }}
     >
       {preprocessMarkdown(markdown)}
@@ -378,65 +365,6 @@ function extractDisclaimerBody(text: string): string | null {
   const match = normalized.match(/^disclaimer\s*:\s*(.+)$/i)
   if (!match) return null
   return match[1].trim()
-}
-
-function SourceMarkerTooltip({ label, className }: { label: string; className?: string }) {
-  const triggerRef = useRef<HTMLSpanElement>(null)
-  const [open, setOpen] = useState(false)
-  const [position, setPosition] = useState({ left: 0, top: 0 })
-
-  const updatePosition = useCallback(() => {
-    const trigger = triggerRef.current
-    if (!trigger || typeof window === 'undefined') return
-    const rect = trigger.getBoundingClientRect()
-    setPosition({
-      left: rect.left + (rect.width / 2),
-      top: rect.top - 8,
-    })
-  }, [])
-
-  const openTooltip = useCallback(() => {
-    updatePosition()
-    setOpen(true)
-  }, [updatePosition])
-
-  useEffect(() => {
-    if (!open) return
-    const handleViewportChange = () => updatePosition()
-    window.addEventListener('resize', handleViewportChange)
-    window.addEventListener('scroll', handleViewportChange, true)
-    return () => {
-      window.removeEventListener('resize', handleViewportChange)
-      window.removeEventListener('scroll', handleViewportChange, true)
-    }
-  }, [open, updatePosition])
-
-  return (
-    <span
-      ref={triggerRef}
-      className={`chat-message__source-marker${className ? ` ${className}` : ''}`}
-      aria-label={label}
-      onMouseEnter={openTooltip}
-      onMouseLeave={() => setOpen(false)}
-      onFocus={openTooltip}
-      onBlur={() => setOpen(false)}
-    >
-      <i className="ri-file-copy-2-line chat-message__source-marker-icon" aria-hidden />
-      {open && (
-        <span
-          className="chat-message__source-marker-tooltip ui-tooltip ui-tooltip--compact"
-          style={{
-            left: `${position.left}px`,
-            top: `${position.top}px`,
-            visibility: 'visible',
-            opacity: 1,
-          }}
-        >
-          {label}
-        </span>
-      )}
-    </span>
-  )
 }
 
 function flattenNodeText(node: ReactNode): string {

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ChatMessage } from './ChatMessage'
 import type { DisplayBlock } from '../../types/api'
@@ -58,7 +58,7 @@ describe('ChatMessage markdown rendering', () => {
     expect(codeElement?.textContent).toContain('print(i)')
   })
 
-  it('mutes inline source markers instead of rendering them as plain prose', () => {
+  it('removes inline source markers from assistant body text', () => {
     const { container } = render(
       <ChatMessage
         role="assistant"
@@ -67,13 +67,11 @@ describe('ChatMessage markdown rendering', () => {
       />,
     )
 
-    const sourceMarker = container.querySelector('.chat-message__source-marker')
-    expect(sourceMarker).not.toBeNull()
-    expect(sourceMarker?.querySelector('.chat-message__source-marker-icon')).not.toBeNull()
-    fireEvent.mouseEnter(sourceMarker as Element)
-    expect(container.querySelector('.chat-message__source-marker-tooltip')).toHaveTextContent('Source: 4, Source: 6')
+    expect(container.querySelector('.chat-message__source-marker')).toBeNull()
+    expect(container.querySelector('.chat-message__source-marker-tooltip')).toBeNull()
     expect(container.textContent).toContain('The answer references')
     expect(container.textContent).toContain('and keeps going.')
+    expect(container.textContent).not.toContain('Source: 4, Source: 6')
   })
 
   it('uses the file-copy-2 icon for the sources footer toggle', () => {

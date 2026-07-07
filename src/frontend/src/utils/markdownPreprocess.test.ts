@@ -138,10 +138,10 @@ describe('preprocessMarkdown — content preservation', () => {
     expect(preprocessMarkdown(headings)).toBe(headings)
   })
 
-  it('wraps inline source markers in inert links for muted rendering', () => {
+  it('removes inline source markers from rendered markdown', () => {
     const input = 'Answer text [Source: 4, Source: 6] with more prose.'
     const output = preprocessMarkdown(input)
-    expect(output).toContain('[Source: 4, Source: 6](#informity-source-marker)')
+    expect(output).not.toContain('Source: 4, Source: 6')
     expect(output).toContain('Answer text')
     expect(output).toContain('with more prose.')
   })

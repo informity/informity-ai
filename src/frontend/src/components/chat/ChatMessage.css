@@ -980,42 +980,6 @@ html[data-accent='canvas'] .chat-message--assistant .chat-message__actions {
   transform: rotate(180deg);
 }
 
-.chat-message__source-marker {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  position: relative;
-  gap: 0.2rem;
-  color: var(--chat-message-muted-fg);
-  vertical-align: baseline;
-  line-height: 1;
-  white-space: nowrap;
-}
-
-.chat-message__source-marker-icon {
-  flex-shrink: 0;
-  font-size: 0.95em;
-  color: inherit;
-  opacity: 0.82;
-}
-
-.chat-message__source-marker-tooltip {
-  position: fixed;
-  bottom: auto;
-  z-index: 1202;
-  max-width: 320px;
-  white-space: normal;
-  word-break: break-word;
-  pointer-events: none;
-  transform: translateX(-50%) translateY(-100%);
-}
-
-.chat-message__source-marker-tooltip::after {
-  left: 50%;
-  right: auto;
-  transform: translateX(-50%);
-}
-
 .chat-message__actions-right {
   display: flex;
   align-items: center;
