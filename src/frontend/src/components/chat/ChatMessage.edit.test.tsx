@@ -76,6 +76,36 @@ describe('ChatMessage edit interactions', () => {
     expect(onEditSubmit).toHaveBeenCalledWith('New value')
   })
 
+  it('closes the editor immediately after submit starts', async () => {
+    let resolveSubmit!: () => void
+    const onEditSubmit = vi.fn<(text: string) => Promise<void>>().mockImplementation(
+      () => new Promise<void>((resolve) => {
+        resolveSubmit = resolve
+      }),
+    )
+
+    render(
+      <ChatMessage
+        role="user"
+        content="Original text"
+        canEdit
+        onEditSubmit={onEditSubmit}
+      />,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit message' }))
+    const textarea = screen.getByRole('textbox', { name: 'Edit message' })
+    fireEvent.change(textarea, { target: { value: 'Updated text' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Submit edited message' }))
+
+    expect(screen.queryByRole('textbox', { name: 'Edit message' })).toBeNull()
+    expect(screen.getByText('Original text')).toBeInTheDocument()
+    expect(onEditSubmit).toHaveBeenCalledWith('Updated text')
+
+    resolveSubmit()
+    await waitFor(() => expect(onEditSubmit).toHaveBeenCalledTimes(1))
+  })
+
   it('does not submit on Shift+Enter and keeps editor open', () => {
     const onEditSubmit = vi.fn<(text: string) => Promise<void>>().mockResolvedValue(undefined)
 

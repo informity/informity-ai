@@ -33,8 +33,10 @@ from informity.db.vectors import ChunkEmbedding, vector_store
 from informity.file_types import PLAINTEXT_EXTENSIONS
 from informity.indexer.chunker import (
     ChunkTextRequest,
-    chunk_text as build_chunk_text,
     create_child_chunks,
+)
+from informity.indexer.chunker import (
+    chunk_text as build_chunk_text,
 )
 from informity.indexer.classifier import classify_file, extract_year, generate_tags
 from informity.indexer.embedder import embedder

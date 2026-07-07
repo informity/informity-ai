@@ -3,7 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FileTable } from './FileTable'
 import type { IndexedFile } from '../../types/api'
 
-const openFileMock = vi.fn(async (_path: string) => ({}))
+const openFileMock = vi.fn(async (path: string) => {
+  void path
+  return {}
+})
 
 vi.mock('../../api', () => ({
   openFile: (path: string) => openFileMock(path),

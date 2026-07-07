@@ -1214,6 +1214,74 @@ describe('ChatView new chat behavior', () => {
     expect(streamChatMock.mock.calls[1]?.[0]).toBe('Edited prompt')
   })
 
+  it('closes edit mode immediately when resubmitting an edited prompt', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockImplementation(async (chatId?: string) => {
+      if (chatId === 'chat-edit-submit-slow') {
+        return {
+          messages: [
+            {
+              id: 9300,
+              role: 'user',
+              content: 'Original prompt',
+              sources: [],
+              created_at: '2026-02-23T12:00:00.000Z',
+            },
+            {
+              id: 9301,
+              role: 'assistant',
+              content: 'Original answer',
+              sources: [],
+              created_at: '2026-02-23T12:00:02.000Z',
+            },
+          ],
+          chat_mode: 'researcher',
+        }
+      }
+      return { messages: [] }
+    })
+    const resendDeferred = createDeferred<void>()
+    let streamCallCount = 0
+    streamChatMock.mockImplementation(async (_message, _chatId, callbacks) => {
+      streamCallCount += 1
+      if (streamCallCount === 1) {
+        callbacks.onChatId?.('chat-edit-submit-slow')
+        callbacks.onDone?.({ elapsed_seconds: 0.1, message_id: Date.now(), completion_mode: 'complete', next_action: 'none' })
+        return
+      }
+      callbacks.onChatId?.('chat-edit-submit-slow')
+      await resendDeferred.promise
+      callbacks.onDone?.({ elapsed_seconds: 0.1, message_id: Date.now(), completion_mode: 'complete', next_action: 'none' })
+    })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: 'Original prompt' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(1))
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit message' }))
+    fireEvent.change(screen.getByLabelText('Edit message'), { target: { value: 'Edited prompt' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Submit edited message' }))
+
+    expect(screen.queryByRole('textbox', { name: 'Edit message' })).toBeNull()
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(2))
+    expect(streamChatMock.mock.calls[1]?.[0]).toBe('Edited prompt')
+
+    resendDeferred.resolve()
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(2))
+  })
+
   it('exports full chat markdown from header action', async () => {
     getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })

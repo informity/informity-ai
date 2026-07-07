@@ -449,9 +449,9 @@ function ChatMessageComponent({
     const trimmed = editDraft.trim()
     if (!trimmed) return
     setIsEditSubmitting(true)
+    setIsEditing(false)
     try {
       await onEditSubmit(trimmed)
-      setIsEditing(false)
     } finally {
       setIsEditSubmitting(false)
     }

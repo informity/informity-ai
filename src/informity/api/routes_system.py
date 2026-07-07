@@ -67,10 +67,10 @@ from informity.db.sqlite import (
     get_indexed_content_size_bytes,
 )
 from informity.db.vectors import vector_store
+from informity.exceptions import LLMError
 from informity.indexer.embedder import embedder
 from informity.indexer.reranker import reranker
 from informity.llm.engine import llm_engine
-from informity.exceptions import LLMError
 from informity.llm.model_adapter import (
     get_model_alias_filenames,
     infer_model_id_from_filename,
@@ -93,8 +93,7 @@ def _llm_engine_get_model_path() -> Path:
     model_path_getter = getattr(llm_engine, "get_model_path", None)
     if callable(model_path_getter):
         return model_path_getter()
-    legacy_model_path_getter = getattr(llm_engine, "_get_model_path")
-    return legacy_model_path_getter()
+    return llm_engine._get_model_path()  # type: ignore[attr-defined]
 
 
 _SETUP_STATE_FILE = "setup_state.json"

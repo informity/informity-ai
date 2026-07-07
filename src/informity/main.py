@@ -27,7 +27,9 @@ _MCP_STDIO_MODE = (
     "--mcp-stdio" in {str(arg) for arg in _sys.argv[1:]} or _PROGRAM_NAME == "informity-mcp"
 )
 if _MCP_STDIO_MODE:
-    from informity.mcp.stdio_server import main as _mcp_stdio_main  # pylint: disable=ungrouped-imports
+    from informity.mcp.stdio_server import (
+        main as _mcp_stdio_main,  # pylint: disable=ungrouped-imports
+    )
 
     _mcp_stdio_main()
     raise SystemExit(0)
@@ -95,7 +97,10 @@ from informity.indexer.embedder import embedder
 from informity.indexer.reranker import reranker
 from informity.llm.engine import llm_engine, remove_models_dir_cache
 from informity.llm.five_q_classifier import resolve_classifier_model_path
+from informity.llm.model_adapter import get_profile
 from informity.llm.model_bootstrap import CLASSIFIER_GGUF_SPEC, download_gguf_model
+from informity.llm.prompt_builder import BuildMessagesRequest
+from informity.llm.prompt_builder import build_messages as _build_gen_messages
 from informity.logging_config import configure_logging
 from informity.mcp.lifecycle import mcp_lifecycle
 from informity.scanner.watcher import start_watcher, stop_watcher
@@ -138,8 +143,10 @@ def _llm_engine_get_model_path() -> Path:
     model_path_getter = getattr(llm_engine, "get_model_path", None)
     if callable(model_path_getter):
         return model_path_getter()
-    legacy_model_path_getter = getattr(llm_engine, "_get_model_path")
-    return legacy_model_path_getter()
+    try:
+        return llm_engine._get_model_path()  # type: ignore[attr-defined]
+    except AttributeError as exc:
+        raise AttributeError("llm_engine does not expose a model path getter") from exc
 
 
 @dataclass
@@ -364,13 +371,8 @@ async def _run_llm_warmup() -> bool:
         log.info(
             "llm_warmup_starting", model=model_path.name, model_size_gb=round(model_size_gb, 1)
         )
-        from informity.llm.model_adapter import get_profile
 
         profile = get_profile()
-        from informity.llm.prompt_builder import (
-            BuildMessagesRequest,
-            build_messages as _build_gen_messages,
-        )
 
         messages = _build_gen_messages(
             BuildMessagesRequest(
