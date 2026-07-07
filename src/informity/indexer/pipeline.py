@@ -36,8 +36,6 @@ from informity.indexer.chunker import (
     chunk_text as build_chunk_text,
     create_child_chunks,
 )
-
-chunk_text = build_chunk_text
 from informity.indexer.classifier import classify_file, extract_year, generate_tags
 from informity.indexer.embedder import embedder
 from informity.indexer.post_process import post_process_extracted_text
@@ -55,6 +53,8 @@ from informity.scanner.extractors.text_utils import get_max_file_size_bytes
 from informity.sources.base import FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE, IngestionItem
 from informity.utils.file_utils import normalize_extension
 from informity.utils.path_utils import normalize_path
+
+chunk_text = build_chunk_text
 
 if TYPE_CHECKING:
     from informity.scanner.crawler import ScannedFile
@@ -77,11 +77,11 @@ _PAGE_NUMBER_OR_HEADER_RE = re.compile(r"^(?:page\s*)?\d+(?:\s*(?:/|of)\s*\d+)?$
 _ROMAN_NUMERAL_RE = re.compile(r"^[ivxlcdm]+$", re.IGNORECASE)
 
 
-def is_noise_chunk(chunk_text: str) -> bool:
+def is_noise_chunk(candidate_text: str) -> bool:
     """
     Returns True if the chunk contains no meaningful semantic content.
     """
-    stripped = (chunk_text or "").strip()
+    stripped = (candidate_text or "").strip()
     if not stripped:
         return True
 
