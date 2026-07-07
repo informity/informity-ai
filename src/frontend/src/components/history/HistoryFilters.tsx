@@ -44,20 +44,16 @@ export function HistoryFilters({ filters, onChange, disabled = false }: HistoryF
           {hasSearch && (
             <button
               type="button"
-              className="history-filters__clear"
+              className="filter-search__clear"
               onClick={handleClear}
               disabled={disabled}
               aria-label="Clear search"
+              title="Clear search"
             >
-              <i className="ri-close-line" aria-hidden style={{ fontSize: '0.875rem' }} />
+              <i className="ri-close-line" aria-hidden />
             </button>
           )}
         </div>
-        {hasSearch && (
-          <button type="button" className="history-filters__clear-all filter-clear-btn" onClick={handleClear} disabled={disabled}>
-            Clear
-          </button>
-        )}
       </div>
     </div>
   )
