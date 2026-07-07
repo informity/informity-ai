@@ -137,4 +137,12 @@ describe('preprocessMarkdown — content preservation', () => {
     const headings = '# H1\n\n## H2\n\n### H3'
     expect(preprocessMarkdown(headings)).toBe(headings)
   })
+
+  it('wraps inline source markers in inert links for muted rendering', () => {
+    const input = 'Answer text [Source: 4, Source: 6] with more prose.'
+    const output = preprocessMarkdown(input)
+    expect(output).toContain('[Source: 4, Source: 6](#informity-source-marker)')
+    expect(output).toContain('Answer text')
+    expect(output).toContain('with more prose.')
+  })
 })

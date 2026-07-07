@@ -27,6 +27,8 @@ function isTableRow(line: string): boolean {
  * 2. Removes orphaned table separator rows (|---|---| with no adjacent table row on either side).
  *    These appear when the LLM outputs a separator row without the surrounding header/data rows,
  *    which remark-gfm cannot parse as a table and renders as literal dashes.
+ * 3. Wraps inline source markers in inert markdown links so the chat renderer can
+ *    display them with muted theme-aware styling.
  */
 export function preprocessMarkdown(text: string): string {
   if (!text) return ''
@@ -38,9 +40,20 @@ export function preprocessMarkdown(text: string): string {
 
   const lines = normalised.split('\n')
   const kept: string[] = []
+  let insideFence = false
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
+    const trimmed = line.trim()
+    if (/^(```|~~~)/.test(trimmed)) {
+      insideFence = !insideFence
+      kept.push(line)
+      continue
+    }
+    if (insideFence) {
+      kept.push(line)
+      continue
+    }
     if (isTableSeparator(line)) {
       const prevLine = kept[kept.length - 1] ?? ''
       const nextLine = lines[i + 1] ?? ''
@@ -49,9 +62,18 @@ export function preprocessMarkdown(text: string): string {
       }
       // Orphaned separator — silently dropped
     } else {
-      kept.push(line)
+      kept.push(muteSourceMarkers(line))
     }
   }
 
   return kept.join('\n')
+}
+
+const SOURCE_MARKER_PATTERN = /\[(?:\s*sources?\s*:\s*\d+(?:\s*,\s*sources?\s*:\s*\d+)*\s*)\]/gi
+
+function muteSourceMarkers(line: string): string {
+  return line.replace(
+    SOURCE_MARKER_PATTERN,
+    (match) => `[${match.slice(1, -1)}](#informity-source-marker)`,
+  )
 }

@@ -368,6 +368,7 @@ html[data-accent='canvas'] {
   --shadow-modal: 0 14px 28px rgba(122, 84, 56, 0.2);
   --chat-source-border: rgba(171, 106, 67, 0.26);
   --source-card-border: rgba(171, 106, 67, 0.24);
+  --source-card-hover-bg: #f8efe0;
   --source-card-hover-border: rgba(171, 106, 67, 0.38);
 }
 html[data-accent='ember'] {

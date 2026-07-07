@@ -296,7 +296,7 @@ function ChatMessageComponent({
           aria-label={`Toggle sources (${sources.length})`}
           aria-expanded={sourcesExpanded}
         >
-          <i className="ri-file-copy-line chat-message__meta-icon" aria-hidden />
+          <i className="ri-file-copy-2-line chat-message__meta-icon" aria-hidden />
           <span>Sources ({sources.length})</span>
           <i className="ri-arrow-down-s-line chat-message__sources-chevron" aria-hidden />
         </button>

@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ChatMessage } from './ChatMessage'
 import type { DisplayBlock } from '../../types/api'
@@ -56,6 +56,46 @@ describe('ChatMessage markdown rendering', () => {
     const codeElement = container.querySelector('pre code')
     expect(codeElement?.textContent).toContain('for i in range(3):')
     expect(codeElement?.textContent).toContain('print(i)')
+  })
+
+  it('mutes inline source markers instead of rendering them as plain prose', () => {
+    const { container } = render(
+      <ChatMessage
+        role="assistant"
+        content={'The answer references [Source: 4, Source: 6] and keeps going.'}
+        isStreaming={false}
+      />,
+    )
+
+    const sourceMarker = container.querySelector('.chat-message__source-marker')
+    expect(sourceMarker).not.toBeNull()
+    expect(sourceMarker?.querySelector('.chat-message__source-marker-icon')).not.toBeNull()
+    fireEvent.mouseEnter(sourceMarker as Element)
+    expect(container.querySelector('.chat-message__source-marker-tooltip')).toHaveTextContent('Source: 4, Source: 6')
+    expect(container.textContent).toContain('The answer references')
+    expect(container.textContent).toContain('and keeps going.')
+  })
+
+  it('uses the file-copy-2 icon for the sources footer toggle', () => {
+    const { container } = render(
+      <ChatMessage
+        role="assistant"
+        content={'Answer body'}
+        sources={[
+          {
+            filename: 'source.md',
+            path: '/tmp/source.md',
+            chunk_preview: 'preview',
+            relevance_score: 0.8,
+          },
+        ]}
+        isStreaming={false}
+      />,
+    )
+
+    const sourcesToggle = screen.getByRole('button', { name: 'Toggle sources (1)' })
+    expect(sourcesToggle.querySelector('.ri-file-copy-2-line')).not.toBeNull()
+    expect(container.querySelector('.chat-message__sources-toggle-inline')).not.toBeNull()
   })
 
   it('renders heading and list content uniformly', () => {

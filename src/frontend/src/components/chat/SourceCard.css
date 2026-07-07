@@ -15,7 +15,7 @@
 }
 
 .source-card:hover {
-  background: var(--color-bg-hover);
+  background: var(--source-card-hover-bg, var(--color-bg-hover));
   border-color: var(--source-card-hover-border, rgba(255, 255, 255, 0.12));
   z-index: 220;
 }
