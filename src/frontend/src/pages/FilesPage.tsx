@@ -10,7 +10,7 @@ import { FileTableSkeleton } from '../components/files/FileTableSkeleton'
 import { FileFilters } from '../components/files/FileFilters'
 import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { CenteredState } from '../components/CenteredState'
-import { getFileReindexOperation, getFiles, listFileReindexOperations, reindexFile, removeFile } from '../api'
+import { getFileReindexOperation, getFiles, listFileReindexOperations, openFile, reindexFile, removeFile } from '../api'
 import { showToast } from '../context/useToast'
 import { useConfirm } from '../context/useConfirm'
 import { useBackendStatus } from '../context/useBackendStatus'
@@ -225,6 +225,16 @@ export function FilesPage() {
     })
   }, [navigate])
 
+  const handleOpenFile = useCallback(async (file: IndexedFile) => {
+    if (!file?.path?.trim()) return
+    try {
+      await openFile(file.path)
+    } catch (err) {
+      const msg = extractErrorMessage(err, 'Failed to open file')
+      showToast('error', msg)
+    }
+  }, [])
+
   const handleReindex = useCallback(
     async (file: IndexedFile) => {
       if (!file?.id) return
@@ -321,6 +331,7 @@ export function FilesPage() {
                   onTranslate={handleTranslateFile}
                   onReindex={handleReindex}
                   onRemove={handleRemove}
+                  onOpenFile={handleOpenFile}
                   reindexingFileIds={new Set(Object.keys(reindexOperationsByFileId).map(Number))}
                 />
               )}

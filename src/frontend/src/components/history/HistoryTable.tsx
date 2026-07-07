@@ -250,7 +250,7 @@ export function HistoryTable({
                 }`}
                 onClick={() => handleHeaderClick('title')}
               >
-                Title
+                Chat
                 <SortIcon sort={sort} order={order} column="title" />
               </th>
               <th className="history-table__th history-table__th--messages history-table__th--right data-table__th data-table__th--right">Messages</th>

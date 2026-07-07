@@ -3,6 +3,7 @@
  * Sortable columns, row selection, multi-select, pagination.
  */
 import { useCallback } from 'react'
+import { openFile } from '../../api'
 import { formatFileSize } from '../../utils/formatFileSize'
 import { formatDate } from '../../utils/formatDate'
 import { formatCategory, getFileIcon } from '../../utils/fileFormatting'
@@ -30,6 +31,7 @@ interface FileTableProps {
   onTranslate?: (file: IndexedFile) => void
   onReindex?: (file: IndexedFile) => void
   onRemove?: (file: IndexedFile, e: React.MouseEvent) => void
+  onOpenFile?: (file: IndexedFile) => void | Promise<void>
   reindexingFileIds?: Set<number>
   offline?: boolean
 }
@@ -47,6 +49,7 @@ export function FileTable({
   onTranslate,
   onReindex,
   onRemove,
+  onOpenFile,
   reindexingFileIds = new Set<number>(),
   offline = false,
 }: FileTableProps) {
@@ -59,6 +62,11 @@ export function FileTable({
     },
     [offline, sort, order, onSortChange],
   )
+
+  const handleOpenFile = useCallback(async (file: IndexedFile) => {
+    if (!file?.path?.trim()) return
+    await openFile(file.path)
+  }, [])
 
   const currentPage = Math.floor(offset / limit) + 1
   const totalPages = Math.max(1, Math.ceil(total / limit))
@@ -149,9 +157,23 @@ export function FileTable({
                   <td className="file-table__td file-table__td--filename data-table__td">
                     <div className="file-table__filename-row">
                       <i className={`${iconClass} file-table__filename-icon`} aria-hidden style={{ fontSize: '1rem' }} />
-                      <span className="file-table__filename-text" title={file.filename || '—'}>
-                        {file.filename || '—'}
-                      </span>
+                      <button
+                        type="button"
+                        className="file-table__filename-button"
+                        onClick={async (e) => {
+                          e.stopPropagation()
+                          if (offline) return
+                          if (onOpenFile) {
+                            await onOpenFile(file)
+                            return
+                          }
+                          await handleOpenFile(file)
+                        }}
+                        disabled={offline || !file.path?.trim()}
+                        aria-label={`Open ${file.filename || 'file'}`}
+                      >
+                        <span className="file-table__filename-text">{file.filename || '—'}</span>
+                      </button>
                     </div>
                   </td>
                   <td className="file-table__td file-table__td--category data-table__td">

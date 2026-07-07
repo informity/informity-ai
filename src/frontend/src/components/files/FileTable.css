@@ -80,6 +80,29 @@
   text-overflow: ellipsis;
 }
 
+.file-table__filename-button {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.file-table__filename-button:hover:not(:disabled),
+.file-table__filename-button:focus-visible {
+  color: inherit;
+}
+
+.file-table__filename-button:disabled {
+  cursor: default;
+  color: var(--color-text-muted);
+}
+
 .file-table__category-badge,
 .file-table__td--size,
 .file-table__td--modified,

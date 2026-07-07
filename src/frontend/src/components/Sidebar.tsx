@@ -12,8 +12,8 @@ const NAV_ITEMS = [
   { path: '/chat',      label: 'Chat',      icon: 'ri-chat-ai-4-line',  devOnly: false },
   { path: '/translate', label: 'Translate', icon: 'ri-translate-2',     devOnly: false },
   { path: '/files',     label: 'Files',     icon: 'ri-folder-line',     devOnly: false },
-  { path: '/dashboard', label: 'Dashboard', icon: 'ri-layout-grid-line',devOnly: false },
   { path: '/history',   label: 'History',   icon: 'ri-history-line',    devOnly: false },
+  { path: '/dashboard', label: 'Dashboard', icon: 'ri-layout-grid-line',devOnly: false },
   { path: '/settings',  label: 'Settings',  icon: 'ri-settings-3-line', devOnly: false },
 ]
 
