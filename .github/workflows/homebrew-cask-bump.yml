@@ -126,7 +126,7 @@ jobs:
             DRY_RUN_FLAG="--dry-run"
           fi
 
-          bash scripts/release_update_homebrew_cask.sh \
+          bash scripts/release/release_update_homebrew_cask.sh \
             --version "${{ steps.version.outputs.version }}" \
             --sha256 "${{ steps.artifact.outputs.sha256 }}" \
             --tap-dir "homebrew-tap" \
