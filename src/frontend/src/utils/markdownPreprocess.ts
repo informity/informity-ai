@@ -71,7 +71,7 @@ export function preprocessMarkdown(text: string): string {
   return kept.join('\n')
 }
 
-const SOURCE_MARKER_PATTERN = /\s*\[\s*sources?\s*:\s*[^\[\]]+\]\s*/gi
+const SOURCE_MARKER_PATTERN = /\s*\[\s*sources?\s*:\s*[^\]]+\]\s*/gi
 
 function stripSourceMarkers(line: string): string {
   return line.replace(SOURCE_MARKER_PATTERN, '').replace(/\s+\s*$/, '')
