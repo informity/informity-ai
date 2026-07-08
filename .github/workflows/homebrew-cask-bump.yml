@@ -138,4 +138,5 @@ jobs:
           set -euo pipefail
           brew untap informity/tap 2>/dev/null || true
           brew tap informity/tap "$PWD/homebrew-tap" --custom-remote
+          brew trust --cask informity/tap/informity-ai
           brew audit --cask informity-ai
