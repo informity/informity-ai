@@ -30,6 +30,27 @@ def test_sanitize_display_answer_strips_bracketed_inline_citations() -> None:
     )
 
 
+def test_sanitize_display_answer_strips_source_style_bracketed_citations() -> None:
+    raw = (
+        "Transaction History\n"
+        "- Original Listing Date: October 26, 2023 [Source: 7, §Listing Date]\n"
+        "- Closing Date: December 20, 2025 [Source: 6, §Acknowledged this 20th day of December, 2025]\n"
+        "- Chatham Brothers Barrel Yard summary [Source: 3, §d.ii; Source: 4, §d.ii]\n"
+        "Sources: [Source: 1]"
+    )
+    assert sanitize_display_answer(raw) == (
+        "Transaction History\n"
+        "- Original Listing Date: October 26, 2023\n"
+        "- Closing Date: December 20, 2025\n"
+        "- Chatham Brothers Barrel Yard summary"
+    )
+
+
+def test_sanitize_display_answer_keeps_legitimate_bracketed_text() -> None:
+    raw = "Use [xxx] as a literal label, not a citation."
+    assert sanitize_display_answer(raw) == raw
+
+
 def test_build_display_answer_uses_fallback_for_reasoning_only_output() -> None:
     cleaned, reasoning_only = build_display_answer("<think>internal only</think>")
     assert reasoning_only is True

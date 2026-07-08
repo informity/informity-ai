@@ -61,15 +61,18 @@ export function preprocessMarkdown(text: string): string {
       }
       // Orphaned separator — silently dropped
     } else {
-      kept.push(stripSourceMarkers(line))
+      const stripped = stripSourceMarkers(line)
+      if (!/^\s*sources?\s*:\s*$/i.test(stripped)) {
+        kept.push(stripped)
+      }
     }
   }
 
   return kept.join('\n')
 }
 
-const SOURCE_MARKER_PATTERN = /\s*\[(?:\s*sources?\s*:\s*\d+(?:\s*,\s*sources?\s*:\s*\d+)*\s*)\]\s*/gi
+const SOURCE_MARKER_PATTERN = /\s*\[\s*sources?\s*:\s*[^\[\]]+\]\s*/gi
 
 function stripSourceMarkers(line: string): string {
-  return line.replace(SOURCE_MARKER_PATTERN, '')
+  return line.replace(SOURCE_MARKER_PATTERN, '').replace(/\s+\s*$/, '')
 }

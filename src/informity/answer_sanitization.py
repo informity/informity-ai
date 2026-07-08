@@ -67,7 +67,7 @@ _TASK_CHECKBOX_INTENT_PATTERN = re.compile(
     r'|\-\s*\[\s*[xX ]\s*\]'
     r')\b'
 )
-_BRACKETED_CITATION_PATTERN = re.compile(
+_LEGACY_BRACKETED_CITATION_PATTERN = re.compile(
     r'\s*\[\s*'
     r'(?:'
     r'\d+\s*,\s*[^\[\]\n]{1,120}'
@@ -76,6 +76,19 @@ _BRACKETED_CITATION_PATTERN = re.compile(
     r')'
     r'\s*\](?P<trailing>[.,;:!?])?',
     re.IGNORECASE,
+)
+_SOURCE_BRACKETED_CITATION_PATTERN = re.compile(
+    r'\s*\[\s*source(?:s)?\s*:\s*[^\[\]\n]{1,200}\](?P<trailing>[.,;:!?])?',
+    re.IGNORECASE,
+)
+_SOURCE_ONLY_LINE_PATTERN = re.compile(
+    r'(?im)^\s*(?:sources?|source)\s*:\s*(?:'
+    r'\[\s*source(?:s)?\s*:\s*[^\[\]\n]{1,200}\s*\]'
+    r'|'
+    r'source\s+\d+(?:\s*,\s*source\s+\d+)*'
+    r'|'
+    r'\d+(?:\s*,\s*\d+)*'
+    r')\s*$'
 )
 
 
@@ -119,6 +132,19 @@ def strip_think_blocks(text: str) -> str:
 
 def strip_source_artifacts(text: str) -> str:
     # Remove citation/source markers from display text.
+    def _replace_source_bracketed_citation(match: re.Match[str]) -> str:
+        trailing = match.group('trailing') or ''
+        prefix = match.string[: match.start()]
+        previous_non_space: str | None = None
+        for character in reversed(prefix):
+            if character.isspace():
+                continue
+            previous_non_space = character
+            break
+        if previous_non_space in {'.', '!', '?'}:
+            return ''
+        return trailing
+
     def _replace_bracketed_citation(match: re.Match[str]) -> str:
         trailing = match.group('trailing') or ''
         prefix = match.string[: match.start()]
@@ -136,9 +162,11 @@ def strip_source_artifacts(text: str) -> str:
     cleaned = re.sub(r'\(source\s*\d+\)', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'\(\s*source\s*\d+(?:\s*,\s*source\s*\d+)*\s*\)', '', cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r'\(\s*sources?\s*\d+(?:\s*,\s*\d+)*\s*\)', '', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'(?im)^\s*sources?\s*:\s*.*$', '', cleaned)
+    cleaned = _SOURCE_ONLY_LINE_PATTERN.sub('', cleaned)
     cleaned = re.sub(r'(?im)^\s*source\s+\d+(?:\s*,\s*source\s+\d+)*\s*$', '', cleaned)
-    cleaned = _BRACKETED_CITATION_PATTERN.sub(_replace_bracketed_citation, cleaned)
+    cleaned = _SOURCE_BRACKETED_CITATION_PATTERN.sub(_replace_source_bracketed_citation, cleaned)
+    cleaned = _LEGACY_BRACKETED_CITATION_PATTERN.sub(_replace_bracketed_citation, cleaned)
+    cleaned = re.sub(r'(?im)^\s*sources?\s*:\s*$', '', cleaned)
     return cleaned
 
 

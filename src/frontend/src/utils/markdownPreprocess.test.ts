@@ -145,4 +145,13 @@ describe('preprocessMarkdown — content preservation', () => {
     expect(output).toContain('Answer text')
     expect(output).toContain('with more prose.')
   })
+
+  it('removes source-style citations while keeping literal bracket text', () => {
+    const input = 'Use [xxx] as a label. Facts remain supported [Source: 3, §Listing Date].\nSources: [Source: 1]'
+    const output = preprocessMarkdown(input)
+    expect(output).toContain('Use [xxx] as a label.')
+    expect(output).toContain('Facts remain supported')
+    expect(output).not.toContain('Source: 3, §Listing Date')
+    expect(output).not.toContain('Sources:')
+  })
 })
