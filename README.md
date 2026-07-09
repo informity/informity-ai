@@ -5,7 +5,7 @@
 </p>
 
 [![Version](https://img.shields.io/github/v/tag/informity/informity-ai?label=version)](https://github.com/informity/informity-ai/releases)
-[![Pylint 9.66/10](https://img.shields.io/badge/pylint-9.66%2F10-brightgreen)]
+[![Pylint 9.66/10](https://img.shields.io/badge/pylint-9.66%2F10-brightgreen)](#)
 [![Python](https://img.shields.io/badge/python-3.13+-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![Platform](https://img.shields.io/badge/platform-macOS-black?logo=apple)](#)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
