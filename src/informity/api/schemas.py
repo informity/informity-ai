@@ -103,6 +103,12 @@ class SearchResult(BaseModel):
     file_id: int
     filename: str
     path: str
+    extension: str
+    size_bytes: int
+    indexed_at: datetime | None = None
+    modified_at: datetime
+    content_hash: str
+    extracted_text_preview: str
     preview: str  # Relevant chunk or excerpt
     score: float  # Similarity score (lower = more similar)
     category: str

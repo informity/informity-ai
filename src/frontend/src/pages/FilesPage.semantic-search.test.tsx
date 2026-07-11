@@ -91,6 +91,12 @@ describe('FilesPage semantic search', () => {
           file_id: 1,
           filename: 'Quarterly report.pdf',
           path: '/docs/quarterly-report.pdf',
+          extension: '.pdf',
+          size_bytes: 1024,
+          indexed_at: '2025-01-02T00:00:00Z',
+          modified_at: '2025-01-01T00:00:00Z',
+          content_hash: 'abc123',
+          extracted_text_preview: 'Revenue overview',
           preview: 'Revenue increased year over year.',
           score: 0.18,
           category: 'document',
@@ -124,7 +130,6 @@ describe('FilesPage semantic search', () => {
     })
 
     await waitFor(() => expect(screen.getByText('Quarterly report.pdf')).toBeInTheDocument())
-    expect(screen.getByText('Page 12 · Finance > Revenue · table')).toBeInTheDocument()
-    expect(screen.getByText('Revenue increased year over year.')).toBeInTheDocument()
+    expect(screen.getByText('Document')).toBeInTheDocument()
   })
 })

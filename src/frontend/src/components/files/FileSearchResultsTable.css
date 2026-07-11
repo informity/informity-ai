@@ -1,0 +1,196 @@
+/* -----------------------------------------------------------------------------
+   Semantic file search results table — standalone duplicate of FileTable
+   ----------------------------------------------------------------------------- */
+
+.file-search-results-table__table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--font-size-body);
+}
+
+.file-search-results-table {
+  container-type: inline-size;
+}
+
+.file-search-results-table__row--selected {
+  background: color-mix(in srgb, var(--color-accent) 15%, transparent);
+}
+
+.file-search-results-table__row--selected:hover {
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+.file-search-results-table__row {
+  cursor: default;
+}
+
+.file-search-results-table__row:hover {
+  background: transparent;
+}
+
+.file-search-results-table__td--filename {
+  font-weight: 500;
+  padding-left: 0.75rem;
+}
+
+.file-search-results-table__th--filename {
+  padding-left: calc(28px + var(--table-icon-title-gap) + 0.75rem);
+}
+
+.file-search-results-table__filename-row {
+  display: flex;
+  align-items: center;
+  gap: var(--table-icon-title-gap);
+  min-width: 0;
+}
+
+.file-search-results-table__filename-icon {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  color: var(--color-text-muted);
+}
+
+.file-search-results-table__th--category,
+.file-search-results-table__td--category {
+  width: 9.5rem;
+}
+
+.file-search-results-table__th--size,
+.file-search-results-table__td--size {
+  width: 6.5rem;
+}
+
+.file-search-results-table__th--modified,
+.file-search-results-table__td--modified,
+.file-search-results-table__th--indexed,
+.file-search-results-table__td--indexed {
+  width: 11.5rem;
+}
+
+.file-search-results-table__filename-text {
+  flex: 1;
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.file-search-results-table__filename-button {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  padding: 0;
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.file-search-results-table__filename-button:hover:not(:disabled),
+.file-search-results-table__filename-button:focus-visible {
+  color: inherit;
+}
+
+.file-search-results-table__filename-button:disabled {
+  cursor: default;
+  color: var(--color-text-muted);
+}
+
+.file-search-results-table__category-badge,
+.file-search-results-table__td--size,
+.file-search-results-table__td--modified,
+.file-search-results-table__td--indexed {
+  white-space: nowrap;
+}
+
+.file-search-results-table__category-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  width: var(--pill-width-files-logs);
+  padding-left: 10px;
+  padding-right: 10px;
+  box-sizing: border-box;
+}
+
+.file-search-results-table__th--size {
+  text-align: right;
+}
+
+.file-search-results-table__th--actions {
+  width: 150px;
+  text-align: center;
+}
+
+.file-search-results-table__td--actions {
+  text-align: center;
+}
+
+.file-search-results-table__actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+}
+
+.file-search-results-table__action-btn--danger:hover {
+  color: var(--color-danger-solid);
+}
+
+.file-search-results-table__spinner {
+  animation: spin 1s linear infinite;
+}
+
+.file-search-results-table__pagination {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 0;
+  border-top: 1px solid var(--color-border);
+  font-size: var(--font-size-base);
+  color: var(--color-text-muted);
+}
+
+.file-search-results-table__pagination-buttons {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.file-search-results-table__pagination-page {
+  font-size: var(--font-size-sm);
+}
+
+@container (max-width: 1180px) {
+  .file-search-results-table__th--modified,
+  .file-search-results-table__td--modified {
+    display: none;
+  }
+}
+
+@container (max-width: 1040px) {
+  .file-search-results-table__th--size,
+  .file-search-results-table__td--size {
+    display: none;
+  }
+}
+
+@container (max-width: 920px) {
+  .file-search-results-table__th--category,
+  .file-search-results-table__td--category {
+    display: none;
+  }
+
+  .file-search-results-table__th--actions {
+    width: 128px;
+  }
+}

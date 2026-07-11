@@ -245,11 +245,10 @@ export function FilesPage() {
   }, [])
 
   useEffect(() => {
+    void loadFiles()
     if (semanticSearchActive) {
       void loadSemanticResults()
-      return
     }
-    void loadFiles()
   }, [semanticSearchActive, loadFiles, loadSemanticResults])
 
   useEffect(() => {
@@ -402,7 +401,15 @@ export function FilesPage() {
                 ) : (
                   <FileSearchResults
                     results={semanticResults}
+                    files={files}
                     loading={semanticLoading}
+                    total={semanticResults.length}
+                    onChatAboutFile={handleChatAboutFile}
+                    onTranslate={handleTranslateFile}
+                    onReindex={handleReindex}
+                    onRemove={handleRemove}
+                    onOpenFile={handleOpenFile}
+                    reindexingFileIds={new Set(Object.keys(reindexOperationsByFileId).map(Number))}
                   />
                 )
               ) : loading && files.length === 0 ? (

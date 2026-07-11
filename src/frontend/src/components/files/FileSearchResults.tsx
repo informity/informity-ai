@@ -1,37 +1,58 @@
 /**
  * Informity AI — Semantic file search results
- * Grid/list wrapper for semantic search result cards.
+ * Table wrapper for semantic file search results.
  */
-import { FileSearchResultCard } from './FileSearchResultCard'
-import type { FileSearchResult } from '../../types/api'
+import { FileSearchResultsTable } from './FileSearchResultsTable'
+import type { FileSearchResult, IndexedFile } from '../../types/api'
 import { CenteredState } from '../CenteredState'
-import { Skeleton } from '../Skeleton'
+import { FileTableSkeleton } from './FileTableSkeleton'
 import './FileSearchResults.css'
 
 interface FileSearchResultsProps {
   results: FileSearchResult[]
+  files?: IndexedFile[]
   loading?: boolean
+  onChatAboutFile?: (file: IndexedFile) => void
+  onTranslate?: (file: IndexedFile) => void
+  onReindex?: (file: IndexedFile) => void
+  onRemove?: (file: IndexedFile, e: React.MouseEvent) => void
+  onOpenFile?: (file: IndexedFile) => void | Promise<void>
+  reindexingFileIds?: Set<number>
+  total?: number
 }
 
-export function FileSearchResults({ results, loading = false }: FileSearchResultsProps) {
+function toIndexedFile(result: FileSearchResult): IndexedFile {
+  return {
+    id: result.file_id,
+    path: result.path,
+    filename: result.filename,
+    extension: result.extension,
+    size_bytes: result.size_bytes,
+    content_hash: result.content_hash,
+    extracted_text_preview: result.extracted_text_preview,
+    category: result.category,
+    tags: [],
+    indexed_at: result.indexed_at ?? undefined,
+    modified_at: result.modified_at,
+  }
+}
+
+export function FileSearchResults({
+  results,
+  loading = false,
+  files = [],
+  onChatAboutFile,
+  onTranslate,
+  onReindex,
+  onRemove,
+  onOpenFile,
+  reindexingFileIds,
+  total,
+}: FileSearchResultsProps) {
   if (loading) {
     return (
       <div className="file-search-results">
-        <div className="file-search-results__skeleton-grid" aria-label="Loading semantic search results">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div key={index} className="file-search-results__skeleton-card">
-              <div className="file-search-results__skeleton-header">
-                <Skeleton width={28} height={28} />
-                <div className="file-search-results__skeleton-lines">
-                  <Skeleton width="70%" height={14} />
-                  <Skeleton width="48%" height={10} />
-                </div>
-              </div>
-              <Skeleton width="100%" height={12} style={{ marginTop: '0.85rem' }} />
-              <Skeleton width="85%" height={12} style={{ marginTop: '0.5rem' }} />
-            </div>
-          ))}
-        </div>
+        <FileTableSkeleton />
       </div>
     )
   }
@@ -47,13 +68,25 @@ export function FileSearchResults({ results, loading = false }: FileSearchResult
     )
   }
 
+  const filesById = new Map<number, IndexedFile>(files.map((file) => [file.id, file]))
+  const semanticFiles = results.map((result) => {
+    const existing = filesById.get(result.file_id)
+    if (existing) return existing
+    return toIndexedFile(result)
+  })
+
   return (
     <div className="file-search-results">
-      <div className="file-search-results__grid">
-        {results.map((result) => (
-          <FileSearchResultCard key={`${result.file_id}-${result.chunk_id ?? 'chunk'}`} result={result} />
-        ))}
-      </div>
+      <FileSearchResultsTable
+        files={semanticFiles}
+        total={total ?? results.length}
+        onChatAboutFile={onChatAboutFile}
+        onTranslate={onTranslate}
+        onReindex={onReindex}
+        onRemove={onRemove}
+        onOpenFile={onOpenFile}
+        reindexingFileIds={reindexingFileIds}
+      />
     </div>
   )
 }

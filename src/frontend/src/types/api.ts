@@ -269,6 +269,12 @@ export interface FileSearchResult {
   file_id: number
   filename: string
   path: string
+  extension: string
+  size_bytes: number
+  indexed_at?: string | null
+  modified_at: string
+  content_hash: string
+  extracted_text_preview: string
   preview: string
   score: number
   category: string
