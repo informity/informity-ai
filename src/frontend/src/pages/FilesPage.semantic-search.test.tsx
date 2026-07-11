@@ -130,6 +130,6 @@ describe('FilesPage semantic search', () => {
     })
 
     await waitFor(() => expect(screen.getByText('Quarterly report.pdf')).toBeInTheDocument())
-    expect(screen.getByText('Document')).toBeInTheDocument()
+    expect(screen.getByText('82')).toBeInTheDocument()
   })
 })

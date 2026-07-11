@@ -7,26 +7,25 @@ import type React from 'react'
 import { openFile } from '../../api'
 import { formatFileSize } from '../../utils/formatFileSize'
 import { formatDate } from '../../utils/formatDate'
-import { formatCategory, getFileIcon } from '../../utils/fileFormatting'
-import { SortIcon } from '../SortIcon'
+import { getFileIcon } from '../../utils/fileFormatting'
 import { StateMessage } from '../StateMessage'
 import type { IndexedFile } from '../../types/api'
 import './FileSearchResultsTable.css'
 
 const PAGE_SIZE = 50
-const SORT_COLUMNS = ['filename', 'category', 'extension', 'size_bytes', 'modified_at', 'indexed_at']
 
-type SortColumn = (typeof SORT_COLUMNS)[number]
-type SortOrder = 'asc' | 'desc'
+type SemanticSearchRow = IndexedFile & { score?: number }
+
+function formatScore(score: number) {
+  if (!Number.isFinite(score)) return '—'
+  return String(Math.round(score))
+}
 
 interface FileSearchResultsTableProps {
-  files?: IndexedFile[]
+  files?: SemanticSearchRow[]
   total?: number
   offset?: number
   limit?: number
-  sort?: SortColumn
-  order?: SortOrder
-  onSortChange?: (col: SortColumn, order: SortOrder) => void
   onPageChange?: (offset: number) => void
   onChatAboutFile?: (file: IndexedFile) => void
   onTranslate?: (file: IndexedFile) => void
@@ -42,9 +41,6 @@ export function FileSearchResultsTable({
   total = 0,
   offset = 0,
   limit = PAGE_SIZE,
-  sort = 'indexed_at',
-  order = 'desc',
-  onSortChange,
   onPageChange,
   onChatAboutFile,
   onTranslate,
@@ -54,16 +50,6 @@ export function FileSearchResultsTable({
   reindexingFileIds = new Set<number>(),
   offline = false,
 }: FileSearchResultsTableProps) {
-  const handleHeaderClick = useCallback(
-    (col: string) => {
-      if (offline) return
-      if (!SORT_COLUMNS.includes(col)) return
-      const nextOrder = sort === col && order === 'desc' ? 'asc' : 'desc'
-      onSortChange?.(col as SortColumn, sort === col ? (nextOrder as SortOrder) : 'desc')
-    },
-    [offline, sort, order, onSortChange],
-  )
-
   const handleOpenFile = useCallback(async (file: IndexedFile) => {
     if (!file?.path?.trim()) return
     await openFile(file.path)
@@ -100,51 +86,11 @@ export function FileSearchResultsTable({
         <table className="file-search-results-table__table data-table__table">
           <thead>
             <tr>
-              <th
-                className={`file-search-results-table__th file-search-results-table__th--filename file-search-results-table__th--sortable data-table__th data-table__th--sortable ${
-                  sort === 'filename' ? 'data-table__th--sorted' : ''
-                }`}
-                onClick={() => handleHeaderClick('filename')}
-              >
-                Filename
-                <SortIcon sort={sort} order={order} column="filename" />
-              </th>
-              <th
-                className={`file-search-results-table__th file-search-results-table__th--category file-search-results-table__th--sortable data-table__th data-table__th--sortable ${
-                  sort === 'extension' ? 'data-table__th--sorted' : ''
-                }`}
-                onClick={() => handleHeaderClick('extension')}
-              >
-                Category
-                <SortIcon sort={sort} order={order} column="extension" />
-              </th>
-              <th
-                className={`file-search-results-table__th file-search-results-table__th--size file-search-results-table__th--sortable file-search-results-table__th--right data-table__th data-table__th--sortable data-table__th--right ${
-                  sort === 'size_bytes' ? 'data-table__th--sorted' : ''
-                }`}
-                onClick={() => handleHeaderClick('size_bytes')}
-              >
-                Size
-                <SortIcon sort={sort} order={order} column="size_bytes" />
-              </th>
-              <th
-                className={`file-search-results-table__th file-search-results-table__th--indexed file-search-results-table__th--sortable file-search-results-table__th--right data-table__th data-table__th--sortable data-table__th--right ${
-                  sort === 'indexed_at' ? 'data-table__th--sorted' : ''
-                }`}
-                onClick={() => handleHeaderClick('indexed_at')}
-              >
-                Indexed
-                <SortIcon sort={sort} order={order} column="indexed_at" />
-              </th>
-              <th
-                className={`file-search-results-table__th file-search-results-table__th--modified file-search-results-table__th--sortable file-search-results-table__th--right data-table__th data-table__th--sortable data-table__th--right ${
-                  sort === 'modified_at' ? 'data-table__th--sorted' : ''
-                }`}
-                onClick={() => handleHeaderClick('modified_at')}
-              >
-                Modified
-                <SortIcon sort={sort} order={order} column="modified_at" />
-              </th>
+              <th className="file-search-results-table__th file-search-results-table__th--filename data-table__th">Filename</th>
+              <th className="file-search-results-table__th file-search-results-table__th--score data-table__th">Score</th>
+              <th className="file-search-results-table__th file-search-results-table__th--size file-search-results-table__th--right data-table__th data-table__th--right">Size</th>
+              <th className="file-search-results-table__th file-search-results-table__th--indexed file-search-results-table__th--right data-table__th data-table__th--right">Indexed</th>
+              <th className="file-search-results-table__th file-search-results-table__th--modified file-search-results-table__th--right data-table__th data-table__th--right">Modified</th>
               <th className="file-search-results-table__th file-search-results-table__th--actions data-table__th" />
             </tr>
           </thead>
@@ -177,8 +123,8 @@ export function FileSearchResultsTable({
                       </button>
                     </div>
                   </td>
-                  <td className="file-search-results-table__td file-search-results-table__td--category data-table__td">
-                    <span className="file-search-results-table__category-badge data-table__badge">{formatCategory(file.category, file.extension)}</span>
+                  <td className="file-search-results-table__td file-search-results-table__td--score data-table__td">
+                    <span className="file-search-results-table__score-badge data-table__badge">{formatScore(file.score ?? 0)}</span>
                   </td>
                   <td className="file-search-results-table__td file-search-results-table__td--size file-search-results-table__td--right data-table__td data-table__td--right">
                     {formatFileSize(file.size_bytes)}

@@ -54,8 +54,8 @@
   color: var(--color-text-muted);
 }
 
-.file-search-results-table__th--category,
-.file-search-results-table__td--category {
+.file-search-results-table__th--score,
+.file-search-results-table__td--score {
   width: 9.5rem;
 }
 
@@ -103,14 +103,14 @@
   color: var(--color-text-muted);
 }
 
-.file-search-results-table__category-badge,
+.file-search-results-table__score-badge,
 .file-search-results-table__td--size,
 .file-search-results-table__td--modified,
 .file-search-results-table__td--indexed {
   white-space: nowrap;
 }
 
-.file-search-results-table__category-badge {
+.file-search-results-table__score-badge {
   display: inline-flex;
   align-items: center;
   justify-content: center;

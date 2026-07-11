@@ -8,6 +8,13 @@ import { CenteredState } from '../CenteredState'
 import { FileTableSkeleton } from './FileTableSkeleton'
 import './FileSearchResults.css'
 
+type SemanticSearchRow = IndexedFile & { score?: number }
+
+function toRelevanceScore(distance: number): number {
+  if (!Number.isFinite(distance)) return 0
+  return Math.max(0, Math.min(100, Math.round((1 - distance) * 100)))
+}
+
 interface FileSearchResultsProps {
   results: FileSearchResult[]
   files?: IndexedFile[]
@@ -21,7 +28,7 @@ interface FileSearchResultsProps {
   total?: number
 }
 
-function toIndexedFile(result: FileSearchResult): IndexedFile {
+function toSemanticRow(result: FileSearchResult): SemanticSearchRow {
   return {
     id: result.file_id,
     path: result.path,
@@ -34,6 +41,7 @@ function toIndexedFile(result: FileSearchResult): IndexedFile {
     tags: [],
     indexed_at: result.indexed_at ?? undefined,
     modified_at: result.modified_at,
+    score: toRelevanceScore(result.score),
   }
 }
 
@@ -71,9 +79,11 @@ export function FileSearchResults({
   const filesById = new Map<number, IndexedFile>(files.map((file) => [file.id, file]))
   const semanticFiles = results.map((result) => {
     const existing = filesById.get(result.file_id)
-    if (existing) return existing
-    return toIndexedFile(result)
-  })
+    if (existing) {
+      return { ...existing, score: toRelevanceScore(result.score) }
+    }
+    return toSemanticRow(result)
+  }).sort((left, right) => (right.score ?? 0) - (left.score ?? 0))
 
   return (
     <div className="file-search-results">
