@@ -19,7 +19,11 @@ import { useDebounce } from '../utils/useDebounce'
 import { extractErrorMessage } from '../utils/errorMessages'
 import { isBackendConnectionError } from '../utils/networkErrors'
 import type { FileReindexOperation, IndexedFile } from '../types/api'
-import { FILE_SEARCH_MODE_STORAGE_KEY, FILE_SEARCH_RESULT_LIMIT_STORAGE_KEY } from '../utils/storageKeys'
+import {
+  FILE_SEARCH_MODE_STORAGE_KEY,
+  FILE_SEARCH_RESULT_LIMIT_STORAGE_KEY,
+  FILE_SEARCH_TEXT_STORAGE_KEY,
+} from '../utils/storageKeys'
 import '../pages/PlaceholderPage.css'
 
 const PAGE_SIZE = 25
@@ -41,7 +45,14 @@ export function FilesPage() {
   const [offset, setOffset] = useState(0)
   const [sort, setSort] = useState('indexed_at')
   const [order, setOrder] = useState<'asc' | 'desc'>('desc')
-  const [filters, setFilters] = useState<FileFiltersState>({})
+  const [filters, setFilters] = useState<FileFiltersState>(() => {
+    try {
+      const storedSearch = window.localStorage.getItem(FILE_SEARCH_TEXT_STORAGE_KEY)
+      return storedSearch ? { search: storedSearch } : {}
+    } catch {
+      return {}
+    }
+  })
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [semanticResults, setSemanticResults] = useState<Awaited<ReturnType<typeof searchFiles>>['results']>([])
@@ -69,6 +80,19 @@ export function FilesPage() {
   const debouncedSearch = useDebounce(filters.search, SEARCH_DEBOUNCE_MS)
   const searchText = debouncedSearch?.trim() || ''
   const semanticSearchActive = searchMode === 'semantic' && searchText.length > 0
+
+  useEffect(() => {
+    try {
+      const value = filters.search?.trim() || ''
+      if (value) {
+        window.localStorage.setItem(FILE_SEARCH_TEXT_STORAGE_KEY, value)
+      } else {
+        window.localStorage.removeItem(FILE_SEARCH_TEXT_STORAGE_KEY)
+      }
+    } catch {
+      // ignore storage failures
+    }
+  }, [filters.search])
 
   useEffect(() => {
     try {
@@ -264,7 +288,7 @@ export function FilesPage() {
   }, [])
 
   const handleFiltersChange = useCallback((newFilters: FileFiltersState) => {
-    setFilters(newFilters)
+    setFilters((prev) => ({ ...prev, ...newFilters }))
     setOffset(0)
   }, [])
 

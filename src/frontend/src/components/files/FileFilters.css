@@ -96,7 +96,7 @@
 .file-filters__select--compact {
   width: 6rem;
   min-width: 6rem;
-  margin-left: 0.1rem;
+  margin-left: 0;
 }
 
 .file-filters__input::placeholder {
