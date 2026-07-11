@@ -1,0 +1,46 @@
+/* -----------------------------------------------------------------------------
+   Semantic file search results — responsive card grid
+   ----------------------------------------------------------------------------- */
+
+.file-search-results {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.file-search-results__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 0.75rem;
+}
+
+.file-search-results__skeleton-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 0.75rem;
+}
+
+.file-search-results__skeleton-card {
+  padding: 0.875rem 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+
+.file-search-results__skeleton-header {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.file-search-results__skeleton-lines {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.file-search-results__empty {
+  max-width: 760px;
+  padding-top: clamp(80px, 14vh, 150px);
+}

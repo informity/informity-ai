@@ -106,6 +106,10 @@ class SearchResult(BaseModel):
     preview: str  # Relevant chunk or excerpt
     score: float  # Similarity score (lower = more similar)
     category: str
+    chunk_id: int | None = None
+    page_number: int | None = None
+    section_path: str | None = None
+    block_type: str | None = None
 
 
 class SearchResponse(BaseModel):

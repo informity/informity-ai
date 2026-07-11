@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from informity.api.schemas import SearchRequest, SearchResponse, SearchResult
 from informity.api.security import EndpointGuard
-from informity.db.sqlite import get_db, get_files_by_ids
+from informity.db.sqlite import get_chunks_by_ids, get_db, get_files_by_ids
 from informity.db.vectors import vector_store
 from informity.indexer.embedder import embedder
 from informity.scanner.extractors.base import MAX_EXTRACTED_TEXT_PREVIEW
@@ -86,10 +86,15 @@ async def search_documents(
         # -- Step 2: Search SQLite vector storage -----------------------------------
         raw_results = await asyncio.to_thread(vector_store.search_similar, query_vector, fetch_limit)
 
-        # -- Step 3 & 4: Batch-fetch file metadata and filter ----------------------
+        # -- Step 3 & 4: Batch-fetch file + chunk metadata and filter -------------
         # Collect all distinct file IDs from results for a single DB round-trip.
         all_file_ids = list({hit['file_id'] for hit in raw_results if hit.get('file_id') is not None})
         files_by_id  = await get_files_by_ids(db, all_file_ids)
+        all_chunk_ids = list({hit['chunk_id'] for hit in raw_results if hit.get('chunk_id') is not None})
+        chunks_by_id = {
+            chunk['chunk_id']: chunk
+            for chunk in await get_chunks_by_ids(db, all_chunk_ids)
+        }
 
         results: list[SearchResult] = []
 
@@ -107,6 +112,18 @@ async def search_documents(
                 log.debug('search_orphan_vector', file_id=file_id)
                 continue
 
+            chunk_id = hit.get('chunk_id')
+            chunk_meta = chunks_by_id.get(chunk_id) if chunk_id is not None else None
+            page_number = None
+            section_path = None
+            block_type = None
+            if chunk_meta is not None:
+                page_number = chunk_meta.get('page_number')
+                if page_number is None and chunk_meta.get('start_page') is not None:
+                    page_number = chunk_meta.get('start_page')
+                section_path = str(chunk_meta.get('section_path') or '').strip() or None
+                block_type = str(chunk_meta.get('block_type') or '').strip() or None
+
             # Apply category filter
             if request.category and indexed_file.category.value != request.category:
                 continue
@@ -122,6 +139,10 @@ async def search_documents(
                 preview  = (hit.get('chunk_text', '') or '')[:MAX_EXTRACTED_TEXT_PREVIEW],
                 score    = hit.get('score', 0.0),
                 category = indexed_file.category.value,
+                chunk_id = int(chunk_id) if chunk_id is not None else None,
+                page_number = int(page_number) if page_number is not None else None,
+                section_path = section_path,
+                block_type = block_type,
             ))
 
         log.info(

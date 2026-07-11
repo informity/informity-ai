@@ -1694,6 +1694,44 @@ async def get_chunks_by_parent_ids(db: aiosqlite.Connection, parent_ids: list[in
     return result
 
 
+async def get_chunks_by_ids(db: aiosqlite.Connection, chunk_ids: list[int]) -> list[dict]:
+    # Given chunk IDs, fetch the corresponding chunk metadata in one round-trip.
+    if not chunk_ids:
+        return []
+
+    unique_chunk_ids = list(dict.fromkeys(int(chunk_id) for chunk_id in chunk_ids))
+    placeholders = ','.join('?' * len(unique_chunk_ids))
+
+    cursor = await db.execute(
+        f"""
+        SELECT c.id AS chunk_id, c.file_id, f.path AS file_path, f.filename, c.content AS chunk_text,
+               c.page_number, c.start_page, c.end_page, c.section_path, c.block_type
+        FROM chunks c
+        JOIN files f ON c.file_id = f.id
+        WHERE c.id IN ({placeholders})
+        """,
+        unique_chunk_ids,
+    )
+    rows = await cursor.fetchall()
+    result = []
+    for row in rows:
+        result.append(
+            {
+                'chunk_id':   row['chunk_id'],
+                'file_id':    row['file_id'],
+                'file_path':  row['file_path'] or '',
+                'filename':   row['filename'] or '',
+                'chunk_text': row['chunk_text'] or '',
+                'page_number': row['page_number'],
+                'start_page': row['start_page'],
+                'end_page': row['end_page'],
+                'section_path': row['section_path'],
+                'block_type': row['block_type'],
+            },
+        )
+    return result
+
+
 async def delete_chunks_for_file(db: aiosqlite.Connection, file_id: int) -> int:
     # Delete all chunks for a file.
     cursor = await db.execute('DELETE FROM chunks WHERE file_id = ?', (file_id,))

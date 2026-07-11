@@ -7,6 +7,7 @@ import type {
   ChatUploadAttachment,
   ChatMode,
   ChatMessageTranslationResponse,
+  FileSearchResponse,
   LogChannel,
   LogEventsResponse,
   ChatSpecializationDefinition,
@@ -194,6 +195,30 @@ export async function getFiles(params: GetFilesParams = {}): Promise<unknown> {
   } = params
   return request('GET', '/api/files', {
     params: { category, extension, search, tag, sort, order, offset, limit } as Record<string, string | number | undefined>,
+  })
+}
+
+interface SearchFilesParams {
+  query: string
+  limit?: number
+  category?: string
+  fileTypes?: string[]
+}
+
+export async function searchFiles(params: SearchFilesParams): Promise<FileSearchResponse> {
+  const {
+    query,
+    limit = 20,
+    category,
+    fileTypes,
+  } = params
+  return request<FileSearchResponse>('POST', '/api/search', {
+    body: {
+      query,
+      limit,
+      category,
+      file_types: fileTypes,
+    },
   })
 }
 

@@ -5,12 +5,13 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FileTable } from '../components/files/FileTable'
+import { FileSearchResults } from '../components/files/FileSearchResults'
 import { PageHeader } from '../components/PageHeader'
 import { FileTableSkeleton } from '../components/files/FileTableSkeleton'
 import { FileFilters } from '../components/files/FileFilters'
 import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { CenteredState } from '../components/CenteredState'
-import { getFileReindexOperation, getFiles, listFileReindexOperations, openFile, reindexFile, removeFile } from '../api'
+import { getFileReindexOperation, getFiles, listFileReindexOperations, openFile, reindexFile, removeFile, searchFiles } from '../api'
 import { showToast } from '../context/useToast'
 import { useConfirm } from '../context/useConfirm'
 import { useBackendStatus } from '../context/useBackendStatus'
@@ -18,10 +19,14 @@ import { useDebounce } from '../utils/useDebounce'
 import { extractErrorMessage } from '../utils/errorMessages'
 import { isBackendConnectionError } from '../utils/networkErrors'
 import type { FileReindexOperation, IndexedFile } from '../types/api'
+import { FILE_SEARCH_MODE_STORAGE_KEY, FILE_SEARCH_RESULT_LIMIT_STORAGE_KEY } from '../utils/storageKeys'
 import '../pages/PlaceholderPage.css'
 
 const PAGE_SIZE = 25
 const SEARCH_DEBOUNCE_MS = 300
+const DEFAULT_SEMANTIC_RESULT_LIMIT = 20
+
+type FileSearchMode = 'standard' | 'semantic'
 
 interface FileFiltersState {
   search?: string
@@ -39,17 +44,54 @@ export function FilesPage() {
   const [filters, setFilters] = useState<FileFiltersState>({})
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [semanticResults, setSemanticResults] = useState<Awaited<ReturnType<typeof searchFiles>>['results']>([])
+  const [semanticLoading, setSemanticLoading] = useState(false)
+  const [semanticError, setSemanticError] = useState<string | null>(null)
+  const [searchMode, setSearchMode] = useState<FileSearchMode>(() => {
+    try {
+      const stored = window.localStorage.getItem(FILE_SEARCH_MODE_STORAGE_KEY)
+      return stored === 'semantic' ? 'semantic' : 'standard'
+    } catch {
+      return 'standard'
+    }
+  })
+  const [semanticResultLimit, setSemanticResultLimit] = useState<number>(() => {
+    try {
+      const stored = Number(window.localStorage.getItem(FILE_SEARCH_RESULT_LIMIT_STORAGE_KEY))
+      return [10, 20, 50].includes(stored) ? stored : DEFAULT_SEMANTIC_RESULT_LIMIT
+    } catch {
+      return DEFAULT_SEMANTIC_RESULT_LIMIT
+    }
+  })
   const [reindexOperationsByFileId, setReindexOperationsByFileId] = useState<Record<number, string>>({})
   const { offline } = useBackendStatus()
 
   const debouncedSearch = useDebounce(filters.search, SEARCH_DEBOUNCE_MS)
+  const searchText = debouncedSearch?.trim() || ''
+  const semanticSearchActive = searchMode === 'semantic' && searchText.length > 0
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(FILE_SEARCH_MODE_STORAGE_KEY, searchMode)
+    } catch {
+      // ignore storage failures
+    }
+  }, [searchMode])
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(FILE_SEARCH_RESULT_LIMIT_STORAGE_KEY, String(semanticResultLimit))
+    } catch {
+      // ignore storage failures
+    }
+  }, [semanticResultLimit])
 
   const loadFiles = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
       const data = (await getFiles({
-        search:    debouncedSearch?.trim() || undefined,
+        search: searchMode === 'standard' ? (searchText || undefined) : undefined,
         extension: filters.extension,
         sort,
         order,
@@ -70,7 +112,30 @@ export function FilesPage() {
     } finally {
       setLoading(false)
     }
-  }, [debouncedSearch, filters.extension, sort, order, offset])
+  }, [searchMode, searchText, filters.extension, sort, order, offset])
+
+  const loadSemanticResults = useCallback(async () => {
+    setSemanticLoading(true)
+    setSemanticError(null)
+    try {
+      const data = await searchFiles({
+        query: searchText,
+        limit: semanticResultLimit,
+        fileTypes: filters.extension,
+      })
+      setSemanticResults(data.results || [])
+    } catch (err) {
+      const msg = extractErrorMessage(err, 'Failed to load semantic search results')
+      const disconnected = isBackendConnectionError(err)
+      setSemanticError(msg)
+      setSemanticResults([])
+      if (!disconnected) {
+        showToast('error', msg)
+      }
+    } finally {
+      setSemanticLoading(false)
+    }
+  }, [filters.extension, searchText, semanticResultLimit])
 
   const setReindexOperationForFile = useCallback((fileId: number, operationId: string) => {
     setReindexOperationsByFileId((prev) => ({ ...prev, [fileId]: operationId }))
@@ -180,8 +245,12 @@ export function FilesPage() {
   }, [])
 
   useEffect(() => {
-    loadFiles()
-  }, [loadFiles])
+    if (semanticSearchActive) {
+      void loadSemanticResults()
+      return
+    }
+    void loadFiles()
+  }, [semanticSearchActive, loadFiles, loadSemanticResults])
 
   useEffect(() => {
     if (offline) {
@@ -197,6 +266,11 @@ export function FilesPage() {
 
   const handleFiltersChange = useCallback((newFilters: FileFiltersState) => {
     setFilters(newFilters)
+    setOffset(0)
+  }, [])
+
+  const handleSearchModeChange = useCallback((mode: FileSearchMode) => {
+    setSearchMode(mode)
     setOffset(0)
   }, [])
 
@@ -279,7 +353,7 @@ export function FilesPage() {
   )
   const hasSearch = (filters.search?.trim()?.length ?? 0) > 0
   const hasExtensionFilter = Array.isArray(filters.extension) && filters.extension.length > 0
-  const showBaseEmptyState = !loading && files.length === 0 && total === 0 && !hasSearch && !hasExtensionFilter
+  const showBaseEmptyState = !semanticSearchActive && !loading && files.length === 0 && total === 0 && !hasSearch && !hasExtensionFilter
 
   if (offline) {
     return (
@@ -313,9 +387,25 @@ export function FilesPage() {
           />
         ) : (
           <>
-            <FileFilters filters={filters} onChange={handleFiltersChange} />
+            <FileFilters
+              filters={filters}
+              onChange={handleFiltersChange}
+              searchMode={searchMode}
+              onSearchModeChange={handleSearchModeChange}
+              semanticResultLimit={semanticResultLimit}
+              onSemanticResultLimitChange={setSemanticResultLimit}
+            />
             <div className="files-page__table-wrapper">
-              {loading && files.length === 0 ? (
+              {semanticSearchActive ? (
+                semanticError ? (
+                  <div className="page__error">{semanticError}</div>
+                ) : (
+                  <FileSearchResults
+                    results={semanticResults}
+                    loading={semanticLoading}
+                  />
+                )
+              ) : loading && files.length === 0 ? (
                 <FileTableSkeleton />
               ) : (
                 <FileTable

@@ -1,0 +1,164 @@
+/* -----------------------------------------------------------------------------
+   Semantic file search result card — muted, theme-aware, click-to-open
+   ----------------------------------------------------------------------------- */
+
+.semantic-result-card {
+  min-width: 0;
+  border-radius: 10px;
+  overflow: visible;
+  position: relative;
+  padding: 0.875rem 1rem;
+  box-sizing: border-box;
+  background: var(--semantic-result-card-bg, var(--color-bg-surface));
+  border: 1px solid var(--semantic-result-card-border, var(--color-border));
+  transition: background var(--transition-fast), border-color var(--transition-fast), box-shadow var(--transition-fast), transform var(--transition-fast);
+}
+
+.semantic-result-card:hover {
+  background: var(--semantic-result-card-hover-bg, var(--color-bg-hover));
+  border-color: var(--semantic-result-card-hover-border, var(--color-accent));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-accent) 12%, transparent);
+  transform: translateY(-1px);
+  z-index: 220;
+}
+
+.semantic-result-card--clickable {
+  cursor: pointer;
+}
+
+.semantic-result-card__header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.625rem;
+  min-width: 0;
+}
+
+.semantic-result-card__icon {
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--semantic-result-card-icon-color, var(--color-text-muted));
+  transition: color var(--transition-fast);
+}
+
+.semantic-result-card:hover .semantic-result-card__icon,
+.semantic-result-card:hover .semantic-result-card__filename {
+  color: var(--semantic-result-card-hover-fg, var(--color-text));
+}
+
+.semantic-result-card__meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.semantic-result-card__filename {
+  display: block;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--semantic-result-card-title-color, var(--color-text-muted));
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color var(--transition-fast);
+}
+
+.semantic-result-card__path {
+  display: block;
+  font-size: var(--font-size-2xs);
+  color: var(--color-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.semantic-result-card__badges {
+  flex-shrink: 0;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
+.semantic-result-card__badge,
+.semantic-result-card__score {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.18rem 0.5rem;
+  border-radius: var(--border-radius-sm);
+  font-size: var(--font-size-2xs);
+  font-weight: 600;
+  box-sizing: border-box;
+  white-space: nowrap;
+}
+
+.semantic-result-card__badge {
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 14%, transparent);
+  color: var(--color-text-muted);
+}
+
+.semantic-result-card__badge--muted {
+  background: color-mix(in srgb, var(--color-text-muted) 8%, transparent);
+  border-color: color-mix(in srgb, var(--color-text-muted) 16%, transparent);
+}
+
+.semantic-result-card__score--high {
+  background: rgba(34, 197, 94, 0.16);
+  border: 1px solid rgba(34, 197, 94, 0.28);
+  color: #4ade80;
+}
+
+.semantic-result-card__score--medium {
+  background: rgba(245, 158, 11, 0.16);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  color: #fbbf24;
+}
+
+.semantic-result-card__score--low {
+  background: rgba(239, 68, 68, 0.16);
+  border: 1px solid rgba(239, 68, 68, 0.28);
+  color: #f87171;
+}
+
+.semantic-result-card__body {
+  margin-top: 0.75rem;
+}
+
+.semantic-result-card__preview {
+  margin: 0;
+  color: var(--color-text-muted);
+  line-height: 1.5;
+  font-size: var(--font-size-sm);
+}
+
+.semantic-result-card__preview--empty {
+  opacity: 0.75;
+}
+
+.semantic-result-card__footer {
+  margin-top: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.semantic-result-card__open {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--color-text-muted);
+  font-size: var(--font-size-2xs);
+}
+
+.semantic-result-card__spinner {
+  animation: spin 1s linear infinite;
+}

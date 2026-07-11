@@ -265,6 +265,25 @@ export interface IndexedFile {
   page_count?: number | null
 }
 
+export interface FileSearchResult {
+  file_id: number
+  filename: string
+  path: string
+  preview: string
+  score: number
+  category: string
+  chunk_id?: number | null
+  page_number?: number | null
+  section_path?: string | null
+  block_type?: string | null
+}
+
+export interface FileSearchResponse {
+  results: FileSearchResult[]
+  total: number
+  query: string
+}
+
 export interface IndexStatus {
   total_files?: number
   total_chunks?: number

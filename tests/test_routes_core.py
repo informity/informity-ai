@@ -33,7 +33,7 @@ async def test_search_documents_applies_filters_and_limit(monkeypatch: pytest.Mo
         routes_search.vector_store,
         'search_similar',
         lambda _vec, _limit: [
-            {'file_id': 1, 'chunk_text': 'alpha chunk', 'score': 0.11},
+            {'file_id': 1, 'chunk_id': 11, 'chunk_text': 'alpha chunk', 'score': 0.11},
             {'file_id': 2, 'chunk_text': 'beta chunk', 'score': 0.22},
             {'file_id': 3, 'chunk_text': 'gamma chunk', 'score': 0.33},
             {'file_id': None, 'chunk_text': 'missing file id', 'score': 0.44},
@@ -76,6 +76,24 @@ async def test_search_documents_applies_filters_and_limit(monkeypatch: pytest.Mo
         ),
     }
     monkeypatch.setattr(routes_search, 'get_files_by_ids', AsyncMock(return_value=files_by_id))
+    monkeypatch.setattr(
+        routes_search,
+        'get_chunks_by_ids',
+        AsyncMock(return_value=[
+            {
+                'chunk_id': 11,
+                'file_id': 1,
+                'file_path': '/docs/a.pdf',
+                'filename': 'a.pdf',
+                'chunk_text': 'alpha chunk',
+                'page_number': None,
+                'start_page': 4,
+                'end_page': 5,
+                'section_path': 'Section > Subsection',
+                'block_type': 'table',
+            },
+        ]),
+    )
 
     response = await routes_search.search_documents(
         SearchRequest(query='  find documents  ', limit=2, category='document', file_types=['.pdf']),
@@ -86,6 +104,10 @@ async def test_search_documents_applies_filters_and_limit(monkeypatch: pytest.Mo
     assert response.total == 1
     assert len(response.results) == 1
     assert response.results[0].filename == 'a.pdf'
+    assert response.results[0].chunk_id == 11
+    assert response.results[0].page_number == 4
+    assert response.results[0].section_path == 'Section > Subsection'
+    assert response.results[0].block_type == 'table'
 
 
 @pytest.mark.asyncio
