@@ -39,9 +39,6 @@ describe('FileSearchResults', () => {
             score: 0.18,
             category: 'document',
             chunk_id: 99,
-            page_number: 12,
-            section_path: 'Finance > Revenue',
-            block_type: 'table',
           },
         ]}
       />,
@@ -49,7 +46,6 @@ describe('FileSearchResults', () => {
 
     expect(screen.getByText('Quarterly report.pdf')).toBeInTheDocument()
     expect(screen.getByText('Revenue increased year over year.')).toBeInTheDocument()
-    expect(screen.getByText('Page 12 · Finance > Revenue · table')).toBeInTheDocument()
     expect(screen.getByText('Document')).toBeInTheDocument()
     expect(screen.getByText('82')).toBeInTheDocument()
   })

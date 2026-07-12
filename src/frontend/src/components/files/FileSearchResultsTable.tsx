@@ -27,20 +27,6 @@ function formatScore(score: number) {
   return String(Math.round(score))
 }
 
-function formatLocation(file: SemanticSearchRow) {
-  const parts: string[] = []
-  if (typeof file.page_number === 'number' && Number.isFinite(file.page_number)) {
-    parts.push(`Page ${file.page_number}`)
-  }
-  if (file.section_path?.trim()) {
-    parts.push(file.section_path.trim())
-  }
-  if (file.block_type?.trim()) {
-    parts.push(file.block_type.trim())
-  }
-  return parts.length > 0 ? parts.join(' · ') : null
-}
-
 interface FileSearchResultsTableProps {
   files?: SemanticSearchRow[]
   total?: number
@@ -154,14 +140,6 @@ export function FileSearchResultsTable({
                         <span className="file-search-results-table__score-badge data-table__badge">
                           {formatScore(file.score ?? 0)}
                         </span>
-                        {(() => {
-                          const location = formatLocation(file)
-                          return location ? (
-                            <span className="file-search-results-table__pill file-search-results-table__pill--muted">
-                              {location}
-                            </span>
-                          ) : null
-                        })()}
                       </div>
                     </div>
                   </td>
