@@ -7,18 +7,38 @@ import type React from 'react'
 import { openFile } from '../../api'
 import { formatFileSize } from '../../utils/formatFileSize'
 import { formatDate } from '../../utils/formatDate'
-import { getFileIcon } from '../../utils/fileFormatting'
+import { formatCategory, getFileIcon } from '../../utils/fileFormatting'
 import { StateMessage } from '../StateMessage'
 import type { IndexedFile } from '../../types/api'
 import './FileSearchResultsTable.css'
 
 const PAGE_SIZE = 50
 
-type SemanticSearchRow = IndexedFile & { score?: number }
+type SemanticSearchRow = IndexedFile & {
+  score?: number
+  preview?: string
+  page_number?: number | null
+  section_path?: string | null
+  block_type?: string | null
+}
 
 function formatScore(score: number) {
   if (!Number.isFinite(score)) return '—'
   return String(Math.round(score))
+}
+
+function formatLocation(file: SemanticSearchRow) {
+  const parts: string[] = []
+  if (typeof file.page_number === 'number' && Number.isFinite(file.page_number)) {
+    parts.push(`Page ${file.page_number}`)
+  }
+  if (file.section_path?.trim()) {
+    parts.push(file.section_path.trim())
+  }
+  if (file.block_type?.trim()) {
+    parts.push(file.block_type.trim())
+  }
+  return parts.length > 0 ? parts.join(' · ') : null
 }
 
 interface FileSearchResultsTableProps {
@@ -87,7 +107,7 @@ export function FileSearchResultsTable({
           <thead>
             <tr>
               <th className="file-search-results-table__th file-search-results-table__th--filename data-table__th">Filename</th>
-              <th className="file-search-results-table__th file-search-results-table__th--score data-table__th">Score</th>
+              <th className="file-search-results-table__th file-search-results-table__th--category data-table__th">Category</th>
               <th className="file-search-results-table__th file-search-results-table__th--size file-search-results-table__th--right data-table__th data-table__th--right">Size</th>
               <th className="file-search-results-table__th file-search-results-table__th--indexed file-search-results-table__th--right data-table__th data-table__th--right">Indexed</th>
               <th className="file-search-results-table__th file-search-results-table__th--modified file-search-results-table__th--right data-table__th data-table__th--right">Modified</th>
@@ -102,35 +122,65 @@ export function FileSearchResultsTable({
               return (
                 <tr key={file.id} className="file-search-results-table__row data-table__row">
                   <td className="file-search-results-table__td file-search-results-table__td--filename data-table__td">
-                    <div className="file-search-results-table__filename-row">
-                      <i className={`${iconClass} file-search-results-table__filename-icon`} aria-hidden style={{ fontSize: '1rem' }} />
-                      <button
-                        type="button"
-                        className="file-search-results-table__filename-button"
-                        onClick={async (e) => {
-                          e.stopPropagation()
-                          if (offline) return
-                          if (onOpenFile) {
-                            await onOpenFile(file)
-                            return
-                          }
-                          await handleOpenFile(file)
-                        }}
-                        disabled={offline || !file.path?.trim()}
-                        aria-label={`Open ${file.filename || 'file'}`}
-                      >
-                        <span className="file-search-results-table__filename-text">{file.filename || '—'}</span>
-                      </button>
+                    <div className="data-table__value file-search-results-table__filename-value">
+                      <div className="file-search-results-table__filename-row">
+                        <i className={`${iconClass} file-search-results-table__filename-icon`} aria-hidden style={{ fontSize: '1rem' }} />
+                        <button
+                          type="button"
+                          className="file-search-results-table__filename-button"
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            if (offline) return
+                            if (onOpenFile) {
+                              await onOpenFile(file)
+                              return
+                            }
+                            await handleOpenFile(file)
+                          }}
+                          disabled={offline || !file.path?.trim()}
+                          aria-label={`Open ${file.filename || 'file'}`}
+                        >
+                          <span className="file-search-results-table__filename-text">{file.filename || '—'}</span>
+                        </button>
+                      </div>
+                    </div>
+                    <div className="file-search-results-table__meta-stack">
+                      {file.preview?.trim() && (
+                        <div className="file-search-results-table__preview">
+                          {file.preview.trim()}
+                        </div>
+                      )}
+                      <div className="file-search-results-table__pill-row">
+                        <span className="file-search-results-table__score-badge data-table__badge">
+                          {formatScore(file.score ?? 0)}
+                        </span>
+                        {(() => {
+                          const location = formatLocation(file)
+                          return location ? (
+                            <span className="file-search-results-table__pill file-search-results-table__pill--muted">
+                              {location}
+                            </span>
+                          ) : null
+                        })()}
+                      </div>
                     </div>
                   </td>
-                  <td className="file-search-results-table__td file-search-results-table__td--score data-table__td">
-                    <span className="file-search-results-table__score-badge data-table__badge">{formatScore(file.score ?? 0)}</span>
+                  <td className="file-search-results-table__td file-search-results-table__td--category data-table__td">
+                    <div className="data-table__value">
+                      <span className="file-search-results-table__category-badge data-table__badge">
+                        {formatCategory(file.category, file.extension)}
+                      </span>
+                    </div>
                   </td>
                   <td className="file-search-results-table__td file-search-results-table__td--size file-search-results-table__td--right data-table__td data-table__td--right">
-                    {formatFileSize(file.size_bytes)}
+                    <div className="data-table__value data-table__value--right">{formatFileSize(file.size_bytes)}</div>
                   </td>
-                  <td className="file-search-results-table__td file-search-results-table__td--indexed file-search-results-table__td--right data-table__td data-table__td--right">{formatDate(file.indexed_at)}</td>
-                  <td className="file-search-results-table__td file-search-results-table__td--modified file-search-results-table__td--right data-table__td data-table__td--right">{formatDate(file.modified_at)}</td>
+                  <td className="file-search-results-table__td file-search-results-table__td--indexed file-search-results-table__td--right data-table__td data-table__td--right">
+                    <div className="data-table__value data-table__value--right">{formatDate(file.indexed_at)}</div>
+                  </td>
+                  <td className="file-search-results-table__td file-search-results-table__td--modified file-search-results-table__td--right data-table__td data-table__td--right">
+                    <div className="data-table__value data-table__value--right">{formatDate(file.modified_at)}</div>
+                  </td>
                   <td className="file-search-results-table__td file-search-results-table__td--actions data-table__td" onClick={(e) => e.stopPropagation()}>
                     <div className="file-search-results-table__actions">
                       <span className="data-table__action-wrap ui-tooltip-trigger">

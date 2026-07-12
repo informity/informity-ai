@@ -11,15 +11,29 @@
 
 .file-filters__row {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
   gap: 0.5rem;
+}
+
+.file-filters__search {
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .file-filters__mode-stack {
   display: flex;
   align-items: center;
   gap: 0.35rem;
+  flex: 0 0 auto;
+  min-height: var(--min-touch-height);
+}
+
+.file-filters__mode-slot {
+  position: relative;
+  flex: 0 0 6rem;
+  width: 6rem;
+  min-height: var(--min-touch-height);
 }
 
 .file-filters__mode-group {
@@ -97,6 +111,18 @@
   width: 6rem;
   min-width: 6rem;
   margin-left: 0;
+}
+
+.file-filters__mode-select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  z-index: 1;
+}
+
+.file-filters__mode-select--hidden {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .file-filters__input::placeholder {

@@ -1,9 +1,4 @@
-# ==============================================================================
-# Informity AI — Search API Routes
-# Endpoint for semantic search across indexed documents. Embeds the query,
-# searches SQLite vector storage for similar chunks, and returns ranked results enriched
-# with file metadata from SQLite.
-# ==============================================================================
+"""Semantic search API routes for ranked document retrieval."""
 
 import asyncio
 
@@ -47,12 +42,7 @@ async def search_documents(
     request: SearchRequest,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> SearchResponse:
-    # Semantic search flow:
-    #   1. Embed the query text
-    #   2. Search SQLite vector storage for the top-K most similar chunks
-    #   3. Enrich results with file metadata from SQLite
-    #   4. Apply optional category / file_type filters
-    #   5. Return ranked SearchResponse
+    """Embed the query, fetch matching chunks, and enrich them with file metadata."""
 
     async with SEARCH_GUARD.slot():
         query_text = request.query.strip()
@@ -70,27 +60,37 @@ async def search_documents(
 
         log.info(
             'search_requested',
-            query_length = len(query_text),
-            limit        = request.limit,
-            category     = request.category,
-            file_types   = request.file_types,
+            query_length=len(query_text),
+            limit=request.limit,
+            category=request.category,
+            file_types=request.file_types,
         )
 
         # -- Step 1: Embed the query (in thread to avoid blocking event loop) -----
         query_vector = await asyncio.to_thread(embedder.embed_query, query_text)
 
-        # We fetch more results than requested so that post-filtering by category
-        # or file_type still yields enough results.
-        fetch_limit = request.limit * 3 if (request.category or request.file_types) else request.limit
+        # We fetch more results than requested so that post-filtering by
+        # category or file_type still yields enough results.
+        fetch_limit = (
+            request.limit * 3 if (request.category or request.file_types) else request.limit
+        )
 
         # -- Step 2: Search SQLite vector storage -----------------------------------
-        raw_results = await asyncio.to_thread(vector_store.search_similar, query_vector, fetch_limit)
+        raw_results = await asyncio.to_thread(
+            vector_store.search_similar,
+            query_vector,
+            fetch_limit,
+        )
 
         # -- Step 3 & 4: Batch-fetch file + chunk metadata and filter -------------
         # Collect all distinct file IDs from results for a single DB round-trip.
-        all_file_ids = list({hit['file_id'] for hit in raw_results if hit.get('file_id') is not None})
-        files_by_id  = await get_files_by_ids(db, all_file_ids)
-        all_chunk_ids = list({hit['chunk_id'] for hit in raw_results if hit.get('chunk_id') is not None})
+        all_file_ids = list(
+            {hit['file_id'] for hit in raw_results if hit.get('file_id') is not None}
+        )
+        files_by_id = await get_files_by_ids(db, all_file_ids)
+        all_chunk_ids = list(
+            {hit['chunk_id'] for hit in raw_results if hit.get('chunk_id') is not None}
+        )
         chunks_by_id = {
             chunk['chunk_id']: chunk
             for chunk in await get_chunks_by_ids(db, all_chunk_ids)
@@ -132,34 +132,32 @@ async def search_documents(
             if request.file_types and indexed_file.extension not in request.file_types:
                 continue
 
-            results.append(SearchResult(
-                file_id  = indexed_file.id or file_id,
-                filename = indexed_file.filename,
-                path     = indexed_file.path,
-                extension = indexed_file.extension,
-                size_bytes = indexed_file.size_bytes,
-                indexed_at = indexed_file.indexed_at,
-                modified_at = indexed_file.modified_at,
-                content_hash = indexed_file.content_hash,
-                extracted_text_preview = indexed_file.extracted_text_preview,
-                preview  = (hit.get('chunk_text', '') or '')[:MAX_EXTRACTED_TEXT_PREVIEW],
-                score    = hit.get('score', 0.0),
-                category = indexed_file.category.value,
-                chunk_id = int(chunk_id) if chunk_id is not None else None,
-                page_number = int(page_number) if page_number is not None else None,
-                section_path = section_path,
-                block_type = block_type,
-            ))
+            results.append(
+                SearchResult(
+                    file_id=indexed_file.id or file_id,
+                    filename=indexed_file.filename,
+                    path=indexed_file.path,
+                    extension=indexed_file.extension,
+                    size_bytes=indexed_file.size_bytes,
+                    indexed_at=indexed_file.indexed_at,
+                    modified_at=indexed_file.modified_at,
+                    content_hash=indexed_file.content_hash,
+                    extracted_text_preview=indexed_file.extracted_text_preview,
+                    preview=(hit.get('chunk_text', '') or '')[:MAX_EXTRACTED_TEXT_PREVIEW],
+                    score=hit.get('score', 0.0),
+                    category=indexed_file.category.value,
+                    chunk_id=int(chunk_id) if chunk_id is not None else None,
+                    page_number=int(page_number) if page_number is not None else None,
+                    section_path=section_path,
+                    block_type=block_type,
+                )
+            )
 
         log.info(
             'search_completed',
-            query_length   = len(query_text),
-            results        = len(results),
-            raw_candidates = len(raw_results),
+            query_length=len(query_text),
+            results=len(results),
+            raw_candidates=len(raw_results),
         )
 
-        return SearchResponse(
-            results = results,
-            total   = len(results),
-            query   = query_text,
-        )
+        return SearchResponse(results=results, total=len(results), query=query_text)

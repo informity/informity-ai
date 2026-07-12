@@ -8,7 +8,13 @@ import { CenteredState } from '../CenteredState'
 import { FileTableSkeleton } from './FileTableSkeleton'
 import './FileSearchResults.css'
 
-type SemanticSearchRow = IndexedFile & { score?: number }
+type SemanticSearchRow = IndexedFile & {
+  score?: number
+  preview?: string
+  page_number?: number | null
+  section_path?: string | null
+  block_type?: string | null
+}
 
 function toRelevanceScore(distance: number): number {
   if (!Number.isFinite(distance)) return 0
@@ -37,11 +43,15 @@ function toSemanticRow(result: FileSearchResult): SemanticSearchRow {
     size_bytes: result.size_bytes,
     content_hash: result.content_hash,
     extracted_text_preview: result.extracted_text_preview,
+    preview: result.preview,
     category: result.category,
     tags: [],
     indexed_at: result.indexed_at ?? undefined,
     modified_at: result.modified_at,
     score: toRelevanceScore(result.score),
+    page_number: result.page_number,
+    section_path: result.section_path,
+    block_type: result.block_type,
   }
 }
 
@@ -80,7 +90,14 @@ export function FileSearchResults({
   const semanticFiles = results.map((result) => {
     const existing = filesById.get(result.file_id)
     if (existing) {
-      return { ...existing, score: toRelevanceScore(result.score) }
+      return {
+        ...existing,
+        score: toRelevanceScore(result.score),
+        preview: result.preview,
+        page_number: result.page_number,
+        section_path: result.section_path,
+        block_type: result.block_type,
+      }
     }
     return toSemanticRow(result)
   }).sort((left, right) => (right.score ?? 0) - (left.score ?? 0))

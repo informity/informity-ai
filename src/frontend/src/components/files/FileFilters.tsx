@@ -142,13 +142,15 @@ export function FileFilters({
               Semantic
             </button>
           </div>
-          {isSemanticMode && (
+          <div className="file-filters__mode-slot">
             <select
-              className="file-filters__select file-filters__select--compact"
+              className={`file-filters__select file-filters__select--compact file-filters__mode-select${isSemanticMode ? '' : ' file-filters__mode-select--hidden'}`}
               value={semanticResultLimit}
               onChange={(event) => onSemanticResultLimitChange?.(Number(event.target.value))}
-              disabled={disabled}
+              disabled={disabled || !isSemanticMode}
               aria-label="Semantic result count"
+              tabIndex={isSemanticMode ? 0 : -1}
+              aria-hidden={!isSemanticMode}
             >
               {SEARCH_LIMIT_OPTIONS.map((limit) => (
                 <option key={limit} value={limit}>
@@ -156,7 +158,7 @@ export function FileFilters({
                 </option>
               ))}
             </select>
-          )}
+          </div>
         </div>
         <select
           className="file-filters__select"

@@ -109,6 +109,21 @@
   user-select: none;
 }
 
+.data-table__value {
+  display: flex;
+  align-items: center;
+  min-height: 1.75rem;
+  min-width: 0;
+}
+
+.data-table__value--right {
+  justify-content: flex-end;
+}
+
+.data-table__value--start {
+  align-items: flex-start;
+}
+
 .data-table__td--icon {
   width: 32px;
   padding-right: var(--table-icon-title-gap);

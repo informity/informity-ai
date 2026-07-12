@@ -155,35 +155,43 @@ export function FileTable({
               return (
                 <tr key={file.id} className="file-table__row data-table__row">
                   <td className="file-table__td file-table__td--filename data-table__td">
-                    <div className="file-table__filename-row">
-                      <i className={`${iconClass} file-table__filename-icon`} aria-hidden style={{ fontSize: '1rem' }} />
-                      <button
-                        type="button"
-                        className="file-table__filename-button"
-                        onClick={async (e) => {
-                          e.stopPropagation()
-                          if (offline) return
-                          if (onOpenFile) {
-                            await onOpenFile(file)
-                            return
-                          }
-                          await handleOpenFile(file)
-                        }}
-                        disabled={offline || !file.path?.trim()}
-                        aria-label={`Open ${file.filename || 'file'}`}
-                      >
-                        <span className="file-table__filename-text">{file.filename || '—'}</span>
-                      </button>
+                    <div className="data-table__value">
+                      <div className="file-table__filename-row">
+                        <i className={`${iconClass} file-table__filename-icon`} aria-hidden style={{ fontSize: '1rem' }} />
+                        <button
+                          type="button"
+                          className="file-table__filename-button"
+                          onClick={async (e) => {
+                            e.stopPropagation()
+                            if (offline) return
+                            if (onOpenFile) {
+                              await onOpenFile(file)
+                              return
+                            }
+                            await handleOpenFile(file)
+                          }}
+                          disabled={offline || !file.path?.trim()}
+                          aria-label={`Open ${file.filename || 'file'}`}
+                        >
+                          <span className="file-table__filename-text">{file.filename || '—'}</span>
+                        </button>
+                      </div>
                     </div>
                   </td>
                   <td className="file-table__td file-table__td--category data-table__td">
-                    <span className="file-table__category-badge data-table__badge">{formatCategory(file.category, file.extension)}</span>
+                    <div className="data-table__value">
+                      <span className="file-table__category-badge data-table__badge">{formatCategory(file.category, file.extension)}</span>
+                    </div>
                   </td>
                   <td className="file-table__td file-table__td--size file-table__td--right data-table__td data-table__td--right">
-                    {formatFileSize(file.size_bytes)}
+                    <div className="data-table__value data-table__value--right">{formatFileSize(file.size_bytes)}</div>
                   </td>
-                  <td className="file-table__td file-table__td--indexed file-table__td--right data-table__td data-table__td--right">{formatDate(file.indexed_at)}</td>
-                  <td className="file-table__td file-table__td--modified file-table__td--right data-table__td data-table__td--right">{formatDate(file.modified_at)}</td>
+                  <td className="file-table__td file-table__td--indexed file-table__td--right data-table__td data-table__td--right">
+                    <div className="data-table__value data-table__value--right">{formatDate(file.indexed_at)}</div>
+                  </td>
+                  <td className="file-table__td file-table__td--modified file-table__td--right data-table__td data-table__td--right">
+                    <div className="data-table__value data-table__value--right">{formatDate(file.modified_at)}</div>
+                  </td>
                   <td className="file-table__td file-table__td--actions data-table__td" onClick={(e) => e.stopPropagation()}>
                     <div className="file-table__actions">
                       <span className="data-table__action-wrap ui-tooltip-trigger">

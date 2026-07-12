@@ -1,3 +1,4 @@
+/** Semantic search page tests for the Files page. */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -29,14 +30,14 @@ const {
 }))
 
 vi.mock('../api', () => ({
-  getFiles: (...args: unknown[]) => getFilesMock(...args),
-  getFileTypes: (...args: unknown[]) => getFileTypesMock(...args),
-  searchFiles: (...args: unknown[]) => searchFilesMock(...args),
-  listFileReindexOperations: (...args: unknown[]) => listFileReindexOperationsMock(...args),
-  getFileReindexOperation: (...args: unknown[]) => getFileReindexOperationMock(...args),
-  openFile: (...args: unknown[]) => openFileMock(...args),
-  reindexFile: (...args: unknown[]) => reindexFileMock(...args),
-  removeFile: (...args: unknown[]) => removeFileMock(...args),
+  getFiles: (params?: unknown) => getFilesMock(params),
+  getFileTypes: () => getFileTypesMock(),
+  searchFiles: (params: unknown) => searchFilesMock(params),
+  listFileReindexOperations: () => listFileReindexOperationsMock(),
+  getFileReindexOperation: (id: unknown) => getFileReindexOperationMock(id),
+  openFile: (path: unknown) => openFileMock(path as string),
+  reindexFile: () => reindexFileMock(),
+  removeFile: () => removeFileMock(),
 }))
 
 vi.mock('../context/useBackendStatus', () => ({
