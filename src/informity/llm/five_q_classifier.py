@@ -49,6 +49,16 @@ Rules:
 - "List all X", "find all X", "show me all X", "what X documents do we have", "which X
   files exist" are always index_metadata even when X is a topic, category, entity, or
   property name. A topic modifier does not make a request document_content.
+- "related to", "about", "mention", "involving", and similar semantic signals indicate the
+  user wants files that contain relevant content, not just files that exist. Use
+  source=document_content for these when the request is framed around finding relevant
+  content, even if it uses "show me" or "find". Pure inventory requests that ask for a
+  list, table, bullets, or breakdown of files/documents stay index_metadata, even if a
+  semantic-looking phrase appears in the file label/topic. This does NOT apply to
+  explicit inventory verbs ("how many", "count", "list all my documents") which stay
+  index_metadata. Use the inventory rule for requests like "List the mortgage-related
+  files in bullet points." Use the content rule for requests like "Show me all files
+  related to my mortgage."
 - scope=none whenever source is index_metadata, chat_history, or app_knowledge.
   scope is only ever targeted or broad when source=document_content.
 - scope=targeted when the user refers to one specific document, even when that document
@@ -109,6 +119,8 @@ Examples:
 - "What uploads are available?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
 - "Use bullets: what documents do I have from 2024?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2024"], exhaustive=false
 - "Create a table of all document types and counts for 2023 and 2025." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2023","2025"], exhaustive=false
+- "List the mortgage-related files in bullet points." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "Show me a table of the documents about the Escondido property." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
 - "Summarize our last conversation." -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What did we talk about earlier?" -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Recap this conversation." -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
@@ -136,6 +148,13 @@ Examples:
 - "What do the Category A documents tell me?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Give me an overview of the Category B files." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Create a short table summarizing the Type X documents." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Show the answer in bullet points: what does the 2025 refinancing package tell us?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
+- "Show me all files related to my mortgage." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
+- "Show me all tax-related files." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
+- "Which files mention insurance?" -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
+- "Find all documents about Category X." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
+- "What files do I have involving Topic Y?" -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
+- "Which documents support the ownership history?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "How are the Type X and Type Y records related?" -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
 - "Explain the Category A documents at a high level." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What do we know about Subject A?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
