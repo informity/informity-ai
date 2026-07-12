@@ -11,7 +11,6 @@ from informity.api.security import EndpointGuard
 from informity.db.sqlite import get_chunks_by_ids, get_db, get_files_by_ids
 from informity.db.vectors import vector_store
 from informity.indexer.embedder import embedder
-from informity.scanner.extractors.base import MAX_EXTRACTED_TEXT_PREVIEW
 
 # ==============================================================================
 # Logger
@@ -31,6 +30,12 @@ SEARCH_GUARD = EndpointGuard(
     window_seconds=60,
 )
 MAX_SEARCH_QUERY_CHARS = 4000
+MAX_SEARCH_PREVIEW_CHARS = 550
+
+
+def _build_search_preview(chunk_text: str | None) -> str:
+    preview = (chunk_text or '')[:MAX_SEARCH_PREVIEW_CHARS].strip()
+    return f'…{preview}' if preview else ''
 
 
 # ==============================================================================
@@ -143,7 +148,7 @@ async def search_documents(
                     modified_at=indexed_file.modified_at,
                     content_hash=indexed_file.content_hash,
                     extracted_text_preview=indexed_file.extracted_text_preview,
-                    preview=(hit.get('chunk_text', '') or '')[:MAX_EXTRACTED_TEXT_PREVIEW],
+                    preview=_build_search_preview(hit.get('chunk_text', '')),
                     score=hit.get('score', 0.0),
                     category=indexed_file.category.value,
                     chunk_id=int(chunk_id) if chunk_id is not None else None,

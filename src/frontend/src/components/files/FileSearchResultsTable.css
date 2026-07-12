@@ -116,16 +116,16 @@
 .file-search-results-table__meta-stack {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.1rem;
   min-width: 0;
   padding-left: calc(28px + var(--table-icon-title-gap));
   margin-top: 0.1rem;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.1rem;
 }
 
 .file-search-results-table__preview {
-  margin: 0.1rem 0 0.5rem;
-  padding: 0;
+  margin: 0.03rem 0.03rem 0.03rem 0;
+  padding: 0 0.35rem 0 0;
   color: var(--color-text-muted);
   font-size: var(--font-size-sm);
   line-height: 1.45;

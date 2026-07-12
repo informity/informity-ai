@@ -35,7 +35,7 @@ describe('FileSearchResults', () => {
             modified_at: '2025-01-01T00:00:00Z',
             content_hash: 'abc123',
             extracted_text_preview: 'Revenue overview',
-            preview: 'Revenue increased year over year.',
+            preview: '…Revenue increased year over year.',
             score: 0.18,
             category: 'document',
             chunk_id: 99,
@@ -45,9 +45,8 @@ describe('FileSearchResults', () => {
     )
 
     expect(screen.getByText('Quarterly report.pdf')).toBeInTheDocument()
-    expect(screen.getByText('Revenue increased year over year.')).toBeInTheDocument()
+    expect(screen.getByText('…Revenue increased year over year.')).toBeInTheDocument()
     expect(screen.getByText('Document')).toBeInTheDocument()
-    expect(screen.getByText('82')).toBeInTheDocument()
   })
 
   it('sorts semantic results by score descending', () => {
@@ -64,7 +63,7 @@ describe('FileSearchResults', () => {
             modified_at: '2025-01-01T00:00:00Z',
             content_hash: 'abc123',
             extracted_text_preview: 'Revenue overview',
-            preview: 'Revenue increased year over year.',
+            preview: '…Revenue increased year over year.',
             score: 0.18,
             category: 'document',
           },
@@ -78,7 +77,7 @@ describe('FileSearchResults', () => {
             modified_at: '2025-01-01T00:00:00Z',
             content_hash: 'def456',
             extracted_text_preview: 'Equity line',
-            preview: 'Equity line of credit',
+            preview: '…Equity line of credit',
             score: 0.81,
             category: 'document',
           },
@@ -88,9 +87,7 @@ describe('FileSearchResults', () => {
 
     const rows = container.querySelectorAll('tbody tr')
     expect(rows[0]).toHaveTextContent('Lower relevance.pdf')
-    expect(rows[0]).toHaveTextContent('82')
     expect(rows[1]).toHaveTextContent('Higher relevance.pdf')
-    expect(rows[1]).toHaveTextContent('19')
   })
 
   it('opens the underlying file from a semantic result row', async () => {
@@ -107,7 +104,7 @@ describe('FileSearchResults', () => {
             modified_at: '2025-01-01T00:00:00Z',
             content_hash: 'abc123',
             extracted_text_preview: 'Revenue overview',
-            preview: 'Revenue increased year over year.',
+            preview: '…Revenue increased year over year.',
             score: 0.18,
             category: 'document',
           },

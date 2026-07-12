@@ -22,11 +22,6 @@ type SemanticSearchRow = IndexedFile & {
   block_type?: string | null
 }
 
-function formatScore(score: number) {
-  if (!Number.isFinite(score)) return '—'
-  return String(Math.round(score))
-}
-
 interface FileSearchResultsTableProps {
   files?: SemanticSearchRow[]
   total?: number
@@ -104,6 +99,8 @@ export function FileSearchResultsTable({
             {files.map((file) => {
               const iconClass = getFileIcon(file.extension)
               const isReindexing = reindexingFileIds.has(file.id)
+              const previewText = file.preview?.trim()
+              const normalizedPreview = previewText?.replace(/^…\s+/, '…')
 
               return (
                 <tr key={file.id} className="file-search-results-table__row data-table__row">
@@ -131,16 +128,11 @@ export function FileSearchResultsTable({
                       </div>
                     </div>
                     <div className="file-search-results-table__meta-stack">
-                      {file.preview?.trim() && (
+                      {normalizedPreview && (
                         <div className="file-search-results-table__preview">
-                          {file.preview.trim()}
+                          {normalizedPreview}
                         </div>
                       )}
-                      <div className="file-search-results-table__pill-row">
-                        <span className="file-search-results-table__score-badge data-table__badge">
-                          {formatScore(file.score ?? 0)}
-                        </span>
-                      </div>
                     </div>
                   </td>
                   <td className="file-search-results-table__td file-search-results-table__td--category data-table__td">
