@@ -114,7 +114,7 @@ describe('ChatMessage markdown rendering', () => {
       </MemoryRouter>,
     )
 
-    const link = screen.getByRole('link', { name: 'Browse all matching files in Files →' })
+    const link = screen.getByRole('link', { name: 'View All Matching Files' })
     expect(link).toHaveAttribute('href')
     expect(link.getAttribute('href') || '').toContain('/files?')
     expect(link.getAttribute('href') || '').toContain('search=mortgage')
