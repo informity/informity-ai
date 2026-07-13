@@ -601,6 +601,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         const nextDisplayBlocks = recoveryCallout
           ? [...(historyBlocks || []), recoveryCallout]
           : historyBlocks
+        const fileDiscovery = m.file_discovery ?? null
         const storedMode = typeof m.id === 'number' ? storedModes[String(m.id)] : undefined
         const explicitMessageMode = isChatMode(m.chat_mode) ? m.chat_mode : undefined
         const inferredAssistantMode: ChatMode | undefined = (
@@ -635,6 +636,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           continueLabel: 'Continue',
           createdAt: m.created_at,
           generationSeconds: m.generation_seconds,
+          fileDiscovery,
           chatMode: inferredAssistantMode,
           specializationId: (
             typeof m.specialization_id === 'string' && m.specialization_id.trim().length > 0
@@ -837,6 +839,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       role: 'assistant',
       content: '',
       sources: [],
+      fileDiscovery: null,
       chatMode,
       specializationId,
       scopedFileName: effectiveFileScope?.filename ?? null,
@@ -1016,6 +1019,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         const nextDisplayBlocks = extraBlocks.length > 0
           ? [...(displayBlocks || []), ...extraBlocks]
           : displayBlocks
+        const fileDiscovery = data?.file_discovery ?? null
 
         if (
           nextAction === 'continue'
@@ -1038,6 +1042,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           id: messageId,
           content: streamContentRef.current,
           displayBlocks: nextDisplayBlocks,
+          fileDiscovery,
           scopedFileName: effectiveFileScope?.filename ?? null,
           isStreaming: false,
           streamStatusText: undefined,
@@ -1066,6 +1071,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 id: messageId ?? last.id,
                 content: streamContentRef.current,
                 displayBlocks: nextDisplayBlocks ?? last.displayBlocks,
+                fileDiscovery,
                 isStreaming: false,
                 streamStatusText: undefined,
                 streamSectionProgress: undefined,
@@ -1501,6 +1507,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         isContinuation: false,
         sources: translated.sources || [],
         displayBlocks: Array.isArray(translated.display_blocks) ? translated.display_blocks : undefined,
+        fileDiscovery: translated.file_discovery ?? null,
         isPartial: completionMode === 'partial',
         hasRemainingScope: !!translated.has_remaining_scope,
         completionMode,

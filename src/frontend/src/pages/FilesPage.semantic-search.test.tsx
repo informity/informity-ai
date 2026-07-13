@@ -132,4 +132,38 @@ describe('FilesPage semantic search', () => {
 
     await waitFor(() => expect(screen.getByText('Quarterly report.pdf')).toBeInTheDocument())
   })
+
+  it('hydrates semantic search from URL params and fetches with a higher limit', async () => {
+    getFilesMock.mockResolvedValue({
+      files: [],
+      total: 0,
+    })
+    getFileTypesMock.mockResolvedValue([])
+    listFileReindexOperationsMock.mockResolvedValue({ status: 'ok', running_count: 0, operations: [] })
+    searchFilesMock.mockResolvedValue({
+      query: 'revenue forecast',
+      total: 1,
+      results: [],
+    })
+
+    render(
+      <MemoryRouter initialEntries={['/files?search=revenue%20forecast&mode=semantic']}>
+        <FilesPage />
+      </MemoryRouter>,
+    )
+
+    await waitFor(() => expect(getFilesMock).toHaveBeenCalled())
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Search document meaning…')).toHaveValue('revenue forecast')
+    })
+
+    await waitFor(() => {
+      expect(searchFilesMock).toHaveBeenCalledWith({
+        query: 'revenue forecast',
+        limit: 200,
+        fileTypes: undefined,
+      })
+    })
+  })
 })

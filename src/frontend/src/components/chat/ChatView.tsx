@@ -1259,6 +1259,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       chatMode={msg.chatMode}
                       sources={msg.sources}
                       displayBlocks={msg.displayBlocks}
+                      fileDiscovery={msg.fileDiscovery}
                       isStreaming={msg.isStreaming}
                       streamStatusText={msg.streamStatusText}
                       streamSectionProgress={msg.streamSectionProgress}

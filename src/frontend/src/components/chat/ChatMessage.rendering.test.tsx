@@ -1,4 +1,5 @@
 import { cleanup, render, screen } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it } from 'vitest'
 import { ChatMessage } from './ChatMessage'
 import type { DisplayBlock } from '../../types/api'
@@ -94,6 +95,50 @@ describe('ChatMessage markdown rendering', () => {
     const sourcesToggle = screen.getByRole('button', { name: 'Toggle sources (1)' })
     expect(sourcesToggle.querySelector('.ri-file-copy-2-line')).not.toBeNull()
     expect(container.querySelector('.chat-message__sources-toggle-inline')).not.toBeNull()
+  })
+
+  it('renders a browse-all-files footer link for file discovery messages with remaining matches', () => {
+    render(
+      <MemoryRouter>
+        <ChatMessage
+          role="assistant"
+          content={'Answer body'}
+          fileDiscovery={{
+            is_file_discovery: true,
+            search_term: 'mortgage',
+            shown_count: 20,
+            total_count: 34,
+          }}
+          isStreaming={false}
+        />
+      </MemoryRouter>,
+    )
+
+    const link = screen.getByRole('link', { name: 'Browse all matching files in Files →' })
+    expect(link).toHaveAttribute('href')
+    expect(link.getAttribute('href') || '').toContain('/files?')
+    expect(link.getAttribute('href') || '').toContain('search=mortgage')
+    expect(link.getAttribute('href') || '').toContain('mode=semantic')
+  })
+
+  it('does not render the browse-all-files link when all matches are already shown', () => {
+    render(
+      <MemoryRouter>
+        <ChatMessage
+          role="assistant"
+          content={'Answer body'}
+          fileDiscovery={{
+            is_file_discovery: true,
+            search_term: 'mortgage',
+            shown_count: 3,
+            total_count: 3,
+          }}
+          isStreaming={false}
+        />
+      </MemoryRouter>,
+    )
+
+    expect(screen.queryByRole('link', { name: 'Browse all matching files in Files →' })).toBeNull()
   })
 
   it('renders heading and list content uniformly', () => {

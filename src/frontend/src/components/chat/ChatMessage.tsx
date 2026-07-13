@@ -1,10 +1,11 @@
 import { Fragment, memo, useCallback, useEffect, useRef, useState, type KeyboardEvent, type ReactElement } from 'react'
+import { Link } from 'react-router-dom'
 import { formatRelativeTime } from '../../utils/formatRelativeTime'
 import { formatDuration } from '../../utils/formatDuration'
 import { getMessageRaw } from '../../api'
 import { SourceCard } from './SourceCard'
 import { MessageBlocks } from './MessageBlocks'
-import type { ChatMode, ChatSourceReference, DisplayBlock } from '../../types/api'
+import type { ChatMode, ChatSourceReference, DisplayBlock, FileDiscoveryInfo } from '../../types/api'
 import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
 import 'highlight.js/styles/github-dark.min.css'
 import './ChatMessage.css'
@@ -31,6 +32,7 @@ interface ChatMessageProps {
   isContinuation?: boolean
   sources?: ChatSourceReference[]
   displayBlocks?: DisplayBlock[]
+  fileDiscovery?: FileDiscoveryInfo | null
   chatMode?: ChatMode
   isStreaming?: boolean
   streamStatusText?: string
@@ -81,6 +83,7 @@ function ChatMessageComponent({
   isContinuation = false,
   sources = [],
   displayBlocks = [],
+  fileDiscovery = null,
   chatMode,
   isStreaming = false,
   streamStatusText,
@@ -300,6 +303,26 @@ function ChatMessageComponent({
           <span>Sources ({sources.length})</span>
           <i className="ri-arrow-down-s-line chat-message__sources-chevron" aria-hidden />
         </button>
+      ),
+    })
+  }
+  if (
+    !isUser
+    && fileDiscovery?.is_file_discovery
+    && (fileDiscovery.total_count == null || fileDiscovery.total_count > fileDiscovery.shown_count)
+  ) {
+    const fileDiscoverySearchTerm = fileDiscovery.search_term.trim()
+    const fileDiscoveryHref = `/files?${new URLSearchParams({
+      search: fileDiscoverySearchTerm,
+      mode: 'semantic',
+    }).toString()}`
+    assistantMetaItems.push({
+      key: 'file_discovery',
+      node: (
+        <Link className="chat-message__continue-inline chat-message__file-discovery-link" to={fileDiscoveryHref}>
+          <i className="ri-search-line chat-message__meta-icon" aria-hidden />
+          <span>View All Matching Files</span>
+        </Link>
       ),
     })
   }
@@ -752,6 +775,7 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.chatMode === next.chatMode &&
     prev.sources === next.sources &&
     prev.displayBlocks === next.displayBlocks &&
+    prev.fileDiscovery === next.fileDiscovery &&
     prev.isStreaming === next.isStreaming &&
     prev.streamStatusText === next.streamStatusText &&
     prev.streamSectionProgress === next.streamSectionProgress &&

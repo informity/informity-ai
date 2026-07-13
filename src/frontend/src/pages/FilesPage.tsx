@@ -3,7 +3,7 @@
  * File browser with table, filters (TASK-050), detail panel (TASK-051).
  */
 import { useState, useEffect, useCallback } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { FileTable } from '../components/files/FileTable'
 import { FileSearchResults } from '../components/files/FileSearchResults'
 import { PageHeader } from '../components/PageHeader'
@@ -39,6 +39,7 @@ interface FileFiltersState {
 
 export function FilesPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const confirm = useConfirm()
   const [files, setFiles] = useState<IndexedFile[]>([])
   const [total, setTotal] = useState(0)
@@ -76,6 +77,13 @@ export function FilesPage() {
   })
   const [reindexOperationsByFileId, setReindexOperationsByFileId] = useState<Record<number, string>>({})
   const { offline } = useBackendStatus()
+  const urlSearchTerm = searchParams.get('search')?.trim() ?? ''
+  const hasUrlSearchTerm = searchParams.has('search')
+  const urlSearchMode = searchParams.get('mode')?.trim().toLowerCase() ?? ''
+  const normalizedUrlSearchMode: FileSearchMode | null = (
+    urlSearchMode === 'semantic' || urlSearchMode === 'standard'
+  ) ? urlSearchMode : null
+  const hasDeepLinkSemanticSearch = hasUrlSearchTerm && urlSearchMode === 'semantic' && urlSearchTerm.length > 0
 
   const debouncedSearch = useDebounce(filters.search, SEARCH_DEBOUNCE_MS)
   const searchText = debouncedSearch?.trim() || ''
@@ -110,6 +118,19 @@ export function FilesPage() {
     }
   }, [semanticResultLimit])
 
+  useEffect(() => {
+    if (hasUrlSearchTerm) {
+      setFilters((prev) => {
+        const nextSearch = urlSearchTerm || undefined
+        if ((prev.search ?? undefined) === nextSearch) return prev
+        return { ...prev, search: nextSearch }
+      })
+    }
+    if (normalizedUrlSearchMode) {
+      setSearchMode((prev) => (prev === normalizedUrlSearchMode ? prev : normalizedUrlSearchMode))
+    }
+  }, [hasUrlSearchTerm, normalizedUrlSearchMode, urlSearchTerm])
+
   const loadFiles = useCallback(async () => {
     setLoading(true)
     setError(null)
@@ -142,9 +163,10 @@ export function FilesPage() {
     setSemanticLoading(true)
     setSemanticError(null)
     try {
+      const requestLimit = hasDeepLinkSemanticSearch ? 200 : semanticResultLimit
       const data = await searchFiles({
         query: searchText,
-        limit: semanticResultLimit,
+        limit: requestLimit,
         fileTypes: filters.extension,
       })
       setSemanticResults(data.results || [])
@@ -159,7 +181,7 @@ export function FilesPage() {
     } finally {
       setSemanticLoading(false)
     }
-  }, [filters.extension, searchText, semanticResultLimit])
+  }, [filters.extension, hasDeepLinkSemanticSearch, searchText, semanticResultLimit])
 
   const setReindexOperationForFile = useCallback((fileId: number, operationId: string) => {
     setReindexOperationsByFileId((prev) => ({ ...prev, [fileId]: operationId }))

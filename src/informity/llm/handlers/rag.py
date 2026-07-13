@@ -69,6 +69,9 @@ _STRICT_CONTRACT_MAX_TEMPERATURE = 0.2
 _STRICT_CONTRACT_MAX_TOP_P = 0.8
 _COVERAGE_ENTITY_LISTING_TOP_K_BOOST = 8
 _COVERAGE_ENTITY_LISTING_TOP_K_MAX = 60
+_FILE_DISCOVERY_RETRIEVAL_TOP_K = 200
+_FILE_DISCOVERY_DISPLAY_LIMIT = 20
+_FILE_DISCOVERY_LEAD_IN = 'Here are the files related to your query:'
 _GLOBAL_ENTITY_ENUMERATION_PATTERN = build_global_entity_listing_pattern()
 _ENTITY_INVENTORY_SCOPE_PATTERN = build_exhaustive_entity_inventory_scope_pattern()
 _PERSON_INVENTORY_PATTERN = build_person_entity_listing_pattern()
@@ -419,6 +422,125 @@ def _format_term_inventory_answer(*, term_type: str, rows: list[dict[str, object
     return '\n'.join(lines)
 
 
+def _should_use_deterministic_file_discovery_response(
+    classification: QueryClassification,
+) -> bool:
+    decision = getattr(classification, 'shadow_classifier_decision', None)
+    if not isinstance(decision, dict):
+        return False
+    return (
+        str(decision.get('source') or '') == 'document_content'
+        and str(decision.get('operation') or '') == 'count_enumerate'
+    )
+
+
+def _format_file_discovery_answer(chunks: list[dict]) -> str:
+    return _build_file_discovery_response(question='', chunks=chunks)[0]
+
+
+_FILE_DISCOVERY_PREFIX_RE = re.compile(
+    r'^(?:'
+    r'show me|find|list|display|get|give me|tell me|which|what'
+    r')\s+',
+    re.IGNORECASE,
+)
+_FILE_DISCOVERY_LEADING_FILLER_RE = re.compile(
+    r'^(?:all|every|any|the|a|an|my|our|your|this|that|these|those)\s+',
+    re.IGNORECASE,
+)
+_FILE_DISCOVERY_TRAILING_FILLER_RE = re.compile(
+    r'\s+(?:all|every|any|the|a|an|my|our|your|this|that|these|those)$',
+    re.IGNORECASE,
+)
+_FILE_DISCOVERY_CORPUS_NOUNS_RE = re.compile(
+    r'^(?:files?|documents?|records?|items?)\s+',
+    re.IGNORECASE,
+)
+_FILE_DISCOVERY_TRAILING_CORPUS_NOUNS_RE = re.compile(
+    r'\s+(?:files?|documents?|records?|items?)$',
+    re.IGNORECASE,
+)
+_FILE_DISCOVERY_SEMANTIC_PHRASE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(
+        r'^(?:related(?:\s+to)?|about|mention(?:ing)?|mentions?|involving|involves?|containing|contains?|regarding|pertaining|connected(?:\s+to)?|relevant(?:\s+to)?)\s+',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'\s+(?:related(?:\s+to)?|about|mention(?:ing)?|mentions?|involving|involves?|containing|contains?|regarding|pertaining|connected(?:\s+to)?|relevant(?:\s+to)?)\s+',
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r'\s+(?:related(?:\s+to)?|about|mention(?:ing)?|mentions?|involving|involves?|containing|contains?|regarding|pertaining|connected(?:\s+to)?|relevant(?:\s+to)?)$',
+        re.IGNORECASE,
+    ),
+)
+
+
+def _extract_file_discovery_search_term(question: str) -> str:
+    candidate = normalize_query_text(question).strip().strip(' .?!,;:')
+    if not candidate:
+        return ''
+
+    previous = None
+    while candidate and candidate != previous:
+        previous = candidate
+        candidate = _FILE_DISCOVERY_PREFIX_RE.sub('', candidate)
+        candidate = _FILE_DISCOVERY_LEADING_FILLER_RE.sub('', candidate)
+        candidate = _FILE_DISCOVERY_CORPUS_NOUNS_RE.sub('', candidate)
+        candidate = _FILE_DISCOVERY_TRAILING_CORPUS_NOUNS_RE.sub('', candidate)
+        candidate = _FILE_DISCOVERY_TRAILING_FILLER_RE.sub('', candidate)
+        for pattern in _FILE_DISCOVERY_SEMANTIC_PHRASE_PATTERNS:
+            candidate = pattern.sub(' ', candidate)
+        candidate = re.sub(r'\s+', ' ', candidate).strip()
+
+    return candidate or normalize_query_text(question).strip().strip(' .?!,;:')
+
+
+def _build_file_discovery_response(
+    *,
+    question: str,
+    chunks: list[dict],
+) -> tuple[str, dict[str, object]]:
+    seen_files: set[int | str] = set()
+    filenames: list[str] = []
+    for chunk in chunks:
+        file_id = chunk.get('file_id')
+        filename = str(chunk.get('filename') or '').strip()
+        if not filename:
+            continue
+        key: int | str
+        if isinstance(file_id, int):
+            key = file_id
+        else:
+            key = filename.casefold()
+        if key in seen_files:
+            continue
+        seen_files.add(key)
+        filenames.append(filename)
+
+    shown_filenames = filenames[:_FILE_DISCOVERY_DISPLAY_LIMIT]
+    if not shown_filenames:
+        return (
+            'I could not identify any relevant files in the retrieved context.',
+            {
+                'is_file_discovery': True,
+                'search_term': _extract_file_discovery_search_term(question),
+                'shown_count': 0,
+                'total_count': 0,
+            },
+        )
+    answer_lines = [_FILE_DISCOVERY_LEAD_IN, '']
+    answer_lines.extend(f'- **{filename}**' for filename in shown_filenames)
+
+    file_discovery = {
+        'is_file_discovery': True,
+        'search_term': _extract_file_discovery_search_term(question),
+        'shown_count': len(shown_filenames),
+        'total_count': len(filenames),
+    }
+    return '\n'.join(answer_lines), file_discovery
+
+
 def _evaluate_minimal_answerability(
     chunks: list[dict],
     *,
@@ -506,6 +628,8 @@ class RAGHandler:
                 _COVERAGE_ENTITY_LISTING_TOP_K_MAX,
                 effective_top_k + _COVERAGE_ENTITY_LISTING_TOP_K_BOOST,
             )
+        if _should_use_deterministic_file_discovery_response(classification):
+            effective_top_k = max(effective_top_k, _FILE_DISCOVERY_RETRIEVAL_TOP_K)
         max_tokens = profile.get_max_tokens(effective_query_type)
         timeout_seconds = profile.get_timeout_seconds(effective_query_type)
         reasoning_enabled = profile.get_reasoning_enabled(effective_query_type)
@@ -738,6 +862,48 @@ class RAGHandler:
             else:
                 yield _INSUFFICIENT_CONTEXT_RESPONSE
             yield []
+            return
+
+        if _should_use_deterministic_file_discovery_response(classification):
+            deterministic_start = time.perf_counter()
+            answer_text, file_discovery = _build_file_discovery_response(
+                question=question,
+                chunks=chunks,
+            )
+            deterministic_elapsed_ms = (time.perf_counter() - deterministic_start) * 1000.0
+            if trace is not None:
+                trace.record('deterministic_file_discovery', {
+                    'enabled': True,
+                    'file_count': file_discovery['total_count'],
+                    'shown_count': file_discovery['shown_count'],
+                    'search_term': file_discovery['search_term'],
+                    'duration_ms': round(deterministic_elapsed_ms, 1),
+                })
+            yield (
+                StreamSignalTag.METRICS,
+                build_metrics_payload(
+                    query_type=effective_query_type,
+                    raw_chunks_count=len(chunks),
+                    retrieval_duration_ms=round(retrieval_elapsed_ms, 1),
+                    prompt_build_ms='N/A',
+                    llm_submit_ms='N/A',
+                    llm_queue_wait_ms='N/A',
+                    llm_decode_first_token_ms='N/A',
+                    generation_skipped=True,
+                    minimal_mode=True,
+                    deterministic_file_discovery=True,
+                ),
+            )
+            yield (StreamSignalTag.FILE_DISCOVERY, file_discovery)
+            yield answer_text
+            sources = _generation_closeout.build_source_references(
+                chunks=chunks,
+                answer_text=answer_text,
+                truncate_preview_fn=_truncate_preview,
+                normalize_relevance_score_fn=_retrieval_validation._normalize_relevance_score,
+            )
+            _generation_closeout.record_sources_trace(trace=trace, sources=sources)
+            yield sources
             return
 
         (

@@ -212,7 +212,12 @@ def _map_decision_to_classification(query: str, decision: FiveQDecision) -> Quer
         needs_current_info=needs_current_info,
         mentions_time=mentions_time,
         needs_chat_history=needs_chat_history,
-        action_hints={},
+        action_hints={
+            'should_enumerate': (
+                decision.source == 'document_content'
+                and decision.operation == 'count_enumerate'
+            ),
+        },
         retrieval_content_query=query,
         retrieval_content_confidence=decision.confidence,
         retrieval_content_reasons=['five_q_direct'],

@@ -18,8 +18,11 @@ from informity.llm.handlers.rag import (
     _apply_negation_preferences,
     _apply_output_format_preferences,
     _build_history_aware_retrieval_query_with_classification,
+    _build_file_discovery_response,
+    _format_file_discovery_answer,
     _resolve_exhaustive_inventory_term_type,
     _should_boost_coverage_top_k,
+    _should_use_deterministic_file_discovery_response,
 )
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification
@@ -80,6 +83,80 @@ def test_resolve_exhaustive_inventory_term_type_none_without_corpus_scope() -> N
         'What are the names of people mentioned in this file?',
         classification,
     ) is None
+
+
+def test_should_use_deterministic_file_discovery_response_for_count_enumerate() -> None:
+    classification = QueryClassification(
+        intent='coverage',
+        shadow_classifier_decision={'source': 'document_content', 'operation': 'count_enumerate'},
+    )
+    assert _should_use_deterministic_file_discovery_response(classification)
+
+
+def test_format_file_discovery_answer_uses_simple_filename_list() -> None:
+    answer = _format_file_discovery_answer([
+        {
+            'file_id': 1,
+            'filename': 'alpha.pdf',
+        },
+        {
+            'file_id': 2,
+            'filename': 'beta.pdf',
+        },
+        {
+            'file_id': 1,
+            'filename': 'alpha.pdf',
+        },
+    ])
+
+    assert answer == (
+        'Here are the files related to your query:\n\n'
+        '- **alpha.pdf**\n'
+        '- **beta.pdf**'
+    )
+
+
+def test_build_file_discovery_response_caps_at_twenty_and_extracts_term() -> None:
+    chunks = [
+        {
+            'file_id': index,
+            'filename': f'file-{index}.pdf',
+        }
+        for index in range(1, 26)
+    ]
+
+    answer, file_discovery = _build_file_discovery_response(
+        question='Show me all files related to my mortgage.',
+        chunks=chunks,
+    )
+
+    assert answer.startswith('Here are the files related to your query:\n\n')
+    assert answer.count('\n- **') == 20
+    assert '- **file-20.pdf**' in answer
+    assert '- **file-21.pdf**' not in answer
+    assert file_discovery == {
+        'is_file_discovery': True,
+        'search_term': 'mortgage',
+        'shown_count': 20,
+        'total_count': 25,
+    }
+
+
+def test_build_file_discovery_response_extracts_topic_from_tax_query() -> None:
+    answer, file_discovery = _build_file_discovery_response(
+        question='Show me all tax related files.',
+        chunks=[
+            {
+                'file_id': 1,
+                'filename': 'tax-doc.pdf',
+            },
+        ],
+    )
+
+    assert answer == 'Here are the files related to your query:\n\n- **tax-doc.pdf**'
+    assert file_discovery['search_term'] == 'tax'
+    assert file_discovery['shown_count'] == 1
+    assert file_discovery['total_count'] == 1
 
 
 class TestMetadataHandler:

@@ -263,6 +263,15 @@ class ChatSourceReference(BaseModel):
     file_id: int | None = None
 
 
+class FileDiscoveryResponse(BaseModel):
+    """FileDiscoveryResponse model."""
+
+    is_file_discovery: Literal[True] = True
+    search_term: str
+    shown_count: int
+    total_count: int | None = None
+
+
 class ChatUploadAttachmentResponse(BaseModel):
     """ChatUploadAttachmentResponse model."""
     upload_id: str
