@@ -508,11 +508,7 @@ def _build_file_discovery_response(
         filename = str(chunk.get('filename') or '').strip()
         if not filename:
             continue
-        key: int | str
-        if isinstance(file_id, int):
-            key = file_id
-        else:
-            key = filename.casefold()
+        key: int | str = file_id if isinstance(file_id, int) else filename.casefold()
         if key in seen_files:
             continue
         seen_files.add(key)
