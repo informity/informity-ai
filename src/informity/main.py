@@ -75,7 +75,12 @@ from informity.api.security import (
     is_tauri_desktop_mode,
     is_tauri_session_authorized,
 )
-from informity.config import APP_DISPLAY_NAME, configure_hf_environment, settings
+from informity.config import (
+    APP_DISPLAY_NAME,
+    are_required_models_cached,
+    configure_hf_environment,
+    settings,
+)
 from informity.exceptions import LLMError
 from informity.version import APP_VERSION
 
@@ -147,6 +152,35 @@ def _llm_engine_get_model_path() -> Path:
         return llm_engine._get_model_path()  # type: ignore[attr-defined]
     except AttributeError as exc:
         raise AttributeError("llm_engine does not expose a model path getter") from exc
+
+
+def _enable_startup_bootstrap_mode_if_needed() -> bool:
+    """
+    Temporarily relax privacy flags so startup can proceed when models are missing.
+
+    The persisted privacy preference is not changed here. This just lets the app
+    boot and fetch required models on demand instead of failing startup outright.
+    """
+    if are_required_models_cached():
+        return False
+
+    if settings.full_privacy or settings.llm_local_only or settings.embedding_offline:
+        log.info(
+            "startup_bootstrap_mode_enabled",
+            full_privacy=settings.full_privacy,
+            llm_local_only=settings.llm_local_only,
+            embedding_offline=settings.embedding_offline,
+            message=(
+                "Required models are not cached yet; starting in temporary bootstrap mode"
+                " so the app can launch and fetch them on demand."
+            ),
+        )
+
+    settings.full_privacy = False
+    settings.llm_local_only = False
+    settings.embedding_offline = False
+    configure_hf_environment(fail_on_missing_full_privacy_models=False)
+    return True
 
 
 @dataclass
@@ -590,6 +624,7 @@ async def _run_startup_sequence(startup_app: FastAPI) -> None:
     startup_started_at = time.perf_counter()
     sidecar_startup_attempted = False
     try:
+        _enable_startup_bootstrap_mode_if_needed()
         await _ensure_classifier_model_present(startup_app)
 
         warmups = (
