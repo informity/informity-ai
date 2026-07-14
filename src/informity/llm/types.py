@@ -135,6 +135,7 @@ class StreamSignalTag(StrEnum):
     BUDGET_CHECKPOINT = "__budget_checkpoint__"
     PLAN_STEP = "__plan_step__"
     METRICS = "__metrics__"
+    FILE_DISCOVERY = "__file_discovery__"
     STREAM_SUMMARY = "__stream_summary__"
     FINISH_REASON = "__finish_reason__"
 

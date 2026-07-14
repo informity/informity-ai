@@ -11,6 +11,13 @@ export interface ChatSourceReference {
   file_id?: number | null
 }
 
+export interface FileDiscoveryInfo {
+  is_file_discovery: true
+  search_term: string
+  shown_count: number
+  total_count: number | null
+}
+
 export interface DisplayTextBlock {
   type: 'text'
   markdown: string
@@ -129,6 +136,7 @@ export interface StreamDonePayload {
     indexing_upload_ids?: string[]
     omitted_upload_ids?: string[]
   }
+  file_discovery?: FileDiscoveryInfo | null
 }
 
 export interface ChatUploadAttachment {
@@ -153,6 +161,7 @@ export interface ChatMessageApi {
   model_filename?: string | null
   sources?: ChatSourceReference[]
   display_blocks?: DisplayBlock[]
+  file_discovery?: FileDiscoveryInfo | null
   is_internal?: boolean
   completion_mode?: CompletionMode
   stopped_by_user?: boolean
@@ -179,6 +188,7 @@ export interface ChatMessageDisplay {
   modelFilename?: string | null
   sources?: ChatSourceReference[]
   displayBlocks?: DisplayBlock[]
+  fileDiscovery?: FileDiscoveryInfo | null
   isInternal?: boolean
   isContinuation?: boolean
   isStreaming?: boolean
@@ -263,6 +273,31 @@ export interface IndexedFile {
   created_at?: string
   chunk_count?: number
   page_count?: number | null
+}
+
+export interface FileSearchResult {
+  file_id: number
+  filename: string
+  path: string
+  extension: string
+  size_bytes: number
+  indexed_at?: string | null
+  modified_at: string
+  content_hash: string
+  extracted_text_preview: string
+  preview: string
+  score: number
+  category: string
+  chunk_id?: number | null
+  page_number?: number | null
+  section_path?: string | null
+  block_type?: string | null
+}
+
+export interface FileSearchResponse {
+  results: FileSearchResult[]
+  total: number
+  query: string
 }
 
 export interface IndexStatus {

@@ -1,9 +1,4 @@
-# ==============================================================================
-# Informity AI — Search API Routes
-# Endpoint for semantic search across indexed documents. Embeds the query,
-# searches SQLite vector storage for similar chunks, and returns ranked results enriched
-# with file metadata from SQLite.
-# ==============================================================================
+"""Semantic search API routes for ranked document retrieval."""
 
 import asyncio
 
@@ -13,10 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from informity.api.schemas import SearchRequest, SearchResponse, SearchResult
 from informity.api.security import EndpointGuard
-from informity.db.sqlite import get_db, get_files_by_ids
+from informity.db.sqlite import get_chunks_by_ids, get_db, get_files_by_ids
 from informity.db.vectors import vector_store
 from informity.indexer.embedder import embedder
-from informity.scanner.extractors.base import MAX_EXTRACTED_TEXT_PREVIEW
 
 # ==============================================================================
 # Logger
@@ -36,6 +30,12 @@ SEARCH_GUARD = EndpointGuard(
     window_seconds=60,
 )
 MAX_SEARCH_QUERY_CHARS = 4000
+MAX_SEARCH_PREVIEW_CHARS = 550
+
+
+def _build_search_preview(chunk_text: str | None) -> str:
+    preview = (chunk_text or '')[:MAX_SEARCH_PREVIEW_CHARS].strip()
+    return f'…{preview}' if preview else ''
 
 
 # ==============================================================================
@@ -47,12 +47,7 @@ async def search_documents(
     request: SearchRequest,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> SearchResponse:
-    # Semantic search flow:
-    #   1. Embed the query text
-    #   2. Search SQLite vector storage for the top-K most similar chunks
-    #   3. Enrich results with file metadata from SQLite
-    #   4. Apply optional category / file_type filters
-    #   5. Return ranked SearchResponse
+    """Embed the query, fetch matching chunks, and enrich them with file metadata."""
 
     async with SEARCH_GUARD.slot():
         query_text = request.query.strip()
@@ -70,26 +65,41 @@ async def search_documents(
 
         log.info(
             'search_requested',
-            query_length = len(query_text),
-            limit        = request.limit,
-            category     = request.category,
-            file_types   = request.file_types,
+            query_length=len(query_text),
+            limit=request.limit,
+            category=request.category,
+            file_types=request.file_types,
         )
 
         # -- Step 1: Embed the query (in thread to avoid blocking event loop) -----
         query_vector = await asyncio.to_thread(embedder.embed_query, query_text)
 
-        # We fetch more results than requested so that post-filtering by category
-        # or file_type still yields enough results.
-        fetch_limit = request.limit * 3 if (request.category or request.file_types) else request.limit
+        # We fetch more results than requested so that post-filtering by
+        # category or file_type still yields enough results.
+        fetch_limit = (
+            request.limit * 3 if (request.category or request.file_types) else request.limit
+        )
 
         # -- Step 2: Search SQLite vector storage -----------------------------------
-        raw_results = await asyncio.to_thread(vector_store.search_similar, query_vector, fetch_limit)
+        raw_results = await asyncio.to_thread(
+            vector_store.search_similar,
+            query_vector,
+            fetch_limit,
+        )
 
-        # -- Step 3 & 4: Batch-fetch file metadata and filter ----------------------
+        # -- Step 3 & 4: Batch-fetch file + chunk metadata and filter -------------
         # Collect all distinct file IDs from results for a single DB round-trip.
-        all_file_ids = list({hit['file_id'] for hit in raw_results if hit.get('file_id') is not None})
-        files_by_id  = await get_files_by_ids(db, all_file_ids)
+        all_file_ids = list(
+            {hit['file_id'] for hit in raw_results if hit.get('file_id') is not None}
+        )
+        files_by_id = await get_files_by_ids(db, all_file_ids)
+        all_chunk_ids = list(
+            {hit['chunk_id'] for hit in raw_results if hit.get('chunk_id') is not None}
+        )
+        chunks_by_id = {
+            chunk['chunk_id']: chunk
+            for chunk in await get_chunks_by_ids(db, all_chunk_ids)
+        }
 
         results: list[SearchResult] = []
 
@@ -107,6 +117,18 @@ async def search_documents(
                 log.debug('search_orphan_vector', file_id=file_id)
                 continue
 
+            chunk_id = hit.get('chunk_id')
+            chunk_meta = chunks_by_id.get(chunk_id) if chunk_id is not None else None
+            page_number = None
+            section_path = None
+            block_type = None
+            if chunk_meta is not None:
+                page_number = chunk_meta.get('page_number')
+                if page_number is None and chunk_meta.get('start_page') is not None:
+                    page_number = chunk_meta.get('start_page')
+                section_path = str(chunk_meta.get('section_path') or '').strip() or None
+                block_type = str(chunk_meta.get('block_type') or '').strip() or None
+
             # Apply category filter
             if request.category and indexed_file.category.value != request.category:
                 continue
@@ -115,24 +137,32 @@ async def search_documents(
             if request.file_types and indexed_file.extension not in request.file_types:
                 continue
 
-            results.append(SearchResult(
-                file_id  = indexed_file.id or file_id,
-                filename = indexed_file.filename,
-                path     = indexed_file.path,
-                preview  = (hit.get('chunk_text', '') or '')[:MAX_EXTRACTED_TEXT_PREVIEW],
-                score    = hit.get('score', 0.0),
-                category = indexed_file.category.value,
-            ))
+            results.append(
+                SearchResult(
+                    file_id=indexed_file.id or file_id,
+                    filename=indexed_file.filename,
+                    path=indexed_file.path,
+                    extension=indexed_file.extension,
+                    size_bytes=indexed_file.size_bytes,
+                    indexed_at=indexed_file.indexed_at,
+                    modified_at=indexed_file.modified_at,
+                    content_hash=indexed_file.content_hash,
+                    extracted_text_preview=indexed_file.extracted_text_preview,
+                    preview=_build_search_preview(hit.get('chunk_text', '')),
+                    score=hit.get('score', 0.0),
+                    category=indexed_file.category.value,
+                    chunk_id=int(chunk_id) if chunk_id is not None else None,
+                    page_number=int(page_number) if page_number is not None else None,
+                    section_path=section_path,
+                    block_type=block_type,
+                )
+            )
 
         log.info(
             'search_completed',
-            query_length   = len(query_text),
-            results        = len(results),
-            raw_candidates = len(raw_results),
+            query_length=len(query_text),
+            results=len(results),
+            raw_candidates=len(raw_results),
         )
 
-        return SearchResponse(
-            results = results,
-            total   = len(results),
-            query   = query_text,
-        )
+        return SearchResponse(results=results, total=len(results), query=query_text)

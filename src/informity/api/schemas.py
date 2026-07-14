@@ -103,9 +103,19 @@ class SearchResult(BaseModel):
     file_id: int
     filename: str
     path: str
+    extension: str
+    size_bytes: int
+    indexed_at: datetime | None = None
+    modified_at: datetime
+    content_hash: str
+    extracted_text_preview: str
     preview: str  # Relevant chunk or excerpt
     score: float  # Similarity score (lower = more similar)
     category: str
+    chunk_id: int | None = None
+    page_number: int | None = None
+    section_path: str | None = None
+    block_type: str | None = None
 
 
 class SearchResponse(BaseModel):
@@ -251,6 +261,15 @@ class ChatSourceReference(BaseModel):
     chunk_preview: str  # The chunk text that was used
     relevance_score: float
     file_id: int | None = None
+
+
+class FileDiscoveryResponse(BaseModel):
+    """FileDiscoveryResponse model."""
+
+    is_file_discovery: Literal[True] = True
+    search_term: str
+    shown_count: int
+    total_count: int | None = None
 
 
 class ChatUploadAttachmentResponse(BaseModel):

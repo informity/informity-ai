@@ -309,11 +309,13 @@ export function HistoryTable({
                         />
                       ) : (
                         <>
-                          <div className="history-table__title-row">
-                            <div className="history-table__icon data-table__icon">
-                              <i className="ri-chat-4-line" aria-hidden style={{ fontSize: '1rem' }} />
+                          <div className="data-table__value">
+                            <div className="history-table__title-row">
+                              <div className="history-table__icon data-table__icon">
+                                <i className="ri-chat-4-line" aria-hidden style={{ fontSize: '1rem' }} />
+                              </div>
+                              <span className="history-table__title-text" title={title}>{title}</span>
                             </div>
-                            <span className="history-table__title-text" title={title}>{title}</span>
                           </div>
                           {chat.first_user_message && (
                             <div className="history-table__title-preview" title={chat.first_user_message}>{chat.first_user_message}</div>
@@ -323,15 +325,19 @@ export function HistoryTable({
                     </div>
                   </td>
                   <td className="history-table__td history-table__td--messages history-table__td--right data-table__td data-table__td--right">
-                    <span className="history-table__badge data-table__badge">{chat.message_count ?? 0}</span>
+                    <div className="data-table__value data-table__value--right">
+                      <span className="history-table__badge data-table__badge">{chat.message_count ?? 0}</span>
+                    </div>
                   </td>
                   <td className="history-table__td history-table__td--date history-table__td--right data-table__td data-table__td--right">
-                    {chat.last_message_at ? formatRelativeTime(chat.last_message_at) : '—'}
+                    <div className="data-table__value data-table__value--right">{chat.last_message_at ? formatRelativeTime(chat.last_message_at) : '—'}</div>
                   </td>
                   <td className="history-table__td history-table__td--duration history-table__td--right data-table__td data-table__td--right">
-                    {chat.last_generation_seconds != null
-                      ? formatDuration(chat.last_generation_seconds)
-                      : '—'}
+                    <div className="data-table__value data-table__value--right">
+                      {chat.last_generation_seconds != null
+                        ? formatDuration(chat.last_generation_seconds)
+                        : '—'}
+                    </div>
                   </td>
                   <td className="history-table__td history-table__td--actions data-table__td" onClick={(e) => e.stopPropagation()}>
                     <div className="history-table__actions">

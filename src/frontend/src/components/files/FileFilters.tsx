@@ -24,9 +24,23 @@ interface FileFiltersProps {
   filters: FileFiltersState
   onChange?: (filters: FileFiltersState) => void
   disabled?: boolean
+  searchMode?: 'standard' | 'semantic'
+  onSearchModeChange?: (mode: 'standard' | 'semantic') => void
+  semanticResultLimit?: number
+  onSemanticResultLimitChange?: (limit: number) => void
 }
 
-export function FileFilters({ filters, onChange, disabled = false }: FileFiltersProps) {
+const SEARCH_LIMIT_OPTIONS = [10, 20, 50]
+
+export function FileFilters({
+  filters,
+  onChange,
+  disabled = false,
+  searchMode = 'standard',
+  onSearchModeChange,
+  semanticResultLimit = 20,
+  onSemanticResultLimitChange,
+}: FileFiltersProps) {
   const [fileTypes, setFileTypes] = useState<FileTypeOption[]>([])
 
   useEffect(() => {
@@ -65,6 +79,7 @@ export function FileFilters({ filters, onChange, disabled = false }: FileFilters
   }
 
   const hasExtensionFilter = Array.isArray(filters.extension) && filters.extension.length > 0
+  const isSemanticMode = searchMode === 'semantic'
 
   const extMatch = (a: string[], b: string[]) => {
     if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return false
@@ -88,7 +103,7 @@ export function FileFilters({ filters, onChange, disabled = false }: FileFilters
           <input
             type="text"
             className="file-filters__search-input filter-search__input"
-            placeholder="Search filename or path…"
+            placeholder={isSemanticMode ? 'Search document meaning…' : 'Search filename or path…'}
             value={filters.search ?? ''}
             onChange={handleSearchChange}
             disabled={disabled}
@@ -106,6 +121,45 @@ export function FileFilters({ filters, onChange, disabled = false }: FileFilters
             </button>
           )}
         </div>
+        <div className="file-filters__mode-stack">
+          <div className="file-filters__mode-group" role="group" aria-label="Search mode">
+            <button
+              type="button"
+              className={`file-filters__mode-btn${!isSemanticMode ? ' file-filters__mode-btn--active' : ''}`}
+              aria-pressed={!isSemanticMode}
+              onClick={() => onSearchModeChange?.('standard')}
+              disabled={disabled}
+            >
+              Filename
+            </button>
+            <button
+              type="button"
+              className={`file-filters__mode-btn${isSemanticMode ? ' file-filters__mode-btn--active' : ''}`}
+              aria-pressed={isSemanticMode}
+              onClick={() => onSearchModeChange?.('semantic')}
+              disabled={disabled}
+            >
+              Semantic
+            </button>
+          </div>
+          <div className="file-filters__mode-slot">
+            <select
+              className={`file-filters__select file-filters__select--compact file-filters__mode-select${isSemanticMode ? '' : ' file-filters__mode-select--hidden'}`}
+              value={semanticResultLimit}
+              onChange={(event) => onSemanticResultLimitChange?.(Number(event.target.value))}
+              disabled={disabled || !isSemanticMode}
+              aria-label="Semantic result count"
+              tabIndex={isSemanticMode ? 0 : -1}
+              aria-hidden={!isSemanticMode}
+            >
+              {SEARCH_LIMIT_OPTIONS.map((limit) => (
+                <option key={limit} value={limit}>
+                  Top {limit}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
         <select
           className="file-filters__select"
           value={selectedFileTypeId}
@@ -122,12 +176,14 @@ export function FileFilters({ filters, onChange, disabled = false }: FileFilters
       </div>
       {hasExtensionFilter && (
         <div className="file-filters__chips">
-          <span className="file-filters__chip">
-            Type: {fileTypes.find((ft) => ft.id === selectedFileTypeId)?.label ?? (filters.extension ?? []).join(', ')}
-            <button type="button" onClick={() => handleClearChip('extension')} disabled={disabled}>
-              <i className="ri-close-line" aria-hidden style={{ fontSize: '0.75rem' }} />
-            </button>
-          </span>
+          {hasExtensionFilter && (
+            <span className="file-filters__chip">
+              Type: {fileTypes.find((ft) => ft.id === selectedFileTypeId)?.label ?? (filters.extension ?? []).join(', ')}
+              <button type="button" onClick={() => handleClearChip('extension')} disabled={disabled}>
+                <i className="ri-close-line" aria-hidden style={{ fontSize: '0.75rem' }} />
+              </button>
+            </span>
+          )}
         </div>
       )}
     </div>

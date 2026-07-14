@@ -325,6 +325,7 @@ def build_done_payload(
     status_transitions: list[dict[str, object]],
     resource_metrics: dict[str, object],
     message_id: int | None,
+    file_discovery: dict[str, object] | None = None,
 ) -> dict:
     payload: dict[str, object] = {
         'elapsed_seconds': elapsed_seconds,
@@ -349,6 +350,7 @@ def build_done_payload(
         'pass_details': pass_details,
         'status_transitions': status_transitions,
         'resource_metrics': resource_metrics,
+        'file_discovery': file_discovery,
     }
     if message_id is not None:
         payload['message_id'] = message_id

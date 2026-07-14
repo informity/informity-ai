@@ -955,6 +955,10 @@ html[data-accent='canvas'] .chat-message--assistant .chat-message__actions {
   font: inherit;
 }
 
+.chat-message__file-discovery-link {
+  text-decoration: none;
+}
+
 .chat-message__continue-inline:hover:not(:disabled) {
   color: var(--color-accent-hover);
 }

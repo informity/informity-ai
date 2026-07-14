@@ -1545,6 +1545,7 @@ async def chat(
 
                 generation_started = False
                 source_map: dict[tuple[str, str], ChatSourceReference] = {}
+                file_discovery_payload: dict[str, object] | None = None
                 continuation_request = _is_continuation_request(message_text)
                 continuation_anchor_question = _resolve_continuation_anchor_question(
                     question=message_text,
@@ -1883,6 +1884,14 @@ async def chat(
                                     "event": "plan_step",
                                     "data": serialize_api_response(step_payload),
                                 }
+                                continue
+
+                            if (
+                                isinstance(item, tuple)
+                                and len(item) == 2
+                                and item[0] == StreamSignalTag.FILE_DISCOVERY
+                            ):
+                                file_discovery_payload = item[1] if isinstance(item[1], dict) else {}
                                 continue
 
                             if (
@@ -2719,6 +2728,7 @@ async def chat(
                 status_transitions=status_transitions,
                 resource_metrics=resource_metrics,
                 message_id=assistant_message_id,
+                file_discovery=file_discovery_payload,
             )
             done_data["upload_scope"] = {
                 "active_upload_ids": upload_active_ids,

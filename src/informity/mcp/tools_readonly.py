@@ -1,3 +1,5 @@
+"""Read-only MCP tools for file, search, and scan introspection."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,7 +10,6 @@ from typing import Any
 
 import aiosqlite
 
-from informity.api.schemas import SearchResult
 from informity.db.sqlite import (
     get_files,
     get_files_by_ids,
@@ -49,12 +50,16 @@ FILE_TYPE_ALIASES: dict[str, str] = {
 
 @dataclass(slots=True)
 class McpReadScope:
+    """Scope controls for read-only MCP tool payloads."""
+
     mode: str = 'metadata_only'
     max_results: int = MAX_MCP_RESULTS
     max_snippet_chars: int = 320
     max_total_response_bytes: int = MAX_TOTAL_RESPONSE_BYTES
 
     def normalize(self) -> McpReadScope:
+        """Return a bounded copy of the current scope settings."""
+
         mode = str(self.mode or 'metadata_only').strip().lower()
         if mode not in {'metadata_only', 'search_snippets', 'full_content'}:
             mode = 'metadata_only'
@@ -62,7 +67,10 @@ class McpReadScope:
             mode=mode,
             max_results=max(1, min(int(self.max_results), MAX_MCP_RESULTS)),
             max_snippet_chars=max(0, min(int(self.max_snippet_chars), MAX_SNIPPET_CHARS)),
-            max_total_response_bytes=max(16_384, min(int(self.max_total_response_bytes), MAX_TOTAL_RESPONSE_BYTES)),
+            max_total_response_bytes=max(
+                16_384,
+                min(int(self.max_total_response_bytes), MAX_TOTAL_RESPONSE_BYTES),
+            ),
         )
 
 
@@ -96,7 +104,10 @@ def _coerce_response_size(payload: dict[str, Any], max_bytes: int) -> dict[str, 
 
 
 def _serialized_size_bytes(payload: dict[str, Any]) -> int:
-    return len(json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8', errors='ignore'))
+    return len(
+        json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
+        .encode('utf-8', errors='ignore')
+    )
 
 
 def _apply_scope_to_preview(preview: str, scope: McpReadScope) -> str | None:
@@ -130,6 +141,8 @@ def _normalize_file_types(file_types: list[str] | None) -> set[str] | None:
 
 
 async def tool_health() -> dict[str, Any]:
+    """Return the basic health payload for the MCP service."""
+
     return {
         'ok': True,
         'timestamp': datetime.now(UTC).isoformat(),
@@ -145,6 +158,8 @@ async def tool_files_list(
     offset: int = 0,
     search: str | None = None,
 ) -> dict[str, Any]:
+    """Return file metadata results subject to the current scope."""
+
     normalized_scope = scope.normalize()
     effective_limit = max(1, min(int(limit), normalized_scope.max_results))
     files, total = await get_files(
@@ -163,7 +178,11 @@ async def tool_files_list(
             'category': item.category.value,
             'extension': item.extension,
             'indexed_at': item.indexed_at.isoformat() if item.indexed_at else None,
-            'preview': None if normalized_scope.mode == 'metadata_only' else (item.extracted_text_preview or ''),
+            'preview': (
+                None
+                if normalized_scope.mode == 'metadata_only'
+                else (item.extracted_text_preview or '')
+            ),
         })
     return _coerce_response_size(
         {
@@ -186,6 +205,8 @@ async def tool_search_semantic(
     category: str | None = None,
     file_types: list[str] | None = None,
 ) -> dict[str, Any]:
+    """Return semantic search results with optional metadata scoping."""
+
     normalized_scope = scope.normalize()
     query_text = str(query or '').strip()
     if not query_text:
@@ -193,11 +214,21 @@ async def tool_search_semantic(
     normalized_category = _normalize_category(category)
     normalized_file_types = _normalize_file_types(file_types)
     effective_limit = max(1, min(int(limit), normalized_scope.max_results))
-    fetch_limit = effective_limit * 3 if (normalized_category or normalized_file_types) else effective_limit
+    fetch_limit = (
+        effective_limit * 3
+        if (normalized_category or normalized_file_types)
+        else effective_limit
+    )
 
     query_vector = await asyncio.to_thread(embedder.embed_query, query_text)
-    raw_results = await asyncio.to_thread(vector_store.search_similar, query_vector, fetch_limit)
-    all_file_ids = list({hit['file_id'] for hit in raw_results if hit.get('file_id') is not None})
+    raw_results = await asyncio.to_thread(
+        vector_store.search_similar,
+        query_vector,
+        fetch_limit,
+    )
+    all_file_ids = list(
+        {hit['file_id'] for hit in raw_results if hit.get('file_id') is not None}
+    )
     files_by_id = await get_files_by_ids(db, all_file_ids)
 
     results: list[dict[str, Any]] = []
@@ -211,11 +242,17 @@ async def tool_search_semantic(
         indexed_file = files_by_id.get(file_id)
         if indexed_file is None:
             continue
-        if str(getattr(indexed_file, 'source_provider', '') or '').strip().lower() in {UPLOAD_PROVIDER, TRANSLATE_PROVIDER}:
+        if str(getattr(indexed_file, 'source_provider', '') or '').strip().lower() in {
+            UPLOAD_PROVIDER,
+            TRANSLATE_PROVIDER,
+        }:
             continue
         if normalized_category and indexed_file.category.value != normalized_category:
             continue
-        if normalized_file_types is not None and str(indexed_file.extension or '').strip().lower() not in normalized_file_types:  # pylint: disable=unsupported-membership-test
+        if (
+            normalized_file_types is not None
+            and str(indexed_file.extension or '').strip().lower() not in normalized_file_types  # pylint: disable=unsupported-membership-test
+        ):
             continue
         content_hash = str(getattr(indexed_file, 'content_hash', '') or '').strip().lower()
         if content_hash:
@@ -225,14 +262,26 @@ async def tool_search_semantic(
         preview = (hit.get('chunk_text', '') or '')[:MAX_EXTRACTED_TEXT_PREVIEW]
         scoped_preview = _apply_scope_to_preview(preview, normalized_scope)
 
-        result = SearchResult(
-            file_id=indexed_file.id or int(file_id),
-            filename=indexed_file.filename,
-            path=indexed_file.path,
-            preview=scoped_preview or '',
-            score=float(hit.get('score', 0.0)),
-            category=indexed_file.category.value,
-        ).model_dump()
+        result = {
+            'file_id': indexed_file.id or int(file_id),
+            'filename': indexed_file.filename,
+            'path': indexed_file.path,
+            'extension': getattr(indexed_file, 'extension', '') or '',
+            'size_bytes': int(getattr(indexed_file, 'size_bytes', 0) or 0),
+            'indexed_at': getattr(indexed_file, 'indexed_at', None),
+            'modified_at': getattr(indexed_file, 'modified_at', None),
+            'content_hash': content_hash,
+            'extracted_text_preview': (
+                getattr(indexed_file, 'extracted_text_preview', '') or ''
+            ),
+            'preview': scoped_preview or '',
+            'score': float(hit.get('score', 0.0)),
+            'category': indexed_file.category.value,
+            'chunk_id': int(hit['chunk_id']) if hit.get('chunk_id') is not None else None,
+            'page_number': None,
+            'section_path': None,
+            'block_type': None,
+        }
         if normalized_scope.mode == 'metadata_only':
             result.pop('preview', None)
         elif normalized_scope.mode == 'search_snippets':
@@ -266,6 +315,8 @@ def _with_no_result_hints(
     normalized_file_types: set[str] | None,
     filter_options: dict[str, Any],
 ) -> dict[str, Any]:
+    """Attach filter hints when a filtered search returns no matches."""
+
     result = dict(payload)
     available_categories = list(filter_options.get('categories', []))
     available_file_types = list(filter_options.get('file_types', []))
@@ -283,15 +334,21 @@ def _with_no_result_hints(
         'valid_categories': available_categories,
         'valid_file_types': available_file_types,
         'unknown_filters': {
-            'unknown_category': bool(normalized_category and normalized_category not in category_set),
+            'unknown_category': bool(
+                normalized_category and normalized_category not in category_set
+            ),
             'unknown_file_types': unknown_file_types,
         },
-        'guidance': 'Try removing filters or use informity_filter_options for valid values.',
+        'guidance': (
+            'Try removing filters or use informity_filter_options for valid values.'
+        ),
     }
     return result
 
 
 async def tool_filter_options(db: aiosqlite.Connection) -> dict[str, Any]:
+    """Return the current semantic-search filter options."""
+
     filter_options = await _get_filter_options(db)
     return {
         'categories': filter_options['categories'],
@@ -304,6 +361,8 @@ async def tool_filter_options(db: aiosqlite.Connection) -> dict[str, Any]:
 
 
 async def _get_filter_options(db: aiosqlite.Connection) -> dict[str, list[str]]:
+    """Fetch distinct file categories and file types for filtering."""
+
     categories_cursor = await db.execute(
         '''
         SELECT DISTINCT LOWER(category) AS category
@@ -314,7 +373,11 @@ async def _get_filter_options(db: aiosqlite.Connection) -> dict[str, list[str]]:
         _EXCLUDED_SOURCE_PROVIDERS,
     )
     category_rows = await categories_cursor.fetchall()
-    categories = [str(row['category']) for row in category_rows if row and row['category']]
+    categories = [
+        str(row['category'])
+        for row in category_rows
+        if row and row['category']
+    ]
     if not categories:
         categories = sorted(VALID_FILE_CATEGORIES)
 
@@ -329,7 +392,11 @@ async def _get_filter_options(db: aiosqlite.Connection) -> dict[str, list[str]]:
         _EXCLUDED_SOURCE_PROVIDERS,
     )
     extension_rows = await extension_cursor.fetchall()
-    file_types = [str(row['extension']) for row in extension_rows if row and row['extension']]
+    file_types = [
+        str(row['extension'])
+        for row in extension_rows
+        if row and row['extension']
+    ]
     return {
         'categories': categories,
         'file_types': file_types,
@@ -337,6 +404,8 @@ async def _get_filter_options(db: aiosqlite.Connection) -> dict[str, list[str]]:
 
 
 async def tool_index_status(db: aiosqlite.Connection) -> dict[str, Any]:
+    """Return a compact count of indexed files and chunks."""
+
     files_cursor = await db.execute(
         '''
         SELECT COUNT(*) as count
@@ -366,6 +435,8 @@ async def tool_index_status(db: aiosqlite.Connection) -> dict[str, Any]:
 
 
 async def tool_scan_status(db: aiosqlite.Connection) -> dict[str, Any]:
+    """Return the most recent scan summary and skipped file details."""
+
     latest = await get_latest_scan(db)
     if latest is None:
         return {'status': 'never_run'}
