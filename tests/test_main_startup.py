@@ -1,8 +1,11 @@
+"""Test module for tests test main startup."""
+
 from informity import main
 from informity.config import settings
 
 
 def test_startup_bootstrap_mode_enables_temporary_non_privacy(monkeypatch) -> None:
+    """Test startup bootstrap mode enables temporary non privacy."""
     original_full_privacy = settings.full_privacy
     original_llm_local_only = settings.llm_local_only
     original_embedding_offline = settings.embedding_offline
@@ -33,6 +36,7 @@ def test_startup_bootstrap_mode_enables_temporary_non_privacy(monkeypatch) -> No
 
 
 def test_startup_bootstrap_mode_noops_when_models_cached(monkeypatch) -> None:
+    """Test startup bootstrap mode noops when models cached."""
     original_full_privacy = settings.full_privacy
     original_llm_local_only = settings.llm_local_only
     original_embedding_offline = settings.embedding_offline
@@ -55,7 +59,7 @@ def test_startup_bootstrap_mode_noops_when_models_cached(monkeypatch) -> None:
         assert settings.full_privacy is True
         assert settings.llm_local_only is True
         assert settings.embedding_offline is True
-        assert calls == []
+        assert not calls
     finally:
         settings.full_privacy = original_full_privacy
         settings.llm_local_only = original_llm_local_only

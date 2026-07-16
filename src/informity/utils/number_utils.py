@@ -5,6 +5,7 @@
 
 """Small numeric coercion helpers."""
 
+
 def safe_int(value: object, default: int = 0) -> int:
     """Coerce a value to int when possible, else return the default."""
     if isinstance(value, bool):

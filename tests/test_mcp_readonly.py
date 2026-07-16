@@ -1,3 +1,5 @@
+"""Test module for tests test mcp readonly."""
+
 from __future__ import annotations
 
 import asyncio
@@ -20,271 +22,295 @@ from informity.mcp.tools_readonly import (
 
 
 def test_mcp_authorization_allows_stdio() -> None:
-    authorize_mcp_request(transport='stdio', bearer_token=None)
+    """Test mcp authorization allows stdio."""
+    authorize_mcp_request(transport="stdio", bearer_token=None)
 
 
 def test_mcp_authorization_rejects_http_without_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv('INFORMITY_MCP_TOKEN', raising=False)
+    """Test mcp authorization rejects http without token."""
+    monkeypatch.delenv("INFORMITY_MCP_TOKEN", raising=False)
     with pytest.raises(McpAuthorizationError):
-        authorize_mcp_request(transport='http', bearer_token='abc')
+        authorize_mcp_request(transport="http", bearer_token="abc")
 
 
 def test_mcp_authorization_rejects_invalid_http_token(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv('INFORMITY_MCP_TOKEN', 'expected-token')
+    """Test mcp authorization rejects invalid http token."""
+    monkeypatch.setenv("INFORMITY_MCP_TOKEN", "expected-token")
     with pytest.raises(McpAuthorizationError):
-        authorize_mcp_request(transport='http', bearer_token='wrong-token')
+        authorize_mcp_request(transport="http", bearer_token="wrong-token")
 
 
 @pytest.mark.asyncio
 async def test_tool_files_list_metadata_only_hides_preview(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test tool files list metadata only hides preview."""
     from informity.mcp import tools_readonly as mod
 
     fake_file = SimpleNamespace(
         id=7,
-        filename='notes.md',
-        path='/docs/notes.md',
-        category=SimpleNamespace(value='notes'),
-        extension='.md',
+        filename="notes.md",
+        path="/docs/notes.md",
+        category=SimpleNamespace(value="notes"),
+        extension=".md",
         indexed_at=datetime.now(UTC),
-        extracted_text_preview='Secret draft preview',
+        extracted_text_preview="Secret draft preview",
     )
 
     async def _fake_get_files(*_args, **_kwargs):
+        """Internal helper for fake get files."""
         return [fake_file], 1
 
-    monkeypatch.setattr(mod, 'get_files', _fake_get_files)
+    monkeypatch.setattr(mod, "get_files", _fake_get_files)
 
     payload = await tool_files_list(
         db=SimpleNamespace(),
-        scope=McpReadScope(mode='metadata_only'),
+        scope=McpReadScope(mode="metadata_only"),
         limit=10,
     )
-    assert payload['total'] == 1
-    assert payload['results'][0]['preview'] is None
+    assert payload["total"] == 1
+    assert payload["results"][0]["preview"] is None
 
 
 @pytest.mark.asyncio
-async def test_tool_search_semantic_metadata_only_drops_preview(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_tool_search_semantic_metadata_only_drops_preview(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test tool search semantic metadata only drops preview."""
     from informity.mcp import tools_readonly as mod
 
     fake_file = SimpleNamespace(
         id=3,
-        filename='policy.pdf',
-        path='/docs/policy.pdf',
-        category=SimpleNamespace(value='compliance'),
-        extension='.pdf',
+        filename="policy.pdf",
+        path="/docs/policy.pdf",
+        category=SimpleNamespace(value="compliance"),
+        extension=".pdf",
     )
 
-    monkeypatch.setattr(mod.embedder, 'embed_query', lambda _q: [0.1, 0.2, 0.3])
+    monkeypatch.setattr(mod.embedder, "embed_query", lambda _q: [0.1, 0.2, 0.3])
     monkeypatch.setattr(
         mod.vector_store,
-        'search_similar',
-        lambda *_args, **_kwargs: [{'file_id': 3, 'chunk_text': 'very secret content', 'score': 0.12}],
+        "search_similar",
+        lambda *_args, **_kwargs: [
+            {"file_id": 3, "chunk_text": "very secret content", "score": 0.12}
+        ],
     )
 
     async def _fake_get_files_by_ids(*_args, **_kwargs):
+        """Internal helper for fake get files by ids."""
         return {3: fake_file}
 
-    monkeypatch.setattr(mod, 'get_files_by_ids', _fake_get_files_by_ids)
+    monkeypatch.setattr(mod, "get_files_by_ids", _fake_get_files_by_ids)
 
     payload = await tool_search_semantic(
         db=SimpleNamespace(),
-        scope=McpReadScope(mode='metadata_only'),
-        query='secret',
+        scope=McpReadScope(mode="metadata_only"),
+        query="secret",
         limit=5,
     )
-    assert payload['total'] == 1
-    assert 'preview' not in payload['results'][0]
+    assert payload["total"] == 1
+    assert "preview" not in payload["results"][0]
 
 
 @pytest.mark.asyncio
 async def test_mcp_server_health_tool_works() -> None:
+    """Test mcp server health tool works."""
     payload = await mcp_readonly_server.execute_tool(
-        tool_name='informity_health',
+        tool_name="informity_health",
         args={},
-        transport='stdio',
+        transport="stdio",
     )
-    assert payload['ok'] is True
-    assert payload['component'] == 'informity.mcp.readonly'
+    assert payload["ok"] is True
+    assert payload["component"] == "informity.mcp.readonly"
 
 
 @pytest.mark.asyncio
 async def test_tool_search_semantic_excludes_upload_local_and_deduplicates_content_hash(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test tool search semantic excludes upload local and deduplicates content hash."""
     from informity.mcp import tools_readonly as mod
 
-    monkeypatch.setattr(mod.embedder, 'embed_query', lambda _q: [0.1, 0.2, 0.3])
+    monkeypatch.setattr(mod.embedder, "embed_query", lambda _q: [0.1, 0.2, 0.3])
     monkeypatch.setattr(
         mod.vector_store,
-        'search_similar',
+        "search_similar",
         lambda *_args, **_kwargs: [
-            {'file_id': 10, 'chunk_text': 'termination clause A', 'score': 0.1},
-            {'file_id': 11, 'chunk_text': 'termination clause A duplicate', 'score': 0.11},
-            {'file_id': 12, 'chunk_text': 'upload copy should be hidden', 'score': 0.12},
+            {"file_id": 10, "chunk_text": "termination clause A", "score": 0.1},
+            {"file_id": 11, "chunk_text": "termination clause A duplicate", "score": 0.11},
+            {"file_id": 12, "chunk_text": "upload copy should be hidden", "score": 0.12},
         ],
     )
 
     file_a = SimpleNamespace(
         id=10,
-        filename='Agreement.docx',
-        path='/docs/Agreement.docx',
-        category=SimpleNamespace(value='document'),
-        extension='.docx',
-        source_provider='filesystem',
-        content_hash='hash-1',
+        filename="Agreement.docx",
+        path="/docs/Agreement.docx",
+        category=SimpleNamespace(value="document"),
+        extension=".docx",
+        source_provider="filesystem",
+        content_hash="hash-1",
     )
     file_a_dup = SimpleNamespace(
         id=11,
-        filename='Agreement copy.docx',
-        path='/docs/Agreement copy.docx',
-        category=SimpleNamespace(value='document'),
-        extension='.docx',
-        source_provider='filesystem',
-        content_hash='hash-1',
+        filename="Agreement copy.docx",
+        path="/docs/Agreement copy.docx",
+        category=SimpleNamespace(value="document"),
+        extension=".docx",
+        source_provider="filesystem",
+        content_hash="hash-1",
     )
     file_upload = SimpleNamespace(
         id=12,
-        filename='Agreement upload.docx',
-        path='/Users/me/.informity/storage/uploads/chat/upload.docx',
-        category=SimpleNamespace(value='document'),
-        extension='.docx',
-        source_provider='upload.local',
-        content_hash='hash-2',
+        filename="Agreement upload.docx",
+        path="/Users/me/.informity/storage/uploads/chat/upload.docx",
+        category=SimpleNamespace(value="document"),
+        extension=".docx",
+        source_provider="upload.local",
+        content_hash="hash-2",
     )
 
     async def _fake_get_files_by_ids(*_args, **_kwargs):
+        """Internal helper for fake get files by ids."""
         return {10: file_a, 11: file_a_dup, 12: file_upload}
 
-    monkeypatch.setattr(mod, 'get_files_by_ids', _fake_get_files_by_ids)
+    monkeypatch.setattr(mod, "get_files_by_ids", _fake_get_files_by_ids)
 
     payload = await tool_search_semantic(
         db=SimpleNamespace(),
-        scope=McpReadScope(mode='search_snippets'),
-        query='termination',
+        scope=McpReadScope(mode="search_snippets"),
+        query="termination",
         limit=5,
     )
-    assert payload['total'] == 1
-    assert len(payload['results']) == 1
-    assert payload['results'][0]['file_id'] == 10
+    assert payload["total"] == 1
+    assert len(payload["results"]) == 1
+    assert payload["results"][0]["file_id"] == 10
 
 
 @pytest.mark.asyncio
 async def test_mcp_tools_call_times_out(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test mcp tools call times out."""
     from informity.mcp import protocol as mod
 
     class _SlowServer:
         async def execute_tool(self, **_kwargs):
+            """Execute tool."""
             await asyncio.sleep(5.2)
-            return {'ok': True}
+            return {"ok": True}
 
-    monkeypatch.setattr(mod, '_mcp_readonly_server', _SlowServer())
-    monkeypatch.setattr(mod, '_mcp_tool_not_found_error', KeyError)
-    monkeypatch.setattr(mod.settings, 'mcp_tool_call_timeout_seconds', 5.0)
+    monkeypatch.setattr(mod, "_mcp_readonly_server", _SlowServer())
+    monkeypatch.setattr(mod, "_mcp_tool_not_found_error", KeyError)
+    monkeypatch.setattr(mod.settings, "mcp_tool_call_timeout_seconds", 5.0)
 
     response = await handle_jsonrpc_request(
         {
-            'jsonrpc': '2.0',
-            'id': 9,
-            'method': 'tools/call',
-            'params': {'name': 'informity_health', 'arguments': {}},
+            "jsonrpc": "2.0",
+            "id": 9,
+            "method": "tools/call",
+            "params": {"name": "informity_health", "arguments": {}},
         },
-        transport='stdio',
+        transport="stdio",
         bearer_token=None,
     )
     assert response is not None
-    assert response['error']['code'] == -32001
-    assert response['error']['message'] == 'MCP tool call timed out'
+    assert response["error"]["code"] == -32001
+    assert response["error"]["message"] == "MCP tool call timed out"
 
 
 @pytest.mark.asyncio
 async def test_mcp_tools_call_rejects_non_allowlisted_tool_before_dispatch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test mcp tools call rejects non allowlisted tool before dispatch."""
     from informity.mcp import protocol as mod
 
     class _ExplodingServer:
         async def execute_tool(self, **_kwargs):
-            raise AssertionError('dispatch should not be reached for non-allowlisted tools')
+            """Execute tool."""
+            raise AssertionError("dispatch should not be reached for non-allowlisted tools")
 
-    monkeypatch.setattr(mod, '_mcp_readonly_server', _ExplodingServer())
-    monkeypatch.setattr(mod, '_mcp_tool_not_found_error', KeyError)
+    monkeypatch.setattr(mod, "_mcp_readonly_server", _ExplodingServer())
+    monkeypatch.setattr(mod, "_mcp_tool_not_found_error", KeyError)
 
     response = await handle_jsonrpc_request(
         {
-            'jsonrpc': '2.0',
-            'id': 21,
-            'method': 'tools/call',
-            'params': {'name': 'informity_delete_file', 'arguments': {'file_id': 1}},
+            "jsonrpc": "2.0",
+            "id": 21,
+            "method": "tools/call",
+            "params": {"name": "informity_delete_file", "arguments": {"file_id": 1}},
         },
-        transport='stdio',
+        transport="stdio",
         bearer_token=None,
     )
     assert response is not None
-    assert response['error']['code'] == -32601
-    assert response['error']['message'] == 'Unknown tool: informity_delete_file'
+    assert response["error"]["code"] == -32601
+    assert response["error"]["message"] == "Unknown tool: informity_delete_file"
 
 
 @pytest.mark.asyncio
 async def test_mcp_tools_call_dispatches_legacy_alias_for_readonly_tool(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test mcp tools call dispatches legacy alias for readonly tool."""
     from informity.mcp import protocol as mod
 
     captured_tool_names: list[str] = []
 
     class _CaptureServer:
         async def execute_tool(self, **kwargs):
-            captured_tool_names.append(str(kwargs.get('tool_name', '')))
-            return {'ok': True}
+            """Execute tool."""
+            captured_tool_names.append(str(kwargs.get("tool_name", "")))
+            return {"ok": True}
 
-    monkeypatch.setattr(mod, '_mcp_readonly_server', _CaptureServer())
-    monkeypatch.setattr(mod, '_mcp_tool_not_found_error', KeyError)
+    monkeypatch.setattr(mod, "_mcp_readonly_server", _CaptureServer())
+    monkeypatch.setattr(mod, "_mcp_tool_not_found_error", KeyError)
 
     response = await handle_jsonrpc_request(
         {
-            'jsonrpc': '2.0',
-            'id': 22,
-            'method': 'tools/call',
-            'params': {'name': 'informity.search.semantic', 'arguments': {'query': 'test'}},
+            "jsonrpc": "2.0",
+            "id": 22,
+            "method": "tools/call",
+            "params": {"name": "informity.search.semantic", "arguments": {"query": "test"}},
         },
-        transport='stdio',
+        transport="stdio",
         bearer_token=None,
     )
     assert response is not None
-    assert response['result']['isError'] is False
-    assert captured_tool_names == ['informity_search_semantic']
+    assert response["result"]["isError"] is False
+    assert captured_tool_names == ["informity_search_semantic"]
 
 
 @pytest.mark.asyncio
 async def test_mcp_server_uses_readonly_sqlite_connection(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test mcp server uses readonly sqlite connection."""
     from informity.mcp import server as mod
 
     class _FakeConn:
         def __init__(self) -> None:
+            """Initialize the instance."""
             self.row_factory = None
             self.pragmas: list[str] = []
 
         async def execute(self, sql: str):
+            """Execute."""
             self.pragmas.append(sql)
 
     captured: dict[str, object] = {}
 
     async def _fake_connect(path: str, *, uri: bool):
-        captured['path'] = path
-        captured['uri'] = uri
+        """Internal helper for fake connect."""
+        captured["path"] = path
+        captured["uri"] = uri
         return _FakeConn()
 
-    monkeypatch.setattr(mod.aiosqlite, 'connect', _fake_connect)
+    monkeypatch.setattr(mod.aiosqlite, "connect", _fake_connect)
 
     server = InformityMcpReadOnlyServer()
     conn = await server._get_readonly_connection()
-    assert captured['uri'] is True
-    assert 'mode=ro' in str(captured['path'])
+    assert captured["uri"] is True
+    assert "mode=ro" in str(captured["path"])
     assert conn.pragmas == [
-        'PRAGMA query_only=ON',
-        'PRAGMA foreign_keys=ON',
-        'PRAGMA busy_timeout=5000',
+        "PRAGMA query_only=ON",
+        "PRAGMA foreign_keys=ON",
+        "PRAGMA busy_timeout=5000",
     ]
 
 
@@ -292,198 +318,219 @@ async def test_mcp_server_uses_readonly_sqlite_connection(monkeypatch: pytest.Mo
 async def test_tool_search_semantic_normalizes_category_and_file_types(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test tool search semantic normalizes category and file types."""
     from informity.mcp import tools_readonly as mod
 
-    monkeypatch.setattr(mod.embedder, 'embed_query', lambda _q: [0.1, 0.2, 0.3])
+    monkeypatch.setattr(mod.embedder, "embed_query", lambda _q: [0.1, 0.2, 0.3])
     monkeypatch.setattr(
         mod.vector_store,
-        'search_similar',
-        lambda *_args, **_kwargs: [{'file_id': 8, 'chunk_text': 'contract term', 'score': 0.05}],
+        "search_similar",
+        lambda *_args, **_kwargs: [{"file_id": 8, "chunk_text": "contract term", "score": 0.05}],
     )
 
     fake_file = SimpleNamespace(
         id=8,
-        filename='Contract.PDF',
-        path='/docs/Contract.PDF',
-        category=SimpleNamespace(value='document'),
-        extension='.pdf',
-        source_provider='filesystem',
-        content_hash='hash-8',
+        filename="Contract.PDF",
+        path="/docs/Contract.PDF",
+        category=SimpleNamespace(value="document"),
+        extension=".pdf",
+        source_provider="filesystem",
+        content_hash="hash-8",
     )
 
     async def _fake_get_files_by_ids(*_args, **_kwargs):
+        """Internal helper for fake get files by ids."""
         return {8: fake_file}
 
-    monkeypatch.setattr(mod, 'get_files_by_ids', _fake_get_files_by_ids)
+    monkeypatch.setattr(mod, "get_files_by_ids", _fake_get_files_by_ids)
 
     payload = await tool_search_semantic(
         db=SimpleNamespace(),
-        scope=McpReadScope(mode='search_snippets'),
-        query='contract',
+        scope=McpReadScope(mode="search_snippets"),
+        query="contract",
         limit=5,
-        category='Document',
-        file_types=['PDF'],
+        category="Document",
+        file_types=["PDF"],
     )
-    assert payload['total'] == 1
-    assert payload['results'][0]['file_id'] == 8
+    assert payload["total"] == 1
+    assert payload["results"][0]["file_id"] == 8
 
 
 @pytest.mark.asyncio
 async def test_tool_search_semantic_no_results_returns_hints_for_filtered_query(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test tool search semantic no results returns hints for filtered query."""
     from informity.mcp import tools_readonly as mod
 
     class _FakeCursor:
         def __init__(self, rows):
+            """Initialize the instance."""
             self._rows = rows
 
         async def fetchall(self):
+            """Fetchall."""
             return self._rows
 
     class _FakeDb:
         async def execute(self, sql: str, _params):
-            if 'category' in sql:
-                return _FakeCursor([{'category': 'document'}])
-            return _FakeCursor([{'extension': '.pdf'}, {'extension': '.docx'}])
+            """Execute."""
+            if "category" in sql:
+                return _FakeCursor([{"category": "document"}])
+            return _FakeCursor([{"extension": ".pdf"}, {"extension": ".docx"}])
 
-    monkeypatch.setattr(mod.embedder, 'embed_query', lambda _q: [0.1, 0.2, 0.3])
-    monkeypatch.setattr(mod.vector_store, 'search_similar', lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(mod.embedder, "embed_query", lambda _q: [0.1, 0.2, 0.3])
+    monkeypatch.setattr(mod.vector_store, "search_similar", lambda *_args, **_kwargs: [])
+
     async def _fake_get_files_by_ids(*_args, **_kwargs):
+        """Internal helper for fake get files by ids."""
         return {}
 
-    monkeypatch.setattr(mod, 'get_files_by_ids', _fake_get_files_by_ids)
+    monkeypatch.setattr(mod, "get_files_by_ids", _fake_get_files_by_ids)
 
     payload = await tool_search_semantic(
         db=_FakeDb(),
-        scope=McpReadScope(mode='search_snippets'),
-        query='contract',
+        scope=McpReadScope(mode="search_snippets"),
+        query="contract",
         limit=5,
-        category='Document',
-        file_types=['pdf'],
+        category="Document",
+        file_types=["pdf"],
     )
-    assert payload['total'] == 0
-    assert 'hints' in payload
-    assert payload['hints']['applied_filters']['category'] == 'document'
-    assert payload['hints']['applied_filters']['file_types'] == ['.pdf']
-    assert payload['hints']['valid_categories'] == ['document']
-    assert payload['hints']['valid_file_types'] == ['.pdf', '.docx']
-    assert payload['hints']['unknown_filters']['unknown_category'] is False
-    assert payload['hints']['unknown_filters']['unknown_file_types'] == []
+    assert payload["total"] == 0
+    assert "hints" in payload
+    assert payload["hints"]["applied_filters"]["category"] == "document"
+    assert payload["hints"]["applied_filters"]["file_types"] == [".pdf"]
+    assert payload["hints"]["valid_categories"] == ["document"]
+    assert payload["hints"]["valid_file_types"] == [".pdf", ".docx"]
+    assert payload["hints"]["unknown_filters"]["unknown_category"] is False
+    assert payload["hints"]["unknown_filters"]["unknown_file_types"] == []
 
 
 @pytest.mark.asyncio
 async def test_tool_search_semantic_hints_include_unknown_filter_details(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test tool search semantic hints include unknown filter details."""
     from informity.mcp import tools_readonly as mod
 
     class _FakeCursor:
         def __init__(self, rows):
+            """Initialize the instance."""
             self._rows = rows
 
         async def fetchall(self):
+            """Fetchall."""
             return self._rows
 
     class _FakeDb:
         async def execute(self, sql: str, _params):
-            if 'category' in sql:
-                return _FakeCursor([{'category': 'document'}])
-            return _FakeCursor([{'extension': '.pdf'}])
+            """Execute."""
+            if "category" in sql:
+                return _FakeCursor([{"category": "document"}])
+            return _FakeCursor([{"extension": ".pdf"}])
 
-    monkeypatch.setattr(mod.embedder, 'embed_query', lambda _q: [0.1, 0.2, 0.3])
-    monkeypatch.setattr(mod.vector_store, 'search_similar', lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(mod.embedder, "embed_query", lambda _q: [0.1, 0.2, 0.3])
+    monkeypatch.setattr(mod.vector_store, "search_similar", lambda *_args, **_kwargs: [])
 
     async def _fake_get_files_by_ids(*_args, **_kwargs):
+        """Internal helper for fake get files by ids."""
         return {}
 
-    monkeypatch.setattr(mod, 'get_files_by_ids', _fake_get_files_by_ids)
+    monkeypatch.setattr(mod, "get_files_by_ids", _fake_get_files_by_ids)
 
     payload = await tool_search_semantic(
         db=_FakeDb(),
-        scope=McpReadScope(mode='search_snippets'),
-        query='contract',
+        scope=McpReadScope(mode="search_snippets"),
+        query="contract",
         limit=5,
-        category='other',
-        file_types=['zzz'],
+        category="other",
+        file_types=["zzz"],
     )
-    assert payload['total'] == 0
-    assert payload['hints']['unknown_filters']['unknown_category'] is True
-    assert payload['hints']['unknown_filters']['unknown_file_types'] == ['.zzz']
+    assert payload["total"] == 0
+    assert payload["hints"]["unknown_filters"]["unknown_category"] is True
+    assert payload["hints"]["unknown_filters"]["unknown_file_types"] == [".zzz"]
 
 
 def test_coerce_response_size_trims_results_list() -> None:
+    """Test coerce response size trims results list."""
     payload = {
-        'results': [
-            {'file_id': 1, 'preview': 'a' * 120},
-            {'file_id': 2, 'preview': 'b' * 120},
-            {'file_id': 3, 'preview': 'c' * 120},
+        "results": [
+            {"file_id": 1, "preview": "a" * 120},
+            {"file_id": 2, "preview": "b" * 120},
+            {"file_id": 3, "preview": "c" * 120},
         ],
-        'total': 3,
+        "total": 3,
     }
     coerced = _coerce_response_size(payload, max_bytes=220)
-    assert coerced['truncated'] is True
-    assert coerced['returned'] < 3
-    assert coerced['total_before_truncation'] == 3
-    assert len(str(coerced).encode('utf-8', errors='ignore')) <= 220
+    assert coerced["truncated"] is True
+    assert coerced["returned"] < 3
+    assert coerced["total_before_truncation"] == 3
+    assert len(str(coerced).encode("utf-8", errors="ignore")) <= 220
 
 
 @pytest.mark.asyncio
 async def test_tool_filter_options_returns_distinct_categories_and_file_types() -> None:
+    """Test tool filter options returns distinct categories and file types."""
+
     class _FakeCursor:
         def __init__(self, rows):
+            """Initialize the instance."""
             self._rows = rows
 
         async def fetchall(self):
+            """Fetchall."""
             return self._rows
 
     class _FakeDb:
         async def execute(self, sql: str, _params):
-            if 'category' in sql:
+            """Execute."""
+            if "category" in sql:
                 return _FakeCursor(
                     [
-                        {'category': 'document'},
-                        {'category': 'web'},
+                        {"category": "document"},
+                        {"category": "web"},
                     ]
                 )
             return _FakeCursor(
                 [
-                    {'extension': '.docx'},
-                    {'extension': '.pdf'},
+                    {"extension": ".docx"},
+                    {"extension": ".pdf"},
                 ]
             )
 
     payload = await tool_filter_options(_FakeDb())
-    assert payload['categories'] == ['document', 'web']
-    assert payload['file_types'] == ['.docx', '.pdf']
+    assert payload["categories"] == ["document", "web"]
+    assert payload["file_types"] == [".docx", ".pdf"]
 
 
 @pytest.mark.asyncio
 async def test_tool_files_list_default_limit_is_50_and_explicit_limit_allows_200(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Test tool files list default limit is 50 and explicit limit allows 200."""
     from informity.mcp import tools_readonly as mod
 
     calls: list[int] = []
 
     async def _fake_get_files(*_args, **kwargs):
-        calls.append(int(kwargs.get('limit', 0)))
+        """Internal helper for fake get files."""
+        calls.append(int(kwargs.get("limit", 0)))
         return [], 0
 
-    monkeypatch.setattr(mod, 'get_files', _fake_get_files)
+    monkeypatch.setattr(mod, "get_files", _fake_get_files)
 
     await tool_files_list(
         db=SimpleNamespace(),
-        scope=McpReadScope(mode='metadata_only'),
+        scope=McpReadScope(mode="metadata_only"),
     )
     await tool_files_list(
         db=SimpleNamespace(),
-        scope=McpReadScope(mode='metadata_only'),
+        scope=McpReadScope(mode="metadata_only"),
         limit=200,
     )
     await tool_files_list(
         db=SimpleNamespace(),
-        scope=McpReadScope(mode='metadata_only'),
+        scope=McpReadScope(mode="metadata_only"),
         limit=500,
     )
 
@@ -494,26 +541,32 @@ async def test_tool_files_list_default_limit_is_50_and_explicit_limit_allows_200
 
 @pytest.mark.asyncio
 async def test_tool_index_status_excludes_upload_local_counts() -> None:
+    """Test tool index status excludes upload local counts."""
+
     class _FakeCursor:
         def __init__(self, count: int) -> None:
+            """Initialize the instance."""
             self._count = count
 
         async def fetchone(self):
-            return {'count': self._count}
+            """Fetchone."""
+            return {"count": self._count}
 
     class _FakeDb:
         def __init__(self) -> None:
+            """Initialize the instance."""
             self.queries: list[str] = []
 
         async def execute(self, sql: str, _params: tuple[str, ...]):
+            """Execute."""
             self.queries.append(sql)
-            if 'FROM files' in sql:
+            if "FROM files" in sql:
                 return _FakeCursor(115)
             return _FakeCursor(37756)
 
     db = _FakeDb()
     payload = await tool_index_status(db)  # type: ignore[arg-type]
 
-    assert payload['total_files'] == 115
-    assert payload['total_chunks'] == 37756
+    assert payload["total_files"] == 115
+    assert payload["total_chunks"] == 37756
     assert all("source_provider NOT IN" in query for query in db.queries)

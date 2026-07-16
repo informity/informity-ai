@@ -3,6 +3,10 @@
 # Runtime budget degradations and strict-format shaping.
 # ==============================================================================
 
+"""Module for llm rag runtime generation runtime."""
+
+# pylint: disable=unused-argument
+
 import re
 
 from informity.answer_sanitization import MAX_WORDS_PATTERN
@@ -17,9 +21,12 @@ def _has_remaining_scope(
     generation_skipped: bool,
     applied_degradations: list[dict[str, object]],
 ) -> bool:
+    """Internal helper for has remaining scope."""
     if is_terminal_timeout_reason(timeout_reason):
         return False
-    return bool(timeout_reason is not None or stream_recovery_reason is not None or generation_skipped)
+    return bool(
+        timeout_reason is not None or stream_recovery_reason is not None or generation_skipped
+    )
 
 
 def _apply_strict_format_prompt_controls(
@@ -33,6 +40,7 @@ def _apply_strict_format_prompt_controls(
     action_hints: dict[str, bool] | None,
     applied_degradations: list[dict[str, object]],
 ) -> tuple[list[str], dict[str, int], int, bool, list[dict], list[dict[str, object]]]:
+    """Internal helper for apply strict format prompt controls."""
     format_requirements = list(derive_format_requirements_fn(question, action_hints) or [])
     constraints = dict(output_constraints or {})
 
@@ -40,16 +48,23 @@ def _apply_strict_format_prompt_controls(
     if max_words_match:
         parsed_max_words = int(max_words_match.group(1))
         if parsed_max_words > 0:
-            constraints['max_words'] = parsed_max_words
+            constraints["max_words"] = parsed_max_words
 
     exact_bullets_match = re.search(
-        r'\bexactly\s+(\d+)\s+(?:numbered\s+)?(?:top-level\s+)?bullets?\b',
+        r"\bexactly\s+(\d+)\s+(?:numbered\s+)?(?:top-level\s+)?bullets?\b",
         question,
         flags=re.IGNORECASE,
     )
     if exact_bullets_match:
         parsed_bullets = int(exact_bullets_match.group(1))
         if parsed_bullets > 0:
-            constraints['exact_top_level_bullets'] = parsed_bullets
+            constraints["exact_top_level_bullets"] = parsed_bullets
 
-    return format_requirements, constraints, max_tokens, reasoning_enabled, chunks, applied_degradations
+    return (
+        format_requirements,
+        constraints,
+        max_tokens,
+        reasoning_enabled,
+        chunks,
+        applied_degradations,
+    )

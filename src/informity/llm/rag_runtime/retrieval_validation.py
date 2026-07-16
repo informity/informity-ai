@@ -1,3 +1,5 @@
+"""Module for llm rag runtime retrieval validation."""
+
 import math
 
 

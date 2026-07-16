@@ -22,13 +22,13 @@ _ENV_PREFIX = "INFORMITY_"
 
 def _env_name(field: str) -> str:
     # Convert snake_case field name to INFORMITY_UPPER_SNAKE.
-    """ env name."""
+    """env name."""
     return _ENV_PREFIX + field.upper()
 
 
 def _path_relative_to_app(p: Path, app_dir: Path) -> str:
     # Show path relative to application directory; fall back to absolute if outside.
-    """ path relative to app."""
+    """path relative to app."""
     try:
         normalized_p = normalize_path(p, expand_user=False)
         normalized_app_dir = normalize_path(app_dir, expand_user=False)
@@ -39,7 +39,7 @@ def _path_relative_to_app(p: Path, app_dir: Path) -> str:
 
 def _format_value(value: object, app_dir: Path | None = None) -> str:
     # Serialize a settings value for display. Paths are shown relative to app_dir (default: cwd).
-    """ format value."""
+    """format value."""
     if value is None:
         return ""
     base = normalize_path(app_dir or Path.cwd(), expand_user=True)
@@ -409,7 +409,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
             (
                 "llm_hf_repo",
                 (
-                    'Hugging Face repository for automatic LLM model downloads (e.g.,'
+                    "Hugging Face repository for automatic LLM model downloads (e.g.,"
                     '"unsloth/Qwen3.6-35B-A3B-GGUF").'
                 ),
             ),
@@ -471,14 +471,14 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str]]]] = [
                     "troubleshooting and diagnostics analysis."
                 ),
             ),
-                    (
-                        "chat_trace_redaction_mode",
-                        (
-                            "Trace payload redaction level: off (full payload), minimal "
-                            "(truncate sensitive fields), strict (redact sensitive fields "
-                            "with metadata only)."
-                        ),
-                    ),
+            (
+                "chat_trace_redaction_mode",
+                (
+                    "Trace payload redaction level: off (full payload), minimal "
+                    "(truncate sensitive fields), strict (redact sensitive fields "
+                    "with metadata only)."
+                ),
+            ),
             (
                 "diagnostics_profile",
                 (
@@ -526,21 +526,21 @@ _SENSITIVE_ENV_NAME_HINTS = ("TOKEN", "SECRET", "PASSWORD", "KEY")
 
 
 def _should_redact_setting_field(field: str) -> bool:
-    """ should redact setting field."""
+    """should redact setting field."""
     upper = str(field or "").upper()
     return any(hint in upper for hint in _SENSITIVE_ENV_NAME_HINTS)
 
 
 def _describe_unmapped_field(field: str) -> str:
     # Fallback description for Settings fields not explicitly documented in _GROUPS.
-    """ describe unmapped field."""
+    """describe unmapped field."""
     label = field.replace("_", " ").strip()
     return f"Advanced setting: {label}."
 
 
 def _format_runtime_env_default(name: str) -> str:
     # Redact runtime secrets while still indicating presence.
-    """ format runtime env default."""
+    """format runtime env default."""
     raw = str(os.environ.get(name, "")).strip()
     if not raw:
         return ""
@@ -566,7 +566,7 @@ _INTERNAL_CONSTANTS_PREFIXES = (
 
 
 def _normalize_supported_extensions_display(value: object) -> object:
-    """ normalize supported extensions display."""
+    """normalize supported extensions display."""
     if not isinstance(value, list):
         return value
     canonical_index = {ext: idx for idx, ext in enumerate(SUPPORTED_EXTENSIONS_CANONICAL_ORDER)}
@@ -587,7 +587,7 @@ def _build_env_var_items(
     app_dir: Path,
     documented_fields: set[str],
 ) -> list[EnvVarItem]:
-    """ build env var items."""
+    """build env var items."""
     items: list[EnvVarItem] = []
     for field, desc in sorted(variables, key=lambda x: _env_name(x[0])):
         documented_fields.add(field)
@@ -597,9 +597,7 @@ def _build_env_var_items(
                 value = _normalize_supported_extensions_display(value)
             current_value = _format_value(value, app_dir)
             if _should_redact_setting_field(field):
-                current_value = (
-                    _SENSITIVE_ENV_VALUE_MARKER if str(current_value).strip() else ""
-                )
+                current_value = _SENSITIVE_ENV_VALUE_MARKER if str(current_value).strip() else ""
         except (AttributeError, TypeError):
             current_value = "(unset)"
         items.append(

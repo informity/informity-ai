@@ -117,6 +117,7 @@ class RetrievalRoundResult:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse args."""
     parser = argparse.ArgumentParser(description='Inspect retrieval quality without generating an answer.')
     parser.add_argument('--query', required=True, help='Query to run through retrieval.')
     parser.add_argument('--scope', default='indexed_corpus', help='Classifier scope kind.')
@@ -125,16 +126,19 @@ def parse_args() -> argparse.Namespace:
 
 
 def _sanitize_report_name(value: str) -> str:
+    """Internal helper for sanitize report name."""
     sanitized = re.sub(r'[^A-Za-z0-9._-]+', '_', value).strip('._-')
     return sanitized or 'query'
 
 
 def _hash_query(query: str, scope: str) -> str:
+    """Internal helper for hash query."""
     payload = f'{scope}\n{normalize_query_text(query)}'.encode('utf-8')
     return hashlib.sha256(payload).hexdigest()[:16]
 
 
 def _stage_status(*, has_error: bool, has_warn: bool) -> str:
+    """Internal helper for stage status."""
     if has_error:
         return 'ERROR'
     if has_warn:
@@ -143,10 +147,12 @@ def _stage_status(*, has_error: bool, has_warn: bool) -> str:
 
 
 def _print_stage(stage_number: int, stage: StageResult) -> None:
+    """Internal helper for print stage."""
     print(f'Stage {stage_number} — {stage.name} [{stage.status}] {stage.summary}')
 
 
 def _serialize(value: Any) -> Any:
+    """Internal helper for serialize."""
     if isinstance(value, dict):
         return {str(key): _serialize(item) for key, item in value.items()}
     if isinstance(value, list):
@@ -163,6 +169,7 @@ def _serialize(value: Any) -> Any:
 
 
 def _distinct_file_count(chunks: list[dict[str, Any]]) -> int:
+    """Internal helper for distinct file count."""
     file_ids: set[int] = set()
     for chunk in chunks:
         try:
@@ -174,6 +181,7 @@ def _distinct_file_count(chunks: list[dict[str, Any]]) -> int:
 
 
 def _chunk_file_names(chunks: list[dict[str, Any]]) -> list[str]:
+    """Internal helper for chunk file names."""
     names: list[str] = []
     seen: set[str] = set()
     for chunk in chunks:
@@ -186,6 +194,7 @@ def _chunk_file_names(chunks: list[dict[str, Any]]) -> list[str]:
 
 
 def _chunk_file_ids(chunks: list[dict[str, Any]]) -> list[int]:
+    """Internal helper for chunk file ids."""
     file_ids: list[int] = []
     seen: set[int] = set()
     for chunk in chunks:
@@ -201,6 +210,7 @@ def _chunk_file_ids(chunks: list[dict[str, Any]]) -> list[int]:
 
 
 def _summarize_top_chunks(chunks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Internal helper for summarize top chunks."""
     summary: list[dict[str, Any]] = []
     for chunk in chunks[:5]:
         summary.append({
@@ -218,6 +228,7 @@ def _build_filters(
     file_ids: list[int] | None,
     effective_block_type_exclude: list[BlockType],
 ) -> tuple[list[MetadataFilter], list[dict[str, Any]], str, list[Any]]:
+    """Internal helper for build filters."""
     filters: list[MetadataFilter] = []
     if classification.year_filter:
         filters.append(MetadataFilter(field='year', operator='EQ', value=classification.year_filter))
@@ -275,6 +286,7 @@ def _build_filters(
 
 
 async def _fetch_chunk_rows(db: aiosqlite.Connection, chunk_ids: list[int]) -> list[dict[str, Any]]:
+    """Internal helper for fetch chunk rows."""
     if not chunk_ids:
         return []
     placeholders = ','.join('?' * len(chunk_ids))
@@ -295,6 +307,7 @@ async def _fetch_chunk_rows(db: aiosqlite.Connection, chunk_ids: list[int]) -> l
 
 
 def _score_value(chunk: dict[str, Any]) -> float:
+    """Internal helper for score value."""
     try:
         return float(chunk.get('score') or 0.0)
     except (TypeError, ValueError):
@@ -316,6 +329,7 @@ async def _execute_retrieval_round(
     prefer_within_file_diversity: bool,
     top_k: int,
 ) -> RetrievalRoundResult:
+    """Internal helper for execute retrieval round."""
     profile = get_profile()
     effective_query_type = _resolve_minimal_query_type(classification)
     comparison_style_request = has_comparison_cue(query)
@@ -670,6 +684,7 @@ async def _execute_retrieval_round(
 
 
 async def _run_diagnostic(query: str, scope_kind: str, output_dir: Path | None) -> dict[str, Any]:
+    """Internal helper for run diagnostic."""
     resolved_query = str(query or '').strip()
     if not resolved_query:
         raise ValueError('query must not be empty')
@@ -918,6 +933,7 @@ async def _run_diagnostic(query: str, scope_kind: str, output_dir: Path | None) 
 
 
 def main() -> int:
+    """Main."""
     args = parse_args()
     report = asyncio.run(_run_diagnostic(args.query, args.scope, args.output_dir))
     stages = report['stages']

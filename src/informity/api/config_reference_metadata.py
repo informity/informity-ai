@@ -5,6 +5,8 @@
 # Used by GET /api/config/reference for the Configuration page.
 # ==============================================================================
 
+"""Module for api config reference metadata."""
+
 from informity.api.schemas import ConfigReferenceResponse, ConstantGroup, ConstantItem
 from informity.config import (
     EXCLUDE_DEVELOPER_PATTERNS,
@@ -14,9 +16,9 @@ from informity.config import (
 from informity.scanner.watcher import DEBOUNCE_SECONDS
 
 # Local constants for Configuration page reference (RAG coverage retrieval parameters).
-_COVERAGE_MAX_FILES           = 10
+_COVERAGE_MAX_FILES = 10
 _COVERAGE_SCORE_GAP_THRESHOLD = 2.0
-_COVERAGE_MIN_FILES           = 2
+_COVERAGE_MIN_FILES = 2
 
 
 # ------------------------------------------------------------------------------
@@ -25,72 +27,114 @@ _COVERAGE_MIN_FILES           = 2
 
 _GROUPS: list[tuple[str, str, list[tuple[str, str, str]]]] = [
     (
-        'Preset Exclusion Patterns',
-        'Patterns used when "Exclude common macOS system and application data" or "Exclude common developer data" are enabled in Settings. These are applied automatically based on the corresponding checkboxes.',
+        "Preset Exclusion Patterns",
+        (
+            'Patterns used when "Exclude common macOS system and application data" '
+            'or "Exclude common developer data" are enabled in Settings. These are '
+            "applied automatically based on the corresponding checkboxes."
+        ),
         [
             (
-                'EXCLUDE_MACOS_SYSTEM_PATTERNS',
-                ', '.join(EXCLUDE_MACOS_SYSTEM_PATTERNS),
-                'Patterns for macOS system files and directories (.DS_Store, Library, *.app, etc.). Applied when exclude_macos_system is true.',
+                "EXCLUDE_MACOS_SYSTEM_PATTERNS",
+                ", ".join(EXCLUDE_MACOS_SYSTEM_PATTERNS),
+                (
+                    "Patterns for macOS system files and directories "
+                    "(.DS_Store, Library, *.app, etc.). Applied when "
+                    "exclude_macos_system is true."
+                ),
             ),
             (
-                'EXCLUDE_DEVELOPER_PATTERNS',
-                ', '.join(EXCLUDE_DEVELOPER_PATTERNS),
-                'Patterns for developer directories and files (.git, node_modules, __pycache__, etc.). Applied when exclude_developer_data is true.',
+                "EXCLUDE_DEVELOPER_PATTERNS",
+                ", ".join(EXCLUDE_DEVELOPER_PATTERNS),
+                (
+                    "Patterns for developer directories and files "
+                    "(.git, node_modules, __pycache__, etc.). Applied when "
+                    "exclude_developer_data is true."
+                ),
             ),
         ],
     ),
     (
-        'File Processing Limits',
-        'Maximum file sizes enforced during scanning and extraction. These prevent memory exhaustion on very large files.',
+        "File Processing Limits",
+        (
+            "Maximum file sizes enforced during scanning and extraction. "
+            "These prevent memory exhaustion on very large files."
+        ),
         [
             (
-                'SCAN_HASH_MAX_FILE_SIZE_BYTES',
-                f'{settings.scan_hash_max_file_size_bytes // (1024 * 1024)} MB',
-                'Maximum file size (bytes) eligible for scan-time SHA-256 hashing. Oversized files skip hashing but are still indexed if within the indexing size limit.',
+                "SCAN_HASH_MAX_FILE_SIZE_BYTES",
+                f"{settings.scan_hash_max_file_size_bytes // (1024 * 1024)} MB",
+                (
+                    "Maximum file size (bytes) eligible for scan-time SHA-256 "
+                    "hashing. Oversized files skip hashing but are still indexed if "
+                    "within the indexing size limit."
+                ),
             ),
         ],
     ),
     (
-        'File Watcher',
-        'Settings for the filesystem watcher that monitors watched directories for changes.',
+        "File Watcher",
+        ("Settings for the filesystem watcher that monitors watched directories for changes."),
         [
             (
-                'DEBOUNCE_SECONDS',
+                "DEBOUNCE_SECONDS",
                 str(DEBOUNCE_SECONDS),
-                'Debounce delay in seconds before processing file change events. Prevents excessive CPU usage when many files change rapidly.',
+                (
+                    "Debounce delay in seconds before processing file change "
+                    "events. Prevents excessive CPU usage when many files change "
+                    "rapidly."
+                ),
             ),
         ],
     ),
     (
-        'Operation State',
-        'Thresholds for detecting and handling long-running operations.',
+        "Operation State",
+        "Thresholds for detecting and handling long-running operations.",
         [
             (
-                'SCAN_STALE_THRESHOLD_SECONDS',
+                "SCAN_STALE_THRESHOLD_SECONDS",
                 str(settings.scan_stale_threshold_seconds),
-                'Age in seconds after which a running scan is considered stuck and automatically marked as failed. Prevents scans from appearing stuck indefinitely.',
+                (
+                    "Age in seconds after which a running scan is considered stuck "
+                    "and automatically marked as failed. Prevents scans from "
+                    "appearing stuck indefinitely."
+                ),
             ),
         ],
     ),
     (
-        'RAG Coverage Retrieval',
-        'Parameters for coverage-mode queries (e.g., "all years", "every document"). These control how many files and chunks are retrieved for comprehensive answers.',
+        "RAG Coverage Retrieval",
+        (
+            'Parameters for coverage-mode queries (e.g., "all years", '
+            '"every document"). These control how many files and chunks are '
+            "retrieved for comprehensive answers."
+        ),
         [
             (
-                'COVERAGE_MAX_FILES',
+                "COVERAGE_MAX_FILES",
                 str(_COVERAGE_MAX_FILES),
-                'Maximum number of files to include in coverage round-robin retrieval. Hard ceiling — score-gap detection usually cuts earlier.',
+                (
+                    "Maximum number of files to include in coverage round-robin "
+                    "retrieval. Hard ceiling — score-gap detection usually cuts "
+                    "earlier."
+                ),
             ),
             (
-                'COVERAGE_SCORE_GAP_THRESHOLD',
+                "COVERAGE_SCORE_GAP_THRESHOLD",
                 str(_COVERAGE_SCORE_GAP_THRESHOLD),
-                'L2 distance gap threshold for coverage file selection. When the gap between consecutive files exceeds this value, the file list is cut there to remove irrelevant files.',
+                (
+                    "L2 distance gap threshold for coverage file selection. When "
+                    "the gap between consecutive files exceeds this value, the file "
+                    "list is cut there to remove irrelevant files."
+                ),
             ),
             (
-                'COVERAGE_MIN_FILES',
+                "COVERAGE_MIN_FILES",
                 str(_COVERAGE_MIN_FILES),
-                'Minimum number of files to always keep in coverage results, regardless of score gaps.',
+                (
+                    "Minimum number of files to always keep in coverage results, "
+                    "regardless of score gaps."
+                ),
             ),
         ],
     ),
@@ -99,6 +143,7 @@ _GROUPS: list[tuple[str, str, list[tuple[str, str, str]]]] = [
 
 def get_config_reference_response() -> ConfigReferenceResponse:
     # Build the config reference response with constant groups.
+    """Get config reference response."""
     groups: list[ConstantGroup] = []
     for title, description, constants in _GROUPS:
         items = [

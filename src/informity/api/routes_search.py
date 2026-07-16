@@ -22,9 +22,9 @@ log = structlog.get_logger(__name__)
 # Router
 # ==============================================================================
 
-router = APIRouter(tags=['search'])
+router = APIRouter(tags=["search"])
 SEARCH_GUARD = EndpointGuard(
-    name='search',
+    name="search",
     max_in_flight=4,
     max_requests_per_window=60,
     window_seconds=60,
@@ -34,15 +34,17 @@ MAX_SEARCH_PREVIEW_CHARS = 550
 
 
 def _build_search_preview(chunk_text: str | None) -> str:
-    preview = (chunk_text or '')[:MAX_SEARCH_PREVIEW_CHARS].strip()
-    return f'…{preview}' if preview else ''
+    """Internal helper for build search preview."""
+    preview = (chunk_text or "")[:MAX_SEARCH_PREVIEW_CHARS].strip()
+    return f"…{preview}" if preview else ""
 
 
 # ==============================================================================
 # POST /api/search — semantic search across documents
 # ==============================================================================
 
-@router.post('/api/search', response_model=SearchResponse)
+
+@router.post("/api/search", response_model=SearchResponse)
 async def search_documents(
     request: SearchRequest,
     db: aiosqlite.Connection = Depends(get_db),
@@ -55,16 +57,16 @@ async def search_documents(
         if not query_text:
             raise HTTPException(
                 status_code=400,
-                detail='Query cannot be empty',
+                detail="Query cannot be empty",
             )
         if len(query_text) > MAX_SEARCH_QUERY_CHARS:
             raise HTTPException(
                 status_code=413,
-                detail=f'Query too large (max {MAX_SEARCH_QUERY_CHARS} characters).',
+                detail=f"Query too large (max {MAX_SEARCH_QUERY_CHARS} characters).",
             )
 
         log.info(
-            'search_requested',
+            "search_requested",
             query_length=len(query_text),
             limit=request.limit,
             category=request.category,
@@ -90,15 +92,14 @@ async def search_documents(
         # -- Step 3 & 4: Batch-fetch file + chunk metadata and filter -------------
         # Collect all distinct file IDs from results for a single DB round-trip.
         all_file_ids = list(
-            {hit['file_id'] for hit in raw_results if hit.get('file_id') is not None}
+            {hit["file_id"] for hit in raw_results if hit.get("file_id") is not None}
         )
         files_by_id = await get_files_by_ids(db, all_file_ids)
         all_chunk_ids = list(
-            {hit['chunk_id'] for hit in raw_results if hit.get('chunk_id') is not None}
+            {hit["chunk_id"] for hit in raw_results if hit.get("chunk_id") is not None}
         )
         chunks_by_id = {
-            chunk['chunk_id']: chunk
-            for chunk in await get_chunks_by_ids(db, all_chunk_ids)
+            chunk["chunk_id"]: chunk for chunk in await get_chunks_by_ids(db, all_chunk_ids)
         }
 
         results: list[SearchResult] = []
@@ -107,27 +108,27 @@ async def search_documents(
             if len(results) >= request.limit:
                 break
 
-            file_id = hit.get('file_id')
+            file_id = hit.get("file_id")
             if file_id is None:
                 continue
 
             indexed_file = files_by_id.get(file_id)
             if indexed_file is None:
                 # File was deleted from DB but vectors remain; skip
-                log.debug('search_orphan_vector', file_id=file_id)
+                log.debug("search_orphan_vector", file_id=file_id)
                 continue
 
-            chunk_id = hit.get('chunk_id')
+            chunk_id = hit.get("chunk_id")
             chunk_meta = chunks_by_id.get(chunk_id) if chunk_id is not None else None
             page_number = None
             section_path = None
             block_type = None
             if chunk_meta is not None:
-                page_number = chunk_meta.get('page_number')
-                if page_number is None and chunk_meta.get('start_page') is not None:
-                    page_number = chunk_meta.get('start_page')
-                section_path = str(chunk_meta.get('section_path') or '').strip() or None
-                block_type = str(chunk_meta.get('block_type') or '').strip() or None
+                page_number = chunk_meta.get("page_number")
+                if page_number is None and chunk_meta.get("start_page") is not None:
+                    page_number = chunk_meta.get("start_page")
+                section_path = str(chunk_meta.get("section_path") or "").strip() or None
+                block_type = str(chunk_meta.get("block_type") or "").strip() or None
 
             # Apply category filter
             if request.category and indexed_file.category.value != request.category:
@@ -148,8 +149,8 @@ async def search_documents(
                     modified_at=indexed_file.modified_at,
                     content_hash=indexed_file.content_hash,
                     extracted_text_preview=indexed_file.extracted_text_preview,
-                    preview=_build_search_preview(hit.get('chunk_text', '')),
-                    score=hit.get('score', 0.0),
+                    preview=_build_search_preview(hit.get("chunk_text", "")),
+                    score=hit.get("score", 0.0),
                     category=indexed_file.category.value,
                     chunk_id=int(chunk_id) if chunk_id is not None else None,
                     page_number=int(page_number) if page_number is not None else None,
@@ -159,7 +160,7 @@ async def search_documents(
             )
 
         log.info(
-            'search_completed',
+            "search_completed",
             query_length=len(query_text),
             results=len(results),
             raw_candidates=len(raw_results),

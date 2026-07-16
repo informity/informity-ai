@@ -160,7 +160,7 @@ class ShutdownResponse(BaseModel):
 
 
 def _load_setup_state_file(path: Path) -> tuple[dict[str, object] | None, str | None]:
-    """ load setup state file."""
+    """load setup state file."""
     if not path.exists():
         return None, None
     try:
@@ -174,7 +174,7 @@ def _load_setup_state_file(path: Path) -> tuple[dict[str, object] | None, str | 
 
 
 def _recommend_setup_tier(*, ram_total_gb: float, free_disk_gb: float) -> tuple[str, str]:
-    """ recommend setup tier."""
+    """recommend setup tier."""
     if free_disk_gb < 14.0:
         return "small", "Low free disk detected; smaller model is safer for setup."
     if ram_total_gb >= 32.0:
@@ -185,17 +185,17 @@ def _recommend_setup_tier(*, ram_total_gb: float, free_disk_gb: float) -> tuple[
 
 
 def _setup_state_path() -> Path:
-    """ setup state path."""
+    """setup state path."""
     return settings.app_data_dir / _SETUP_STATE_FILE
 
 
 def _setup_config_path() -> Path:
-    """ setup config path."""
+    """setup config path."""
     return settings.app_data_dir / _SETUP_CONFIG_FILE
 
 
 def _read_setup_config() -> dict[str, object]:
-    """ read setup config."""
+    """read setup config."""
     config_path = _setup_config_path()
     if not config_path.exists():
         return {}
@@ -207,7 +207,7 @@ def _read_setup_config() -> dict[str, object]:
 
 
 def _write_setup_config(config_data: dict[str, object]) -> None:
-    """ write setup config."""
+    """write setup config."""
     config_path = _setup_config_path()
     config_path.parent.mkdir(parents=True, exist_ok=True)
     try:
@@ -232,7 +232,7 @@ def _task_is_active(task: object | None) -> bool:
 def _update_setup_config(
     model_filename: str, *, full_privacy: bool, llm_local_only: bool, embedding_offline: bool
 ) -> None:
-    """ update setup config."""
+    """update setup config."""
     config_data = _read_setup_config()
     model_id = (
         infer_model_id_from_filename(model_filename)
@@ -248,7 +248,7 @@ def _update_setup_config(
 
 
 def _required_model_filename(setup_state_payload: dict[str, object] | None = None) -> str:
-    """ required model filename."""
+    """required model filename."""
     selected = str((setup_state_payload or {}).get("model_filename") or "").strip()
     if selected:
         return selected
@@ -264,7 +264,7 @@ def _required_model_filename(setup_state_payload: dict[str, object] | None = Non
 
 
 def _is_model_file_ready(model_filename: str) -> bool:
-    """ is model file ready."""
+    """is model file ready."""
     model_path = settings.models_dir / model_filename
     return model_path.exists() and model_path.is_file()
 
@@ -272,7 +272,7 @@ def _is_model_file_ready(model_filename: str) -> bool:
 def _probe_ollama_status(
     *, base_url: str | None = None, model: str | None = None
 ) -> tuple[bool, bool, str | None]:
-    """ probe ollama status."""
+    """probe ollama status."""
     resolved_base_url = (
         str(
             base_url
@@ -319,14 +319,14 @@ def _probe_ollama_status(
 
 def _is_setup_ready() -> bool:
     # Setup gating remains local-model based to preserve the stable first-run flow.
-    """ is setup ready."""
+    """is setup ready."""
     return are_required_models_cached(include_llm=True)
 
 
 def _pick_first_ready_local_model_filename() -> str | None:
     # Prefer known setup tier models when available so auto-heal picks canonical
     # SKUs first, then fall back to any installed GGUF.
-    """ pick first ready local model filename."""
+    """pick first ready local model filename."""
     preferred = [opt.model_filename for opt in SETUP_TIER_OPTIONS]
     for filename in preferred:
         if _is_model_file_ready(filename):
@@ -342,7 +342,7 @@ def _pick_first_ready_local_model_filename() -> str | None:
 
 
 def _auto_heal_local_model_selection_if_invalid() -> bool:
-    """ auto heal local model selection if invalid."""
+    """auto heal local model selection if invalid."""
     provider = str(getattr(settings, "llm_provider", "local_gguf") or "local_gguf").strip().lower()
     if provider != "local_gguf":
         return False
@@ -369,19 +369,19 @@ def _auto_heal_local_model_selection_if_invalid() -> bool:
 
 
 def _update_setup_runtime(**updates: object) -> None:
-    """ update setup runtime."""
+    """update setup runtime."""
     _setup_runtime.update(updates)
     _setup_runtime["updated_at"] = datetime.now(UTC).isoformat()
 
 
 def _update_model_runtime(**updates: object) -> None:
-    """ update model runtime."""
+    """update model runtime."""
     _model_runtime.update(updates)
     _model_runtime["updated_at"] = datetime.now(UTC).isoformat()
 
 
 def _runtime_event_snapshot() -> SetupEventResponse:
-    """ runtime event snapshot."""
+    """runtime event snapshot."""
     state = SetupState(str(_setup_runtime.get("state") or SetupState.REQUIRED.value))
     return SetupEventResponse(
         state=state,
@@ -401,7 +401,7 @@ def _runtime_event_snapshot() -> SetupEventResponse:
 
 
 def _model_event_snapshot() -> ModelOperationEventResponse:
-    """ model event snapshot."""
+    """model event snapshot."""
     return ModelOperationEventResponse(
         state=str(_model_runtime.get("state") or "idle"),
         stage=str(_model_runtime.get("stage") or "idle"),
@@ -421,7 +421,7 @@ def _model_event_snapshot() -> ModelOperationEventResponse:
 
 
 def _persist_setup_state_file() -> None:
-    """ persist setup state file."""
+    """persist setup state file."""
     path = _setup_state_path()
     payload = {
         "state": _setup_runtime.get("state"),
@@ -445,13 +445,13 @@ def _persist_setup_state_file() -> None:
 
 
 def _clear_setup_state_file() -> None:
-    """ clear setup state file."""
+    """clear setup state file."""
     path = _setup_state_path()
     path.unlink(missing_ok=True)
 
 
 def _cleanup_setup_artifacts(model_filename: str | None) -> None:
-    """ cleanup setup artifacts."""
+    """cleanup setup artifacts."""
     if not model_filename:
         return
     model_name = str(model_filename).strip()
@@ -486,18 +486,18 @@ def _cleanup_setup_artifacts(model_filename: str | None) -> None:
 
 
 def _cleanup_model_artifacts(model_filename: str | None) -> None:
-    """ cleanup model artifacts."""
+    """cleanup model artifacts."""
     _cleanup_setup_artifacts(model_filename)
 
 
 def _is_cancelled_download_error(exc: Exception) -> bool:
-    """ is cancelled download error."""
+    """is cancelled download error."""
     message = str(exc).strip().lower()
     return "download cancelled" in message or "cancelled" in message
 
 
 def _eta_seconds(*, bytes_done: int, bytes_total: int | None, speed_bps: float) -> int | None:
-    """ eta seconds."""
+    """eta seconds."""
     if bytes_total is None or bytes_total <= 0:
         return None
     if speed_bps <= 0:
@@ -507,7 +507,7 @@ def _eta_seconds(*, bytes_done: int, bytes_total: int | None, speed_bps: float) 
 
 
 def _apply_setup_completion_config(model_filename: str) -> None:
-    """ apply setup completion config."""
+    """apply setup completion config."""
     _update_setup_config(
         model_filename,
         full_privacy=True,
@@ -566,7 +566,7 @@ def _cache_required_runtime_dependencies() -> None:
 
 
 def _apply_model_default_config(model_filename: str) -> None:
-    """ apply model default config."""
+    """apply model default config."""
     config_data = _read_setup_config()
     model_id = (
         infer_model_id_from_filename(model_filename)
@@ -579,7 +579,7 @@ def _apply_model_default_config(model_filename: str) -> None:
 
 
 async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
-    """ run setup workflow."""
+    """run setup workflow."""
     global _setup_cancel_event, _setup_task
     target_path = settings.models_dir / model_filename
     repo_id = SETUP_TIER_REPOS.get(tier)
@@ -622,7 +622,7 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
         _setup_cancel_event = cancel_event
 
         def _on_progress(bytes_done: int, bytes_total: int | None, speed_bps: float) -> None:
-            """ on progress."""
+            """on progress."""
             artifact_pct = (
                 int((bytes_done / bytes_total) * 100) if bytes_total and bytes_total > 0 else 0
             )
@@ -751,7 +751,7 @@ async def _run_setup_workflow(*, tier: str, model_filename: str) -> None:
 
 
 def _resolve_tier_for_model(model_filename: str) -> tuple[str, str, str | None, str | None]:
-    """ resolve tier for model."""
+    """resolve tier for model."""
     for option in SETUP_TIER_OPTIONS:
         if option.model_filename == model_filename:
             tier = option.tier
@@ -771,7 +771,7 @@ async def _run_model_download_workflow(
     revision: str | None,
     expected_sha256: str | None,
 ) -> None:
-    """ run model download workflow."""
+    """run model download workflow."""
     global _model_cancel_event, _model_task
     target_path = settings.models_dir / model_filename
     try:
@@ -796,7 +796,7 @@ async def _run_model_download_workflow(
         _model_cancel_event = cancel_event
 
         def _on_progress(bytes_done: int, bytes_total: int | None, speed_bps: float) -> None:
-            """ on progress."""
+            """on progress."""
             pct = int((bytes_done / bytes_total) * 100) if bytes_total and bytes_total > 0 else 0
             _update_model_runtime(
                 state=_MODEL_STATE_IN_PROGRESS,
@@ -1534,7 +1534,7 @@ async def get_diagnostics_summary(
             created_at_values.append(created_at)
 
     def _avg(values: list[int] | list[float]) -> float:
-        """ avg."""
+        """avg."""
         if not values:
             return 0.0
         return round(float(sum(values)) / len(values), 3)

@@ -4,20 +4,22 @@
 # Fixes extraction artifacts at index time (not query-time cleaning).
 # ==============================================================================
 
+"""Module for indexer post process."""
+
 import re
 
 from informity.scanner.extractors.text_utils import clean_glyph_sequences
 
-_ALNUM_BOUNDARY_PATTERN = re.compile(r'(?<=[A-Za-z\)])(?=\d)|(?<=\d)(?=[A-Za-z])')
-_LONG_DIGIT_RUN_PATTERN = re.compile(r'\b\d{10,}\b')
+_ALNUM_BOUNDARY_PATTERN = re.compile(r"(?<=[A-Za-z\)])(?=\d)|(?<=\d)(?=[A-Za-z])")
+_LONG_DIGIT_RUN_PATTERN = re.compile(r"\b\d{10,}\b")
 _NUMERIC_FIELD_HINTS = (
-    'value',
-    'amount',
-    'total',
-    'net',
-    'balance',
-    'increase',
-    'decrease',
+    "value",
+    "amount",
+    "total",
+    "net",
+    "balance",
+    "increase",
+    "decrease",
 )
 
 
@@ -37,14 +39,14 @@ def _split_long_digit_run(token: str) -> str:
         left = token[:6]
         right = token[6:]
         if 50_000 <= int(left) <= 9_999_999:
-            return f'{left} {right}'
+            return f"{left} {right}"
 
     # Very long runs often begin with the assessed value (7 digits), then extra code noise.
     if length >= 13:
         left = token[:7]
         right = token[7:]
         if 100_000 <= int(left) <= 9_999_999:
-            return f'{left} {right}'
+            return f"{left} {right}"
 
     return token
 
@@ -59,8 +61,8 @@ def _should_repair_numeric_glue_line(line: str) -> bool:
 
     line_lower = line.casefold()
     has_field_hint = any(hint in line_lower for hint in _NUMERIC_FIELD_HINTS)
-    has_currency_or_percent = '$' in line or '%' in line
-    has_dense_numeric_tokens = len(re.findall(r'\b\d{4,}\b', line)) >= 2
+    has_currency_or_percent = "$" in line or "%" in line
+    has_dense_numeric_tokens = len(re.findall(r"\b\d{4,}\b", line)) >= 2
 
     return has_field_hint or has_currency_or_percent or has_dense_numeric_tokens
 
@@ -71,14 +73,14 @@ def _normalize_ocr_numeric_glue_lines(text: str) -> str:
     """
     repaired_lines: list[str] = []
     for line in text.splitlines():
-        normalized_line = _ALNUM_BOUNDARY_PATTERN.sub(' ', line)
+        normalized_line = _ALNUM_BOUNDARY_PATTERN.sub(" ", line)
         if _should_repair_numeric_glue_line(normalized_line):
             normalized_line = _LONG_DIGIT_RUN_PATTERN.sub(
                 lambda match: _split_long_digit_run(match.group(0)),
                 normalized_line,
             )
         repaired_lines.append(normalized_line)
-    return '\n'.join(repaired_lines)
+    return "\n".join(repaired_lines)
 
 
 def post_process_extracted_text(text: str) -> str:

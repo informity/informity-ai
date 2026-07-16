@@ -52,6 +52,7 @@ class StageResult:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse args."""
     parser = argparse.ArgumentParser(description='Inspect indexing quality without modifying the index.')
     parser.add_argument('--file', type=Path, help='Path to the document to inspect.')
     parser.add_argument('--files', nargs='+', type=Path, help='Specific files to inspect instead of a single file.')
@@ -62,15 +63,18 @@ def parse_args() -> argparse.Namespace:
 
 
 def _sanitize_report_name(file_path: Path) -> str:
+    """Internal helper for sanitize report name."""
     sanitized = re.sub(r'[^A-Za-z0-9._-]+', '_', file_path.name).strip('._-')
     return sanitized or 'document'
 
 
 def _count_stripped_chars(text: str) -> int:
+    """Internal helper for count stripped chars."""
     return len((text or '').strip())
 
 
 def _stage_status(*, has_error: bool, has_warn: bool) -> str:
+    """Internal helper for stage status."""
     if has_error:
         return 'ERROR'
     if has_warn:
@@ -79,6 +83,7 @@ def _stage_status(*, has_error: bool, has_warn: bool) -> str:
 
 
 def _looks_like_page_noise(content: str) -> bool:
+    """Internal helper for looks like page noise."""
     stripped = content.strip()
     if not stripped:
         return True
@@ -88,6 +93,7 @@ def _looks_like_page_noise(content: str) -> bool:
 
 
 def _is_structural_noise(chunk: ChunkData) -> tuple[bool, str | None]:
+    """Internal helper for is structural noise."""
     stripped = chunk.content.strip()
     if not stripped:
         return True, 'whitespace_only'
@@ -107,6 +113,7 @@ def _is_structural_noise(chunk: ChunkData) -> tuple[bool, str | None]:
 
 
 def _extract_document(file_path: Path) -> ExtractedDocument:
+    """Internal helper for extract document."""
     extractor = get_extractor(file_path)
     if extractor is None:
         return ExtractedDocument(
@@ -133,6 +140,7 @@ def _extract_document(file_path: Path) -> ExtractedDocument:
 
 
 def _inspect_pdf_directly(file_path: Path) -> dict[str, Any]:
+    """Internal helper for inspect pdf directly."""
     file_size_bytes = file_path.stat().st_size
     direct_error = None
     opens_successfully = False
@@ -202,6 +210,7 @@ def _inspect_pdf_directly(file_path: Path) -> dict[str, Any]:
     }
 
 def _summarize_extraction(document: ExtractedDocument) -> StageResult:
+    """Internal helper for summarize extraction."""
     extracted_text = document.text or ''
     extracted_chars = len(extracted_text)
     stripped_chars = _count_stripped_chars(extracted_text)
@@ -247,6 +256,7 @@ def _summarize_extraction(document: ExtractedDocument) -> StageResult:
 
 
 def _summarize_post_processing(raw_text: str, cleaned_text: str) -> StageResult:
+    """Internal helper for summarize post processing."""
     before_chars = len(raw_text)
     after_chars = len(cleaned_text)
     reduction = 0.0 if before_chars == 0 else max(0.0, (before_chars - after_chars) / before_chars)
@@ -273,6 +283,7 @@ def _summarize_post_processing(raw_text: str, cleaned_text: str) -> StageResult:
 
 
 def _classify_extraction_failure_reason(document: ExtractedDocument, stripped_chars: int) -> str | None:
+    """Internal helper for classify extraction failure reason."""
     if stripped_chars > 0:
         return None
 
@@ -316,6 +327,7 @@ def _summarize_chunking(
     *,
     source_text_empty: bool,
 ) -> StageResult:
+    """Internal helper for summarize chunking."""
     child_lengths = [len(chunk.content.strip()) for chunk in child_chunks]
     clean_chunk_indexes = {chunk.chunk_index for chunk in child_chunks}
     noise_chunks: list[dict[str, Any]] = []
@@ -375,6 +387,7 @@ def _summarize_chunking(
 
 
 def _embed_child_chunks(child_chunks: list[ChunkData]) -> StageResult:
+    """Internal helper for embed child chunks."""
     total_child_chunks = len(child_chunks)
     if total_child_chunks == 0:
         return StageResult(
@@ -478,6 +491,7 @@ def _embed_child_chunks(child_chunks: list[ChunkData]) -> StageResult:
 
 
 def _print_stage(stage_number: int, stage: StageResult) -> None:
+    """Internal helper for print stage."""
     print(f'Stage {stage_number} — {stage.name} [{stage.status}] {stage.summary}')
 
 
@@ -489,6 +503,7 @@ def _write_timeout_report(
     output_dir: Path | None = None,
     timeout_seconds: int = 120,
 ) -> dict[str, Any]:
+    """Internal helper for write timeout report."""
     resolved_path = file_path.expanduser().resolve()
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     report_root = output_dir or (Path.home() / '.informity' / 'diagnostics')
@@ -596,6 +611,7 @@ def _run_single_file_via_subprocess(
     diagnose_unknowns: bool,
     timeout_seconds: int,
 ) -> int:
+    """Internal helper for run single file via subprocess."""
     command = [
         sys.executable,
         str(Path(__file__).resolve()),
@@ -646,6 +662,7 @@ def _run_file_list(
     diagnose_unknowns: bool,
     timeout_seconds: int,
 ) -> int:
+    """Internal helper for run file list."""
     failures = 0
     for index, file_path in enumerate(file_paths, 1):
         print(f'[{index}/{len(file_paths)}] {file_path}')
@@ -667,6 +684,7 @@ def run_quality_diagnostic(
     diagnose_unknowns: bool = False,
     output_dir: Path | None = None,
 ) -> dict[str, Any]:
+    """Run quality diagnostic."""
     resolved_path = file_path.expanduser().resolve()
     if not resolved_path.exists():
         raise FileNotFoundError(f'File not found: {resolved_path}')
@@ -771,6 +789,7 @@ def run_quality_diagnostic(
 
 
 def main() -> int:
+    """Main."""
     args = parse_args()
     if os.environ.get(_RUN_DIRECT_ENV_VAR) == '1':
         report = run_quality_diagnostic(args.file, verbose=args.verbose, diagnose_unknowns=args.diagnose_unknowns)

@@ -3,6 +3,10 @@
 # Continuation detection, pass controls, and completion/next-action resolution.
 # ==============================================================================
 
+"""Module for api chat continuation."""
+
+# pylint: disable=line-too-long
+
 import difflib
 import re
 
@@ -26,29 +30,54 @@ from informity.llm.types import (
 _CONTINUATION_DUPLICATE_SIMILARITY_THRESHOLD = 0.9
 _CONTINUATION_DUPLICATE_MIN_LENGTH = 240
 
-_CONTINUATION_PHRASES = frozenset({
-    'continue', 'continue please', 'please continue', 'go on', 'carry on',
-    'resume', 'proceed', 'keep going', 'go ahead', 'next', 'next section',
-    'next part', 'more', 'more please', 'the rest', 'rest', 'what else',
-    'tell me more', 'show me the rest', 'anything else', 'what about',
-    'what about it', 'what about that', 'what about this', 'what about those',
-    'what about these', 'what about them', 'what about him', 'what about her',
-})
+_CONTINUATION_PHRASES = frozenset(
+    {
+        "continue",
+        "continue please",
+        "please continue",
+        "go on",
+        "carry on",
+        "resume",
+        "proceed",
+        "keep going",
+        "go ahead",
+        "next",
+        "next section",
+        "next part",
+        "more",
+        "more please",
+        "the rest",
+        "rest",
+        "what else",
+        "tell me more",
+        "show me the rest",
+        "anything else",
+        "what about",
+        "what about it",
+        "what about that",
+        "what about this",
+        "what about those",
+        "what about these",
+        "what about them",
+        "what about him",
+        "what about her",
+    }
+)
 _CONTINUATION_PATTERN = re.compile(
-    r'^\s*('
-    r'continue|go on|carry on|resume|proceed|keep going|go ahead|'
-    r'what else|tell me more|show me the rest|anything else|'
-    r'same (?:query|question|thing|request)\s*(?:but\s*)?(?:for|with|from|in)\s+\w+'
-    r')\b',
+    r"^\s*("
+    r"continue|go on|carry on|resume|proceed|keep going|go ahead|"
+    r"what else|tell me more|show me the rest|anything else|"
+    r"same (?:query|question|thing|request)\s*(?:but\s*)?(?:for|with|from|in)\s+\w+"
+    r")\b",
     re.IGNORECASE,
 )
 _CONTINUATION_STRUCTURED_OUTPUT_PATTERN = re.compile(
-    r'\b(markdown\s+table|columns?\s*:|rows?\s+as|output\s+only\s+a\s+markdown\s+table)\b',
+    r"\b(markdown\s+table|columns?\s*:|rows?\s+as|output\s+only\s+a\s+markdown\s+table)\b",
     re.IGNORECASE,
 )
 # Detect markdown table row separator lines in continuation cleanup logic.
-_TABLE_ROW_SEPARATOR_PATTERN = re.compile(r'^\s*\|?\s*:?-{3,}(?:\s*\|\s*:?-{3,})+\s*\|?\s*$')
-_EMPTY_ORDERED_LIST_ITEM_PATTERN = re.compile(r'^\s*\d+\.\s*$')
+_TABLE_ROW_SEPARATOR_PATTERN = re.compile(r"^\s*\|?\s*:?-{3,}(?:\s*\|\s*:?-{3,})+\s*\|?\s*$")
+_EMPTY_ORDERED_LIST_ITEM_PATTERN = re.compile(r"^\s*\d+\.\s*$")
 
 
 def resolve_completion_state(
@@ -58,11 +87,15 @@ def resolve_completion_state(
     timeout_reason: TimeoutReason | str | None,
     has_remaining_scope: bool,
 ) -> tuple[CompletionMode, bool]:
-    terminal_timeout_reasons = {TimeoutReason.QUEUE_WAIT_TIMEOUT, TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT}
-    normalized_timeout_reason = str(timeout_reason or '').strip().lower()
-    timeout_contributes_remaining_scope = (
-        timeout_occurred and normalized_timeout_reason not in {reason.value for reason in terminal_timeout_reasons}
-    )
+    """Resolve completion state."""
+    terminal_timeout_reasons = {
+        TimeoutReason.QUEUE_WAIT_TIMEOUT,
+        TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT,
+    }
+    normalized_timeout_reason = str(timeout_reason or "").strip().lower()
+    timeout_contributes_remaining_scope = timeout_occurred and normalized_timeout_reason not in {
+        reason.value for reason in terminal_timeout_reasons
+    }
     default_mode = CompletionMode.PARTIAL if timeout_occurred else CompletionMode.COMPLETE
     completion_mode = completion_mode_override or default_mode
     try:
@@ -90,20 +123,24 @@ def resolve_next_action(
         ContinuationResolutionReason | StructuralGapReason | TimeoutReason | str | None
     ),
 ) -> tuple[NextAction, str | None]:
+    """Resolve next action."""
     if stopped_by_user:
-        return NextAction.REGENERATE, 'stopped'
-    normalized_reason = str(continuation_resolution_reason or '').strip().lower()
-    if normalized_reason in {TimeoutReason.QUEUE_WAIT_TIMEOUT.value, TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT.value}:
+        return NextAction.REGENERATE, "stopped"
+    normalized_reason = str(continuation_resolution_reason or "").strip().lower()
+    if normalized_reason in {
+        TimeoutReason.QUEUE_WAIT_TIMEOUT.value,
+        TimeoutReason.FIRST_TOKEN_WATCHDOG_TIMEOUT.value,
+    }:
         return NextAction.NONE, None
     if normalized_reason in {ContinuationResolutionReason.DUPLICATE_CONTINUATION_DETECTED.value}:
-        return NextAction.REGENERATE, 'stalled'
+        return NextAction.REGENERATE, "stalled"
     if not has_remaining_scope:
         return NextAction.NONE, None
     if normalized_reason in {ContinuationResolutionReason.CONTINUATION_PASS_BUDGET_EXHAUSTED.value}:
-        return NextAction.CONTINUE, 'budget_exhausted'
+        return NextAction.CONTINUE, "budget_exhausted"
     if timeout_occurred:
-        return NextAction.CONTINUE, 'timeout'
-    return NextAction.CONTINUE, 'unresolved_content'
+        return NextAction.CONTINUE, "timeout"
+    return NextAction.CONTINUE, "unresolved_content"
 
 
 def enforce_completion_action_consistency(
@@ -113,6 +150,7 @@ def enforce_completion_action_consistency(
     next_action: NextAction,
     next_action_reason: str | None,
 ) -> tuple[CompletionMode, bool]:
+    """Enforce completion action consistency."""
     normalized_completion_mode = completion_mode
     normalized_has_remaining_scope = has_remaining_scope
     if next_action == NextAction.NONE:
@@ -121,9 +159,12 @@ def enforce_completion_action_consistency(
             normalized_completion_mode = CompletionMode.COMPLETE
         return normalized_completion_mode, normalized_has_remaining_scope
     if next_action == NextAction.REGENERATE:
-        if (next_action_reason or '').strip().lower() == 'stalled':
+        if (next_action_reason or "").strip().lower() == "stalled":
             normalized_has_remaining_scope = False
-            if normalized_completion_mode in {CompletionMode.SCOPED_COMPLETE, CompletionMode.PARTIAL}:
+            if normalized_completion_mode in {
+                CompletionMode.SCOPED_COMPLETE,
+                CompletionMode.PARTIAL,
+            }:
                 normalized_completion_mode = CompletionMode.COMPLETE
         return normalized_completion_mode, normalized_has_remaining_scope
     if next_action == NextAction.ASSISTANT_SWITCH:
@@ -139,24 +180,26 @@ def enforce_completion_action_consistency(
 
 
 def is_continuation_request(question: str) -> bool:
-    normalized = ' '.join((question or '').strip().split())
+    """Is continuation request."""
+    normalized = " ".join((question or "").strip().split())
     if not normalized:
         return False
-    if normalized.casefold().rstrip('.!?') in _CONTINUATION_PHRASES:
+    if normalized.casefold().rstrip(".!?") in _CONTINUATION_PHRASES:
         return True
     return bool(_CONTINUATION_PATTERN.search(normalized))
 
 
 def resolve_continuation_anchor_question(*, question: str, history: list[ChatMessage]) -> str:
-    normalized_question = (question or '').strip()
+    """Resolve continuation anchor question."""
+    normalized_question = (question or "").strip()
     if not is_continuation_request(normalized_question):
         return normalized_question
-    if '##' in normalized_question:
+    if "##" in normalized_question:
         return normalized_question
     for message in reversed(history):
         if message.role != ChatRole.USER:
             continue
-        candidate = str(message.content or '').strip()
+        candidate = str(message.content or "").strip()
         if not candidate:
             continue
         if is_continuation_request(candidate):
@@ -170,17 +213,19 @@ def build_auto_continue_pass_prompt(
     auto_continue_prompt: str,
     original_question: str,
 ) -> str:
+    """Build auto continue pass prompt."""
     lines = [
         auto_continue_prompt.strip(),
-        '',
-        'Original request:',
+        "",
+        "Original request:",
         original_question.strip(),
     ]
-    return '\n'.join(lines).strip()
+    return "\n".join(lines).strip()
 
 
 def continuation_requires_structured_output(question: str) -> bool:
-    return bool(_CONTINUATION_STRUCTURED_OUTPUT_PATTERN.search(str(question or '')))
+    """Continuation requires structured output."""
+    return bool(_CONTINUATION_STRUCTURED_OUTPUT_PATTERN.search(str(question or "")))
 
 
 def normalize_continuation_classification(
@@ -188,24 +233,31 @@ def normalize_continuation_classification(
     classification: QueryClassification,
     continuation_anchor_question: str,
 ) -> QueryClassification:
+    """Normalize continuation classification."""
     classification.is_continuation = True
     classification.route_candidate = IntentProfileId.CONTINUATION_OR_REFINEMENT
-    if 'deterministic_continuation_route_enforced' not in classification.reason_codes:
-        classification.reason_codes.append('deterministic_continuation_route_enforced')
+    if "deterministic_continuation_route_enforced" not in classification.reason_codes:
+        classification.reason_codes.append("deterministic_continuation_route_enforced")
     if not continuation_requires_structured_output(continuation_anchor_question):
         classification.response_shape = OutputShape.NARRATIVE_SYNTHESIS
         if classification.subtype == QuerySubtype.EXTRACT_STRUCTURED_VALUES:
             classification.subtype = None
-            if 'deterministic_continuation_structured_subtype_cleared' not in classification.reason_codes:
-                classification.reason_codes.append('deterministic_continuation_structured_subtype_cleared')
+            if (
+                "deterministic_continuation_structured_subtype_cleared"
+                not in classification.reason_codes
+            ):
+                classification.reason_codes.append(
+                    "deterministic_continuation_structured_subtype_cleared"
+                )
     return classification
 
 
 def is_duplicate_continuation_pass(previous_answer: str | None, current_answer: str) -> bool:
+    """Is duplicate continuation pass."""
     if not previous_answer:
         return False
     left = previous_answer.strip()
-    right = (current_answer or '').strip()
+    right = (current_answer or "").strip()
     if not left or not right:
         return False
     if left == right:
@@ -217,28 +269,34 @@ def is_duplicate_continuation_pass(previous_answer: str | None, current_answer: 
 
 
 def enforce_continuation_chat_binding(*, question: str, chat_id: str | None) -> None:
+    """Enforce continuation chat binding."""
     if chat_id:
         return
     if not is_continuation_request(question):
         return
     raise HTTPException(
         status_code=409,
-        detail='Continuation requests require an existing chat. Use Continue from the same chat thread.',
+        detail="Continuation requests require an existing chat. Use Continue from the same chat thread.",
     )
 
 
 def detect_structural_incomplete_reason(answer: str) -> StructuralGapReason | None:
-    text = str(answer or '')
+    """Detect structural incomplete reason."""
+    text = str(answer or "")
     if not text.strip():
         return None
-    if text.count('```') % 2 != 0:
+    if text.count("```") % 2 != 0:
         return StructuralGapReason.UNCLOSED_CODE_FENCE
     lines = [line.rstrip() for line in text.splitlines() if line.strip()]
     if not lines:
         return None
     last_line = lines[-1].rstrip()
     has_markdown_table = any(_TABLE_ROW_SEPARATOR_PATTERN.match(line) for line in lines)
-    if has_markdown_table and last_line.lstrip().startswith('|') and not last_line.rstrip().endswith('|'):
+    if (
+        has_markdown_table
+        and last_line.lstrip().startswith("|")
+        and not last_line.rstrip().endswith("|")
+    ):
         return StructuralGapReason.TRUNCATED_MARKDOWN_TABLE_ROW
     if _EMPTY_ORDERED_LIST_ITEM_PATTERN.match(last_line):
         return StructuralGapReason.TRUNCATED_MARKDOWN_LIST_ITEM
@@ -246,14 +304,15 @@ def detect_structural_incomplete_reason(answer: str) -> StructuralGapReason | No
 
 
 def resolve_auto_continue_policy() -> tuple[bool, int, str]:
+    """Resolve auto continue policy."""
     enabled = bool(settings.chat_auto_continue_enabled)
     default_rounds = max(0, int(settings.chat_auto_continue_default_max_rounds))
     hard_cap = max(0, int(settings.chat_auto_continue_hard_cap))
     max_rounds = min(default_rounds, hard_cap)
-    prompt = str(settings.chat_auto_continue_prompt or '').strip()
+    prompt = str(settings.chat_auto_continue_prompt or "").strip()
     if not prompt:
         prompt = (
-            'Continue with the remaining sections from your last answer. '
-            'Keep the same structure and avoid repeating completed sections.'
+            "Continue with the remaining sections from your last answer. "
+            "Keep the same structure and avoid repeating completed sections."
         )
     return enabled, max_rounds, prompt

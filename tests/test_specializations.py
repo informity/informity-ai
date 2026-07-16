@@ -1,3 +1,7 @@
+"""Test module for tests test specializations."""
+
+# pylint: disable=line-too-long
+
 from informity.llm.specializations import (
     MODE_REGISTRY,
     SPECIALIZATION_REGISTRY,
@@ -62,75 +66,101 @@ Keep responses concise."""
 
 
 def test_registry_contains_core_default_specialization_profiles() -> None:
-    assert 'assistant_default' in MODE_REGISTRY
-    assert 'researcher_default' in MODE_REGISTRY
-    assert 'researcher_rag' in MODE_REGISTRY
+    """Test registry contains core default specialization profiles."""
+    assert "assistant_default" in MODE_REGISTRY
+    assert "researcher_default" in MODE_REGISTRY
+    assert "researcher_rag" in MODE_REGISTRY
 
 
 def test_runtime_specialization_resolution_by_mode() -> None:
-    assert resolve_runtime_mode_id('assistant') == 'assistant_default'
-    assert resolve_runtime_mode_id('researcher') == 'researcher_default'
-    assert resolve_runtime_mode_id(None) == 'researcher_default'
+    """Test runtime specialization resolution by mode."""
+    assert resolve_runtime_mode_id("assistant") == "assistant_default"
+    assert resolve_runtime_mode_id("researcher") == "researcher_default"
+    assert resolve_runtime_mode_id(None) == "researcher_default"
 
 
 def test_rag_specialization_composition_adds_assistant_mode_policy_only_for_assistant() -> None:
-    assistant_prompt = compose_prompt(mode_id='researcher_rag', chat_mode='assistant')
-    researcher_prompt = compose_prompt(mode_id='researcher_rag', chat_mode='researcher')
+    """Test rag specialization composition adds assistant mode policy only for assistant."""
+    assistant_prompt = compose_prompt(mode_id="researcher_rag", chat_mode="assistant")
+    researcher_prompt = compose_prompt(mode_id="researcher_rag", chat_mode="researcher")
 
-    assert 'Answer using ONLY the available information from retrieved context' in assistant_prompt
-    assert 'Assistant Mode Rules:' in assistant_prompt
-    assert 'Assistant Mode Rules:' not in researcher_prompt
+    assert "Answer using ONLY the available information from retrieved context" in assistant_prompt
+    assert "Assistant Mode Rules:" in assistant_prompt
+    assert "Assistant Mode Rules:" not in researcher_prompt
 
 
 def test_legacy_prompt_exports_are_covered_by_registry_prompts() -> None:
-    assert get_mode_prompt('assistant_default').startswith('You are Informity AI')
-    assert 'Summarize this chat conversation only.' in get_mode_prompt('chat_summary')
+    """Test legacy prompt exports are covered by registry prompts."""
+    assert get_mode_prompt("assistant_default").startswith("You are Informity AI")
+    assert "Summarize this chat conversation only." in get_mode_prompt("chat_summary")
 
 
 def test_specialization_prompts_match_golden_baseline_exactly() -> None:
-    assert get_mode_prompt('assistant_default') == _EXPECTED_ASSISTANT_PROMPT
-    assert get_mode_prompt('assistant_web_search_synthesis') == _EXPECTED_ASSISTANT_WEB_SYNTHESIS_PROMPT
-    assert get_mode_prompt('researcher_default') == _EXPECTED_RESEARCHER_SIMPLE_PROMPT
-    assert get_mode_prompt('chat_summary') == _EXPECTED_CHAT_SUMMARY_PROMPT
+    """Test specialization prompts match golden baseline exactly."""
+    assert get_mode_prompt("assistant_default") == _EXPECTED_ASSISTANT_PROMPT
+    assert (
+        get_mode_prompt("assistant_web_search_synthesis")
+        == _EXPECTED_ASSISTANT_WEB_SYNTHESIS_PROMPT
+    )
+    assert get_mode_prompt("researcher_default") == _EXPECTED_RESEARCHER_SIMPLE_PROMPT
+    assert get_mode_prompt("chat_summary") == _EXPECTED_CHAT_SUMMARY_PROMPT
 
 
 def test_compose_prompt_mode_only_is_stable() -> None:
-    assert compose_prompt(mode_id='researcher_rag', chat_mode='assistant')
-    assert compose_prompt(mode_id='researcher_rag', chat_mode='researcher')
+    """Test compose prompt mode only is stable."""
+    assert compose_prompt(mode_id="researcher_rag", chat_mode="assistant")
+    assert compose_prompt(mode_id="researcher_rag", chat_mode="researcher")
 
 
 def test_specialization_registry_contains_builtin_specializations() -> None:
-    assert 'legal' in SPECIALIZATION_REGISTRY
-    assert 'security_compliance' in SPECIALIZATION_REGISTRY
-    assert 'financial' in SPECIALIZATION_REGISTRY
-    assert 'technical' in SPECIALIZATION_REGISTRY
+    """Test specialization registry contains builtin specializations."""
+    assert "legal" in SPECIALIZATION_REGISTRY
+    assert "security_compliance" in SPECIALIZATION_REGISTRY
+    assert "financial" in SPECIALIZATION_REGISTRY
+    assert "technical" in SPECIALIZATION_REGISTRY
 
 
 def test_specialization_overlay_is_additive_and_keeps_mode_prompt_prefix() -> None:
-    general = compose_prompt(mode_id='researcher_rag', chat_mode='researcher', specialization_id=None)
-    legal = compose_prompt(mode_id='researcher_rag', chat_mode='researcher', specialization_id='legal')
+    """Test specialization overlay is additive and keeps mode prompt prefix."""
+    general = compose_prompt(
+        mode_id="researcher_rag", chat_mode="researcher", specialization_id=None
+    )
+    legal = compose_prompt(
+        mode_id="researcher_rag", chat_mode="researcher", specialization_id="legal"
+    )
 
     assert legal.startswith(general)
-    assert 'Specialization Identity:' in legal
-    assert 'Specialization Scope:' in legal
-    assert 'Specialization Analysis Checklist:' in legal
-    assert 'Specialization Output Preferences:' in legal
-    assert 'Specialization Evidence Discipline:' in legal
-    assert 'Specialization Overlay:' in legal
-    assert 'Specialization Disclaimer:' not in legal
+    assert "Specialization Identity:" in legal
+    assert "Specialization Scope:" in legal
+    assert "Specialization Analysis Checklist:" in legal
+    assert "Specialization Output Preferences:" in legal
+    assert "Specialization Evidence Discipline:" in legal
+    assert "Specialization Overlay:" in legal
+    assert "Specialization Disclaimer:" not in legal
 
 
 def test_specialization_disclaimer_included_for_non_rag_prompt() -> None:
-    legal = compose_prompt(mode_id='assistant_default', chat_mode='assistant', specialization_id='legal')
-    assert 'Specialization Disclaimer:' in legal
+    """Test specialization disclaimer included for non rag prompt."""
+    legal = compose_prompt(
+        mode_id="assistant_default", chat_mode="assistant", specialization_id="legal"
+    )
+    assert "Specialization Disclaimer:" in legal
 
 
 def test_general_mode_prompt_parity_when_specialization_absent() -> None:
-    assert compose_prompt(mode_id='assistant_default', chat_mode='assistant', specialization_id=None) == _EXPECTED_ASSISTANT_PROMPT
-    assert compose_prompt(mode_id='researcher_default', chat_mode='researcher', specialization_id=None) == _EXPECTED_RESEARCHER_SIMPLE_PROMPT
+    """Test general mode prompt parity when specialization absent."""
+    assert (
+        compose_prompt(mode_id="assistant_default", chat_mode="assistant", specialization_id=None)
+        == _EXPECTED_ASSISTANT_PROMPT
+    )
+    assert (
+        compose_prompt(mode_id="researcher_default", chat_mode="researcher", specialization_id=None)
+        == _EXPECTED_RESEARCHER_SIMPLE_PROMPT
+    )
 
 
 def test_system_prompt_exports_match_golden_baseline_exactly() -> None:
+    """Test system prompt exports match golden baseline exactly."""
     assert SIMPLE_ASSISTANT_SYSTEM_PROMPT == _EXPECTED_ASSISTANT_PROMPT
     assert SIMPLE_ASSISTANT_WEB_SEARCH_SYNTHESIS_PROMPT == _EXPECTED_ASSISTANT_WEB_SYNTHESIS_PROMPT
     assert SIMPLE_RESEARCHER_SYSTEM_PROMPT == _EXPECTED_RESEARCHER_SIMPLE_PROMPT
@@ -138,8 +168,9 @@ def test_system_prompt_exports_match_golden_baseline_exactly() -> None:
 
 
 def test_describe_specialization_returns_diagnostics_metadata() -> None:
-    description = describe_specialization('legal')
-    assert description['id'] == 'legal'
-    assert description['plugin_type'] == 'specialization'
-    assert description['visible_in_ui'] is True
-    assert description['has_plugin_spec'] is True
+    """Test describe specialization returns diagnostics metadata."""
+    description = describe_specialization("legal")
+    assert description["id"] == "legal"
+    assert description["plugin_type"] == "specialization"
+    assert description["visible_in_ui"] is True
+    assert description["has_plugin_spec"] is True

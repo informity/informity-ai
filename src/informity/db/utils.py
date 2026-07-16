@@ -3,6 +3,8 @@
 # Shared utilities for database operations: timestamp parsing, row conversion helpers
 # ==============================================================================
 
+"""Module for db utils."""
+
 import json
 from datetime import UTC, datetime
 
@@ -17,6 +19,7 @@ _JSON_FALLBACK_PREVIEW_CHARS = 160
 # ==============================================================================
 # Timestamp Parsing
 # ==============================================================================
+
 
 def parse_timestamp(value: str | datetime | None) -> datetime | None:
     """
@@ -38,7 +41,7 @@ def parse_timestamp(value: str | datetime | None) -> datetime | None:
         return None
     if isinstance(value, datetime):
         return value
-    for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f'):
+    for fmt in ("%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S", "%Y-%m-%dT%H:%M:%S.%f"):
         try:
             return datetime.strptime(value, fmt).replace(tzinfo=UTC)
         except ValueError:
@@ -49,13 +52,14 @@ def parse_timestamp(value: str | datetime | None) -> datetime | None:
             dt = dt.replace(tzinfo=UTC)
         return dt
     except ValueError:
-        log.warning('unparseable_timestamp', value=value)
+        log.warning("unparseable_timestamp", value=value)
         return None
 
 
 # ==============================================================================
 # Row Conversion Helpers
 # ==============================================================================
+
 
 def parse_file_category(value: str | None) -> FileCategory:
     """
@@ -91,18 +95,18 @@ def parse_json_tags(value: str | None) -> list[str]:
         tags = json.loads(value)
         if not isinstance(tags, list):
             log.warning(
-                'db_json_parse_fallback',
-                field='tags',
-                reason='not_list',
+                "db_json_parse_fallback",
+                field="tags",
+                reason="not_list",
                 value_preview=value[:_JSON_FALLBACK_PREVIEW_CHARS],
             )
             return []
         return tags
     except (json.JSONDecodeError, TypeError) as exc:
         log.warning(
-            'db_json_parse_fallback',
-            field='tags',
-            reason='invalid_json',
+            "db_json_parse_fallback",
+            field="tags",
+            reason="invalid_json",
             error=str(exc),
             value_preview=str(value)[:_JSON_FALLBACK_PREVIEW_CHARS],
         )
@@ -125,18 +129,18 @@ def parse_json_sources(value: str | None) -> list[dict]:
         sources = json.loads(value)
         if not isinstance(sources, list):
             log.warning(
-                'db_json_parse_fallback',
-                field='sources',
-                reason='not_list',
+                "db_json_parse_fallback",
+                field="sources",
+                reason="not_list",
                 value_preview=value[:_JSON_FALLBACK_PREVIEW_CHARS],
             )
             return []
         return sources
     except (json.JSONDecodeError, TypeError) as exc:
         log.warning(
-            'db_json_parse_fallback',
-            field='sources',
-            reason='invalid_json',
+            "db_json_parse_fallback",
+            field="sources",
+            reason="invalid_json",
             error=str(exc),
             value_preview=str(value)[:_JSON_FALLBACK_PREVIEW_CHARS],
         )

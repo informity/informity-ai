@@ -1,3 +1,5 @@
+"""Module for mcp server."""
+
 from __future__ import annotations
 
 import urllib.parse
@@ -43,10 +45,11 @@ class InformityMcpReadOnlyServer:
         *,
         tool_name: str,
         args: dict[str, Any] | None = None,
-        transport: str = 'stdio',
+        transport: str = "stdio",
         bearer_token: str | None = None,
         skip_authorization: bool = False,
     ) -> dict[str, Any]:
+        """Execute tool."""
         if not skip_authorization:
             authorize_mcp_request(transport=transport, bearer_token=bearer_token)
         payload = args or {}
@@ -62,18 +65,22 @@ class InformityMcpReadOnlyServer:
                 return await tool_files_list(
                     db,
                     scope=scope,
-                    limit=int(payload.get('limit', 50)),
-                    offset=int(payload.get('offset', 0)),
-                    search=str(payload.get('search')) if payload.get('search') is not None else None,
+                    limit=int(payload.get("limit", 50)),
+                    offset=int(payload.get("offset", 0)),
+                    search=str(payload.get("search"))
+                    if payload.get("search") is not None
+                    else None,
                 )
             if normalized_tool_name == TOOL_SEARCH_SEMANTIC:
-                file_types = payload.get('file_types')
+                file_types = payload.get("file_types")
                 return await tool_search_semantic(
                     db,
                     scope=scope,
-                    query=str(payload.get('query') or ''),
-                    limit=int(payload.get('limit', 50)),
-                    category=str(payload.get('category')) if payload.get('category') is not None else None,
+                    query=str(payload.get("query") or ""),
+                    limit=int(payload.get("limit", 50)),
+                    category=str(payload.get("category"))
+                    if payload.get("category") is not None
+                    else None,
                     file_types=list(file_types) if isinstance(file_types, list) else None,
                 )
             if normalized_tool_name == TOOL_INDEX_STATUS:
@@ -85,16 +92,17 @@ class InformityMcpReadOnlyServer:
         finally:
             await db.close()
 
-        raise McpToolNotFoundError(f'Unknown MCP tool: {tool_name}')
+        raise McpToolNotFoundError(f"Unknown MCP tool: {tool_name}")
 
     async def _get_readonly_connection(self) -> aiosqlite.Connection:
+        """Internal helper for get readonly connection."""
         db_path = str(settings.db_path)
-        uri = f"file:{urllib.parse.quote(db_path, safe='/')}" + '?mode=ro'
+        uri = f"file:{urllib.parse.quote(db_path, safe='/')}" + "?mode=ro"
         conn = await aiosqlite.connect(uri, uri=True)
         conn.row_factory = aiosqlite.Row
-        await conn.execute('PRAGMA query_only=ON')
-        await conn.execute('PRAGMA foreign_keys=ON')
-        await conn.execute('PRAGMA busy_timeout=5000')
+        await conn.execute("PRAGMA query_only=ON")
+        await conn.execute("PRAGMA foreign_keys=ON")
+        await conn.execute("PRAGMA busy_timeout=5000")
         return conn
 
 

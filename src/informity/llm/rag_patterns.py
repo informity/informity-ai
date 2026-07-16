@@ -4,6 +4,8 @@ Informity AI — RAG Pattern Utilities
 Deterministic pattern and helper utilities used by the RAG runtime.
 """
 
+# pylint: disable=line-too-long
+
 import re
 from typing import TYPE_CHECKING
 
@@ -20,49 +22,92 @@ else:
 _FILENAME_EXTENSION_ALT = build_supported_filename_extension_pattern()
 
 SUMMARY_STYLE_REQUEST_PATTERN = re.compile(
-    r'\b('
-    r'summar(?:y|ize|ized)|overview|key\s+points?|main\s+points?|chapter|plot|story'
-    r'|what\s+(?:is|does)\s+(?:this|the)\s+'
-    r'(?:document|file|text|record|entry|item|source|material|attachment|note|paper)\s+'
-    r'(?:about|cover)'
-    r')\b',
+    r"\b("
+    r"summar(?:y|ize|ized)|overview|key\s+points?|main\s+points?|chapter|plot|story"
+    r"|what\s+(?:is|does)\s+(?:this|the)\s+"
+    r"(?:document|file|text|record|entry|item|source|material|attachment|note|paper)\s+"
+    r"(?:about|cover)"
+    r")\b",
     re.IGNORECASE,
 )
-PLOT_CHAPTER_REQUEST_PATTERN = re.compile(r'\b(plot|chapter)\b', re.IGNORECASE)
+PLOT_CHAPTER_REQUEST_PATTERN = re.compile(r"\b(plot|chapter)\b", re.IGNORECASE)
 ANAPHORIC_SCOPE_PATTERN = re.compile(
-    r'\b(this|that|it|'
-    r'this\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)|'
-    r'that\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)'
-    r')\b',
+    r"\b(this|that|it|"
+    r"this\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)|"
+    r"that\s+(?:document|file|text|record|entry|item|source|material|attachment|note|paper)"
+    r")\b",
     re.IGNORECASE,
 )
 TITLE_ALIGNMENT_CUE_PATTERN = re.compile(
-    r'\b(compare|between|versus|vs)\b'
-    r'|'
-    r'\b(?:in|from)\s+.{0,120}\b(document|file|text|record|entry|item|source|material|attachment|note|paper)\b',
+    r"\b(compare|between|versus|vs)\b"
+    r"|"
+    r"\b(?:in|from)\s+.{0,120}\b(document|file|text|record|entry|item|source|material|attachment|note|paper)\b",
     re.IGNORECASE,
 )
 _TITLE_IN_PREPOSITION_PATTERN = re.compile(
-    r'\b(?:of|in|about|from)\s+'
-    r'((?:[A-Z][A-Za-z0-9\'_-]*)(?:\s+[A-Z][A-Za-z0-9\'_-]*){1,8})'
-    r'(?:\s+(?:file|document|text|record|entry|item|source|material|attachment|note|paper))?\b'
+    r"\b(?:of|in|about|from)\s+"
+    r"((?:[A-Z][A-Za-z0-9\'_-]*)(?:\s+[A-Z][A-Za-z0-9\'_-]*){1,8})"
+    r"(?:\s+(?:file|document|text|record|entry|item|source|material|attachment|note|paper))?\b"
 )
 _TITLE_BEFORE_DOCUMENT_NOUN_PATTERN = re.compile(
-    r'\b('
-    r'(?!(?:What|Who|When|Where|Why|How|Which|Tell|List)\b)'
-    r'(?:[A-Z][A-Za-z0-9\'_-]*)(?:\s+[A-Z][A-Za-z0-9\'_-]*){1,8}'
-    r')\s+'
-    r'(?:book|document|file|text|record|entry|item|source|material|attachment|note|paper)\b'
+    r"\b("
+    r"(?!(?:What|Who|When|Where|Why|How|Which|Tell|List)\b)"
+    r"(?:[A-Z][A-Za-z0-9\'_-]*)(?:\s+[A-Z][A-Za-z0-9\'_-]*){1,8}"
+    r")\s+"
+    r"(?:book|document|file|text|record|entry|item|source|material|attachment|note|paper)\b"
 )
 _QUOTED_TITLE_PATTERN = re.compile(r'["“](.{3,120}?)[”"]')
-STRUCTURAL_BLOCK_TYPES = {'table', 'form'}
-SUMMARY_BLOCK_TYPE_EXCLUDE = ['table', 'form']
-EXTRACTION_CUE_PATTERN = re.compile(r'\bextract\b', re.IGNORECASE)
+STRUCTURAL_BLOCK_TYPES = {"table", "form"}
+SUMMARY_BLOCK_TYPE_EXCLUDE = ["table", "form"]
+EXTRACTION_CUE_PATTERN = re.compile(r"\bextract\b", re.IGNORECASE)
 REWRITE_STOPWORDS = {
-    'a', 'an', 'and', 'are', 'as', 'at', 'be', 'by', 'do', 'for', 'from', 'give', 'has', 'have',
-    'how', 'i', 'in', 'is', 'it', 'its', 'list', 'me', 'of', 'on', 'or', 'our', 'please', 'show',
-    'that', 'the', 'their', 'them', 'there', 'these', 'they', 'this', 'to', 'us', 'what', 'when',
-    'where', 'which', 'who', 'why', 'with', 'you', 'your',
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "by",
+    "do",
+    "for",
+    "from",
+    "give",
+    "has",
+    "have",
+    "how",
+    "i",
+    "in",
+    "is",
+    "it",
+    "its",
+    "list",
+    "me",
+    "of",
+    "on",
+    "or",
+    "our",
+    "please",
+    "show",
+    "that",
+    "the",
+    "their",
+    "them",
+    "there",
+    "these",
+    "they",
+    "this",
+    "to",
+    "us",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "why",
+    "with",
+    "you",
+    "your",
 }
 
 
@@ -70,24 +115,29 @@ def is_summary_style_request(
     question: str,
     classification: QueryClassification,
 ) -> bool:
+    """Is summary style request."""
     if classification.intent not in {QueryType.COVERAGE, QueryType.FOCUSED}:
         return False
-    return bool(SUMMARY_STYLE_REQUEST_PATTERN.search(str(question or '')))
+    return bool(SUMMARY_STYLE_REQUEST_PATTERN.search(str(question or "")))
 
 
 def is_plot_or_chapter_request(question: str) -> bool:
-    return bool(PLOT_CHAPTER_REQUEST_PATTERN.search(str(question or '')))
+    """Is plot or chapter request."""
+    return bool(PLOT_CHAPTER_REQUEST_PATTERN.search(str(question or "")))
 
 
 def has_extraction_cue(question: str) -> bool:
-    return bool(EXTRACTION_CUE_PATTERN.search(str(question or '')))
+    """Has extraction cue."""
+    return bool(EXTRACTION_CUE_PATTERN.search(str(question or "")))
 
 
 def normalize_query_text(text: str) -> str:
-    return ' '.join(str(text or '').strip().split())
+    """Normalize query text."""
+    return " ".join(str(text or "").strip().split())
 
 
 def has_referential_followup_language(question: str) -> bool:
+    """Has referential followup language."""
     normalized = normalize_query_text(question)
     if not normalized:
         return False
@@ -95,6 +145,7 @@ def has_referential_followup_language(question: str) -> bool:
 
 
 def has_topic_shift_cue(question: str) -> bool:
+    """Has topic shift cue."""
     normalized = normalize_query_text(question)
     if not normalized:
         return False
@@ -102,11 +153,13 @@ def has_topic_shift_cue(question: str) -> bool:
 
 
 def has_explicit_title_reference(question: str) -> bool:
+    """Has explicit title reference."""
     return extract_explicit_title_reference(question) is not None
 
 
 def extract_explicit_title_reference(question: str) -> str | None:
-    text = str(question or '').strip()
+    """Extract explicit title reference."""
+    text = str(question or "").strip()
     if not text:
         return None
     quoted_match = _QUOTED_TITLE_PATTERN.search(text)
@@ -122,10 +175,12 @@ def extract_explicit_title_reference(question: str) -> str | None:
 
 
 def has_comparison_cue(text: str) -> bool:
-    return bool(TITLE_ALIGNMENT_CUE_PATTERN.search(str(text or '')))
+    """Has comparison cue."""
+    return bool(TITLE_ALIGNMENT_CUE_PATTERN.search(str(text or "")))
 
 
 def tokenize_query_terms(text: str) -> set[str]:
+    """Tokenize query terms."""
     lowered = normalize_query_text(text).lower()
     if not lowered:
         return set()
@@ -135,7 +190,7 @@ def tokenize_query_terms(text: str) -> set[str]:
         if term in REWRITE_STOPWORDS:
             continue
         terms.add(term)
-        if term.endswith('s') and len(term) > 4:
+        if term.endswith("s") and len(term) > 4:
             terms.add(term[:-1])
     return terms
 
@@ -145,13 +200,14 @@ def has_topic_overlap_with_previous_user(
     question: str,
     history: list[ChatMessage],
 ) -> bool:
+    """Has topic overlap with previous user."""
     current_terms = tokenize_query_terms(question)
     if not current_terms:
         return False
     for message in reversed(history):
-        if message.role != 'user':
+        if message.role != "user":
             continue
-        previous_terms = tokenize_query_terms(message.content or '')
+        previous_terms = tokenize_query_terms(message.content or "")
         if not previous_terms:
             continue
         return bool(current_terms & previous_terms)
@@ -163,31 +219,33 @@ def should_prefer_title_alignment(
     question: str,
     classification: QueryClassification,
 ) -> bool:
+    """Should prefer title alignment."""
     if classification.intent not in {QueryType.FOCUSED, QueryType.COVERAGE}:
         return False
     if has_explicit_title_reference(question):
         return True
-    if TITLE_ALIGNMENT_CUE_PATTERN.search(str(question or '')):
+    if TITLE_ALIGNMENT_CUE_PATTERN.search(str(question or "")):
         return True
-    source_terms = [str(term or '').strip() for term in (classification.source_terms or [])]
-    return any(len(term) >= 6 and ' ' in term for term in source_terms)
+    source_terms = [str(term or "").strip() for term in (classification.source_terms or [])]
+    return any(len(term) >= 6 and " " in term for term in source_terms)
 
 
 def evaluate_substantive_evidence(chunks: list[dict]) -> dict[str, float | int]:
+    """Evaluate substantive evidence."""
     if not chunks:
         return {
-            'chunk_count': 0,
-            'narrative_count': 0,
-            'structural_count': 0,
-            'substantive_count': 0,
-            'substantive_ratio': 0.0,
+            "chunk_count": 0,
+            "narrative_count": 0,
+            "structural_count": 0,
+            "substantive_count": 0,
+            "substantive_ratio": 0.0,
         }
     narrative_count = 0
     structural_count = 0
     substantive_count = 0
     for chunk in chunks:
-        block_type = str(chunk.get('block_type') or '').strip().casefold()
-        if block_type == 'narrative':
+        block_type = str(chunk.get("block_type") or "").strip().casefold()
+        if block_type == "narrative":
             narrative_count += 1
             substantive_count += 1
             continue
@@ -199,9 +257,9 @@ def evaluate_substantive_evidence(chunks: list[dict]) -> dict[str, float | int]:
     chunk_count = len(chunks)
     substantive_ratio = substantive_count / max(1, chunk_count)
     return {
-        'chunk_count': chunk_count,
-        'narrative_count': narrative_count,
-        'structural_count': structural_count,
-        'substantive_count': substantive_count,
-        'substantive_ratio': substantive_ratio,
+        "chunk_count": chunk_count,
+        "narrative_count": narrative_count,
+        "structural_count": structural_count,
+        "substantive_count": substantive_count,
+        "substantive_ratio": substantive_ratio,
     }

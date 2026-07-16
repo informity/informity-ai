@@ -1,3 +1,5 @@
+"""Test module for tests test mcp lifecycle http."""
+
 from __future__ import annotations
 
 import socket
@@ -9,12 +11,14 @@ from informity.mcp.lifecycle import McpLifecycleManager
 
 
 def _get_free_port() -> int:
+    """Internal helper for get free port."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.bind(('127.0.0.1', 0))
+        sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
 
 
 def _can_connect(host: str, port: int) -> bool:
+    """Internal helper for can connect."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.settimeout(0.2)
         return sock.connect_ex((host, port)) == 0
@@ -22,8 +26,9 @@ def _can_connect(host: str, port: int) -> bool:
 
 @pytest.mark.asyncio
 async def test_http_lifecycle_binds_and_unbinds_port() -> None:
+    """Test http lifecycle binds and unbinds port."""
     manager = McpLifecycleManager()
-    host = '127.0.0.1'
+    host = "127.0.0.1"
     port = _get_free_port()
 
     original = (
@@ -34,7 +39,7 @@ async def test_http_lifecycle_binds_and_unbinds_port() -> None:
     )
     try:
         config.settings.mcp_enabled = True
-        config.settings.mcp_transport = 'http'
+        config.settings.mcp_transport = "http"
         config.settings.mcp_http_host = host
         config.settings.mcp_http_port = port
 
@@ -47,14 +52,20 @@ async def test_http_lifecycle_binds_and_unbinds_port() -> None:
         assert manager.running is False
         assert _can_connect(host, port) is False
     finally:
-        config.settings.mcp_enabled, config.settings.mcp_transport, config.settings.mcp_http_host, config.settings.mcp_http_port = original
+        (
+            config.settings.mcp_enabled,
+            config.settings.mcp_transport,
+            config.settings.mcp_http_host,
+            config.settings.mcp_http_port,
+        ) = original
         await manager.stop()
 
 
 @pytest.mark.asyncio
 async def test_http_lifecycle_reports_error_on_port_contention() -> None:
+    """Test http lifecycle reports error on port contention."""
     manager = McpLifecycleManager()
-    host = '127.0.0.1'
+    host = "127.0.0.1"
     port = _get_free_port()
 
     blocker = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -69,16 +80,20 @@ async def test_http_lifecycle_reports_error_on_port_contention() -> None:
     )
     try:
         config.settings.mcp_enabled = True
-        config.settings.mcp_transport = 'http'
+        config.settings.mcp_transport = "http"
         config.settings.mcp_http_host = host
         config.settings.mcp_http_port = port
 
         await manager.start_from_settings()
         assert manager.running is False
         assert manager.last_error is not None
-        assert 'Failed to start MCP HTTP server' in manager.last_error
+        assert "Failed to start MCP HTTP server" in manager.last_error
     finally:
         blocker.close()
-        config.settings.mcp_enabled, config.settings.mcp_transport, config.settings.mcp_http_host, config.settings.mcp_http_port = original
+        (
+            config.settings.mcp_enabled,
+            config.settings.mcp_transport,
+            config.settings.mcp_http_host,
+            config.settings.mcp_http_port,
+        ) = original
         await manager.stop()
-

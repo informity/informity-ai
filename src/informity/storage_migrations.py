@@ -1,3 +1,5 @@
+"""Module for storage migrations."""
+
 from __future__ import annotations
 
 import shutil
@@ -25,14 +27,14 @@ async def migrate_legacy_upload_storage_layout(
     It updates matching `files.path` and `files.source_item_id` rows so older
     uploads remain discoverable after the move.
     """
-    storage_root = app_data_dir / 'storage'
-    legacy_root = storage_root / 'upload'
+    storage_root = app_data_dir / "storage"
+    legacy_root = storage_root / "upload"
     if not legacy_root.exists():
-        return {'migrated_dirs': 0, 'updated_file_rows': 0}
+        return {"migrated_dirs": 0, "updated_file_rows": 0}
 
     migrations = (
-        (legacy_root / 'chat', storage_root / 'uploads'),
-        (legacy_root / 'translate', storage_root / 'translate'),
+        (legacy_root / "chat", storage_root / "uploads"),
+        (legacy_root / "translate", storage_root / "translate"),
     )
 
     migrated_dirs = 0
@@ -47,7 +49,7 @@ async def migrate_legacy_upload_storage_layout(
             target_child = new_section_root / legacy_child.name
             if target_child.exists():
                 log.info(
-                    'legacy_upload_storage_target_exists',
+                    "legacy_upload_storage_target_exists",
                     legacy_path=str(legacy_child),
                     target_path=str(target_child),
                 )
@@ -59,20 +61,20 @@ async def migrate_legacy_upload_storage_layout(
             old_prefix = str(legacy_child)
             new_prefix = str(target_child)
             cursor = await db.execute(
-                'SELECT id, path FROM files WHERE path = ? OR path LIKE ?',
-                (old_prefix, f'{old_prefix}/%'),
+                "SELECT id, path FROM files WHERE path = ? OR path LIKE ?",
+                (old_prefix, f"{old_prefix}/%"),
             )
             rows = await cursor.fetchall()
             for row in rows:
-                old_path = str(row['path'] or '')
+                old_path = str(row["path"] or "")
                 if not old_path.startswith(old_prefix):
                     continue
-                new_path = new_prefix + old_path[len(old_prefix):]
+                new_path = new_prefix + old_path[len(old_prefix) :]
                 if new_path == old_path:
                     continue
                 await db.execute(
-                    'UPDATE files SET path = ?, source_item_id = ? WHERE id = ?',
-                    (new_path, new_path, int(row['id'])),
+                    "UPDATE files SET path = ?, source_item_id = ? WHERE id = ?",
+                    (new_path, new_path, int(row["id"])),
                 )
                 updated_file_rows += 1
 
@@ -87,11 +89,11 @@ async def migrate_legacy_upload_storage_layout(
     await db.commit()
     if migrated_dirs or updated_file_rows:
         log.info(
-            'legacy_upload_storage_migrated',
+            "legacy_upload_storage_migrated",
             migrated_dirs=migrated_dirs,
             updated_file_rows=updated_file_rows,
         )
     return {
-        'migrated_dirs': migrated_dirs,
-        'updated_file_rows': updated_file_rows,
+        "migrated_dirs": migrated_dirs,
+        "updated_file_rows": updated_file_rows,
     }

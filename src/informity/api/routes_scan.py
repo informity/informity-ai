@@ -4,6 +4,8 @@
 # The scan background task wires together: crawler -> indexing pipeline.
 # ==============================================================================
 
+"""Module for api routes scan."""
+
 import asyncio
 import contextlib
 import gc
@@ -89,8 +91,22 @@ from informity.utils.path_utils import normalize_path
 # ==============================================================================
 
 log = structlog.get_logger(__name__)
-_SCAN_RUNTIME_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError, MemoryError)
-_SCAN_UNHANDLED_GUARD_EXCEPTIONS = (AssertionError, AttributeError, ImportError, LookupError, UnicodeError)
+_SCAN_RUNTIME_EXCEPTIONS = (
+    aiosqlite.Error,
+    RuntimeError,
+    ValueError,
+    TypeError,
+    OSError,
+    TimeoutError,
+    MemoryError,
+)
+_SCAN_UNHANDLED_GUARD_EXCEPTIONS = (
+    AssertionError,
+    AttributeError,
+    ImportError,
+    LookupError,
+    UnicodeError,
+)
 SCAN_CANCEL_POLL_INTERVAL_SECONDS = 0.25
 SCAN_PROGRESS_DB_BUSY_TIMEOUT_MS = 250
 SCAN_PROGRESS_UPDATE_TIMEOUT_SECONDS = 1.0
@@ -103,13 +119,14 @@ _PLAINTEXT_TIMEOUT_CAP_SECONDS = 120
 class _ScanCancelledInFlightError(Exception):
     """Raised when a scan cancellation request arrives during file processing."""
 
+
 # ==============================================================================
 # Router
 # ==============================================================================
 
-router = APIRouter(tags=['scan'])
+router = APIRouter(tags=["scan"])
 SCAN_GUARD = EndpointGuard(
-    name='scan',
+    name="scan",
     max_in_flight=1,
     max_requests_per_window=12,
     window_seconds=60,
@@ -127,6 +144,7 @@ SCAN_FILE_TIMEOUT_MAX_SECONDS = 600
 
 def _resolve_scan_timeout_seconds_for_file(sf: ScannedFile) -> int:
     # Resolve timeout using scope-aware policy + item size.
+    """Internal helper for resolve scan timeout seconds for file."""
     scope_key = normalize_scope_key(FILESYSTEM_PROVIDER, SOURCE_ENTITY_FILE)
     resolved = resolve_timeout_seconds(
         settings.scan_timeout_policy,
@@ -139,6 +157,7 @@ def _resolve_scan_timeout_seconds_for_file(sf: ScannedFile) -> int:
 
 
 def _scan_error_items(records: list[ScanErrorRecord]) -> list[ScanErrorItem]:
+    """Internal helper for scan error items."""
     return [
         ScanErrorItem(
             path=item.path,
@@ -155,6 +174,7 @@ def _scan_error_items(records: list[ScanErrorRecord]) -> list[ScanErrorItem]:
 
 
 def _scan_skipped_items(records) -> list[ScanSkippedFileItem]:
+    """Internal helper for scan skipped items."""
     return [
         ScanSkippedFileItem(
             path=item.path,
@@ -176,6 +196,7 @@ async def _persist_file_result(
     source_provider: str,
     entity_type: str,
 ) -> None:
+    """Internal helper for persist file result."""
     normalized_path = str(normalize_path(scanned.path, expand_user=False))
     if result.success:
         await clear_file_failure(
@@ -197,22 +218,24 @@ async def _persist_file_result(
         retryable=result.retryable,
     )
 
-@router.post('/api/scan')
+
+@router.post("/api/scan")
 async def trigger_scan(
     request: ScanRequest,
     background_tasks: BackgroundTasks,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    """Trigger scan."""
     async with SCAN_GUARD.slot():
         if request.directories and len(request.directories) > MAX_SCAN_DIRECTORIES:
             raise HTTPException(
                 status_code=413,
-                detail=f'Too many directories (max {MAX_SCAN_DIRECTORIES}).',
+                detail=f"Too many directories (max {MAX_SCAN_DIRECTORIES}).",
             )
         if request.directories and any(len(path) > MAX_PATH_CHARS for path in request.directories):
             raise HTTPException(
                 status_code=413,
-                detail=f'Directory path too long (max {MAX_PATH_CHARS} characters).',
+                detail=f"Directory path too long (max {MAX_PATH_CHARS} characters).",
             )
         # Block if reset is in progress
         raise_if_index_reset_in_progress(await op_state.is_reset_in_progress())
@@ -220,7 +243,7 @@ async def trigger_scan(
         # Serialize scan/rebuild/reset transition checks + scan-record creation.
         async with op_state.get_scan_operation_lock():
             # Check if a scan is already running and resolve it (cancel / mark stale / block)
-            await resolve_running_scan(db, force=request.force, operation='scan')
+            await resolve_running_scan(db, force=request.force, operation="scan")
 
             # Determine directories to scan (validate BEFORE creating scan record)
             directories: list[Path] = []
@@ -232,7 +255,10 @@ async def trigger_scan(
             if not directories:
                 raise HTTPException(
                     status_code=400,
-                    detail='No directories to scan. Please configure watched directories in Settings, or pass directories in the request.',
+                    detail=(
+                        "No directories to scan. Please configure watched "
+                        "directories in Settings, or pass directories in the request."
+                    ),
                 )
 
             # Create a scan record (only after validation passes)
@@ -247,19 +273,22 @@ async def trigger_scan(
             force=request.force,
         )
         await emit_log_event(
-            event_name='scan_started',
-            source='Scanner',
-            message=f'Scan started for {len(directories)} source director{"y" if len(directories) == 1 else "ies"}.',
+            event_name="scan_started",
+            source="Scanner",
+            message=(
+                f"Scan started for {len(directories)} source director"
+                f"{'y' if len(directories) == 1 else 'ies'}."
+            ),
             scan_id=scan_record.id,
-            correlation_id=f'scan:{scan_record.id}',
-            details={'directories': [str(d) for d in directories], 'force': bool(request.force)},
+            correlation_id=f"scan:{scan_record.id}",
+            details={"directories": [str(d) for d in directories], "force": bool(request.force)},
             db=db,
         )
 
         return {
-            'scan_id': scan_record.id,
-            'status':  'started',
-            'directories': [str(d) for d in directories],
+            "scan_id": scan_record.id,
+            "status": "started",
+            "directories": [str(d) for d in directories],
         }
 
 
@@ -267,15 +296,17 @@ async def trigger_scan(
 # GET /api/scan/status — current scan status
 # ==============================================================================
 
-@router.get('/api/scan/status', response_model=ScanStatusResponse)
+
+@router.get("/api/scan/status", response_model=ScanStatusResponse)
 async def get_scan_status(
     db: aiosqlite.Connection = Depends(get_db),
 ) -> ScanStatusResponse:
+    """Get scan status."""
     latest = await get_latest_scan(db)
     if latest is None:
-        raise HTTPException(status_code=404, detail='No scan has been run yet')
+        raise HTTPException(status_code=404, detail="No scan has been run yet")
 
-    now     = datetime.now(UTC)
+    now = datetime.now(UTC)
     elapsed = (latest.completed_at or now) - latest.started_at
 
     recent_errors = await get_scan_error_records(db, latest.id or 0, limit=8)
@@ -294,15 +325,16 @@ async def get_scan_status(
     )
 
 
-@router.get('/api/scan/errors', response_model=ScanErrorsResponse)
+@router.get("/api/scan/errors", response_model=ScanErrorsResponse)
 async def get_scan_errors(
     limit: int = Query(default=200, ge=1, le=1000),
     offset: int = Query(default=0, ge=0),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> ScanErrorsResponse:
+    """Get scan errors."""
     latest = await get_latest_scan(db)
     if latest is None or latest.id is None:
-        raise HTTPException(status_code=404, detail='No scan has been run yet')
+        raise HTTPException(status_code=404, detail="No scan has been run yet")
 
     errors = await get_scan_error_records_page(
         db,
@@ -319,38 +351,41 @@ async def get_scan_errors(
     )
 
 
-@router.post('/api/scan/cancel')
+@router.post("/api/scan/cancel")
 async def cancel_scan(
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
     # Request cooperative cancellation for the latest running scan.
     # Idempotent: returns no_active_scan when nothing is running.
+    """Cancel scan."""
     async with op_state.get_scan_operation_lock():
         latest = await get_latest_scan(db)
         if latest is None or latest.status != ScanStatus.RUNNING:
-            return {'status': 'no_active_scan', 'cancel_requested': False}
+            return {"status": "no_active_scan", "cancel_requested": False}
         await op_state.request_scan_cancel(latest.id)
-        log.info('scan_cancel_requested', scan_id=latest.id)
-        return {'status': 'cancelling', 'scan_id': latest.id, 'cancel_requested': True}
+        log.info("scan_cancel_requested", scan_id=latest.id)
+        return {"status": "cancelling", "scan_id": latest.id, "cancel_requested": True}
 
 
 # ==============================================================================
 # GET /api/files — list indexed files
 # ==============================================================================
 
-@router.get('/api/files', response_model=FileListResponse)
+
+@router.get("/api/files", response_model=FileListResponse)
 async def list_files(
-    category:   str | None       = Query(default=None),
-    extension:  str | list[str] | None = Query(default=None),
-    search:     str | None       = Query(default=None),
-    tag:        str | None       = Query(default=None),
-    sort:       str              = Query(default='indexed_at'),
-    order:      str              = Query(default='desc'),
-    offset:     int              = Query(default=0, ge=0),
-    limit:      int              = Query(default=50, ge=1, le=200),
-    db: aiosqlite.Connection     = Depends(get_db),
+    category: str | None = Query(default=None),
+    extension: str | list[str] | None = Query(default=None),
+    search: str | None = Query(default=None),
+    tag: str | None = Query(default=None),
+    sort: str = Query(default="indexed_at"),
+    order: str = Query(default="desc"),
+    offset: int = Query(default=0, ge=0),
+    limit: int = Query(default=50, ge=1, le=200),
+    db: aiosqlite.Connection = Depends(get_db),
 ) -> FileListResponse:
     # Normalise extension to list for DB layer (single value from query becomes list of one).
+    """List files."""
     extensions = [extension] if isinstance(extension, str) else (extension or None)
     files, total = await get_files(
         db,
@@ -366,7 +401,7 @@ async def list_files(
     )
 
     return FileListResponse(
-        files=[f.model_dump(mode='json') for f in files],
+        files=[f.model_dump(mode="json") for f in files],
         total=total,
         offset=offset,
         limit=limit,
@@ -377,17 +412,19 @@ async def list_files(
 # GET /api/files/{file_id} — single file detail
 # ==============================================================================
 
-@router.get('/api/files/{file_id}')
+
+@router.get("/api/files/{file_id}")
 async def get_file_detail(
     file_id: int,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    """Get file detail."""
     file = await get_file_by_id(db, file_id)
     if file is None:
-        raise HTTPException(status_code=404, detail='File not found')
+        raise HTTPException(status_code=404, detail="File not found")
     chunk_count = await get_chunk_count_for_file(db, file_id)
-    result = file.model_dump(mode='json')
-    result['chunk_count'] = chunk_count
+    result = file.model_dump(mode="json")
+    result["chunk_count"] = chunk_count
     return result
 
 
@@ -395,21 +432,23 @@ async def get_file_detail(
 # POST /api/files/{file_id}/reindex — re-index a single file
 # ==============================================================================
 
-@router.post('/api/files/{file_id}/reindex', status_code=202)
+
+@router.post("/api/files/{file_id}/reindex", status_code=202)
 async def reindex_single_file(
     file_id: int,
     background_tasks: BackgroundTasks,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    """Reindex single file."""
     raise_if_index_reset_in_progress(await op_state.is_reset_in_progress())
 
     file = await get_file_by_id(db, file_id)
     if file is None:
-        raise HTTPException(status_code=404, detail='File not found')
+        raise HTTPException(status_code=404, detail="File not found")
 
     file_path = Path(file.path)
     if not file_path.exists():
-        raise HTTPException(status_code=404, detail='File not found on disk')
+        raise HTTPException(status_code=404, detail="File not found on disk")
 
     operation, is_new = await op_state.begin_file_reindex_operation(
         file_id=file_id,
@@ -418,42 +457,46 @@ async def reindex_single_file(
     if is_new:
         background_tasks.add_task(
             _run_file_reindex_task,
-            operation_id=operation['operation_id'],
+            operation_id=operation["operation_id"],
             file_id=file_id,
         )
     return {
-        'operation_id': operation['operation_id'],
-        'operation_type': operation['operation_type'],
-        'status': operation['status'],
-        'file_id': operation['file_id'],
-        'filename': operation['filename'],
-        'started_at': operation['started_at'],
-        'deduped': not is_new,
+        "operation_id": operation["operation_id"],
+        "operation_type": operation["operation_type"],
+        "status": operation["status"],
+        "file_id": operation["file_id"],
+        "filename": operation["filename"],
+        "started_at": operation["started_at"],
+        "deduped": not is_new,
     }
 
 
-@router.get('/api/files/reindex/operations')
+@router.get("/api/files/reindex/operations")
 async def list_file_reindex_operations(
-    status: str = Query(default='running'),
+    status: str = Query(default="running"),
 ) -> dict:
-    if status not in {'running', 'completed', 'failed', 'all'}:
-        raise HTTPException(status_code=400, detail='Invalid status filter')
-    normalized_status: op_state.FileReindexStatus | None = None if status == 'all' else cast(op_state.FileReindexStatus, status)
+    """List file reindex operations."""
+    if status not in {"running", "completed", "failed", "all"}:
+        raise HTTPException(status_code=400, detail="Invalid status filter")
+    normalized_status: op_state.FileReindexStatus | None = (
+        None if status == "all" else cast(op_state.FileReindexStatus, status)
+    )
     operations = await op_state.list_file_reindex_operations(status=normalized_status)
     return {
-        'status': 'ok',
-        'running_count': await op_state.get_running_file_reindex_count(),
-        'operations': operations,
+        "status": "ok",
+        "running_count": await op_state.get_running_file_reindex_count(),
+        "operations": operations,
     }
 
 
-@router.get('/api/files/reindex/operations/{operation_id}')
+@router.get("/api/files/reindex/operations/{operation_id}")
 async def get_file_reindex_operation_status(
     operation_id: str,
 ) -> dict:
+    """Get file reindex operation status."""
     operation = await op_state.get_file_reindex_operation(operation_id)
     if operation is None:
-        raise HTTPException(status_code=404, detail='Operation not found')
+        raise HTTPException(status_code=404, detail="Operation not found")
     return operation
 
 
@@ -461,30 +504,32 @@ async def get_file_reindex_operation_status(
 # DELETE /api/files/{file_id} — remove file from index
 # ==============================================================================
 
-@router.delete('/api/files/{file_id}')
+
+@router.delete("/api/files/{file_id}")
 async def remove_single_file(
     file_id: int,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    """Remove single file."""
     raise_if_index_reset_in_progress(await op_state.is_reset_in_progress())
 
     file = await get_file_by_id(db, file_id)
     if file is None:
-        raise HTTPException(status_code=404, detail='File not found')
+        raise HTTPException(status_code=404, detail="File not found")
 
     removed = await remove_file(db, file)
     if not removed:
-        raise HTTPException(status_code=500, detail='Failed to remove file')
+        raise HTTPException(status_code=500, detail="Failed to remove file")
 
     # Keep term dictionary in sync after per-file removal (best-effort).
     try:
-        await rebuild_term_dictionary(db, run_id=f'term-dict-remove-file-{file_id}')
+        await rebuild_term_dictionary(db, run_id=f"term-dict-remove-file-{file_id}")
     except _SCAN_RUNTIME_EXCEPTIONS as exc:
-        log.warning('term_dictionary_remove_file_update_failed', file_id=file_id, error=str(exc))
+        log.warning("term_dictionary_remove_file_update_failed", file_id=file_id, error=str(exc))
 
     return {
-        'file_id':  file_id,
-        'deleted':  True,
+        "file_id": file_id,
+        "deleted": True,
     }
 
 
@@ -492,17 +537,19 @@ async def remove_single_file(
 # Background Reindex Task
 # ==============================================================================
 
+
 async def _run_file_reindex_task(
     *,
     operation_id: str,
     file_id: int,
 ) -> None:
     # Background reindex worker for a single file.
+    """Internal helper for run file reindex task."""
     from informity.db.sqlite import get_connection
 
     clear_contextvars()
     bind_contextvars(
-        operation_type='file_reindex',
+        operation_type="file_reindex",
         operation_id=operation_id,
         file_id=file_id,
     )
@@ -516,6 +563,7 @@ async def _run_file_reindex_task(
         error: str | None = None,
         chunks_created: int | None = None,
     ) -> None:
+        """Internal helper for complete operation."""
         nonlocal terminal_recorded
         operation = await op_state.complete_file_reindex_operation(
             operation_id,
@@ -530,17 +578,19 @@ async def _run_file_reindex_task(
         db = await get_connection()
         file = await get_file_by_id(db, file_id)
         if file is None:
-            await _complete_operation(status='failed', error='File not found')
+            await _complete_operation(status="failed", error="File not found")
             return
 
         file_path = Path(file.path)
         if not file_path.exists():
-            await _complete_operation(status='failed', error='File not found on disk')
+            await _complete_operation(status="failed", error="File not found on disk")
             return
 
         scanned = scanned_file_for_path(file_path)
         if scanned is None:
-            await _complete_operation(status='failed', error='Cannot compute file hash for re-index')
+            await _complete_operation(
+                status="failed", error="Cannot compute file hash for re-index"
+            )
             return
 
         async with op_state.get_ingestion_lock():
@@ -551,50 +601,53 @@ async def _run_file_reindex_task(
                 entity_type=file.entity_type or SOURCE_ENTITY_FILE,
             )
             if not result.success:
-                await _complete_operation(status='failed', error=result.error or 'Re-index failed')
+                await _complete_operation(status="failed", error=result.error or "Re-index failed")
                 return
 
             await clear_file_failure(
                 db,
                 source_provider=file.source_provider or FILESYSTEM_PROVIDER,
                 entity_type=file.entity_type or SOURCE_ENTITY_FILE,
-                source_item_id=file.source_item_id or str(normalize_path(file.path, expand_user=False)),
+                source_item_id=file.source_item_id
+                or str(normalize_path(file.path, expand_user=False)),
             )
 
             # Keep term dictionary in sync after per-file reindex (best-effort).
             try:
-                await rebuild_term_dictionary(db, run_id=f'term-dict-reindex-file-{file_id}')
+                await rebuild_term_dictionary(db, run_id=f"term-dict-reindex-file-{file_id}")
             except _SCAN_RUNTIME_EXCEPTIONS as exc:
-                log.warning('term_dictionary_reindex_file_update_failed', file_id=file_id, error=str(exc))
+                log.warning(
+                    "term_dictionary_reindex_file_update_failed", file_id=file_id, error=str(exc)
+                )
 
-            await _complete_operation(status='completed', chunks_created=result.chunks_created)
+            await _complete_operation(status="completed", chunks_created=result.chunks_created)
     except asyncio.CancelledError:
-        log.warning('file_reindex_background_cancelled', operation_id=operation_id, file_id=file_id)
-        await _complete_operation(status='failed', error='Re-index cancelled')
+        log.warning("file_reindex_background_cancelled", operation_id=operation_id, file_id=file_id)
+        await _complete_operation(status="failed", error="Re-index cancelled")
         raise
     except _SCAN_RUNTIME_EXCEPTIONS as exc:
         log.error(
-            'file_reindex_background_failed',
+            "file_reindex_background_failed",
             operation_id=operation_id,
             file_id=file_id,
             error=str(exc),
             exc_info=True,
         )
-        await _complete_operation(status='failed', error=str(exc))
+        await _complete_operation(status="failed", error=str(exc))
     except Exception as exc:
         log.error(
-            'file_reindex_background_unhandled_failed',
+            "file_reindex_background_unhandled_failed",
             operation_id=operation_id,
             file_id=file_id,
             error=str(exc),
             exc_info=True,
         )
-        await _complete_operation(status='failed', error=str(exc))
+        await _complete_operation(status="failed", error=str(exc))
     finally:
         if not terminal_recorded:
             operation = await op_state.get_file_reindex_operation(operation_id)
-            if operation is not None and operation.get('status') == 'running':
-                await _complete_operation(status='failed', error='Re-index terminated unexpectedly')
+            if operation is not None and operation.get("status") == "running":
+                await _complete_operation(status="failed", error="Re-index terminated unexpectedly")
         if db is not None:
             await db.close()
         clear_contextvars()
@@ -604,51 +657,56 @@ async def _run_file_reindex_task(
 # POST /api/files/open — open file in system default application
 # ==============================================================================
 
-@router.post('/api/files/open')
+
+@router.post("/api/files/open")
 async def open_file(
     request: OpenFileRequest,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
     # Opens the file as if double-clicked in Finder (macOS) or equivalent.
+    """Open file."""
     raw_path = request.path.strip()
     if not raw_path:
-        raise HTTPException(status_code=400, detail='Path cannot be empty')
+        raise HTTPException(status_code=400, detail="Path cannot be empty")
     if len(raw_path) > MAX_PATH_CHARS:
-        raise HTTPException(status_code=413, detail=f'Path too long (max {MAX_PATH_CHARS} characters)')
+        raise HTTPException(
+            status_code=413, detail=f"Path too long (max {MAX_PATH_CHARS} characters)"
+        )
 
     path = Path(raw_path)
     if not path.is_absolute():
-        raise HTTPException(status_code=400, detail='Path must be absolute')
+        raise HTTPException(status_code=400, detail="Path must be absolute")
     path = normalize_path(path, expand_user=False)
     if not path.exists():
-        raise HTTPException(status_code=404, detail='File not found')
+        raise HTTPException(status_code=404, detail="File not found")
     if not path.is_file():
-        raise HTTPException(status_code=400, detail='Path is not a file')
+        raise HTTPException(status_code=400, detail="Path is not a file")
 
     indexed = await get_file_by_path(db, str(path))
     if indexed is None:
         raise HTTPException(
             status_code=403,
-            detail='Opening files is only allowed for indexed files.',
+            detail="Opening files is only allowed for indexed files.",
         )
 
     try:
-        if sys.platform == 'darwin':
-            subprocess.run(['open', str(path)], check=True)
-        elif sys.platform == 'win32':
+        if sys.platform == "darwin":
+            subprocess.run(["open", str(path)], check=True)
+        elif sys.platform == "win32":
             os.startfile(str(path))
         else:
-            subprocess.run(['xdg-open', str(path)], check=True)
+            subprocess.run(["xdg-open", str(path)], check=True)
     except (subprocess.CalledProcessError, OSError) as exc:
-        log.warning('open_file_failed', path=str(path), error=str(exc))
-        raise HTTPException(status_code=500, detail='Failed to open file') from exc
+        log.warning("open_file_failed", path=str(path), error=str(exc))
+        raise HTTPException(status_code=500, detail="Failed to open file") from exc
 
-    return {'opened': True, 'path': str(path)}
+    return {"opened": True, "path": str(path)}
 
 
 # ==============================================================================
 # Background Scan Task
 # ==============================================================================
+
 
 async def _run_scan_task(
     scan_id: int,
@@ -666,26 +724,27 @@ async def _run_scan_task(
     # 6. Update scan record with final stats
 
     # We need our own DB connection since this runs in a background task
+    """Internal helper for run scan task."""
     from informity.db.sqlite import get_connection
 
     clear_contextvars()
-    scan_operation_id = f'scan-{scan_id}-{uuid.uuid4().hex[:8]}'
+    scan_operation_id = f"scan-{scan_id}-{uuid.uuid4().hex[:8]}"
     bind_contextvars(
-        operation_type='scan',
+        operation_type="scan",
         operation_id=scan_operation_id,
         scan_id=scan_id,
     )
 
     db = await get_connection()
     progress_db = await get_connection()
-    await progress_db.execute(f'PRAGMA busy_timeout={SCAN_PROGRESS_DB_BUSY_TIMEOUT_MS}')
+    await progress_db.execute(f"PRAGMA busy_timeout={SCAN_PROGRESS_DB_BUSY_TIMEOUT_MS}")
 
-    scan_started_at  = datetime.now(UTC)
-    files_scanned    = 0
-    files_indexed    = 0
-    errors           = 0
+    scan_started_at = datetime.now(UTC)
+    files_scanned = 0
+    files_indexed = 0
+    errors = 0
     skipped_files_count = 0
-    processed        = 0
+    processed = 0
     total_to_process = 0
     chunks_total_created = 0
     success_by_extension: dict[str, int] = defaultdict(int)
@@ -701,6 +760,7 @@ async def _run_scan_task(
         context: str,
         terminal: bool = False,
     ) -> None:
+        """Internal helper for update scan record best effort."""
         attempts = SCAN_TERMINAL_UPDATE_RETRIES if terminal else 1
         for attempt in range(1, attempts + 1):
             try:
@@ -711,7 +771,7 @@ async def _run_scan_task(
                 return
             except TimeoutError:
                 log.warning(
-                    'scan_record_update_timeout',
+                    "scan_record_update_timeout",
                     scan_id=scan_id,
                     context=context,
                     attempt=attempt,
@@ -720,7 +780,7 @@ async def _run_scan_task(
                 )
             except _SCAN_RUNTIME_EXCEPTIONS as exc:
                 log.warning(
-                    'scan_record_update_failed',
+                    "scan_record_update_failed",
                     scan_id=scan_id,
                     context=context,
                     attempt=attempt,
@@ -732,27 +792,35 @@ async def _run_scan_task(
                 await asyncio.sleep(SCAN_TERMINAL_UPDATE_RETRY_DELAY_SECONDS)
 
     async def _process_file(
-        sf: 'ScannedFile',
+        sf: "ScannedFile",
         action: str,
         handler,
     ) -> IndexResult:
         # Shared logic: run handler, update counters, persist progress after each file
         # to keep scan record in sync with database state.
         # Wrapped in try/except to ensure one file failure doesn't stop the entire scan.
-        nonlocal processed, files_indexed, errors, skipped_files_count, chunks_total_created, ocr_used_count
+        """Internal helper for process file."""
+        nonlocal \
+            processed, \
+            files_indexed, \
+            errors, \
+            skipped_files_count, \
+            chunks_total_created, \
+            ocr_used_count
         processed += 1
         timeout_seconds_effective = _resolve_scan_timeout_seconds_for_file(sf)
         log.info(
-            'scan_file_processing',
-            operation = action,
-            progress = f'{processed}/{total_to_process}',
-            file     = sf.filename,
-            path     = str(sf.path),
+            "scan_file_processing",
+            operation=action,
+            progress=f"{processed}/{total_to_process}",
+            file=sf.filename,
+            path=str(sf.path),
         )
 
         async def _run_handler_with_cancel_polling() -> IndexResult:
             # Poll for scan cancellation while a single file is being processed so
             # cancel requests don't wait for full file timeout windows.
+            """Internal helper for run handler with cancel polling."""
             handler_task = asyncio.create_task(handler(db, sf, timeout_seconds_effective))
             deadline: float | None = None
             if timeout_seconds_effective > 0:
@@ -765,7 +833,7 @@ async def _run_scan_task(
 
                     if await op_state.is_scan_cancel_requested(scan_id):
                         log.info(
-                            'scan_cancel_requested_inflight',
+                            "scan_cancel_requested_inflight",
                             scan_id=scan_id,
                             operation=action,
                             path=str(sf.path),
@@ -817,12 +885,12 @@ async def _run_scan_task(
                         path=str(sf.path),
                         filename=sf.filename,
                         extension=sf.extension,
-                        reason=result.skip_reason or result.error or 'file skipped',
+                        reason=result.skip_reason or result.error or "file skipped",
                         error_code=result.error_code,
                     ),
                 )
                 log.info(
-                    'scan_file_skipped',
+                    "scan_file_skipped",
                     operation=action,
                     path=str(sf.path),
                     reason=result.skip_reason or result.error,
@@ -842,12 +910,12 @@ async def _run_scan_task(
                         extension=sf.extension,
                         operation=action,
                         error_code=result.error_code,
-                        error_message=result.error or 'File processing failed',
-                        is_timeout=(result.error_code == 'scan_file_timeout'),
+                        error_message=result.error or "File processing failed",
+                        is_timeout=(result.error_code == "scan_file_timeout"),
                     ),
                 )
                 log.warning(
-                    'scan_file_processing_failed',
+                    "scan_file_processing_failed",
                     operation=action,
                     path=str(sf.path),
                     error=result.error,
@@ -862,10 +930,7 @@ async def _run_scan_task(
             DoclingExtractor.reset_converter()
             errors += 1
             errors_by_extension[sf.extension] += 1
-            timeout_message = (
-                f'File processing exceeded timeout '
-                f'({timeout_seconds_effective}s)'
-            )
+            timeout_message = f"File processing exceeded timeout ({timeout_seconds_effective}s)"
             await insert_scan_error_record(
                 db,
                 ScanErrorRecord(
@@ -874,28 +939,28 @@ async def _run_scan_task(
                     filename=sf.filename,
                     extension=sf.extension,
                     operation=action,
-                    error_code='scan_file_timeout',
+                    error_code="scan_file_timeout",
                     error_message=timeout_message,
                     is_timeout=True,
                 ),
             )
             log.warning(
-                'scan_file_processing_timeout',
+                "scan_file_processing_timeout",
                 operation=action,
                 path=str(sf.path),
                 timeout_seconds=timeout_seconds_effective,
                 size_bytes=int(sf.size_bytes),
             )
             await emit_log_event(
-                event_name='indexing_timeout',
-                source='Indexer',
-                message=f'File processing timed out for {sf.filename}.',
+                event_name="indexing_timeout",
+                source="Indexer",
+                message=f"File processing timed out for {sf.filename}.",
                 scan_id=scan_id,
-                correlation_id=f'scan:{scan_id}',
+                correlation_id=f"scan:{scan_id}",
                 details={
-                    'path': str(sf.path),
-                    'timeout_seconds': timeout_seconds_effective,
-                    'operation': action,
+                    "path": str(sf.path),
+                    "timeout_seconds": timeout_seconds_effective,
+                    "operation": action,
                 },
                 dedupe_bucket_seconds=60,
                 db=db,
@@ -904,7 +969,7 @@ async def _run_scan_task(
                 success=False,
                 chunks_created=0,
                 error=timeout_message,
-                error_code='scan_file_timeout',
+                error_code="scan_file_timeout",
                 retryable=True,
             )
         except _SCAN_RUNTIME_EXCEPTIONS as exc:
@@ -919,13 +984,13 @@ async def _run_scan_task(
                     filename=sf.filename,
                     extension=sf.extension,
                     operation=action,
-                    error_code='scan_processing_exception',
+                    error_code="scan_processing_exception",
                     error_message=str(exc),
                     is_timeout=False,
                 ),
             )
             log.error(
-                'scan_file_processing_exception',
+                "scan_file_processing_exception",
                 operation=action,
                 path=str(sf.path),
                 error=str(exc),
@@ -935,7 +1000,7 @@ async def _run_scan_task(
                 success=False,
                 chunks_created=0,
                 error=str(exc),
-                error_code='scan_processing_exception',
+                error_code="scan_processing_exception",
                 retryable=True,
             )
         except _SCAN_UNHANDLED_GUARD_EXCEPTIONS as exc:
@@ -951,13 +1016,13 @@ async def _run_scan_task(
                     filename=sf.filename,
                     extension=sf.extension,
                     operation=action,
-                    error_code='scan_unhandled_exception',
+                    error_code="scan_unhandled_exception",
                     error_message=str(exc),
                     is_timeout=False,
                 ),
             )
             log.error(
-                'scan_file_processing_unhandled_exception',
+                "scan_file_processing_unhandled_exception",
                 operation=action,
                 path=str(sf.path),
                 error=str(exc),
@@ -968,7 +1033,7 @@ async def _run_scan_task(
                 success=False,
                 chunks_created=0,
                 error=str(exc),
-                error_code='scan_unhandled_exception',
+                error_code="scan_unhandled_exception",
                 retryable=True,
             )
 
@@ -983,7 +1048,7 @@ async def _run_scan_task(
                 errors=errors,
                 status=ScanStatus.RUNNING,
             ),
-            context='per_file_progress',
+            context="per_file_progress",
         )
 
         # Explicit garbage collection to free memory back to OS after each file
@@ -993,6 +1058,7 @@ async def _run_scan_task(
 
     async def _finalize_cancelled() -> None:
         # Persist terminal cancelled state with current progress.
+        """Internal helper for finalize cancelled."""
         await _update_scan_record_best_effort(
             ScanRecord(
                 id=scan_id,
@@ -1003,23 +1069,24 @@ async def _run_scan_task(
                 status=ScanStatus.CANCELLED,
                 completed_at=datetime.now(UTC),
             ),
-            context='cancelled_terminal',
+            context="cancelled_terminal",
             terminal=True,
         )
 
     async def _cancel_requested(stage: str) -> bool:
+        """Internal helper for cancel requested."""
         requested = await op_state.is_scan_cancel_requested(scan_id)
         if not requested:
             return False
-        log.info('scan_cancelled', scan_id=scan_id, stage=stage)
+        log.info("scan_cancelled", scan_id=scan_id, stage=stage)
         await _finalize_cancelled()
         await emit_log_event(
-            event_name='scan_cancelled',
-            source='Scanner',
-            message='Scan cancelled before completion.',
+            event_name="scan_cancelled",
+            source="Scanner",
+            message="Scan cancelled before completion.",
             scan_id=scan_id,
-            correlation_id=f'scan:{scan_id}',
-            details={'stage': stage},
+            correlation_id=f"scan:{scan_id}",
+            details={"stage": stage},
             db=db,
         )
         return True
@@ -1027,19 +1094,19 @@ async def _run_scan_task(
     try:
         # Ensure extractors are registered
         register_extractors()
-        if await _cancel_requested('pre_crawl'):
+        if await _cancel_requested("pre_crawl"):
             return
 
         # 1. Crawl (run in thread to avoid blocking event loop)
         # Use persisted config for file types so the crawl respects the latest
         # saved Settings (e.g. PDF unchecked) even if the server started with defaults.
         supported_extensions = get_supported_extensions_for_scan()
-        effective_ignores    = get_effective_ignore_patterns_for_scan()
+        effective_ignores = get_effective_ignore_patterns_for_scan()
         log.info(
-            'scan_crawling',
-            directories = [str(d) for d in directories],
-            extensions  = supported_extensions,
-            extension_count = len(supported_extensions),
+            "scan_crawling",
+            directories=[str(d) for d in directories],
+            extensions=supported_extensions,
+            extension_count=len(supported_extensions),
             provider=FILESYSTEM_PROVIDER,
         )
         scanned_files = await asyncio.to_thread(
@@ -1050,26 +1117,29 @@ async def _run_scan_task(
             follow_symlinks=settings.follow_symlinks,
         )
         files_scanned = len(scanned_files)
-        if await _cancel_requested('post_crawl'):
+        if await _cancel_requested("post_crawl"):
             return
 
         # 2. Compare with DB (load all indexed files so change detection is correct)
         async with op_state.get_ingestion_lock():
-            if await _cancel_requested('pre_compare'):
+            if await _cancel_requested("pre_compare"):
                 return
             db_files = await get_all_files_for_scan(
                 db,
                 source_provider=FILESYSTEM_PROVIDER,
                 entity_type=SOURCE_ENTITY_FILE,
             )
-            changes  = compare_with_db(
+            changes = compare_with_db(
                 scanned_files,
                 db_files,
                 source_provider=FILESYSTEM_PROVIDER,
                 entity_type=SOURCE_ENTITY_FILE,
             )
 
-            async def _filter_retry_suppressed(files: list[ScannedFile]) -> tuple[list[ScannedFile], int]:
+            async def _filter_retry_suppressed(
+                files: list[ScannedFile],
+            ) -> tuple[list[ScannedFile], int]:
+                """Internal helper for filter retry suppressed."""
                 kept: list[ScannedFile] = []
                 suppressed = 0
                 for sf in files:
@@ -1086,7 +1156,7 @@ async def _run_scan_task(
                         continue
                     suppressed += 1
                     log.info(
-                        'scan_file_retry_suppressed',
+                        "scan_file_retry_suppressed",
                         path=normalized_path,
                         filename=sf.filename,
                         error_code=error_code,
@@ -1096,28 +1166,28 @@ async def _run_scan_task(
             changes.new, suppressed_new = await _filter_retry_suppressed(changes.new)
             changes.changed, suppressed_changed = await _filter_retry_suppressed(changes.changed)
             if force:
-                changes.unchanged, suppressed_unchanged = await _filter_retry_suppressed(changes.unchanged)
+                changes.unchanged, suppressed_unchanged = await _filter_retry_suppressed(
+                    changes.unchanged
+                )
             else:
                 suppressed_unchanged = 0
 
             # When force=True, also reindex unchanged files; otherwise skip them
             if force:
-                total_to_process = (
-                    len(changes.new) + len(changes.changed) + len(changes.unchanged)
-                )
+                total_to_process = len(changes.new) + len(changes.changed) + len(changes.unchanged)
             else:
                 total_to_process = len(changes.new) + len(changes.changed)
 
             log.info(
-                'scan_indexing_start',
-                scan_id   = scan_id,
-                force     = force,
-                provider  = FILESYSTEM_PROVIDER,
-                new       = len(changes.new),
-                changed   = len(changes.changed),
-                unchanged = len(changes.unchanged),
-                deleted   = len(changes.deleted),
-                total     = total_to_process,
+                "scan_indexing_start",
+                scan_id=scan_id,
+                force=force,
+                provider=FILESYSTEM_PROVIDER,
+                new=len(changes.new),
+                changed=len(changes.changed),
+                unchanged=len(changes.unchanged),
+                deleted=len(changes.deleted),
+                total=total_to_process,
                 retry_suppressed_new=suppressed_new,
                 retry_suppressed_changed=suppressed_changed,
                 retry_suppressed_unchanged=suppressed_unchanged,
@@ -1133,17 +1203,17 @@ async def _run_scan_task(
                     errors=0,
                     status=ScanStatus.RUNNING,
                 ),
-                context='post_crawl_baseline',
+                context="post_crawl_baseline",
             )
 
             # 3. Index new files (sequential to preserve DB consistency)
             for sf in changes.new:
-                if await _cancel_requested('index_new'):
+                if await _cancel_requested("index_new"):
                     return
                 try:
                     result = await _process_file(
                         sf,
-                        'indexing_file',
+                        "indexing_file",
                         lambda conn, scanned_file, timeout_seconds: index_file(
                             conn,
                             scanned_file,
@@ -1151,7 +1221,7 @@ async def _run_scan_task(
                         ),
                     )
                 except _ScanCancelledInFlightError:
-                    if await _cancel_requested('index_new_inflight'):
+                    if await _cancel_requested("index_new_inflight"):
                         return
                     raise
                 await _persist_file_result(
@@ -1162,20 +1232,20 @@ async def _run_scan_task(
                     entity_type=SOURCE_ENTITY_FILE,
                 )
             log.info(
-                'scan_loop_complete',
-                loop='new_files',
+                "scan_loop_complete",
+                loop="new_files",
                 processed=len(changes.new),
                 total=len(changes.new),
             )
 
             # 4. Re-index changed files (sequential to preserve DB consistency)
             for sf in changes.changed:
-                if await _cancel_requested('index_changed'):
+                if await _cancel_requested("index_changed"):
                     return
                 try:
                     result = await _process_file(
                         sf,
-                        'reindexing_file',
+                        "reindexing_file",
                         lambda conn, scanned_file, timeout_seconds: reindex_file(
                             conn,
                             scanned_file,
@@ -1185,7 +1255,7 @@ async def _run_scan_task(
                         ),
                     )
                 except _ScanCancelledInFlightError:
-                    if await _cancel_requested('index_changed_inflight'):
+                    if await _cancel_requested("index_changed_inflight"):
                         return
                     raise
                 await _persist_file_result(
@@ -1196,8 +1266,8 @@ async def _run_scan_task(
                     entity_type=SOURCE_ENTITY_FILE,
                 )
             log.info(
-                'scan_loop_complete',
-                loop='changed_files',
+                "scan_loop_complete",
+                loop="changed_files",
                 processed=len(changes.changed),
                 total=len(changes.changed),
             )
@@ -1205,12 +1275,12 @@ async def _run_scan_task(
             # 4b. When force=True, re-index unchanged files as well
             if force:
                 for sf in changes.unchanged:
-                    if await _cancel_requested('index_unchanged'):
+                    if await _cancel_requested("index_unchanged"):
                         return
                     try:
                         result = await _process_file(
                             sf,
-                            'reindexing_unchanged',
+                            "reindexing_unchanged",
                             lambda conn, scanned_file, timeout_seconds: reindex_file(
                                 conn,
                                 scanned_file,
@@ -1220,7 +1290,7 @@ async def _run_scan_task(
                             ),
                         )
                     except _ScanCancelledInFlightError:
-                        if await _cancel_requested('index_unchanged_inflight'):
+                        if await _cancel_requested("index_unchanged_inflight"):
                             return
                         raise
                     await _persist_file_result(
@@ -1231,24 +1301,24 @@ async def _run_scan_task(
                         entity_type=SOURCE_ENTITY_FILE,
                     )
                 log.info(
-                    'scan_loop_complete',
-                    loop='unchanged_files',
+                    "scan_loop_complete",
+                    loop="unchanged_files",
                     processed=len(changes.unchanged),
                     total=len(changes.unchanged),
                 )
 
             # 5. Remove deleted files
             for df in changes.deleted:
-                if await _cancel_requested('remove_deleted'):
+                if await _cancel_requested("remove_deleted"):
                     return
                 try:
                     removed = await remove_file(db, df)
                     if not removed:
-                        log.warning('remove_file_failed', file_id=df.id, path=df.path)
+                        log.warning("remove_file_failed", file_id=df.id, path=df.path)
                 except _SCAN_RUNTIME_EXCEPTIONS as exc:
                     # Log but continue - deletion failure shouldn't stop the scan
                     log.error(
-                        'remove_file_exception',
+                        "remove_file_exception",
                         file_id=df.id,
                         path=df.path,
                         error=str(exc),
@@ -1257,47 +1327,50 @@ async def _run_scan_task(
 
         # 6. Update scan record
         scan_record = ScanRecord(
-            id            = scan_id,
-            started_at    = scan_started_at,
-            files_scanned = files_scanned,
-            files_indexed = files_indexed,
-            errors        = errors,
-            status        = ScanStatus.COMPLETED,
-            completed_at  = datetime.now(UTC),
+            id=scan_id,
+            started_at=scan_started_at,
+            files_scanned=files_scanned,
+            files_indexed=files_indexed,
+            errors=errors,
+            status=ScanStatus.COMPLETED,
+            completed_at=datetime.now(UTC),
         )
         await _update_scan_record_best_effort(
             scan_record,
-            context='completed_terminal',
+            context="completed_terminal",
             terminal=True,
         )
         log.info(
-            'scan_completed',
-            scan_id  = scan_id,
-            provider = FILESYSTEM_PROVIDER,
-            scanned  = files_scanned,
-            indexed  = files_indexed,
-            errors   = errors,
-            skipped  = skipped_files_count,
-            deleted  = len(changes.deleted),
+            "scan_completed",
+            scan_id=scan_id,
+            provider=FILESYSTEM_PROVIDER,
+            scanned=files_scanned,
+            indexed=files_indexed,
+            errors=errors,
+            skipped=skipped_files_count,
+            deleted=len(changes.deleted),
         )
         await emit_log_event(
-            event_name='scan_completed',
-            source='Scanner',
-            message=f'Scan completed. {files_scanned} files checked, {files_indexed} indexed, {skipped_files_count} skipped.',
+            event_name="scan_completed",
+            source="Scanner",
+            message=(
+                f"Scan completed. {files_scanned} files checked, "
+                f"{files_indexed} indexed, {skipped_files_count} skipped."
+            ),
             scan_id=scan_id,
-            correlation_id=f'scan:{scan_id}',
+            correlation_id=f"scan:{scan_id}",
             details={
-                'files_scanned': files_scanned,
-                'files_indexed': files_indexed,
-                'errors': errors,
-                'skipped': skipped_files_count,
-                'deleted': len(changes.deleted),
+                "files_scanned": files_scanned,
+                "files_indexed": files_indexed,
+                "errors": errors,
+                "skipped": skipped_files_count,
+                "deleted": len(changes.deleted),
             },
             db=db,
         )
 
         log.info(
-            'scan_metrics_summary',
+            "scan_metrics_summary",
             scan_id=scan_id,
             chunks_total_created=chunks_total_created,
             success_by_extension=dict(sorted(success_by_extension.items())),
@@ -1306,64 +1379,64 @@ async def _run_scan_task(
             extractor_success_counts=dict(sorted(extractor_success_counts.items())),
             extractor_error_counts=dict(sorted(extractor_error_counts.items())),
             ocr_used_count=ocr_used_count,
-            coverage_fallback_mode='batched',
+            coverage_fallback_mode="batched",
         )
 
         await finalize_index_operation(
             db,
             scan_id=scan_id,
-            integrity_log_name='scan_integrity_issues_detected',
-            adaptive_tuning_failure_log_name='adaptive_tuning_scan_update_failed',
-            term_dictionary_log_name='term_dictionary_scan_update',
-            term_dictionary_failure_log_name='term_dictionary_scan_update_failed',
-            term_dictionary_run_id_prefix='term-dict-scan-',
-            vector_skip_log_name='scan_vector_index_skipped',
+            integrity_log_name="scan_integrity_issues_detected",
+            adaptive_tuning_failure_log_name="adaptive_tuning_scan_update_failed",
+            term_dictionary_log_name="term_dictionary_scan_update",
+            term_dictionary_failure_log_name="term_dictionary_scan_update_failed",
+            term_dictionary_run_id_prefix="term-dict-scan-",
+            vector_skip_log_name="scan_vector_index_skipped",
         )
 
     except _ScanCancelledInFlightError:
         if await op_state.is_scan_cancel_requested(scan_id):
-            log.info('scan_cancelled', scan_id=scan_id, stage='inflight_fallback')
+            log.info("scan_cancelled", scan_id=scan_id, stage="inflight_fallback")
             await _finalize_cancelled()
             await emit_log_event(
-                event_name='scan_cancelled',
-                source='Scanner',
-                message='Scan cancelled before completion.',
+                event_name="scan_cancelled",
+                source="Scanner",
+                message="Scan cancelled before completion.",
                 scan_id=scan_id,
-                correlation_id=f'scan:{scan_id}',
+                correlation_id=f"scan:{scan_id}",
                 db=db,
             )
             return
         raise
     except _SCAN_RUNTIME_EXCEPTIONS as exc:
-        log.error('scan_failed', scan_id=scan_id, error=str(exc), exc_info=True)
+        log.error("scan_failed", scan_id=scan_id, error=str(exc), exc_info=True)
         scan_record = ScanRecord(
-            id           = scan_id,
-            started_at   = scan_started_at,
-            status       = ScanStatus.FAILED,
-            errors       = errors + 1,
-            files_scanned = files_scanned,
-            files_indexed = files_indexed,
-            completed_at = datetime.now(UTC),
+            id=scan_id,
+            started_at=scan_started_at,
+            status=ScanStatus.FAILED,
+            errors=errors + 1,
+            files_scanned=files_scanned,
+            files_indexed=files_indexed,
+            completed_at=datetime.now(UTC),
         )
         await _update_scan_record_best_effort(
             scan_record,
-            context='failed_terminal',
+            context="failed_terminal",
             terminal=True,
         )
         await emit_log_event(
-            event_name='scan_failed',
-            source='Scanner',
-            message='Scan failed before completion.',
+            event_name="scan_failed",
+            source="Scanner",
+            message="Scan failed before completion.",
             scan_id=scan_id,
-            correlation_id=f'scan:{scan_id}',
-            details={'error': str(exc)},
+            correlation_id=f"scan:{scan_id}",
+            details={"error": str(exc)},
             db=db,
         )
     except _SCAN_UNHANDLED_GUARD_EXCEPTIONS as exc:
         # Last-resort guard: ensure scan status does not remain "running"
         # when unexpected exceptions escape the scan loop.
         log.error(
-            'scan_failed_unhandled_exception',
+            "scan_failed_unhandled_exception",
             scan_id=scan_id,
             error=str(exc),
             exception_type=type(exc).__name__,
@@ -1380,16 +1453,16 @@ async def _run_scan_task(
         )
         await _update_scan_record_best_effort(
             scan_record,
-            context='failed_terminal_unhandled',
+            context="failed_terminal_unhandled",
             terminal=True,
         )
         await emit_log_event(
-            event_name='scan_failed',
-            source='Scanner',
-            message='Scan failed due to an unexpected error.',
+            event_name="scan_failed",
+            source="Scanner",
+            message="Scan failed due to an unexpected error.",
             scan_id=scan_id,
-            correlation_id=f'scan:{scan_id}',
-            details={'error': str(exc), 'exception_type': type(exc).__name__},
+            correlation_id=f"scan:{scan_id}",
+            details={"error": str(exc), "exception_type": type(exc).__name__},
             db=db,
         )
 
@@ -1399,9 +1472,9 @@ async def _run_scan_task(
             await db.close()
         except _SCAN_RUNTIME_EXCEPTIONS as exc:
             # Log but don't raise - connection closure failure shouldn't mask scan errors
-            log.warning('db_close_failed', scan_id=scan_id, error=str(exc))
+            log.warning("db_close_failed", scan_id=scan_id, error=str(exc))
         try:
             await progress_db.close()
         except _SCAN_RUNTIME_EXCEPTIONS as exc:
-            log.warning('progress_db_close_failed', scan_id=scan_id, error=str(exc))
+            log.warning("progress_db_close_failed", scan_id=scan_id, error=str(exc))
         clear_contextvars()

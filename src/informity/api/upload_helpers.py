@@ -1,3 +1,5 @@
+"""Module for api upload helpers."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,6 +19,7 @@ async def index_uploaded_file(
     source_provider: str,
     entity_type: str,
 ) -> tuple[IndexResult, IndexedFile | None]:
+    """Index uploaded file."""
     result = await index_file(
         db,
         scanned,

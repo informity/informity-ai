@@ -139,6 +139,7 @@ def filter_noise_chunks(chunks: list[Chunk]) -> tuple[list[Chunk], int]:
 @dataclass
 class IndexResult:
     """IndexResult model."""
+
     success: bool
     chunks_created: int
     error: str | None = None
@@ -153,7 +154,7 @@ class IndexResult:
 
 
 def _no_extractor_result(extension: str) -> IndexResult:
-    """ no extractor result."""
+    """no extractor result."""
     return IndexResult(
         success=False,
         chunks_created=0,
@@ -165,7 +166,7 @@ def _no_extractor_result(extension: str) -> IndexResult:
 
 def _parse_int_metadata(metadata: dict[str, str], key: str) -> int | None:
     # Parse an integer metadata value safely.
-    """ parse int metadata."""
+    """parse int metadata."""
     raw_value = metadata.get(key)
     if raw_value is None:
         return None
@@ -177,7 +178,7 @@ def _parse_int_metadata(metadata: dict[str, str], key: str) -> int | None:
 
 def _build_file_metadata(path: Path, doc_metadata: dict[str, str]) -> dict[str, object]:
     # Normalize extractor metadata for persistent file fields.
-    """ build file metadata."""
+    """build file metadata."""
     mime_type, _ = mimetypes.guess_type(path.name)
     return {
         "extractor": doc_metadata.get("converter"),
@@ -204,7 +205,7 @@ def _build_document_shape_tags(
     pictures_count: int | None,
 ) -> list[str]:
     # Derive corpus-agnostic document shape tags from extraction metadata.
-    """ build document shape tags."""
+    """build document shape tags."""
     tags: list[str] = []
     normalized_page_count = int(page_count or 0)
     normalized_tables = int(tables_count or 0)
@@ -235,7 +236,7 @@ def _build_document_shape_tags(
 def _merge_tags_with_document_shape(
     tags: list[str], *, file_metadata: dict[str, object]
 ) -> list[str]:
-    """ merge tags with document shape."""
+    """merge tags with document shape."""
     merged_tags = list(tags)
     merged_tags.extend(
         _build_document_shape_tags(
@@ -263,7 +264,7 @@ def _merge_tags_with_document_shape(
 def _max_line_length(path: Path) -> int:
     # Return maximum line length (in characters) for a UTF-8-decodable text file.
     # Uses replacement decoding to avoid hard failures on mixed encodings.
-    """ max line length."""
+    """max line length."""
     max_len = 0
     with path.open("r", encoding="utf-8", errors="replace") as handle:
         for line in handle:
@@ -280,7 +281,7 @@ async def _cleanup_partial_file_data(
     reason: str,
 ) -> None:
     # Best-effort cleanup for partial index/reindex failures.
-    """ cleanup partial file data."""
+    """cleanup partial file data."""
     try:
         await delete_chunks_for_file(db, file_id)
     except _INDEXER_RUNTIME_EXCEPTIONS as exc:
@@ -325,7 +326,7 @@ async def _chunk_embed_store(
     # Shared logic for chunking, embedding, and storing with Parent Document Retrieval.
     # Two-pass insertion: (1) insert parent chunks, (2) insert child chunks with parent_id.
     # Only child chunks are embedded and stored in SQLite vector storage (they're what we search).
-    """ chunk embed store."""
+    """chunk embed store."""
     try:
         # Step 1: Create parent chunks (current chunk_size_tokens, ~512 tokens)
         parent_chunks = build_chunk_text(
@@ -971,13 +972,9 @@ async def index_file(
                 # Idempotency hardening: another writer inserted the same source identity
                 # concurrently.
                 message = str(exc)
-                if (
-                    "UNIQUE constraint failed: files.path" not in message
-                    and (
-                        "UNIQUE constraint failed: files.source_provider, "
-                        "files.entity_type, files.source_item_id"
-                        not in message
-                    )
+                if "UNIQUE constraint failed: files.path" not in message and (
+                    "UNIQUE constraint failed: files.source_provider, "
+                    "files.entity_type, files.source_item_id" not in message
                 ):
                     raise
                 normalized_path = str(normalize_path(file_path, expand_user=False))

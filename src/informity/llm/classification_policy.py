@@ -3,6 +3,8 @@
 # Thin timing and shadow-logging wrapper around query classification.
 # ==============================================================================
 
+"""Module for llm classification policy."""
+
 from __future__ import annotations
 
 import asyncio
@@ -37,23 +39,23 @@ async def classify_query_with_timing(
     classify_elapsed_ms = (time.perf_counter() - classify_start) * 1000.0
     with suppress(Exception):
         await emit_log_event(
-            event_name='five_q_shadow',
-            source='classification_policy',
-            message=f'five_q shadow classification for: {str(question or "")[:120]}',
-            channel='application',
-            event_type='debug',
+            event_name="five_q_shadow",
+            source="classification_policy",
+            message=f"five_q shadow classification for: {str(question or '')[:120]}",
+            channel="application",
+            event_type="debug",
             details={
-                'question': str(question or ''),
-                'intent': str(classification.intent),
-                'route_candidate': str(classification.route_candidate),
-                'response_shape': str(classification.response_shape),
-                'confidence': classification.confidence,
-                'shadow_model': classification.shadow_classifier_model,
-                'shadow_raw_output': classification.shadow_classifier_raw_output,
-                'shadow_decision': classification.shadow_classifier_decision,
-                'chat_mode': chat_mode,
-                'scope_kind': scope_kind,
-                'elapsed_ms': round(classify_elapsed_ms, 1),
+                "question": str(question or ""),
+                "intent": str(classification.intent),
+                "route_candidate": str(classification.route_candidate),
+                "response_shape": str(classification.response_shape),
+                "confidence": classification.confidence,
+                "shadow_model": classification.shadow_classifier_model,
+                "shadow_raw_output": classification.shadow_classifier_raw_output,
+                "shadow_decision": classification.shadow_classifier_decision,
+                "chat_mode": chat_mode,
+                "scope_kind": scope_kind,
+                "elapsed_ms": round(classify_elapsed_ms, 1),
             },
         )
     return classification, classify_elapsed_ms

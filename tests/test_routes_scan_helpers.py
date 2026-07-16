@@ -1,3 +1,5 @@
+"""Test module for tests test routes scan helpers."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -15,23 +17,27 @@ class _DummyDB:
 
 
 @pytest.mark.asyncio
-async def test_list_files_excludes_upload_and_translate_local(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_list_files_excludes_upload_and_translate_local(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test list files excludes upload and translate local."""
     calls: list[dict[str, object]] = []
 
     async def _fake_get_files(db, **kwargs):
+        """Internal helper for fake get files."""
         _ = db
         calls.append(kwargs)
         return [], 0
 
-    monkeypatch.setattr(routes_scan, 'get_files', _fake_get_files)
+    monkeypatch.setattr(routes_scan, "get_files", _fake_get_files)
 
     response = await routes_scan.list_files(
         category=None,
         extension=None,
         search=None,
         tag=None,
-        sort='indexed_at',
-        order='desc',
+        sort="indexed_at",
+        order="desc",
         offset=0,
         limit=50,
         db=_DummyDB(),
@@ -40,97 +46,109 @@ async def test_list_files_excludes_upload_and_translate_local(monkeypatch: pytes
     assert response.total == 0
     assert calls == [
         {
-            'category': None,
-            'extensions': None,
-            'search': None,
-            'tag': None,
-            'excluded_source_providers': [UPLOAD_PROVIDER, TRANSLATE_PROVIDER],
-            'sort_by': 'indexed_at',
-            'order': 'desc',
-            'offset': 0,
-            'limit': 50,
+            "category": None,
+            "extensions": None,
+            "search": None,
+            "tag": None,
+            "excluded_source_providers": [UPLOAD_PROVIDER, TRANSLATE_PROVIDER],
+            "sort_by": "indexed_at",
+            "order": "desc",
+            "offset": 0,
+            "limit": 50,
         }
     ]
 
 
 @pytest.mark.asyncio
-async def test_persist_file_result_clears_failure_on_success(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_persist_file_result_clears_failure_on_success(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test persist file result clears failure on success."""
     calls: list[tuple[str, dict[str, object]]] = []
 
     async def _fake_clear_file_failure(db, **kwargs):
+        """Internal helper for fake clear file failure."""
         _ = db
-        calls.append(('clear', kwargs))
+        calls.append(("clear", kwargs))
 
     async def _fake_record_file_failure(db, **kwargs):
+        """Internal helper for fake record file failure."""
         _ = db
-        calls.append(('record', kwargs))
+        calls.append(("record", kwargs))
 
-    monkeypatch.setattr(routes_scan, 'clear_file_failure', _fake_clear_file_failure)
-    monkeypatch.setattr(routes_scan, 'record_file_failure', _fake_record_file_failure)
+    monkeypatch.setattr(routes_scan, "clear_file_failure", _fake_clear_file_failure)
+    monkeypatch.setattr(routes_scan, "record_file_failure", _fake_record_file_failure)
 
-    result = SimpleNamespace(success=True, error_code='x', error='bad', retryable=False)
-    scanned = SimpleNamespace(path='/tmp/example.pdf', content_hash='hash-1')
+    result = SimpleNamespace(success=True, error_code="x", error="bad", retryable=False)
+    scanned = SimpleNamespace(path="/tmp/example.pdf", content_hash="hash-1")
     normalized_path = str(normalize_path(scanned.path, expand_user=False))
 
     await routes_scan._persist_file_result(
         _DummyDB(),
         result,
         scanned=scanned,
-        source_provider='filesystem',
-        entity_type='file',
+        source_provider="filesystem",
+        entity_type="file",
     )
 
     assert calls == [
         (
-            'clear',
-                {
-                    'source_provider': 'filesystem',
-                    'entity_type': 'file',
-                    'source_item_id': normalized_path,
-                },
-            )
-        ]
+            "clear",
+            {
+                "source_provider": "filesystem",
+                "entity_type": "file",
+                "source_item_id": normalized_path,
+            },
+        )
+    ]
 
 
 @pytest.mark.asyncio
-async def test_persist_file_result_records_failure_on_error(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_persist_file_result_records_failure_on_error(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test persist file result records failure on error."""
     calls: list[tuple[str, dict[str, object]]] = []
 
     async def _fake_clear_file_failure(db, **kwargs):
+        """Internal helper for fake clear file failure."""
         _ = db
-        calls.append(('clear', kwargs))
+        calls.append(("clear", kwargs))
 
     async def _fake_record_file_failure(db, **kwargs):
+        """Internal helper for fake record file failure."""
         _ = db
-        calls.append(('record', kwargs))
+        calls.append(("record", kwargs))
 
-    monkeypatch.setattr(routes_scan, 'clear_file_failure', _fake_clear_file_failure)
-    monkeypatch.setattr(routes_scan, 'record_file_failure', _fake_record_file_failure)
+    monkeypatch.setattr(routes_scan, "clear_file_failure", _fake_clear_file_failure)
+    monkeypatch.setattr(routes_scan, "record_file_failure", _fake_record_file_failure)
 
-    result = SimpleNamespace(success=False, error_code='pdf_invalid_or_corrupt', error='bad pdf', retryable=False)
-    scanned = SimpleNamespace(path='/tmp/example.pdf', content_hash='hash-1')
+    result = SimpleNamespace(
+        success=False, error_code="pdf_invalid_or_corrupt", error="bad pdf", retryable=False
+    )
+    scanned = SimpleNamespace(path="/tmp/example.pdf", content_hash="hash-1")
     normalized_path = str(normalize_path(scanned.path, expand_user=False))
 
     await routes_scan._persist_file_result(
         _DummyDB(),
         result,
         scanned=scanned,
-        source_provider='filesystem',
-        entity_type='file',
+        source_provider="filesystem",
+        entity_type="file",
     )
 
     assert calls == [
         (
-            'record',
-                {
-                    'source_provider': 'filesystem',
-                    'entity_type': 'file',
-                    'source_item_id': normalized_path,
-                    'path': normalized_path,
-                    'content_hash': 'hash-1',
-                    'error_code': 'pdf_invalid_or_corrupt',
-                    'error_message': 'bad pdf',
-                'retryable': False,
+            "record",
+            {
+                "source_provider": "filesystem",
+                "entity_type": "file",
+                "source_item_id": normalized_path,
+                "path": normalized_path,
+                "content_hash": "hash-1",
+                "error_code": "pdf_invalid_or_corrupt",
+                "error_message": "bad pdf",
+                "retryable": False,
             },
         )
     ]

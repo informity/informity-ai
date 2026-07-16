@@ -1,3 +1,5 @@
+"""Test module for tests test vectors dimension."""
+
 from __future__ import annotations
 
 from unittest.mock import MagicMock
@@ -8,12 +10,14 @@ from informity.indexer import embedder as embedder_module
 
 
 def test_get_embedding_model_dimension_uses_model_metadata_and_default() -> None:
-    assert embedder_module.get_embedding_model_dimension('nomic-ai/nomic-embed-text-v1.5') == 768
+    """Test get embedding model dimension uses model metadata and default."""
+    assert embedder_module.get_embedding_model_dimension("nomic-ai/nomic-embed-text-v1.5") == 768
     # Unknown model falls back to default metadata dimension.
-    assert embedder_module.get_embedding_model_dimension('custom/unknown-embedder') == 768
+    assert embedder_module.get_embedding_model_dimension("custom/unknown-embedder") == 768
 
 
 def test_effective_embedding_dimension_uses_loaded_model_dimension_when_available() -> None:
+    """Test effective embedding dimension uses loaded model dimension when available."""
     original_model = embedder_module.embedder._model
     try:
         mock_model = MagicMock()
@@ -25,7 +29,8 @@ def test_effective_embedding_dimension_uses_loaded_model_dimension_when_availabl
 
 
 def test_vectors_expected_dimension_tracks_active_embedding_model_setting(monkeypatch) -> None:
-    monkeypatch.setattr(settings, 'embedding_model', 'nomic-ai/nomic-embed-text-v1.5')
+    """Test vectors expected dimension tracks active embedding model setting."""
+    monkeypatch.setattr(settings, "embedding_model", "nomic-ai/nomic-embed-text-v1.5")
     original_model = embedder_module.embedder._model
     try:
         # Ensure resolution comes from model metadata when model is not loaded.

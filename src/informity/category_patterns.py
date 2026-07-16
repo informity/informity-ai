@@ -22,30 +22,27 @@ from informity.db.models import FileCategory
 # - OTHER: Unsupported extensions
 EXTENSION_CATEGORY_MAP: dict[str, FileCategory] = {
     # Document files (rich formats)
-    '.pdf':   FileCategory.DOCUMENT,
-    '.docx':  FileCategory.DOCUMENT,
-    '.epub':  FileCategory.DOCUMENT,
-    '.pptx':  FileCategory.DOCUMENT,
-
+    ".pdf": FileCategory.DOCUMENT,
+    ".docx": FileCategory.DOCUMENT,
+    ".epub": FileCategory.DOCUMENT,
+    ".pptx": FileCategory.DOCUMENT,
     # Plaintext files (including config formats read as text for RAG)
     # Note: .json, .yaml, .yml, .toml are extracted as plain text (TextExtractor)
     # and searched semantically, so they're classified as PLAINTEXT not DATA
-    '.txt':   FileCategory.PLAINTEXT,
-    '.md':    FileCategory.PLAINTEXT,
-    '.rst':   FileCategory.PLAINTEXT,
-    '.log':   FileCategory.PLAINTEXT,
-    '.json':  FileCategory.PLAINTEXT,  # Config files, read as text for RAG
-    '.yaml':  FileCategory.PLAINTEXT,  # Config files, read as text for RAG
-    '.yml':   FileCategory.PLAINTEXT,  # Config files, read as text for RAG
-    '.toml':  FileCategory.PLAINTEXT,  # Config files, read as text for RAG
-
+    ".txt": FileCategory.PLAINTEXT,
+    ".md": FileCategory.PLAINTEXT,
+    ".rst": FileCategory.PLAINTEXT,
+    ".log": FileCategory.PLAINTEXT,
+    ".json": FileCategory.PLAINTEXT,  # Config files, read as text for RAG
+    ".yaml": FileCategory.PLAINTEXT,  # Config files, read as text for RAG
+    ".yml": FileCategory.PLAINTEXT,  # Config files, read as text for RAG
+    ".toml": FileCategory.PLAINTEXT,  # Config files, read as text for RAG
     # Data files (tabular/structured formats)
-    '.csv':   FileCategory.DATA,
-    '.xlsx':  FileCategory.DATA,
-
+    ".csv": FileCategory.DATA,
+    ".xlsx": FileCategory.DATA,
     # Web files
-    '.html':  FileCategory.WEB,
-    '.htm':   FileCategory.WEB,
+    ".html": FileCategory.WEB,
+    ".htm": FileCategory.WEB,
 }
 
 
@@ -66,7 +63,7 @@ def get_category_for_extension(extension: str) -> FileCategory:
     """
     # Normalize extension (ensure lowercase, starts with dot)
     ext = extension.lower()
-    if not ext.startswith('.'):
-        ext = f'.{ext}'
+    if not ext.startswith("."):
+        ext = f".{ext}"
 
     return EXTENSION_CATEGORY_MAP.get(ext, FileCategory.OTHER)

@@ -3,6 +3,10 @@
 # Single contract validation utilities for closeout-time enforcement.
 # ==============================================================================
 
+"""Module for llm contract gate."""
+
+# pylint: disable=line-too-long
+
 from __future__ import annotations
 
 import re
@@ -13,31 +17,38 @@ from informity.llm.query_classifier import QueryClassification
 from informity.llm.types import QuerySubtype, QueryType
 from informity.llm.user_messages import MISSING_EVIDENCE_CALLOUT_MESSAGE
 
-_MARKDOWN_HEADING_PATTERN = re.compile(r'^\s{0,3}#{1,6}\s+(.+?)\s*$', re.MULTILINE)
-_YEAR_TOKEN_PATTERN = re.compile(r'\b[12]\d{3}\b')
-_MISSING_EVIDENCE_REQUEST_PATTERN = re.compile(r'\bmissing\s+evidence\b|\bmissing\s+records?\b|\bgaps?\b', re.IGNORECASE)
-_MISSING_EVIDENCE_LINE_PATTERN = re.compile(r'(?im)^\s*(?:[-*]\s*)?missing\s+evidence\s*:')
-_SSN_PATTERN = re.compile(r'\b\d{3}-\d{2}-\d{4}\b')
-_REDACTED_SSN_TOKEN = '[REDACTED-SSN]'
-_SECTION_INSUFFICIENT_EVIDENCE_LINE = '- Insufficient evidence in retrieved context to complete this section.'
+_MARKDOWN_HEADING_PATTERN = re.compile(r"^\s{0,3}#{1,6}\s+(.+?)\s*$", re.MULTILINE)
+_YEAR_TOKEN_PATTERN = re.compile(r"\b[12]\d{3}\b")
+_MISSING_EVIDENCE_REQUEST_PATTERN = re.compile(
+    r"\bmissing\s+evidence\b|\bmissing\s+records?\b|\bgaps?\b", re.IGNORECASE
+)
+_MISSING_EVIDENCE_LINE_PATTERN = re.compile(r"(?im)^\s*(?:[-*]\s*)?missing\s+evidence\s*:")
+_SSN_PATTERN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
+_REDACTED_SSN_TOKEN = "[REDACTED-SSN]"
+_SECTION_INSUFFICIENT_EVIDENCE_LINE = (
+    "- Insufficient evidence in retrieved context to complete this section."
+)
 _ABSENCE_CLAIM_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
     (
         re.compile(
-            r'(?is)\bthe\s+provided\s+(?:documents?|context)\s+do(?:es)?\s+not\s+contain\b[^.\n]*[.]?',
+            r"(?is)\bthe\s+provided\s+(?:documents?|context)\s+do(?:es)?\s+not\s+"
+            r"contain\b[^.\n]*[.]?",
         ),
-        'Retrieved context did not provide enough evidence to confirm that request.',
+        "Retrieved context did not provide enough evidence to confirm that request.",
     ),
     (
         re.compile(
-            r'(?is)\bnone\s+of\s+the\s+provided\s+(?:documents?|context)\s+(?:mention|contain)\b[^.\n]*[.]?',
+            r"(?is)\bnone\s+of\s+the\s+provided\s+(?:documents?|context)\s+"
+            r"(?:mention|contain)\b[^.\n]*[.]?",
         ),
-        'Retrieved context did not provide enough evidence to confirm that request.',
+        "Retrieved context did not provide enough evidence to confirm that request.",
     ),
 )
 
 
 @dataclass(frozen=True)
 class ContractSpec:
+    """Class docstring."""
     required_headings: list[str]
     min_year_count: int
     required_labels: list[str] = field(default_factory=list)
@@ -48,30 +59,39 @@ class ContractSpec:
 
 @dataclass(frozen=True)
 class ContractValidationResult:
+    """Class docstring."""
     missing_required_headings: list[str]
     required_year_count: int
     observed_year_count: int
 
     @property
     def has_gap(self) -> bool:
+        """Has gap."""
         if self.missing_required_headings:
             return True
         return self.required_year_count > 0 and self.observed_year_count < self.required_year_count
 
 
-def build_contract_spec(*, question: str, classification: QueryClassification | None) -> ContractSpec:
+def build_contract_spec(
+    *, question: str, classification: QueryClassification | None
+) -> ContractSpec:
+    """Build contract spec."""
     required_headings = _contract_prompt_parser.extract_required_headings(question)
     required_labels = _contract_prompt_parser.extract_required_labels(question)
     min_year_count = 0
     if (
         classification is not None
         and str(classification.intent).strip().lower() == QueryType.COVERAGE
-        and str(classification.subtype or '').strip().lower() == QuerySubtype.AGGREGATE_BY_PERIOD
+        and (str(classification.subtype or "").strip().lower() == QuerySubtype.AGGREGATE_BY_PERIOD)
         and _contract_prompt_parser.has_year_subsection_cue(question)
     ):
         min_year_count = 2
-    enforce_heading_order = bool(required_headings) and _contract_prompt_parser.has_ordered_heading_cue(question)
-    requires_missing_evidence_callout = bool(_MISSING_EVIDENCE_REQUEST_PATTERN.search(str(question or '')))
+    enforce_heading_order = bool(
+        required_headings
+    ) and _contract_prompt_parser.has_ordered_heading_cue(question)
+    requires_missing_evidence_callout = bool(
+        _MISSING_EVIDENCE_REQUEST_PATTERN.search(str(question or ""))
+    )
     return ContractSpec(
         required_headings=required_headings,
         required_labels=required_labels,
@@ -83,8 +103,11 @@ def build_contract_spec(*, question: str, classification: QueryClassification | 
 
 
 def validate_contract(*, answer: str, spec: ContractSpec) -> ContractValidationResult:
-    normalized_answer = str(answer or '')
-    missing_required_headings = _find_missing_required_headings(normalized_answer, spec.required_headings)
+    """Validate contract."""
+    normalized_answer = str(answer or "")
+    missing_required_headings = _find_missing_required_headings(
+        normalized_answer, spec.required_headings
+    )
     observed_year_count = _count_distinct_years(normalized_answer)
     return ContractValidationResult(
         missing_required_headings=missing_required_headings,
@@ -94,14 +117,20 @@ def validate_contract(*, answer: str, spec: ContractSpec) -> ContractValidationR
 
 
 def build_repair_guidance(result: ContractValidationResult) -> str | None:
+    """Build repair guidance."""
     lines: list[str] = []
     if result.missing_required_headings:
-        headings_list = '; '.join(f'## {heading}' for heading in result.missing_required_headings)
-        lines.append(f'Complete only the missing required sections using these exact headings: {headings_list}.')
-        lines.append('Do not repeat sections that are already complete.')
+        headings_list = "; ".join(f"## {heading}" for heading in result.missing_required_headings)
+        lines.append(
+            f"Complete only the missing required sections using these exact headings: {headings_list}."
+        )
+        lines.append("Do not repeat sections that are already complete.")
     if result.required_year_count > 0 and result.observed_year_count < result.required_year_count:
-        lines.append(f'Include at least {result.required_year_count} distinct years using only retrieved evidence.')
-    guidance = ' '.join(lines).strip()
+        lines.append(
+            f"Include at least {result.required_year_count} distinct years using "
+            "only retrieved evidence."
+        )
+    guidance = " ".join(lines).strip()
     return guidance or None
 
 
@@ -109,7 +138,8 @@ def enforce_required_sections(answer: str, spec: ContractSpec) -> tuple[str, lis
     # Closeout-time fallback: append missing required headings in contract order.
     # This is model-agnostic and only fills structural gaps when generation ends
     # before all explicitly requested sections are present.
-    normalized_answer = str(answer or '').strip()
+    """Enforce required sections."""
+    normalized_answer = str(answer or "").strip()
     if spec.enforce_forbidden_redaction:
         normalized_answer = _SSN_PATTERN.sub(_REDACTED_SSN_TOKEN, normalized_answer)
 
@@ -124,19 +154,26 @@ def enforce_required_sections(answer: str, spec: ContractSpec) -> tuple[str, lis
         appended_blocks: list[str] = []
         for heading in result.missing_required_headings:
             appended_blocks.append(
-                '\n'.join(
+                "\n".join(
                     [
-                        f'## {heading}',
+                        f"## {heading}",
                         _SECTION_INSUFFICIENT_EVIDENCE_LINE,
                     ]
                 )
             )
-        appended = '\n\n'.join(appended_blocks).strip()
-        normalized_answer = f'{normalized_answer}\n\n{appended}'.strip() if normalized_answer else appended
+        appended = "\n\n".join(appended_blocks).strip()
+        normalized_answer = (
+            f"{normalized_answer}\n\n{appended}".strip() if normalized_answer else appended
+        )
 
-    if spec.requires_missing_evidence_callout and _MISSING_EVIDENCE_LINE_PATTERN.search(normalized_answer) is None:
+    if (
+        spec.requires_missing_evidence_callout
+        and _MISSING_EVIDENCE_LINE_PATTERN.search(normalized_answer) is None
+    ):
         callout = MISSING_EVIDENCE_CALLOUT_MESSAGE
-        normalized_answer = f'{normalized_answer}\n\n{callout}'.strip() if normalized_answer else callout
+        normalized_answer = (
+            f"{normalized_answer}\n\n{callout}".strip() if normalized_answer else callout
+        )
 
     if spec.required_labels:
         normalized_answer = _enforce_required_labels(normalized_answer, spec.required_labels)
@@ -147,14 +184,16 @@ def enforce_required_sections(answer: str, spec: ContractSpec) -> tuple[str, lis
 
 
 def _normalize_heading_text(value: str) -> str:
-    normalized = re.sub(r'^\s*#{1,6}\s*', '', str(value or '').strip())
-    normalized = re.sub(r'\s+', ' ', normalized).strip().strip(' .:')
+    """Internal helper for normalize heading text."""
+    normalized = re.sub(r"^\s*#{1,6}\s*", "", str(value or "").strip())
+    normalized = re.sub(r"\s+", " ", normalized).strip().strip(" .:")
     return normalized.casefold()
 
 
 def _extract_headings_from_answer(answer: str) -> set[str]:
+    """Internal helper for extract headings from answer."""
     headings: set[str] = set()
-    for raw in _MARKDOWN_HEADING_PATTERN.findall(str(answer or '')):
+    for raw in _MARKDOWN_HEADING_PATTERN.findall(str(answer or "")):
         normalized = _normalize_heading_text(raw)
         if normalized:
             headings.add(normalized)
@@ -162,6 +201,7 @@ def _extract_headings_from_answer(answer: str) -> set[str]:
 
 
 def _find_missing_required_headings(answer: str, required_headings: list[str]) -> list[str]:
+    """Internal helper for find missing required headings."""
     if not required_headings:
         return []
     present = _extract_headings_from_answer(answer)
@@ -173,11 +213,13 @@ def _find_missing_required_headings(answer: str, required_headings: list[str]) -
 
 
 def _count_distinct_years(answer: str) -> int:
-    return len(set(_YEAR_TOKEN_PATTERN.findall(str(answer or ''))))
+    """Internal helper for count distinct years."""
+    return len(set(_YEAR_TOKEN_PATTERN.findall(str(answer or ""))))
 
 
 def _normalize_required_heading_order(*, answer: str, required_headings: list[str]) -> str:
-    text = str(answer or '').strip()
+    """Internal helper for normalize required heading order."""
+    text = str(answer or "").strip()
     if not text or not required_headings:
         return text
 
@@ -187,7 +229,7 @@ def _normalize_required_heading_order(*, answer: str, required_headings: list[st
 
     sections: list[tuple[str, str, str]] = []
     for idx, match in enumerate(heading_matches):
-        heading_raw = str(match.group(1) or '').strip()
+        heading_raw = str(match.group(1) or "").strip()
         normalized_heading = _normalize_heading_text(heading_raw)
         start = match.start()
         end = heading_matches[idx + 1].start() if idx + 1 < len(heading_matches) else len(text)
@@ -213,9 +255,9 @@ def _normalize_required_heading_order(*, answer: str, required_headings: list[st
             rebuilt_blocks.append(existing[2])
         else:
             rebuilt_blocks.append(
-                '\n'.join(
+                "\n".join(
                     [
-                        f'## {heading}',
+                        f"## {heading}",
                         _SECTION_INSUFFICIENT_EVIDENCE_LINE,
                     ]
                 )
@@ -225,29 +267,30 @@ def _normalize_required_heading_order(*, answer: str, required_headings: list[st
     if extras:
         rebuilt_blocks.extend(extras)
 
-    return '\n\n'.join(part.strip() for part in rebuilt_blocks if str(part).strip()).strip()
+    return "\n\n".join(part.strip() for part in rebuilt_blocks if str(part).strip()).strip()
 
 
 def _enforce_required_labels(answer: str, required_labels: list[str]) -> str:
-    text = str(answer or '').strip()
+    """Internal helper for enforce required labels."""
+    text = str(answer or "").strip()
     missing_labels = [
-        label for label in required_labels
-        if label and label.casefold() not in text.casefold()
+        label for label in required_labels if label and label.casefold() not in text.casefold()
     ]
     if not missing_labels:
         return text
-    missing_lines = '\n'.join(
-        f'- {label}: Missing Evidence: insufficient evidence in retrieved context.'
+    missing_lines = "\n".join(
+        f"- {label}: Missing Evidence: insufficient evidence in retrieved context."
         for label in missing_labels
     )
-    return f'{text}\n\n{missing_lines}'.strip() if text else missing_lines
+    return f"{text}\n\n{missing_lines}".strip() if text else missing_lines
 
 
 def _normalize_absence_claims(answer: str) -> str:
-    text = str(answer or '').strip()
+    """Internal helper for normalize absence claims."""
+    text = str(answer or "").strip()
     if not text:
         return text
     normalized = text
     for pattern, replacement in _ABSENCE_CLAIM_PATTERNS:
         normalized = pattern.sub(replacement, normalized)
-    return re.sub(r'\n{3,}', '\n\n', normalized).strip()
+    return re.sub(r"\n{3,}", "\n\n", normalized).strip()

@@ -9,7 +9,7 @@ import tiktoken
 
 @lru_cache(maxsize=1)
 def _encoding() -> tiktoken.Encoding:
-    """ encoding."""
+    """encoding."""
     return tiktoken.get_encoding("cl100k_base")
 
 

@@ -33,12 +33,14 @@ from informity.version import APP_VERSION
 class ScanRequest(BaseModel):
     # Request to trigger a file scan.
     """ScanRequest model."""
+
     directories: list[str] | None = None  # Override watched_directories
     force: bool = False  # Re-scan even unchanged files
 
 
 class ScanErrorItem(BaseModel):
     """ScanErrorItem model."""
+
     path: str
     filename: str
     extension: str
@@ -51,6 +53,7 @@ class ScanErrorItem(BaseModel):
 
 class ScanSkippedFileItem(BaseModel):
     """ScanSkippedFileItem model."""
+
     path: str
     filename: str
     extension: str
@@ -62,6 +65,7 @@ class ScanSkippedFileItem(BaseModel):
 class ScanStatusResponse(BaseModel):
     # Current status of a scan operation.
     """ScanStatusResponse model."""
+
     status: str  # running, completed, failed, cancelled
     files_scanned: int
     files_indexed: int
@@ -76,6 +80,7 @@ class ScanStatusResponse(BaseModel):
 
 class ScanErrorsResponse(BaseModel):
     """ScanErrorsResponse model."""
+
     scan_id: int
     total: int
     offset: int
@@ -91,6 +96,7 @@ class ScanErrorsResponse(BaseModel):
 class SearchRequest(BaseModel):
     # Semantic search request across indexed documents.
     """SearchRequest model."""
+
     query: str
     limit: int = Field(default=20, ge=1, le=200)
     category: str | None = None
@@ -100,6 +106,7 @@ class SearchRequest(BaseModel):
 class SearchResult(BaseModel):
     # A single search result with file info and relevant chunk.
     """SearchResult model."""
+
     file_id: int
     filename: str
     path: str
@@ -121,6 +128,7 @@ class SearchResult(BaseModel):
 class SearchResponse(BaseModel):
     # Response containing search results.
     """SearchResponse model."""
+
     results: list[SearchResult]
     total: int
     query: str
@@ -134,6 +142,7 @@ class SearchResponse(BaseModel):
 class ChatRequest(BaseModel):
     # Request to send a message in a chat.
     """ChatRequest model."""
+
     model_config = ConfigDict(extra="forbid")
 
     message: str
@@ -155,7 +164,7 @@ class ChatRequest(BaseModel):
 
     @model_validator(mode="after")
     def _normalize_scoped_file_ids(self) -> "ChatRequest":
-        """ normalize scoped file ids."""
+        """normalize scoped file ids."""
         if self.scoped_file_ids is None:
             return self
         normalized: list[int] = []
@@ -175,7 +184,7 @@ class ChatRequest(BaseModel):
 
     @model_validator(mode="after")
     def _normalize_scoped_upload_ids(self) -> "ChatRequest":
-        """ normalize scoped upload ids."""
+        """normalize scoped upload ids."""
         if self.scoped_upload_ids is None:
             return self
         normalized: list[str] = []
@@ -197,12 +206,13 @@ class ChatRequest(BaseModel):
 class ChatPreferencesUpdateRequest(BaseModel):
     # Request to update chat-scoped UX preferences.
     """ChatPreferencesUpdateRequest model."""
+
     chat_web_search_enabled: bool | None = None
     chat_web_search_privacy_override: bool | None = None
 
     @model_validator(mode="after")
     def _validate_non_empty(self) -> "ChatPreferencesUpdateRequest":
-        """ validate non empty."""
+        """validate non empty."""
         if self.chat_web_search_enabled is None and self.chat_web_search_privacy_override is None:
             raise ValueError("At least one chat preference field is required")
         return self
@@ -210,6 +220,7 @@ class ChatPreferencesUpdateRequest(BaseModel):
 
 class ChatSpecializationDefinition(BaseModel):
     """ChatSpecializationDefinition model."""
+
     id: str
     name: str
     description: str
@@ -220,13 +231,14 @@ class ChatSpecializationDefinition(BaseModel):
 class ChatStopRequest(BaseModel):
     # Request to stop an in-flight chat stream.
     """ChatStopRequest model."""
+
     stream_id: str | None = None
     request_id: str | None = None
     chat_id: str | None = None
 
     @model_validator(mode="after")
     def _validate_keys(self) -> "ChatStopRequest":
-        """ validate keys."""
+        """validate keys."""
         if not self.stream_id and not self.request_id:
             raise ValueError("Either stream_id or request_id is required")
         return self
@@ -235,6 +247,7 @@ class ChatStopRequest(BaseModel):
 class ChatMessageTranslateRequest(BaseModel):
     # Request to translate an existing assistant message inside chat.
     """ChatMessageTranslateRequest model."""
+
     model_config = ConfigDict(extra="forbid")
 
     target_language: str | None = None
@@ -244,6 +257,7 @@ class ChatMessageTranslateRequest(BaseModel):
 class ChatMessageTranslationResponse(BaseModel):
     # Response for a translated assistant message persisted to chat history.
     """ChatMessageTranslationResponse model."""
+
     chat_id: str
     source_message_id: int
     translated_message_id: int
@@ -256,6 +270,7 @@ class ChatMessageTranslationResponse(BaseModel):
 class ChatSourceReference(BaseModel):
     # A source document cited in a chat response.
     """ChatSourceReference model."""
+
     filename: str
     path: str
     chunk_preview: str  # The chunk text that was used
@@ -274,6 +289,7 @@ class FileDiscoveryResponse(BaseModel):
 
 class ChatUploadAttachmentResponse(BaseModel):
     """ChatUploadAttachmentResponse model."""
+
     upload_id: str
     chat_id: str
     file_id: int | None = None
@@ -295,12 +311,14 @@ class ChatUploadAttachmentResponse(BaseModel):
 class OpenFileRequest(BaseModel):
     # Request to open a file in the system default application (e.g. Finder double-click).
     """OpenFileRequest model."""
+
     path: str
 
 
 class FileListResponse(BaseModel):
     # Paginated list of indexed files.
     """FileListResponse model."""
+
     files: list[dict]  # IndexedFile as dict
     total: int
     offset: int
@@ -317,6 +335,7 @@ LogEventType = Literal["debug", "info", "warning", "error", "critical"]
 
 class LogEventItem(BaseModel):
     """LogEventItem model."""
+
     id: int
     timestamp: str
     created_at: str
@@ -331,6 +350,7 @@ class LogEventItem(BaseModel):
 
 class LogEventsResponse(BaseModel):
     """LogEventsResponse model."""
+
     items: list[LogEventItem] = Field(default_factory=list)
     next_cursor: str | None = None
     has_more: bool = False
@@ -344,12 +364,14 @@ class LogEventsResponse(BaseModel):
 class RebuildRequest(BaseModel):
     # Request to trigger a full index rebuild.
     """RebuildRequest model."""
+
     force: bool = False  # If True, cancel any running scan/rebuild and start rebuild
 
 
 class IndexStatusResponse(BaseModel):
     # Statistics about the current index state.
     """IndexStatusResponse model."""
+
     total_files: int
     total_chunks: int
     total_embeddings: int
@@ -385,6 +407,7 @@ class ModelProfileInfo(BaseModel):
     # Read-only model profile information for the Settings UI.
     # All values are determined by the model profile — not user-editable.
     """ModelProfileInfo model."""
+
     name: str  # "Qwen3.6 35B A3B", "Qwen3 14B", etc.
     family: str  # "chatml", "llama", etc.
     supports_reasoning: bool  # Can use <think> blocks
@@ -407,6 +430,7 @@ class ModelProfileInfo(BaseModel):
 class DiagnosticsProfilePreset(BaseModel):
     # Backend-defined diagnostics preset values used by Settings UI.
     """DiagnosticsProfilePreset model."""
+
     log_level: str
     chat_trace_logging: bool
     chat_trace_redaction_mode: str
@@ -417,6 +441,7 @@ class DiagnosticsProfilePreset(BaseModel):
 class SettingsResponse(BaseModel):
     # Current application settings exposed to the frontend.
     """SettingsResponse model."""
+
     watched_directories: list[str]
     source_scopes_enabled: dict[str, bool] = Field(default_factory=dict)
     ignore_patterns: list[str]  # Custom exclude patterns only
@@ -529,6 +554,7 @@ class SettingsUpdateRequest(BaseModel):
     # llm_context_length,
     # llm_temperature, rag_top_k.
     """SettingsUpdateRequest model."""
+
     watched_directories: list[str] | None = None
     source_scopes_enabled: dict[str, bool] | None = None
     ignore_patterns: list[str] | None = None
@@ -628,6 +654,7 @@ class SettingsUpdateRequest(BaseModel):
 
 class McpTokenGenerateResponse(BaseModel):
     """McpTokenGenerateResponse model."""
+
     token: str
 
 
@@ -720,6 +747,7 @@ class DiagnosticsMetricsSummaryResponse(BaseModel):
 class EnvVarItem(BaseModel):
     # Single environment variable: name, current runtime value string, description.
     """EnvVarItem model."""
+
     name: str  # e.g. INFORMITY_APP_DATA_DIR
     current_value: str  # Display string for current active value
     description: str
@@ -728,6 +756,7 @@ class EnvVarItem(BaseModel):
 class EnvVarGroup(BaseModel):
     # Logical group of env vars with title and description.
     """EnvVarGroup model."""
+
     title: str
     description: str
     variables: list[EnvVarItem]
@@ -736,6 +765,7 @@ class EnvVarGroup(BaseModel):
 class EnvVarsResponse(BaseModel):
     # Full list of env variable groups for the Configuration page.
     """EnvVarsResponse model."""
+
     groups: list[EnvVarGroup]
 
 
@@ -747,6 +777,7 @@ class EnvVarsResponse(BaseModel):
 class ConstantItem(BaseModel):
     # Single constant: name, default value string, description.
     """ConstantItem model."""
+
     name: str  # e.g. "STALE_SCAN_THRESHOLD_SECONDS"
     default: str  # Display string for default value
     description: str
@@ -755,6 +786,7 @@ class ConstantItem(BaseModel):
 class ConstantGroup(BaseModel):
     # Logical group of constants with title and description.
     """ConstantGroup model."""
+
     title: str
     description: str
     constants: list[ConstantItem]
@@ -763,6 +795,7 @@ class ConstantGroup(BaseModel):
 class ConfigReferenceResponse(BaseModel):
     # Full list of constant groups for the Configuration page reference section.
     """ConfigReferenceResponse model."""
+
     groups: list[ConstantGroup]
 
 
@@ -774,6 +807,7 @@ class ConfigReferenceResponse(BaseModel):
 class HealthResponse(BaseModel):
     # Health check response.
     """HealthResponse model."""
+
     status: str = "ok"
     version: str = APP_VERSION
     app_display_name: str  # Product name for UI (from config.APP_DISPLAY_NAME)
@@ -786,6 +820,7 @@ class HealthResponse(BaseModel):
 
 class SetupTierOption(BaseModel):
     """SetupTierOption model."""
+
     tier: str
     model_id: str | None = None
     title: str
@@ -802,6 +837,7 @@ class SetupTierOption(BaseModel):
 class SetupStatusResponse(BaseModel):
     # Setup readiness state used by desktop startup gating.
     """SetupStatusResponse model."""
+
     state: SetupState
     required_models_ready: bool
     setup_state_file_present: bool = False
@@ -817,18 +853,21 @@ class SetupStatusResponse(BaseModel):
 
 class SetupStartRequest(BaseModel):
     """SetupStartRequest model."""
+
     tier: str
     model_filename: str
 
 
 class SetupStartResponse(BaseModel):
     """SetupStartResponse model."""
+
     accepted: bool = True
     state: SetupState
 
 
 class SetupActionResponse(BaseModel):
     """SetupActionResponse model."""
+
     accepted: bool = True
     state: SetupState
     detail: str | None = None
@@ -836,6 +875,7 @@ class SetupActionResponse(BaseModel):
 
 class SetupEventResponse(BaseModel):
     """SetupEventResponse model."""
+
     state: SetupState
     stage: str
     overall_pct: int = 0
@@ -851,6 +891,7 @@ class SetupEventResponse(BaseModel):
 
 class OllamaStatusResponse(BaseModel):
     """OllamaStatusResponse model."""
+
     reachable: bool
     model_ready: bool
     model: str
@@ -860,6 +901,7 @@ class OllamaStatusResponse(BaseModel):
 
 class ModelsCatalogItem(BaseModel):
     """ModelsCatalogItem model."""
+
     tier: str
     model_id: str | None = None
     title: str
@@ -879,6 +921,7 @@ class ModelsCatalogItem(BaseModel):
 
 class ModelsCatalogResponse(BaseModel):
     """ModelsCatalogResponse model."""
+
     default_model_id: str | None = None
     default_model_filename: str
     models: list[ModelsCatalogItem] = Field(default_factory=list)
@@ -886,17 +929,20 @@ class ModelsCatalogResponse(BaseModel):
 
 class ModelActionRequest(BaseModel):
     """ModelActionRequest model."""
+
     model_filename: str
 
 
 class ModelActionResponse(BaseModel):
     """ModelActionResponse model."""
+
     accepted: bool = True
     detail: str | None = None
 
 
 class ModelOperationEventResponse(BaseModel):
     """ModelOperationEventResponse model."""
+
     state: str
     stage: str
     model_filename: str | None = None

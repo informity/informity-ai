@@ -18,17 +18,20 @@ class MetadataFilter:
         operator: Comparison operator ('eq', 'ne', 'gt', 'gte', 'lt', 'lte', 'in')
         value: Filter value (int, str, or list for 'in' operator)
     """
+
     field: str
     operator: FilterOperator
     value: int | str | list[int] | list[str]
 
-_ALLOWED_FILTER_FIELDS = {'year', 'category', 'extension', 'filename', 'block_type', 'file_id'}
+
+_ALLOWED_FILTER_FIELDS = {"year", "category", "extension", "filename", "block_type", "file_id"}
 
 
 def _build_filter_sql(
     filter_item: MetadataFilter,
     params: list[int | str],
 ) -> str | None:
+    """Internal helper for build filter sql."""
     if filter_item.field not in _ALLOWED_FILTER_FIELDS:
         return None
 
@@ -38,34 +41,34 @@ def _build_filter_sql(
 
     if op == FilterOperator.EQ:
         params.append(value)
-        return f'{col} = ?'
+        return f"{col} = ?"
     if op == FilterOperator.NE:
         params.append(value)
-        return f'{col} != ?'
+        return f"{col} != ?"
     if op == FilterOperator.GT:
         params.append(value)
-        return f'{col} > ?'
+        return f"{col} > ?"
     if op == FilterOperator.GTE:
         params.append(value)
-        return f'{col} >= ?'
+        return f"{col} >= ?"
     if op == FilterOperator.LT:
         params.append(value)
-        return f'{col} < ?'
+        return f"{col} < ?"
     if op == FilterOperator.LTE:
         params.append(value)
-        return f'{col} <= ?'
+        return f"{col} <= ?"
 
     if op == FilterOperator.IN:
         if isinstance(value, list) and value:
-            placeholders = ', '.join('?' * len(value))
+            placeholders = ", ".join("?" * len(value))
             params.extend(value)
-            return f'{col} IN ({placeholders})'
+            return f"{col} IN ({placeholders})"
         return None
 
     if op == FilterOperator.LIKE:
         if isinstance(value, str) and value:
             params.append(value)
-            return f'{col} LIKE ?'
+            return f"{col} LIKE ?"
         return None
 
     if op == FilterOperator.CONTAINS_ANY:
@@ -74,8 +77,8 @@ def _build_filter_sql(
         terms = [str(item).strip() for item in value if str(item).strip()]
         if not terms:
             return None
-        params.extend(f'%{term}%' for term in terms)
-        term_clauses = [f'{col} LIKE ?' for _ in terms]
+        params.extend(f"%{term}%" for term in terms)
+        term_clauses = [f"{col} LIKE ?" for _ in terms]
         return f"({' OR '.join(term_clauses)})"
 
     return None
@@ -97,7 +100,9 @@ def build_where_clause_and_params(
             clauses.append(clause)
     if not clauses:
         return None, []
-    return ' AND '.join(clauses), params
+    return " AND ".join(clauses), params
+
+
 def build_where_clause(filters: list[MetadataFilter]) -> str | None:
     """
     Build SQL WHERE clause from a list of metadata filters.

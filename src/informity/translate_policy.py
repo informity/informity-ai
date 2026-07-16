@@ -12,11 +12,11 @@ from __future__ import annotations
 # Provider / entity
 # ---------------------------------------------------------------------------
 
-TRANSLATE_PROVIDER    = 'translate.local'
-TRANSLATE_ENTITY_TYPE = 'file'
+TRANSLATE_PROVIDER = "translate.local"
+TRANSLATE_ENTITY_TYPE = "file"
 
 # Directory name under app_data_dir for translate uploads (mirrors upload.local)
-TRANSLATE_STORAGE_DIRNAME = 'storage/translate'
+TRANSLATE_STORAGE_DIRNAME = "storage/translate"
 
 # ---------------------------------------------------------------------------
 # Token budget
@@ -79,16 +79,14 @@ TRANSLATE_AVG_SECTION_SECONDS = 20  # measured: ~17s/section at 1K tokens on Qwe
 # ---------------------------------------------------------------------------
 
 TONE_INSTRUCTIONS: dict[str, str] = {
-    'natural': (
-        'Use natural, fluent {language}. Prioritise readability over literal accuracy.'
+    "natural": ("Use natural, fluent {language}. Prioritise readability over literal accuracy."),
+    "literal": (
+        "Translate into {language} as literally as possible. Preserve sentence structure "
+        "and word order where grammatically permissible."
     ),
-    'literal': (
-        'Translate into {language} as literally as possible. Preserve sentence structure '
-        'and word order where grammatically permissible.'
-    ),
-    'formal': (
-        'Use formal, professional {language} register appropriate for business '
-        'or academic contexts.'
+    "formal": (
+        "Use formal, professional {language} register appropriate for business "
+        "or academic contexts."
     ),
 }
 
@@ -97,9 +95,9 @@ TONE_INSTRUCTIONS: dict[str, str] = {
 # formal:  low variance for consistent register.
 # natural: slightly higher to allow idiomatic phrasing.
 TONE_TEMPERATURES: dict[str, float] = {
-    'literal': 0.05,
-    'formal':  0.1,
-    'natural': 0.2,
+    "literal": 0.05,
+    "formal": 0.1,
+    "natural": 0.2,
 }
 
 # Approximate character count taken from the tail of the previous translated

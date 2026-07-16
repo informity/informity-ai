@@ -196,6 +196,7 @@ _YEAR_PATTERN = re.compile(r"\b(?:19|20)\d{2}\b")
 @dataclass(frozen=True)
 class ClassifierContext:
     """ClassifierContext model."""
+
     chat_mode: str | None = None
     scope_kind: str | None = None
     has_prior_turns: bool = False
@@ -205,6 +206,7 @@ class ClassifierContext:
 @dataclass(frozen=True)
 class FiveQClassificationResult:
     """FiveQClassificationResult model."""
+
     decision: FiveQDecision
     raw_output: str
     model_name: str
@@ -239,7 +241,7 @@ def resolve_classifier_model_path() -> Path | None:
 
 
 def _normalize_decision(data: dict[str, Any]) -> FiveQDecision:
-    """ normalize decision."""
+    """normalize decision."""
     source = str(data.get("source") or "").strip()
     if source not in _ALLOWED_SOURCES:
         source = "document_content"
@@ -265,7 +267,7 @@ def _normalize_decision(data: dict[str, Any]) -> FiveQDecision:
 
 
 def _fallback_decision(query: str, context: ClassifierContext) -> FiveQDecision:
-    """ fallback decision."""
+    """fallback decision."""
     text = str(query or "").strip()
     lowered = text.casefold()
     if _CHAT_HISTORY_PATTERN.search(text):
@@ -310,8 +312,9 @@ def _fallback_decision(query: str, context: ClassifierContext) -> FiveQDecision:
 
 class FiveQClassifier:
     """FiveQClassifier model."""
+
     def __init__(self, model_path: Path | None = None) -> None:
-        """  init  ."""
+        """init  ."""
         self._model_path = model_path or resolve_classifier_model_path()
         self._model_filename = self._model_path.name if self._model_path is not None else None
         self._engine: LLMEngine | None = None

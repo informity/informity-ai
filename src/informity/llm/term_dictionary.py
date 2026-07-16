@@ -3,6 +3,8 @@
 # Deterministic query-time term matching and bounded expansion.
 # ==============================================================================
 
+"""Module for llm term dictionary."""
+
 from __future__ import annotations
 
 import re
@@ -14,59 +16,60 @@ import aiosqlite
 from informity.config import settings
 from informity.db.sqlite import get_active_term_alias_rows, get_term_dictionary_current_version
 
-_NON_WORD_PATTERN = re.compile(r'[^a-z0-9\s]')
-_WS_PATTERN = re.compile(r'\s+')
+_NON_WORD_PATTERN = re.compile(r"[^a-z0-9\s]")
+_WS_PATTERN = re.compile(r"\s+")
 
 _DEFAULT_MAX_EMBED_EXPANSIONS = 6
 _DEFAULT_MAX_FTS_EXPANSIONS = 10
 _DEFAULT_MAX_FUZZY_EXPANSIONS = 2
 _DEFAULT_MAX_FUZZY_PER_CANONICAL = 1
 _PERSON_SCOPE_HINTS: tuple[str, ...] = (
-    'who',
-    'person',
-    'people',
-    'name',
-    'names',
+    "who",
+    "person",
+    "people",
+    "name",
+    "names",
 )
 _PERSON_INTENT_HINTS: tuple[str, ...] = (
-    'mention',
-    'mentions',
-    'mentioned',
-    'list',
-    'identify',
-    'identified',
+    "mention",
+    "mentions",
+    "mentioned",
+    "list",
+    "identify",
+    "identified",
 )
 _RETRIEVAL_EXPANSION_BLOCKED_ALIASES: frozenset[str] = frozenset(
     {
-        'a',
-        'about',
-        'an',
-        'and',
-        'book',
-        'document',
-        'entry',
-        'file',
-        'for',
-        'in',
-        'is',
-        'item',
-        'material',
-        'note',
-        'of',
-        'on',
-        'or',
-        'paper',
-        'record',
-        'source',
-        'text',
-        'the',
-        'this',
-        'up',
+        "a",
+        "about",
+        "an",
+        "and",
+        "book",
+        "document",
+        "entry",
+        "file",
+        "for",
+        "in",
+        "is",
+        "item",
+        "material",
+        "note",
+        "of",
+        "on",
+        "or",
+        "paper",
+        "record",
+        "source",
+        "text",
+        "the",
+        "this",
+        "up",
     }
 )
 
 
 def _clamp_int(value: int, *, minimum: int, maximum: int, fallback: int) -> int:
+    """Internal helper for clamp int."""
     try:
         parsed = int(value)
     except (TypeError, ValueError):
@@ -75,14 +78,17 @@ def _clamp_int(value: int, *, minimum: int, maximum: int, fallback: int) -> int:
 
 
 def term_dictionary_enabled() -> bool:
+    """Term dictionary enabled."""
     return bool(settings.term_dictionary_enabled)
 
 
 def term_dictionary_routing_enabled() -> bool:
+    """Term dictionary routing enabled."""
     return bool(settings.term_dictionary_routing_enabled)
 
 
 def _high_confidence_threshold() -> float:
+    """Internal helper for high confidence threshold."""
     try:
         return max(0.0, min(1.0, float(settings.term_dictionary_high_confidence)))
     except (TypeError, ValueError):
@@ -90,6 +96,7 @@ def _high_confidence_threshold() -> float:
 
 
 def _medium_confidence_threshold() -> float:
+    """Internal helper for medium confidence threshold."""
     try:
         return max(0.0, min(1.0, float(settings.term_dictionary_medium_confidence)))
     except (TypeError, ValueError):
@@ -97,28 +104,32 @@ def _medium_confidence_threshold() -> float:
 
 
 def normalize_term_text(text: str) -> str:
-    lowered = str(text or '').strip().casefold()
-    lowered = _NON_WORD_PATTERN.sub(' ', lowered)
-    lowered = _WS_PATTERN.sub(' ', lowered)
+    """Normalize term text."""
+    lowered = str(text or "").strip().casefold()
+    lowered = _NON_WORD_PATTERN.sub(" ", lowered)
+    lowered = _WS_PATTERN.sub(" ", lowered)
     return lowered.strip()
 
 
 def _tokenize_normalized(text: str) -> list[str]:
+    """Internal helper for tokenize normalized."""
     normalized = normalize_term_text(text)
-    return [part for part in normalized.split(' ') if part]
+    return [part for part in normalized.split(" ") if part]
 
 
 def _bounded_ocr_normalize_token(token: str) -> str:
     # Conservative OCR normalization for longer alnum tokens.
+    """Internal helper for bounded ocr normalize token."""
     if len(token) < 5:
         return token
     if not any(ch.isdigit() for ch in token):
         return token
-    return token.replace('0', 'o').replace('1', 'l')
+    return token.replace("0", "o").replace("1", "l")
 
 
 def _edit_distance(a: str, b: str, max_distance: int = 1) -> int:
     # Bounded Levenshtein distance with early exit.
+    """Internal helper for edit distance."""
     if a == b:
         return 0
     if abs(len(a) - len(b)) > max_distance:
@@ -142,16 +153,18 @@ def _edit_distance(a: str, b: str, max_distance: int = 1) -> int:
 
 
 def _confidence_tier(confidence: float) -> str:
+    """Internal helper for confidence tier."""
     high = _high_confidence_threshold()
     medium = _medium_confidence_threshold()
     if confidence >= high:
-        return 'high'
+        return "high"
     if confidence >= medium:
-        return 'medium'
-    return 'low'
+        return "medium"
+    return "low"
 
 
 def _allow_person_name_expansion_for_query(query: str) -> bool:
+    """Internal helper for allow person name expansion for query."""
     normalized = normalize_term_text(query)
     if not normalized:
         return False
@@ -162,6 +175,7 @@ def _allow_person_name_expansion_for_query(query: str) -> bool:
 
 
 def _is_retrieval_alias_allowed(alias_norm: str) -> bool:
+    """Internal helper for is retrieval alias allowed."""
     normalized = normalize_term_text(alias_norm)
     if not normalized:
         return False
@@ -172,6 +186,7 @@ def _is_retrieval_alias_allowed(alias_norm: str) -> bool:
 
 @dataclass(slots=True)
 class TermMatch:
+    """Class docstring."""
     alias: str
     canonical: str
     match_type: str
@@ -180,9 +195,10 @@ class TermMatch:
 
 @dataclass(slots=True)
 class TermExpansion:
+    """Class docstring."""
     dictionary_version: int = 0
-    embedding_query: str = ''
-    fts_query: str = ''
+    embedding_query: str = ""
+    fts_query: str = ""
     matches: list[TermMatch] = field(default_factory=list)
     embedding_terms: list[str] = field(default_factory=list)
     fts_terms: list[str] = field(default_factory=list)
@@ -191,8 +207,9 @@ class TermExpansion:
 
 @dataclass(slots=True)
 class RoutingExpansion:
+    """Class docstring."""
     dictionary_version: int = 0
-    expanded_query: str = ''
+    expanded_query: str = ""
     canonical_terms: list[str] = field(default_factory=list)
 
 
@@ -202,7 +219,8 @@ async def expand_query_for_retrieval(
     query: str,
     allow_person_name_expansion: bool | None = None,
 ) -> TermExpansion:
-    raw_query = str(query or '').strip()
+    """Expand query for retrieval."""
+    raw_query = str(query or "").strip()
     default = TermExpansion(
         dictionary_version=0,
         embedding_query=raw_query,
@@ -268,27 +286,32 @@ async def expand_query_for_retrieval(
 
     # 1) Phrase matching first (longest alias first from SQL ORDER BY).
     for row in alias_rows:
-        alias_norm = str(row.get('normalized_alias') or '').strip()
-        if not alias_norm or ' ' not in alias_norm:
+        alias_norm = str(row.get("normalized_alias") or "").strip()
+        if not alias_norm or " " not in alias_norm:
             continue
         if not _is_retrieval_alias_allowed(alias_norm):
             continue
-        if str(row.get('term_type') or '').strip() == 'person_name' and not person_name_expansion_allowed:
+        if (
+            str(row.get("term_type") or "").strip() == "person_name"
+            and not person_name_expansion_allowed
+        ):
             continue
         if alias_norm in matched_aliases:
             continue
-        if f' {alias_norm} ' not in f' {normalized_query} ':
+        if f" {alias_norm} " not in f" {normalized_query} ":
             continue
 
-        canonical = str(row.get('canonical_term') or '').strip()
+        canonical = str(row.get("canonical_term") or "").strip()
         if not canonical:
             continue
-        tier = _confidence_tier(float(row.get('term_confidence') or 0.0))
-        if tier == 'low':
+        tier = _confidence_tier(float(row.get("term_confidence") or 0.0))
+        if tier == "low":
             continue
         matched_aliases.add(alias_norm)
-        matches.append(TermMatch(alias=alias_norm, canonical=canonical, match_type='phrase', tier=tier))
-        if tier == 'high' and len(embedding_terms) < max_embed and canonical not in embedding_terms:
+        matches.append(
+            TermMatch(alias=alias_norm, canonical=canonical, match_type="phrase", tier=tier)
+        )
+        if tier == "high" and len(embedding_terms) < max_embed and canonical not in embedding_terms:
             embedding_terms.append(canonical)
         if len(fts_terms) < max_fts and canonical not in fts_terms:
             fts_terms.append(canonical)
@@ -296,26 +319,31 @@ async def expand_query_for_retrieval(
     # 2) Exact token matching.
     query_token_set = set(query_tokens)
     for row in alias_rows:
-        alias_norm = str(row.get('normalized_alias') or '').strip()
-        if not alias_norm or ' ' in alias_norm:
+        alias_norm = str(row.get("normalized_alias") or "").strip()
+        if not alias_norm or " " in alias_norm:
             continue
         if not _is_retrieval_alias_allowed(alias_norm):
             continue
-        if str(row.get('term_type') or '').strip() == 'person_name' and not person_name_expansion_allowed:
+        if (
+            str(row.get("term_type") or "").strip() == "person_name"
+            and not person_name_expansion_allowed
+        ):
             continue
         if alias_norm in matched_aliases:
             continue
         if alias_norm not in query_token_set:
             continue
-        canonical = str(row.get('canonical_term') or '').strip()
+        canonical = str(row.get("canonical_term") or "").strip()
         if not canonical:
             continue
-        tier = _confidence_tier(float(row.get('term_confidence') or 0.0))
-        if tier == 'low':
+        tier = _confidence_tier(float(row.get("term_confidence") or 0.0))
+        if tier == "low":
             continue
         matched_aliases.add(alias_norm)
-        matches.append(TermMatch(alias=alias_norm, canonical=canonical, match_type='exact', tier=tier))
-        if tier == 'high' and len(embedding_terms) < max_embed and canonical not in embedding_terms:
+        matches.append(
+            TermMatch(alias=alias_norm, canonical=canonical, match_type="exact", tier=tier)
+        )
+        if tier == "high" and len(embedding_terms) < max_embed and canonical not in embedding_terms:
             embedding_terms.append(canonical)
         if len(fts_terms) < max_fts and canonical not in fts_terms:
             fts_terms.append(canonical)
@@ -324,19 +352,22 @@ async def expand_query_for_retrieval(
     if max_fuzzy > 0:
         ocr_tokens = {_bounded_ocr_normalize_token(token) for token in query_tokens}
         for row in alias_rows:
-            alias_norm = str(row.get('normalized_alias') or '').strip()
-            if not alias_norm or ' ' in alias_norm or alias_norm in matched_aliases:
+            alias_norm = str(row.get("normalized_alias") or "").strip()
+            if not alias_norm or " " in alias_norm or alias_norm in matched_aliases:
                 continue
             if not _is_retrieval_alias_allowed(alias_norm):
                 continue
-            if str(row.get('term_type') or '').strip() == 'person_name' and not person_name_expansion_allowed:
+            if (
+                str(row.get("term_type") or "").strip() == "person_name"
+                and not person_name_expansion_allowed
+            ):
                 continue
-            if _confidence_tier(float(row.get('term_confidence') or 0.0)) != 'high':
+            if _confidence_tier(float(row.get("term_confidence") or 0.0)) != "high":
                 continue
             # Avoid fuzzy on very short aliases (acronym collision risk).
             if len(alias_norm) < 5:
                 continue
-            canonical = str(row.get('canonical_term') or '').strip()
+            canonical = str(row.get("canonical_term") or "").strip()
             if not canonical:
                 continue
             if fuzzy_count >= max_fuzzy:
@@ -359,7 +390,9 @@ async def expand_query_for_retrieval(
             matched_aliases.add(alias_norm)
             fuzzy_count += 1
             fuzzy_per_canonical[canonical_key] = fuzzy_per_canonical.get(canonical_key, 0) + 1
-            matches.append(TermMatch(alias=alias_norm, canonical=canonical, match_type='fuzzy', tier='high'))
+            matches.append(
+                TermMatch(alias=alias_norm, canonical=canonical, match_type="fuzzy", tier="high")
+            )
             if len(embedding_terms) < max_embed and canonical not in embedding_terms:
                 embedding_terms.append(canonical)
             if len(fts_terms) < max_fts and canonical not in fts_terms:
@@ -367,10 +400,10 @@ async def expand_query_for_retrieval(
 
     embedding_query = raw_query
     if embedding_terms:
-        embedding_query = f'{raw_query} {" ".join(embedding_terms)}'.strip()
+        embedding_query = f"{raw_query} {' '.join(embedding_terms)}".strip()
     fts_query = raw_query
     if fts_terms:
-        fts_query = f'{raw_query} {" ".join(fts_terms)}'.strip()
+        fts_query = f"{raw_query} {' '.join(fts_terms)}".strip()
 
     return TermExpansion(
         dictionary_version=dictionary_version,
@@ -384,18 +417,23 @@ async def expand_query_for_retrieval(
 
 
 def _get_active_term_alias_rows_sync() -> tuple[int, list[dict]]:
+    """Internal helper for get active term alias rows sync."""
     db_path = str(settings.db_path)
     conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     try:
         current_row = conn.execute(
-            'SELECT current_version FROM term_dictionary_state WHERE singleton_id = 1'
+            "SELECT current_version FROM term_dictionary_state WHERE singleton_id = 1"
         ).fetchone()
-        version = int(current_row['current_version']) if current_row and current_row['current_version'] is not None else 0
+        version = (
+            int(current_row["current_version"])
+            if current_row and current_row["current_version"] is not None
+            else 0
+        )
         if version <= 0:
             return 0, []
         rows = conn.execute(
-            '''
+            """
             SELECT
                 ta.normalized_alias,
                 te.canonical_term,
@@ -406,24 +444,25 @@ def _get_active_term_alias_rows_sync() -> tuple[int, list[dict]]:
             WHERE te.dict_version = ?
               AND te.status = 'active'
             ORDER BY LENGTH(ta.normalized_alias) DESC, ta.normalized_alias ASC
-            ''',
+            """,
             (version,),
         ).fetchall()
     finally:
         conn.close()
     return version, [
         {
-            'normalized_alias': str(row['normalized_alias'] or '').strip(),
-            'canonical_term': str(row['canonical_term'] or '').strip(),
-            'term_type': str(row['term_type'] or '').strip(),
-            'term_confidence': float(row['term_confidence'] or 0.0),
+            "normalized_alias": str(row["normalized_alias"] or "").strip(),
+            "canonical_term": str(row["canonical_term"] or "").strip(),
+            "term_type": str(row["term_type"] or "").strip(),
+            "term_confidence": float(row["term_confidence"] or 0.0),
         }
         for row in rows
     ]
 
 
 def expand_query_for_routing(query: str) -> RoutingExpansion:
-    raw_query = str(query or '').strip()
+    """Expand query for routing."""
+    raw_query = str(query or "").strip()
     result = RoutingExpansion(dictionary_version=0, expanded_query=raw_query)
     if not raw_query or not term_dictionary_enabled() or not term_dictionary_routing_enabled():
         return result
@@ -448,19 +487,22 @@ def expand_query_for_routing(query: str) -> RoutingExpansion:
         fallback=4,
     )
     for row in rows:
-        alias_norm = row['normalized_alias']
+        alias_norm = row["normalized_alias"]
         if not alias_norm:
             continue
-        if str(row.get('term_type') or '').strip() == 'person_name' and not person_name_expansion_allowed:
+        if (
+            str(row.get("term_type") or "").strip() == "person_name"
+            and not person_name_expansion_allowed
+        ):
             continue
-        if _confidence_tier(float(row['term_confidence'] or 0.0)) != 'high':
+        if _confidence_tier(float(row["term_confidence"] or 0.0)) != "high":
             continue
-        canonical = row['canonical_term']
+        canonical = row["canonical_term"]
         if not canonical or canonical in canonical_terms:
             continue
         matched = False
-        if ' ' in alias_norm:
-            matched = f' {alias_norm} ' in f' {normalized_query} '
+        if " " in alias_norm:
+            matched = f" {alias_norm} " in f" {normalized_query} "
         else:
             matched = alias_norm in query_tokens
         if not matched:
@@ -470,9 +512,11 @@ def expand_query_for_routing(query: str) -> RoutingExpansion:
             break
 
     if not canonical_terms:
-        return RoutingExpansion(dictionary_version=version, expanded_query=raw_query, canonical_terms=[])
+        return RoutingExpansion(
+            dictionary_version=version, expanded_query=raw_query, canonical_terms=[]
+        )
 
-    expanded_query = f'{raw_query} {" ".join(canonical_terms)}'.strip()
+    expanded_query = f"{raw_query} {' '.join(canonical_terms)}".strip()
     return RoutingExpansion(
         dictionary_version=version,
         expanded_query=expanded_query,

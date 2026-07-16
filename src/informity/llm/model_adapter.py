@@ -10,6 +10,8 @@
 #   3. Done — rag.py and engine.py use the profile automatically
 # ==============================================================================
 
+"""Module for llm model adapter."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -23,24 +25,28 @@ from informity.llm.types import ChatRole, QueryType
 # Enums
 # ==============================================================================
 
+
 class ModelFamily(StrEnum):
     """Chat template family. Determines structural stop sequences."""
-    CHATML  = 'chatml'      # Qwen, Phi (<|im_start|>)
-    LLAMA   = 'llama'       # Meta Llama 2/3
-    MISTRAL = 'mistral'     # Mistral / Mixtral / Codestral
+
+    CHATML = "chatml"  # Qwen, Phi (<|im_start|>)
+    LLAMA = "llama"  # Meta Llama 2/3
+    MISTRAL = "mistral"  # Mistral / Mixtral / Codestral
 
 
 class PromptFormat(StrEnum):
     """How to render the messages list into a prompt string."""
-    NATIVE_GGUF = 'native_gguf'  # Use GGUF's embedded Jinja2 template
-    CHATML      = 'chatml'       # Force standard ChatML format
+
+    NATIVE_GGUF = "native_gguf"  # Use GGUF's embedded Jinja2 template
+    CHATML = "chatml"  # Force standard ChatML format
 
 
 class ReasoningMode(StrEnum):
     """When the model should use <think> reasoning blocks."""
-    ALWAYS       = 'always'        # All queries except simple
-    FOCUSED_ONLY = 'focused_only'  # Only focused queries (not coverage, not simple)
-    NEVER        = 'never'         # Never reason
+
+    ALWAYS = "always"  # All queries except simple
+    FOCUSED_ONLY = "focused_only"  # Only focused queries (not coverage, not simple)
+    NEVER = "never"  # Never reason
 
 
 # ==============================================================================
@@ -48,34 +54,34 @@ class ReasoningMode(StrEnum):
 # ==============================================================================
 
 _CHATML_STRUCTURAL = (
-    '<|im_end|>',
-    '<|im_start|>',
-    '<|endoftext|>',
+    "<|im_end|>",
+    "<|im_start|>",
+    "<|endoftext|>",
 )
 
 _CITATION = (
-    '[Source',
-    '[ Source',
-    '(Source',
-    '( Source',
-    'Sources:',
-    '\nSources',
+    "[Source",
+    "[ Source",
+    "(Source",
+    "( Source",
+    "Sources:",
+    "\nSources",
 )
 
 # Qwen3-specific: Chinese accessibility prompts that may leak after answer
 _QWEN_CHINESE_STOPS = (
-    '无障碍模式',  # "Accessibility mode"
-    '请告诉我',    # "Please tell me"
-    '\n\n无',      # Start of Chinese paragraph
+    "无障碍模式",  # "Accessibility mode"
+    "请告诉我",  # "Please tell me"
+    "\n\n无",  # Start of Chinese paragraph
 )
 
 # Fallback phrase stops: prevent repetition of insufficient info message
 # NOTE: These can fire inside <think> blocks when model reasons about insufficient context,
 # causing premature generation cutoff on some profiles.
 _FALLBACK_PHRASE_STOPS = (
-    'The available documents do not contain enough information',
-    '\nThe available documents',
-    'do not contain enough information',
+    "The available documents do not contain enough information",
+    "\nThe available documents",
+    "do not contain enough information",
 )
 
 # 14B model follows Rule #5 ("no commentary") — no meta-commentary stop sequences
@@ -84,6 +90,7 @@ _FALLBACK_PHRASE_STOPS = (
 # ==============================================================================
 # ModelProfile — single source of truth for model-specific behavior
 # ==============================================================================
+
 
 @dataclass(frozen=True)
 class ModelProfile:
@@ -94,56 +101,60 @@ class ModelProfile:
     """
 
     # -- Identity --------------------------------------------------------------
-    name:              str                # Human-readable name
-    family:            ModelFamily        # Chat template family
-    filename_patterns: tuple[str, ...]    # Lowercase substrings; ANY must match
+    name: str  # Human-readable name
+    family: ModelFamily  # Chat template family
+    filename_patterns: tuple[str, ...]  # Lowercase substrings; ANY must match
 
     # -- Reasoning -------------------------------------------------------------
-    supports_think_blocks:         bool            = False
-    reasoning_mode:                ReasoningMode   = ReasoningMode.NEVER
-    no_think_token:                str | None       = None   # Append to user message (e.g. Qwen3 /no_think)
+    supports_think_blocks: bool = False
+    reasoning_mode: ReasoningMode = ReasoningMode.NEVER
+    no_think_token: str | None = None  # Append to user message (e.g. Qwen3 /no_think)
 
     # -- Prompt format ---------------------------------------------------------
-    prompt_format:          PromptFormat = PromptFormat.NATIVE_GGUF
+    prompt_format: PromptFormat = PromptFormat.NATIVE_GGUF
     coverage_prompt_format: PromptFormat = PromptFormat.NATIVE_GGUF
 
     # -- Token limits ----------------------------------------------------------
-    max_tokens:          int = 3072
-    coverage_top_k:      int = 25    # Chunks for coverage queries
-    min_tokens_coverage: int = 400   # Suppress EOS for first N tokens on coverage
+    max_tokens: int = 3072
+    coverage_top_k: int = 25  # Chunks for coverage queries
+    min_tokens_coverage: int = 400  # Suppress EOS for first N tokens on coverage
 
     # -- Per-query-type top_k overrides ----------------------------------------
     # When set (> 0), these override rag_top_k for the specific query type.
     # Defaults of 0 mean "fall back to rag_top_k".
     # Suggested calibration: simple → 6, focused → 12, coverage → 24.
-    rag_top_k_simple:   int = 0   # 0 = use rag_top_k
-    rag_top_k_focused:  int = 0   # 0 = use rag_top_k
-    rag_top_k_coverage: int = 0   # 0 = use coverage_top_k
+    rag_top_k_simple: int = 0  # 0 = use rag_top_k
+    rag_top_k_focused: int = 0  # 0 = use rag_top_k
+    rag_top_k_coverage: int = 0  # 0 = use coverage_top_k
 
     # -- Timeout configuration (model-specific) --------------------------------
-    timeout_seconds: int = 450   # Wall-clock timeout for generation
+    timeout_seconds: int = 450  # Wall-clock timeout for generation
 
     # -- Model-specific tuning (profile-controlled, read-only in UI) -----------
-    context_length: int   = 16384   # Max context window (model architecture limit)
-    generation_tokens_per_second: float = 12.0  # Runtime budget estimate baseline used by generation runtime.
-    temperature:    float  = 0.1     # Sampling temperature (0 = deterministic)
-    top_p:          float  = 1.0    # Nucleus sampling (1.0 = disabled)
-    rag_top_k:      int   = 18      # Chunks to retrieve before filtering
+    context_length: int = 16384  # Max context window (model architecture limit)
+    generation_tokens_per_second: float = (
+        12.0  # Runtime budget estimate baseline used by generation runtime.
+    )
+    temperature: float = 0.1  # Sampling temperature (0 = deterministic)
+    top_p: float = 1.0  # Nucleus sampling (1.0 = disabled)
+    rag_top_k: int = 18  # Chunks to retrieve before filtering
     retrieval_top_k_candidates: int = 25  # Candidate pool before reranking
-    retrieval_top_k_final: int = 12       # Final parent chunks after reranking
+    retrieval_top_k_final: int = 12  # Final parent chunks after reranking
 
     # -- RAG retrieval tuning (model-specific optimal values) ------------------
-    rag_max_score:            float = 0.95  # Max L2 distance for relevant chunk (lower = stricter)
-    rag_context_ratio:        float = 0.75  # Share of prompt budget for context (rest for history)
-    rag_rerank_min_score:     float = 0.10  # Minimum reranker score to keep a chunk before top-k selection
+    rag_max_score: float = 0.95  # Max L2 distance for relevant chunk (lower = stricter)
+    rag_context_ratio: float = 0.75  # Share of prompt budget for context (rest for history)
+    rag_rerank_min_score: float = (
+        0.10  # Minimum reranker score to keep a chunk before top-k selection
+    )
 
     # -- Stop sequences --------------------------------------------------------
-    stop_sequences:              tuple[str, ...] = ()
+    stop_sequences: tuple[str, ...] = ()
     stop_sequences_no_reasoning: tuple[str, ...] = ()  # Added when reasoning is off
 
     # -- Post-processing -------------------------------------------------------
     strip_meta_commentary: bool = True
-    strip_citations:       bool = True
+    strip_citations: bool = True
     dedupe_insufficient_context_after_stream: bool = False
 
     # -- Generation template control -------------------------------------------
@@ -186,42 +197,44 @@ class ModelProfile:
     def to_display_dict(self) -> dict:
         """Return profile values for the Settings UI (read-only display)."""
         _reasoning_labels = {
-            ReasoningMode.ALWAYS:       'All queries',
-            ReasoningMode.FOCUSED_ONLY: 'Focused queries only',
-            ReasoningMode.NEVER:        'Off',
+            ReasoningMode.ALWAYS: "All queries",
+            ReasoningMode.FOCUSED_ONLY: "Focused queries only",
+            ReasoningMode.NEVER: "Off",
         }
         _format_labels = {
-            PromptFormat.NATIVE_GGUF: 'Native (GGUF template)',
-            PromptFormat.CHATML:      'ChatML',
+            PromptFormat.NATIVE_GGUF: "Native (GGUF template)",
+            PromptFormat.CHATML: "ChatML",
         }
         return {
-            'name':                    self.name,
-            'family':                  str(self.family),
-            'supports_reasoning':      self.supports_think_blocks,
-            'reasoning_mode':          _reasoning_labels.get(self.reasoning_mode, str(self.reasoning_mode)),
-            'max_tokens':              self.max_tokens,
-            'coverage_top_k':          self.coverage_top_k,
-            'min_tokens_coverage':     self.min_tokens_coverage,
-            'prompt_format':           _format_labels.get(self.prompt_format, str(self.prompt_format)),
-            'coverage_prompt_format':  _format_labels.get(self.coverage_prompt_format, str(self.coverage_prompt_format)),
-            'context_length':          self.context_length,
-            'temperature':             self.temperature,
-            'top_p':                    self.top_p,
-            'rag_top_k':               self.rag_top_k,
-            'retrieval_top_k_candidates': self.retrieval_top_k_candidates,
-            'retrieval_top_k_final':   self.retrieval_top_k_final,
-            'rag_top_k_simple':        self.rag_top_k_simple or self.rag_top_k,
-            'rag_top_k_focused':       self.rag_top_k_focused or self.rag_top_k,
-            'rag_top_k_coverage':      self.rag_top_k_coverage or self.coverage_top_k,
-            'rag_max_score':           self.rag_max_score,
-            'rag_context_ratio':       self.rag_context_ratio,
-            'rag_rerank_min_score':    self.rag_rerank_min_score,
-            'timeout_seconds':         self.timeout_seconds,
+            "name": self.name,
+            "family": str(self.family),
+            "supports_reasoning": self.supports_think_blocks,
+            "reasoning_mode": _reasoning_labels.get(self.reasoning_mode, str(self.reasoning_mode)),
+            "max_tokens": self.max_tokens,
+            "coverage_top_k": self.coverage_top_k,
+            "min_tokens_coverage": self.min_tokens_coverage,
+            "prompt_format": _format_labels.get(self.prompt_format, str(self.prompt_format)),
+            "coverage_prompt_format": _format_labels.get(
+                self.coverage_prompt_format, str(self.coverage_prompt_format)
+            ),
+            "context_length": self.context_length,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "rag_top_k": self.rag_top_k,
+            "retrieval_top_k_candidates": self.retrieval_top_k_candidates,
+            "retrieval_top_k_final": self.retrieval_top_k_final,
+            "rag_top_k_simple": self.rag_top_k_simple or self.rag_top_k,
+            "rag_top_k_focused": self.rag_top_k_focused or self.rag_top_k,
+            "rag_top_k_coverage": self.rag_top_k_coverage or self.coverage_top_k,
+            "rag_max_score": self.rag_max_score,
+            "rag_context_ratio": self.rag_context_ratio,
+            "rag_rerank_min_score": self.rag_rerank_min_score,
+            "timeout_seconds": self.timeout_seconds,
         }
 
     def prepare_messages(
         self,
-        messages:   list[dict[str, str]],
+        messages: list[dict[str, str]],
         query_type: QueryType,
     ) -> list[dict[str, str]]:
         """
@@ -234,8 +247,8 @@ class ModelProfile:
         # Apply /no_think token for models that support it (e.g. Qwen3)
         if not reasoning_enabled and self.no_think_token:
             for m in reversed(messages):
-                if m['role'] == ChatRole.USER:
-                    m['content'] += f'\n{self.no_think_token}'
+                if m["role"] == ChatRole.USER:
+                    m["content"] += f"\n{self.no_think_token}"
                     break
 
         return messages
@@ -249,42 +262,33 @@ class ModelProfile:
 # Balanced profile for slower hardware.
 # Keep template-level thinking disabled for reliability on lower-memory devices.
 QWEN3_14B_PROFILE = ModelProfile(
-    name              = 'Qwen3 14B',
-    family            = ModelFamily.CHATML,
-    filename_patterns = ('qwen3-14b',),
-
-    supports_think_blocks         = True,
-    reasoning_mode                = ReasoningMode.NEVER,
-    no_think_token                = None,
-
-    prompt_format          = PromptFormat.NATIVE_GGUF,
-    coverage_prompt_format = PromptFormat.NATIVE_GGUF,
-
-    max_tokens         = 3072,
-    coverage_top_k      = 15,
-    min_tokens_coverage = 200,
-
-    timeout_seconds = 450,
-
-    context_length = 16384,
-    generation_tokens_per_second = 9.0,
-    temperature    = 0.2,
-    top_p          = 0.9,
-    rag_top_k      = 10,
-
-    rag_max_score            = 0.92,
-    rag_context_ratio        = 0.68,
-    rag_rerank_min_score     = 0.10,
-
-    rag_top_k_simple   = 6,   # Simple queries need fewer candidates
-    rag_top_k_focused  = 12,  # Focused queries benefit from slightly wider pool
-    rag_top_k_coverage = 0,   # Use coverage_top_k (15) as configured
-
-    stop_sequences  = _CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
-
-    strip_meta_commentary = False,
-    strip_citations       = True,
-    chat_template_kwargs  = {'enable_thinking': False},
+    name="Qwen3 14B",
+    family=ModelFamily.CHATML,
+    filename_patterns=("qwen3-14b",),
+    supports_think_blocks=True,
+    reasoning_mode=ReasoningMode.NEVER,
+    no_think_token=None,
+    prompt_format=PromptFormat.NATIVE_GGUF,
+    coverage_prompt_format=PromptFormat.NATIVE_GGUF,
+    max_tokens=3072,
+    coverage_top_k=15,
+    min_tokens_coverage=200,
+    timeout_seconds=450,
+    context_length=16384,
+    generation_tokens_per_second=9.0,
+    temperature=0.2,
+    top_p=0.9,
+    rag_top_k=10,
+    rag_max_score=0.92,
+    rag_context_ratio=0.68,
+    rag_rerank_min_score=0.10,
+    rag_top_k_simple=6,  # Simple queries need fewer candidates
+    rag_top_k_focused=12,  # Focused queries benefit from slightly wider pool
+    rag_top_k_coverage=0,  # Use coverage_top_k (15) as configured
+    stop_sequences=_CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
+    strip_meta_commentary=False,
+    strip_citations=True,
+    chat_template_kwargs={"enable_thinking": False},
 )
 
 
@@ -293,52 +297,42 @@ QWEN3_14B_PROFILE = ModelProfile(
 # - Uses focused-only reasoning to keep simple/coverage responsive
 # - Uses native GGUF template (no forced ChatML fallback)
 QWEN3_5_9B_PROFILE = ModelProfile(
-    name              = 'Qwen3.5 9B',
-    family            = ModelFamily.CHATML,
-    filename_patterns = ('qwen3.5-9b',),
-
+    name="Qwen3.5 9B",
+    family=ModelFamily.CHATML,
+    filename_patterns=("qwen3.5-9b",),
     # Qwen3.5 uses enable_thinking template variable, not /no_think user token.
     # Thinking disabled via chat_template_kwargs; reasoning_mode=NEVER because
     # we cannot selectively enable reasoning per-query without token-level control.
-    supports_think_blocks = True,
-    reasoning_mode        = ReasoningMode.NEVER,
-    no_think_token        = None,
-
-    prompt_format          = PromptFormat.NATIVE_GGUF,
-    coverage_prompt_format = PromptFormat.NATIVE_GGUF,
-
-    max_tokens         = 3072,
-    coverage_top_k      = 16,
-    min_tokens_coverage = 200,
-
-    timeout_seconds = 420,
-
+    supports_think_blocks=True,
+    reasoning_mode=ReasoningMode.NEVER,
+    no_think_token=None,
+    prompt_format=PromptFormat.NATIVE_GGUF,
+    coverage_prompt_format=PromptFormat.NATIVE_GGUF,
+    max_tokens=3072,
+    coverage_top_k=16,
+    min_tokens_coverage=200,
+    timeout_seconds=420,
     # Align with 14B default for predictable memory behavior on consumer hardware.
-    context_length = 16384,
-    generation_tokens_per_second = 12.0,
-    temperature    = 0.7,   # Recommended for non-thinking mode (was 0.15 — too low)
-    top_p          = 0.8,   # Recommended for non-thinking mode
-    rag_top_k      = 10,
-
-    rag_max_score             = 0.91,
-    rag_context_ratio         = 0.66,
-    rag_rerank_min_score      = 0.10,
-
-    rag_top_k_simple   = 6,
-    rag_top_k_focused  = 12,
-    rag_top_k_coverage = 0,   # Use coverage_top_k (16)
-
-    stop_sequences  = _CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
-
-    strip_meta_commentary = False,
-    strip_citations       = True,
-    dedupe_insufficient_context_after_stream = True,
-
+    context_length=16384,
+    generation_tokens_per_second=12.0,
+    temperature=0.7,  # Recommended for non-thinking mode (was 0.15 — too low)
+    top_p=0.8,  # Recommended for non-thinking mode
+    rag_top_k=10,
+    rag_max_score=0.91,
+    rag_context_ratio=0.66,
+    rag_rerank_min_score=0.10,
+    rag_top_k_simple=6,
+    rag_top_k_focused=12,
+    rag_top_k_coverage=0,  # Use coverage_top_k (16)
+    stop_sequences=_CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
+    strip_meta_commentary=False,
+    strip_citations=True,
+    dedupe_insufficient_context_after_stream=True,
     # Pass enable_thinking=False to the Qwen3.5 GGUF template so it prefills
     # <think>\n\n</think>\n\n (empty think block) instead of <think>\n (forced
     # thinking). Without this, the template always forces thinking mode which
     # breaks GBNF-grammar classification and produces empty answers.
-    chat_template_kwargs = {'enable_thinking': False},
+    chat_template_kwargs={"enable_thinking": False},
 )
 
 
@@ -348,79 +342,65 @@ def _build_qwen_35b_a3b_profile(*, name: str, filename_patterns: tuple[str, ...]
         name=name,
         family=ModelFamily.CHATML,
         filename_patterns=filename_patterns,
-
         # Qwen 35B A3B GGUF variants use template-level thinking control.
         # Keep thinking disabled to avoid empty-stream failures when the model
         # consumes generation budget inside hidden reasoning.
         supports_think_blocks=True,
         reasoning_mode=ReasoningMode.NEVER,
         no_think_token=None,
-
         prompt_format=PromptFormat.NATIVE_GGUF,
         coverage_prompt_format=PromptFormat.NATIVE_GGUF,
-
         max_tokens=3072,
         coverage_top_k=18,
         min_tokens_coverage=200,
-
         timeout_seconds=900,
-
         context_length=24576,
         generation_tokens_per_second=5.0,
         temperature=0.2,
         top_p=0.9,
         rag_top_k=10,
-
         rag_max_score=0.90,
         rag_context_ratio=0.65,
         rag_rerank_min_score=0.10,
-
         retrieval_top_k_final=12,
         rag_top_k_simple=6,
         rag_top_k_focused=12,
-        rag_top_k_coverage=0,   # Use coverage_top_k (18)
-
+        rag_top_k_coverage=0,  # Use coverage_top_k (18)
         stop_sequences=_CHATML_STRUCTURAL + _QWEN_CHINESE_STOPS,
-
         strip_meta_commentary=False,
         strip_citations=True,
-        chat_template_kwargs={'enable_thinking': False},
+        chat_template_kwargs={"enable_thinking": False},
     )
 
 
 # -- Qwen3.6 35B A3B ----------------------------------------------------------
 QWEN3_6_35B_A3B_PROFILE = _build_qwen_35b_a3b_profile(
-    name='Qwen3.6 35B A3B',
-    filename_patterns=('qwen3.6-35b-a3b',),
+    name="Qwen3.6 35B A3B",
+    filename_patterns=("qwen3.6-35b-a3b",),
 )
 
 
 # -- Qwen3.5 35B A3B (legacy) -------------------------------------------------
 QWEN3_5_35B_A3B_PROFILE = _build_qwen_35b_a3b_profile(
-    name='Qwen3.5 35B A3B',
-    filename_patterns=('qwen3.5-35b-a3b',),
+    name="Qwen3.5 35B A3B",
+    filename_patterns=("qwen3.5-35b-a3b",),
 )
 
 
 # -- Qwen3.5 4B Classifier ----------------------------------------------------
 QWEN3_5_4B_ROUTER_PROFILE = ModelProfile(
-    name='Qwen3.5 4B Classifier',
+    name="Qwen3.5 4B Classifier",
     family=ModelFamily.CHATML,
-    filename_patterns=('qwen3.5-4b',),
-
+    filename_patterns=("qwen3.5-4b",),
     supports_think_blocks=False,
     reasoning_mode=ReasoningMode.NEVER,
     no_think_token=None,
-
     prompt_format=PromptFormat.NATIVE_GGUF,
     coverage_prompt_format=PromptFormat.NATIVE_GGUF,
-
     max_tokens=256,
     coverage_top_k=8,
     min_tokens_coverage=64,
-
     timeout_seconds=45,
-
     context_length=8192,
     generation_tokens_per_second=18.0,
     temperature=0.0,
@@ -428,11 +408,9 @@ QWEN3_5_4B_ROUTER_PROFILE = ModelProfile(
     rag_top_k=4,
     retrieval_top_k_candidates=8,
     retrieval_top_k_final=4,
-
     rag_max_score=0.99,
     rag_context_ratio=0.50,
     rag_rerank_min_score=0.0,
-
     stop_sequences=(),
     strip_meta_commentary=True,
     strip_citations=True,
@@ -441,37 +419,29 @@ QWEN3_5_4B_ROUTER_PROFILE = ModelProfile(
 
 # -- Default profile for unknown models (conservative ChatML) -----------------
 DEFAULT_PROFILE = ModelProfile(
-    name              = 'Unknown (ChatML default)',
-    family            = ModelFamily.CHATML,
-    filename_patterns = (),
-
-    supports_think_blocks = True,
-    reasoning_mode        = ReasoningMode.FOCUSED_ONLY,
-    no_think_token            = '/no_think',  # Safe default; models that don't support it ignore it
-
-    prompt_format          = PromptFormat.NATIVE_GGUF,
-    coverage_prompt_format = PromptFormat.NATIVE_GGUF,
-
-    max_tokens         = 3072,
-    coverage_top_k      = 15,
-    min_tokens_coverage = 100,
-
-    timeout_seconds = 450,   # Conservative default for unknown models
-
-    context_length = 8192,
-    generation_tokens_per_second = 12.0,
-    temperature    = 0.2,
-    rag_top_k      = 12,
-
+    name="Unknown (ChatML default)",
+    family=ModelFamily.CHATML,
+    filename_patterns=(),
+    supports_think_blocks=True,
+    reasoning_mode=ReasoningMode.FOCUSED_ONLY,
+    no_think_token="/no_think",  # Safe default; models that don't support it ignore it
+    prompt_format=PromptFormat.NATIVE_GGUF,
+    coverage_prompt_format=PromptFormat.NATIVE_GGUF,
+    max_tokens=3072,
+    coverage_top_k=15,
+    min_tokens_coverage=100,
+    timeout_seconds=450,  # Conservative default for unknown models
+    context_length=8192,
+    generation_tokens_per_second=12.0,
+    temperature=0.2,
+    rag_top_k=12,
     # RAG tuning: Conservative defaults (matching current global settings)
-    rag_max_score            = 0.95,
-    rag_context_ratio        = 0.70,
-    rag_rerank_min_score     = 0.10,
-
-    stop_sequences  = _CHATML_STRUCTURAL + _CITATION + _FALLBACK_PHRASE_STOPS,
-
-    strip_meta_commentary = True,
-    strip_citations       = True,
+    rag_max_score=0.95,
+    rag_context_ratio=0.70,
+    rag_rerank_min_score=0.10,
+    stop_sequences=_CHATML_STRUCTURAL + _CITATION + _FALLBACK_PHRASE_STOPS,
+    strip_meta_commentary=True,
+    strip_citations=True,
 )
 
 
@@ -481,38 +451,30 @@ DEFAULT_PROFILE = ModelProfile(
 # - ChatML prompt format metadata for display/diagnostics clarity.
 # - Modest context window and retrieval thresholds to reduce overflow risk.
 OLLAMA_DEFAULT_PROFILE = ModelProfile(
-    name='Ollama (Conservative default)',
+    name="Ollama (Conservative default)",
     family=ModelFamily.CHATML,
     filename_patterns=(),
-
     supports_think_blocks=False,
     reasoning_mode=ReasoningMode.NEVER,
     no_think_token=None,
-
     prompt_format=PromptFormat.CHATML,
     coverage_prompt_format=PromptFormat.CHATML,
-
     max_tokens=2048,
     coverage_top_k=15,
     min_tokens_coverage=150,
-
     timeout_seconds=450,
-
     context_length=8192,
     generation_tokens_per_second=12.0,
     temperature=0.2,
     top_p=0.9,
     rag_top_k=10,
-
     rag_max_score=0.95,
     rag_context_ratio=0.70,
     rag_rerank_min_score=0.10,
-
     rag_top_k_simple=6,
     rag_top_k_focused=10,
     rag_top_k_coverage=0,
     retrieval_top_k_final=10,
-
     stop_sequences=_CITATION,
     strip_meta_commentary=True,
     strip_citations=True,
@@ -525,33 +487,27 @@ OLLAMA_DEFAULT_PROFILE = ModelProfile(
 
 # Order matters: more specific patterns first.
 _PROFILE_REGISTRY: list[ModelProfile] = [
-    QWEN3_5_35B_A3B_PROFILE,       # Qwen3.5-35B-A3B-Q4_K_M (legacy quality-tier)
-    QWEN3_6_35B_A3B_PROFILE,       # Qwen3.6-35B-A3B(-UD)-Q4_K_M
-    QWEN3_5_4B_ROUTER_PROFILE,     # Qwen3.5-4B-Q4_K_M (classifier)
-    QWEN3_5_9B_PROFILE,            # Qwen3.5-9B-Q4_K_M (analysis RAG)
-    QWEN3_14B_PROFILE,             # Qwen3-14B-Q5_K_M (analysis RAG profile)
+    QWEN3_5_35B_A3B_PROFILE,  # Qwen3.5-35B-A3B-Q4_K_M (legacy quality-tier)
+    QWEN3_6_35B_A3B_PROFILE,  # Qwen3.6-35B-A3B(-UD)-Q4_K_M
+    QWEN3_5_4B_ROUTER_PROFILE,  # Qwen3.5-4B-Q4_K_M (classifier)
+    QWEN3_5_9B_PROFILE,  # Qwen3.5-9B-Q4_K_M (analysis RAG)
+    QWEN3_14B_PROFILE,  # Qwen3-14B-Q5_K_M (analysis RAG profile)
 ]
 
 # Stable model IDs + alias mapping for backward-compatible filename migrations.
-MODEL_ID_QWEN_9B = 'qwen3.5:9b'
-MODEL_ID_QWEN_14B = 'qwen3:14b'
-MODEL_ID_QWEN_35B_A3B = 'qwen3.6:35b'
-MODEL_ID_QWEN_4B_ROUTER = 'qwen3.5:4b'
+MODEL_ID_QWEN_9B = "qwen3.5:9b"
+MODEL_ID_QWEN_14B = "qwen3:14b"
+MODEL_ID_QWEN_35B_A3B = "qwen3.6:35b"
+MODEL_ID_QWEN_4B_ROUTER = "qwen3.5:4b"
 
 MODEL_ID_TO_FILENAMES: dict[str, tuple[str, ...]] = {
-    MODEL_ID_QWEN_9B: (
-        'Qwen_Qwen3.5-9B-Q4_K_M.gguf',
-    ),
-    MODEL_ID_QWEN_14B: (
-        'Qwen3-14B-Q5_K_M.gguf',
-    ),
+    MODEL_ID_QWEN_9B: ("Qwen_Qwen3.5-9B-Q4_K_M.gguf",),
+    MODEL_ID_QWEN_14B: ("Qwen3-14B-Q5_K_M.gguf",),
     MODEL_ID_QWEN_35B_A3B: (
-        'Qwen3.6-35B-A3B-UD-Q4_K_M.gguf',
-        'Qwen3.5-35B-A3B-Q4_K_M.gguf',
+        "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
+        "Qwen3.5-35B-A3B-Q4_K_M.gguf",
     ),
-    MODEL_ID_QWEN_4B_ROUTER: (
-        'Qwen3.5-4B-Q4_K_M.gguf',
-    ),
+    MODEL_ID_QWEN_4B_ROUTER: ("Qwen3.5-4B-Q4_K_M.gguf",),
 }
 
 _FILENAME_TO_MODEL_ID: dict[str, str] = {
@@ -562,23 +518,25 @@ _FILENAME_TO_MODEL_ID: dict[str, str] = {
 
 # Provider-side canonical Ollama model IDs.
 _OLLAMA_MODEL_ID_ALIASES: dict[str, str] = {
-    'qwen3.6:35b': MODEL_ID_QWEN_35B_A3B,
-    'qwen3:14b': MODEL_ID_QWEN_14B,
-    'qwen3.5:9b': MODEL_ID_QWEN_9B,
-    'qwen3.5:4b-mlx': MODEL_ID_QWEN_4B_ROUTER,
-    'qwen3.5:4b': MODEL_ID_QWEN_4B_ROUTER,
+    "qwen3.6:35b": MODEL_ID_QWEN_35B_A3B,
+    "qwen3:14b": MODEL_ID_QWEN_14B,
+    "qwen3.5:9b": MODEL_ID_QWEN_9B,
+    "qwen3.5:4b-mlx": MODEL_ID_QWEN_4B_ROUTER,
+    "qwen3.5:4b": MODEL_ID_QWEN_4B_ROUTER,
 }
 
 
 def _normalize_ollama_model_id(raw_model_id: str) -> str:
-    normalized = str(raw_model_id or '').strip().lower()
+    """Internal helper for normalize ollama model id."""
+    normalized = str(raw_model_id or "").strip().lower()
     if not normalized:
-        return ''
+        return ""
     # Preserve namespace/model style IDs (e.g., org/model:tag) but ignore digest/hash suffixes.
-    return normalized.split('@', 1)[0].strip()
+    return normalized.split("@", 1)[0].strip()
 
 
 def infer_model_id_from_ollama_model(model_id: str) -> str | None:
+    """Infer model id from ollama model."""
     normalized = _normalize_ollama_model_id(model_id)
     if not normalized:
         return None
@@ -595,7 +553,8 @@ def get_profile_for_filename(filename: str) -> ModelProfile:
 
 
 def infer_model_id_from_filename(filename: str) -> str | None:
-    normalized = str(filename or '').strip().lower()
+    """Infer model id from filename."""
+    normalized = str(filename or "").strip().lower()
     if not normalized:
         return None
     model_id = _FILENAME_TO_MODEL_ID.get(normalized)
@@ -616,16 +575,17 @@ def infer_model_id_from_filename(filename: str) -> str | None:
 
 
 def get_model_alias_filenames(model_id: str) -> tuple[str, ...]:
-    return MODEL_ID_TO_FILENAMES.get(str(model_id or '').strip().lower(), ())
+    """Get model alias filenames."""
+    return MODEL_ID_TO_FILENAMES.get(str(model_id or "").strip().lower(), ())
 
 
 def get_profile() -> ModelProfile:
     """Return the ModelProfile for the currently configured LLM model."""
-    provider = str(getattr(settings, 'llm_provider', 'local_gguf') or 'local_gguf').strip().lower()
-    if provider == 'ollama':
-        candidate = str(getattr(settings, 'llm_model_id', '') or '').strip().lower()
+    provider = str(getattr(settings, "llm_provider", "local_gguf") or "local_gguf").strip().lower()
+    if provider == "ollama":
+        candidate = str(getattr(settings, "llm_model_id", "") or "").strip().lower()
         if not candidate:
-            candidate = str(getattr(settings, 'llm_model_filename', '') or '').strip().lower()
+            candidate = str(getattr(settings, "llm_model_filename", "") or "").strip().lower()
         if candidate:
             mapped_model_id = infer_model_id_from_ollama_model(candidate)
             if mapped_model_id:
@@ -649,7 +609,7 @@ def get_effective_context_length(profile: ModelProfile | None = None) -> int:
     """
     active_profile = profile or get_profile()
     profile_ctx = max(1, int(active_profile.context_length))
-    configured_ctx = int(getattr(settings, 'llm_context_length', 0) or 0)
+    configured_ctx = int(getattr(settings, "llm_context_length", 0) or 0)
     if configured_ctx > 0:
         return max(1, min(profile_ctx, configured_ctx))
     return profile_ctx
@@ -673,6 +633,7 @@ def get_retrieval_top_k(query_type: QueryType) -> int:
 # Model Discovery Utilities
 # ==============================================================================
 
+
 def discover_available_models() -> list[str]:
     """
     Discover all .gguf model files in the models directory.
@@ -685,7 +646,7 @@ def discover_available_models() -> list[str]:
         return []
 
     models: list[str] = []
-    for path in models_dir.glob('*.gguf'):
+    for path in models_dir.glob("*.gguf"):
         if path.is_file():
             models.append(path.name)
 

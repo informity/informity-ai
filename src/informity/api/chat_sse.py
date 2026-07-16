@@ -3,6 +3,8 @@
 # Contract tracking and status event emission helpers.
 # ==============================================================================
 
+"""Module for api chat sse."""
+
 import time
 
 import structlog
@@ -10,35 +12,38 @@ import structlog
 from informity.utils.json_utils import serialize_api_response
 
 SSE_PHASE_ORDER = {
-    'chat': 1,
-    'plan_step': 1,
-    'token': 2,
-    'budget': 2,
-    'timeout': 2,
-    'sources': 3,
-    'cleaned': 4,
-    'error': 4,
-    'done': 5,
+    "chat": 1,
+    "plan_step": 1,
+    "token": 2,
+    "budget": 2,
+    "timeout": 2,
+    "sources": 3,
+    "cleaned": 4,
+    "error": 4,
+    "done": 5,
 }
 
 SSE_STATUS_ORDER = {
-    'classifying': 1,
-    'retrieving': 2,
-    'searching': 3,
-    'generating': 4,
-    'continuing': 5,
-    'finalizing': 6,
+    "classifying": 1,
+    "retrieving": 2,
+    "searching": 3,
+    "generating": 4,
+    "continuing": 5,
+    "finalizing": 6,
 }
 
 _log = structlog.get_logger(__name__)
 
 
 class SseContractTracker:
+    """Class docstring."""
     # Tracks expected SSE phase progression and reports out-of-order events.
     def __init__(self) -> None:
+        """Initialize the instance."""
         self.current_phase = 0
 
     def update(self, event_name: str) -> bool:
+        """Update."""
         event_phase = SSE_PHASE_ORDER.get(event_name, 0)
         if event_phase < self.current_phase:
             return False
@@ -47,7 +52,9 @@ class SseContractTracker:
 
 
 class SseStatusEmitter:
+    """Class docstring."""
     def __init__(self, *, chat_id: str, start_time: float) -> None:
+        """Initialize the instance."""
         self.chat_id = chat_id
         self.start_time = start_time
         self.current_status_phase = 0
@@ -64,6 +71,7 @@ class SseStatusEmitter:
         section_progress: dict[str, object] | None = None,
         allow_same_state: bool = False,
     ) -> dict | None:
+        """Build event."""
         if state == self.current_status_state and not allow_same_state:
             return None
         state_phase = SSE_STATUS_ORDER.get(state)
@@ -71,7 +79,7 @@ class SseStatusEmitter:
             return None
         if state_phase < self.current_status_phase:
             _log.warning(
-                'chat_status_out_of_order',
+                "chat_status_out_of_order",
                 chat_id=self.chat_id,
                 status_state=state,
                 current_status_state=self.current_status_state,
@@ -82,20 +90,22 @@ class SseStatusEmitter:
         self.current_status_phase = state_phase
         self.current_status_state = state
         payload: dict[str, object] = {
-            'state': state,
-            'message': message,
+            "state": state,
+            "message": message,
         }
         if pass_index is not None:
-            payload['pass_index'] = pass_index
+            payload["pass_index"] = pass_index
         if pass_total is not None:
-            payload['pass_total'] = pass_total
+            payload["pass_total"] = pass_total
         if section_progress is not None:
-            payload['section_progress'] = section_progress
-        self.status_transitions.append({
-            'state': state,
-            'elapsed_seconds': round(time.time() - self.start_time, 3),
-            'pass_index': pass_index,
-            'pass_total': pass_total,
-            'section_progress_emitted': section_progress is not None,
-        })
-        return {'event': 'status', 'data': serialize_api_response(payload)}
+            payload["section_progress"] = section_progress
+        self.status_transitions.append(
+            {
+                "state": state,
+                "elapsed_seconds": round(time.time() - self.start_time, 3),
+                "pass_index": pass_index,
+                "pass_total": pass_total,
+                "section_progress_emitted": section_progress is not None,
+            }
+        )
+        return {"event": "status", "data": serialize_api_response(payload)}

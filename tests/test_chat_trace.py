@@ -1,3 +1,5 @@
+"""Test module for tests test chat trace."""
+
 from __future__ import annotations
 
 from unittest.mock import AsyncMock, patch
@@ -10,53 +12,64 @@ from informity.chat_trace import _ChatTraceWriter
 # Summary envelope: no planning artifacts
 # ==============================================================================
 
+
 def test_summary_envelope_has_no_plan_section() -> None:
-    writer = _ChatTraceWriter(chat_id='c1', message_id='m1')
-    writer.record('request', {'question': 'What is revenue?'})
+    """Test summary envelope has no plan section."""
+    writer = _ChatTraceWriter(chat_id="c1", message_id="m1")
+    writer.record("request", {"question": "What is revenue?"})
     envelope = writer.get_summary_envelope()
-    assert 'plan' not in envelope
+    assert "plan" not in envelope
 
 
 def test_summary_envelope_existing_fields_unaffected_by_plan_addition() -> None:
-    writer = _ChatTraceWriter(chat_id='c2', message_id='m2')
-    writer.record('retrieval', {'raw_chunks_count': 8, 'matching_files': 3})
-    writer.record('llm', {'total_elapsed_ms': 1200.0, 'token_count': 250})
+    """Test summary envelope existing fields unaffected by plan addition."""
+    writer = _ChatTraceWriter(chat_id="c2", message_id="m2")
+    writer.record("retrieval", {"raw_chunks_count": 8, "matching_files": 3})
+    writer.record("llm", {"total_elapsed_ms": 1200.0, "token_count": 250})
     envelope = writer.get_summary_envelope()
-    assert envelope['retrieval']['raw_chunks_count'] == 8
-    assert envelope['llm']['total_elapsed_ms'] == 1200.0
-    assert 'plan' not in envelope
+    assert envelope["retrieval"]["raw_chunks_count"] == 8
+    assert envelope["llm"]["total_elapsed_ms"] == 1200.0
+    assert "plan" not in envelope
 
 
 def test_summary_envelope_includes_specialization_attribution() -> None:
-    writer = _ChatTraceWriter(chat_id='c3', message_id='m3')
+    """Test summary envelope includes specialization attribution."""
+    writer = _ChatTraceWriter(chat_id="c3", message_id="m3")
     writer.record(
-        'request',
+        "request",
         {
-            'question': 'What is the risk?',
-            'specialization_id': 'legal',
-            'specialization': {
-                'id': 'legal',
-                'name': 'Legal Counsel',
-                'description': 'Reads contracts carefully.',
-                'plugin_type': 'specialization',
-                'visible_in_ui': True,
+            "question": "What is the risk?",
+            "specialization_id": "legal",
+            "specialization": {
+                "id": "legal",
+                "name": "Legal Counsel",
+                "description": "Reads contracts carefully.",
+                "plugin_type": "specialization",
+                "visible_in_ui": True,
             },
         },
     )
 
     envelope = writer.get_summary_envelope()
-    assert envelope['specialization']['id'] == 'legal'
-    assert envelope['specialization']['name'] == 'Legal Counsel'
-    assert envelope['specialization']['plugin_type'] == 'specialization'
-    assert envelope['specialization']['visible_in_ui'] is True
+    assert envelope["specialization"]["id"] == "legal"
+    assert envelope["specialization"]["name"] == "Legal Counsel"
+    assert envelope["specialization"]["plugin_type"] == "specialization"
+    assert envelope["specialization"]["visible_in_ui"] is True
 
 
 @pytest.mark.asyncio
-async def test_flush_warns_and_skips_evaluation_trace_when_run_id_missing_even_without_steps() -> None:
-    writer = _ChatTraceWriter(chat_id='chat-eval', message_id='msg-1', chat_type='evaluation', run_id=None)
+async def test_flush_warns_and_skips_evaluation_trace_when_run_id_missing_even_without_steps() -> (
+    None
+):
+    """Test flush warns and skips evaluation trace when run id missing even without steps."""
+    writer = _ChatTraceWriter(
+        chat_id="chat-eval", message_id="msg-1", chat_type="evaluation", run_id=None
+    )
 
-    with patch('informity.chat_trace.log.warning') as warning_mock, \
-         patch('informity.chat_trace._maybe_prune_traces', new_callable=AsyncMock) as prune_mock:
+    with (
+        patch("informity.chat_trace.log.warning") as warning_mock,
+        patch("informity.chat_trace._maybe_prune_traces", new_callable=AsyncMock) as prune_mock,
+    ):
         await writer.flush()
 
     warning_mock.assert_called_once()
@@ -65,10 +78,15 @@ async def test_flush_warns_and_skips_evaluation_trace_when_run_id_missing_even_w
 
 @pytest.mark.asyncio
 async def test_flush_noops_for_empty_user_trace_without_warning() -> None:
-    writer = _ChatTraceWriter(chat_id='chat-user', message_id='msg-2', chat_type='user', run_id=None)
+    """Test flush noops for empty user trace without warning."""
+    writer = _ChatTraceWriter(
+        chat_id="chat-user", message_id="msg-2", chat_type="user", run_id=None
+    )
 
-    with patch('informity.chat_trace.log.warning') as warning_mock, \
-         patch('informity.chat_trace._maybe_prune_traces', new_callable=AsyncMock) as prune_mock:
+    with (
+        patch("informity.chat_trace.log.warning") as warning_mock,
+        patch("informity.chat_trace._maybe_prune_traces", new_callable=AsyncMock) as prune_mock,
+    ):
         await writer.flush()
 
     warning_mock.assert_not_called()

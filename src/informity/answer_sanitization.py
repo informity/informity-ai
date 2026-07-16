@@ -3,103 +3,116 @@
 # Shared deterministic sanitization for display-channel answer payloads.
 # ==============================================================================
 
+"""Module for answer sanitization."""
+
 import re
 
 from thinkstrip import strip_think
 
 DISPLAY_FALLBACK_MESSAGE = (
-    'I could not generate a final answer from the model output. Please try rephrasing your question.'
+    "I could not generate a final answer from the model output. "
+    "Please try rephrasing your question."
 )
-_TABLE_SEPARATOR_PATTERN = re.compile(r'^\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*$')
+_TABLE_SEPARATOR_PATTERN = re.compile(r"^\s*\|(?:\s*:?-{3,}:?\s*\|)+\s*$")
 _ANSWER_LABEL_PATTERN = re.compile(
-    r'(?im)(^|\n{2,}[ \t]*)(?:\*\*)?[ \t]*answer[ \t]*(?:\*\*)?[ \t]*:[ \t]*'
+    r"(?im)(^|\n{2,}[ \t]*)(?:\*\*)?[ \t]*answer[ \t]*(?:\*\*)?[ \t]*:[ \t]*"
 )
 _ANSWER_LABEL_BOLD_COLON_INSIDE_PATTERN = re.compile(
-    r'(?im)(^|\n{2,}[ \t]*)\*\*[ \t]*answer[ \t]*:[ \t]*\*\*[ \t]*'
+    r"(?im)(^|\n{2,}[ \t]*)\*\*[ \t]*answer[ \t]*:[ \t]*\*\*[ \t]*"
 )
 _OUT_OF_SCOPE_SENTENCE_PATTERN = re.compile(
-    r'(?is)\bhowever,\s*this information is not (?:contained|present|available)\s+in\s+the\s+provided\s+documents\.?'
+    r"(?is)\bhowever,\s*this information is not "
+    r"(?:contained|present|available)\s+in\s+the\s+provided\s+documents\.?"
 )
 _OUT_OF_SCOPE_SIGNAL_PATTERN = re.compile(
-    r'(?is)\b(?:documents?|context)\b.{0,120}\b(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b(?:contain|include|cover|mention|provide)\b'
+    r"(?is)\b(?:documents?|context)\b.{0,120}\b"
+    r"(?:do\s+not|does\s+not|cannot|can\'t|not)\b.{0,120}\b"
+    r"(?:contain|include|cover|mention|provide)\b"
 )
 _OVERCAUTIOUS_SUMMARY_OPENING_PATTERN = re.compile(
-    r'(?is)^\s*'
-    r'(?:'
-    r'(?:based on the provided text|the provided text)[^.]*\.\s*'
-    r'(?:[^.]*\.\s*){0,2}'
-    r'|'
-    r'(?:based on the provided text)[^.]*cannot[^.]*\.\s*'
-    r')'
-    r'(?='
-    r'(?:based on the available|from the available|however,|the following|'
-    r'[\*\-]\s|\d+\.\s)'
-    r')'
+    r"(?is)^\s*"
+    r"(?:"
+    r"(?:based on the provided text|the provided text)[^.]*\.\s*"
+    r"(?:[^.]*\.\s*){0,2}"
+    r"|"
+    r"(?:based on the provided text)[^.]*cannot[^.]*\.\s*"
+    r")"
+    r"(?="
+    r"(?:based on the available|from the available|however,|the following|"
+    r"[\*\-]\s|\d+\.\s)"
+    r")"
 )
 _IDENTITY_LEAK_PATTERNS = (
-    re.compile(r'^\s*(?:my name is|i am|i\'m)\s+qwen\b[^.!?\n]*[.!?]?\s*', re.IGNORECASE),
     re.compile(
-        r'^\s*(?:i am|i\'m)\s+(?:an?\s+)?large language model\b[^.!?\n]*(?:alibaba(?:\s+cloud)?)?[^.!?\n]*[.!?]?\s*',
+        r"^\s*(?:my name is|i am|i\'m)\s+qwen\b[^.!?\n]*[.!?]?\s*",
         re.IGNORECASE,
     ),
     re.compile(
-        r'^\s*(?:i was|i am|i\'m)\s+(?:created|developed|built)\s+by\s+alibaba(?:\s+cloud)?\b[^.!?\n]*[.!?]?\s*',
+        r"^\s*(?:i am|i\'m)\s+(?:an?\s+)?large language model\b[^.!?\n]*"
+        r"(?:alibaba(?:\s+cloud)?)?[^.!?\n]*[.!?]?\s*",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"^\s*(?:i was|i am|i\'m)\s+(?:created|developed|built)\s+by\s+"
+        r"alibaba(?:\s+cloud)?\b[^.!?\n]*[.!?]?\s*",
         re.IGNORECASE,
     ),
 )
-_IDENTITY_LEAK_HINT_PATTERN = re.compile(r'(?i)\bqwen\b|\balibaba(?:\s+cloud)?\b')
-_IDENTITY_BRAND_LINE = 'I’m Informity AI, your local assistant.'
+_IDENTITY_LEAK_HINT_PATTERN = re.compile(r"(?i)\bqwen\b|\balibaba(?:\s+cloud)?\b")
+_IDENTITY_BRAND_LINE = "I’m Informity AI, your local assistant."
 MAX_WORDS_PATTERN = re.compile(
-    r'(?:<=?|at\s+most|max(?:imum)?|less than or equal to)\s*(\d+)\s*words?\b',
+    r"(?:<=?|at\s+most|max(?:imum)?|less than or equal to)\s*(\d+)\s*words?\b",
     re.IGNORECASE,
 )
-_WORD_PATTERN = re.compile(r'\S+')
-_TASK_LIST_BULLET_PATTERN = re.compile(r'(?im)^([ \t]*[-*+][ \t]+)\[(?: |x|X)\][ \t]+')
-_TASK_LIST_NUMBERED_PATTERN = re.compile(r'(?im)^([ \t]*\d+\.[ \t]+)\[(?: |x|X)\][ \t]+')
+_WORD_PATTERN = re.compile(r"\S+")
+_TASK_LIST_BULLET_PATTERN = re.compile(r"(?im)^([ \t]*[-*+][ \t]+)\[(?: |x|X)\][ \t]+")
+_TASK_LIST_NUMBERED_PATTERN = re.compile(r"(?im)^([ \t]*\d+\.[ \t]+)\[(?: |x|X)\][ \t]+")
 _TASK_CHECKBOX_INTENT_PATTERN = re.compile(
-    r'(?is)\b('
-    r'checkbox(?:es)?'
-    r'|task[\s\-]*list'
-    r'|todo'
-    r'|to[\s\-]*do'
-    r'|check[\s\-]*list\s+with\s+checkbox(?:es)?'
-    r'|markdown\s+task\s+list'
-    r'|\-\s*\[\s*[xX ]\s*\]'
-    r')\b'
+    r"(?is)\b("
+    r"checkbox(?:es)?"
+    r"|task[\s\-]*list"
+    r"|todo"
+    r"|to[\s\-]*do"
+    r"|check[\s\-]*list\s+with\s+checkbox(?:es)?"
+    r"|markdown\s+task\s+list"
+    r"|\-\s*\[\s*[xX ]\s*\]"
+    r")\b"
 )
 _LEGACY_BRACKETED_CITATION_PATTERN = re.compile(
-    r'\s*\[\s*'
-    r'(?:'
-    r'\d+\s*,\s*[^\[\]\n]{1,120}'
-    r'|'
-    r'(?:header|section(?:\s+[^\[\],.]+)?|page(?:s)?\s*\d+(?:-\d+)?|p\.\s*\d+|§\s*\d+)'
-    r')'
-    r'\s*\](?P<trailing>[.,;:!?])?',
+    r"\s*\[\s*"
+    r"(?:"
+    r"\d+\s*,\s*[^\[\]\n]{1,120}"
+    r"|"
+    r"(?:header|section(?:\s+[^\[\],.]+)?|page(?:s)?\s*\d+(?:-\d+)?|p\.\s*\d+|§\s*\d+)"
+    r")"
+    r"\s*\](?P<trailing>[.,;:!?])?",
     re.IGNORECASE,
 )
 _SOURCE_BRACKETED_CITATION_PATTERN = re.compile(
-    r'\s*\[\s*source(?:s)?\s*:\s*[^\[\]\n]{1,200}\](?P<trailing>[.,;:!?])?',
+    r"\s*\[\s*source(?:s)?\s*:\s*[^\[\]\n]{1,200}\](?P<trailing>[.,;:!?])?",
     re.IGNORECASE,
 )
 _SOURCE_ONLY_LINE_PATTERN = re.compile(
-    r'(?im)^\s*(?:sources?|source)\s*:\s*(?:'
-    r'\[\s*source(?:s)?\s*:\s*[^\[\]\n]{1,200}\s*\]'
-    r'|'
-    r'source\s+\d+(?:\s*,\s*source\s+\d+)*'
-    r'|'
-    r'\d+(?:\s*,\s*\d+)*'
-    r')\s*$'
+    r"(?im)^\s*(?:sources?|source)\s*:\s*(?:"
+    r"\[\s*source(?:s)?\s*:\s*[^\[\]\n]{1,200}\s*\]"
+    r"|"
+    r"source\s+\d+(?:\s*,\s*source\s+\d+)*"
+    r"|"
+    r"\d+(?:\s*,\s*\d+)*"
+    r")\s*$"
 )
 
 
 def should_preserve_task_checkboxes(user_prompt: str | None) -> bool:
-    prompt = str(user_prompt or '').strip()
+    """Should preserve task checkboxes."""
+    prompt = str(user_prompt or "").strip()
     if not prompt:
         return False
     return _TASK_CHECKBOX_INTENT_PATTERN.search(prompt) is not None
 
 
 def _normalize_visual_status_markers(text: str, *, preserve_task_checkboxes: bool) -> str:
+    """Internal helper for normalize visual status markers."""
     cleaned = text
     if not preserve_task_checkboxes:
         # Default policy: normalize markdown task-list checkboxes to plain bullets.
@@ -107,15 +120,15 @@ def _normalize_visual_status_markers(text: str, *, preserve_task_checkboxes: boo
         cleaned = _TASK_LIST_NUMBERED_PATTERN.sub(lambda m: m.group(1), cleaned)
     # Replace emoji status glyphs with plain-text markers.
     replacements = {
-        '✅': 'Yes',
-        '☑️': 'Yes',
-        '✔️': 'Yes',
-        '✔': 'Yes',
-        '❌': 'No',
-        '✖️': 'No',
-        '✗': 'No',
-        '⚠️': 'Warning',
-        '⚠': 'Warning',
+        "✅": "Yes",
+        "☑️": "Yes",
+        "✔️": "Yes",
+        "✔": "Yes",
+        "❌": "No",
+        "✖️": "No",
+        "✗": "No",
+        "⚠️": "Warning",
+        "⚠": "Warning",
     }
     for source, target in replacements.items():
         cleaned = cleaned.replace(source, target)
@@ -132,8 +145,11 @@ def strip_think_blocks(text: str) -> str:
 
 def strip_source_artifacts(text: str) -> str:
     # Remove citation/source markers from display text.
+    """Strip source artifacts."""
+
     def _replace_source_bracketed_citation(match: re.Match[str]) -> str:
-        trailing = match.group('trailing') or ''
+        """Internal helper for replace source bracketed citation."""
+        trailing = match.group("trailing") or ""
         prefix = match.string[: match.start()]
         previous_non_space: str | None = None
         for character in reversed(prefix):
@@ -141,12 +157,13 @@ def strip_source_artifacts(text: str) -> str:
                 continue
             previous_non_space = character
             break
-        if previous_non_space in {'.', '!', '?'}:
-            return ''
+        if previous_non_space in {".", "!", "?"}:
+            return ""
         return trailing
 
     def _replace_bracketed_citation(match: re.Match[str]) -> str:
-        trailing = match.group('trailing') or ''
+        """Internal helper for replace bracketed citation."""
+        trailing = match.group("trailing") or ""
         prefix = match.string[: match.start()]
         previous_non_space: str | None = None
         for character in reversed(prefix):
@@ -154,36 +171,40 @@ def strip_source_artifacts(text: str) -> str:
                 continue
             previous_non_space = character
             break
-        if previous_non_space in {'.', '!', '?'}:
-            return ''
+        if previous_non_space in {".", "!", "?"}:
+            return ""
         return trailing
 
-    cleaned = re.sub(r'\[source:\s*\d+\]', '', text, flags=re.IGNORECASE)
-    cleaned = re.sub(r'\(source\s*\d+\)', '', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'\(\s*source\s*\d+(?:\s*,\s*source\s*\d+)*\s*\)', '', cleaned, flags=re.IGNORECASE)
-    cleaned = re.sub(r'\(\s*sources?\s*\d+(?:\s*,\s*\d+)*\s*\)', '', cleaned, flags=re.IGNORECASE)
-    cleaned = _SOURCE_ONLY_LINE_PATTERN.sub('', cleaned)
-    cleaned = re.sub(r'(?im)^\s*source\s+\d+(?:\s*,\s*source\s+\d+)*\s*$', '', cleaned)
+    cleaned = re.sub(r"\[source:\s*\d+\]", "", text, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\(source\s*\d+\)", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\(\s*source\s*\d+(?:\s*,\s*source\s*\d+)*\s*\)", "", cleaned, flags=re.IGNORECASE
+    )
+    cleaned = re.sub(r"\(\s*sources?\s*\d+(?:\s*,\s*\d+)*\s*\)", "", cleaned, flags=re.IGNORECASE)
+    cleaned = _SOURCE_ONLY_LINE_PATTERN.sub("", cleaned)
+    cleaned = re.sub(r"(?im)^\s*source\s+\d+(?:\s*,\s*source\s+\d+)*\s*$", "", cleaned)
     cleaned = _SOURCE_BRACKETED_CITATION_PATTERN.sub(_replace_source_bracketed_citation, cleaned)
     cleaned = _LEGACY_BRACKETED_CITATION_PATTERN.sub(_replace_bracketed_citation, cleaned)
-    cleaned = re.sub(r'(?im)^\s*sources?\s*:\s*$', '', cleaned)
+    cleaned = re.sub(r"(?im)^\s*sources?\s*:\s*$", "", cleaned)
     return cleaned
 
 
 def _normalize_inline_whitespace_preserve_indentation(text: str) -> str:
+    """Internal helper for normalize inline whitespace preserve indentation."""
     normalized_lines: list[str] = []
     for line in text.splitlines():
-        match = re.match(r'^([ \t]*)(.*)$', line)
+        match = re.match(r"^([ \t]*)(.*)$", line)
         if match is None:
             normalized_lines.append(line)
             continue
         leading_ws = match.group(1)
-        content = re.sub(r'[ \t]{2,}', ' ', match.group(2))
-        normalized_lines.append(f'{leading_ws}{content}')
-    return '\n'.join(normalized_lines)
+        content = re.sub(r"[ \t]{2,}", " ", match.group(2))
+        normalized_lines.append(f"{leading_ws}{content}")
+    return "\n".join(normalized_lines)
 
 
 def _trim_truncated_trailing_markdown_table_row(text: str) -> str:
+    """Internal helper for trim truncated trailing markdown table row."""
     lines = text.splitlines()
     if not lines:
         return text
@@ -192,21 +213,22 @@ def _trim_truncated_trailing_markdown_table_row(text: str) -> str:
         while trailing_idx >= 0 and not lines[trailing_idx].strip():
             trailing_idx -= 1
         if trailing_idx < 0:
-            return '\n'.join(lines)
+            return "\n".join(lines)
         trailing_line = lines[trailing_idx].rstrip()
-        if not trailing_line.lstrip().startswith('|') or trailing_line.endswith('|'):
-            return '\n'.join(lines)
+        if not trailing_line.lstrip().startswith("|") or trailing_line.endswith("|"):
+            return "\n".join(lines)
         has_table_separator = any(
             _TABLE_SEPARATOR_PATTERN.match(line.rstrip()) is not None
             for line in lines[:trailing_idx]
         )
         if not has_table_separator:
-            return '\n'.join(lines)
+            return "\n".join(lines)
         del lines[trailing_idx]
-    return ''
+    return ""
 
 
 def sanitize_display_answer(text: str, *, preserve_task_checkboxes: bool = False) -> str:
+    """Sanitize display answer."""
     cleaned = strip_think_blocks(text)
     cleaned = strip_source_artifacts(cleaned)
     cleaned = _normalize_visual_status_markers(
@@ -219,18 +241,18 @@ def sanitize_display_answer(text: str, *, preserve_task_checkboxes: bool = False
         len(_OUT_OF_SCOPE_SIGNAL_PATTERN.findall(cleaned)) >= 1
         and _OUT_OF_SCOPE_SENTENCE_PATTERN.search(cleaned) is not None
     ):
-        cleaned = _OUT_OF_SCOPE_SENTENCE_PATTERN.sub('', cleaned)
+        cleaned = _OUT_OF_SCOPE_SENTENCE_PATTERN.sub("", cleaned)
     # Normalize line-break HTML artifacts commonly emitted inside markdown table cells.
-    cleaned = re.sub(r'(?i)<br\s*/?>', '; ', cleaned)
+    cleaned = re.sub(r"(?i)<br\s*/?>", "; ", cleaned)
     cleaned = _normalize_inline_whitespace_preserve_indentation(cleaned)
     match = _OVERCAUTIOUS_SUMMARY_OPENING_PATTERN.match(cleaned)
     if match is not None:
-        remainder = cleaned[match.end():].lstrip()
-        remainder = re.sub(r'(?is)^however,\s*', '', remainder)
+        remainder = cleaned[match.end() :].lstrip()
+        remainder = re.sub(r"(?is)^however,\s*", "", remainder)
         if remainder:
             cleaned = remainder
-    cleaned = re.sub(r'(?is)^\s*(?:the\s+)?following\s+[^:\n]{3,140}:\s*', '', cleaned)
-    paragraphs = re.split(r'\n{2,}', cleaned)
+    cleaned = re.sub(r"(?is)^\s*(?:the\s+)?following\s+[^:\n]{3,140}:\s*", "", cleaned)
+    paragraphs = re.split(r"\n{2,}", cleaned)
     filtered_paragraphs: list[str] = []
     skip_next_paragraph = False
     for paragraph in paragraphs:
@@ -240,18 +262,18 @@ def sanitize_display_answer(text: str, *, preserve_task_checkboxes: bool = False
         text_paragraph = paragraph.strip()
         normalized = text_paragraph.lower()
         is_scope_meta_heading = (
-            normalized.startswith('limitations of the provided text')
-            or normalized.startswith('note on scope')
-            or normalized.startswith('scope note')
+            normalized.startswith("limitations of the provided text")
+            or normalized.startswith("note on scope")
+            or normalized.startswith("scope note")
         )
         if is_scope_meta_heading:
-            if ':' not in text_paragraph:
+            if ":" not in text_paragraph:
                 skip_next_paragraph = True
             continue
         filtered_paragraphs.append(paragraph)
-    cleaned = '\n\n'.join(filtered_paragraphs)
+    cleaned = "\n\n".join(filtered_paragraphs)
     cleaned = _trim_truncated_trailing_markdown_table_row(cleaned)
-    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     return cleaned.strip()
 
 
@@ -260,7 +282,7 @@ def normalize_assistant_identity_claim(text: str) -> str:
     Deterministically replace leaked base-model self-identification at answer start.
     Only rewrites an opening identity sentence; never rewrites general content.
     """
-    raw = str(text or '')
+    raw = str(text or "")
     if not raw:
         return raw
     opening_window = raw.lstrip()[:240]
@@ -271,8 +293,8 @@ def normalize_assistant_identity_claim(text: str) -> str:
         match = pattern.match(raw)
         if match is None:
             continue
-        remainder = raw[match.end():].lstrip()
-        return f'{_IDENTITY_BRAND_LINE} {remainder}'.strip() if remainder else _IDENTITY_BRAND_LINE
+        remainder = raw[match.end() :].lstrip()
+        return f"{_IDENTITY_BRAND_LINE} {remainder}".strip() if remainder else _IDENTITY_BRAND_LINE
     return raw
 
 
@@ -291,8 +313,13 @@ def build_display_answer(
         normalized_raw_answer,
         preserve_task_checkboxes=preserve_task_checkboxes,
     )
-    reasoning_only_output = bool(normalized_raw_answer) and not cleaned_answer and (
-        '<think>' in normalized_raw_answer.lower() or '<<think>>' in normalized_raw_answer.lower()
+    reasoning_only_output = (
+        bool(normalized_raw_answer)
+        and not cleaned_answer
+        and (
+            "<think>" in normalized_raw_answer.lower()
+            or "<<think>>" in normalized_raw_answer.lower()
+        )
     )
     if reasoning_only_output:
         return fallback_message, True
@@ -300,7 +327,8 @@ def build_display_answer(
 
 
 def extract_requested_max_words(text: str) -> int | None:
-    match = MAX_WORDS_PATTERN.search(str(text or ''))
+    """Extract requested max words."""
+    match = MAX_WORDS_PATTERN.search(str(text or ""))
     if match is None:
         return None
     try:
@@ -311,11 +339,13 @@ def extract_requested_max_words(text: str) -> int | None:
 
 
 def count_words(text: str) -> int:
-    return len(_WORD_PATTERN.findall(str(text or '')))
+    """Count words."""
+    return len(_WORD_PATTERN.findall(str(text or "")))
 
 
 def truncate_to_word_limit(text: str, max_words: int) -> tuple[str, bool]:
-    raw_text = str(text or '')
+    """Truncate to word limit."""
+    raw_text = str(text or "")
     if not raw_text or max_words <= 0:
         return raw_text, False
 
@@ -331,12 +361,12 @@ def truncate_to_word_limit(text: str, max_words: int) -> tuple[str, bool]:
     # Prefer a clean sentence boundary if it is very close to the hard cutoff.
     min_boundary = max(0, len(truncated) - 120)
     boundary = max(
-        truncated.rfind('. ', min_boundary),
-        truncated.rfind('! ', min_boundary),
-        truncated.rfind('? ', min_boundary),
-        truncated.rfind('.\n', min_boundary),
-        truncated.rfind('!\n', min_boundary),
-        truncated.rfind('?\n', min_boundary),
+        truncated.rfind(". ", min_boundary),
+        truncated.rfind("! ", min_boundary),
+        truncated.rfind("? ", min_boundary),
+        truncated.rfind(".\n", min_boundary),
+        truncated.rfind("!\n", min_boundary),
+        truncated.rfind("?\n", min_boundary),
     )
     if boundary >= min_boundary:
         truncated = truncated[: boundary + 1].rstrip()

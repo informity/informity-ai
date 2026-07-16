@@ -1,3 +1,5 @@
+"""Module for log events."""
+
 from __future__ import annotations
 
 import hashlib
@@ -23,36 +25,36 @@ _last_log_prune_ts = 0.0
 
 _CANONICAL_EVENTS: dict[str, tuple[str, str]] = {
     # Scanning & indexing
-    'scan_started':              ('application', 'info'),
-    'scan_completed':            ('application', 'info'),
-    'scan_failed':               ('errors',      'error'),
-    'scan_cancelled':            ('errors',      'warning'),
-    'indexing_timeout':          ('errors',      'warning'),
-    'index_refresh_started':     ('application', 'info'),
-    'index_refresh_completed':   ('application', 'info'),
-    'index_refresh_failed':      ('errors',      'error'),
-    'database_compaction_failed':('errors',      'error'),
+    "scan_started": ("application", "info"),
+    "scan_completed": ("application", "info"),
+    "scan_failed": ("errors", "error"),
+    "scan_cancelled": ("errors", "warning"),
+    "indexing_timeout": ("errors", "warning"),
+    "index_refresh_started": ("application", "info"),
+    "index_refresh_completed": ("application", "info"),
+    "index_refresh_failed": ("errors", "error"),
+    "database_compaction_failed": ("errors", "error"),
     # Translation pipeline
-    'translate_job_completed':   ('application', 'info'),
-    'translate_job_failed':      ('errors',      'error'),
-    'translate_job_stalled':     ('errors',      'warning'),
+    "translate_job_completed": ("application", "info"),
+    "translate_job_failed": ("errors", "error"),
+    "translate_job_stalled": ("errors", "warning"),
     # Chat (user-visible; only emitted when chat_trace_logging is enabled)
-    'chat_message_generated':    ('application', 'info'),
+    "chat_message_generated": ("application", "info"),
     # Integrations
-    'mcp_server_started':        ('integrations','info'),
-    'mcp_server_stopped':        ('integrations','info'),
-    'mcp_server_failed':         ('integrations','error'),
-    'mcp_scope_denied':          ('integrations','warning'),
-    'mcp_auth_failed':           ('integrations','warning'),
-    'mcp_policy_violation':      ('integrations','warning'),
-    'ollama_unavailable':        ('integrations','error'),
+    "mcp_server_started": ("integrations", "info"),
+    "mcp_server_stopped": ("integrations", "info"),
+    "mcp_server_failed": ("integrations", "error"),
+    "mcp_scope_denied": ("integrations", "warning"),
+    "mcp_auth_failed": ("integrations", "warning"),
+    "mcp_policy_violation": ("integrations", "warning"),
+    "ollama_unavailable": ("integrations", "error"),
 }
 
 _NOISE_SUBSTRINGS = (
-    ' 200 ok',
-    'http 200',
-    'status=200',
-    'status 200',
+    " 200 ok",
+    "http 200",
+    "status=200",
+    "status 200",
 )
 
 
@@ -65,14 +67,15 @@ def _build_event_id(
     bucket_seconds: int | None,
     created_at: datetime,
 ) -> str:
+    """Internal helper for build event id."""
     if bucket_seconds and bucket_seconds > 0:
         epoch = int(created_at.timestamp())
         bucket = epoch - (epoch % bucket_seconds)
     else:
         bucket = int(created_at.timestamp() * 1000)
-    identity = f'{event_name}|{source}|{correlation_id or "none"}|{bucket}|{message}'
-    digest = hashlib.sha256(identity.encode('utf-8')).hexdigest()[:16]
-    return f'{event_name}:{digest}'
+    identity = f"{event_name}|{source}|{correlation_id or 'none'}|{bucket}|{message}"
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+    return f"{event_name}:{digest}"
 
 
 async def emit_log_event(
@@ -91,10 +94,11 @@ async def emit_log_event(
     dedupe_bucket_seconds: int | None = None,
     db: aiosqlite.Connection | None = None,
 ) -> None:
-    message_value = str(message or '').strip()
+    """Emit log event."""
+    message_value = str(message or "").strip()
     if not message_value:
         return
-    lowered = f' {message_value.lower()}'
+    lowered = f" {message_value.lower()}"
     if any(marker in lowered for marker in _NOISE_SUBSTRINGS):
         return
 
@@ -103,7 +107,7 @@ async def emit_log_event(
     resolved_type = event_type or (canonical[1] if canonical else None)
     if resolved_channel not in LOG_EVENT_CHANNELS or resolved_type not in LOG_EVENT_TYPES:
         log.debug(
-            'log_event_skip_invalid_taxonomy',
+            "log_event_skip_invalid_taxonomy",
             event_name=event_name,
             channel=resolved_channel,
             event_type=resolved_type,
@@ -143,7 +147,7 @@ async def emit_log_event(
         )
     except (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError) as exc:
         log.warning(
-            'log_event_emit_failed',
+            "log_event_emit_failed",
             event_name=event_name,
             error=str(exc),
         )

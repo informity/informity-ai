@@ -4,6 +4,8 @@
 # Optimized for simple, fast text file reading with encoding detection
 # ==============================================================================
 
+"""Module for scanner extractors text."""
+
 import time
 from pathlib import Path
 
@@ -19,39 +21,43 @@ from informity.scanner.extractors.text_utils import (
 
 log = structlog.get_logger(__name__)
 
+
 class TextExtractor:
     """
     Extractor for plain text files not supported by docling.
     Handles encoding detection and simple text extraction.
     Also handles structured data formats (JSON/YAML/TOML) - reads as plain text for RAG.
     """
+
     supported_extensions: list[str] = list(PLAINTEXT_EXTENSIONS)
 
     def can_handle(self, path: Path) -> bool:
+        """Can handle."""
         return path.suffix.lower() in self.supported_extensions
 
     def extract(self, path: Path) -> ExtractedDocument:
+        """Extract."""
         start_time = time.perf_counter()
         try:
             file_size = path.stat().st_size
             if file_size == 0:
                 return ExtractedDocument(
-                    text='',
+                    text="",
                     source_path=path,
                     word_count=0,
                     extraction_time_ms=elapsed_ms(start_time),
-                    preview_text='',
-                    error='File is empty',
+                    preview_text="",
+                    error="File is empty",
                 )
 
             if file_size > get_max_file_size_bytes():
                 return ExtractedDocument(
-                    text='',
+                    text="",
                     source_path=path,
                     word_count=0,
                     extraction_time_ms=elapsed_ms(start_time),
-                    preview_text='',
-                    error=f'File too large: {file_size} bytes',
+                    preview_text="",
+                    error=f"File too large: {file_size} bytes",
                 )
 
             # Read and decode text with encoding detection
@@ -62,7 +68,7 @@ class TextExtractor:
             return ExtractedDocument(
                 text=text,
                 source_path=path,
-                metadata={'encoding': encoding, 'converter': 'plain_text'},
+                metadata={"encoding": encoding, "converter": "plain_text"},
                 word_count=word_count,
                 extraction_time_ms=elapsed_ms(start_time),
                 preview_text=text[:MAX_EXTRACTED_TEXT_PREVIEW],
@@ -70,9 +76,9 @@ class TextExtractor:
             )
         except OSError as exc:
             return ExtractedDocument(
-                text='',
+                text="",
                 source_path=path,
                 extraction_time_ms=elapsed_ms(start_time),
-                preview_text='',
-                error=f'Failed to read file: {exc}',
+                preview_text="",
+                error=f"Failed to read file: {exc}",
             )

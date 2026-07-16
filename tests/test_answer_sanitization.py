@@ -1,3 +1,7 @@
+"""Test module for tests test answer sanitization."""
+
+# pylint: disable=line-too-long
+
 from informity.answer_sanitization import (
     DISPLAY_FALLBACK_MESSAGE,
     build_display_answer,
@@ -11,11 +15,13 @@ from informity.answer_sanitization import (
 
 
 def test_sanitize_display_answer_strips_think_and_source_artifacts() -> None:
+    """Test sanitize display answer strips think and source artifacts."""
     raw = "<think>secret</think>Answer body (Source 1)\nSources: 1"
     assert sanitize_display_answer(raw) == "Answer body"
 
 
 def test_sanitize_display_answer_strips_bracketed_inline_citations() -> None:
+    """Test sanitize display answer strips bracketed inline citations."""
     raw = (
         "Transaction Details\n"
         "- Title Company: Rocket Close and Title, Inc. [1, Header].\n"
@@ -31,6 +37,7 @@ def test_sanitize_display_answer_strips_bracketed_inline_citations() -> None:
 
 
 def test_sanitize_display_answer_strips_source_style_bracketed_citations() -> None:
+    """Test sanitize display answer strips source style bracketed citations."""
     raw = (
         "Transaction History\n"
         "- Original Listing Date: October 26, 2023 [Source: 7, §Listing Date]\n"
@@ -47,17 +54,20 @@ def test_sanitize_display_answer_strips_source_style_bracketed_citations() -> No
 
 
 def test_sanitize_display_answer_keeps_legitimate_bracketed_text() -> None:
+    """Test sanitize display answer keeps legitimate bracketed text."""
     raw = "Use [xxx] as a literal label, not a citation."
     assert sanitize_display_answer(raw) == raw
 
 
 def test_build_display_answer_uses_fallback_for_reasoning_only_output() -> None:
+    """Test build display answer uses fallback for reasoning only output."""
     cleaned, reasoning_only = build_display_answer("<think>internal only</think>")
     assert reasoning_only is True
     assert cleaned == DISPLAY_FALLBACK_MESSAGE
 
 
 def test_build_display_answer_preserves_non_reasoning_cleaned_text() -> None:
+    """Test build display answer preserves non reasoning cleaned text."""
     raw = "Final answer starts.\n<think>incomplete"
     cleaned, reasoning_only = build_display_answer(raw)
     assert reasoning_only is False
@@ -65,36 +75,37 @@ def test_build_display_answer_preserves_non_reasoning_cleaned_text() -> None:
 
 
 def test_sanitize_display_answer_normalizes_br_and_lowercase_source_markers() -> None:
+    """Test sanitize display answer normalizes br and lowercase source markers."""
     raw = "Row A<br/>Row B [source: 2]\nsource 2"
     assert sanitize_display_answer(raw) == "Row A; Row B"
 
 
 def test_sanitize_display_answer_strips_double_angle_think_blocks() -> None:
+    """Test sanitize display answer strips double angle think blocks."""
     raw = "<<think>>internal reasoning</think>>Visible output"
     assert sanitize_display_answer(raw) == "Visible output"
 
 
 def test_sanitize_display_answer_trims_truncated_trailing_markdown_table_row() -> None:
-    raw = (
-        "| Field | Value |\n"
-        "|---|---|\n"
-        "| A | 10 |\n"
-        "| B | 20"
-    )
+    """Test sanitize display answer trims truncated trailing markdown table row."""
+    raw = "| Field | Value |\n|---|---|\n| A | 10 |\n| B | 20"
     assert sanitize_display_answer(raw) == "| Field | Value |\n|---|---|\n| A | 10 |"
 
 
 def test_sanitize_display_answer_strips_leading_answer_label() -> None:
+    """Test sanitize display answer strips leading answer label."""
     raw = "Answer: The declaration was signed in 1776."
     assert sanitize_display_answer(raw) == "The declaration was signed in 1776."
 
 
 def test_sanitize_display_answer_strips_bold_inline_answer_label() -> None:
+    """Test sanitize display answer strips bold inline answer label."""
     raw = "The documents do not contain this information.\n\n**Answer:** 1776."
     assert sanitize_display_answer(raw) == "The documents do not contain this information.\n\n1776."
 
 
 def test_sanitize_display_answer_removes_redundant_out_of_scope_however_sentence() -> None:
+    """Test sanitize display answer removes redundant out of scope however sentence."""
     raw = (
         "The provided documents do not contain this information.\n\n"
         "Answer: The US Declaration of Independence was signed in 1776. "
@@ -107,12 +118,14 @@ def test_sanitize_display_answer_removes_redundant_out_of_scope_however_sentence
 
 
 def test_extract_requested_max_words_parses_common_contract_cues() -> None:
+    """Test extract requested max words parses common contract cues."""
     assert extract_requested_max_words("Summarize in <= 180 words.") == 180
     assert extract_requested_max_words("Use at most 75 words.") == 75
     assert extract_requested_max_words("No limit specified.") is None
 
 
 def test_truncate_to_word_limit_trims_overflow() -> None:
+    """Test truncate to word limit trims overflow."""
     text = "one two three four five six seven"
     truncated, applied = truncate_to_word_limit(text, 5)
     assert applied is True
@@ -121,6 +134,7 @@ def test_truncate_to_word_limit_trims_overflow() -> None:
 
 
 def test_truncate_to_word_limit_noop_within_limit() -> None:
+    """Test truncate to word limit noop within limit."""
     text = "one two three"
     truncated, applied = truncate_to_word_limit(text, 5)
     assert applied is False
@@ -128,6 +142,7 @@ def test_truncate_to_word_limit_noop_within_limit() -> None:
 
 
 def test_normalize_assistant_identity_claim_rewrites_qwen_intro() -> None:
+    """Test normalize assistant identity claim rewrites qwen intro."""
     raw = "My name is Qwen. I'm a large language model created by Alibaba Cloud. How can I help?"
     normalized = normalize_assistant_identity_claim(raw)
     assert normalized.startswith("I’m Informity AI, your local assistant.")
@@ -136,12 +151,14 @@ def test_normalize_assistant_identity_claim_rewrites_qwen_intro() -> None:
 
 
 def test_normalize_assistant_identity_claim_keeps_regular_qwen_reference() -> None:
+    """Test normalize assistant identity claim keeps regular qwen reference."""
     raw = "Qwen is one of the available model families in this app."
     normalized = normalize_assistant_identity_claim(raw)
     assert normalized == raw
 
 
 def test_build_display_answer_applies_identity_guard_before_cleaning() -> None:
+    """Test build display answer applies identity guard before cleaning."""
     raw = "I am Qwen, created by Alibaba Cloud."
     cleaned, reasoning_only = build_display_answer(raw)
     assert reasoning_only is False
@@ -149,6 +166,7 @@ def test_build_display_answer_applies_identity_guard_before_cleaning() -> None:
 
 
 def test_sanitize_display_answer_removes_overcautious_opening_without_meta_replacement() -> None:
+    """Test sanitize display answer removes overcautious opening without meta replacement."""
     raw = (
         "Based on the provided text, a complete summary is not available. "
         "However, the following plot elements can be synthesized from context:\n\n"
@@ -158,6 +176,7 @@ def test_sanitize_display_answer_removes_overcautious_opening_without_meta_repla
 
 
 def test_sanitize_display_answer_strips_limitations_and_scope_meta_sections() -> None:
+    """Test sanitize display answer strips limitations and scope meta sections."""
     raw = (
         "Character summary here.\n\n"
         "Limitations of the Provided Text\n"
@@ -169,16 +188,21 @@ def test_sanitize_display_answer_strips_limitations_and_scope_meta_sections() ->
 
 
 def test_sanitize_display_answer_normalizes_markdown_task_list_checkboxes_by_default() -> None:
+    """Test sanitize display answer normalizes markdown task list checkboxes by default."""
     raw = "- [ ] Review config\n- [x] Confirm approvals\n1. [ ] Capture evidence"
-    assert sanitize_display_answer(raw) == "- Review config\n- Confirm approvals\n1. Capture evidence"
+    assert (
+        sanitize_display_answer(raw) == "- Review config\n- Confirm approvals\n1. Capture evidence"
+    )
 
 
 def test_sanitize_display_answer_preserves_markdown_task_list_checkboxes_when_enabled() -> None:
+    """Test sanitize display answer preserves markdown task list checkboxes when enabled."""
     raw = "- [ ] Review config\n- [x] Confirm approvals"
     assert sanitize_display_answer(raw, preserve_task_checkboxes=True) == raw
 
 
 def test_sanitize_display_answer_rewrites_emoji_status_markers_to_text() -> None:
+    """Test sanitize display answer rewrites emoji status markers to text."""
     raw = "| Control | Status |\n|---|---|\n| MFA | ✅ |\n| Backups | ❌ |\n| Alerts | ⚠️ |"
     assert sanitize_display_answer(raw) == (
         "| Control | Status |\n|---|---|\n| MFA | Yes |\n| Backups | No |\n| Alerts | Warning |"
@@ -186,6 +210,7 @@ def test_sanitize_display_answer_rewrites_emoji_status_markers_to_text() -> None
 
 
 def test_should_preserve_task_checkboxes_detects_explicit_checkbox_intent() -> None:
+    """Test should preserve task checkboxes detects explicit checkbox intent."""
     assert should_preserve_task_checkboxes("Return a checklist with checkboxes") is True
     assert should_preserve_task_checkboxes("Use markdown task list format") is True
     assert should_preserve_task_checkboxes("Create a weekly review checklist") is False

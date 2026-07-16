@@ -3,6 +3,8 @@
 # Corpus-aware top-k tuning. See .internal/features/adaptive-tuning.md.
 # ==============================================================================
 
+"""Module for indexer adaptive tuning."""
+
 import math
 from datetime import UTC, datetime
 from typing import Any
@@ -23,12 +25,12 @@ _ADAPTIVE_TOP_K_FOCUSED_MIN_FLOOR = 10
 # In-Memory Cache (sync-accessible by get_retrieval_top_k)
 # ==============================================================================
 
-_cached_focused_top_k: int | None   = None
-_cached_coverage_top_k: int | None  = None
-_cache_valid: bool                  = False
-_parent_chunks_at_compute: int      = 0
-_files_at_compute: int             = 0
-_last_computed_at: datetime | None  = None
+_cached_focused_top_k: int | None = None
+_cached_coverage_top_k: int | None = None
+_cache_valid: bool = False
+_parent_chunks_at_compute: int = 0
+_files_at_compute: int = 0
+_last_computed_at: datetime | None = None
 _profile_name_at_compute: str | None = None
 
 
@@ -36,11 +38,12 @@ _profile_name_at_compute: str | None = None
 # Formula
 # ==============================================================================
 
+
 def calculate_adaptive_top_k(
-    total_files:         int,
+    total_files: int,
     total_parent_chunks: int,
-    query_type:          QueryType,
-    profile_base:        int,
+    query_type: QueryType,
+    profile_base: int,
 ) -> int:
     """
     Compute adaptive top-k from corpus stats and profile base.
@@ -62,10 +65,10 @@ def calculate_adaptive_top_k(
     if total_parent_chunks <= 0:
         return profile_base
     threshold = s.adaptive_top_k_focused_small_threshold
-    small_cap  = s.adaptive_top_k_focused_small_cap
-    base       = s.adaptive_top_k_focused_base
-    scale      = s.adaptive_top_k_focused_scale
-    max_k      = s.adaptive_top_k_focused_max
+    small_cap = s.adaptive_top_k_focused_small_cap
+    base = s.adaptive_top_k_focused_base
+    scale = s.adaptive_top_k_focused_scale
+    max_k = s.adaptive_top_k_focused_max
 
     if total_parent_chunks < threshold:
         return max(_ADAPTIVE_TOP_K_FOCUSED_MIN_FLOOR, min(profile_base, small_cap))
@@ -85,13 +88,13 @@ def _is_cache_stale(stats: dict[str, Any]) -> bool:
     if delta_hours >= settings.adaptive_top_k_staleness_hours:
         return True
     cached_parents = _parent_chunks_at_compute
-    current_parents = stats.get('total_parent_chunks', 0) or 0
+    current_parents = stats.get("total_parent_chunks", 0) or 0
     if cached_parents <= 0:
         return current_parents != cached_parents
     parent_delta_ratio = abs(current_parents - cached_parents) / cached_parents
 
     cached_files = _files_at_compute
-    current_files = stats.get('total_files', 0) or 0
+    current_files = stats.get("total_files", 0) or 0
     if cached_files <= 0:
         files_stale = current_files != cached_files
     else:
@@ -104,6 +107,7 @@ def _is_cache_stale(stats: dict[str, Any]) -> bool:
 # ==============================================================================
 # Cache Update (async)
 # ==============================================================================
+
 
 async def update_tuning_cache(
     db: aiosqlite.Connection,
@@ -126,30 +130,30 @@ async def update_tuning_cache(
 
     try:
         stats = await get_corpus_stats(db)
-        total_files        = stats.get('total_files', 0) or 0
-        total_parent_chunks = stats.get('total_parent_chunks', 0) or 0
+        total_files = stats.get("total_files", 0) or 0
+        total_parent_chunks = stats.get("total_parent_chunks", 0) or 0
 
         if not force_recompute and not _is_cache_stale(stats):
             return
 
         profile = get_profile()
-        focused  = calculate_adaptive_top_k(
+        focused = calculate_adaptive_top_k(
             total_files, total_parent_chunks, QueryType.FOCUSED, profile.rag_top_k
         )
         coverage = calculate_adaptive_top_k(
             total_files, total_parent_chunks, QueryType.COVERAGE, profile.coverage_top_k
         )
 
-        _cached_focused_top_k   = focused
-        _cached_coverage_top_k  = coverage
+        _cached_focused_top_k = focused
+        _cached_coverage_top_k = coverage
         _parent_chunks_at_compute = total_parent_chunks
-        _files_at_compute       = total_files
-        _last_computed_at       = datetime.now(UTC)
+        _files_at_compute = total_files
+        _last_computed_at = datetime.now(UTC)
         _profile_name_at_compute = profile.name
-        _cache_valid            = True
+        _cache_valid = True
 
         log.debug(
-            'adaptive_tuning_updated',
+            "adaptive_tuning_updated",
             force_recompute=force_recompute,
             focused_top_k=focused,
             coverage_top_k=coverage,
@@ -158,7 +162,7 @@ async def update_tuning_cache(
             total_parent_chunks=total_parent_chunks,
         )
     except _ADAPTIVE_TUNING_EXCEPTIONS as exc:
-        log.warning('adaptive_tuning_update_failed', error=str(exc))
+        log.warning("adaptive_tuning_update_failed", error=str(exc))
         _cache_valid = False
 
 
@@ -166,14 +170,14 @@ def invalidate_tuning_cache() -> None:
     """Clear cache. Call on index reset."""
     global _cached_focused_top_k, _cached_coverage_top_k, _cache_valid
     global _parent_chunks_at_compute, _files_at_compute, _last_computed_at, _profile_name_at_compute
-    _cached_focused_top_k   = None
-    _cached_coverage_top_k  = None
-    _cache_valid            = False
+    _cached_focused_top_k = None
+    _cached_coverage_top_k = None
+    _cache_valid = False
     _parent_chunks_at_compute = 0
-    _files_at_compute       = 0
-    _last_computed_at       = None
+    _files_at_compute = 0
+    _last_computed_at = None
     _profile_name_at_compute = None
-    log.debug('adaptive_tuning_cache_invalidated')
+    log.debug("adaptive_tuning_cache_invalidated")
 
 
 def get_effective_top_k(query_type: QueryType) -> int | None:

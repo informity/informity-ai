@@ -4,6 +4,8 @@
 # Uses sentence-transformers (PyTorch) with MPS batch size cap to prevent OOM
 # ==============================================================================
 
+"""Module for indexer embedder."""
+
 from __future__ import annotations
 
 import threading
@@ -21,27 +23,30 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(__name__)
 
-_TASK_PREFIX_DOCUMENT = 'search_document: '
-_TASK_PREFIX_QUERY    = 'search_query: '
+_TASK_PREFIX_DOCUMENT = "search_document: "
+_TASK_PREFIX_QUERY = "search_query: "
 _QUERY_EMBED_CACHE_MAX_SIZE = 128
 _QUERY_EMBED_CACHE_TTL_SECONDS = 300.0
 _MPS_MAX_BATCH_SIZE = 4
 _EMBEDDING_MODEL_DIMENSIONS: dict[str, int] = {
     # Centralized embedding-model metadata for vector dimension resolution.
-    'nomic-ai/nomic-embed-text-v1.5': 768,
+    "nomic-ai/nomic-embed-text-v1.5": 768,
 }
-_DEFAULT_EMBEDDING_DIMENSION = _EMBEDDING_MODEL_DIMENSIONS['nomic-ai/nomic-embed-text-v1.5']
+_DEFAULT_EMBEDDING_DIMENSION = _EMBEDDING_MODEL_DIMENSIONS["nomic-ai/nomic-embed-text-v1.5"]
 
 
 def get_embedding_model_dimension(model_name: str) -> int:
-    normalized = str(model_name or '').strip().casefold()
+    """Get embedding model dimension."""
+    normalized = str(model_name or "").strip().casefold()
     if normalized in _EMBEDDING_MODEL_DIMENSIONS:
         return int(_EMBEDDING_MODEL_DIMENSIONS[normalized])
     return _DEFAULT_EMBEDDING_DIMENSION
 
 
 class Embedder:
+    """Class docstring."""
     def __init__(self) -> None:
+        """Initialize the instance."""
         self._model: SentenceTransformer | None = None
         self._query_embed_cache: OrderedDict[str, tuple[list[float], float]] = OrderedDict()
         self._cache_lock = threading.Lock()
@@ -49,11 +54,13 @@ class Embedder:
 
     @property
     def model(self) -> SentenceTransformer:
+        """Model."""
         if self._model is None:
             self._load_model()
         return self._model
 
     def _load_model(self) -> None:
+        """Internal helper for load model."""
         from sentence_transformers import SentenceTransformer
 
         from informity.config import configure_hf_environment
@@ -64,16 +71,18 @@ class Embedder:
 
         model_name = settings.embedding_model
 
-        log.info('loading_embedding_model', model=model_name)
+        log.info("loading_embedding_model", model=model_name)
         # sentence-transformers uses HuggingFace cache (configured via configure_hf_environment)
         # trust_remote_code=True required for nomic-ai/nomic-embed-text-v1.5
         # Task prefixes are applied manually (sentence-transformers doesn't support native prefixes)
         self._model = SentenceTransformer(
-            model_name,
-            trust_remote_code=True,
-            device='mps' if self._is_mps_available() else 'cpu'
+            model_name, trust_remote_code=True, device="mps" if self._is_mps_available() else "cpu"
         )
-        log.info('embedding_model_loaded', model=model_name, device=self._model.device.type if hasattr(self._model, 'device') else 'unknown')
+        log.info(
+            "embedding_model_loaded",
+            model=model_name,
+            device=self._model.device.type if hasattr(self._model, "device") else "unknown",
+        )
 
     def _is_mps_available(self) -> bool:
         """Check if Apple Metal Performance Shaders (MPS) is available."""
@@ -83,6 +92,7 @@ class Embedder:
         return self._mps_available
 
     def _cache_query_embedding(self, query: str, embedding: list[float]) -> None:
+        """Internal helper for cache query embedding."""
         now = monotonic()
         with self._cache_lock:
             self._query_embed_cache[query] = (embedding, now)
@@ -91,6 +101,7 @@ class Embedder:
                 self._query_embed_cache.popitem(last=False)
 
     def _get_cached_query_embedding(self, query: str) -> list[float] | None:
+        """Internal helper for get cached query embedding."""
         with self._cache_lock:
             cached = self._query_embed_cache.get(query)
             if cached is None:
@@ -114,10 +125,10 @@ class Embedder:
             safe_size = min(settings.embedding_batch_size, _MPS_MAX_BATCH_SIZE)
             if safe_size < settings.embedding_batch_size:
                 log.debug(
-                    'mps_batch_size_capped',
+                    "mps_batch_size_capped",
                     requested=settings.embedding_batch_size,
                     actual=safe_size,
-                    reason='mps_memory_preallocation_limit'
+                    reason="mps_memory_preallocation_limit",
                 )
             return safe_size
         return settings.embedding_batch_size
@@ -129,7 +140,8 @@ class Embedder:
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
         # Embed multiple texts with search_document: prefix.
         # sentence-transformers doesn't support native task prefixes, so we prepend manually.
-        prefixed = [f'{_TASK_PREFIX_DOCUMENT}{text}' for text in texts]
+        """Embed texts."""
+        prefixed = [f"{_TASK_PREFIX_DOCUMENT}{text}" for text in texts]
 
         # Use safe batch size (capped for MPS to prevent OOM)
         safe_batch_size = self.get_effective_batch_size()
@@ -137,9 +149,11 @@ class Embedder:
         # Process in batches to respect batch size limit
         embeddings = []
         for i in range(0, len(prefixed), safe_batch_size):
-            batch = prefixed[i:i + safe_batch_size]
+            batch = prefixed[i : i + safe_batch_size]
             # encode() returns numpy array, convert to list of lists
-            batch_embeddings = self.model.encode(batch, convert_to_numpy=True, show_progress_bar=False)
+            batch_embeddings = self.model.encode(
+                batch, convert_to_numpy=True, show_progress_bar=False
+            )
             # Convert numpy array to list of lists
             if batch_embeddings.ndim == 1:
                 embeddings.append(batch_embeddings.tolist())
@@ -150,11 +164,12 @@ class Embedder:
 
     def embed_query(self, query: str) -> list[float]:
         # Embed a single query with search_query: prefix.
+        """Embed query."""
         query_key = query.strip()
         cached = self._get_cached_query_embedding(query_key)
         if cached is not None:
             return cached
-        prefixed = f'{_TASK_PREFIX_QUERY}{query}'
+        prefixed = f"{_TASK_PREFIX_QUERY}{query}"
         # encode() returns numpy array, convert to list
         embedding = self.model.encode([prefixed], convert_to_numpy=True, show_progress_bar=False)
         result = embedding[0].tolist() if embedding.ndim == 2 else embedding.tolist()
@@ -163,6 +178,7 @@ class Embedder:
 
     def unload(self) -> None:
         # Release model resources.
+        """Unload."""
         if self._model is not None:
             del self._model
             self._model = None
@@ -170,8 +186,9 @@ class Embedder:
             self._query_embed_cache.clear()
 
     def get_embedding_dimension(self) -> int:
+        """Get embedding dimension."""
         model = self._model
-        if model is not None and hasattr(model, 'get_sentence_embedding_dimension'):
+        if model is not None and hasattr(model, "get_sentence_embedding_dimension"):
             try:
                 dim = int(model.get_sentence_embedding_dimension())
                 if dim > 0:
@@ -185,4 +202,5 @@ embedder = Embedder()
 
 
 def get_effective_embedding_dimension() -> int:
+    """Get effective embedding dimension."""
     return embedder.get_embedding_dimension()

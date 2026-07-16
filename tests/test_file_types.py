@@ -1,3 +1,5 @@
+"""Test module for tests test file types."""
+
 from __future__ import annotations
 
 from informity.file_types import (
@@ -8,10 +10,11 @@ from informity.file_types import (
 
 
 def test_image_file_type_is_present_and_canonical() -> None:
+    """Test image file type is present and canonical."""
     options = get_file_type_options()
-    image_option = next(option for option in options if option['id'] == 'image')
+    image_option = next(option for option in options if option["id"] == "image")
 
-    assert image_option['label'] == 'Images'
-    assert image_option['extensions'] == ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp']
-    assert '.jpg' in SUPPORTED_EXTENSIONS_CANONICAL_ORDER
-    assert any(option['id'] == 'image' for option in FILE_TYPE_OPTIONS)
+    assert image_option["label"] == "Images"
+    assert image_option["extensions"] == [".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp"]
+    assert ".jpg" in SUPPORTED_EXTENSIONS_CANONICAL_ORDER
+    assert any(option["id"] == "image" for option in FILE_TYPE_OPTIONS)

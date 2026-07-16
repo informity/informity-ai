@@ -208,7 +208,7 @@ _PER_FILE_SEPARATE_REQUEST_PATTERN = re.compile(
 
 
 def _normalize_diagnostics_query_type(value: object) -> str:
-    """ normalize diagnostics query type."""
+    """normalize diagnostics query type."""
     normalized = str(value or "").strip().lower()
     try:
         return DiagnosticsQueryType(normalized).value
@@ -217,17 +217,17 @@ def _normalize_diagnostics_query_type(value: object) -> str:
 
 
 def _answer_signals_out_of_scope(text: str) -> bool:
-    """ answer signals out of scope."""
+    """answer signals out of scope."""
     return bool(_OUT_OF_SCOPE_RESPONSE_PATTERN.search(str(text or "")))
 
 
 def _looks_per_file_separate_request(text: str) -> bool:
-    """ looks per file separate request."""
+    """looks per file separate request."""
     return bool(_PER_FILE_SEPARATE_REQUEST_PATTERN.search(str(text or "")))
 
 
 def _build_per_file_separate_guidance(file_names: list[str]) -> str | None:
-    """ build per file separate guidance."""
+    """build per file separate guidance."""
     normalized = [str(name or "").strip() for name in file_names if str(name or "").strip()]
     if len(normalized) <= 1:
         return None
@@ -242,7 +242,7 @@ def _build_per_file_separate_guidance(file_names: list[str]) -> str | None:
 
 
 def _sanitize_upload_filename(filename: str) -> str:
-    """ sanitize upload filename."""
+    """sanitize upload filename."""
     name = Path(str(filename or "")).name.strip()
     if not name:
         return "upload.txt"
@@ -250,17 +250,17 @@ def _sanitize_upload_filename(filename: str) -> str:
 
 
 def _upload_chat_dir(chat_id: str) -> Path:
-    """ upload chat dir."""
+    """upload chat dir."""
     return upload_root_dir() / str(chat_id).strip()
 
 
 def _upload_file_dir(chat_id: str, upload_id: str) -> Path:
-    """ upload file dir."""
+    """upload file dir."""
     return _upload_chat_dir(chat_id) / str(upload_id).strip()
 
 
 def _normalize_filename_token(value: str) -> str:
-    """ normalize filename token."""
+    """normalize filename token."""
     token = " ".join(str(value or "").strip().split())
     token = token.strip(".,;:()[]{}")
     token = re.sub(r"(?i)^(?:compare|vs|versus|and|with|between)\s+", "", token).strip()
@@ -269,7 +269,7 @@ def _normalize_filename_token(value: str) -> str:
 
 
 def _extract_filename_candidates(text: str) -> list[str]:
-    """ extract filename candidates."""
+    """extract filename candidates."""
     message = str(text or "")
     candidates: list[str] = []
     seen: set[str] = set()
@@ -295,7 +295,7 @@ def _resolve_upload_scope_from_filename_candidates(
     candidates: list[str],
     attachments: list[ChatUploadAttachment],
 ) -> tuple[list[ChatUploadAttachment], str | None]:
-    """ resolve upload scope from filename candidates."""
+    """resolve upload scope from filename candidates."""
     if not candidates:
         return [], None
     selected_by_upload_id: dict[str, ChatUploadAttachment] = {}
@@ -351,7 +351,7 @@ def _build_retrieval_scope(
     upload_attachments_all: list[ChatUploadAttachment] | None = None,
     selected_upload_ids: list[str] | None = None,
 ) -> tuple[str, str]:
-    """ build retrieval scope."""
+    """build retrieval scope."""
     if chat_mode != "researcher":
         return _RETRIEVAL_SCOPE_ASSISTANT, _RETRIEVAL_SCOPE_ASSISTANT
     active_uploads = [
@@ -421,7 +421,7 @@ def _filter_history_for_scope(
     retrieval_scope_kind: str,
     retrieval_scope_key: str,
 ) -> list[ChatMessage]:
-    """ filter history for scope."""
+    """filter history for scope."""
     if chat_mode != "researcher":
         return list(history)
     target_scope_key = str(retrieval_scope_key or "").strip()
@@ -456,7 +456,7 @@ async def _sweep_chat_upload_orphans(
     db: aiosqlite.Connection,
     chat_id: str,
 ) -> dict[str, int]:
-    """ sweep chat upload orphans."""
+    """sweep chat upload orphans."""
     removed_orphan_dirs = 0
     removed_deleted_dirs = 0
     repaired_failed_states = 0
@@ -546,7 +546,7 @@ class UserStopRequestedError(Exception):
 
 
 def _resolve_chat_translation_language(requested_language: str | None) -> str:
-    """ resolve chat translation language."""
+    """resolve chat translation language."""
     default_language = normalize_translate_language(
         getattr(settings, "translate_default_language", None)
     )
@@ -559,7 +559,7 @@ def _resolve_chat_translation_language(requested_language: str | None) -> str:
 
 
 def _resolve_chat_translation_tone(requested_tone: str | None) -> str:
-    """ resolve chat translation tone."""
+    """resolve chat translation tone."""
     default_tone = (
         str(getattr(settings, "translate_default_tone", "natural") or "natural").strip().lower()
     )
@@ -575,7 +575,7 @@ def _resolve_chat_translation_tone(requested_tone: str | None) -> str:
 
 
 def _build_chat_translation_display_payload(message: ChatMessage) -> dict[str, object]:
-    """ build chat translation display payload."""
+    """build chat translation display payload."""
     display_content, _ = build_display_answer(str(message.content or ""))
     payload = message.model_dump(mode="json")
     payload["content"] = display_content
@@ -588,7 +588,7 @@ def _source_message_display_payload(
     messages: list[ChatMessage],
     source_message: ChatMessage,
 ) -> tuple[str, bool]:
-    """ source message display payload."""
+    """source message display payload."""
     latest_user_prompt = ""
     for message in messages:
         if message.role == ChatRole.USER and not bool(message.is_internal):
@@ -610,7 +610,7 @@ async def _finalize_stopped_stream_if_active(
     chat_id: str | None,
     request_id: str | None,
 ) -> None:
-    """ finalize stopped stream if active."""
+    """finalize stopped stream if active."""
     try:
         await asyncio.sleep(_STOP_FINALIZE_GRACE_SECONDS)
         if not await CHAT_STREAM_REGISTRY.has_stream(stream_id):
@@ -938,7 +938,7 @@ async def _delete_chat_upload_artifacts(
     db: aiosqlite.Connection,
     attachment: ChatUploadAttachment,
 ) -> bool:
-    """ delete chat upload artifacts."""
+    """delete chat upload artifacts."""
     upload_id = str(attachment.upload_id)
     chat_id = str(attachment.chat_id)
     file_id = attachment.file_id
@@ -1269,8 +1269,7 @@ async def chat(
                     raise HTTPException(
                         status_code=409,
                         detail=(
-                            "Selected uploaded file is still indexing. Please retry in a"
-                            "moment."
+                            "Selected uploaded file is still indexing. Please retry in amoment."
                         ),
                     )
                 selected_ready_ids = sorted(
@@ -1284,8 +1283,7 @@ async def chat(
                     raise HTTPException(
                         status_code=409,
                         detail=(
-                            "Selected uploaded files are not ready yet. Please retry in a"
-                            "moment."
+                            "Selected uploaded files are not ready yet. Please retry in amoment."
                         ),
                     )
                 scoped_file_ids = selected_ready_ids
@@ -1436,7 +1434,7 @@ async def chat(
 
     # Build the SSE event generator
     async def _event_stream() -> AsyncGenerator[dict]:
-        """ event stream."""
+        """event stream."""
         async with CHAT_GUARD.slot(check_rate=False):
             start_time = time.time()
             sse_tracker = SseContractTracker()
@@ -1459,12 +1457,12 @@ async def chat(
             )
 
             def _raise_if_user_stopped() -> None:
-                """ raise if user stopped."""
+                """raise if user stopped."""
                 if stop_event.is_set() and CHAT_STREAM_REGISTRY.is_stopped_by_user(stream_id):
                     raise UserStopRequestedError
 
             async def _flush_trace_writer_safe() -> None:
-                """ flush trace writer safe."""
+                """flush trace writer safe."""
                 if trace_writer is None:
                     return
                 try:
@@ -1479,7 +1477,7 @@ async def chat(
                     )
 
             def _update_sse_phase(event_name: str) -> None:
-                """ update sse phase."""
+                """update sse phase."""
                 if not sse_tracker.update(event_name):
                     log.warning(
                         "chat_sse_out_of_order",
@@ -1847,9 +1845,7 @@ async def chat(
                                                 f"{timeout_seconds_display}s "
                                                 "reached"
                                             ),
-                                            "elapsed_seconds": round(
-                                                time.time() - start_time, 1
-                                            ),
+                                            "elapsed_seconds": round(time.time() - start_time, 1),
                                             "timeout_seconds": (
                                                 timeout_seconds if timeout_seconds else None
                                             ),
@@ -1891,7 +1887,9 @@ async def chat(
                                 and len(item) == 2
                                 and item[0] == StreamSignalTag.FILE_DISCOVERY
                             ):
-                                file_discovery_payload = item[1] if isinstance(item[1], dict) else {}
+                                file_discovery_payload = (
+                                    item[1] if isinstance(item[1], dict) else {}
+                                )
                                 continue
 
                             if (
@@ -3127,7 +3125,7 @@ def _resolve_markdown_export_payload(
     include_frontmatter: bool,
     template: str,
 ) -> dict[str, object]:
-    """ resolve markdown export payload."""
+    """resolve markdown export payload."""
     assistant_messages = [message for message in messages if message.role == ChatRole.ASSISTANT]
     latest_mode = next(
         (
@@ -3202,7 +3200,7 @@ def _resolve_chat_export_payload(
     template: str,
     export_format: str,
 ) -> dict[str, object]:
-    """ resolve chat export payload."""
+    """resolve chat export payload."""
     resolved_format = str(export_format or "").strip().lower() or "markdown"
     if resolved_format not in {"markdown", "pdf"}:
         raise HTTPException(status_code=400, detail='format must be "markdown" or "pdf".')
@@ -3372,8 +3370,7 @@ async def delete_chat_endpoint(
         raise HTTPException(
             status_code=500,
             detail=(
-                "Failed to fully delete one or more uploaded file artifacts. Retry chat"
-                "deletion."
+                "Failed to fully delete one or more uploaded file artifacts. Retry chatdeletion."
             ),
         )
     chat_upload_dir = _upload_chat_dir(chat_id)

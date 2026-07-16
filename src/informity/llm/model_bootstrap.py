@@ -38,7 +38,7 @@ CLASSIFIER_GGUF_SPEC = GGUFModelSpec(
 
 
 def _compute_sha256(path: Path) -> str:
-    """ compute sha256."""
+    """compute sha256."""
     digest = hashlib.sha256()
     with path.open("rb") as f:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
@@ -47,7 +47,7 @@ def _compute_sha256(path: Path) -> str:
 
 
 def _ensure_parent_dir(path: Path) -> None:
-    """ ensure parent dir."""
+    """ensure parent dir."""
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -117,7 +117,7 @@ def download_gguf_model(
             headers["Range"] = f"bytes={bytes_done}-"
 
         def _extract_total_bytes(response_obj: object, completed: int) -> int | None:
-            """ extract total bytes."""
+            """extract total bytes."""
             headers_obj = getattr(response_obj, "headers", None)
             if headers_obj is None:
                 return None
@@ -133,12 +133,12 @@ def download_gguf_model(
             return None
 
         def _status_code(response_obj: object) -> int | None:
-            """ status code."""
+            """status code."""
             status = getattr(response_obj, "status_code", None)
             return status if isinstance(status, int) else None
 
         def _iter_chunks(response_obj: object, size: int):
-            """ iter chunks."""
+            """iter chunks."""
             iter_bytes = getattr(response_obj, "iter_bytes", None)
             if callable(iter_bytes):
                 yield from iter_bytes(chunk_size=size)
@@ -155,7 +155,7 @@ def download_gguf_model(
         chunk_size = 1024 * 1024
 
         def _consume_response(response_obj: object) -> int | None:
-            """ consume response."""
+            """consume response."""
             nonlocal bytes_done, last_report
             response_obj.raise_for_status()
 

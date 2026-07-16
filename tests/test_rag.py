@@ -4,6 +4,11 @@
 # Tests integration behavior, not internal implementation details.
 # ==============================================================================
 
+"""Test module for tests test rag."""
+
+# pylint: disable=redefined-outer-name
+# pylint: disable=unused-argument
+
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -18,6 +23,7 @@ from informity.llm.rag import answer_question
 
 
 def _make_async_mock_db():
+    """Internal helper for make async mock db."""
     mock_db = MagicMock()
     mock_db.execute = AsyncMock(return_value=MagicMock(fetchall=AsyncMock(return_value=[])))
     return mock_db
@@ -25,28 +31,30 @@ def _make_async_mock_db():
 
 @pytest.fixture
 def mock_db():
+    """Mock db."""
     return _make_async_mock_db()
 
 
 @pytest.fixture
 def mock_chunks():
     # Mock chunk retrieval results
+    """Mock chunks."""
     return [
         {
-            'chunk_id': 1,
-            'file_id': 1,
-            'file_path': '/test/file1.txt',
-            'filename': 'file1.txt',
-            'chunk_text': 'Content from document 1 about topic 1.',
-            'score': 0.8,
+            "chunk_id": 1,
+            "file_id": 1,
+            "file_path": "/test/file1.txt",
+            "filename": "file1.txt",
+            "chunk_text": "Content from document 1 about topic 1.",
+            "score": 0.8,
         },
         {
-            'chunk_id': 2,
-            'file_id': 2,
-            'file_path': '/test/file2.txt',
-            'filename': 'file2.txt',
-            'chunk_text': 'Content from document 2 about topic 2.',
-            'score': 0.7,
+            "chunk_id": 2,
+            "file_id": 2,
+            "file_path": "/test/file2.txt",
+            "filename": "file2.txt",
+            "chunk_text": "Content from document 2 about topic 2.",
+            "score": 0.7,
         },
     ]
 
@@ -59,23 +67,27 @@ def mock_chunks():
 @pytest.mark.asyncio
 async def test_answer_question_no_db():
     # Should yield error when db is None
+    """Test answer question no db."""
     results = []
-    async for item in answer_question('test question', db=None):
+    async for item in answer_question("test question", db=None):
         results.append(item)
 
     assert len(results) >= 1
-    assert 'Error' in results[0]
+    assert "Error" in results[0]
     assert results[-1] == []  # Empty sources
 
 
 @pytest.mark.asyncio
 async def test_answer_question_calls_classify(mock_db):
     # Should call classify_query_with_timing with the question
-    with patch('informity.llm.rag.classify_query_with_timing', AsyncMock()) as mock_classify, \
-         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)):
+    """Test answer question calls classify."""
+    with (
+        patch("informity.llm.rag.classify_query_with_timing", AsyncMock()) as mock_classify,
+        patch("informity.llm.rag.get_chunk_count", AsyncMock(return_value=1)),
+    ):
         mock_classify.return_value = (
             QueryClassification(
-                intent='focused',
+                intent="focused",
                 year_filter=None,
                 category_filter=None,
             ),
@@ -83,39 +95,48 @@ async def test_answer_question_calls_classify(mock_db):
         )
 
         # Mock handler to avoid actual processing
-        with patch('informity.llm.rag._HANDLER_REGISTRY', new=[]):
+        with patch("informity.llm.rag._HANDLER_REGISTRY", new=[]):
             results = []
-            async for item in answer_question('test question', db=mock_db):
+            async for item in answer_question("test question", db=mock_db):
                 results.append(item)
 
         # Should have called classify_query_with_timing
         mock_classify.assert_called_once_with(
-            'test question',
+            "test question",
             history=None,
-            chat_mode='researcher',
-            scope_kind='indexed_corpus',
+            chat_mode="researcher",
+            scope_kind="indexed_corpus",
         )
 
 
 @pytest.mark.asyncio
 async def test_answer_question_routes_to_metadata_handler(mock_db):
     # Should route metadata queries to MetadataHandler
+    """Test answer question routes to metadata handler."""
     classification = QueryClassification(
-        intent='metadata',
+        intent="metadata",
         is_metadata_query=True,
     )
 
     async def mock_meta_gen():
-        yield 'There are 5 files.'
+        """Mock meta gen."""
+        yield "There are 5 files."
         yield []
 
-    with patch('informity.llm.rag.classify_query_with_timing', AsyncMock(return_value=(classification, 0.0))), \
-         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
-         patch('informity.llm.handlers.metadata.MetadataHandler.handle', new_callable=MagicMock) as mock_handler:
+    with (
+        patch(
+            "informity.llm.rag.classify_query_with_timing",
+            AsyncMock(return_value=(classification, 0.0)),
+        ),
+        patch("informity.llm.rag.get_chunk_count", AsyncMock(return_value=1)),
+        patch(
+            "informity.llm.handlers.metadata.MetadataHandler.handle", new_callable=MagicMock
+        ) as mock_handler,
+    ):
         mock_handler.return_value = mock_meta_gen()
 
         results = []
-        async for item in answer_question('how many files', db=mock_db):
+        async for item in answer_question("how many files", db=mock_db):
             results.append(item)
 
         # Should have called metadata handler
@@ -124,35 +145,61 @@ async def test_answer_question_routes_to_metadata_handler(mock_db):
 
 @pytest.mark.asyncio
 async def test_answer_question_runs_secondary_intent_handler_for_compound_query(mock_db):
+    """Test answer question runs secondary intent handler for compound query."""
     classification = QueryClassification(
-        intent='metadata',
+        intent="metadata",
         is_metadata_query=True,
-        secondary_intent='focused',
+        secondary_intent="focused",
     )
 
     async def mock_meta_gen():
-        yield 'There are 5 files.'
-        yield [{'filename': 'meta.txt', 'path': '/test/meta.txt', 'chunk_preview': 'meta', 'relevance_score': 1.0}]
+        """Mock meta gen."""
+        yield "There are 5 files."
+        yield [
+            {
+                "filename": "meta.txt",
+                "path": "/test/meta.txt",
+                "chunk_preview": "meta",
+                "relevance_score": 1.0,
+            }
+        ]
 
     async def mock_rag_gen():
-        yield 'Escrow appears in file1.'
-        yield [{'filename': 'file1.txt', 'path': '/test/file1.txt', 'chunk_preview': 'escrow', 'relevance_score': 0.8}]
+        """Mock rag gen."""
+        yield "Escrow appears in file1."
+        yield [
+            {
+                "filename": "file1.txt",
+                "path": "/test/file1.txt",
+                "chunk_preview": "escrow",
+                "relevance_score": 0.8,
+            }
+        ]
 
-    with patch('informity.llm.rag.classify_query_with_timing', AsyncMock(return_value=(classification, 0.0))), \
-         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
-         patch('informity.llm.handlers.metadata.MetadataHandler.handle', new_callable=MagicMock) as mock_meta_handler, \
-         patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_rag_handler:
+    with (
+        patch(
+            "informity.llm.rag.classify_query_with_timing",
+            AsyncMock(return_value=(classification, 0.0)),
+        ),
+        patch("informity.llm.rag.get_chunk_count", AsyncMock(return_value=1)),
+        patch(
+            "informity.llm.handlers.metadata.MetadataHandler.handle", new_callable=MagicMock
+        ) as mock_meta_handler,
+        patch(
+            "informity.llm.handlers.rag.RAGHandler.handle", new_callable=MagicMock
+        ) as mock_rag_handler,
+    ):
         mock_meta_handler.return_value = mock_meta_gen()
         mock_rag_handler.return_value = mock_rag_gen()
 
         results = []
-        async for item in answer_question('List files and include mentions of escrow', db=mock_db):
+        async for item in answer_question("List files and include mentions of escrow", db=mock_db):
             results.append(item)
 
         mock_meta_handler.assert_called_once()
         mock_rag_handler.assert_called_once()
-        assert any(isinstance(item, str) and 'There are 5 files.' in item for item in results)
-        assert any(isinstance(item, str) and 'Escrow appears in file1.' in item for item in results)
+        assert any(isinstance(item, str) and "There are 5 files." in item for item in results)
+        assert any(isinstance(item, str) and "Escrow appears in file1." in item for item in results)
         assert isinstance(results[-1], list)
         assert len(results[-1]) == 2
 
@@ -160,21 +207,30 @@ async def test_answer_question_runs_secondary_intent_handler_for_compound_query(
 @pytest.mark.asyncio
 async def test_answer_question_routes_to_simple_handler(mock_db):
     # Should route simple queries to SimpleHandler
+    """Test answer question routes to simple handler."""
     classification = QueryClassification(
-        intent='simple',
+        intent="simple",
     )
 
     async def mock_simple_gen():
-        yield 'Hello!'
+        """Mock simple gen."""
+        yield "Hello!"
         yield []
 
-    with patch('informity.llm.rag.classify_query_with_timing', AsyncMock(return_value=(classification, 0.0))), \
-         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
-         patch('informity.llm.handlers.simple.SimpleHandler.handle', new_callable=MagicMock) as mock_handler:
+    with (
+        patch(
+            "informity.llm.rag.classify_query_with_timing",
+            AsyncMock(return_value=(classification, 0.0)),
+        ),
+        patch("informity.llm.rag.get_chunk_count", AsyncMock(return_value=1)),
+        patch(
+            "informity.llm.handlers.simple.SimpleHandler.handle", new_callable=MagicMock
+        ) as mock_handler,
+    ):
         mock_handler.return_value = mock_simple_gen()
 
         results = []
-        async for item in answer_question('hello', db=mock_db):
+        async for item in answer_question("hello", db=mock_db):
             results.append(item)
 
         # Should have called simple handler
@@ -184,130 +240,167 @@ async def test_answer_question_routes_to_simple_handler(mock_db):
 @pytest.mark.asyncio
 async def test_answer_question_routes_to_rag_handler(mock_db, mock_chunks):
     # Should route focused/coverage queries to RAGHandler
+    """Test answer question routes to rag handler."""
     classification = QueryClassification(
-        intent='focused',
+        intent="focused",
         year_filter=None,
         category_filter=None,
     )
 
     async def mock_rag_gen():
-        yield 'token1'
-        yield 'token2'
+        """Mock rag gen."""
+        yield "token1"
+        yield "token2"
         yield mock_chunks
 
-    with patch('informity.llm.rag.classify_query_with_timing', AsyncMock(return_value=(classification, 0.0))), \
-         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
-         patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_handler:
+    with (
+        patch(
+            "informity.llm.rag.classify_query_with_timing",
+            AsyncMock(return_value=(classification, 0.0)),
+        ),
+        patch("informity.llm.rag.get_chunk_count", AsyncMock(return_value=1)),
+        patch(
+            "informity.llm.handlers.rag.RAGHandler.handle", new_callable=MagicMock
+        ) as mock_handler,
+    ):
         mock_handler.return_value = mock_rag_gen()
 
         results = []
-        async for item in answer_question('test question', db=mock_db):
+        async for item in answer_question("test question", db=mock_db):
             results.append(item)
 
         # Should have called RAG handler
         mock_handler.assert_called_once()
         call_kwargs = mock_handler.call_args[1]
-        assert call_kwargs['classification'] == classification
+        assert call_kwargs["classification"] == classification
 
 
 @pytest.mark.asyncio
 async def test_answer_question_passes_filters_to_handler(mock_db):
     # Should pass classification filters to handler
+    """Test answer question passes filters to handler."""
     classification = QueryClassification(
-        intent='focused',
+        intent="focused",
         year_filter=2020,
-        category_filter='document',
-        file_type_filter='.pdf',
+        category_filter="document",
+        file_type_filter=".pdf",
     )
 
     async def mock_rag_gen():
-        yield 'answer'
+        """Mock rag gen."""
+        yield "answer"
         yield []
 
-    with patch('informity.llm.rag.classify_query_with_timing', AsyncMock(return_value=(classification, 0.0))), \
-         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
-         patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_handler:
+    with (
+        patch(
+            "informity.llm.rag.classify_query_with_timing",
+            AsyncMock(return_value=(classification, 0.0)),
+        ),
+        patch("informity.llm.rag.get_chunk_count", AsyncMock(return_value=1)),
+        patch(
+            "informity.llm.handlers.rag.RAGHandler.handle", new_callable=MagicMock
+        ) as mock_handler,
+    ):
         mock_handler.return_value = mock_rag_gen()
 
         results = []
-        async for item in answer_question('files from 2020', db=mock_db):
+        async for item in answer_question("files from 2020", db=mock_db):
             results.append(item)
 
         # Should have passed filters to handler
         call_kwargs = mock_handler.call_args[1]
-        assert call_kwargs['classification'].year_filter == 2020
-        assert call_kwargs['classification'].category_filter == 'document'
-        assert call_kwargs['classification'].file_type_filter == '.pdf'
+        assert call_kwargs["classification"].year_filter == 2020
+        assert call_kwargs["classification"].category_filter == "document"
+        assert call_kwargs["classification"].file_type_filter == ".pdf"
 
 
 @pytest.mark.asyncio
 async def test_answer_question_passes_history_to_handler(mock_db):
     # Should pass chat history to handler
-    classification = QueryClassification(intent='focused')
+    """Test answer question passes history to handler."""
+    classification = QueryClassification(intent="focused")
     history = [
-        ChatMessage(chat_id='test-chat', role='user', content='previous question'),
-        ChatMessage(chat_id='test-chat', role='assistant', content='previous answer'),
+        ChatMessage(chat_id="test-chat", role="user", content="previous question"),
+        ChatMessage(chat_id="test-chat", role="assistant", content="previous answer"),
     ]
 
     async def mock_rag_gen():
-        yield 'answer'
+        """Mock rag gen."""
+        yield "answer"
         yield []
 
-    with patch('informity.llm.rag.classify_query_with_timing', AsyncMock(return_value=(classification, 0.0))), \
-         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
-         patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_handler:
+    with (
+        patch(
+            "informity.llm.rag.classify_query_with_timing",
+            AsyncMock(return_value=(classification, 0.0)),
+        ),
+        patch("informity.llm.rag.get_chunk_count", AsyncMock(return_value=1)),
+        patch(
+            "informity.llm.handlers.rag.RAGHandler.handle", new_callable=MagicMock
+        ) as mock_handler,
+    ):
         mock_handler.return_value = mock_rag_gen()
 
         results = []
-        async for item in answer_question('follow-up question', history=history, db=mock_db):
+        async for item in answer_question("follow-up question", history=history, db=mock_db):
             results.append(item)
 
         # Should have passed history to handler
         call_kwargs = mock_handler.call_args[1]
-        assert call_kwargs['history'] == history
+        assert call_kwargs["history"] == history
 
 
 @pytest.mark.asyncio
 async def test_answer_question_error_handling(mock_db):
     # Should yield error message on exception
-    with patch('informity.llm.rag.classify_query_with_timing', AsyncMock()) as mock_classify:
-        mock_classify.side_effect = RuntimeError('Test error')
+    """Test answer question error handling."""
+    with patch("informity.llm.rag.classify_query_with_timing", AsyncMock()) as mock_classify:
+        mock_classify.side_effect = RuntimeError("Test error")
 
         results = []
-        async for item in answer_question('test question', db=mock_db):
+        async for item in answer_question("test question", db=mock_db):
             results.append(item)
 
         # Should have yielded error
         assert len(results) >= 1
-        assert 'Error' in results[0] or 'Test error' in results[0]
+        assert "Error" in results[0] or "Test error" in results[0]
         assert results[-1] == []  # Empty sources
 
 
 @pytest.mark.asyncio
 async def test_answer_question_sources_structure(mock_db, mock_chunks):
     # Sources should have correct structure when returned from handler
-    classification = QueryClassification(intent='focused')
+    """Test answer question sources structure."""
+    classification = QueryClassification(intent="focused")
 
     async def mock_handler_gen():
-        yield 'token1'
-        yield 'token2'
+        """Mock handler gen."""
+        yield "token1"
+        yield "token2"
         sources = [
             {
-                'filename': 'file1.txt',
-                'path': '/test/file1.txt',
-                'chunk_preview': 'Content preview',
-                'relevance_score': 0.8,
+                "filename": "file1.txt",
+                "path": "/test/file1.txt",
+                "chunk_preview": "Content preview",
+                "relevance_score": 0.8,
             },
         ]
         yield sources
 
-    with patch('informity.llm.rag.classify_query_with_timing', AsyncMock(return_value=(classification, 0.0))), \
-         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
-         patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_handler:
+    with (
+        patch(
+            "informity.llm.rag.classify_query_with_timing",
+            AsyncMock(return_value=(classification, 0.0)),
+        ),
+        patch("informity.llm.rag.get_chunk_count", AsyncMock(return_value=1)),
+        patch(
+            "informity.llm.handlers.rag.RAGHandler.handle", new_callable=MagicMock
+        ) as mock_handler,
+    ):
         mock_handler.return_value = mock_handler_gen()
 
         results = []
-        async for item in answer_question('test question', db=mock_db):
+        async for item in answer_question("test question", db=mock_db):
             results.append(item)
 
         # Last result should be sources
@@ -317,65 +410,83 @@ async def test_answer_question_sources_structure(mock_db, mock_chunks):
 
         # Each source should have required fields
         for source in sources:
-            assert 'filename' in source
-            assert 'path' in source
-            assert 'chunk_preview' in source
-            assert 'relevance_score' in source
+            assert "filename" in source
+            assert "path" in source
+            assert "chunk_preview" in source
+            assert "relevance_score" in source
 
 
 @pytest.mark.asyncio
 async def test_answer_question_assistant_mode_forces_simple_handler(mock_db):
+    """Test answer question assistant mode forces simple handler."""
+
     async def mock_simple_gen():
-        yield 'Assistant reply'
+        """Mock simple gen."""
+        yield "Assistant reply"
         yield []
 
-    with patch('informity.llm.rag.classify_query_with_timing', AsyncMock()) as mock_classify, \
-         patch('informity.llm.handlers.simple.SimpleHandler.handle', new_callable=MagicMock) as mock_simple_handler, \
-         patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_rag_handler:
+    with (
+        patch("informity.llm.rag.classify_query_with_timing", AsyncMock()) as mock_classify,
+        patch(
+            "informity.llm.handlers.simple.SimpleHandler.handle", new_callable=MagicMock
+        ) as mock_simple_handler,
+        patch(
+            "informity.llm.handlers.rag.RAGHandler.handle", new_callable=MagicMock
+        ) as mock_rag_handler,
+    ):
         mock_classify.return_value = (
-            QueryClassification(intent='simple'),
+            QueryClassification(intent="simple"),
             0.0,
         )
         mock_simple_handler.return_value = mock_simple_gen()
 
         results = []
-        async for item in answer_question('hello there', db=mock_db, chat_mode='assistant'):
+        async for item in answer_question("hello there", db=mock_db, chat_mode="assistant"):
             results.append(item)
 
         mock_classify.assert_called_once_with(
-            'hello there',
+            "hello there",
             history=None,
-            chat_mode='assistant',
-            scope_kind='assistant_mode',
+            chat_mode="assistant",
+            scope_kind="assistant_mode",
         )
         mock_simple_handler.assert_called_once()
         mock_rag_handler.assert_not_called()
-        assert results[0] == 'Assistant reply'
+        assert results[0] == "Assistant reply"
         assert results[-1] == []
 
 
 @pytest.mark.asyncio
 async def test_answer_question_invalid_chat_mode_falls_back_to_researcher(mock_db):
-    classification = QueryClassification(intent='focused')
+    """Test answer question invalid chat mode falls back to researcher."""
+    classification = QueryClassification(intent="focused")
 
     async def mock_rag_gen():
-        yield 'answer'
+        """Mock rag gen."""
+        yield "answer"
         yield []
 
-    with patch('informity.llm.rag.classify_query_with_timing', AsyncMock(return_value=(classification, 0.0))) as mock_classify, \
-         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
-         patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_rag_handler:
+    with (
+        patch(
+            "informity.llm.rag.classify_query_with_timing",
+            AsyncMock(return_value=(classification, 0.0)),
+        ) as mock_classify,
+        patch("informity.llm.rag.get_chunk_count", AsyncMock(return_value=1)),
+        patch(
+            "informity.llm.handlers.rag.RAGHandler.handle", new_callable=MagicMock
+        ) as mock_rag_handler,
+    ):
         mock_rag_handler.return_value = mock_rag_gen()
 
         results = []
-        async for item in answer_question('test question', db=mock_db, chat_mode='invalid-mode'):
+        async for item in answer_question("test question", db=mock_db, chat_mode="invalid-mode"):
             results.append(item)
 
         mock_classify.assert_called_once_with(
-            'test question',
+            "test question",
             history=None,
-            chat_mode='researcher',
-            scope_kind='indexed_corpus',
+            chat_mode="researcher",
+            scope_kind="indexed_corpus",
         )
         mock_rag_handler.assert_called_once()
         assert results[-1] == []
@@ -383,42 +494,62 @@ async def test_answer_question_invalid_chat_mode_falls_back_to_researcher(mock_d
 
 @pytest.mark.asyncio
 async def test_answer_question_researcher_classification_timeout_falls_back_to_simple(mock_db):
+    """Test answer question researcher classification timeout falls back to simple."""
+
     async def mock_simple_gen():
-        yield 'timeout fallback'
+        """Mock simple gen."""
+        yield "timeout fallback"
         yield []
 
     async def _raise_timeout(awaitable, timeout):  # type: ignore[no-untyped-def]
-        if hasattr(awaitable, 'close'):
+        """Internal helper for raise timeout."""
+        if hasattr(awaitable, "close"):
             awaitable.close()
         raise TimeoutError
 
-    with patch('informity.llm.rag.asyncio.wait_for', new=_raise_timeout), \
-         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=1)), \
-         patch('informity.llm.handlers.simple.SimpleHandler.handle', new_callable=MagicMock) as mock_simple_handler:
+    with (
+        patch("informity.llm.rag.asyncio.wait_for", new=_raise_timeout),
+        patch("informity.llm.rag.get_chunk_count", AsyncMock(return_value=1)),
+        patch(
+            "informity.llm.handlers.simple.SimpleHandler.handle", new_callable=MagicMock
+        ) as mock_simple_handler,
+    ):
         mock_simple_handler.return_value = mock_simple_gen()
 
         results = []
-        async for item in answer_question('test question', db=mock_db, chat_mode='researcher'):
+        async for item in answer_question("test question", db=mock_db, chat_mode="researcher"):
             results.append(item)
 
         mock_simple_handler.assert_called_once()
-        assert any(isinstance(item, str) and item == 'timeout fallback' for item in results)
+        assert any(isinstance(item, str) and item == "timeout fallback" for item in results)
         assert results[-1] == []
 
 
 @pytest.mark.asyncio
 async def test_answer_question_researcher_empty_index_short_circuits(mock_db):
+    """Test answer question researcher empty index short circuits."""
     classification = QueryClassification(
-        intent='metadata',
+        intent="metadata",
         is_metadata_query=True,
     )
 
-    with patch('informity.llm.rag.classify_query_with_timing', AsyncMock(return_value=(classification, 0.0))), \
-         patch('informity.llm.rag.get_chunk_count', AsyncMock(return_value=0)), \
-         patch('informity.llm.handlers.metadata.MetadataHandler.handle', new_callable=MagicMock) as mock_meta_handler, \
-         patch('informity.llm.handlers.rag.RAGHandler.handle', new_callable=MagicMock) as mock_rag_handler:
+    with (
+        patch(
+            "informity.llm.rag.classify_query_with_timing",
+            AsyncMock(return_value=(classification, 0.0)),
+        ),
+        patch("informity.llm.rag.get_chunk_count", AsyncMock(return_value=0)),
+        patch(
+            "informity.llm.handlers.metadata.MetadataHandler.handle", new_callable=MagicMock
+        ) as mock_meta_handler,
+        patch(
+            "informity.llm.handlers.rag.RAGHandler.handle", new_callable=MagicMock
+        ) as mock_rag_handler,
+    ):
         results = []
-        async for item in answer_question('what documents do i have', db=mock_db, chat_mode='researcher'):
+        async for item in answer_question(
+            "what documents do i have", db=mock_db, chat_mode="researcher"
+        ):
             results.append(item)
 
         mock_meta_handler.assert_not_called()
@@ -426,12 +557,13 @@ async def test_answer_question_researcher_empty_index_short_circuits(mock_db):
         assert any(
             isinstance(item, tuple)
             and len(item) == 2
-            and item[0] == '__metrics__'
-            and bool(item[1].get('index_empty')) is True
+            and item[0] == "__metrics__"
+            and bool(item[1].get("index_empty")) is True
             for item in results
         )
         assert any(
-            isinstance(item, str) and 'Your knowledge base is empty. To get started with Researcher mode:' in item
+            isinstance(item, str)
+            and "Your knowledge base is empty. To get started with Researcher mode:" in item
             for item in results
         )
         assert results[-1] == []

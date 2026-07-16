@@ -49,7 +49,7 @@ class BuildMessagesRequest:
 
 
 def _coerce_source_rank(value: object) -> int | None:
-    """ coerce source rank."""
+    """coerce source rank."""
     if isinstance(value, bool):
         return None
     try:
@@ -60,12 +60,12 @@ def _coerce_source_rank(value: object) -> int | None:
 
 
 def _estimate_message_tokens(*, role: str, content: str) -> int:
-    """ estimate message tokens."""
+    """estimate message tokens."""
     return _MESSAGE_OVERHEAD_TOKENS + count_tokens(role) + count_tokens(content)
 
 
 def _reorder_context_chunks_for_attention(context_chunks: list[dict]) -> list[dict]:
-    """ reorder context chunks for attention."""
+    """reorder context chunks for attention."""
     if len(context_chunks) <= 2:
         return context_chunks
 
@@ -107,7 +107,7 @@ def _compute_history_budget(
     model_profile: ModelProfile,
     chat_mode: str | None,
 ) -> tuple[list[ChatMessage], int, int, float, int]:
-    """ compute history budget."""
+    """compute history budget."""
     history_limit = resolve_history_limit(chat_mode)
     capped_history = history[-history_limit:]
     context_length = get_effective_context_length(model_profile)
@@ -129,7 +129,7 @@ def _compute_history_budget(
 def _select_history_messages(
     capped_history: list[ChatMessage], effective_history_budget: int
 ) -> tuple[list[ChatMessage], int]:
-    """ select history messages."""
+    """select history messages."""
     selected_reversed: list[ChatMessage] = []
     used_history_tokens = 0
     for message in reversed(capped_history):
@@ -153,7 +153,7 @@ def _trim_history_by_token_budget(
     model_profile: ModelProfile | None,
     chat_mode: str | None,
 ) -> list[ChatMessage]:
-    """ trim history by token budget."""
+    """trim history by token budget."""
     history_limit = resolve_history_limit(chat_mode)
     if history_limit == 0:
         return []
@@ -195,7 +195,7 @@ def _trim_history_by_token_budget(
 
 
 def _build_context_text(context_chunks: list[dict]) -> str:
-    """ build context text."""
+    """build context text."""
     ordered_context_chunks = _reorder_context_chunks_for_attention(context_chunks)
     context_parts: list[str] = []
     for i, chunk in enumerate(ordered_context_chunks, start=1):
@@ -224,7 +224,7 @@ def _build_output_contract_block(
     output_constraints: dict[str, int] | None,
     format_requirements: list[str] | None,
 ) -> str:
-    """ build output contract block."""
+    """build output contract block."""
     contract_lines: list[str] = []
     if isinstance(output_constraints, dict):
         max_words = output_constraints.get("max_words")
@@ -329,9 +329,7 @@ def build_messages(*args: object, **kwargs: object) -> list[dict[str, str]]:
         request = BuildMessagesRequest(
             question=str(question),
             context_chunks=(
-                list(context_chunks)
-                if not isinstance(context_chunks, list)
-                else context_chunks
+                list(context_chunks) if not isinstance(context_chunks, list) else context_chunks
             ),
             history=history,  # legacy API accepts any sequence-like history list
             output_constraints=(

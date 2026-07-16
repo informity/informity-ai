@@ -3,6 +3,8 @@
 # Minimal streaming function, no post-processing bandaids
 # ==============================================================================
 
+"""Module for llm streaming."""
+
 from collections.abc import AsyncGenerator
 
 from informity.llm.engine import llm_engine
@@ -18,6 +20,7 @@ async def stream_llm(
 ) -> AsyncGenerator[str | tuple[str, object]]:
     # Stream LLM response. Minimal post-processing.
     # Stop sequences prevent model-specific artifacts (Chinese prompts, reasoning leaks, etc.)
+    """Stream llm."""
     async for token in llm_engine.generate_stream(
         messages,
         max_tokens=max_tokens,

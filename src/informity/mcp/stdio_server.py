@@ -1,3 +1,5 @@
+"""Module for mcp stdio server."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,20 +10,21 @@ from collections.abc import Mapping
 from typing import Any
 
 JSON = dict[str, Any]
-SERVER_NAME = 'informity-mcp'
+SERVER_NAME = "informity-mcp"
 
 
 def _read_message(stdin: Any) -> JSON | None:
+    """Internal helper for read message."""
     line = stdin.readline()
     if not line:
         return None
 
     # Primary MCP stdio mode: newline-delimited JSON-RPC.
     try:
-        decoded = line.decode('utf-8').strip()
+        decoded = line.decode("utf-8").strip()
     except UnicodeDecodeError:
         return None
-    if decoded.startswith('{'):
+    if decoded.startswith("{"):
         try:
             payload = json.loads(decoded)
         except json.JSONDecodeError:
@@ -30,26 +33,26 @@ def _read_message(stdin: Any) -> JSON | None:
 
     # Compatibility fallback: Content-Length framed payload.
     headers: dict[str, str] = {}
-    if ':' not in decoded:
+    if ":" not in decoded:
         return None
-    name, value = decoded.split(':', 1)
+    name, value = decoded.split(":", 1)
     headers[name.strip().lower()] = value.strip()
     while True:
         line = stdin.readline()
         if not line:
             return None
-        if line in (b'\r\n', b'\n'):
+        if line in (b"\r\n", b"\n"):
             break
         try:
-            text = line.decode('utf-8').strip()
+            text = line.decode("utf-8").strip()
         except UnicodeDecodeError:
             continue
-        if ':' not in text:
+        if ":" not in text:
             continue
-        name, value = text.split(':', 1)
+        name, value = text.split(":", 1)
         headers[name.strip().lower()] = value.strip()
 
-    length_raw = headers.get('content-length')
+    length_raw = headers.get("content-length")
     if not length_raw:
         return None
     try:
@@ -63,39 +66,42 @@ def _read_message(stdin: Any) -> JSON | None:
     if not body:
         return None
     try:
-        payload = json.loads(body.decode('utf-8'))
+        payload = json.loads(body.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None
     return payload if isinstance(payload, dict) else None
 
 
 def _write_message(stdout: Any, payload: Mapping[str, Any]) -> None:
-    body = json.dumps(payload, ensure_ascii=False, separators=(',', ':')).encode('utf-8')
-    stdout.write(body + b'\n')
+    """Internal helper for write message."""
+    body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    stdout.write(body + b"\n")
     stdout.flush()
 
 
 async def _handle_request(payload: JSON) -> JSON | None:
+    """Internal helper for handle request."""
     from informity.mcp.protocol import error_response, handle_jsonrpc_request
 
     try:
-        return await handle_jsonrpc_request(payload, transport='stdio', bearer_token=None)
+        return await handle_jsonrpc_request(payload, transport="stdio", bearer_token=None)
     except Exception:
-        request_id = payload.get('id')
-        return error_response(request_id, -32603, 'Internal MCP protocol error')
+        request_id = payload.get("id")
+        return error_response(request_id, -32603, "Internal MCP protocol error")
 
 
 def main() -> None:
     # Ensure STDIO launcher writes MCP events to file logs without polluting stdout.
     # MCP protocol frames are written via protocol_stdout; normal stdout is redirected
     # to stderr below to keep framing clean for clients like Claude Desktop.
-    os.environ['INFORMITY_SUPPRESS_CONSOLE_LOGS'] = '1'
+    """Main."""
+    os.environ["INFORMITY_SUPPRESS_CONSOLE_LOGS"] = "1"
     from informity.logging_config import configure_logging
 
     configure_logging()
 
     # Keep a dedicated binary handle to original stdout for MCP frames only.
-    protocol_stdout = os.fdopen(os.dup(1), 'wb', closefd=True)
+    protocol_stdout = os.fdopen(os.dup(1), "wb", closefd=True)
     # Redirect process stdout to stderr so incidental logs/prints cannot corrupt MCP framing.
     os.dup2(2, 1)
 
@@ -116,5 +122,5 @@ def main() -> None:
         loop.close()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

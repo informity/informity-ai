@@ -26,6 +26,7 @@ _TABLE_SEPARATOR_LINE_PATTERN = re.compile(r"^\s*\|[\s\-:]+\|\s*$")
 class ChunkData:
     # A single chunk of text.
     """ChunkData model."""
+
     content: str
     chunk_index: int
     token_count: int
@@ -59,7 +60,7 @@ def _lookup_range_with_starts(
     pos: int,
 ) -> int | str | None:
     # Same as _lookup_range_with_starts but reuses precomputed start positions for speed.
-    """ lookup range with starts."""
+    """lookup range with starts."""
     if not ranges or not starts:
         return None
 
@@ -78,7 +79,7 @@ def _lookup_page_span(
     chunk_end: int,
 ) -> tuple[int | None, int | None]:
     # Resolve page span for a chunk using start/end character positions.
-    """ lookup page span."""
+    """lookup page span."""
     if not page_ranges:
         return None, None
     if chunk_end <= chunk_start:
@@ -442,15 +443,9 @@ def chunk_text(*args: object, **kwargs: object) -> list[ChunkData]:
             if len(remaining_args) > 2:
                 raise TypeError("chunk_text() takes at most 3 positional arguments")
             chunk_size = (
-                remaining_args[0]
-                if len(remaining_args) > 0
-                else kwargs.pop("chunk_size", None)
+                remaining_args[0] if len(remaining_args) > 0 else kwargs.pop("chunk_size", None)
             )
-            overlap = (
-                remaining_args[1]
-                if len(remaining_args) > 1
-                else kwargs.pop("overlap", None)
-            )
+            overlap = remaining_args[1] if len(remaining_args) > 1 else kwargs.pop("overlap", None)
         else:
             text = kwargs.pop("text", None)
             chunk_size = kwargs.pop("chunk_size", None)
@@ -482,7 +477,7 @@ def chunk_text(*args: object, **kwargs: object) -> list[ChunkData]:
 
 def _get_overlap_sentences(text: str, overlap_tokens: int) -> str:
     # Get last N sentences that fit within overlap_tokens.
-    """ get overlap sentences."""
+    """get overlap sentences."""
     if not text.strip():
         return ""
 

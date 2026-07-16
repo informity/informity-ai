@@ -52,7 +52,7 @@ VECTOR_DIMENSION = get_effective_embedding_dimension()
 
 
 def _get_expected_vector_dimension() -> int:
-    """ get expected vector dimension."""
+    """get expected vector dimension."""
     return get_effective_embedding_dimension()
 
 
@@ -69,6 +69,7 @@ class ChunkEmbedding:
     # - It intentionally duplicates selected file/chunk fields to avoid JOINs
     #   in vector-search critical paths.
     """ChunkEmbedding model."""
+
     chunk_id: int
     file_id: int
     file_path: str
@@ -128,14 +129,15 @@ class VectorStore:
     # thread pool workers (asyncio.to_thread) or async contexts that can wait.
 
     """VectorStore model."""
+
     def __init__(self) -> None:
-        """  init  ."""
+        """init  ."""
         self._thread_local = threading.local()
 
     def _get_thread_connection(self) -> sqlite3.Connection:
         # Reuse one sqlite connection per worker thread to avoid repeated
         # sqlite-vec extension load/unload overhead on every operation.
-        """ get thread connection."""
+        """get thread connection."""
         conn = getattr(self._thread_local, "conn", None)
         if conn is not None:
             return conn
@@ -157,7 +159,7 @@ class VectorStore:
         return conn
 
     def _reset_thread_connection(self) -> None:
-        """ reset thread connection."""
+        """reset thread connection."""
         conn = getattr(self._thread_local, "conn", None)
         if conn is not None:
             with suppress(sqlite3.Error):
@@ -168,7 +170,7 @@ class VectorStore:
             delattr(self._thread_local, "fts_chunks_columns")
 
     def _get_fts_chunks_columns(self, conn: sqlite3.Connection) -> set[str]:
-        """ get fts chunks columns."""
+        """get fts chunks columns."""
         columns = getattr(self._thread_local, "fts_chunks_columns", None)
         if isinstance(columns, set) and columns:
             return columns

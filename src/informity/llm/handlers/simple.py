@@ -3,6 +3,11 @@
 # Handles conversational queries (greetings, clarifications, off-topic) without retrieval
 # ==============================================================================
 
+"""Module for llm handlers simple."""
+
+# pylint: disable=line-too-long
+# pylint: disable=unused-argument
+
 import asyncio
 import re
 import time
@@ -29,18 +34,22 @@ from informity.llm.web_search import format_search_context, has_any_provider_api
 
 log = structlog.get_logger(__name__)
 _HANDLER_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, asyncio.TimeoutError)
-_CHAT_SUMMARY_FALLBACK_MESSAGE = 'I do not have enough prior chat history in this conversation to summarize yet.'
+_CHAT_SUMMARY_FALLBACK_MESSAGE = (
+    "I do not have enough prior chat history in this conversation to summarize yet."
+)
 
 
 def _normalize_ws(text: str) -> str:
-    return re.sub(r'\s+', ' ', str(text or '').strip())
+    """Internal helper for normalize ws."""
+    return re.sub(r"\s+", " ", str(text or "").strip())
 
 
 def _truncate_chat_turn(text: str, *, max_chars: int) -> str:
+    """Internal helper for truncate chat turn."""
     normalized = _normalize_ws(text)
     if len(normalized) <= max_chars:
         return normalized
-    return normalized[: max_chars - 1].rstrip() + '...'
+    return normalized[: max_chars - 1].rstrip() + "..."
 
 
 def _extract_chat_summary_turns(
@@ -48,6 +57,7 @@ def _extract_chat_summary_turns(
     *,
     current_question: str,
 ) -> list[tuple[str, str]]:
+    """Internal helper for extract chat summary turns."""
     if not messages:
         return []
     max_chars = max(120, int(settings.chat_summary_max_chars_per_message))
@@ -55,26 +65,27 @@ def _extract_chat_summary_turns(
     for message in messages:
         if bool(message.is_internal):
             continue
-        role = str(message.role or '').strip().lower()
-        if role not in {'user', 'assistant'}:
+        role = str(message.role or "").strip().lower()
+        if role not in {"user", "assistant"}:
             continue
-        content = _truncate_chat_turn(str(message.content or ''), max_chars=max_chars)
+        content = _truncate_chat_turn(str(message.content or ""), max_chars=max_chars)
         if not content:
             continue
         turns.append((role, content))
 
     normalized_question = _normalize_ws(current_question)
-    while turns and turns[-1][0] == 'user' and _normalize_ws(turns[-1][1]) == normalized_question:
+    while turns and turns[-1][0] == "user" and _normalize_ws(turns[-1][1]) == normalized_question:
         turns.pop()
     return turns
 
 
 def _render_chat_turns(turns: list[tuple[str, str]]) -> str:
+    """Internal helper for render chat turns."""
     lines: list[str] = []
     for role, content in turns:
-        role_label = 'User' if role == 'user' else 'Assistant'
-        lines.append(f'{role_label}: {content}')
-    return '\n'.join(lines)
+        role_label = "User" if role == "user" else "Assistant"
+        lines.append(f"{role_label}: {content}")
+    return "\n".join(lines)
 
 
 def _chunk_turns(
@@ -83,10 +94,11 @@ def _chunk_turns(
     chunk_size: int,
     max_chunks: int,
 ) -> list[list[tuple[str, str]]]:
+    """Internal helper for chunk turns."""
     if not turns:
         return []
     safe_chunk_size = max(4, chunk_size)
-    chunks = [turns[i: i + safe_chunk_size] for i in range(0, len(turns), safe_chunk_size)]
+    chunks = [turns[i : i + safe_chunk_size] for i in range(0, len(turns), safe_chunk_size)]
     safe_max_chunks = max(1, max_chunks)
     if len(chunks) > safe_max_chunks:
         chunks = chunks[-safe_max_chunks:]
@@ -102,6 +114,7 @@ async def _collect_streamed_text(
     timeout_seconds: float,
     stop_sequences: list[str] | None,
 ) -> str:
+    """Internal helper for collect streamed text."""
     parts: list[str] = []
     async for token in stream_llm(
         messages,
@@ -112,7 +125,7 @@ async def _collect_streamed_text(
         stop_sequences=stop_sequences,
     ):
         parts.append(token)
-    return ''.join(parts).strip()
+    return "".join(parts).strip()
 
 
 class SimpleHandler:
@@ -128,11 +141,11 @@ class SimpleHandler:
 
     async def handle(
         self,
-        question:       str,
+        question: str,
         classification: QueryClassification,
-        history:        list[ChatMessage] | None,
-        db:             aiosqlite.Connection,
-        trace:          object | None,
+        history: list[ChatMessage] | None,
+        db: aiosqlite.Connection,
+        trace: object | None,
         diagnostics_context: dict[str, object] | None = None,
         chat_id: str | None = None,
         file_ids: list[int] | None = None,
@@ -158,7 +171,7 @@ class SimpleHandler:
             )
             is_chat_summary_mode = bool(classification.needs_chat_history)
             if is_chat_summary_mode:
-                system_prompt = get_mode_prompt('chat_summary')
+                system_prompt = get_mode_prompt("chat_summary")
             allow_assistant_web_search = (
                 is_assistant_mode(normalized_chat_mode)
                 and bool(chat_web_search_enabled)
@@ -167,15 +180,18 @@ class SimpleHandler:
             )
 
             if trace is not None:
-                trace.record('intent', {
-                    'model_profile':     profile.name,
-                    'intent':            classification.intent,
-                    'query_type':        query_type,
-                    'simple_mode':       True,
-                    'chat_summary_mode': is_chat_summary_mode,
-                    'chat_mode':         normalized_chat_mode or 'researcher',
-                    'db_attached':       db is not None,
-                })
+                trace.record(
+                    "intent",
+                    {
+                        "model_profile": profile.name,
+                        "intent": classification.intent,
+                        "query_type": query_type,
+                        "simple_mode": True,
+                        "chat_summary_mode": is_chat_summary_mode,
+                        "chat_mode": normalized_chat_mode or "researcher",
+                        "db_attached": db is not None,
+                    },
+                )
 
             # Get model profile settings for simple queries
             max_tokens = profile.get_max_tokens(query_type)
@@ -202,36 +218,39 @@ class SimpleHandler:
                 web_search_used = True
                 yield (
                     StreamSignalTag.SEARCHING_STATUS,
-                    {'message': 'Searching the web...'},
+                    {"message": "Searching the web..."},
                 )
                 web_outcome = await asyncio.to_thread(
                     search_web,
                     question,
                     allow_privacy_override=bool(chat_web_search_privacy_override),
                 )
-                web_search_status = str(web_outcome.status or '').strip() or 'ok'
+                web_search_status = str(web_outcome.status or "").strip() or "ok"
                 web_search_provider_attempted = web_outcome.provider_attempted
                 web_search_provider_used = web_outcome.provider_used
                 web_search_failover_applied = bool(web_outcome.failover_applied)
-                if web_search_status != 'ok':
+                if web_search_status != "ok":
                     fallback_message = get_web_search_status_message(web_search_status)
                     if trace is not None:
-                        trace.record('web_search', {
-                            'status': web_search_status,
-                            'provider_attempted': web_search_provider_attempted,
-                            'provider_used': web_search_provider_used,
-                            'failover_applied': web_search_failover_applied,
-                            'result_count': 0,
-                        })
+                        trace.record(
+                            "web_search",
+                            {
+                                "status": web_search_status,
+                                "provider_attempted": web_search_provider_attempted,
+                                "provider_used": web_search_provider_used,
+                                "failover_applied": web_search_failover_applied,
+                                "result_count": 0,
+                            },
+                        )
                     yield (
                         StreamSignalTag.METRICS,
                         build_metrics_payload(
                             query_type=QueryType.SIMPLE,
                             raw_chunks_count=0,
-                            prompt_build_ms='N/A',
-                            llm_submit_ms='N/A',
-                            llm_queue_wait_ms='N/A',
-                            llm_decode_first_token_ms='N/A',
+                            prompt_build_ms="N/A",
+                            llm_submit_ms="N/A",
+                            llm_queue_wait_ms="N/A",
+                            llm_decode_first_token_ms="N/A",
                             web_search_used=True,
                             web_search_status=web_search_status,
                         ),
@@ -246,7 +265,7 @@ class SimpleHandler:
                     f"{search_context}"
                 )
                 response_system_prompt = compose_prompt(
-                    mode_id='assistant_web_search_synthesis',
+                    mode_id="assistant_web_search_synthesis",
                     chat_mode=normalized_chat_mode,
                     specialization_id=specialization_id,
                 )
@@ -259,7 +278,9 @@ class SimpleHandler:
                     try:
                         summary_messages = await get_chat(db, chat_id)
                     except (RuntimeError, ValueError, TypeError, OSError, aiosqlite.Error) as exc:
-                        log.warning('chat_summary_history_load_failed', chat_id=chat_id, error=str(exc))
+                        log.warning(
+                            "chat_summary_history_load_failed", chat_id=chat_id, error=str(exc)
+                        )
                 summary_turns = _extract_chat_summary_turns(
                     summary_messages,
                     current_question=question,
@@ -272,10 +293,10 @@ class SimpleHandler:
                         build_metrics_payload(
                             query_type=QueryType.SIMPLE,
                             raw_chunks_count=0,
-                            prompt_build_ms='N/A',
-                            llm_submit_ms='N/A',
-                            llm_queue_wait_ms='N/A',
-                            llm_decode_first_token_ms='N/A',
+                            prompt_build_ms="N/A",
+                            llm_submit_ms="N/A",
+                            llm_queue_wait_ms="N/A",
+                            llm_decode_first_token_ms="N/A",
                             web_search_used=False,
                         ),
                     )
@@ -285,35 +306,37 @@ class SimpleHandler:
                 direct_limit = max(8, int(settings.chat_summary_direct_max_messages))
                 if len(summary_turns) <= direct_limit:
                     response_question = (
-                        f'User request: {question}\n\n'
-                        'Conversation turns:\n'
-                        f'{_render_chat_turns(summary_turns)}\n\n'
-                        'Return a concise chat recap with:\n'
-                        '- Topics discussed\n'
-                        '- Key points\n'
-                        '- Open questions or next steps (if any)'
+                        f"User request: {question}\n\n"
+                        "Conversation turns:\n"
+                        f"{_render_chat_turns(summary_turns)}\n\n"
+                        "Return a concise chat recap with:\n"
+                        "- Topics discussed\n"
+                        "- Key points\n"
+                        "- Open questions or next steps (if any)"
                     )
                     messages = [
-                        {'role': 'system', 'content': response_system_prompt},
-                        {'role': 'user', 'content': response_question},
+                        {"role": "system", "content": response_system_prompt},
+                        {"role": "user", "content": response_question},
                     ]
                 else:
                     summary_hierarchical = True
                     chunk_size = max(4, int(settings.chat_summary_chunk_messages))
                     max_chunks = max(1, int(settings.chat_summary_max_chunks))
-                    chunks = _chunk_turns(summary_turns, chunk_size=chunk_size, max_chunks=max_chunks)
+                    chunks = _chunk_turns(
+                        summary_turns, chunk_size=chunk_size, max_chunks=max_chunks
+                    )
                     chunk_summaries: list[str] = []
                     for index, chunk in enumerate(chunks, start=1):
                         chunk_prompt = (
-                            f'Excerpt {index} of {len(chunks)}:\n'
-                            f'{_render_chat_turns(chunk)}\n\n'
-                            'Create a concise factual recap of this excerpt only. '
-                            'Include discussed topics, key points, and unresolved questions.'
+                            f"Excerpt {index} of {len(chunks)}:\n"
+                            f"{_render_chat_turns(chunk)}\n\n"
+                            "Create a concise factual recap of this excerpt only. "
+                            "Include discussed topics, key points, and unresolved questions."
                         )
                         chunk_messages = profile.prepare_messages(
                             [
-                                {'role': 'system', 'content': response_system_prompt},
-                                {'role': 'user', 'content': chunk_prompt},
+                                {"role": "system", "content": response_system_prompt},
+                                {"role": "user", "content": chunk_prompt},
                             ],
                             query_type,
                         )
@@ -326,19 +349,19 @@ class SimpleHandler:
                             stop_sequences=stop_sequences,
                         )
                         if chunk_summary:
-                            chunk_summaries.append(f'Part {index}: {chunk_summary}')
+                            chunk_summaries.append(f"Part {index}: {chunk_summary}")
                     response_question = (
-                        f'User request: {question}\n\n'
-                        'Conversation recap notes:\n'
-                        f'{"\n\n".join(chunk_summaries) if chunk_summaries else "(none)"}\n\n'
-                        'Produce a final concise recap with:\n'
-                        '- Topics discussed\n'
-                        '- Key points\n'
-                        '- Open questions or next steps (if any)'
+                        f"User request: {question}\n\n"
+                        "Conversation recap notes:\n"
+                        f"{'\n\n'.join(chunk_summaries) if chunk_summaries else '(none)'}\n\n"
+                        "Produce a final concise recap with:\n"
+                        "- Topics discussed\n"
+                        "- Key points\n"
+                        "- Open questions or next steps (if any)"
                     )
                     messages = [
-                        {'role': 'system', 'content': response_system_prompt},
-                        {'role': 'user', 'content': response_question},
+                        {"role": "system", "content": response_system_prompt},
+                        {"role": "user", "content": response_question},
                     ]
             else:
                 # Build messages via shared prompt-builder path so assistant/researcher
@@ -356,23 +379,26 @@ class SimpleHandler:
             messages = profile.prepare_messages(messages, query_type)
 
             if trace is not None:
-                trace.record('prompt', {
-                    'messages_count':    len(messages),
-                    'context_chunks':    0,  # No context for simple queries
-                    'history_messages':   len(history) if history else 0,
-                    'effective_history_limit': resolve_history_limit(normalized_chat_mode),
-                    'chat_summary_turn_count': summary_turn_count,
-                    'chat_summary_hierarchical': summary_hierarchical,
-                    'chat_mode': normalized_chat_mode or 'researcher',
-                    'reasoning_enabled':  False,  # Simple queries never use reasoning
-                    'web_search_eligible': allow_assistant_web_search,
-                    'web_search_triggered': web_search_used,
-                    'chat_summary_mode': is_chat_summary_mode,
-                    'web_search_status': web_search_status,
-                    'web_search_provider_attempted': web_search_provider_attempted,
-                    'web_search_provider_used': web_search_provider_used,
-                    'web_search_failover_applied': web_search_failover_applied,
-                })
+                trace.record(
+                    "prompt",
+                    {
+                        "messages_count": len(messages),
+                        "context_chunks": 0,  # No context for simple queries
+                        "history_messages": len(history) if history else 0,
+                        "effective_history_limit": resolve_history_limit(normalized_chat_mode),
+                        "chat_summary_turn_count": summary_turn_count,
+                        "chat_summary_hierarchical": summary_hierarchical,
+                        "chat_mode": normalized_chat_mode or "researcher",
+                        "reasoning_enabled": False,  # Simple queries never use reasoning
+                        "web_search_eligible": allow_assistant_web_search,
+                        "web_search_triggered": web_search_used,
+                        "chat_summary_mode": is_chat_summary_mode,
+                        "web_search_status": web_search_status,
+                        "web_search_provider_attempted": web_search_provider_attempted,
+                        "web_search_provider_used": web_search_provider_used,
+                        "web_search_failover_applied": web_search_failover_applied,
+                    },
+                )
 
             first_token_ms: float | None = None
             async for token in stream_llm(
@@ -390,38 +416,46 @@ class SimpleHandler:
 
             llm_elapsed_ms = (time.perf_counter() - llm_start) * 1000
             if trace is not None:
-                trace.record('llm', {
-                    'token_count':       token_count,
-                    'max_tokens':        max_tokens,
-                    'total_elapsed_ms':  round(llm_elapsed_ms, 1),
-                    'model_profile':     profile.name,
-                    'web_search_used':   web_search_used,
-                    'chat_summary_mode': is_chat_summary_mode,
-                    'chat_summary_turn_count': summary_turn_count,
-                    'chat_summary_hierarchical': summary_hierarchical,
-                    'web_search_status': web_search_status,
-                    'web_search_provider_attempted': web_search_provider_attempted,
-                    'web_search_provider_used': web_search_provider_used,
-                    'web_search_failover_applied': web_search_failover_applied,
-                })
+                trace.record(
+                    "llm",
+                    {
+                        "token_count": token_count,
+                        "max_tokens": max_tokens,
+                        "total_elapsed_ms": round(llm_elapsed_ms, 1),
+                        "model_profile": profile.name,
+                        "web_search_used": web_search_used,
+                        "chat_summary_mode": is_chat_summary_mode,
+                        "chat_summary_turn_count": summary_turn_count,
+                        "chat_summary_hierarchical": summary_hierarchical,
+                        "web_search_status": web_search_status,
+                        "web_search_provider_attempted": web_search_provider_attempted,
+                        "web_search_provider_used": web_search_provider_used,
+                        "web_search_failover_applied": web_search_failover_applied,
+                    },
+                )
 
             # Simple queries have no sources
             sources: list[ChatSourceReference] = []
             if trace is not None:
-                trace.record('sources', {
-                    'count':   0,
-                    'sources': [],
-                })
+                trace.record(
+                    "sources",
+                    {
+                        "count": 0,
+                        "sources": [],
+                    },
+                )
 
             yield (
                 StreamSignalTag.METRICS,
                 build_metrics_payload(
                     query_type=QueryType.SIMPLE,
                     raw_chunks_count=0,
-                    prompt_build_ms='N/A',
-                    llm_submit_ms='N/A',
-                    llm_queue_wait_ms='N/A',
-                    llm_decode_first_token_ms=round(first_token_ms, 1) if first_token_ms is not None else 'N/A',
+                    prompt_build_ms="N/A",
+                    llm_submit_ms="N/A",
+                    llm_queue_wait_ms="N/A",
+                    llm_decode_first_token_ms=round(first_token_ms, 1)
+                    if first_token_ms is not None
+                    else "N/A",
                     web_search_used=web_search_used,
                     web_search_status=web_search_status,
                 ),
@@ -429,6 +463,6 @@ class SimpleHandler:
             yield sources
 
         except _HANDLER_RUNTIME_EXCEPTIONS as exc:
-            log.error('simple_handler_failed', error=str(exc), exc_info=True)
+            log.error("simple_handler_failed", error=str(exc), exc_info=True)
             yield to_client_error_message(exc)
             yield []

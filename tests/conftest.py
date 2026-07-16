@@ -3,6 +3,8 @@
 # Shared fixtures for all tests.
 # ==============================================================================
 
+"""Test module for tests conftest."""
+
 import sys
 from pathlib import Path
 from unittest.mock import patch
@@ -26,13 +28,16 @@ def _disable_reranker_in_tests():
     # - Real paths (cache_dir, models_dir, etc.) remain intact for docling/embedder
     # - configure_hf_environment() and are_required_models_cached() work correctly
     # - Docling extractor tests pass when models are cached (e.g. after install)
+    """Internal helper for disable reranker in tests."""
     try:
         from informity.indexer.adaptive_tuning import invalidate_tuning_cache
+
         invalidate_tuning_cache()
     except ImportError:
         pass
     from informity.config import settings as real_settings
-    with patch.object(real_settings, 'rag_rerank', False):
+
+    with patch.object(real_settings, "rag_rerank", False):
         yield
 
 
@@ -44,6 +49,7 @@ def _disable_reranker_in_tests():
 @pytest.fixture
 def sample_txt(tmp_path: Path) -> Path:
     # Create a sample .txt file.
+    """Sample txt."""
     f = tmp_path / "sample.txt"
     f.write_text(
         "Hello, Informity AI!\nThis is a test text file.\nWith three lines.\n", encoding="utf-8"
@@ -54,6 +60,7 @@ def sample_txt(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_md(tmp_path: Path) -> Path:
     # Create a sample .md file.
+    """Sample md."""
     f = tmp_path / "sample.md"
     f.write_text(
         "# Heading\n\nA paragraph with **bold** text.\n\n- Item 1\n- Item 2\n", encoding="utf-8"
@@ -64,7 +71,8 @@ def sample_md(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_pdf(tmp_path: Path) -> Path:
     # Create a sample .pdf file with two pages.
-    pymupdf = pytest.importorskip('pymupdf')
+    """Sample pdf."""
+    pymupdf = pytest.importorskip("pymupdf")
     f = tmp_path / "sample.pdf"
     doc = pymupdf.open()
     page1 = doc.new_page()
@@ -79,7 +87,8 @@ def sample_pdf(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_docx(tmp_path: Path) -> Path:
     # Create a sample .docx file with paragraphs and a table.
-    docx = pytest.importorskip('docx')
+    """Sample docx."""
+    docx = pytest.importorskip("docx")
     f = tmp_path / "sample.docx"
     doc = docx.Document()
     doc.core_properties.title = "Test DOCX"
@@ -99,21 +108,22 @@ def sample_docx(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_contract_docx(tmp_path: Path) -> Path:
     # Create a legal-style .docx file that exercises heading/paragraph structure.
-    docx = pytest.importorskip('docx')
-    f = tmp_path / 'sample-contract.docx'
+    """Sample contract docx."""
+    docx = pytest.importorskip("docx")
+    f = tmp_path / "sample-contract.docx"
     doc = docx.Document()
-    doc.core_properties.title = 'Consulting Agreement'
-    doc.core_properties.author = 'Informity AI'
-    doc.add_heading('Consulting Agreement', level=1)
-    doc.add_paragraph('This Consulting Agreement is entered into by and between the parties.')
-    doc.add_heading('1. Services', level=2)
-    doc.add_paragraph('The Consultant shall provide professional services described in Exhibit A.')
-    doc.add_paragraph('Services will be delivered in a timely and workmanlike manner.')
-    doc.add_heading('2. Fees and Payment', level=2)
-    doc.add_paragraph('The Client shall pay all undisputed invoices within thirty (30) days.')
-    doc.add_heading('3. Confidentiality', level=2)
-    doc.add_paragraph('Each party shall keep confidential information strictly confidential.')
-    doc.add_paragraph('This obligation survives termination of this Agreement.')
+    doc.core_properties.title = "Consulting Agreement"
+    doc.core_properties.author = "Informity AI"
+    doc.add_heading("Consulting Agreement", level=1)
+    doc.add_paragraph("This Consulting Agreement is entered into by and between the parties.")
+    doc.add_heading("1. Services", level=2)
+    doc.add_paragraph("The Consultant shall provide professional services described in Exhibit A.")
+    doc.add_paragraph("Services will be delivered in a timely and workmanlike manner.")
+    doc.add_heading("2. Fees and Payment", level=2)
+    doc.add_paragraph("The Client shall pay all undisputed invoices within thirty (30) days.")
+    doc.add_heading("3. Confidentiality", level=2)
+    doc.add_paragraph("Each party shall keep confidential information strictly confidential.")
+    doc.add_paragraph("This obligation survives termination of this Agreement.")
     doc.save(str(f))
     return f
 
@@ -121,7 +131,8 @@ def sample_contract_docx(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_pptx(tmp_path: Path) -> Path:
     # Create a sample .pptx file with two slides.
-    pptx = pytest.importorskip('pptx')
+    """Sample pptx."""
+    pptx = pytest.importorskip("pptx")
     f = tmp_path / "sample.pptx"
     prs = pptx.Presentation()
     slide1 = prs.slides.add_slide(prs.slide_layouts[1])
@@ -137,7 +148,8 @@ def sample_pptx(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_xlsx(tmp_path: Path) -> Path:
     # Create a sample .xlsx file with data.
-    openpyxl = pytest.importorskip('openpyxl')
+    """Sample xlsx."""
+    openpyxl = pytest.importorskip("openpyxl")
     f = tmp_path / "sample.xlsx"
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -152,6 +164,7 @@ def sample_xlsx(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_csv(tmp_path: Path) -> Path:
     # Create a sample .csv file.
+    """Sample csv."""
     f = tmp_path / "sample.csv"
     f.write_text("name,age,city\nAlice,30,NYC\nBob,25,LA\n", encoding="utf-8")
     return f
@@ -160,6 +173,7 @@ def sample_csv(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_html(tmp_path: Path) -> Path:
     # Create a sample .html file.
+    """Sample html."""
     f = tmp_path / "sample.html"
     f.write_text(
         "<!DOCTYPE html>\n"
@@ -177,19 +191,22 @@ def sample_html(tmp_path: Path) -> Path:
 @pytest.fixture
 def sample_ocr_png() -> Path:
     # Reusable OCR regression fixture used by image extraction smoke tests.
-    return _REPO_ROOT / 'tests' / 'fixtures' / 'ocr-smoke.png'
+    """Sample ocr png."""
+    return _REPO_ROOT / "tests" / "fixtures" / "ocr-smoke.png"
 
 
 @pytest.fixture
 def sample_ocr_jpeg() -> Path:
     # Reusable OCR regression fixture used by image extraction smoke tests.
-    return _REPO_ROOT / 'tests' / 'fixtures' / 'ocr-smoke.jpg'
+    """Sample ocr jpeg."""
+    return _REPO_ROOT / "tests" / "fixtures" / "ocr-smoke.jpg"
 
 
 @pytest.fixture
 def sample_epub(tmp_path: Path) -> Path:
     # Create a sample .epub file with two chapters.
-    epub = pytest.importorskip('ebooklib.epub')
+    """Sample epub."""
+    epub = pytest.importorskip("ebooklib.epub")
     book = epub.EpubBook()
     book.set_identifier("test-book-id")
     book.set_title("Test EPUB")

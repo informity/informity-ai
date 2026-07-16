@@ -10,6 +10,11 @@
 # Logs are rotated daily and kept for 7 days.
 # ==============================================================================
 
+"""Module for logging config."""
+
+# pylint: disable=line-too-long
+# pylint: disable=unused-argument
+
 import logging
 import os
 import sys
@@ -25,35 +30,37 @@ from informity.config import settings
 from informity.utils.directory_utils import ensure_directory
 
 _STATUS_BY_LEVEL = {
-    'critical': 'error',
-    'error': 'error',
-    'warning': 'warning',
-    'info': 'ok',
-    'debug': 'ok',
+    "critical": "error",
+    "error": "error",
+    "warning": "warning",
+    "info": "ok",
+    "debug": "ok",
 }
-_CONSOLE_SUPPRESS_ENV_VAR = 'INFORMITY_SUPPRESS_CONSOLE_LOGS'
-_LOG_ROTATION_WHEN = 'midnight'
+_CONSOLE_SUPPRESS_ENV_VAR = "INFORMITY_SUPPRESS_CONSOLE_LOGS"
+_LOG_ROTATION_WHEN = "midnight"
 _LOG_ROTATION_INTERVAL_DAYS = 1
 _LOG_RETENTION_DAYS = 7
-_LOG_RETENTION_LABEL = f'{_LOG_RETENTION_DAYS}_days'
+_LOG_RETENTION_LABEL = f"{_LOG_RETENTION_DAYS}_days"
 
 # ==============================================================================
 # Log File Paths
 # ==============================================================================
 
+
 def _get_log_paths() -> tuple[Path, Path, Path]:
     # Returns (app_log_path, error_log_path, mcp_log_path) based on settings.
     # Ensures logs_dir exists before returning paths.
+    """Internal helper for get log paths."""
     logs_dir = settings.logs_dir
     if logs_dir is None:
-        raise RuntimeError('logs_dir is not configured')
+        raise RuntimeError("logs_dir is not configured")
 
     ensure_directory(logs_dir)
 
-    app_log   = logs_dir / 'app.log'
-    error_log = logs_dir / 'app.error.log'
+    app_log = logs_dir / "app.log"
+    error_log = logs_dir / "app.error.log"
 
-    mcp_log = logs_dir / 'app.mcp.log'
+    mcp_log = logs_dir / "app.mcp.log"
     return app_log, error_log, mcp_log
 
 
@@ -61,87 +68,99 @@ def _get_log_paths() -> tuple[Path, Path, Path]:
 # Structlog Processors
 # ==============================================================================
 
-def _add_timestamp(logger: logging.Logger | None, method_name: str, event_dict: EventDict) -> EventDict:
+
+def _add_timestamp(
+    logger: logging.Logger | None, method_name: str, event_dict: EventDict
+) -> EventDict:
     # Add ISO-8601 timestamp to each log entry.
-    event_dict['timestamp'] = datetime.now(UTC).isoformat()
+    """Internal helper for add timestamp."""
+    event_dict["timestamp"] = datetime.now(UTC).isoformat()
     return event_dict
 
 
-def _add_operation_context(logger: logging.Logger | None, method_name: str, event_dict: EventDict) -> EventDict:
+def _add_operation_context(
+    logger: logging.Logger | None, method_name: str, event_dict: EventDict
+) -> EventDict:
     # Add operation context based on logger name (module path).
     # This helps identify which component generated the log (scanner, indexer, llm, etc.)
     # Logger can be None when ProcessorFormatter processes foreign stdlib log records (e.g. aiosqlite).
+    """Internal helper for add operation context."""
     if logger is None:
         return event_dict
     logger_name = logger.name
-    if logger_name.startswith('informity.'):
-        parts = logger_name.split('.')
+    if logger_name.startswith("informity."):
+        parts = logger_name.split(".")
         if len(parts) >= 2:
             # Extract module name (e.g., 'scanner', 'indexer', 'llm')
             module = parts[1]
-            event_dict['module'] = module
+            event_dict["module"] = module
         if len(parts) >= 3:
             # Extract submodule (e.g., 'extractors', 'embedder')
             submodule = parts[2]
-            event_dict['submodule'] = submodule
+            event_dict["submodule"] = submodule
 
     return event_dict
 
 
-def _normalize_event_contract(logger: logging.Logger | None, method_name: str, event_dict: EventDict) -> EventDict:
+def _normalize_event_contract(
+    logger: logging.Logger | None, method_name: str, event_dict: EventDict
+) -> EventDict:
     # Normalize structured log fields to a stable contract for dashboards/queries.
-    level = str(event_dict.get('level') or '').lower()
-    event = str(event_dict.get('event') or method_name)
+    """Internal helper for normalize event contract."""
+    level = str(event_dict.get("level") or "").lower()
+    event = str(event_dict.get("event") or method_name)
 
     # Stable operation identifier: defaults to event name if missing.
-    operation = event_dict.get('operation')
+    operation = event_dict.get("operation")
     if not operation:
-        event_dict['operation'] = event
+        event_dict["operation"] = event
 
     # Stable component: use module first, then logger prefix fallback.
-    component = event_dict.get('component')
+    component = event_dict.get("component")
     if not component:
-        module_name = event_dict.get('module')
+        module_name = event_dict.get("module")
         if isinstance(module_name, str) and module_name:
-            event_dict['component'] = module_name
-        elif logger is not None and logger.name.startswith('informity.'):
-            parts = logger.name.split('.')
+            event_dict["component"] = module_name
+        elif logger is not None and logger.name.startswith("informity."):
+            parts = logger.name.split(".")
             if len(parts) >= 2:
-                event_dict['component'] = parts[1]
+                event_dict["component"] = parts[1]
 
     # Stable status for easy filtering/alerting.
-    if not event_dict.get('status'):
-        event_dict['status'] = _STATUS_BY_LEVEL.get(level, 'ok')
+    if not event_dict.get("status"):
+        event_dict["status"] = _STATUS_BY_LEVEL.get(level, "ok")
 
     # Normalize duration fields into duration_ms.
-    if 'duration_ms' not in event_dict:
-        elapsed_ms = event_dict.get('elapsed_ms')
+    if "duration_ms" not in event_dict:
+        elapsed_ms = event_dict.get("elapsed_ms")
         if isinstance(elapsed_ms, int | float):
-            event_dict['duration_ms'] = round(float(elapsed_ms), 2)
+            event_dict["duration_ms"] = round(float(elapsed_ms), 2)
         else:
-            elapsed_s = event_dict.get('elapsed_s')
-            generation_seconds = event_dict.get('generation_seconds')
+            elapsed_s = event_dict.get("elapsed_s")
+            generation_seconds = event_dict.get("generation_seconds")
             if isinstance(elapsed_s, int | float):
-                event_dict['duration_ms'] = round(float(elapsed_s) * 1000.0, 2)
+                event_dict["duration_ms"] = round(float(elapsed_s) * 1000.0, 2)
             elif isinstance(generation_seconds, int | float):
-                event_dict['duration_ms'] = round(float(generation_seconds) * 1000.0, 2)
+                event_dict["duration_ms"] = round(float(generation_seconds) * 1000.0, 2)
 
     # Replace ad-hoc "msg" with explicit "message" for consistency.
-    if 'msg' in event_dict and 'message' not in event_dict:
-        event_dict['message'] = event_dict.pop('msg')
+    if "msg" in event_dict and "message" not in event_dict:
+        event_dict["message"] = event_dict.pop("msg")
 
     # Ensure event key is always present and stringified.
-    event_dict['event'] = event
+    event_dict["event"] = event
     return event_dict
 
 
 class _SuppressDoclingWarningsFilter(logging.Filter):
     """Filter to suppress deprecation warnings from docling_core about strict_text parameter."""
+
     def filter(self, record: logging.LogRecord) -> bool:
         # Suppress warnings from docling_core about strict_text deprecation
-        if record.name.startswith('docling_core') and record.levelno == logging.WARNING:
+        """Filter."""
+        if record.name.startswith("docling_core") and record.levelno == logging.WARNING:
             message = record.getMessage().lower()
-            if 'strict_text' in message and 'deprecated' in message:
+            if "strict_text" in message and "deprecated" in message:
                 return False
         return True
 
@@ -150,8 +169,9 @@ class _McpOnlyFilter(logging.Filter):
     """Allow only MCP namespace records into dedicated MCP log file."""
 
     def filter(self, record: logging.LogRecord) -> bool:
-        name = str(getattr(record, 'name', '') or '')
-        return name.startswith('informity.mcp')
+        """Filter."""
+        name = str(getattr(record, "name", "") or "")
+        return name.startswith("informity.mcp")
 
 
 # ==============================================================================
@@ -159,20 +179,21 @@ class _McpOnlyFilter(logging.Filter):
 # ==============================================================================
 
 _LEVEL_MAP = {
-    'debug':    logging.DEBUG,
-    'info':     logging.INFO,
-    'warning':  logging.WARNING,
-    'error':    logging.ERROR,
-    'critical': logging.CRITICAL,
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warning": logging.WARNING,
+    "error": logging.ERROR,
+    "critical": logging.CRITICAL,
 }
 
 # Third-party loggers that are noisy at DEBUG; we always set them to WARNING.
-_NOISY_LOGGERS = ('aiosqlite', 'asyncio', 'urllib3', 'httpx', 'httpcore')
+_NOISY_LOGGERS = ("aiosqlite", "asyncio", "urllib3", "httpx", "httpcore")
 
 
 # ==============================================================================
 # Third-Party Logger Suppression Utilities
 # ==============================================================================
+
 
 class _TemporaryLoggerSuppression:
     """
@@ -185,27 +206,35 @@ class _TemporaryLoggerSuppression:
         with suppress_logger_temporarily('transformers.modeling_utils', logging.ERROR):
             model = load_model()
     """
+
     def __init__(self, logger_name: str, temporary_level: int):
+        """Initialize the instance."""
         self.logger_name = logger_name
         self.temporary_level = temporary_level
         self.logger: logging.Logger | None = None
         self.original_level: int | None = None
 
-    def __enter__(self) -> '_TemporaryLoggerSuppression':
+    def __enter__(self) -> "_TemporaryLoggerSuppression":
+        """Enter the context manager."""
         self.logger = logging.getLogger(self.logger_name)
         # Store original level (use NOTSET if not explicitly set)
-        self.original_level = self.logger.level if self.logger.level != logging.NOTSET else logging.NOTSET
+        self.original_level = (
+            self.logger.level if self.logger.level != logging.NOTSET else logging.NOTSET
+        )
         self.logger.setLevel(self.temporary_level)
         return self
 
     def __exit__(self, _exc_type, _exc_val, _exc_tb) -> None:
+        """Exit the context manager."""
         if self.logger is not None and self.original_level is not None:
             # Restore original level. If it was NOTSET, restore to NOTSET so logger
             # inherits from parent logger's level (consistent with original behavior).
             self.logger.setLevel(self.original_level)
 
 
-def suppress_logger_temporarily(logger_name: str, temporary_level: int) -> _TemporaryLoggerSuppression:
+def suppress_logger_temporarily(
+    logger_name: str, temporary_level: int
+) -> _TemporaryLoggerSuppression:
     """
     Context manager for temporarily suppressing a logger during a specific operation.
 
@@ -235,13 +264,14 @@ def configure_logging() -> None:
     # Configure structlog to write to console and files.
     # This should be called once during application startup, before any other
     # modules log anything.  Idempotent — repeated calls are no-ops.
+    """Configure logging."""
     global _logging_configured
     if _logging_configured:
         return
     _logging_configured = True
 
     # Check if console logging should be suppressed (for CLI tools)
-    suppress_console = os.environ.get(_CONSOLE_SUPPRESS_ENV_VAR) == '1'
+    suppress_console = os.environ.get(_CONSOLE_SUPPRESS_ENV_VAR) == "1"
 
     # ==========================================================================
     # Third-Party Warning Suppression (Python warnings module)
@@ -253,45 +283,45 @@ def configure_logging() -> None:
     # These are harmless warnings about invalid escape sequences in third-party code
     # Note: This is also applied in main.py before imports to catch early warnings
     # Suppress all SyntaxWarnings (they're all from third-party code we can't fix)
-    warnings.filterwarnings('ignore', category=SyntaxWarning)
+    warnings.filterwarnings("ignore", category=SyntaxWarning)
 
     # Suppress deprecation warning from docling_core about strict_text parameter
     # This is an internal deprecation in docling that we can't control
     # Filter by both message pattern and module to be more specific
     warnings.filterwarnings(
-        'ignore',
-        message='.*strict_text.*deprecated.*',
+        "ignore",
+        message=".*strict_text.*deprecated.*",
         category=DeprecationWarning,
-        module='docling_core',
+        module="docling_core",
     )
 
     app_log_path, error_log_path, mcp_log_path = _get_log_paths()
 
     # Resolve application log level from config (default: INFO to reduce noise).
-    level_name = (settings.log_level or 'info').strip().lower()
-    app_level  = _LEVEL_MAP.get(level_name, logging.INFO)
+    level_name = (settings.log_level or "info").strip().lower()
+    app_level = _LEVEL_MAP.get(level_name, logging.INFO)
 
     # -- Standard library logging setup ----------------------------------------
     # Configure the root logger and handlers for file output
 
     # General log handler (app level; no DEBUG from third-party libs in file)
     general_handler = TimedRotatingFileHandler(
-        filename     = str(app_log_path),
-        when         = _LOG_ROTATION_WHEN,
-        interval     = _LOG_ROTATION_INTERVAL_DAYS,
-        backupCount  = _LOG_RETENTION_DAYS,
-        encoding     = 'utf-8',
+        filename=str(app_log_path),
+        when=_LOG_ROTATION_WHEN,
+        interval=_LOG_ROTATION_INTERVAL_DAYS,
+        backupCount=_LOG_RETENTION_DAYS,
+        encoding="utf-8",
     )
     general_handler.setLevel(app_level)
     # Formatter will be set after structlog configuration
 
     # Error log handler (ERROR and CRITICAL only)
     error_handler = TimedRotatingFileHandler(
-        filename     = str(error_log_path),
-        when         = _LOG_ROTATION_WHEN,
-        interval     = _LOG_ROTATION_INTERVAL_DAYS,
-        backupCount  = _LOG_RETENTION_DAYS,
-        encoding     = 'utf-8',
+        filename=str(error_log_path),
+        when=_LOG_ROTATION_WHEN,
+        interval=_LOG_ROTATION_INTERVAL_DAYS,
+        backupCount=_LOG_RETENTION_DAYS,
+        encoding="utf-8",
     )
     error_handler.setLevel(logging.ERROR)  # Only ERROR and CRITICAL
     # Formatter will be set after structlog configuration
@@ -302,7 +332,7 @@ def configure_logging() -> None:
         when=_LOG_ROTATION_WHEN,
         interval=_LOG_ROTATION_INTERVAL_DAYS,
         backupCount=_LOG_RETENTION_DAYS,
-        encoding='utf-8',
+        encoding="utf-8",
     )
     mcp_handler.setLevel(logging.INFO)
     mcp_handler.addFilter(_McpOnlyFilter())
@@ -341,14 +371,14 @@ def configure_logging() -> None:
     # Docling-specific logger configurations:
     # - docling_core.types.doc.document: Suppress deprecation warnings (strict_text)
     #   These are logged through Python's warnings system which structlog captures
-    logging.getLogger('docling_core.types.doc.document').setLevel(logging.ERROR)
+    logging.getLogger("docling_core.types.doc.document").setLevel(logging.ERROR)
 
     # - docling.pipeline: Non-fatal validation errors (malformed hyperlinks, unknown fonts)
     #   These don't prevent extraction - docling continues processing and returns results.
     #   These are informational logs about PDF quality issues, not extraction failures.
     #   Set to WARNING to reduce noise while preserving actual extraction failures
     #   (which would be logged at CRITICAL or as exceptions).
-    logging.getLogger('docling.pipeline').setLevel(logging.WARNING)
+    logging.getLogger("docling.pipeline").setLevel(logging.WARNING)
 
     # -- Structlog configuration -----------------------------------------------
     # Configure structlog to integrate with Python's standard logging system.
@@ -373,32 +403,31 @@ def configure_logging() -> None:
 
     # Full processor chain for structlog.configure
     # wrap_for_formatter converts event_dict to (args, kw) tuple for standard logging
-    configure_processors: list[Processor] = (
-        pre_processors +
-        [structlog.stdlib.ProcessorFormatter.wrap_for_formatter]
-    )
+    configure_processors: list[Processor] = pre_processors + [
+        structlog.stdlib.ProcessorFormatter.wrap_for_formatter
+    ]
 
     # Configure structlog to use standard library logging
     structlog.configure(
-        processors    = configure_processors,
-        wrapper_class = structlog.stdlib.BoundLogger,
-        context_class = dict,
-        logger_factory = structlog.stdlib.LoggerFactory(),
-        cache_logger_on_first_use = True,
+        processors=configure_processors,
+        wrapper_class=structlog.stdlib.BoundLogger,
+        context_class=dict,
+        logger_factory=structlog.stdlib.LoggerFactory(),
+        cache_logger_on_first_use=True,
     )
 
     # Configure structlog's formatter for file handlers (JSON format)
     # This produces machine-parseable structured logs for ops/perf tooling.
     # foreign_pre_chain should be pre_processors (without wrap_for_formatter)
     file_formatter = structlog.stdlib.ProcessorFormatter(
-        processor         = structlog.processors.JSONRenderer(sort_keys=True),
-        foreign_pre_chain = pre_processors,
+        processor=structlog.processors.JSONRenderer(sort_keys=True),
+        foreign_pre_chain=pre_processors,
     )
 
     # Configure structlog's formatter for console (pretty colors)
     console_formatter = structlog.stdlib.ProcessorFormatter(
-        processor         = structlog.dev.ConsoleRenderer(colors=True),
-        foreign_pre_chain = pre_processors,
+        processor=structlog.dev.ConsoleRenderer(colors=True),
+        foreign_pre_chain=pre_processors,
     )
 
     # Apply formatters to handlers
@@ -411,10 +440,10 @@ def configure_logging() -> None:
     # Log that logging is configured
     log = structlog.get_logger(__name__)
     log.info(
-        'logging_configured',
-        app_log     = str(app_log_path),
-        error_log   = str(error_log_path),
-        log_level   = level_name,
-        rotation    = 'daily',
-        retention   = _LOG_RETENTION_LABEL,
+        "logging_configured",
+        app_log=str(app_log_path),
+        error_log=str(error_log_path),
+        log_level=level_name,
+        rotation="daily",
+        retention=_LOG_RETENTION_LABEL,
     )

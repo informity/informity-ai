@@ -3,6 +3,8 @@
 # User-facing logs endpoint (DB-backed, cursor-paginated).
 # ==============================================================================
 
+"""Module for api routes logs."""
+
 import base64
 import binascii
 import json
@@ -14,49 +16,53 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from informity.api.schemas import LogEventsResponse
 from informity.db.sqlite import get_db, get_log_events
 
-router = APIRouter(tags=['logs'])
+router = APIRouter(tags=["logs"])
 
 
 def _encode_cursor(*, created_at: str, row_id: int) -> str:
-    payload = {'created_at': created_at, 'id': row_id}
-    raw = json.dumps(payload, separators=(',', ':'), ensure_ascii=True).encode('utf-8')
-    return base64.urlsafe_b64encode(raw).decode('ascii')
+    """Internal helper for encode cursor."""
+    payload = {"created_at": created_at, "id": row_id}
+    raw = json.dumps(payload, separators=(",", ":"), ensure_ascii=True).encode("utf-8")
+    return base64.urlsafe_b64encode(raw).decode("ascii")
 
 
 def _decode_cursor(value: str) -> tuple[str, int]:
+    """Internal helper for decode cursor."""
     try:
-        decoded = base64.urlsafe_b64decode(value.encode('ascii')).decode('utf-8')
+        decoded = base64.urlsafe_b64decode(value.encode("ascii")).decode("utf-8")
         payload = json.loads(decoded)
-        created_at = str(payload.get('created_at') or '').strip()
-        row_id = int(payload.get('id'))
+        created_at = str(payload.get("created_at") or "").strip()
+        row_id = int(payload.get("id"))
         if not created_at or row_id < 1:
-            raise ValueError('invalid cursor payload')
+            raise ValueError("invalid cursor payload")
         return created_at, row_id
     except (ValueError, TypeError, json.JSONDecodeError, binascii.Error) as exc:
-        raise HTTPException(status_code=400, detail='Invalid cursor') from exc
+        raise HTTPException(status_code=400, detail="Invalid cursor") from exc
 
 
 def _format_timestamp(value: str) -> str:
-    raw = str(value or '').strip()
+    """Internal helper for format timestamp."""
+    raw = str(value or "").strip()
     if not raw:
-        return ''
+        return ""
     try:
-        normalized = raw.replace('Z', '+00:00')
+        normalized = raw.replace("Z", "+00:00")
         dt = datetime.fromisoformat(normalized)
-        return dt.astimezone().strftime('%Y-%m-%d %H:%M:%S')
+        return dt.astimezone().strftime("%Y-%m-%d %H:%M:%S")
     except ValueError:
         return raw
 
 
-@router.get('/api/logs/events', response_model=LogEventsResponse)
+@router.get("/api/logs/events", response_model=LogEventsResponse)
 async def list_log_events(
-    channel: str = Query(..., pattern='^(application|errors|integrations)$'),
+    channel: str = Query(..., pattern="^(application|errors|integrations)$"),
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = Query(None),
-    event_type: str | None = Query(None, pattern='^(debug|info|warning|error|critical)$'),
+    event_type: str | None = Query(None, pattern="^(debug|info|warning|error|critical)$"),
     source: str | None = Query(None),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> LogEventsResponse:
+    """List log events."""
     cursor_created_at: str | None = None
     cursor_id: int | None = None
     if cursor:
@@ -81,20 +87,20 @@ async def list_log_events(
     next_cursor: str | None = None
     if has_more and visible:
         tail = visible[-1]
-        next_cursor = _encode_cursor(created_at=str(tail['created_at']), row_id=int(tail['id']))
+        next_cursor = _encode_cursor(created_at=str(tail["created_at"]), row_id=int(tail["id"]))
 
     items = [
         {
-            'id': int(row['id']),
-            'timestamp': _format_timestamp(str(row['created_at'])),
-            'created_at': str(row['created_at']),
-            'channel': str(row['channel']),
-            'event_type': str(row['event_type']),
-            'event_name': str(row['event_name']),
-            'source': str(row['source']),
-            'message': str(row['message']),
-            'scope': row.get('scope'),
-            'details': row.get('details'),
+            "id": int(row["id"]),
+            "timestamp": _format_timestamp(str(row["created_at"])),
+            "created_at": str(row["created_at"]),
+            "channel": str(row["channel"]),
+            "event_type": str(row["event_type"]),
+            "event_name": str(row["event_name"]),
+            "source": str(row["source"]),
+            "message": str(row["message"]),
+            "scope": row.get("scope"),
+            "details": row.get("details"),
         }
         for row in visible
     ]

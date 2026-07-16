@@ -53,7 +53,7 @@ from informity.utils.path_utils import resolve_and_check_path
 
 
 def _translate_pinned_language_limit(value: object, default: int = 6) -> int:
-    """ translate pinned language limit."""
+    """translate pinned language limit."""
     if value is None:
         return default
     try:
@@ -68,7 +68,7 @@ def _normalize_additional_translate_languages(
     primary_language: str | None,
     limit: int,
 ) -> list[str]:
-    """ normalize additional translate languages."""
+    """normalize additional translate languages."""
     normalized_values = normalize_translate_language_list(values, limit=None)
     primary = normalize_translate_language(primary_language)
     filtered = [language for language in normalized_values if language != primary]
@@ -130,12 +130,12 @@ _SUPPORTED_MAIN_MODEL_PROFILES: set[str] = {
 
 
 def _visible_specialization_ids() -> set[str]:
-    """ visible specialization ids."""
+    """visible specialization ids."""
     return {profile.id for profile in list_specialization_profiles(visible_only=True)}
 
 
 def _normalize_enabled_specialization_ids(values: object, *, strict: bool = True) -> list[str]:
-    """ normalize enabled specialization ids."""
+    """normalize enabled specialization ids."""
     if not isinstance(values, list):
         if strict:
             raise HTTPException(
@@ -168,12 +168,12 @@ def _normalize_enabled_specialization_ids(values: object, *, strict: bool = True
 
 
 def _allowed_values_detail(field_name: str, values: tuple[str, ...]) -> str:
-    """ allowed values detail."""
+    """allowed values detail."""
     return f"{field_name} must be one of: {', '.join(values)}"
 
 
 def _normalize_supported_extensions(value: object) -> list[str]:
-    """ normalize supported extensions."""
+    """normalize supported extensions."""
     raw_items = value if isinstance(value, list) else []
     normalized: list[str] = []
     seen: set[str] = set()
@@ -364,13 +364,13 @@ _SETTINGS_ALLOWED_VALUE_RULES: dict[str, tuple[tuple[str, ...], bool, str]] = {
 
 def _config_file_path() -> Path:
     # Return the path to the JSON config file.
-    """ config file path."""
+    """config file path."""
     return config.settings.app_data_dir / "config.json"
 
 
 def _list_available_models() -> list[str]:
     # Scan the models directory for downloaded GGUF files.
-    """ list available models."""
+    """list available models."""
     discovered = discover_available_models()
     return [
         model_filename
@@ -380,14 +380,14 @@ def _list_available_models() -> list[str]:
 
 
 def _build_model_profile_info(model_filename: str) -> ModelProfileInfo:
-    """ build model profile info."""
+    """build model profile info."""
     profile = get_profile_for_filename(model_filename)
     return ModelProfileInfo(**profile.to_display_dict())
 
 
 def _read_config_file() -> dict:
     # Read the existing config file, or return an empty dict.
-    """ read config file."""
+    """read config file."""
     config_path = _config_file_path()
     if not config_path.exists():
         return {}
@@ -400,7 +400,7 @@ def _read_config_file() -> dict:
 
 def _write_config_file(data: dict) -> None:
     # Write the config dict to the JSON config file.
-    """ write config file."""
+    """write config file."""
     config_path = _config_file_path()
     ensure_file_directory(config_path)
     # Atomic write to avoid partial/truncated JSON under concurrent requests.

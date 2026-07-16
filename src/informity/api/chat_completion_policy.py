@@ -3,6 +3,8 @@
 # Centralized final resolution of completion mode/scope/action.
 # ==============================================================================
 
+"""Module for api chat completion policy."""
+
 from __future__ import annotations
 
 from informity.api.chat_continuation import (
@@ -27,11 +29,16 @@ def resolve_completion_and_action(
     timeout_reason: TimeoutReason | str | None,
     has_remaining_scope: bool,
     stopped_by_user: bool,
-    continuation_resolution_reason: ContinuationResolutionReason | StructuralGapReason | TimeoutReason | str | None,
+    continuation_resolution_reason: ContinuationResolutionReason
+    | StructuralGapReason
+    | TimeoutReason
+    | str
+    | None,
     chat_mode: str,
     researcher_out_of_scope: bool,
     answer_signals_out_of_scope: bool,
 ) -> tuple[CompletionMode, bool, NextAction, str | None]:
+    """Resolve completion and action."""
     completion_mode, resolved_has_remaining_scope = resolve_completion_state(
         completion_mode_override=completion_mode_override,
         timeout_occurred=timeout_occurred,

@@ -10,6 +10,9 @@
 
 """FastAPI application entry point for Informity."""
 
+# pylint: disable=ungrouped-imports
+# pylint: disable=wrong-import-position
+
 import os as _os
 import sys as _sys
 
@@ -104,8 +107,10 @@ from informity.llm.engine import llm_engine, remove_models_dir_cache
 from informity.llm.five_q_classifier import resolve_classifier_model_path
 from informity.llm.model_adapter import get_profile
 from informity.llm.model_bootstrap import CLASSIFIER_GGUF_SPEC, download_gguf_model
-from informity.llm.prompt_builder import BuildMessagesRequest
-from informity.llm.prompt_builder import build_messages as _build_gen_messages
+from informity.llm.prompt_builder import (
+    BuildMessagesRequest,
+    build_messages as _build_gen_messages,
+)
 from informity.logging_config import configure_logging
 from informity.mcp.lifecycle import mcp_lifecycle
 from informity.scanner.watcher import start_watcher, stop_watcher
@@ -186,6 +191,7 @@ def _enable_startup_bootstrap_mode_if_needed() -> bool:
 @dataclass
 class StartupHealthState:
     """StartupHealthState model."""
+
     status: str = "initializing"
     reason: str | None = "starting"
     detail: str | None = None
@@ -242,7 +248,7 @@ def _set_startup_state(
     progress_total: int | None | object = _STARTUP_STATE_UNSET,
     progress_percent: float | None | object = _STARTUP_STATE_UNSET,
 ) -> None:
-    """ set startup state."""
+    """set startup state."""
     tracker = getattr(startup_app.state, "startup_health_state", None)
     if isinstance(tracker, StartupHealthState):
         tracker.update(
@@ -256,7 +262,7 @@ def _set_startup_state(
 
 
 def _get_startup_state_snapshot(startup_app: FastAPI) -> dict[str, object | None]:
-    """ get startup state snapshot."""
+    """get startup state snapshot."""
     tracker = getattr(startup_app.state, "startup_health_state", None)
     if isinstance(tracker, StartupHealthState):
         return tracker.snapshot()
@@ -278,13 +284,13 @@ def _get_startup_state_snapshot(startup_app: FastAPI) -> dict[str, object | None
 def _cleanup_models() -> None:
     # Unload models to release resources.
     # Used on normal shutdown (lifespan/atexit) and on SIGTERM/SIGINT (reload child).
-    """ cleanup models."""
+    """cleanup models."""
     embedder.unload()
     reranker.unload()
 
 
 def _write_managed_pid_file() -> None:
-    """ write managed pid file."""
+    """write managed pid file."""
     if _MANAGED_PID_FILE_PATH is None:
         return
     try:
@@ -299,7 +305,7 @@ def _write_managed_pid_file() -> None:
 
 
 def _remove_managed_pid_file() -> None:
-    """ remove managed pid file."""
+    """remove managed pid file."""
     if _MANAGED_PID_FILE_PATH is None:
         return
     with suppress(OSError):
@@ -310,7 +316,7 @@ def _kill_child_processes() -> None:
     # Kill child processes known to multiprocessing (tokenizers, embedder workers).
     # We do not use killpg(process_group, SIGTERM) because we are in that group;
     # that would signal ourselves and trigger _signal_cleanup during lifespan.
-    """ kill child processes."""
+    """kill child processes."""
     active_children = multiprocessing.active_children()
     for child in active_children:
         log.debug("terminating_child_process", pid=child.pid, name=child.name)
@@ -331,7 +337,7 @@ def _signal_cleanup(signum: int, _frame: object | None) -> None:
     # On SIGTERM/SIGINT (e.g. Ctrl+C when running under uvicorn --reload), unload
     # models so joblib/loky release semaphores. Use _exit() so we don't raise
     # SystemExit into asyncio/uvicorn (which would produce a traceback).
-    """ signal cleanup."""
+    """signal cleanup."""
     _remove_managed_pid_file()
     _cleanup_models()
     # Return conventional signal exit status (128 + signal number).
@@ -348,7 +354,7 @@ def _register_signal_handlers() -> None:
     # Register signal handlers for clean shutdown.  Called from lifespan
     # (server startup) instead of module level so that importing main.py in
     # tests does not override the test runner's signal handlers.
-    """ register signal handlers."""
+    """register signal handlers."""
     signal.signal(signal.SIGTERM, _signal_cleanup)
     # Only register SIGINT when not using reload, so the reloader can handle
     # Ctrl+C and send SIGTERM to the child; in non-reload mode we need SIGINT
@@ -528,8 +534,7 @@ async def _run_five_q_classifier_warmup() -> bool:
             "five_q_classifier_warmup_timeout",
             timeout_seconds=int(_WARMUP_TIMEOUT_SECONDS),
             msg=(
-                "5Q classifier warmup timed out — classifier will initialize on first"
-                "classification"
+                "5Q classifier warmup timed out — classifier will initialize on firstclassification"
             ),
         )
         return False
@@ -539,7 +544,7 @@ async def _run_five_q_classifier_warmup() -> bool:
 
 
 async def _ensure_classifier_model_present(startup_app: FastAPI) -> Path:
-    """ ensure classifier model present."""
+    """ensure classifier model present."""
     model_path = resolve_classifier_model_path()
     if model_path is not None and model_path.exists():
         return model_path
@@ -563,7 +568,7 @@ async def _ensure_classifier_model_present(startup_app: FastAPI) -> Path:
     )
 
     def _progress(bytes_done: int, total_bytes: int | None, _speed_bps: float) -> None:
-        """ progress."""
+        """progress."""
         percent: float | None = None
         if total_bytes and total_bytes > 0:
             percent = min(100.0, max(0.0, (bytes_done / total_bytes) * 100.0))
@@ -925,7 +930,7 @@ async def lifespan(fastapi_app: FastAPI) -> AsyncGenerator[None]:
 
 def _resolve_api_docs_enabled() -> bool:
     # Desktop-shell mode always disables docs/OpenAPI routes.
-    """ resolve api docs enabled."""
+    """resolve api docs enabled."""
     if _DESKTOP_SESSION_MODE:
         return False
     # Explicit setting wins; otherwise expose docs only in dev_reload sessions.

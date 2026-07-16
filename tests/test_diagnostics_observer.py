@@ -1,13 +1,18 @@
+"""Test module for tests test diagnostics observer."""
+
 from informity.diagnostics.issue_types import IssueType
 from informity.diagnostics.observer import EvalMetrics, detect_issues, estimate_evidence_metrics
 
 
-def test_detect_issues_skips_insufficient_retrieval_for_filename_anchored_focus_with_sources() -> None:
+def test_detect_issues_skips_insufficient_retrieval_for_filename_anchored_focus_with_sources() -> (
+    None
+):
+    """Test detect issues skips insufficient retrieval for filename anchored focus with sources."""
     metrics = EvalMetrics(
-        chat_id='c1',
-        question='What information is in sample-payment-confirmation.pdf?',
-        model_filename='model.gguf',
-        query_type='focused',
+        chat_id="c1",
+        question="What information is in sample-payment-confirmation.pdf?",
+        model_filename="model.gguf",
+        query_type="focused",
         raw_chunks_count=2,
         sources_count=2,
         generation_seconds=1.2,
@@ -17,16 +22,17 @@ def test_detect_issues_skips_insufficient_retrieval_for_filename_anchored_focus_
         has_refusal_pattern=False,
     )
 
-    issues = detect_issues('answer', metrics)
-    assert IssueType.insufficient_retrieval not in issues
+    issues = detect_issues("answer", metrics)
+    assert IssueType.INSUFFICIENT_RETRIEVAL not in issues
 
 
 def test_detect_issues_keeps_insufficient_retrieval_for_non_filename_complex_focus_query() -> None:
+    """Test detect issues keeps insufficient retrieval for non filename complex focus query."""
     metrics = EvalMetrics(
-        chat_id='c2',
-        question='Please explain all financial implications in detail for this scenario carefully',
-        model_filename='model.gguf',
-        query_type='focused',
+        chat_id="c2",
+        question="Please explain all financial implications in detail for this scenario carefully",
+        model_filename="model.gguf",
+        query_type="focused",
         raw_chunks_count=2,
         sources_count=1,
         generation_seconds=1.2,
@@ -36,18 +42,19 @@ def test_detect_issues_keeps_insufficient_retrieval_for_non_filename_complex_foc
         has_refusal_pattern=False,
     )
 
-    issues = detect_issues('answer', metrics)
-    assert IssueType.insufficient_retrieval in issues
+    issues = detect_issues("answer", metrics)
+    assert IssueType.INSUFFICIENT_RETRIEVAL in issues
 
 
 def test_estimate_evidence_metrics_scores_supported_numeric_claims() -> None:
+    """Test estimate evidence metrics scores supported numeric claims."""
     answer = (
-        '- conflict statement: Balance differs by $1,250 in 2023.\n'
-        '- involved documents: Tax Report 2023 and Ledger 2023.\n'
+        "- conflict statement: Balance differs by $1,250 in 2023.\n"
+        "- involved documents: Tax Report 2023 and Ledger 2023.\n"
     )
     sources = [
-        'Tax Report 2023 shows ending balance $12,500.',
-        'Ledger 2023 shows ending balance $11,250.',
+        "Tax Report 2023 shows ending balance $12,500.",
+        "Ledger 2023 shows ending balance $11,250.",
     ]
 
     unsupported_claim_count, evidence_coverage_rate, not_found_count = estimate_evidence_metrics(
@@ -61,8 +68,9 @@ def test_estimate_evidence_metrics_scores_supported_numeric_claims() -> None:
 
 
 def test_estimate_evidence_metrics_handles_no_sources() -> None:
+    """Test estimate evidence metrics handles no sources."""
     unsupported_claim_count, evidence_coverage_rate, not_found_count = estimate_evidence_metrics(
-        answer='Balance is $1,000 and amount increased in 2024.',
+        answer="Balance is $1,000 and amount increased in 2024.",
         source_texts=[],
     )
 
@@ -72,6 +80,7 @@ def test_estimate_evidence_metrics_handles_no_sources() -> None:
 
 
 def test_estimate_evidence_metrics_skips_non_numeric_likely_reason_claims() -> None:
+    """Test estimate evidence metrics skips non numeric likely reason claims."""
     answer = (
         "- conflict statement: 2022 and 2023 totals differ.\n"
         "- likely reason: one file appears to include deferred entries not present in the ledger.\n"
@@ -91,6 +100,7 @@ def test_estimate_evidence_metrics_skips_non_numeric_likely_reason_claims() -> N
 
 
 def test_estimate_evidence_metrics_skips_recommendation_and_uncertainty_claims() -> None:
+    """Test estimate evidence metrics skips recommendation and uncertainty claims."""
     answer = (
         "- Recommendation: Consider quarterly access reviews.\n"
         "- Uncertainty: Additional audit logs may be required.\n"
@@ -107,6 +117,7 @@ def test_estimate_evidence_metrics_skips_recommendation_and_uncertainty_claims()
 
 
 def test_estimate_evidence_metrics_ignores_section_number_only_signals() -> None:
+    """Test estimate evidence metrics ignores section number only signals."""
     answer = "- Section 4.2 identifies governance concerns and process gaps."
     sources = ["Section 4.2 introduces framework overview without governance detail."]
 

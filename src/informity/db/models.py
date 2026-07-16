@@ -4,6 +4,10 @@
 # structures shared across the application.
 # ==============================================================================
 
+"""Module for db models."""
+
+# pylint: disable=line-too-long
+
 from datetime import datetime
 from enum import StrEnum
 
@@ -15,143 +19,163 @@ from informity.llm.types import ChatRole, CompletionMode, NextAction
 # Enums
 # ==============================================================================
 
+
 class FileCategory(StrEnum):
+    """Class docstring."""
     # Categories for indexed files, based on extension group
-    DOCUMENT  = 'document'    # .pdf, .docx, .pptx
-    PLAINTEXT = 'plaintext'   # .txt, .md, .rst, .log
-    DATA      = 'data'        # .csv, .xlsx (tabular data; config formats map to PLAINTEXT)
-    WEB       = 'web'         # .html, .htm
-    OTHER     = 'other'
+    DOCUMENT = "document"  # .pdf, .docx, .pptx
+    PLAINTEXT = "plaintext"  # .txt, .md, .rst, .log
+    DATA = "data"  # .csv, .xlsx (tabular data; config formats map to PLAINTEXT)
+    WEB = "web"  # .html, .htm
+    OTHER = "other"
 
 
 class ScanStatus(StrEnum):
+    """Class docstring."""
     # Status of a scan run
-    RUNNING   = 'running'
-    COMPLETED = 'completed'
-    FAILED    = 'failed'
-    CANCELLED = 'cancelled'
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
 
 class IssueType(StrEnum):
+    """Class docstring."""
     # Types of issues that can be detected during diagnostics evaluation.
-    retrieval_failure = 'retrieval_failure'        # Zero chunks retrieved
-    insufficient_retrieval = 'insufficient_retrieval'  # < 3 chunks for complex queries
-    empty_answer = 'empty_answer'                  # Answer is empty/whitespace-only
-    refusal_bias = 'refusal_bias'                 # Model refuses to answer (detected patterns)
-    timeout = 'timeout'                           # Generation timeout occurred
-    very_short_answer = 'very_short_answer'       # Answer length < 20 chars for non-simple queries
-    unsupported_claims_detected = 'unsupported_claims_detected'  # Grounding verifier detected unsupported claims
+    RETRIEVAL_FAILURE = "retrieval_failure"  # Zero chunks retrieved
+    INSUFFICIENT_RETRIEVAL = "insufficient_retrieval"  # < 3 chunks for complex queries
+    EMPTY_ANSWER = "empty_answer"  # Answer is empty/whitespace-only
+    REFUSAL_BIAS = "refusal_bias"  # Model refuses to answer (detected patterns)
+    TIMEOUT = "timeout"  # Generation timeout occurred
+    VERY_SHORT_ANSWER = "very_short_answer"  # Answer length < 20 chars for non-simple queries
+    UNSUPPORTED_CLAIMS_DETECTED = (
+        "unsupported_claims_detected"  # Grounding verifier detected unsupported claims
+    )
 
 
 # ==============================================================================
 # IndexedFile — maps to the `files` table
 # ==============================================================================
 
+
 class IndexedFile(BaseModel):
+    """Class docstring."""
     # Represents a file in the SQLite `files` table.
-    id:                     int | None       = None
-    source_provider:        str              = 'filesystem'
-    entity_type:            str              = 'file'
-    source_item_id:         str              = ''
-    path:                   str                         # Absolute POSIX path
-    filename:               str
-    extension:              str
-    size_bytes:             int
-    content_hash:           str                         # SHA-256
-    extracted_text_preview: str                         # First ~500 chars
-    category:               FileCategory
-    tags:                   list[str]        = Field(default_factory=list)  # Stored as JSON
-    year:                   int | None       = None     # Extracted at index time (filename/path/text)
-    extractor:              str | None       = None
-    encoding:               str | None       = None
-    language:               str | None       = None
-    mime_type:              str | None       = None
-    ocr_used:               bool             = False
-    page_count:             int | None       = None
-    tables_count:           int | None       = None
-    form_items_count:       int | None       = None
-    key_value_items_count:  int | None       = None
-    pictures_count:         int | None       = None
-    document_hash:          str | None       = None
-    indexed_at:             datetime | None  = None
-    modified_at:            datetime
-    created_at:             datetime | None  = None
+    id: int | None = None
+    source_provider: str = "filesystem"
+    entity_type: str = "file"
+    source_item_id: str = ""
+    path: str  # Absolute POSIX path
+    filename: str
+    extension: str
+    size_bytes: int
+    content_hash: str  # SHA-256
+    extracted_text_preview: str  # First ~500 chars
+    category: FileCategory
+    tags: list[str] = Field(default_factory=list)  # Stored as JSON
+    year: int | None = None  # Extracted at index time (filename/path/text)
+    extractor: str | None = None
+    encoding: str | None = None
+    language: str | None = None
+    mime_type: str | None = None
+    ocr_used: bool = False
+    page_count: int | None = None
+    tables_count: int | None = None
+    form_items_count: int | None = None
+    key_value_items_count: int | None = None
+    pictures_count: int | None = None
+    document_hash: str | None = None
+    indexed_at: datetime | None = None
+    modified_at: datetime
+    created_at: datetime | None = None
 
 
 # ==============================================================================
 # Chunk — maps to the `chunks` table
 # ==============================================================================
 
+
 class Chunk(BaseModel):
+    """Class docstring."""
     # Represents a text chunk in the SQLite `chunks` table.
     # v2 additions: parent_id, page_number, section_path, block_type for parent document retrieval and filtering
-    id:           int | None      = None
-    file_id:      int
-    chunk_index:  int
-    content:      str
-    token_count:  int
-    parent_id:    int | None      = None     # v2: Link to parent window chunk (for parent document retrieval)
-    page_number:  int | None      = None     # v2: Page number in source document (PDF)
-    start_page:   int | None      = None     # v2: Start page for chunks spanning multiple pages
-    end_page:     int | None      = None     # v2: End page for chunks spanning multiple pages
-    section_path: str | None      = None     # v2: Section hierarchy path (e.g., "Introduction/Overview")
-    block_type:   str | None      = None     # v2: Block type ('table', 'form', 'narrative') from docling provenance
-    created_at:   datetime | None = None
+    id: int | None = None
+    file_id: int
+    chunk_index: int
+    content: str
+    token_count: int
+    parent_id: int | None = None  # v2: Link to parent window chunk (for parent document retrieval)
+    page_number: int | None = None  # v2: Page number in source document (PDF)
+    start_page: int | None = None  # v2: Start page for chunks spanning multiple pages
+    end_page: int | None = None  # v2: End page for chunks spanning multiple pages
+    section_path: str | None = None  # v2: Section hierarchy path (e.g., "Introduction/Overview")
+    block_type: str | None = (
+        None  # v2: Block type ('table', 'form', 'narrative') from docling provenance
+    )
+    created_at: datetime | None = None
 
 
 # ==============================================================================
 # ScanRecord — maps to the `scan_history` table
 # ==============================================================================
 
+
 class ScanRecord(BaseModel):
+    """Class docstring."""
     # Represents a scan run in the SQLite `scan_history` table.
-    id:            int | None      = None
-    started_at:    datetime
-    completed_at:  datetime | None = None
-    files_scanned: int             = 0
-    files_indexed: int             = 0
-    errors:        int             = 0
-    status:        ScanStatus      = ScanStatus.RUNNING
+    id: int | None = None
+    started_at: datetime
+    completed_at: datetime | None = None
+    files_scanned: int = 0
+    files_indexed: int = 0
+    errors: int = 0
+    status: ScanStatus = ScanStatus.RUNNING
 
 
 class ScanErrorRecord(BaseModel):
+    """Class docstring."""
     # Represents a per-file scan error in `scan_errors`.
-    id:            int | None      = None
-    scan_id:       int
-    path:          str
-    filename:      str
-    extension:     str
-    operation:     str
-    error_code:    str | None      = None
+    id: int | None = None
+    scan_id: int
+    path: str
+    filename: str
+    extension: str
+    operation: str
+    error_code: str | None = None
     error_message: str
-    is_timeout:    bool            = False
-    created_at:    datetime | None = None
+    is_timeout: bool = False
+    created_at: datetime | None = None
 
 
 class ScanSkippedFileRecord(BaseModel):
+    """Class docstring."""
     # Represents a per-file skip in `scan_skipped_files`.
-    id:            int | None      = None
-    scan_id:       int
-    path:          str
-    filename:      str
-    extension:     str
-    reason:        str
-    error_code:    str | None      = None
-    created_at:    datetime | None = None
+    id: int | None = None
+    scan_id: int
+    path: str
+    filename: str
+    extension: str
+    reason: str
+    error_code: str | None = None
+    created_at: datetime | None = None
 
 
 # ==============================================================================
 # ChatMessage — maps to the `chat_messages` table
 # ==============================================================================
 
+
 class ChatMessage(BaseModel):
+    """Class docstring."""
     # A single message in a chat.
-    id:                int | None = None
-    chat_id:           str         # UUID
-    role:              ChatRole
-    content:          str
-    sources:          list[dict] = Field(default_factory=list)  # Full source reference objects
-    generation_seconds: float | None = None  # Time taken to generate answer (assistant messages only)
+    id: int | None = None
+    chat_id: str  # UUID
+    role: ChatRole
+    content: str
+    sources: list[dict] = Field(default_factory=list)  # Full source reference objects
+    generation_seconds: float | None = (
+        None  # Time taken to generate answer (assistant messages only)
+    )
     completion_mode: CompletionMode | str | None = None
     stopped_by_user: bool = False
     has_remaining_scope: bool = False
@@ -168,14 +192,16 @@ class ChatMessage(BaseModel):
     retrieval_scope_key: str | None = None
     model_filename: str | None = None
     is_internal: bool = False
-    created_at:       datetime | None = None
+    created_at: datetime | None = None
 
-    @model_validator(mode='after')
-    def _normalize_specialization(self) -> 'ChatMessage':
+    @model_validator(mode="after")
+    def _normalize_specialization(self) -> "ChatMessage":
+        """Internal helper for normalize specialization."""
         return self
 
 
 class ContinuationPassArtifact(BaseModel):
+    """Class docstring."""
     # Durable per-pass continuation artifact for diagnostics/compaction input.
     # Non-authoritative: chat_messages.content remains canonical assistant raw output.
     id: int | None = None
@@ -183,19 +209,20 @@ class ContinuationPassArtifact(BaseModel):
     request_id: str
     pass_index: int
     stitch_mode: str  # 'append' | 'overwrite'
-    raw_answer: str = ''
-    cleaned_answer: str = ''
+    raw_answer: str = ""
+    cleaned_answer: str = ""
     has_remaining_scope: bool = False
     completion_mode: CompletionMode | str | None = None
     next_action_reason: str | None = None
     sources: list[dict] = Field(default_factory=list)
     pass_details: dict = Field(default_factory=dict)
     status_transitions: list[dict] = Field(default_factory=list)
-    payload_hash: str = ''
+    payload_hash: str = ""
     created_at: datetime | None = None
 
 
 class ChatUploadAttachment(BaseModel):
+    """Class docstring."""
     # Chat-scoped uploaded attachment lifecycle state.
     id: int | None = None
     upload_id: str
@@ -204,7 +231,7 @@ class ChatUploadAttachment(BaseModel):
     filename_at_upload: str
     size_bytes: int = 0
     content_hash: str | None = None
-    state: str = 'uploading'  # uploading | indexing | ready | deleting | deleted | failed
+    state: str = "uploading"  # uploading | indexing | ready | deleting | deleted | failed
     referenced_message_ids: list[int] = Field(default_factory=list)
     uploaded_at: datetime | None = None
     updated_at: datetime | None = None

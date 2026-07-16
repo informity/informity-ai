@@ -3,6 +3,8 @@
 # Deterministic quality metrics and gate checks for dictionary rebuilds.
 # ==============================================================================
 
+"""Module for indexer term dictionary quality."""
+
 from __future__ import annotations
 
 from collections import Counter
@@ -11,6 +13,7 @@ from dataclasses import dataclass
 
 @dataclass(slots=True)
 class TermDictionaryQualityMetrics:
+    """Class docstring."""
     total_candidates: int
     kept_candidates: int
     rejected_candidates: int
@@ -22,6 +25,7 @@ class TermDictionaryQualityMetrics:
 
 @dataclass(slots=True)
 class TermDictionaryQualityGateResult:
+    """Class docstring."""
     passed: bool
     reason: str
     metrics: TermDictionaryQualityMetrics
@@ -37,6 +41,7 @@ def evaluate_term_dictionary_quality(
     candidate_term_types: list[str] | None = None,
     kept_term_types: list[str] | None = None,
 ) -> TermDictionaryQualityGateResult:
+    """Evaluate term dictionary quality."""
     total = max(0, int(total_candidates))
     kept = max(0, int(kept_candidates))
     rejected = max(0, total - kept)
@@ -53,12 +58,12 @@ def evaluate_term_dictionary_quality(
     )
 
     if not gate_enabled:
-        return TermDictionaryQualityGateResult(passed=True, reason='gate_disabled', metrics=metrics)
+        return TermDictionaryQualityGateResult(passed=True, reason="gate_disabled", metrics=metrics)
 
     if total < max(1, int(min_candidates_for_gate)):
         return TermDictionaryQualityGateResult(
             passed=True,
-            reason='below_min_candidates_for_gate',
+            reason="below_min_candidates_for_gate",
             metrics=metrics,
         )
 
@@ -66,8 +71,8 @@ def evaluate_term_dictionary_quality(
     if noise_rate > threshold:
         return TermDictionaryQualityGateResult(
             passed=False,
-            reason=f'noise_rate_exceeded:{noise_rate:.3f}>{threshold:.3f}',
+            reason=f"noise_rate_exceeded:{noise_rate:.3f}>{threshold:.3f}",
             metrics=metrics,
         )
 
-    return TermDictionaryQualityGateResult(passed=True, reason='ok', metrics=metrics)
+    return TermDictionaryQualityGateResult(passed=True, reason="ok", metrics=metrics)

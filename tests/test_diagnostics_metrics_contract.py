@@ -1,3 +1,5 @@
+"""Test module for tests test diagnostics metrics contract."""
+
 from datetime import UTC, datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -18,17 +20,18 @@ async def test_insert_diagnostics_metrics_normalizes_query_type_and_issues(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    db_path = tmp_path / 'diagnostics-contract.db'
-    monkeypatch.setattr(settings, 'db_path', db_path)
+    """Test insert diagnostics metrics normalizes query type and issues."""
+    db_path = tmp_path / "diagnostics-contract.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
 
     await init_db()
     db = await get_connection()
     try:
         metrics = SimpleNamespace(
-            chat_id='chat-1',
-            question='Question',
-            model_filename='model.gguf',
-            query_type='NON_CANONICAL_TYPE',
+            chat_id="chat-1",
+            question="Question",
+            model_filename="model.gguf",
+            query_type="NON_CANONICAL_TYPE",
             raw_chunks_count=3,
             sources_count=2,
             generation_seconds=1.2,
@@ -43,15 +46,15 @@ async def test_insert_diagnostics_metrics_normalizes_query_type_and_issues(
         await insert_diagnostics_metrics(
             db=db,
             metrics=metrics,
-            detected_issues=['timeout', 'TIMEOUT', 'unknown_issue', ''],
+            detected_issues=["timeout", "TIMEOUT", "unknown_issue", ""],
             run_id=None,
         )
 
         rows = await get_diagnostics_metrics_since(db=db, days=30)
         assert len(rows) == 1
-        assert rows[0]['type'] == 'user'
-        assert rows[0]['query_type'] == 'unknown'
-        assert rows[0]['detected_issues'] == ['timeout']
+        assert rows[0]["type"] == "user"
+        assert rows[0]["query_type"] == "unknown"
+        assert rows[0]["detected_issues"] == ["timeout"]
     finally:
         await db.close()
 
@@ -61,8 +64,9 @@ async def test_get_diagnostics_metrics_since_filters_non_canonical_issue_values(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    db_path = tmp_path / 'diagnostics-contract-read.db'
-    monkeypatch.setattr(settings, 'db_path', db_path)
+    """Test get diagnostics metrics since filters non canonical issue values."""
+    db_path = tmp_path / "diagnostics-contract-read.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
 
     await init_db()
     db = await get_connection()
@@ -78,12 +82,12 @@ async def test_get_diagnostics_metrics_since_filters_non_canonical_issue_values(
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
-                'chat-2',
-                'Q2',
-                'evaluation',
-                'model.gguf',
-                'run-1',
-                'focused',
+                "chat-2",
+                "Q2",
+                "evaluation",
+                "model.gguf",
+                "run-1",
+                "focused",
                 5,
                 2,
                 2.4,
@@ -100,9 +104,10 @@ async def test_get_diagnostics_metrics_since_filters_non_canonical_issue_values(
         )
         await db.commit()
 
-        rows = await get_diagnostics_metrics_since(db=db, days=30, type_filter='evaluation', run_id_filter='run-1')
+        rows = await get_diagnostics_metrics_since(
+            db=db, days=30, type_filter="evaluation", run_id_filter="run-1"
+        )
         assert len(rows) == 1
-        assert rows[0]['detected_issues'] == ['timeout', 'unsupported_claims_detected']
+        assert rows[0]["detected_issues"] == ["timeout", "unsupported_claims_detected"]
     finally:
         await db.close()
-

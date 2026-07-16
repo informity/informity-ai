@@ -3,6 +3,8 @@
 # Routes queries to appropriate handlers (metadata, RAG, simple)
 # ==============================================================================
 
+"""Module for llm rag."""
+
 import asyncio
 import dataclasses
 import re
@@ -34,35 +36,50 @@ from informity.llm.types import (
 from informity.llm.user_messages import EMPTY_KNOWLEDGE_BASE_RESEARCHER_MESSAGE
 
 log = structlog.get_logger(__name__)
-_ROUTER_RUNTIME_EXCEPTIONS = (aiosqlite.Error, RuntimeError, ValueError, TypeError, OSError, TimeoutError)
+_ROUTER_RUNTIME_EXCEPTIONS = (
+    aiosqlite.Error,
+    RuntimeError,
+    ValueError,
+    TypeError,
+    OSError,
+    TimeoutError,
+)
 
 # Handler registry - order matters (first match wins)
 _HANDLER_REGISTRY = [
     MetadataHandler(),  # Metadata queries (count, enumeration, file listing)
-    SimpleHandler(),    # Simple/conversational queries (greetings, clarifications, off-topic)
-    RAGHandler(),       # Focused and coverage queries (fallback - should always match)
+    SimpleHandler(),  # Simple/conversational queries (greetings, clarifications, off-topic)
+    RAGHandler(),  # Focused and coverage queries (fallback - should always match)
 ]
 
-_COMPOUND_RESPONSE_SEPARATOR = '\n\n---\n\n'
+_COMPOUND_RESPONSE_SEPARATOR = "\n\n---\n\n"
 _COMPOUND_SECONDARY_MAX_QUERY_WORDS = 32
 _COMPOUND_SECONDARY_BROAD_SCOPE_PATTERN = re.compile(
-    r'\b(all|across|every|each|by\s+year|year[-\s]*by[-\s]*year|cross[-\s]*year|summarize|compare)\b',
+    r"\b(all|across|every|each|by\s+year|year[-\s]*by[-\s]*year|"
+    r"cross[-\s]*year|summarize|compare)\b",
     re.IGNORECASE,
 )
 _CLASSIFICATION_TIMEOUT_SECONDS = max(
     5.0,
-    min(30.0, float(getattr(settings, 'diagnostics_alert_max_first_token_seconds', 45.0) or 45.0) / 2.0),
+    min(
+        30.0,
+        float(getattr(settings, "diagnostics_alert_max_first_token_seconds", 45.0) or 45.0) / 2.0,
+    ),
 )
 
 
 def _resolve_handler_for_classification(classification: QueryClassification) -> Any | None:
+    """Internal helper for resolve handler for classification."""
     for handler in _HANDLER_REGISTRY:
         if handler.matches(classification):
             return handler
     return None
 
 
-def _build_secondary_classification(classification: QueryClassification) -> QueryClassification | None:
+def _build_secondary_classification(
+    classification: QueryClassification,
+) -> QueryClassification | None:
+    """Internal helper for build secondary classification."""
     secondary_intent = classification.secondary_intent
     if secondary_intent is None or secondary_intent == classification.intent:
         return None
@@ -96,28 +113,30 @@ def _should_execute_secondary_path(
     secondary: QueryClassification,
 ) -> tuple[bool, str | None]:
     # Metadata secondary work is cheap (SQL-only) and can proceed without an extra gate.
+    """Internal helper for should execute secondary path."""
     if secondary.intent != QueryType.FOCUSED:
         return True, None
     # Secondary focused execution can invoke full RAG. Keep it constrained to
     # compact metadata-first compounds to avoid unbounded latency.
     if primary.intent != QueryType.METADATA:
-        return False, 'secondary_focused_requires_metadata_primary'
+        return False, "secondary_focused_requires_metadata_primary"
     if primary.subtype == QuerySubtype.AGGREGATE_BY_PERIOD or primary.has_multi_year_scope:
-        return False, 'secondary_focused_blocked_for_multi_year_scope'
-    query_words = len(re.findall(r'\S+', str(question or '')))
+        return False, "secondary_focused_blocked_for_multi_year_scope"
+    query_words = len(re.findall(r"\S+", str(question or "")))
     if query_words > _COMPOUND_SECONDARY_MAX_QUERY_WORDS:
-        return False, 'secondary_focused_query_length_budget_exceeded'
-    if _COMPOUND_SECONDARY_BROAD_SCOPE_PATTERN.search(str(question or '')):
-        return False, 'secondary_focused_broad_scope_budget_block'
+        return False, "secondary_focused_query_length_budget_exceeded"
+    if _COMPOUND_SECONDARY_BROAD_SCOPE_PATTERN.search(str(question or "")):
+        return False, "secondary_focused_broad_scope_budget_block"
     return True, None
 
 
 def _maybe_unload_classifier_before_generation() -> None:
+    """Internal helper for maybe unload classifier before generation."""
     if settings.classifier_unload_before_generation:
         classifier = get_classifier()
         classifier.unload()
         log.info(
-            'five_q_classifier_unloaded_before_generation',
+            "five_q_classifier_unloaded_before_generation",
             classifier_id=id(classifier),
         )
 
@@ -130,7 +149,8 @@ async def answer_question(
     db: aiosqlite.Connection | None = None,
     trace: object | None = None,  # TraceWriter protocol - optional, for chat trace logging
     diagnostics_context: dict[str, object] | None = None,
-    classification: QueryClassification | None = None,  # If provided, skip re-classification (continuation passes)
+    classification: QueryClassification
+    | None = None,  # If provided, skip re-classification (continuation passes)
     chat_mode: str | None = None,
     specialization_id: str | None = None,
     chat_web_search_enabled: bool = False,
@@ -152,8 +172,8 @@ async def answer_question(
             base_classification = classification
             if base_classification is None:
                 log.info(
-                    'query_classification_begin',
-                    chat_mode='assistant',
+                    "query_classification_begin",
+                    chat_mode="assistant",
                     timeout_seconds=round(_CLASSIFICATION_TIMEOUT_SECONDS, 1),
                 )
                 try:
@@ -162,14 +182,14 @@ async def answer_question(
                             question,
                             history=history,
                             chat_mode=normalized_chat_mode,
-                            scope_kind='assistant_mode',
+                            scope_kind="assistant_mode",
                         ),
                         timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
                     )
                 except TimeoutError:
                     log.error(
-                        'query_classification_timeout',
-                        chat_mode='assistant',
+                        "query_classification_timeout",
+                        chat_mode="assistant",
                         timeout_seconds=round(_CLASSIFICATION_TIMEOUT_SECONDS, 1),
                     )
                     base_classification = QueryClassification(intent=QueryType.SIMPLE)
@@ -185,24 +205,27 @@ async def answer_question(
             else:
                 forced_classification = QueryClassification(intent=QueryType.SIMPLE)
             if trace is not None:
-                trace.record('classification', {
-                    'query_length': len(question),
-                    'intent': QueryType.SIMPLE,
-                    'route_candidate': forced_classification.route_candidate,
-                    'confidence': forced_classification.confidence,
-                    'duration_ms': round(classify_elapsed_ms, 2),
-                    'chat_mode': 'assistant',
-                    'forced': True,
-                    'needs_current_info': forced_classification.needs_current_info,
-                    'should_check_recency': bool(
-                        forced_classification.action_hints.get('should_check_recency')
-                    ),
-                    'mentions_time': forced_classification.mentions_time,
-                })
+                trace.record(
+                    "classification",
+                    {
+                        "query_length": len(question),
+                        "intent": QueryType.SIMPLE,
+                        "route_candidate": forced_classification.route_candidate,
+                        "confidence": forced_classification.confidence,
+                        "duration_ms": round(classify_elapsed_ms, 2),
+                        "chat_mode": "assistant",
+                        "forced": True,
+                        "needs_current_info": forced_classification.needs_current_info,
+                        "should_check_recency": bool(
+                            forced_classification.action_hints.get("should_check_recency")
+                        ),
+                        "mentions_time": forced_classification.mentions_time,
+                    },
+                )
             log.info(
-                'query_classified_forced_assistant',
+                "query_classified_forced_assistant",
                 intent=QueryType.SIMPLE,
-                chat_mode='assistant',
+                chat_mode="assistant",
                 duration_ms=round(classify_elapsed_ms, 1),
             )
             handler = SimpleHandler()
@@ -216,22 +239,22 @@ async def answer_question(
                 diagnostics_context=diagnostics_context,
                 chat_id=chat_id,
                 file_ids=file_ids,
-                chat_mode='assistant',
+                chat_mode="assistant",
                 specialization_id=specialization_id,
                 chat_web_search_enabled=chat_web_search_enabled,
                 chat_web_search_privacy_override=chat_web_search_privacy_override,
             ):
                 if not first_item_seen:
                     first_item_seen = True
-                    log.info('assistant_handler_first_item_emitted', chat_mode='assistant')
+                    log.info("assistant_handler_first_item_emitted", chat_mode="assistant")
                 yield item
             return
 
         # 1. Classify query (extract filters and intent)
         if classification is None:
             log.info(
-                'query_classification_begin',
-                chat_mode=normalized_chat_mode or 'researcher',
+                "query_classification_begin",
+                chat_mode=normalized_chat_mode or "researcher",
                 timeout_seconds=round(_CLASSIFICATION_TIMEOUT_SECONDS, 1),
             )
             try:
@@ -240,58 +263,61 @@ async def answer_question(
                         question,
                         history=history,
                         chat_mode=normalized_chat_mode,
-                        scope_kind='indexed_corpus',
+                        scope_kind="indexed_corpus",
                     ),
                     timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
                 )
             except TimeoutError:
                 log.error(
-                    'query_classification_timeout',
-                    chat_mode=normalized_chat_mode or 'researcher',
+                    "query_classification_timeout",
+                    chat_mode=normalized_chat_mode or "researcher",
                     timeout_seconds=round(_CLASSIFICATION_TIMEOUT_SECONDS, 1),
                 )
                 classification = QueryClassification(intent=QueryType.SIMPLE)
                 classify_elapsed_ms = _CLASSIFICATION_TIMEOUT_SECONDS * 1000.0
             if trace is not None:
-                trace.record('classification', {
-                    'query_length': len(question),
-                    'intent': classification.intent,
-                    'route_candidate': classification.route_candidate,
-                    'confidence': classification.confidence,
-                    'confidence_band': classification.confidence_band,
-                    'alternatives': classification.alternatives,
-                    'reason_codes': classification.reason_codes,
-                    'missing_slots': classification.missing_slots,
-                    'subtype': classification.subtype,
-                    'group_by': classification.group_by,
-                    'field_hint': classification.field_hint,
-                    'source_terms': classification.source_terms,
-                    'has_multi_year_scope': classification.has_multi_year_scope,
-                    'year_filter': classification.year_filter,
-                    'category_filter': classification.category_filter,
-                    'file_type_filter': classification.file_type_filter,
-                    'filename_filter': classification.filename_filter,
-                    'duration_ms': round(classify_elapsed_ms, 2),
-                    'chat_mode': normalized_chat_mode or 'researcher',
-                })
+                trace.record(
+                    "classification",
+                    {
+                        "query_length": len(question),
+                        "intent": classification.intent,
+                        "route_candidate": classification.route_candidate,
+                        "confidence": classification.confidence,
+                        "confidence_band": classification.confidence_band,
+                        "alternatives": classification.alternatives,
+                        "reason_codes": classification.reason_codes,
+                        "missing_slots": classification.missing_slots,
+                        "subtype": classification.subtype,
+                        "group_by": classification.group_by,
+                        "field_hint": classification.field_hint,
+                        "source_terms": classification.source_terms,
+                        "has_multi_year_scope": classification.has_multi_year_scope,
+                        "year_filter": classification.year_filter,
+                        "category_filter": classification.category_filter,
+                        "file_type_filter": classification.file_type_filter,
+                        "filename_filter": classification.filename_filter,
+                        "duration_ms": round(classify_elapsed_ms, 2),
+                        "chat_mode": normalized_chat_mode or "researcher",
+                    },
+                )
             log.info(
-                'query_classified',
+                "query_classified",
                 intent=classification.intent,
                 route_candidate=classification.route_candidate,
                 confidence=classification.confidence,
                 year_filter=classification.year_filter,
                 category_filter=classification.category_filter,
-                chat_mode=normalized_chat_mode or 'researcher',
+                chat_mode=normalized_chat_mode or "researcher",
                 duration_ms=round(classify_elapsed_ms, 1),
             )
             yield (StreamSignalTag.CLASSIFICATION, classification)
         else:
             log.info(
-                'query_classified_locked',
+                "query_classified_locked",
                 intent=classification.intent,
                 route_candidate=classification.route_candidate,
                 confidence=classification.confidence,
-                chat_mode=normalized_chat_mode or 'researcher',
+                chat_mode=normalized_chat_mode or "researcher",
             )
 
         _maybe_unload_classifier_before_generation()
@@ -299,26 +325,29 @@ async def answer_question(
         total_chunks = await get_chunk_count(db)
         if total_chunks == 0:
             log.info(
-                'researcher_empty_index_short_circuit',
+                "researcher_empty_index_short_circuit",
                 intent=classification.intent,
                 route_candidate=classification.route_candidate,
-                chat_mode=normalized_chat_mode or 'researcher',
+                chat_mode=normalized_chat_mode or "researcher",
             )
             if trace is not None:
-                trace.record('empty_index_gate', {
-                    'query_length': len(question),
-                    'intent': classification.intent,
-                    'chat_mode': normalized_chat_mode or 'researcher',
-                    'total_chunks': 0,
-                })
+                trace.record(
+                    "empty_index_gate",
+                    {
+                        "query_length": len(question),
+                        "intent": classification.intent,
+                        "chat_mode": normalized_chat_mode or "researcher",
+                        "total_chunks": 0,
+                    },
+                )
             yield (
                 StreamSignalTag.METRICS,
                 {
-                    'query_type': classification.intent,
-                    'raw_chunks_count': 0,
-                    'generation_skipped': True,
-                    'answerability_passed': False,
-                    'index_empty': True,
+                    "query_type": classification.intent,
+                    "raw_chunks_count": 0,
+                    "generation_skipped": True,
+                    "answerability_passed": False,
+                    "index_empty": True,
                 },
             )
             yield EMPTY_KNOWLEDGE_BASE_RESEARCHER_MESSAGE
@@ -331,7 +360,8 @@ async def answer_question(
             secondary_classification = _build_secondary_classification(classification)
             secondary_handler = (
                 _resolve_handler_for_classification(secondary_classification)
-                if secondary_classification is not None else None
+                if secondary_classification is not None
+                else None
             )
             if secondary_handler is not None and secondary_classification is not None:
                 should_run_secondary, skip_reason = _should_execute_secondary_path(
@@ -341,7 +371,7 @@ async def answer_question(
                 )
                 if not should_run_secondary:
                     log.info(
-                        'route_compound_secondary_skipped_budget_gate',
+                        "route_compound_secondary_skipped_budget_gate",
                         reason=skip_reason,
                         primary_intent=classification.intent,
                         secondary_intent=secondary_classification.intent,
@@ -350,7 +380,7 @@ async def answer_question(
             merged_sources: list[ChatSourceReference] = []
             if secondary_handler is None:
                 log.info(
-                    'route_dispatched',
+                    "route_dispatched",
                     handler=type(primary_handler).__name__,
                     intent=classification.intent,
                     route_candidate=classification.route_candidate,
@@ -364,18 +394,20 @@ async def answer_question(
                     diagnostics_context=diagnostics_context,
                     chat_id=chat_id,
                     file_ids=file_ids,
-                    chat_mode=normalized_chat_mode or 'researcher',
+                    chat_mode=normalized_chat_mode or "researcher",
                     specialization_id=specialization_id,
                 ):
                     yield item
                 return
 
             log.info(
-                'route_dispatched_compound',
+                "route_dispatched_compound",
                 primary_handler=type(primary_handler).__name__,
                 primary_intent=classification.intent,
                 secondary_handler=type(secondary_handler).__name__,
-                secondary_intent=secondary_classification.intent if secondary_classification is not None else None,
+                secondary_intent=secondary_classification.intent
+                if secondary_classification is not None
+                else None,
                 route_candidate=classification.route_candidate,
             )
             for run_index, (run_handler, run_classification) in enumerate(
@@ -397,7 +429,7 @@ async def answer_question(
                     diagnostics_context=diagnostics_context,
                     chat_id=chat_id,
                     file_ids=file_ids,
-                    chat_mode=normalized_chat_mode or 'researcher',
+                    chat_mode=normalized_chat_mode or "researcher",
                     specialization_id=specialization_id,
                 ):
                     if isinstance(item, list):
@@ -414,7 +446,7 @@ async def answer_question(
                         metrics_payload = item[1]
                         if isinstance(metrics_payload, dict):
                             metrics_payload = dict(metrics_payload)
-                            metrics_payload['compound_secondary_intent_applied'] = True
+                            metrics_payload["compound_secondary_intent_applied"] = True
                             yield (item[0], metrics_payload)
                             continue
                     if run_index == 2 and not secondary_separator_emitted and isinstance(item, str):
@@ -425,11 +457,11 @@ async def answer_question(
             return
 
         # Fallback: should never reach here (RAGHandler matches everything)
-        log.error('no_handler_matched', intent=classification.intent)
+        log.error("no_handler_matched", intent=classification.intent)
         yield "Error: No handler matched the query. This should not happen."
         yield []
 
     except _ROUTER_RUNTIME_EXCEPTIONS as exc:
-        log.error('answer_question_failed', error=str(exc), exc_info=True)
+        log.error("answer_question_failed", error=str(exc), exc_info=True)
         yield to_client_error_message(exc)
         yield []

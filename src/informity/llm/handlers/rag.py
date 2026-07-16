@@ -3,6 +3,10 @@
 # Handles focused and coverage queries using vector search → rerank → LLM
 # ==============================================================================
 
+"""Module for llm handlers rag."""
+
+# pylint: disable=unused-argument
+
 import asyncio
 import re
 import time
@@ -64,21 +68,21 @@ _HANDLER_RUNTIME_EXCEPTIONS = (RuntimeError, ValueError, TypeError, OSError, asy
 
 _INSUFFICIENT_CONTEXT_RESPONSE = INSUFFICIENT_CONTEXT_RESEARCHER_MESSAGE
 _CHUNK_PREVIEW_MAX_LENGTH = 200
-_DETERMINISTIC_EXTRACTION_HEADING = '### Deterministic Numeric Extraction\n\n'
+_DETERMINISTIC_EXTRACTION_HEADING = "### Deterministic Numeric Extraction\n\n"
 _STRICT_CONTRACT_MAX_TEMPERATURE = 0.2
 _STRICT_CONTRACT_MAX_TOP_P = 0.8
 _COVERAGE_ENTITY_LISTING_TOP_K_BOOST = 8
 _COVERAGE_ENTITY_LISTING_TOP_K_MAX = 60
 _FILE_DISCOVERY_RETRIEVAL_TOP_K = 200
 _FILE_DISCOVERY_DISPLAY_LIMIT = 20
-_FILE_DISCOVERY_LEAD_IN = 'Here are the files related to your query:'
+_FILE_DISCOVERY_LEAD_IN = "Here are the files related to your query:"
 _GLOBAL_ENTITY_ENUMERATION_PATTERN = build_global_entity_listing_pattern()
 _ENTITY_INVENTORY_SCOPE_PATTERN = build_exhaustive_entity_inventory_scope_pattern()
 _PERSON_INVENTORY_PATTERN = build_person_entity_listing_pattern()
 _ACRONYM_INVENTORY_PATTERN = build_acronym_entity_listing_pattern()
 _ENTITY_INVENTORY_MAX_ROWS = 300
 _ENTITY_INVENTORY_SOURCE_LIMIT = 12
-_ENTITY_INVENTORY_DEFAULT_PREVIEW = 'Indexed term evidence match.'
+_ENTITY_INVENTORY_DEFAULT_PREVIEW = "Indexed term evidence match."
 _WEAK_SUMMARY_SUBSTANTIVE_RATIO_THRESHOLD = 0.55
 _WEAK_SUMMARY_DOMINANT_FILE_RATIO_THRESHOLD = 0.6
 _SUMMARY_TITLE_MAX_TEMPERATURE = 0.3
@@ -87,11 +91,12 @@ _WEAK_COMPARISON_DISTINCT_FILE_THRESHOLD = 2
 
 
 def _dominant_file_ratio(chunks: list[dict]) -> float:
+    """Internal helper for dominant file ratio."""
     if not chunks:
         return 0.0
     counts: dict[int, int] = {}
     for chunk in chunks:
-        file_id = chunk.get('file_id')
+        file_id = chunk.get("file_id")
         if not isinstance(file_id, int):
             continue
         counts[file_id] = counts.get(file_id, 0) + 1
@@ -101,9 +106,10 @@ def _dominant_file_ratio(chunks: list[dict]) -> float:
 
 
 def _distinct_file_count(chunks: list[dict]) -> int:
+    """Internal helper for distinct file count."""
     file_ids: set[int] = set()
     for chunk in chunks:
-        file_id = chunk.get('file_id')
+        file_id = chunk.get("file_id")
         if isinstance(file_id, int):
             file_ids.add(file_id)
     return len(file_ids)
@@ -114,11 +120,12 @@ def _collapse_duplicate_insufficient_context_message(
     *,
     phrase: str = _INSUFFICIENT_CONTEXT_RESPONSE,
 ) -> tuple[str, bool]:
+    """Internal helper for collapse duplicate insufficient context message."""
     if not answer:
         return answer, False
     escaped_phrase = re.escape(phrase)
-    pattern = re.compile(rf'(?:{escaped_phrase}\s*){{2,}}')
-    collapsed = pattern.sub(f'{phrase}\n', answer)
+    pattern = re.compile(rf"(?:{escaped_phrase}\s*){{2,}}")
+    collapsed = pattern.sub(f"{phrase}\n", answer)
     if collapsed == answer:
         return answer, False
     return collapsed, True
@@ -133,11 +140,14 @@ def _resolve_sampling_params(
     # Keep runtime simple and contract-compliant:
     # when strict format contracts are present, lower sampling variance so
     # heading/section structure is more reproducible across reruns.
-    requirements_joined = ' '.join(str(item or '').casefold() for item in (format_requirements or []))
+    """Internal helper for resolve sampling params."""
+    requirements_joined = " ".join(
+        str(item or "").casefold() for item in (format_requirements or [])
+    )
     strict_contract = (
-        'requested order' in requirements_joined
-        or 'include heading:' in requirements_joined
-        or 'one subsection per year' in requirements_joined
+        "requested order" in requirements_joined
+        or "include heading:" in requirements_joined
+        or "one subsection per year" in requirements_joined
     )
     if strict_contract:
         return (
@@ -153,21 +163,22 @@ def _apply_output_format_preferences(
     format_requirements: list[str],
     output_constraints: dict[str, int],
 ) -> None:
+    """Internal helper for apply output format preferences."""
     if output_format == OutputFormat.TABLE:
-        format_requirements.append('Output as a markdown table.')
+        format_requirements.append("Output as a markdown table.")
         return
     if output_format == OutputFormat.BULLETS:
-        format_requirements.append('Output using bullet points.')
+        format_requirements.append("Output using bullet points.")
         return
     if output_format == OutputFormat.CSV:
-        format_requirements.append('Output as CSV with a single header row.')
+        format_requirements.append("Output as CSV with a single header row.")
         return
     if output_format == OutputFormat.LIST:
-        format_requirements.append('Output as a concise list.')
+        format_requirements.append("Output as a concise list.")
         return
     if output_format == OutputFormat.NARRATIVE:
-        format_requirements.append('Output as narrative paragraphs, not a table.')
-        output_constraints.pop('exact_top_level_bullets', None)
+        format_requirements.append("Output as narrative paragraphs, not a table.")
+        output_constraints.pop("exact_top_level_bullets", None)
 
 
 def _apply_negation_preferences(
@@ -175,15 +186,17 @@ def _apply_negation_preferences(
     is_negation_query: bool,
     format_requirements: list[str],
 ) -> None:
+    """Internal helper for apply negation preferences."""
     if not is_negation_query:
         return
     format_requirements.append(
-        'If exact negation cannot be guaranteed from retrieved evidence and metadata filters, '
-        'state that limitation explicitly and avoid definitive exclusion claims.'
+        "If exact negation cannot be guaranteed from retrieved evidence and metadata filters, "
+        "state that limitation explicitly and avoid definitive exclusion claims."
     )
 
 
 def _truncate_preview(text: str, max_length: int = _CHUNK_PREVIEW_MAX_LENGTH) -> str:
+    """Internal helper for truncate preview."""
     return text[:max_length]
 
 
@@ -192,6 +205,7 @@ def _should_prepend_deterministic_extraction_heading(
     question: str,
     classification: QueryClassification,
 ) -> bool:
+    """Internal helper for should prepend deterministic extraction heading."""
     if classification.intent != QueryType.COVERAGE:
         return False
     if classification.subtype != QuerySubtype.AGGREGATE_BY_PERIOD:
@@ -207,12 +221,13 @@ def _build_history_aware_retrieval_query_with_classification(
     history: list[ChatMessage] | None,
     classification: QueryClassification | None,
 ) -> tuple[str, bool]:
+    """Internal helper for build history aware retrieval query with classification."""
     normalized_question = normalize_query_text(question)
     if not normalized_question:
-        return '', False
+        return "", False
     if classification is not None:
         if bool(classification.focus_resolved):
-            rewritten_query = normalize_query_text(classification.focus_rewritten_query or '')
+            rewritten_query = normalize_query_text(classification.focus_rewritten_query or "")
             if rewritten_query and bool(classification.focus_query_rewritten):
                 return rewritten_query, True
             return normalized_question, False
@@ -236,7 +251,7 @@ def _build_history_aware_retrieval_query_with_classification(
     if not has_referential_language and not has_topical_overlap:
         return normalized_question, False
 
-    previous_user = ''
+    previous_user = ""
     history_limit = max(0, int(settings.rag_query_rewrite_max_history_messages))
     if history_limit == 0:
         return normalized_question, False
@@ -244,10 +259,10 @@ def _build_history_aware_retrieval_query_with_classification(
     max_query_chars = max(64, int(settings.rag_query_rewrite_max_query_chars))
 
     for message in reversed(history[-history_limit:]):
-        content = normalize_query_text(message.content or '')
+        content = normalize_query_text(message.content or "")
         if not content:
             continue
-        if not previous_user and message.role == 'user':
+        if not previous_user and message.role == "user":
             previous_user = content
         if previous_user:
             break
@@ -265,21 +280,27 @@ def _build_history_aware_retrieval_query_with_classification(
 
 
 def _resolve_minimal_query_type(classification: QueryClassification) -> QueryType:
+    """Internal helper for resolve minimal query type."""
     if classification.intent == QueryType.COVERAGE:
         return QueryType.COVERAGE
     return QueryType.FOCUSED
 
 
 def _should_boost_coverage_top_k(question: str, classification: QueryClassification) -> bool:
+    """Internal helper for should boost coverage top k."""
     if classification.intent != QueryType.COVERAGE:
         return False
-    lowered = str(question or '').casefold()
+    lowered = str(question or "").casefold()
     if not lowered:
         return False
-    return bool(_GLOBAL_ENTITY_ENUMERATION_PATTERN.search(lowered) and _ENTITY_INVENTORY_SCOPE_PATTERN.search(lowered))
+    return bool(
+        _GLOBAL_ENTITY_ENUMERATION_PATTERN.search(lowered)
+        and _ENTITY_INVENTORY_SCOPE_PATTERN.search(lowered)
+    )
 
 
 def _resolve_minimal_answerability_settings(query_type: QueryType) -> tuple[float, int]:
+    """Internal helper for resolve minimal answerability settings."""
     if query_type == QueryType.COVERAGE:
         return (
             float(settings.rag_minimal_answerability_threshold_coverage),
@@ -295,17 +316,18 @@ def _resolve_exhaustive_inventory_term_type(
     question: str,
     classification: QueryClassification,
 ) -> str | None:
+    """Internal helper for resolve exhaustive inventory term type."""
     if classification.intent != QueryType.COVERAGE:
         return None
-    lowered = str(question or '').casefold()
+    lowered = str(question or "").casefold()
     if not lowered:
         return None
     if not _ENTITY_INVENTORY_SCOPE_PATTERN.search(lowered):
         return None
     if _PERSON_INVENTORY_PATTERN.search(lowered):
-        return 'person_name'
+        return "person_name"
     if _ACRONYM_INVENTORY_PATTERN.search(lowered):
-        return 'acronym'
+        return "acronym"
     return None
 
 
@@ -315,8 +337,9 @@ async def _fetch_term_inventory_rows(
     term_type: str,
     limit: int = _ENTITY_INVENTORY_MAX_ROWS,
 ) -> list[dict[str, object]]:
+    """Internal helper for fetch term inventory rows."""
     cursor = await db.execute(
-        '''
+        """
         SELECT
             te.canonical_term AS canonical_term,
             te.confidence AS confidence,
@@ -330,18 +353,18 @@ async def _fetch_term_inventory_rows(
         GROUP BY te.term_id
         ORDER BY te.canonical_term COLLATE NOCASE ASC
         LIMIT ?
-        ''',
+        """,
         (term_type, max(1, int(limit))),
     )
     rows = await cursor.fetchall()
     return [
         {
-            'canonical_term': str(row['canonical_term'] or '').strip(),
-            'confidence': float(row['confidence'] or 0.0),
-            'file_count': int(row['file_count'] or 0),
+            "canonical_term": str(row["canonical_term"] or "").strip(),
+            "confidence": float(row["confidence"] or 0.0),
+            "file_count": int(row["file_count"] or 0),
         }
         for row in rows
-        if str(row['canonical_term'] or '').strip()
+        if str(row["canonical_term"] or "").strip()
     ]
 
 
@@ -351,8 +374,9 @@ async def _fetch_term_inventory_sources(
     term_type: str,
     limit: int = _ENTITY_INVENTORY_SOURCE_LIMIT,
 ) -> list[ChatSourceReference]:
+    """Internal helper for fetch term inventory sources."""
     cursor = await db.execute(
-        '''
+        """
         SELECT
             f.id AS file_id,
             f.filename AS filename,
@@ -369,131 +393,143 @@ async def _fetch_term_inventory_sources(
         GROUP BY f.id, f.filename, f.path
         ORDER BY f.filename COLLATE NOCASE ASC
         LIMIT ?
-        ''',
+        """,
         (term_type, max(1, int(limit))),
     )
     rows = await cursor.fetchall()
     sources: list[ChatSourceReference] = []
     for row in rows:
-        path = str(row['path'] or '').strip()
-        filename = str(row['filename'] or '').strip() or (path.rsplit('/', maxsplit=1)[-1] if path else 'source')
+        path = str(row["path"] or "").strip()
+        filename = str(row["filename"] or "").strip() or (
+            path.rsplit("/", maxsplit=1)[-1] if path else "source"
+        )
         if not path:
             continue
-        chunk_preview = str(row['chunk_preview'] or '').strip() or _ENTITY_INVENTORY_DEFAULT_PREVIEW
-        relevance_score = float(row['relevance_score'] or 0.0)
+        chunk_preview = str(row["chunk_preview"] or "").strip() or _ENTITY_INVENTORY_DEFAULT_PREVIEW
+        relevance_score = float(row["relevance_score"] or 0.0)
         sources.append(
             ChatSourceReference(
                 filename=filename,
                 path=path,
                 chunk_preview=chunk_preview,
                 relevance_score=relevance_score,
-                file_id=int(row['file_id']) if row['file_id'] is not None else None,
+                file_id=int(row["file_id"]) if row["file_id"] is not None else None,
             )
         )
     return sources
 
 
 def _format_term_inventory_answer(*, term_type: str, rows: list[dict[str, object]]) -> str:
-    if term_type == 'person_name':
-        title = 'people names'
-    elif term_type == 'acronym':
-        title = 'acronyms'
+    """Internal helper for format term inventory answer."""
+    if term_type == "person_name":
+        title = "people names"
+    elif term_type == "acronym":
+        title = "acronyms"
     else:
-        title = 'entities'
+        title = "entities"
     if not rows:
         return (
-            f'No {title} were found in the current indexed term dictionary. '
-            'Reindex your documents and try again.'
+            f"No {title} were found in the current indexed term dictionary. "
+            "Reindex your documents and try again."
         )
 
     lines = [
-        f'From indexed term dictionary entries, here are the {title} found across the corpus:',
-        '',
+        f"From indexed term dictionary entries, here are the {title} found across the corpus:",
+        "",
     ]
     for row in rows:
-        name = str(row.get('canonical_term') or '').strip()
+        name = str(row.get("canonical_term") or "").strip()
         if not name:
             continue
-        file_count = int(row.get('file_count') or 0)
+        file_count = int(row.get("file_count") or 0)
         if file_count > 0:
-            lines.append(f'- **{name}** ({file_count} file{"s" if file_count != 1 else ""})')
+            lines.append(f"- **{name}** ({file_count} file{'s' if file_count != 1 else ''})")
         else:
-            lines.append(f'- **{name}**')
-    return '\n'.join(lines)
+            lines.append(f"- **{name}**")
+    return "\n".join(lines)
 
 
 def _should_use_deterministic_file_discovery_response(
     classification: QueryClassification,
 ) -> bool:
-    decision = getattr(classification, 'shadow_classifier_decision', None)
+    """Internal helper for should use deterministic file discovery response."""
+    decision = getattr(classification, "shadow_classifier_decision", None)
     if not isinstance(decision, dict):
         return False
     return (
-        str(decision.get('source') or '') == 'document_content'
-        and str(decision.get('operation') or '') == 'count_enumerate'
+        str(decision.get("source") or "") == "document_content"
+        and str(decision.get("operation") or "") == "count_enumerate"
     )
 
 
 def _format_file_discovery_answer(chunks: list[dict]) -> str:
-    return _build_file_discovery_response(question='', chunks=chunks)[0]
+    """Internal helper for format file discovery answer."""
+    return _build_file_discovery_response(question="", chunks=chunks)[0]
 
 
 _FILE_DISCOVERY_PREFIX_RE = re.compile(
-    r'^(?:'
-    r'show me|find|list|display|get|give me|tell me|which|what'
-    r')\s+',
+    r"^(?:"
+    r"show me|find|list|display|get|give me|tell me|which|what"
+    r")\s+",
     re.IGNORECASE,
 )
 _FILE_DISCOVERY_LEADING_FILLER_RE = re.compile(
-    r'^(?:all|every|any|the|a|an|my|our|your|this|that|these|those)\s+',
+    r"^(?:all|every|any|the|a|an|my|our|your|this|that|these|those)\s+",
     re.IGNORECASE,
 )
 _FILE_DISCOVERY_TRAILING_FILLER_RE = re.compile(
-    r'\s+(?:all|every|any|the|a|an|my|our|your|this|that|these|those)$',
+    r"\s+(?:all|every|any|the|a|an|my|our|your|this|that|these|those)$",
     re.IGNORECASE,
 )
 _FILE_DISCOVERY_CORPUS_NOUNS_RE = re.compile(
-    r'^(?:files?|documents?|records?|items?)\s+',
+    r"^(?:files?|documents?|records?|items?)\s+",
     re.IGNORECASE,
 )
 _FILE_DISCOVERY_TRAILING_CORPUS_NOUNS_RE = re.compile(
-    r'\s+(?:files?|documents?|records?|items?)$',
+    r"\s+(?:files?|documents?|records?|items?)$",
     re.IGNORECASE,
 )
 _FILE_DISCOVERY_SEMANTIC_PHRASE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(
-        r'^(?:related(?:\s+to)?|about|mention(?:ing)?|mentions?|involving|involves?|containing|contains?|regarding|pertaining|connected(?:\s+to)?|relevant(?:\s+to)?)\s+',
+        r"^(?:related(?:\s+to)?|about|mention(?:ing)?|mentions?|involving|"
+        r"involves?|containing|contains?|regarding|pertaining|connected(?:\s+to)?|"
+        r"relevant(?:\s+to)?)\s+",
         re.IGNORECASE,
     ),
     re.compile(
-        r'\s+(?:related(?:\s+to)?|about|mention(?:ing)?|mentions?|involving|involves?|containing|contains?|regarding|pertaining|connected(?:\s+to)?|relevant(?:\s+to)?)\s+',
+        r"\s+(?:related(?:\s+to)?|about|mention(?:ing)?|mentions?|involving|"
+        r"involves?|containing|contains?|regarding|pertaining|connected(?:\s+to)?|"
+        r"relevant(?:\s+to)?)\s+",
         re.IGNORECASE,
     ),
     re.compile(
-        r'\s+(?:related(?:\s+to)?|about|mention(?:ing)?|mentions?|involving|involves?|containing|contains?|regarding|pertaining|connected(?:\s+to)?|relevant(?:\s+to)?)$',
+        r"\s+(?:related(?:\s+to)?|about|mention(?:ing)?|mentions?|involving|"
+        r"involves?|containing|contains?|regarding|pertaining|connected(?:\s+to)?|"
+        r"relevant(?:\s+to)?)$",
         re.IGNORECASE,
     ),
 )
 
 
 def _extract_file_discovery_search_term(question: str) -> str:
-    candidate = normalize_query_text(question).strip().strip(' .?!,;:')
+    """Internal helper for extract file discovery search term."""
+    candidate = normalize_query_text(question).strip().strip(" .?!,;:")
     if not candidate:
-        return ''
+        return ""
 
     previous = None
     while candidate and candidate != previous:
         previous = candidate
-        candidate = _FILE_DISCOVERY_PREFIX_RE.sub('', candidate)
-        candidate = _FILE_DISCOVERY_LEADING_FILLER_RE.sub('', candidate)
-        candidate = _FILE_DISCOVERY_CORPUS_NOUNS_RE.sub('', candidate)
-        candidate = _FILE_DISCOVERY_TRAILING_CORPUS_NOUNS_RE.sub('', candidate)
-        candidate = _FILE_DISCOVERY_TRAILING_FILLER_RE.sub('', candidate)
+        candidate = _FILE_DISCOVERY_PREFIX_RE.sub("", candidate)
+        candidate = _FILE_DISCOVERY_LEADING_FILLER_RE.sub("", candidate)
+        candidate = _FILE_DISCOVERY_CORPUS_NOUNS_RE.sub("", candidate)
+        candidate = _FILE_DISCOVERY_TRAILING_CORPUS_NOUNS_RE.sub("", candidate)
+        candidate = _FILE_DISCOVERY_TRAILING_FILLER_RE.sub("", candidate)
         for pattern in _FILE_DISCOVERY_SEMANTIC_PHRASE_PATTERNS:
-            candidate = pattern.sub(' ', candidate)
-        candidate = re.sub(r'\s+', ' ', candidate).strip()
+            candidate = pattern.sub(" ", candidate)
+        candidate = re.sub(r"\s+", " ", candidate).strip()
 
-    return candidate or normalize_query_text(question).strip().strip(' .?!,;:')
+    return candidate or normalize_query_text(question).strip().strip(" .?!,;:")
 
 
 def _build_file_discovery_response(
@@ -501,11 +537,12 @@ def _build_file_discovery_response(
     question: str,
     chunks: list[dict],
 ) -> tuple[str, dict[str, object]]:
+    """Internal helper for build file discovery response."""
     seen_files: set[int | str] = set()
     filenames: list[str] = []
     for chunk in chunks:
-        file_id = chunk.get('file_id')
-        filename = str(chunk.get('filename') or '').strip()
+        file_id = chunk.get("file_id")
+        filename = str(chunk.get("filename") or "").strip()
         if not filename:
             continue
         key: int | str = file_id if isinstance(file_id, int) else filename.casefold()
@@ -517,24 +554,24 @@ def _build_file_discovery_response(
     shown_filenames = filenames[:_FILE_DISCOVERY_DISPLAY_LIMIT]
     if not shown_filenames:
         return (
-            'I could not identify any relevant files in the retrieved context.',
+            "I could not identify any relevant files in the retrieved context.",
             {
-                'is_file_discovery': True,
-                'search_term': _extract_file_discovery_search_term(question),
-                'shown_count': 0,
-                'total_count': 0,
+                "is_file_discovery": True,
+                "search_term": _extract_file_discovery_search_term(question),
+                "shown_count": 0,
+                "total_count": 0,
             },
         )
-    answer_lines = [_FILE_DISCOVERY_LEAD_IN, '']
-    answer_lines.extend(f'- **{filename}**' for filename in shown_filenames)
+    answer_lines = [_FILE_DISCOVERY_LEAD_IN, ""]
+    answer_lines.extend(f"- **{filename}**" for filename in shown_filenames)
 
     file_discovery = {
-        'is_file_discovery': True,
-        'search_term': _extract_file_discovery_search_term(question),
-        'shown_count': len(shown_filenames),
-        'total_count': len(filenames),
+        "is_file_discovery": True,
+        "search_term": _extract_file_discovery_search_term(question),
+        "shown_count": len(shown_filenames),
+        "total_count": len(filenames),
     }
-    return '\n'.join(answer_lines), file_discovery
+    return "\n".join(answer_lines), file_discovery
 
 
 def _evaluate_minimal_answerability(
@@ -542,15 +579,17 @@ def _evaluate_minimal_answerability(
     *,
     query_type: QueryType,
 ) -> tuple[bool, float, float, int]:
+    """Internal helper for evaluate minimal answerability."""
     threshold, min_chunks = _resolve_minimal_answerability_settings(query_type)
     normalized_scores = [
-        _retrieval_validation._normalize_relevance_score(chunk.get('score', 0.0))
+        _retrieval_validation._normalize_relevance_score(chunk.get("score", 0.0))
         for chunk in chunks[:3]
     ]
     mean_top3_score = sum(normalized_scores) / max(1, len(normalized_scores))
     chunk_count = len(chunks)
     passed = (chunk_count >= min_chunks) and (mean_top3_score >= threshold)
     return passed, mean_top3_score, threshold, min_chunks
+
 
 class RAGHandler:
     """
@@ -573,6 +612,7 @@ class RAGHandler:
         file_ids: list[int] | None = None,
         specialization_id: str | None = None,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
+        """Internal helper for handle minimal mode."""
         profile = get_profile()
         effective_query_type = _resolve_minimal_query_type(classification)
         inventory_term_type = _resolve_exhaustive_inventory_term_type(question, classification)
@@ -588,23 +628,26 @@ class RAGHandler:
             )
             inventory_elapsed_ms = (time.perf_counter() - inventory_start) * 1000.0
             if trace is not None:
-                trace.record('deterministic_inventory', {
-                    'enabled': True,
-                    'term_type': inventory_term_type,
-                    'entry_count': len(inventory_rows),
-                    'source_count': len(inventory_sources),
-                    'duration_ms': round(inventory_elapsed_ms, 1),
-                })
+                trace.record(
+                    "deterministic_inventory",
+                    {
+                        "enabled": True,
+                        "term_type": inventory_term_type,
+                        "entry_count": len(inventory_rows),
+                        "source_count": len(inventory_sources),
+                        "duration_ms": round(inventory_elapsed_ms, 1),
+                    },
+                )
             yield (
                 StreamSignalTag.METRICS,
                 build_metrics_payload(
                     query_type=effective_query_type,
                     raw_chunks_count=0,
                     retrieval_duration_ms=round(inventory_elapsed_ms, 1),
-                    prompt_build_ms='N/A',
-                    llm_submit_ms='N/A',
-                    llm_queue_wait_ms='N/A',
-                    llm_decode_first_token_ms='N/A',
+                    prompt_build_ms="N/A",
+                    llm_submit_ms="N/A",
+                    llm_queue_wait_ms="N/A",
+                    llm_decode_first_token_ms="N/A",
                     generation_skipped=True,
                     minimal_mode=True,
                     deterministic_inventory=True,
@@ -633,16 +676,19 @@ class RAGHandler:
         output_constraints: dict[str, int] = {}
 
         if trace is not None:
-            trace.record('intent', {
-                'model_profile': profile.name,
-                'intent': classification.intent,
-                'query_type': effective_query_type,
-                'coverage_mode': effective_query_type == QueryType.COVERAGE,
-                'minimal_mode': True,
-                'top_k': effective_top_k,
-                'rag_max_score': getattr(profile, 'rag_max_score', None),
-                'continuation_behavior': 'fresh_retrieval',
-            })
+            trace.record(
+                "intent",
+                {
+                    "model_profile": profile.name,
+                    "intent": classification.intent,
+                    "query_type": effective_query_type,
+                    "coverage_mode": effective_query_type == QueryType.COVERAGE,
+                    "minimal_mode": True,
+                    "top_k": effective_top_k,
+                    "rag_max_score": getattr(profile, "rag_max_score", None),
+                    "continuation_behavior": "fresh_retrieval",
+                },
+            )
 
         retrieval_timing: dict[str, float] = {}
         retrieval_query, query_rewritten = _build_history_aware_retrieval_query_with_classification(
@@ -656,7 +702,9 @@ class RAGHandler:
             title_alignment_query = classification.focus_title_alignment_query or question
             prefer_title_alignment = bool(classification.focus_prefer_title_alignment)
             strict_title_alignment = bool(classification.focus_strict_title_alignment)
-            disable_term_expansion_for_focused_title = bool(classification.focus_disable_term_expansion)
+            disable_term_expansion_for_focused_title = bool(
+                classification.focus_disable_term_expansion
+            )
         else:
             explicit_title_reference = has_explicit_title_reference(question)
             referential_title_anchor = None
@@ -666,32 +714,40 @@ class RAGHandler:
                 classification=classification,
             )
             strict_title_alignment = bool(
-                explicit_title_reference
-                and not has_comparison_cue(question)
+                explicit_title_reference and not has_comparison_cue(question)
             )
             disable_term_expansion_for_focused_title = False
         summary_style_request = is_summary_style_request(question, classification)
-        effective_block_type_exclude = list(getattr(classification, 'block_type_exclude', None) or [])
+        effective_block_type_exclude = list(
+            getattr(classification, "block_type_exclude", None) or []
+        )
         if summary_style_request and not classification.block_type_filter:
             for excluded_type in SUMMARY_BLOCK_TYPE_EXCLUDE:
                 if excluded_type not in effective_block_type_exclude:
                     effective_block_type_exclude.append(excluded_type)
         if trace is not None:
-            trace.record('retrieval.query_rewrite', {
-                'query_rewrite': query_rewritten,
-                'original_query': question,
-                'retrieval_content_query': classification.retrieval_content_query,
-                'retrieval_content_confidence': round(float(classification.retrieval_content_confidence or 0.0), 4),
-                'retrieval_content_reasons': list(classification.retrieval_content_reasons or []),
-                'rewritten_query': retrieval_query if query_rewritten else None,
-                'summary_style_request': summary_style_request,
-                'prefer_title_alignment': prefer_title_alignment,
-                'strict_title_alignment': strict_title_alignment,
-                'explicit_title_reference': explicit_title_reference,
-                'referential_title_anchor': referential_title_anchor,
-                'focus_query_rewritten': classification.focus_query_rewritten,
-                'term_expansion_enabled': not disable_term_expansion_for_focused_title,
-            })
+            trace.record(
+                "retrieval.query_rewrite",
+                {
+                    "query_rewrite": query_rewritten,
+                    "original_query": question,
+                    "retrieval_content_query": classification.retrieval_content_query,
+                    "retrieval_content_confidence": round(
+                        float(classification.retrieval_content_confidence or 0.0), 4
+                    ),
+                    "retrieval_content_reasons": list(
+                        classification.retrieval_content_reasons or []
+                    ),
+                    "rewritten_query": retrieval_query if query_rewritten else None,
+                    "summary_style_request": summary_style_request,
+                    "prefer_title_alignment": prefer_title_alignment,
+                    "strict_title_alignment": strict_title_alignment,
+                    "explicit_title_reference": explicit_title_reference,
+                    "referential_title_anchor": referential_title_anchor,
+                    "focus_query_rewritten": classification.focus_query_rewritten,
+                    "term_expansion_enabled": not disable_term_expansion_for_focused_title,
+                },
+            )
         retrieval_start = time.perf_counter()
         comparison_style_request = has_comparison_cue(question)
         chunks = await retrieve_chunks(
@@ -726,7 +782,8 @@ class RAGHandler:
             evidence_profile = evaluate_substantive_evidence(chunks)
             dominant_ratio = _dominant_file_ratio(chunks)
             weak_summary_evidence = (
-                float(evidence_profile.get('substantive_ratio') or 0.0) < _WEAK_SUMMARY_SUBSTANTIVE_RATIO_THRESHOLD
+                float(evidence_profile.get("substantive_ratio") or 0.0)
+                < _WEAK_SUMMARY_SUBSTANTIVE_RATIO_THRESHOLD
                 and dominant_ratio >= _WEAK_SUMMARY_DOMINANT_FILE_RATIO_THRESHOLD
             )
             if weak_summary_evidence:
@@ -757,23 +814,31 @@ class RAGHandler:
                     timing_output=retry_timing,
                 )
                 retry_evidence_profile = evaluate_substantive_evidence(retry_chunks)
-                if (
-                    retry_chunks
-                    and float(retry_evidence_profile.get('substantive_ratio') or 0.0)
-                    >= float(evidence_profile.get('substantive_ratio') or 0.0)
-                ):
+                if retry_chunks and float(
+                    retry_evidence_profile.get("substantive_ratio") or 0.0
+                ) >= float(evidence_profile.get("substantive_ratio") or 0.0):
                     chunks = retry_chunks
                     retrieval_timing = retry_timing
                 if trace is not None:
-                    trace.record('retrieval.summary_retry', {
-                        'triggered': True,
-                        'weak_summary_evidence': weak_summary_evidence,
-                        'initial_substantive_ratio': round(float(evidence_profile.get('substantive_ratio') or 0.0), 4),
-                        'retry_substantive_ratio': round(float(retry_evidence_profile.get('substantive_ratio') or 0.0), 4),
-                        'initial_dominant_file_ratio': round(dominant_ratio, 4),
-                        'retry_used': bool(chunks is retry_chunks and retry_chunks),
-                    })
-        if comparison_style_request and _distinct_file_count(chunks) < _WEAK_COMPARISON_DISTINCT_FILE_THRESHOLD:
+                    trace.record(
+                        "retrieval.summary_retry",
+                        {
+                            "triggered": True,
+                            "weak_summary_evidence": weak_summary_evidence,
+                            "initial_substantive_ratio": round(
+                                float(evidence_profile.get("substantive_ratio") or 0.0), 4
+                            ),
+                            "retry_substantive_ratio": round(
+                                float(retry_evidence_profile.get("substantive_ratio") or 0.0), 4
+                            ),
+                            "initial_dominant_file_ratio": round(dominant_ratio, 4),
+                            "retry_used": bool(chunks is retry_chunks and retry_chunks),
+                        },
+                    )
+        if (
+            comparison_style_request
+            and _distinct_file_count(chunks) < _WEAK_COMPARISON_DISTINCT_FILE_THRESHOLD
+        ):
             initial_distinct_file_count = _distinct_file_count(chunks)
             comparison_retry_timing: dict[str, float] = {}
             comparison_retry_chunks = await retrieve_chunks(
@@ -806,28 +871,38 @@ class RAGHandler:
                 chunks = comparison_retry_chunks
                 retrieval_timing = comparison_retry_timing
             if trace is not None:
-                trace.record('retrieval.comparison_retry', {
-                    'triggered': True,
-                    'initial_distinct_file_count': initial_distinct_file_count,
-                    'retry_distinct_file_count': comparison_retry_distinct_file_count,
-                    'retry_used': bool(chunks is comparison_retry_chunks and comparison_retry_chunks),
-                })
+                trace.record(
+                    "retrieval.comparison_retry",
+                    {
+                        "triggered": True,
+                        "initial_distinct_file_count": initial_distinct_file_count,
+                        "retry_distinct_file_count": comparison_retry_distinct_file_count,
+                        "retry_used": bool(
+                            chunks is comparison_retry_chunks and comparison_retry_chunks
+                        ),
+                    },
+                )
         retrieval_elapsed_ms = (time.perf_counter() - retrieval_start) * 1000
 
-        answerability_passed, answerability_score, answerability_threshold, min_chunks = _evaluate_minimal_answerability(
-            chunks,
-            query_type=effective_query_type,
+        answerability_passed, answerability_score, answerability_threshold, min_chunks = (
+            _evaluate_minimal_answerability(
+                chunks,
+                query_type=effective_query_type,
+            )
         )
 
         if trace is not None:
-            trace.record('answerability_decision', {
-                'passed': answerability_passed,
-                'score': round(answerability_score, 4),
-                'threshold': answerability_threshold,
-                'chunk_count': len(chunks),
-                'min_chunks': min_chunks,
-                'mode': 'minimal',
-            })
+            trace.record(
+                "answerability_decision",
+                {
+                    "passed": answerability_passed,
+                    "score": round(answerability_score, 4),
+                    "threshold": answerability_threshold,
+                    "chunk_count": len(chunks),
+                    "min_chunks": min_chunks,
+                    "mode": "minimal",
+                },
+            )
 
         if not answerability_passed:
             index_empty = False
@@ -837,20 +912,20 @@ class RAGHandler:
             yield (
                 StreamSignalTag.METRICS,
                 {
-                    'query_type': effective_query_type,
-                    'raw_chunks_count': len(chunks),
-                    'retrieval_duration_ms': round(retrieval_elapsed_ms, 1),
-                    'prompt_build_ms': 'N/A',
-                    'llm_submit_ms': 'N/A',
-                    'llm_queue_wait_ms': 'N/A',
-                    'llm_decode_first_token_ms': 'N/A',
-                    'answerability_passed': False,
-                    'answerability_score': round(answerability_score, 4),
-                    'answerability_threshold': answerability_threshold,
-                    'answerability_min_chunks': min_chunks,
-                    'generation_skipped': True,
-                    'minimal_mode': True,
-                    'index_empty': index_empty,
+                    "query_type": effective_query_type,
+                    "raw_chunks_count": len(chunks),
+                    "retrieval_duration_ms": round(retrieval_elapsed_ms, 1),
+                    "prompt_build_ms": "N/A",
+                    "llm_submit_ms": "N/A",
+                    "llm_queue_wait_ms": "N/A",
+                    "llm_decode_first_token_ms": "N/A",
+                    "answerability_passed": False,
+                    "answerability_score": round(answerability_score, 4),
+                    "answerability_threshold": answerability_threshold,
+                    "answerability_min_chunks": min_chunks,
+                    "generation_skipped": True,
+                    "minimal_mode": True,
+                    "index_empty": index_empty,
                 },
             )
             if index_empty:
@@ -868,23 +943,26 @@ class RAGHandler:
             )
             deterministic_elapsed_ms = (time.perf_counter() - deterministic_start) * 1000.0
             if trace is not None:
-                trace.record('deterministic_file_discovery', {
-                    'enabled': True,
-                    'file_count': file_discovery['total_count'],
-                    'shown_count': file_discovery['shown_count'],
-                    'search_term': file_discovery['search_term'],
-                    'duration_ms': round(deterministic_elapsed_ms, 1),
-                })
+                trace.record(
+                    "deterministic_file_discovery",
+                    {
+                        "enabled": True,
+                        "file_count": file_discovery["total_count"],
+                        "shown_count": file_discovery["shown_count"],
+                        "search_term": file_discovery["search_term"],
+                        "duration_ms": round(deterministic_elapsed_ms, 1),
+                    },
+                )
             yield (
                 StreamSignalTag.METRICS,
                 build_metrics_payload(
                     query_type=effective_query_type,
                     raw_chunks_count=len(chunks),
                     retrieval_duration_ms=round(retrieval_elapsed_ms, 1),
-                    prompt_build_ms='N/A',
-                    llm_submit_ms='N/A',
-                    llm_queue_wait_ms='N/A',
-                    llm_decode_first_token_ms='N/A',
+                    prompt_build_ms="N/A",
+                    llm_submit_ms="N/A",
+                    llm_queue_wait_ms="N/A",
+                    llm_decode_first_token_ms="N/A",
                     generation_skipped=True,
                     minimal_mode=True,
                     deterministic_file_discovery=True,
@@ -947,7 +1025,7 @@ class RAGHandler:
                 output_constraints=output_constraints,
                 format_requirements=format_requirements,
                 model_profile=profile,
-                chat_mode='researcher',
+                chat_mode="researcher",
                 specialization_id=specialization_id,
             )
         )
@@ -955,17 +1033,20 @@ class RAGHandler:
         prompt_build_ms = (time.perf_counter() - prompt_build_start) * 1000
 
         if trace is not None:
-            trace.record('prompt', {
-                'messages_count': len(messages),
-                'context_chunks': len(chunks),
-                'history_messages': len(history) if history else 0,
-                'effective_history_limit': resolve_history_limit('researcher'),
-                'chat_mode': 'researcher',
-                'reasoning_enabled': reasoning_enabled,
-                'output_constraints': output_constraints,
-                'format_requirements': format_requirements,
-                'minimal_mode': True,
-            })
+            trace.record(
+                "prompt",
+                {
+                    "messages_count": len(messages),
+                    "context_chunks": len(chunks),
+                    "history_messages": len(history) if history else 0,
+                    "effective_history_limit": resolve_history_limit("researcher"),
+                    "chat_mode": "researcher",
+                    "reasoning_enabled": reasoning_enabled,
+                    "output_constraints": output_constraints,
+                    "format_requirements": format_requirements,
+                    "minimal_mode": True,
+                },
+            )
 
         llm_start = time.perf_counter()
         first_token_ms: float | None = None
@@ -985,7 +1066,9 @@ class RAGHandler:
             top_p=generation_top_p,
             timeout_seconds=timeout_seconds,
             stop_sequences=stop_sequences,
-            dedupe_insufficient_context_after_stream=bool(profile.dedupe_insufficient_context_after_stream),
+            dedupe_insufficient_context_after_stream=bool(
+                profile.dedupe_insufficient_context_after_stream
+            ),
             insufficient_context_response=_INSUFFICIENT_CONTEXT_RESPONSE,
             applied_degradations=[],
             output_contract_plan=None,
@@ -1011,17 +1094,22 @@ class RAGHandler:
             token_count = stream_summary.token_count
             first_token_ms = stream_summary.first_token_ms
             llm_elapsed_ms = stream_summary.total_elapsed_ms
-        answer_text = ''.join(answer_parts)
+        answer_text = "".join(answer_parts)
 
         if trace is not None:
-            trace.record('llm', {
-                'token_count': token_count,
-                'max_tokens': max_tokens,
-                'first_token_ms': round(first_token_ms, 1) if first_token_ms is not None else None,
-                'total_elapsed_ms': round(llm_elapsed_ms, 1),
-                'model_profile': profile.name,
-                'minimal_mode': True,
-            })
+            trace.record(
+                "llm",
+                {
+                    "token_count": token_count,
+                    "max_tokens": max_tokens,
+                    "first_token_ms": round(first_token_ms, 1)
+                    if first_token_ms is not None
+                    else None,
+                    "total_elapsed_ms": round(llm_elapsed_ms, 1),
+                    "model_profile": profile.name,
+                    "minimal_mode": True,
+                },
+            )
 
         yield (
             StreamSignalTag.METRICS,
@@ -1029,16 +1117,18 @@ class RAGHandler:
                 query_type=effective_query_type,
                 raw_chunks_count=len(chunks),
                 retrieval_duration_ms=round(retrieval_elapsed_ms, 1),
-                first_token_latency_ms=round(first_token_ms, 1) if first_token_ms is not None else None,
+                first_token_latency_ms=round(first_token_ms, 1)
+                if first_token_ms is not None
+                else None,
                 stream_duration_ms=round(llm_elapsed_ms, 1),
-                embed_ms=retrieval_timing.get('embed_ms'),
-                vector_search_ms=retrieval_timing.get('vector_search_ms'),
-                rerank_ms=retrieval_timing.get('rerank_ms'),
+                embed_ms=retrieval_timing.get("embed_ms"),
+                vector_search_ms=retrieval_timing.get("vector_search_ms"),
+                rerank_ms=retrieval_timing.get("rerank_ms"),
                 prompt_build_ms=round(prompt_build_ms, 1),
-                llm_submit_ms='N/A',
-                llm_queue_wait_ms='N/A',
+                llm_submit_ms="N/A",
+                llm_queue_wait_ms="N/A",
                 llm_decode_first_token_ms=(
-                    round(first_token_ms, 1) if first_token_ms is not None else 'N/A'
+                    round(first_token_ms, 1) if first_token_ms is not None else "N/A"
                 ),
                 answerability_passed=True,
                 answerability_score=round(answerability_score, 4),
@@ -1060,11 +1150,11 @@ class RAGHandler:
 
     async def handle(
         self,
-        question:       str,
+        question: str,
         classification: QueryClassification,
-        history:        list[ChatMessage] | None,
-        db:             aiosqlite.Connection,
-        trace:          object | None,
+        history: list[ChatMessage] | None,
+        db: aiosqlite.Connection,
+        trace: object | None,
         diagnostics_context: dict[str, object] | None = None,
         chat_id: str | None = None,
         file_ids: list[int] | None = None,
@@ -1076,7 +1166,7 @@ class RAGHandler:
         """
         try:
             if diagnostics_context is not None and trace is not None:
-                trace.record('diagnostics_context', diagnostics_context)
+                trace.record("diagnostics_context", diagnostics_context)
             async for item in self._handle_minimal_mode(
                 question=question,
                 classification=classification,
@@ -1088,6 +1178,6 @@ class RAGHandler:
             ):
                 yield item
         except _HANDLER_RUNTIME_EXCEPTIONS as exc:
-            log.error('rag_handler_failed', error=str(exc), exc_info=True)
+            log.error("rag_handler_failed", error=str(exc), exc_info=True)
             yield to_client_error_message(exc)
             yield []

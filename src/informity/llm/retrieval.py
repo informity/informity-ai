@@ -103,7 +103,7 @@ _STRUCTURAL_TEXT_PATTERNS = (
 
 
 def _coerce_reranker_score(value: object) -> float | None:
-    """ coerce reranker score."""
+    """coerce reranker score."""
     if isinstance(value, bool):
         return float(value)
     if isinstance(value, (int, float)):
@@ -112,7 +112,7 @@ def _coerce_reranker_score(value: object) -> float | None:
 
 
 def _resolve_within_file_location_key(chunk: dict) -> str:
-    """ resolve within file location key."""
+    """resolve within file location key."""
     section_path = str(chunk.get("section_path") or "").strip().casefold()
     if section_path:
         return f"section:{section_path}"
@@ -127,7 +127,7 @@ def _resolve_within_file_location_key(chunk: dict) -> str:
 
 
 def _looks_structural_section(section_path: object) -> bool:
-    """ looks structural section."""
+    """looks structural section."""
     value = str(section_path or "").strip()
     if not value:
         return False
@@ -139,7 +139,7 @@ def _apply_substantive_section_bias(
     chunks: list[dict],
     prefer_substantive_sections: bool,
 ) -> list[dict]:
-    """ apply substantive section bias."""
+    """apply substantive section bias."""
     if not prefer_substantive_sections or len(chunks) <= 1:
         return chunks
 
@@ -175,7 +175,7 @@ def _apply_substantive_section_bias(
 
 
 def _is_structural_text_snippet(text: str) -> bool:
-    """ is structural text snippet."""
+    """is structural text snippet."""
     snippet = str(text or "")[:1200]
     if not snippet:
         return False
@@ -190,7 +190,7 @@ def _filter_structural_chunks_when_possible(
     prefer_substantive_sections: bool,
     top_k: int,
 ) -> list[dict]:
-    """ filter structural chunks when possible."""
+    """filter structural chunks when possible."""
     if not prefer_substantive_sections or len(chunks) <= 1:
         return chunks
     non_structural = [
@@ -205,7 +205,7 @@ def _filter_structural_chunks_when_possible(
 
 
 def _tokenize_title_alignment_terms(text: str) -> set[str]:
-    """ tokenize title alignment terms."""
+    """tokenize title alignment terms."""
     lowered = str(text or "").strip().lower()
     if not lowered:
         return set()
@@ -228,7 +228,7 @@ def _apply_title_alignment_bias(
     prefer_title_alignment: bool,
     strict_title_alignment: bool = False,
 ) -> list[dict]:
-    """ apply title alignment bias."""
+    """apply title alignment bias."""
     if not prefer_title_alignment or len(chunks) <= 1:
         return chunks
     query_terms = (
@@ -280,7 +280,7 @@ def _apply_strict_title_file_focus(
     query_terms: set[str] | None = None,
     strict_title_alignment: bool,
 ) -> list[dict]:
-    """ apply strict title file focus."""
+    """apply strict title file focus."""
     if not strict_title_alignment or len(chunks) <= 1:
         return chunks
     query_terms = (
@@ -326,7 +326,7 @@ def _apply_reranker_score_threshold(
     chunks: list[dict],
     min_score: float,
 ) -> list[dict]:
-    """ apply reranker score threshold."""
+    """apply reranker score threshold."""
     if len(chunks) <= 1 or min_score <= 0:
         return chunks
 
@@ -346,14 +346,14 @@ def _resolve_rerank_min_score(
     _prefer_within_file_diversity: bool,
     base_min_score: float,
 ) -> float:
-    """ resolve rerank min score."""
+    """resolve rerank min score."""
     if query_type == QueryType.COVERAGE:
         return 0.0
     return base_min_score
 
 
 def _file_breadth_bonus(chunks: list[dict]) -> float:
-    """ file breadth bonus."""
+    """file breadth bonus."""
     page_numbers: set[int] = set()
     section_paths: set[str] = set()
     block_types: set[str] = set()
@@ -421,7 +421,7 @@ def _apply_coverage_document_breadth_bias(
     query_type: QueryType,
     prefer_within_file_diversity: bool,
 ) -> list[dict]:
-    """ apply coverage document breadth bias."""
+    """apply coverage document breadth bias."""
     if query_type != QueryType.COVERAGE and not prefer_within_file_diversity:
         return chunks
     if len(chunks) <= 1:
@@ -464,7 +464,7 @@ def _select_top_children(
     query_type: QueryType,
     prefer_within_file_diversity: bool = False,
 ) -> list[dict]:
-    """ select top children."""
+    """select top children."""
     if top_k <= 0:
         return []
     if query_type != QueryType.COVERAGE:
@@ -518,7 +518,7 @@ def _select_top_children(
         per_file_cap: int | None,
         enforce_within_file_diversity: bool,
     ) -> None:
-        """ try add."""
+        """try add."""
         if len(selected) >= top_k:
             return
         try:

@@ -70,7 +70,7 @@ _SLOW_PROFILE_WATCHDOG_MAX_SECONDS = 600.0
 
 
 def _normalize_finish_reason(reason: str | None) -> str | None:
-    """ normalize finish reason."""
+    """normalize finish reason."""
     if not reason:
         return None
     reason_lower = str(reason).lower().strip()
@@ -85,7 +85,7 @@ def _normalize_finish_reason(reason: str | None) -> str | None:
 
 
 def _raise_llm_streaming_failed(exc: Exception) -> None:
-    """ raise llm streaming failed."""
+    """raise llm streaming failed."""
     raise LLMError(f"LLM streaming failed: {exc}") from exc
 
 
@@ -113,7 +113,7 @@ async def _stream_from_queue(
     first_token_deadline_seconds: float,
     stripper: ThinkStrip,
 ) -> AsyncGenerator[tuple[str, object]]:
-    """ stream from queue."""
+    """stream from queue."""
     first_token_seen = False
     while True:
         elapsed = time.perf_counter() - start
@@ -192,7 +192,7 @@ def remove_models_dir_cache() -> None:
 def _read_gguf_chat_template(model_path: Path) -> str:
     # Read the chat template from GGUF metadata using gguf.GGUFReader.
     # Returns empty string if not found or on any error.
-    """ read gguf chat template."""
+    """read gguf chat template."""
     try:
         from gguf import GGUFReader  # type: ignore[import-untyped]
 
@@ -214,7 +214,7 @@ def _messages_to_prompt(chat_template: str, messages: list[dict[str, str]]) -> s
     # Convert chat messages to a prompt string.
     # Uses the GGUF's embedded Jinja2 chat template when available (preferred),
     # falls back to ChatML when the template is empty or fails to render.
-    """ messages to prompt."""
+    """messages to prompt."""
     if chat_template:
         try:
             prompt = _render_gguf_template(chat_template, messages)
@@ -244,7 +244,7 @@ def _messages_to_prompt(chat_template: str, messages: list[dict[str, str]]) -> s
 
 
 def _render_gguf_template(template_str: str, messages: list[dict[str, str]]) -> str:
-    """ render gguf template."""
+    """render gguf template."""
     from jinja2 import BaseLoader, Environment
 
     env = Environment(loader=BaseLoader())
@@ -254,7 +254,7 @@ def _render_gguf_template(template_str: str, messages: list[dict[str, str]]) -> 
 
 
 def _fallback_chatml_prompt(messages: list[dict[str, str]]) -> str:
-    """ fallback chatml prompt."""
+    """fallback chatml prompt."""
     parts: list[str] = []
     for msg in messages:
         parts.append(f"<|im_start|>{msg['role']}\n{msg['content']}<|im_end|>\n")
@@ -289,7 +289,7 @@ def _truncate_messages_to_fit(
     available_budget = context_length - max_tokens - safety_margin
 
     def _count_prompt(msgs: list[dict[str, str]]) -> int:
-        """ count prompt."""
+        """count prompt."""
         if force_chatml:
             return count_tokens(_fallback_chatml_prompt(msgs))
         return count_tokens(_messages_to_prompt(chat_template, msgs))
@@ -401,7 +401,7 @@ def _run_stream_worker(
     # Cancellation: when cancel_event is set (consumer disconnect or timeout),
     # the callback stops pushing tokens. C++ generation may continue briefly
     # until the current n_predict budget is exhausted; output is discarded.
-    """ run stream worker."""
+    """run stream worker."""
     try:
         _tmpl_kwargs = get_profile().chat_template_kwargs
         payload = json.dumps(
@@ -419,7 +419,7 @@ def _run_stream_worker(
         finish_reason: str | None = None
 
         def _callback(chunk: object) -> None:
-            """ callback."""
+            """callback."""
             nonlocal finish_reason
             if cancel_event.is_set():
                 return
@@ -511,8 +511,9 @@ class XllamaCppProvider:
     # and async streaming generation. Configured for Apple Metal GPU by default.
 
     """XllamaCppProvider model."""
+
     def __init__(self, model_filename: str | None = None, *, model_dir: Path | None = None) -> None:
-        """  init  ."""
+        """init  ."""
         self._server: object | None = None
         self._chat_template: str = ""
         self._model_filename_override = str(model_filename or "").strip() or None
@@ -522,27 +523,27 @@ class XllamaCppProvider:
 
     @property
     def server(self) -> object | None:
-        """ server."""
+        """server."""
         return self._server
 
     @server.setter
     def server(self, value: object | None) -> None:
-        """ server."""
+        """server."""
         self._server = value
 
     @property
     def chat_template(self) -> str:
-        """ chat template."""
+        """chat template."""
         return self._chat_template
 
     @chat_template.setter
     def chat_template(self, value: str) -> None:
-        """ chat template."""
+        """chat template."""
         self._chat_template = value
 
     @property
     def _loaded_server(self) -> object:
-        """ loaded server."""
+        """loaded server."""
         if self._server is None:
             self._load_model()
         return self._server  # type: ignore[return-value]
@@ -574,13 +575,13 @@ class XllamaCppProvider:
     # -- Model path -----------------------------------------------------------
 
     def get_model_path(self) -> Path:
-        """ get model path."""
+        """get model path."""
         model_filename = self._model_filename_override or settings.llm_model_filename
         model_dir = self._model_dir_override or settings.models_dir
         return model_dir / model_filename
 
     def _get_model_path(self) -> Path:
-        """ get model path."""
+        """get model path."""
         return self.get_model_path()
 
     # -- Model loading --------------------------------------------------------
@@ -704,7 +705,7 @@ class XllamaCppProvider:
         progress_callback: Callable[[int, int | None, float], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> None:
-        """ download model."""
+        """download model."""
         repo = repo_id or settings.llm_hf_repo
         fname = filename or target_path.name
         log.info(
@@ -729,7 +730,7 @@ class XllamaCppProvider:
         remove_models_dir_cache()
 
     def _load_model(self, model_filename: str | None = None) -> None:
-        """ load model."""
+        """load model."""
         self.load_model(model_filename=model_filename)
 
     def _download_model(
@@ -742,7 +743,7 @@ class XllamaCppProvider:
         progress_callback: Callable[[int, int | None, float], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> None:
-        """ download model."""
+        """download model."""
         self.download_model(
             target_path=target_path,
             repo_id=repo_id,
@@ -795,7 +796,7 @@ class XllamaCppProvider:
         collected: list[dict] = []
 
         def _cb(chunk: object) -> None:
-            """ cb."""
+            """cb."""
             if isinstance(chunk, dict):
                 collected.append(chunk)
             elif isinstance(chunk, (str, bytes)):
@@ -1110,7 +1111,7 @@ class OllamaProvider:
     """Ollama-backed provider using /api/chat compatible streaming."""
 
     def __init__(self, model_id: str | None = None) -> None:
-        """  init  ."""
+        """init  ."""
         self._base_url = (
             str(
                 getattr(settings, "ollama_base_url", DEFAULT_OLLAMA_BASE_URL)
@@ -1137,7 +1138,7 @@ class OllamaProvider:
         return count_tokens(text)
 
     def _get_model_path(self) -> Path:
-        """ get model path."""
+        """get model path."""
         if self._model_id_override:
             alias_filenames = get_model_alias_filenames(self._model_id_override)
             if alias_filenames:
@@ -1154,7 +1155,7 @@ class OllamaProvider:
         progress_callback: Callable[[int, int | None, float], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> None:
-        """ download model."""
+        """download model."""
         _ = (
             target_path,
             repo_id,
@@ -1167,7 +1168,7 @@ class OllamaProvider:
         raise LLMError("Ollama provider does not support local GGUF download")
 
     def _resolve_model(self) -> str:
-        """ resolve model."""
+        """resolve model."""
         model = self._model_id_override or str(getattr(settings, "llm_model_id", "") or "").strip()
         if model:
             return model
@@ -1179,7 +1180,7 @@ class OllamaProvider:
         payload: dict,
         stream: bool,
     ) -> dict | list[dict]:
-        """ post chat."""
+        """post chat."""
         req = urllib.request.Request(
             url=f"{self._base_url}/api/chat",
             data=json.dumps(payload).encode("utf-8"),
@@ -1320,7 +1321,7 @@ class OllamaProvider:
         done_frame_snapshot: dict[str, object] | None = None
 
         def _worker() -> None:
-            """ worker."""
+            """worker."""
             nonlocal raw_frame_count, parsed_frame_count, non_dict_frame_count
             nonlocal json_decode_error_count, empty_content_frame_count
             nonlocal raw_frame_samples, done_frame_snapshot
@@ -1333,7 +1334,7 @@ class OllamaProvider:
             )
             try:
                 with urllib.request.urlopen(req, timeout=self._timeout_seconds) as resp:
-                # noqa: S310
+                    # noqa: S310
                     for raw_line in resp:
                         raw_frame_count += 1
                         if cancel_event.is_set():
@@ -1511,7 +1512,7 @@ class LLMEngine:
         model_filename: str | None = None,
         model_dir: Path | None = None,
     ) -> None:
-        """  init  ."""
+        """init  ."""
         provider_name = (
             str(provider_name or getattr(settings, "llm_provider", "local_gguf") or "local_gguf")
             .strip()
@@ -1528,27 +1529,27 @@ class LLMEngine:
     # Backward-compatible private hooks relied on by runtime/tests.
     @property
     def _server(self) -> object | None:
-        """ server."""
+        """server."""
         if isinstance(self._provider, XllamaCppProvider):
             return self._provider.server
         return None
 
     @_server.setter
     def _server(self, value: object | None) -> None:
-        """ server."""
+        """server."""
         if isinstance(self._provider, XllamaCppProvider):
             self._provider.server = value
 
     @property
     def _chat_template(self) -> str:
-        """ chat template."""
+        """chat template."""
         if isinstance(self._provider, XllamaCppProvider):
             return self._provider.chat_template
         return ""
 
     @_chat_template.setter
     def _chat_template(self, value: str) -> None:
-        """ chat template."""
+        """chat template."""
         if isinstance(self._provider, XllamaCppProvider):
             self._provider.chat_template = value
 
@@ -1566,11 +1567,11 @@ class LLMEngine:
         return self._provider.count_tokens(text)
 
     def get_model_path(self) -> Path:
-        """ get model path."""
+        """get model path."""
         return self._provider.get_model_path()
 
     def _get_model_path(self) -> Path:
-        """ get model path."""
+        """get model path."""
         return self.get_model_path()
 
     def download_model(
@@ -1583,7 +1584,7 @@ class LLMEngine:
         progress_callback: Callable[[int, int | None, float], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> None:
-        """ download model."""
+        """download model."""
         self._provider.download_model(
             target_path=target_path,
             repo_id=repo_id,
@@ -1604,7 +1605,7 @@ class LLMEngine:
         progress_callback: Callable[[int, int | None, float], None] | None = None,
         cancel_event: threading.Event | None = None,
     ) -> None:
-        """ download model."""
+        """download model."""
         self.download_model(
             target_path=target_path,
             repo_id=repo_id,
@@ -1616,14 +1617,14 @@ class LLMEngine:
         )
 
     def load_model(self, model_filename: str | None = None) -> None:
-        """ load model."""
+        """load model."""
         if isinstance(self._provider, XllamaCppProvider):
             self._provider.load_model(model_filename=model_filename)
             return
         raise LLMError(f'Provider "{self.provider_name}" does not support in-process model loading')
 
     def _load_model(self, model_filename: str | None = None) -> None:
-        """ load model."""
+        """load model."""
         self.load_model(model_filename=model_filename)
 
     def chat_complete(

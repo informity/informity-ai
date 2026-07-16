@@ -3,6 +3,8 @@
 # Shared helper for runtime metrics payload shape consistency.
 # ==============================================================================
 
+"""Module for llm metrics payload."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -14,9 +16,10 @@ def build_metrics_payload(
     raw_chunks_count: int,
     **optional_fields: Any,
 ) -> dict[str, object]:
+    """Build metrics payload."""
     payload: dict[str, object] = {
-        'query_type': query_type,
-        'raw_chunks_count': int(raw_chunks_count),
+        "query_type": query_type,
+        "raw_chunks_count": int(raw_chunks_count),
     }
     for key, value in optional_fields.items():
         if value is not None:

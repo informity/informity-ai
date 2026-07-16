@@ -3,6 +3,8 @@
 # Shared helper for diagnostics-only closeout contract enforcement.
 # ==============================================================================
 
+"""Module for diagnostics contract closeout."""
+
 from informity.llm.contract_gate import build_contract_spec, enforce_required_sections
 
 
@@ -12,6 +14,7 @@ def apply_closeout_contract_for_diagnostics(
     display_answer: str,
     query_item: dict | None,
 ) -> str:
+    """Apply closeout contract for diagnostics."""
     if not display_answer or not isinstance(query_item, dict):
         return display_answer
     contract_spec = build_contract_spec(question=question, classification=None)

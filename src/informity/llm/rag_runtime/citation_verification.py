@@ -1,3 +1,5 @@
+"""Module for llm rag runtime citation verification."""
+
 from __future__ import annotations
 
 import re
@@ -6,17 +8,50 @@ from dataclasses import dataclass
 
 from informity.api.schemas import ChatSourceReference
 
-_EVIDENCE_TOKEN_PATTERN = re.compile(r'[A-Za-z0-9]+')
+_EVIDENCE_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9]+")
 _EVIDENCE_STOPWORDS = {
-    'the', 'and', 'for', 'with', 'that', 'this', 'from', 'into', 'were', 'been', 'have', 'has',
-    'are', 'was', 'but', 'not', 'out', 'you', 'your', 'their', 'they', 'them', 'then', 'when',
-    'what', 'which', 'who', 'where', 'why', 'how', 'does', 'did', 'can', 'could', 'should',
+    "the",
+    "and",
+    "for",
+    "with",
+    "that",
+    "this",
+    "from",
+    "into",
+    "were",
+    "been",
+    "have",
+    "has",
+    "are",
+    "was",
+    "but",
+    "not",
+    "out",
+    "you",
+    "your",
+    "their",
+    "they",
+    "them",
+    "then",
+    "when",
+    "what",
+    "which",
+    "who",
+    "where",
+    "why",
+    "how",
+    "does",
+    "did",
+    "can",
+    "could",
+    "should",
 }
-_MEANINGFUL_NUMERIC_PATTERN = re.compile(r'(?<!\w)\d+(?:\.\d+)?(?!\w)')
+_MEANINGFUL_NUMERIC_PATTERN = re.compile(r"(?<!\w)\d+(?:\.\d+)?(?!\w)")
 
 
 @dataclass(frozen=True)
 class CitationVerificationResult:
+    """Class docstring."""
     evaluated_claim_count: int
     supported_claim_count: int
     unsupported_claim_count: int
@@ -25,10 +60,12 @@ class CitationVerificationResult:
 
     @property
     def has_thin_evidence(self) -> bool:
+        """Has thin evidence."""
         return self.supported_claim_count <= 0 < self.evaluated_claim_count
 
     @property
     def should_fail_closed(self) -> bool:
+        """Should fail closed."""
         return self.has_thin_evidence
 
 
@@ -37,7 +74,8 @@ def filter_verified_sources(
     *,
     answer_text: str,
 ) -> list[ChatSourceReference]:
-    text = str(answer_text or '').strip()
+    """Filter verified sources."""
+    text = str(answer_text or "").strip()
     if not text:
         return list(sources)
     if len(text.split()) <= 3:
@@ -49,7 +87,7 @@ def filter_verified_sources(
 
     verified_sources: list[ChatSourceReference] = []
     for source in sources:
-        chunk_text = str(source.chunk_preview or '').strip()
+        chunk_text = str(source.chunk_preview or "").strip()
         if not chunk_text:
             continue
         if _source_supports_any_claim(chunk_text, claims):
@@ -62,7 +100,8 @@ def assess_answer_support(
     answer_text: str,
     source_texts: Sequence[str],
 ) -> CitationVerificationResult:
-    text = str(answer_text or '').strip()
+    """Assess answer support."""
+    text = str(answer_text or "").strip()
     if not text:
         return CitationVerificationResult(
             evaluated_claim_count=0,
@@ -77,7 +116,9 @@ def assess_answer_support(
             supported_claim_count=0,
             unsupported_claim_count=0,
             evidence_coverage_rate=1.0,
-            verified_source_count=len([source_text for source_text in source_texts if str(source_text or '').strip()]),
+            verified_source_count=len(
+                [source_text for source_text in source_texts if str(source_text or "").strip()]
+            ),
         )
 
     claims = _extract_claim_units(text)
@@ -93,7 +134,7 @@ def assess_answer_support(
     source_token_sets = [
         _tokenize_evidence_text(source_text)
         for source_text in source_texts
-        if str(source_text or '').strip()
+        if str(source_text or "").strip()
     ]
     source_token_sets = [tokens for tokens in source_token_sets if tokens]
     if not source_token_sets:
@@ -133,7 +174,9 @@ def assess_answer_support(
 
     unsupported_claim_count = max(evaluated_claims - supported_claims, 0)
     evidence_coverage_rate = float(supported_claims) / float(evaluated_claims)
-    verified_source_count = len(filter_verified_sources_from_claims(sources=source_texts, claims=claims))
+    verified_source_count = len(
+        filter_verified_sources_from_claims(sources=source_texts, claims=claims)
+    )
     return CitationVerificationResult(
         evaluated_claim_count=evaluated_claims,
         supported_claim_count=supported_claims,
@@ -148,9 +191,10 @@ def filter_verified_sources_from_claims(
     sources: Sequence[str],
     claims: Sequence[str],
 ) -> list[str]:
+    """Filter verified sources from claims."""
     verified_sources: list[str] = []
     for source_text in sources:
-        normalized_source = str(source_text or '').strip()
+        normalized_source = str(source_text or "").strip()
         if not normalized_source:
             continue
         if _source_supports_any_claim(normalized_source, claims):
@@ -159,6 +203,7 @@ def filter_verified_sources_from_claims(
 
 
 def _source_supports_any_claim(source_text: str, claims: Sequence[str]) -> bool:
+    """Internal helper for source supports any claim."""
     source_tokens = _tokenize_evidence_text(source_text)
     if not source_tokens:
         return False
@@ -174,11 +219,13 @@ def _source_supports_any_claim(source_text: str, claims: Sequence[str]) -> bool:
 
 
 def _extract_claim_units(answer: str) -> list[str]:
+    """Internal helper for extract claim units."""
     claims: list[str] = []
     seen: set[str] = set()
 
     def _add(candidate: str) -> None:
-        normalized = re.sub(r'\s+', ' ', str(candidate or '').strip())
+        """Internal helper for add."""
+        normalized = re.sub(r"\s+", " ", str(candidate or "").strip())
         if len(normalized) < 12:
             return
         key = normalized.casefold()
@@ -187,22 +234,23 @@ def _extract_claim_units(answer: str) -> list[str]:
         seen.add(key)
         claims.append(normalized)
 
-    bullet_pattern = re.compile(r'(?m)^\s*[-*+]\s+(.*\S)\s*$')
-    numbered_pattern = re.compile(r'(?m)^\s*\d+\.\s+(.*\S)\s*$')
+    bullet_pattern = re.compile(r"(?m)^\s*[-*+]\s+(.*\S)\s*$")
+    numbered_pattern = re.compile(r"(?m)^\s*\d+\.\s+(.*\S)\s*$")
 
     for match in bullet_pattern.finditer(answer):
         _add(match.group(1))
     for match in numbered_pattern.finditer(answer):
         _add(match.group(1))
-    for segment in re.split(r'[.!?]\s+|\n{2,}', answer):
+    for segment in re.split(r"[.!?]\s+|\n{2,}", answer):
         _add(segment)
 
     return claims
 
 
 def _tokenize_evidence_text(text: str) -> set[str]:
+    """Internal helper for tokenize evidence text."""
     tokens: set[str] = set()
-    for token in _EVIDENCE_TOKEN_PATTERN.findall(str(text or '')):
+    for token in _EVIDENCE_TOKEN_PATTERN.findall(str(text or "")):
         lowered = token.casefold()
         if len(lowered) < 3:
             continue

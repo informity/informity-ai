@@ -1,3 +1,5 @@
+"""Module for mcp categories."""
+
 from __future__ import annotations
 
 from informity.db.models import FileCategory

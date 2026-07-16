@@ -3,6 +3,8 @@
 # Upload, job management, SSE streaming, result export.
 # ==============================================================================
 
+"""Module for api routes translate."""
+
 from __future__ import annotations
 
 import asyncio
@@ -69,10 +71,11 @@ from informity.translate_policy import (
 )
 
 log = structlog.get_logger(__name__)
-TRANSLATE_CANCEL_ERROR_TOKEN = 'cancelled_by_user'
+TRANSLATE_CANCEL_ERROR_TOKEN = "cancelled_by_user"
 
 
 def capitalize(s: str) -> str:
+    """Capitalize."""
     return s.capitalize() if s else s
 
 
@@ -97,63 +100,80 @@ _MAX_UPLOAD_MB = 50
 # Helpers
 # ==============================================================================
 
+
 def _translate_storage_dir() -> Path:
+    """Internal helper for translate storage dir."""
     return settings.app_data_dir / TRANSLATE_STORAGE_DIRNAME
 
 
 def _upload_dir(upload_id: str) -> Path:
+    """Internal helper for upload dir."""
     return _translate_storage_dir() / upload_id
 
 
 def _sanitize_filename(name: str) -> str:
+    """Internal helper for sanitize filename."""
     name = Path(name).name
-    name = re.sub(r'[^\w\s\-.]', '_', name)
-    return name.strip() or 'upload'
+    name = re.sub(r"[^\w\s\-.]", "_", name)
+    return name.strip() or "upload"
 
 
 def _count_tokens(text: str) -> int:
+    """Internal helper for count tokens."""
     try:
         return llm_engine.count_tokens(text)
     except Exception as exc:
-        log.warning('translate_count_tokens_fallback', error=str(exc), error_type=type(exc).__name__)
+        log.warning(
+            "translate_count_tokens_fallback", error=str(exc), error_type=type(exc).__name__
+        )
         return max(1, len(text.split()))
 
 
 async def _emit(job_id: str, event: str, data: dict) -> None:
+    """Internal helper for emit."""
     q = _job_queues.get(job_id)
     if q is not None:
-        await q.put({'event': event, 'data': json.dumps(data)})
+        await q.put({"event": event, "data": json.dumps(data)})
 
 
 def _build_glossary_block(glossary_json: str | None) -> str:
+    """Internal helper for build glossary block."""
     if not glossary_json:
-        return ''
+        return ""
     try:
         terms = json.loads(glossary_json)
         if not terms:
-            return ''
-        lines = '\n'.join(f'- {t["source"]} → {t["translation"]}' for t in terms if t.get('source') and t.get('translation'))
-        return f'\nTerminology (use these translations consistently):\n{lines}\n' if lines else ''
+            return ""
+        lines = "\n".join(
+            f"- {t['source']} → {t['translation']}"
+            for t in terms
+            if t.get("source") and t.get("translation")
+        )
+        return f"\nTerminology (use these translations consistently):\n{lines}\n" if lines else ""
     except Exception as exc:
-        log.warning('translate_glossary_block_fallback', error=str(exc), error_type=type(exc).__name__)
-        return ''
+        log.warning(
+            "translate_glossary_block_fallback", error=str(exc), error_type=type(exc).__name__
+        )
+        return ""
 
 
 def _is_cancelled_translate_row(row: object) -> bool:
+    """Internal helper for is cancelled translate row."""
     return bool(
         row
-        and str(row['status']) == 'stalled'
-        and str(row['error'] or '') == TRANSLATE_CANCEL_ERROR_TOKEN
+        and str(row["status"]) == "stalled"
+        and str(row["error"] or "") == TRANSLATE_CANCEL_ERROR_TOKEN
     )
 
 
-
 def _split_text_for_translation(text: str, max_tokens: int) -> list[str]:
+    """Internal helper for split text for translation."""
     text = text.strip()
     if not text:
         return []
 
     def _pack_units(units: list[str], joiner: str) -> list[str]:
+        """Internal helper for pack units."""
         packed: list[str] = []
         current: list[str] = []
         current_tokens = 0
@@ -172,21 +192,21 @@ def _split_text_for_translation(text: str, max_tokens: int) -> list[str]:
             packed.append(joiner.join(current).strip())
         return [chunk for chunk in packed if chunk]
 
-    paragraph_chunks = [chunk for chunk in re.split(r'\n\s*\n', text) if chunk.strip()]
+    paragraph_chunks = [chunk for chunk in re.split(r"\n\s*\n", text) if chunk.strip()]
     if len(paragraph_chunks) > 1:
-        packed = _pack_units(paragraph_chunks, '\n\n')
+        packed = _pack_units(paragraph_chunks, "\n\n")
         if len(packed) > 1 or _count_tokens(packed[0]) <= max_tokens:
             return packed
 
-    sentence_chunks = [chunk for chunk in re.split(r'(?<=[.!?])\s+', text) if chunk.strip()]
+    sentence_chunks = [chunk for chunk in re.split(r"(?<=[.!?])\s+", text) if chunk.strip()]
     if len(sentence_chunks) > 1:
-        packed = _pack_units(sentence_chunks, ' ')
+        packed = _pack_units(sentence_chunks, " ")
         if len(packed) > 1 or _count_tokens(packed[0]) <= max_tokens:
             return packed
 
     line_chunks = [chunk for chunk in text.splitlines() if chunk.strip()]
     if len(line_chunks) > 1:
-        packed = _pack_units(line_chunks, '\n')
+        packed = _pack_units(line_chunks, "\n")
         if len(packed) > 1 or _count_tokens(packed[0]) <= max_tokens:
             return packed
 
@@ -200,13 +220,13 @@ def _split_text_for_translation(text: str, max_tokens: int) -> list[str]:
     for word in words:
         word_tokens = _count_tokens(word)
         if current and current_tokens + word_tokens > max_tokens:
-            packed.append(' '.join(current).strip())
+            packed.append(" ".join(current).strip())
             current = []
             current_tokens = 0
         current.append(word)
         current_tokens += word_tokens
     if current:
-        packed.append(' '.join(current).strip())
+        packed.append(" ".join(current).strip())
     return [chunk for chunk in packed if chunk]
 
 
@@ -214,17 +234,19 @@ def _split_text_for_translation(text: str, max_tokens: int) -> list[str]:
 # Upload endpoint
 # ==============================================================================
 
-@router.post('/api/translate/upload')
+
+@router.post("/api/translate/upload")
 async def upload_translate_file(
     file: UploadFile = File(...),
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
-    filename = _sanitize_filename(file.filename or 'upload')
+    """Upload translate file."""
+    filename = _sanitize_filename(file.filename or "upload")
     raw = await file.read()
     if not raw:
-        raise HTTPException(status_code=400, detail='Uploaded file is empty.')
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
     if len(raw) > _MAX_UPLOAD_MB * 1024 * 1024:
-        raise HTTPException(status_code=413, detail=f'File exceeds {_MAX_UPLOAD_MB} MB limit.')
+        raise HTTPException(status_code=413, detail=f"File exceeds {_MAX_UPLOAD_MB} MB limit.")
 
     upload_id = str(uuid.uuid4())
     file_dir = _upload_dir(upload_id)
@@ -234,7 +256,7 @@ async def upload_translate_file(
 
     scanned = scanned_file_for_path(file_path)
     if scanned is None:
-        raise HTTPException(status_code=422, detail='Unable to process file for indexing.')
+        raise HTTPException(status_code=422, detail="Unable to process file for indexing.")
 
     result, indexed = await index_uploaded_file(
         db,
@@ -243,100 +265,112 @@ async def upload_translate_file(
         entity_type=TRANSLATE_ENTITY_TYPE,
     )
     if not result.success:
-        raise HTTPException(status_code=422, detail=f'Indexing failed: {result.error or "unknown"}')
+        raise HTTPException(status_code=422, detail=f"Indexing failed: {result.error or 'unknown'}")
 
     if indexed is None or indexed.id is None:
-        raise HTTPException(status_code=500, detail='File indexed but record not found.')
+        raise HTTPException(status_code=500, detail="File indexed but record not found.")
 
-    page_count = getattr(indexed, 'page_count', None)
+    page_count = getattr(indexed, "page_count", None)
 
-    log.info('translate_upload_indexed', file_id=indexed.id, filename=filename)
+    log.info("translate_upload_indexed", file_id=indexed.id, filename=filename)
     return {
-        'file_id': indexed.id,
-        'filename': filename,
-        'page_count': page_count,
-        'size_bytes': len(raw),
+        "file_id": indexed.id,
+        "filename": filename,
+        "page_count": page_count,
+        "size_bytes": len(raw),
     }
 
 
-@router.delete('/api/translate/upload/{file_id}')
+@router.delete("/api/translate/upload/{file_id}")
 async def delete_translate_upload(
     file_id: int,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    """Delete translate upload."""
     indexed = await get_file_by_id(db, file_id)
     if not indexed:
-        raise HTTPException(status_code=404, detail='File not found.')
-    if getattr(indexed, 'source_provider', '') != TRANSLATE_PROVIDER:
-        raise HTTPException(status_code=403, detail='Not a translate upload.')
+        raise HTTPException(status_code=404, detail="File not found.")
+    if getattr(indexed, "source_provider", "") != TRANSLATE_PROVIDER:
+        raise HTTPException(status_code=403, detail="Not a translate upload.")
     upload_dir = Path(indexed.path).parent
     await remove_file(db, indexed)
     shutil.rmtree(upload_dir, ignore_errors=True)
-    log.info('translate_upload_deleted', file_id=file_id)
-    return {'deleted': True}
+    log.info("translate_upload_deleted", file_id=file_id)
+    return {"deleted": True}
 
 
 # ==============================================================================
 # Job endpoints
 # ==============================================================================
 
-@router.post('/api/translate/jobs')
+
+@router.post("/api/translate/jobs")
 async def create_translate_job_endpoint(
     body: dict,
     background_tasks: BackgroundTasks,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    """Create translate job endpoint."""
     raise_if_llm_busy(_translate_lock.locked())
 
-    file_id = int(body.get('file_id') or 0)
-    target_language = normalize_translate_language(str(body.get('target_language') or 'Spanish').strip())
-    tone = str(body.get('tone') or 'natural').strip()
+    file_id = int(body.get("file_id") or 0)
+    target_language = normalize_translate_language(
+        str(body.get("target_language") or "Spanish").strip()
+    )
+    tone = str(body.get("tone") or "natural").strip()
 
     if not file_id:
-        raise HTTPException(status_code=400, detail='file_id is required.')
+        raise HTTPException(status_code=400, detail="file_id is required.")
     if tone not in TONE_INSTRUCTIONS:
-        raise HTTPException(status_code=400, detail=f'Invalid tone. Choose: {list(TONE_INSTRUCTIONS)}')
+        raise HTTPException(
+            status_code=400, detail=f"Invalid tone. Choose: {list(TONE_INSTRUCTIONS)}"
+        )
 
     indexed = await get_file_by_id(db, file_id)
     if not indexed:
-        raise HTTPException(status_code=404, detail='File not found.')
+        raise HTTPException(status_code=404, detail="File not found.")
 
     job_id = str(uuid.uuid4())
     await create_translate_job(
-        db, job_id=job_id, file_id=file_id,
-        target_language=target_language, tone=tone,
+        db,
+        job_id=job_id,
+        file_id=file_id,
+        target_language=target_language,
+        tone=tone,
     )
 
     _job_queues[job_id] = asyncio.Queue()
     _job_cancel_events[job_id] = asyncio.Event()
     background_tasks.add_task(_run_translate_job, job_id, file_id, target_language, tone)
 
-    log.info('translate_job_created', job_id=job_id, file_id=file_id, language=target_language)
-    return {'job_id': job_id}
+    log.info("translate_job_created", job_id=job_id, file_id=file_id, language=target_language)
+    return {"job_id": job_id}
 
 
-@router.get('/api/translate/jobs/{job_id}')
+@router.get("/api/translate/jobs/{job_id}")
 async def get_translate_job_status(
     job_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
+    """Get translate job status."""
     row = await get_translate_job(db, job_id)
     if not row:
-        raise HTTPException(status_code=404, detail='Job not found.')
+        raise HTTPException(status_code=404, detail="Job not found.")
     return dict(row)
 
 
-@router.delete('/api/translate/jobs/{job_id}')
+@router.delete("/api/translate/jobs/{job_id}")
 async def cancel_translate_job(
     job_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
     # Guard: don't overwrite a job that already completed or failed.
+    """Cancel translate job."""
     row = await get_translate_job(db, job_id)
-    if row and str(row['status']) in ('done', 'failed'):
-        return {'cancelled': False}
+    if row and str(row["status"]) in ("done", "failed"):
+        return {"cancelled": False}
     # Mark cancelled in DB so the inter-section check stops the loop
-    await update_translate_job(db, job_id, status='stalled', error=TRANSLATE_CANCEL_ERROR_TOKEN)
+    await update_translate_job(db, job_id, status="stalled", error=TRANSLATE_CANCEL_ERROR_TOKEN)
     # Immediately cancel the active generate_stream (releases LLM lock now)
     cancel_ev = _job_cancel_events.get(job_id)
     if cancel_ev:
@@ -350,75 +384,84 @@ async def cancel_translate_job(
     # by the 'cancelled' wording in the message.
     if row:
         try:
-            file_id           = int(row['file_id'])
-            target_language   = str(row['target_language'])
-            completed_count   = int(row['completed_sections'] or 0)
-            section_count     = int(row['section_count'] or 0)
-            file_row          = await get_file_by_id(db, file_id)
-            fname             = file_row.filename if file_row else f'file #{file_id}'
-            sections_note     = f' · {completed_count}/{section_count} sections completed' if section_count else ''
+            file_id = int(row["file_id"])
+            target_language = str(row["target_language"])
+            completed_count = int(row["completed_sections"] or 0)
+            section_count = int(row["section_count"] or 0)
+            file_row = await get_file_by_id(db, file_id)
+            fname = file_row.filename if file_row else f"file #{file_id}"
+            sections_note = (
+                f" · {completed_count}/{section_count} sections completed" if section_count else ""
+            )
             await emit_log_event(
-                event_name='translate_job_cancelled',
-                source='translate',
-                message=f'Translation cancelled: \'{fname}\' → {target_language}{sections_note}',
+                event_name="translate_job_cancelled",
+                source="translate",
+                message=f"Translation cancelled: '{fname}' → {target_language}{sections_note}",
                 details={
-                    'job_id':              job_id,
-                    'language':            target_language,
-                    'sections_completed':  completed_count,
-                    'sections_total':      section_count,
-                    'cancelled_by_user':   True,
-                    'cancel_error_token':  TRANSLATE_CANCEL_ERROR_TOKEN,
+                    "job_id": job_id,
+                    "language": target_language,
+                    "sections_completed": completed_count,
+                    "sections_total": section_count,
+                    "cancelled_by_user": True,
+                    "cancel_error_token": TRANSLATE_CANCEL_ERROR_TOKEN,
                 },
                 file_id=file_id,
                 db=db,
             )
         except Exception:
             pass  # activity log is non-critical; never fail cancel
-    return {'cancelled': True}
+    return {"cancelled": True}
 
 
-@router.get('/api/translate/jobs/{job_id}/events')
+@router.get("/api/translate/jobs/{job_id}/events")
 async def translate_job_events(
     job_id: str,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> EventSourceResponse:
+    """Translate job events."""
     row = await get_translate_job(db, job_id)
     if not row:
-        raise HTTPException(status_code=404, detail='Job not found.')
+        raise HTTPException(status_code=404, detail="Job not found.")
 
     async def _stream():
         # Replay already-completed sections so reconnecting clients catch up.
+        """Internal helper for stream."""
         sections = await get_translate_sections(db, job_id)
-        job_status = str(row['status'])
+        job_status = str(row["status"])
 
-        if row['glossary_json']:
+        if row["glossary_json"]:
             try:
-                terms = json.loads(str(row['glossary_json']))
-                yield {'event': 'glossary_done', 'data': json.dumps({'term_count': len(terms)})}
+                terms = json.loads(str(row["glossary_json"]))
+                yield {"event": "glossary_done", "data": json.dumps({"term_count": len(terms)})}
             except Exception:
                 pass
 
-        if row['section_count']:
-            yield {'event': 'sections_ready', 'data': json.dumps({'section_count': int(row['section_count'])})}
+        if row["section_count"]:
+            yield {
+                "event": "sections_ready",
+                "data": json.dumps({"section_count": int(row["section_count"])}),
+            }
 
         for s in sections:
-            if str(s['status']) == 'done':
+            if str(s["status"]) == "done":
                 yield {
-                    'event': 'section_done',
-                    'data': json.dumps({
-                        'section_index': int(s['section_index']),
-                        'section_title': s['section_title'],
-                        'text': s['result_text'],
-                    }),
+                    "event": "section_done",
+                    "data": json.dumps(
+                        {
+                            "section_index": int(s["section_index"]),
+                            "section_title": s["section_title"],
+                            "text": s["result_text"],
+                        }
+                    ),
                 }
 
         # If already terminal, close immediately.
-        if job_status in ('done', 'failed', 'stalled'):
+        if job_status in ("done", "failed", "stalled"):
             if _is_cancelled_translate_row(row):
-                event_name = 'job_cancelled'
+                event_name = "job_cancelled"
             else:
-                event_name = 'job_done' if job_status == 'done' else f'job_{job_status}'
-            yield {'event': event_name, 'data': json.dumps({})}
+                event_name = "job_done" if job_status == "done" else f"job_{job_status}"
+            yield {"event": event_name, "data": json.dumps({})}
             return
 
         # Wait for new events from the worker.
@@ -430,7 +473,7 @@ async def translate_job_events(
             try:
                 msg = await asyncio.wait_for(q.get(), timeout=30.0)
             except TimeoutError:
-                yield {'event': 'ping', 'data': '{}'}
+                yield {"event": "ping", "data": "{}"}
                 continue
             if msg is _SENTINEL:
                 break
@@ -439,56 +482,62 @@ async def translate_job_events(
     return EventSourceResponse(_stream())
 
 
-@router.get('/api/translate/jobs/{job_id}/result')
+@router.get("/api/translate/jobs/{job_id}/result")
 async def get_translate_result(
     job_id: str,
-    format: str = 'markdown',  # pylint: disable=redefined-builtin
+    format: str = "markdown",  # pylint: disable=redefined-builtin
     db: aiosqlite.Connection = Depends(get_db),
 ) -> PlainTextResponse:
+    """Get translate result."""
     row = await get_translate_job(db, job_id)
     if not row:
-        raise HTTPException(status_code=404, detail='Job not found.')
+        raise HTTPException(status_code=404, detail="Job not found.")
     parts = await get_translate_job_result(db, job_id)
-    text = '\n\n'.join(parts)
-    if format == 'text':
-        text = re.sub(r'^#{1,6}\s+', '', text, flags=re.MULTILINE)
-        text = re.sub(r'\*\*(.+?)\*\*', r'\1', text)
-        text = re.sub(r'__(.+?)__', r'\1', text)
-        text = re.sub(r'[*_]{1,2}(.+?)[*_]{1,2}', r'\1', text)
-    return PlainTextResponse(text, media_type='text/plain; charset=utf-8')
+    text = "\n\n".join(parts)
+    if format == "text":
+        text = re.sub(r"^#{1,6}\s+", "", text, flags=re.MULTILINE)
+        text = re.sub(r"\*\*(.+?)\*\*", r"\1", text)
+        text = re.sub(r"__(.+?)__", r"\1", text)
+        text = re.sub(r"[*_]{1,2}(.+?)[*_]{1,2}", r"\1", text)
+    return PlainTextResponse(text, media_type="text/plain; charset=utf-8")
 
 
 # ==============================================================================
 # Estimate endpoint (Phase 6)
 # ==============================================================================
 
-@router.post('/api/translate/jobs/estimate')
+
+@router.post("/api/translate/jobs/estimate")
 async def estimate_translate_job(
     body: dict,
     db: aiosqlite.Connection = Depends(get_db),
 ) -> dict:
-    file_id = int(body.get('file_id') or 0)
+    """Estimate translate job."""
+    file_id = int(body.get("file_id") or 0)
     if not file_id:
-        raise HTTPException(status_code=400, detail='file_id is required.')
+        raise HTTPException(status_code=400, detail="file_id is required.")
     indexed = await get_file_by_id(db, file_id)
     if not indexed:
-        raise HTTPException(status_code=404, detail='File not found.')
+        raise HTTPException(status_code=404, detail="File not found.")
 
-    page_count = int(getattr(indexed, 'page_count', 0) or 0)
+    page_count = int(getattr(indexed, "page_count", 0) or 0)
     # Fall back to token-based estimate when page_count is unavailable (e.g. EPUB)
     if page_count > 0:
         token_estimate = page_count * TRANSLATE_AVG_TOKENS_PER_PAGE
     else:
         # Query actual token count from chunks table
         cur = await db.execute(
-            'SELECT COALESCE(SUM(token_count), 0) FROM chunks WHERE file_id = ? AND parent_id IS NULL',
+            (
+                "SELECT COALESCE(SUM(token_count), 0) FROM chunks "
+                "WHERE file_id = ? AND parent_id IS NULL"
+            ),
             (file_id,),
         )
         row = await cur.fetchone()
         token_estimate = int(row[0]) if row else 0
         page_count = max(1, token_estimate // TRANSLATE_AVG_TOKENS_PER_PAGE)
 
-    section_count_estimate = max(1, -(-token_estimate // TRANSLATE_BATCH_TARGET_TOKENS))  # ceiling div
+    section_count_estimate = max(1, -(-token_estimate // TRANSLATE_BATCH_TARGET_TOKENS))
     estimated_minutes = round((section_count_estimate * TRANSLATE_AVG_SECTION_SECONDS) / 60, 1)
     exceeds_soft_limit = page_count > TRANSLATE_SOFT_PAGE_LIMIT
 
@@ -496,11 +545,11 @@ async def estimate_translate_job(
     exceeds_soft_limit = exceeds_soft_limit or section_count_estimate > TRANSLATE_SOFT_SECTION_LIMIT
 
     return {
-        'page_count': page_count,
-        'token_estimate': token_estimate,
-        'section_count_estimate': section_count_estimate,
-        'estimated_minutes': estimated_minutes,
-        'exceeds_soft_limit': exceeds_soft_limit,
+        "page_count": page_count,
+        "token_estimate": token_estimate,
+        "section_count_estimate": section_count_estimate,
+        "estimated_minutes": estimated_minutes,
+        "exceeds_soft_limit": exceeds_soft_limit,
     }
 
 
@@ -508,10 +557,13 @@ async def estimate_translate_job(
 # Background worker — runs in FastAPI background task
 # ==============================================================================
 
+
 async def _run_translate_job(job_id: str, file_id: int, target_language: str, tone: str) -> None:
+    """Internal helper for run translate job."""
     db = None
     try:
         from informity.db.sqlite import get_connection
+
         db = await get_connection()
 
         cancel_event = _job_cancel_events.get(job_id)
@@ -523,15 +575,15 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
         # resumes from `await get_connection()` above, the event loop is single-
         # threaded and won't context-switch between this check and the acquire.
         if _translate_lock.locked():
-            log.warning('translate_job_lock_busy', job_id=job_id)
+            log.warning("translate_job_lock_busy", job_id=job_id)
             if db:
-                await update_translate_job(db, job_id, status='failed', error=LLM_BUSY_DETAIL)
-            await _emit(job_id, 'job_failed', {'error': LLM_BUSY_DETAIL})
+                await update_translate_job(db, job_id, status="failed", error=LLM_BUSY_DETAIL)
+            await _emit(job_id, "job_failed", {"error": LLM_BUSY_DETAIL})
             return
 
         async with asyncio.timeout(TRANSLATE_JOB_MAX_RUNTIME_S):
             async with _translate_lock:
-                await update_translate_job(db, job_id, status='running')
+                await update_translate_job(db, job_id, status="running")
 
                 # --- Phase 2: Glossary extraction ---
                 glossary_json = await _extract_glossary(db, file_id, target_language, cancel_event)
@@ -541,7 +593,7 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                     term_count = len(json.loads(glossary_json)) if glossary_json else 0
                 except Exception:
                     term_count = 0
-                await _emit(job_id, 'glossary_done', {'term_count': term_count})
+                await _emit(job_id, "glossary_done", {"term_count": term_count})
 
                 # --- Phase 3: Section-aware chunking ---
                 sections = await _build_sections(db, file_id)
@@ -552,10 +604,10 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                         section_id=str(uuid.uuid4()),
                         job_id=job_id,
                         section_index=s_idx,
-                        section_title=s.get('title'),
+                        section_title=s.get("title"),
                     )
                 await db.commit()
-                await _emit(job_id, 'sections_ready', {'section_count': len(sections)})
+                await _emit(job_id, "sections_ready", {"section_count": len(sections)})
 
                 # Fetch section rows (with IDs) for update calls
                 section_rows = await get_translate_sections(db, job_id)
@@ -579,18 +631,22 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                     # Check for user cancellation between sections
                     job_row = await get_translate_job(db, job_id)
                     if _is_cancelled_translate_row(job_row):
-                        log.info('translate_job_cancelled', job_id=job_id, section=s_idx)
+                        log.info("translate_job_cancelled", job_id=job_id, section=s_idx)
                         return
 
-                    section_id = str(row['section_id'])
+                    section_id = str(row["section_id"])
                     # Reset stall deadline at section start — active work is not a stall
                     stall_deadline = time.monotonic() + TRANSLATE_JOB_STALL_S
-                    await update_translate_section(db, section_id, status='running')
+                    await update_translate_section(db, section_id, status="running")
                     await db.commit()
-                    await _emit(job_id, 'section_started', {
-                        'section_index': s_idx,
-                        'section_title': section.get('title'),
-                    })
+                    await _emit(
+                        job_id,
+                        "section_started",
+                        {
+                            "section_index": s_idx,
+                            "section_title": section.get("title"),
+                        },
+                    )
 
                     translated = None
                     last_error = None
@@ -599,22 +655,30 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                     section_start_ms = time.monotonic()
                     for attempt in range(TRANSLATE_SECTION_RETRY_MAX + 1):
                         total_attempts += 1
-                        token_cap = TRANSLATE_RETRY_TOKEN_CAP if attempt > 0 else TRANSLATE_BATCH_TARGET_TOKENS
+                        token_cap = (
+                            TRANSLATE_RETRY_TOKEN_CAP
+                            if attempt > 0
+                            else TRANSLATE_BATCH_TARGET_TOKENS
+                        )
                         # Use 1.6× expansion ratio — academic English→Spanish expands 50-60%.
                         # The previous 1.35× caused frequent mid-sentence truncation.
                         max_out = int(token_cap * 1.6) + 100
-                        source = section['text']
+                        source = section["text"]
                         if _count_tokens(source) > token_cap:
                             words = source.split()
                             cap_words = max(1, int(token_cap / 1.3))
-                            source = ' '.join(words[:cap_words])
+                            source = " ".join(words[:cap_words])
                         try:
                             # _translate_section uses generate_stream internally, so it has
                             # a real cancel_event-backed timeout — no zombie threads.
                             # prev_context is None on retries (attempt > 0) — the model
                             # already failed once; keep the retry focused on the section text.
                             translated, last_finish_reason = await _translate_section(
-                                source, target_language, tone, glossary_block, max_out,
+                                source,
+                                target_language,
+                                tone,
+                                glossary_block,
+                                max_out,
                                 cancel_event=cancel_event,
                                 prev_context=prev_context if attempt == 0 else None,
                             )
@@ -623,146 +687,195 @@ async def _run_translate_job(job_id: str, file_id: int, target_language: str, to
                                 # TRANSLATE_RETRY_TOKEN_CAP and would only produce a shorter
                                 # truncated result — counterproductive. Retry only fires for
                                 # genuine error/empty cases (no `translated`) below.
-                                if last_finish_reason == 'length' and attempt == 0:
-                                    log.warning('translate_section_truncated_accepted',
-                                                job_id=job_id, section=s_idx,
-                                                chars_output=len(translated))
+                                if last_finish_reason == "length" and attempt == 0:
+                                    log.warning(
+                                        "translate_section_truncated_accepted",
+                                        job_id=job_id,
+                                        section=s_idx,
+                                        chars_output=len(translated),
+                                    )
                                 break
                         except Exception as exc:
                             last_error = str(exc)
-                            log.warning('translate_section_attempt_failed',
-                                        job_id=job_id, section=s_idx, attempt=attempt, error=last_error)
-                            await _emit(job_id, 'section_retry', {
-                                'section_index': s_idx, 'attempt': attempt + 1, 'error': last_error,
-                            })
+                            log.warning(
+                                "translate_section_attempt_failed",
+                                job_id=job_id,
+                                section=s_idx,
+                                attempt=attempt,
+                                error=last_error,
+                            )
+                            await _emit(
+                                job_id,
+                                "section_retry",
+                                {
+                                    "section_index": s_idx,
+                                    "attempt": attempt + 1,
+                                    "error": last_error,
+                                },
+                            )
 
                     section_elapsed_ms = int((time.monotonic() - section_start_ms) * 1000)
-                    section_truncated = last_finish_reason == 'length'
+                    section_truncated = last_finish_reason == "length"
                     if section_truncated:
                         truncated += 1
 
                     await update_translate_section(db, section_id, attempt_count=total_attempts)
 
                     if translated:
-                        await update_translate_section(db, section_id, status='done', result_text=translated)
+                        await update_translate_section(
+                            db, section_id, status="done", result_text=translated
+                        )
                         completed += 1
                         await update_translate_job(db, job_id, completed_sections=completed)
                         await db.commit()
                         # Capture the tail of this translation for the next section's context.
                         prev_context = translated[-TRANSLATE_PREV_CONTEXT_CHARS:].strip() or None
-                        log.info('translate_section_completed',
-                                 job_id=job_id, section_index=s_idx,
-                                 section_title=section.get('title'),
-                                 status='done', finish_reason=last_finish_reason,
-                                 truncated=section_truncated,
-                                 chars_output=len(translated),
-                                 duration_ms=section_elapsed_ms,
-                                 attempt_count=total_attempts)
-                        await _emit(job_id, 'section_done', {
-                            'section_index': s_idx,
-                            'section_title': section.get('title'),
-                            'text': translated,
-                        })
+                        log.info(
+                            "translate_section_completed",
+                            job_id=job_id,
+                            section_index=s_idx,
+                            section_title=section.get("title"),
+                            status="done",
+                            finish_reason=last_finish_reason,
+                            truncated=section_truncated,
+                            chars_output=len(translated),
+                            duration_ms=section_elapsed_ms,
+                            attempt_count=total_attempts,
+                        )
+                        await _emit(
+                            job_id,
+                            "section_done",
+                            {
+                                "section_index": s_idx,
+                                "section_title": section.get("title"),
+                                "text": translated,
+                            },
+                        )
                     else:
-                        await update_translate_section(db, section_id, status='failed', error=last_error or 'unknown')
+                        await update_translate_section(
+                            db, section_id, status="failed", error=last_error or "unknown"
+                        )
                         failed += 1
                         await update_translate_job(db, job_id, failed_sections=failed)
                         await db.commit()
-                        log.warning('translate_section_completed',
-                                    job_id=job_id, section_index=s_idx,
-                                    section_title=section.get('title'),
-                                    status='failed', finish_reason=last_finish_reason,
-                                    truncated=section_truncated,
-                                    chars_output=0,
-                                    duration_ms=section_elapsed_ms,
-                                    attempt_count=total_attempts,
-                                    error=last_error)
-                        await _emit(job_id, 'section_failed', {
-                            'section_index': s_idx, 'error': last_error or 'Translation failed',
-                        })
+                        log.warning(
+                            "translate_section_completed",
+                            job_id=job_id,
+                            section_index=s_idx,
+                            section_title=section.get("title"),
+                            status="failed",
+                            finish_reason=last_finish_reason,
+                            truncated=section_truncated,
+                            chars_output=0,
+                            duration_ms=section_elapsed_ms,
+                            attempt_count=total_attempts,
+                            error=last_error,
+                        )
+                        await _emit(
+                            job_id,
+                            "section_failed",
+                            {
+                                "section_index": s_idx,
+                                "error": last_error or "Translation failed",
+                            },
+                        )
 
                     # Stall check
                     if time.monotonic() > stall_deadline:
-                        await update_translate_job(db, job_id, status='stalled',
-                                                   error='No progress within stall window.')
-                        await _emit(job_id, 'job_stalled', {})
+                        await update_translate_job(
+                            db, job_id, status="stalled", error="No progress within stall window."
+                        )
+                        await _emit(job_id, "job_stalled", {})
                         await emit_log_event(
-                            event_name='translate_job_stalled',
-                            source='translate',
-                            message=f'Translation stalled: {completed}/{len(sections)} sections completed',
-                            file_id=file_id, db=db,
+                            event_name="translate_job_stalled",
+                            source="translate",
+                            message=(
+                                f"Translation stalled: {completed}/{len(sections)} sections "
+                                "completed"
+                            ),
+                            file_id=file_id,
+                            db=db,
                         )
                         return
 
-                final_status = 'done' if completed > 0 else 'failed'
+                final_status = "done" if completed > 0 else "failed"
                 await update_translate_job(db, job_id, status=final_status)
-                event = 'job_done' if final_status == 'done' else 'job_failed'
-                await _emit(job_id, event, {'completed_sections': completed, 'failed_sections': failed})
+                event = "job_done" if final_status == "done" else "job_failed"
+                await _emit(
+                    job_id, event, {"completed_sections": completed, "failed_sections": failed}
+                )
                 job_elapsed_s = int(time.monotonic() - job_loop_start)
                 elapsed_str = (
-                    f'{job_elapsed_s // 60}m {job_elapsed_s % 60}s'
-                    if job_elapsed_s >= 60 else f'{job_elapsed_s}s'
+                    f"{job_elapsed_s // 60}m {job_elapsed_s % 60}s"
+                    if job_elapsed_s >= 60
+                    else f"{job_elapsed_s}s"
                 )
-                log.info('translate_job_completed',
-                         job_id=job_id, language=target_language, tone=tone,
-                         status=final_status,
-                         sections_total=len(sections),
-                         sections_completed=completed,
-                         sections_failed=failed,
-                         sections_truncated=truncated,
-                         truncation_rate=round(truncated / max(len(sections), 1), 3),
-                         glossary_terms=term_count,
-                         total_elapsed_ms=int(job_elapsed_s * 1000))
+                log.info(
+                    "translate_job_completed",
+                    job_id=job_id,
+                    language=target_language,
+                    tone=tone,
+                    status=final_status,
+                    sections_total=len(sections),
+                    sections_completed=completed,
+                    sections_failed=failed,
+                    sections_truncated=truncated,
+                    truncation_rate=round(truncated / max(len(sections), 1), 3),
+                    glossary_terms=term_count,
+                    total_elapsed_ms=int(job_elapsed_s * 1000),
+                )
 
                 # Fetch filename for a human-readable activity log message
                 try:
                     file_row = await get_file_by_id(db, file_id)
-                    fname = file_row.filename if file_row else f'file #{file_id}'
+                    fname = file_row.filename if file_row else f"file #{file_id}"
                 except Exception:
-                    fname = f'file #{file_id}'
-                trunc_note = f' · {truncated} truncated' if truncated else ''
-                if final_status == 'done':
+                    fname = f"file #{file_id}"
+                trunc_note = f" · {truncated} truncated" if truncated else ""
+                if final_status == "done":
                     await emit_log_event(
-                        event_name='translate_job_completed',
-                        source='translate',
+                        event_name="translate_job_completed",
+                        source="translate",
                         message=(
-                            f'Translated \'{fname}\' → {target_language} · {capitalize(tone)} tone'
-                            f' · {completed}/{len(sections)} sections · {elapsed_str}{trunc_note}'
+                            f"Translated '{fname}' → {target_language} · {capitalize(tone)} tone"
+                            f" · {completed}/{len(sections)} sections · {elapsed_str}{trunc_note}"
                         ),
                         details={
-                            'job_id': job_id,
-                            'language': target_language,
-                            'tone': tone,
-                            'sections_completed': completed,
-                            'sections_total': len(sections),
-                            'sections_truncated': truncated,
-                            'elapsed_s': job_elapsed_s,
+                            "job_id": job_id,
+                            "language": target_language,
+                            "tone": tone,
+                            "sections_completed": completed,
+                            "sections_total": len(sections),
+                            "sections_truncated": truncated,
+                            "elapsed_s": job_elapsed_s,
                         },
                         file_id=file_id,
                         db=db,
                     )
                 else:
                     await emit_log_event(
-                        event_name='translate_job_failed',
-                        source='translate',
+                        event_name="translate_job_failed",
+                        source="translate",
                         message=(
-                            f'Translation failed: \'{fname}\' → {target_language}'
-                            f' · {completed}/{len(sections)} sections completed'
+                            f"Translation failed: '{fname}' → {target_language}"
+                            f" · {completed}/{len(sections)} sections completed"
                         ),
                         file_id=file_id,
                         db=db,
                     )
 
     except TimeoutError:
-        log.error('translate_job_hard_timeout', job_id=job_id)
+        log.error("translate_job_hard_timeout", job_id=job_id)
         if db:
-            await update_translate_job(db, job_id, status='stalled', error='Job exceeded maximum runtime.')
-        await _emit(job_id, 'job_stalled', {'error': 'Job exceeded maximum runtime.'})
+            await update_translate_job(
+                db, job_id, status="stalled", error="Job exceeded maximum runtime."
+            )
+        await _emit(job_id, "job_stalled", {"error": "Job exceeded maximum runtime."})
     except Exception as exc:
-        log.error('translate_job_error', job_id=job_id, error=str(exc), exc_info=True)
+        log.error("translate_job_error", job_id=job_id, error=str(exc), exc_info=True)
         if db:
-            await update_translate_job(db, job_id, status='failed', error=str(exc))
-        await _emit(job_id, 'job_failed', {'error': str(exc)})
+            await update_translate_job(db, job_id, status="failed", error=str(exc))
+        await _emit(job_id, "job_failed", {"error": str(exc)})
     finally:
         if db:
             await db.close()
@@ -789,7 +902,7 @@ async def _extract_glossary(
     # Sampling only the first 10 chunks misses domain-specific terms that appear
     # later in long documents (methods, results, appendices, etc.).
     all_cursor = await db.execute(
-        'SELECT chunk_index, content FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC',
+        "SELECT chunk_index, content FROM chunks WHERE file_id = ? ORDER BY chunk_index ASC",
         (file_id,),
     )
     all_rows = await all_cursor.fetchall()
@@ -799,28 +912,29 @@ async def _extract_glossary(
     else:
         step = len(all_rows) / glossary_sample_count
         rows = [all_rows[int(i * step)] for i in range(glossary_sample_count)]
-    combined = '\n\n'.join(str(r['content']) for r in rows)
+    combined = "\n\n".join(str(r["content"]) for r in rows)
     words = combined.split()
     cap = int(TRANSLATE_GLOSSARY_INPUT_TOKENS / 1.3)
-    source_sample = ' '.join(words[:cap])
+    source_sample = " ".join(words[:cap])
 
     glossary_user = source_sample
     _glossary_profile = get_profile()
     if _glossary_profile.no_think_token:
-        glossary_user += f'\n{_glossary_profile.no_think_token}'
+        glossary_user += f"\n{_glossary_profile.no_think_token}"
 
     messages = [
         {
-            'role': 'system',
-            'content': (
-                f'Extract up to {TRANSLATE_GLOSSARY_TERM_COUNT} key technical terms, proper nouns, '
-                f'and domain-specific phrases from the text below and translate each to {target_language}. '
-                'Output ONLY the list, one term per line, in this exact format:\n'
-                'term = translation\n'
-                'No numbering, no bullets, no preamble, no explanation.'
+            "role": "system",
+            "content": (
+                f"Extract up to {TRANSLATE_GLOSSARY_TERM_COUNT} key technical terms, "
+                f"proper nouns, and domain-specific phrases from the text below and "
+                f"translate each to {target_language}. "
+                "Output ONLY the list, one term per line, in this exact format:\n"
+                "term = translation\n"
+                "No numbering, no bullets, no preamble, no explanation."
             ),
         },
-        {'role': 'user', 'content': glossary_user},
+        {"role": "user", "content": glossary_user},
     ]
 
     parts: list[str] = []
@@ -839,39 +953,40 @@ async def _extract_glossary(
                 # Tuple signals end-of-stream from generate_stream; the first element
                 # is the final token (or '__timeout__'). Append if valid, then stop.
                 token, _ = item
-                if isinstance(token, str) and token and token != '__timeout__':
+                if isinstance(token, str) and token and token != "__timeout__":
                     parts.append(token)
                 break
             if isinstance(item, str):
                 parts.append(item)
 
-        content = ''.join(parts).strip()
+        content = "".join(parts).strip()
         terms = []
         for line in content.splitlines():
-            line = line.strip().lstrip('•-*0123456789. ')
-            if '=' in line:
-                halves = line.split('=', 1)
-                source = halves[0].strip().strip('"\'')
-                translation = halves[1].strip().strip('"\'')
+            line = line.strip().lstrip("•-*0123456789. ")
+            if "=" in line:
+                halves = line.split("=", 1)
+                source = halves[0].strip().strip("\"'")
+                translation = halves[1].strip().strip("\"'")
                 if source and translation and len(source) < 80:
-                    terms.append({'source': source, 'translation': translation})
+                    terms.append({"source": source, "translation": translation})
         if terms:
-            log.debug('translate_glossary_extracted', file_id=file_id, term_count=len(terms))
+            log.debug("translate_glossary_extracted", file_id=file_id, term_count=len(terms))
             return json.dumps(terms)
     except Exception as exc:
-        log.warning('translate_glossary_failed', file_id=file_id, error=str(exc))
+        log.warning("translate_glossary_failed", file_id=file_id, error=str(exc))
     return None
 
 
 async def _build_sections(db: aiosqlite.Connection, file_id: int) -> list[dict]:
     # Group chunks by section_path to create natural sections.
+    """Internal helper for build sections."""
     cursor = await db.execute(
-        '''
+        """
         SELECT content, section_path, chunk_index
         FROM chunks
         WHERE file_id = ? AND parent_id IS NULL
         ORDER BY chunk_index ASC
-        ''',
+        """,
         (file_id,),
     )
     rows = await cursor.fetchall()
@@ -885,9 +1000,10 @@ async def _build_sections(db: aiosqlite.Connection, file_id: int) -> list[dict]:
     current_title: str | None = None
 
     def _path_to_title(path: str | None) -> str | None:
+        """Internal helper for path to title."""
         if not path:
             return None
-        parts = str(path).split('/')
+        parts = str(path).split("/")
         return parts[-1].strip() or None
 
     def _first_sentence_label(text: str) -> str:
@@ -897,15 +1013,16 @@ async def _build_sections(db: aiosqlite.Connection, file_id: int) -> list[dict]:
         Used as a fallback when Docling detected no section header (e.g. academic
         PDFs, EPUBs, plain-text files).
         """
-        first_line = text.strip().split('\n')[0].strip()
+        first_line = text.strip().split("\n")[0].strip()
         if len(first_line) <= 60:
             return first_line
-        trimmed = first_line[:60].rsplit(' ', 1)[0]
-        return f'{trimmed}…'
+        trimmed = first_line[:60].rsplit(" ", 1)[0]
+        return f"{trimmed}…"
 
     def _flush():
+        """Internal helper for flush."""
         if current_chunks:
-            text = '\n\n'.join(current_chunks)
+            text = "\n\n".join(current_chunks)
             # Fall back to first-sentence label when Docling found no section header.
             title = current_title or _first_sentence_label(text)
             # If section text exceeds budget, split it using progressively
@@ -915,19 +1032,19 @@ async def _build_sections(db: aiosqlite.Connection, file_id: int) -> list[dict]:
             if not text_parts:
                 return
             if len(text_parts) == 1:
-                sections.append({'title': title, 'text': text_parts[0]})
+                sections.append({"title": title, "text": text_parts[0]})
                 return
             for part, section_text in enumerate(text_parts, start=1):
                 sections.append(
                     {
-                        'title': f'{title} ({part})',
-                        'text': section_text,
+                        "title": f"{title} ({part})",
+                        "text": section_text,
                     }
                 )
 
     for row in rows:
-        path = str(row['section_path'] or '')
-        content = str(row['content'] or '')
+        path = str(row["section_path"] or "")
+        content = str(row["content"] or "")
         if path != current_path:
             _flush()
             current_path = path
@@ -937,7 +1054,11 @@ async def _build_sections(db: aiosqlite.Connection, file_id: int) -> list[dict]:
             current_chunks.append(content)
 
     _flush()
-    return sections if sections else [{'title': None, 'text': '\n\n'.join(str(r['content']) for r in rows)}]
+    return (
+        sections
+        if sections
+        else [{"title": None, "text": "\n\n".join(str(r["content"]) for r in rows)}]
+    )
 
 
 async def _translate_section(
@@ -961,34 +1082,38 @@ async def _translate_section(
     # instead of "Chinese", "Modern Standard Arabic (MSA)" instead of "Arabic
     # (Standard)") so the model selects the right script and register.
     model_lang = get_translate_language_model_name(target_language)
-    tone_instr = TONE_INSTRUCTIONS.get(tone, TONE_INSTRUCTIONS['natural']).format(language=model_lang)
+    tone_instr = TONE_INSTRUCTIONS.get(tone, TONE_INSTRUCTIONS["natural"]).format(
+        language=model_lang
+    )
     system = (
-        f'You are a professional translator. Translate the following text into {model_lang}.\n'
-        f'{tone_instr}\n'
-        'Formatting rules:\n'
-        '- Preserve all Markdown: headers (#, ##, ###), bold (**text**), italic (*text*), '
-        'bullet lists (- item), numbered lists (1. item).\n'
-        '- Preserve code blocks (```...```) and inline code (`...`) exactly — do not translate their contents.\n'
-        '- Reproduce GFM tables with a header row, a separator row (|---|---|), and data rows. '
-        'If a source table is ambiguous or malformed, render its content as a bulleted list. '
-        'Never output a standalone separator line (---|---) without surrounding table rows.\n'
-        'Do not translate: URLs, email addresses, file paths, variable names, proper nouns that '
-        'are trademarks or brand names, and any text inside inline code or code blocks.\n'
-        f'If the source text is already written in {model_lang}, reproduce it unchanged.\n'
-        'Output ONLY the translated text. No commentary, preamble, or explanations.'
+        f"You are a professional translator. Translate the following text into {model_lang}.\n"
+        f"{tone_instr}\n"
+        "Formatting rules:\n"
+        "- Preserve all Markdown: headers (#, ##, ###), bold (**text**), italic (*text*), "
+        "bullet lists (- item), numbered lists (1. item).\n"
+        "- Preserve code blocks (```...```) and inline code (`...`) exactly "
+        "— do not translate their contents.\n"
+        "- Reproduce GFM tables with a header row, a separator row "
+        "(|---|---|), and data rows. If a source table is ambiguous or "
+        "malformed, render its content as a bulleted list. Never output a "
+        "standalone separator line (---|---) without surrounding table rows.\n"
+        "Do not translate: URLs, email addresses, file paths, variable names, "
+        "proper nouns that are trademarks or brand names, and any text inside "
+        "inline code or code blocks.\n"
+        f"If the source text is already written in {model_lang}, reproduce it unchanged.\n"
+        "Output ONLY the translated text. No commentary, preamble, or explanations."
     )
     if glossary_block:
         system += glossary_block
 
-
     # Prepend the tail of the previous section as a plain separator so the model
     # can maintain register and terminology without an instruction-like prefix
     # that could trigger reasoning mode on thinking-capable models.
-    user_content = f'{prev_context}\n\n---\n\n{source_text}' if prev_context else source_text
+    user_content = f"{prev_context}\n\n---\n\n{source_text}" if prev_context else source_text
 
     messages = [
-        {'role': 'system', 'content': system},
-        {'role': 'user', 'content': user_content},
+        {"role": "system", "content": system},
+        {"role": "user", "content": user_content},
     ]
 
     # Suppress thinking/reasoning for translation — we want direct output, not
@@ -999,7 +1124,7 @@ async def _translate_section(
     profile = get_profile()
     if profile.no_think_token:
         messages[-1] = dict(messages[-1])
-        messages[-1]['content'] += f'\n{profile.no_think_token}'
+        messages[-1]["content"] += f"\n{profile.no_think_token}"
 
     temperature = TONE_TEMPERATURES.get(tone, TRANSLATE_TEMPERATURE)
     parts: list[str] = []
@@ -1016,21 +1141,25 @@ async def _translate_section(
             # sets the engine's internal cancel_event, releasing the LLM.
             if cancel_event and cancel_event.is_set():
                 await gen.aclose()
-                return None, 'cancelled'
+                return None, "cancelled"
             if isinstance(item, tuple):
                 # Tuple signals end-of-stream; first element is final token or '__timeout__'
                 token, meta = item
-                if token == '__timeout__':
-                    finish_reason = 'timeout'
+                if token == "__timeout__":
+                    finish_reason = "timeout"
                 else:
-                    finish_reason = (meta or {}).get('finish_reason', 'stop') if isinstance(meta, dict) else 'stop'
+                    finish_reason = (
+                        (meta or {}).get("finish_reason", "stop")
+                        if isinstance(meta, dict)
+                        else "stop"
+                    )
                     if isinstance(token, str) and token:
                         parts.append(token)
                 break
             if isinstance(item, str):
                 parts.append(item)
     except Exception as exc:
-        raise RuntimeError(f'Translation stream error: {exc}') from exc
+        raise RuntimeError(f"Translation stream error: {exc}") from exc
 
-    text = ''.join(parts).strip() or None
+    text = "".join(parts).strip() or None
     return text, finish_reason

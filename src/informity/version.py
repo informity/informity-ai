@@ -10,22 +10,22 @@ import tomllib
 from importlib import metadata
 from pathlib import Path
 
-_PACKAGE_NAME = 'informity'
-_ENV_VERSION_KEY = 'INFORMITY_APP_VERSION'
-_DEFAULT_FALLBACK_VERSION = '0.15.0'
+_PACKAGE_NAME = "informity"
+_ENV_VERSION_KEY = "INFORMITY_APP_VERSION"
+_DEFAULT_FALLBACK_VERSION = "0.15.1"
 
 
 def _resolve_pyproject_version() -> str | None:
     """Resolve the project version from the nearest pyproject.toml."""
     current = Path(__file__).resolve()
     for parent in current.parents:
-        pyproject_path = parent / 'pyproject.toml'
+        pyproject_path = parent / "pyproject.toml"
         if not pyproject_path.exists():
             continue
         try:
-            with pyproject_path.open('rb') as file_obj:
+            with pyproject_path.open("rb") as file_obj:
                 data = tomllib.load(file_obj)
-            version = data.get('project', {}).get('version')
+            version = data.get("project", {}).get("version")
             if isinstance(version, str) and version.strip():
                 return version.strip()
         except (OSError, tomllib.TOMLDecodeError):
@@ -35,7 +35,7 @@ def _resolve_pyproject_version() -> str | None:
 
 def _resolve_app_version() -> str:
     """Resolve the runtime application version."""
-    env_version = str(os.getenv(_ENV_VERSION_KEY, '')).strip()
+    env_version = str(os.getenv(_ENV_VERSION_KEY, "")).strip()
     if env_version:
         return env_version
 

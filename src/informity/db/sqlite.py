@@ -4,6 +4,10 @@
 # v2: sqlite-vec for vector search, FTS5 for candidate augmentation.
 # ==============================================================================
 
+"""Module for db sqlite."""
+
+# pylint: disable=line-too-long
+
 import asyncio
 import hashlib
 import json
@@ -57,11 +61,11 @@ _RESET_SCHEMA_RETRY_ATTEMPTS = 15
 _RESET_SCHEMA_RETRY_BASE_DELAY_SECONDS = 0.2
 _RESET_COMPACTION_RETRY_ATTEMPTS = 10
 _CHAT_TITLE_MAX_LENGTH = 50
-_CHAT_TITLE_MARKDOWN_HEADING_RE = re.compile(r'^\s{0,3}#{1,6}\s+')
-_CHAT_TITLE_MARKDOWN_LINK_RE = re.compile(r'\[([^\]]+)\]\([^)]+\)')
-_CHAT_TITLE_MARKDOWN_DECORATOR_RE = re.compile(r'[*_`~]+')
-_CHAT_TITLE_MARKDOWN_LEADING_LIST_RE = re.compile(r'^\s*[-+*>\s]+')
-_CHAT_TITLE_WHITESPACE_RE = re.compile(r'\s+')
+_CHAT_TITLE_MARKDOWN_HEADING_RE = re.compile(r"^\s{0,3}#{1,6}\s+")
+_CHAT_TITLE_MARKDOWN_LINK_RE = re.compile(r"\[([^\]]+)\]\([^)]+\)")
+_CHAT_TITLE_MARKDOWN_DECORATOR_RE = re.compile(r"[*_`~]+")
+_CHAT_TITLE_MARKDOWN_LEADING_LIST_RE = re.compile(r"^\s*[-+*>\s]+")
+_CHAT_TITLE_WHITESPACE_RE = re.compile(r"\s+")
 
 # ==============================================================================
 # Schema — DDL statements for all tables
@@ -72,43 +76,43 @@ SCHEMA_VERSION = 9
 # Additive columns reconciled on every startup so legacy databases catch up even when
 # schema_version already matches SCHEMA_VERSION (e.g. columns added to _SCHEMA_SQL only).
 _CHAT_MESSAGES_ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
-    ('generation_seconds', 'REAL'),
-    ('completion_mode', 'TEXT'),
-    ('stopped_by_user', 'INTEGER DEFAULT 0'),
-    ('has_remaining_scope', 'INTEGER DEFAULT 0'),
-    ('next_action', 'TEXT'),
-    ('next_action_reason', 'TEXT'),
-    ('chat_mode', 'TEXT'),
-    ('specialization_id', 'TEXT'),
-    ('translated_from_message_id', 'INTEGER REFERENCES chat_messages(id) ON DELETE CASCADE'),
-    ('translation_language', 'TEXT'),
-    ('translation_tone', 'TEXT'),
-    ('translation_source_hash', "TEXT NOT NULL DEFAULT ''"),
-    ('translation_is_stale', 'INTEGER DEFAULT 0'),
-    ('retrieval_scope_kind', 'TEXT'),
-    ('retrieval_scope_key', 'TEXT'),
-    ('model_filename', 'TEXT'),
-    ('is_internal', 'INTEGER DEFAULT 0'),
+    ("generation_seconds", "REAL"),
+    ("completion_mode", "TEXT"),
+    ("stopped_by_user", "INTEGER DEFAULT 0"),
+    ("has_remaining_scope", "INTEGER DEFAULT 0"),
+    ("next_action", "TEXT"),
+    ("next_action_reason", "TEXT"),
+    ("chat_mode", "TEXT"),
+    ("specialization_id", "TEXT"),
+    ("translated_from_message_id", "INTEGER REFERENCES chat_messages(id) ON DELETE CASCADE"),
+    ("translation_language", "TEXT"),
+    ("translation_tone", "TEXT"),
+    ("translation_source_hash", "TEXT NOT NULL DEFAULT ''"),
+    ("translation_is_stale", "INTEGER DEFAULT 0"),
+    ("retrieval_scope_kind", "TEXT"),
+    ("retrieval_scope_key", "TEXT"),
+    ("model_filename", "TEXT"),
+    ("is_internal", "INTEGER DEFAULT 0"),
 )
 
-DIAGNOSTICS_TYPE_USER = 'user'
-DIAGNOSTICS_TYPE_EVALUATION = 'evaluation'
+DIAGNOSTICS_TYPE_USER = "user"
+DIAGNOSTICS_TYPE_EVALUATION = "evaluation"
 CANONICAL_DIAGNOSTICS_TYPES = (DIAGNOSTICS_TYPE_USER, DIAGNOSTICS_TYPE_EVALUATION)
 CANONICAL_DIAGNOSTICS_QUERY_TYPES = tuple(item.value for item in DiagnosticsQueryType)
 CANONICAL_DIAGNOSTICS_ISSUE_TYPES = tuple(sorted(issue.value for issue in IssueType))
-LOG_EVENT_CHANNEL_APPLICATION = 'application'
-LOG_EVENT_CHANNEL_ERRORS = 'errors'
-LOG_EVENT_CHANNEL_INTEGRATIONS = 'integrations'
+LOG_EVENT_CHANNEL_APPLICATION = "application"
+LOG_EVENT_CHANNEL_ERRORS = "errors"
+LOG_EVENT_CHANNEL_INTEGRATIONS = "integrations"
 LOG_EVENT_CHANNELS = (
     LOG_EVENT_CHANNEL_APPLICATION,
     LOG_EVENT_CHANNEL_ERRORS,
     LOG_EVENT_CHANNEL_INTEGRATIONS,
 )
-LOG_EVENT_TYPE_DEBUG = 'debug'
-LOG_EVENT_TYPE_INFO = 'info'
-LOG_EVENT_TYPE_WARNING = 'warning'
-LOG_EVENT_TYPE_ERROR = 'error'
-LOG_EVENT_TYPE_CRITICAL = 'critical'
+LOG_EVENT_TYPE_DEBUG = "debug"
+LOG_EVENT_TYPE_INFO = "info"
+LOG_EVENT_TYPE_WARNING = "warning"
+LOG_EVENT_TYPE_ERROR = "error"
+LOG_EVENT_TYPE_CRITICAL = "critical"
 LOG_EVENT_TYPES = (
     LOG_EVENT_TYPE_DEBUG,
     LOG_EVENT_TYPE_INFO,
@@ -136,7 +140,8 @@ CREATE TRIGGER IF NOT EXISTS fts_chunks_au AFTER UPDATE ON vec_chunks BEGIN
 END;
 """
 
-_SCHEMA_SQL = """
+_SCHEMA_SQL = (
+    """
 CREATE TABLE IF NOT EXISTS schema_version (
     version INTEGER PRIMARY KEY
 );
@@ -445,7 +450,9 @@ CREATE VIRTUAL TABLE IF NOT EXISTS fts_chunks USING fts5(
     tokenize='porter unicode61'
 );
 
-""" + _FTS_TRIGGERS_SQL + """
+"""
+    + _FTS_TRIGGERS_SQL
+    + """
 
 CREATE TABLE IF NOT EXISTS term_dictionary_state (
     singleton_id INTEGER PRIMARY KEY CHECK(singleton_id = 1),
@@ -557,10 +564,11 @@ CREATE INDEX IF NOT EXISTS idx_translate_job_sections_job_id
 CREATE INDEX IF NOT EXISTS idx_translate_job_sections_job_index
     ON translate_job_sections(job_id, section_index);
 """
+)
 
 # DDL to drop all tables for a full schema reset (index rebuild or dev reset).
 # WARNING: keep in sync with _SCHEMA_SQL — add new tables here when adding them to the schema.
-_RESET_DROP_SQL = '''
+_RESET_DROP_SQL = """
 DROP TABLE IF EXISTS translate_job_sections;
 DROP TABLE IF EXISTS translate_jobs;
 DROP TRIGGER IF EXISTS fts_chunks_ai;
@@ -586,20 +594,22 @@ DROP TABLE IF EXISTS file_failures;
 DROP TABLE IF EXISTS scan_history;
 DROP TABLE IF EXISTS config;
 DROP TABLE IF EXISTS schema_version;
-'''
+"""
 
 # ==============================================================================
 # Connection Management
 # ==============================================================================
 
+
 async def get_connection() -> aiosqlite.Connection:
     # Open a new connection to the SQLite database.
+    """Get connection."""
     db_path = str(settings.db_path)
-    conn    = await aiosqlite.connect(db_path)
+    conn = await aiosqlite.connect(db_path)
     conn.row_factory = aiosqlite.Row
-    await conn.execute('PRAGMA journal_mode=WAL')
-    await conn.execute('PRAGMA foreign_keys=ON')
-    await conn.execute(f'PRAGMA busy_timeout={_SQLITE_BUSY_TIMEOUT_MS}')
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA foreign_keys=ON")
+    await conn.execute(f"PRAGMA busy_timeout={_SQLITE_BUSY_TIMEOUT_MS}")
     return conn
 
 
@@ -622,8 +632,11 @@ async def _load_sqlite_vec_extension(conn: aiosqlite.Connection) -> bool:
         underlying_conn = conn._conn
 
         # Check if extension loading is supported
-        if not hasattr(underlying_conn, 'enable_load_extension'):
-            log.debug('sqlite_extension_loading_not_supported', msg='Python was not compiled with extension support')
+        if not hasattr(underlying_conn, "enable_load_extension"):
+            log.debug(
+                "sqlite_extension_loading_not_supported",
+                msg="Python was not compiled with extension support",
+            )
             return False
 
         # Enable extension loading (required before load_extension())
@@ -640,65 +653,68 @@ async def _load_sqlite_vec_extension(conn: aiosqlite.Connection) -> bool:
         # Extension loading not available or already loaded - that's OK
         # sqlite-vec operations will fail later if extension is truly needed
         log.debug(
-            'sqlite_vec_extension_load_failed',
+            "sqlite_vec_extension_load_failed",
             error=str(exc),
             error_type=type(exc).__name__,
-            msg='Extension loading failed (may already be loaded or not supported)'
+            msg="Extension loading failed (may already be loaded or not supported)",
         )
         return False
 
 
 async def init_db() -> None:
     # Initialize database from current schema.
-    log.info('initializing_database', db_path=str(settings.db_path))
+    """Init db."""
+    log.info("initializing_database", db_path=str(settings.db_path))
     conn = await get_connection()
     try:
         # Attempt to load sqlite-vec extension (may fail if Python wasn't compiled with extension support)
         extension_loaded = await _load_sqlite_vec_extension(conn)
         if extension_loaded:
-            log.info('sqlite_vec_extension_loaded')
+            log.info("sqlite_vec_extension_loaded")
         else:
-            log.debug('sqlite_vec_extension_not_loaded', msg='Extension loading not available or already loaded')
+            log.debug(
+                "sqlite_vec_extension_not_loaded",
+                msg="Extension loading not available or already loaded",
+            )
 
         await conn.executescript(_SCHEMA_SQL)
 
         # Term dictionary uniqueness is typed by design:
         # allow same normalized term across different entity types.
-        await conn.execute('DROP INDEX IF EXISTS idx_term_entries_version_norm')
-        await conn.execute('DROP INDEX IF EXISTS idx_term_entries_version_type_norm')
+        await conn.execute("DROP INDEX IF EXISTS idx_term_entries_version_norm")
+        await conn.execute("DROP INDEX IF EXISTS idx_term_entries_version_type_norm")
         await conn.execute(
-            '''
+            """
             CREATE UNIQUE INDEX IF NOT EXISTS idx_term_entries_version_type_norm
             ON term_entries(dict_version, type, normalized_term)
-            '''
+            """
         )
 
         # Ensure index exists
-        await conn.execute('CREATE INDEX IF NOT EXISTS idx_chunks_parent_id ON chunks(parent_id)')
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_chunks_parent_id ON chunks(parent_id)")
         # Ensure FTS triggers are on the current syntax. Older trigger variants
         # using fts5 "delete" pseudo-inserts can raise SQL logic error on DELETE.
-        await conn.execute('DROP TRIGGER IF EXISTS fts_chunks_ai')
-        await conn.execute('DROP TRIGGER IF EXISTS fts_chunks_ad')
-        await conn.execute('DROP TRIGGER IF EXISTS fts_chunks_au')
+        await conn.execute("DROP TRIGGER IF EXISTS fts_chunks_ai")
+        await conn.execute("DROP TRIGGER IF EXISTS fts_chunks_ad")
+        await conn.execute("DROP TRIGGER IF EXISTS fts_chunks_au")
         await conn.executescript(_FTS_TRIGGERS_SQL)
 
         await _ensure_schema_version(conn)
         await _ensure_chat_translation_indexes(conn)
         await conn.execute(
-            '''
+            """
             INSERT INTO term_dictionary_state (singleton_id, current_version)
             VALUES (1, 0)
             ON CONFLICT(singleton_id) DO NOTHING
-            '''
+            """
         )
         await conn.commit()
         if settings.db_path is not None:
             ensure_private_file(settings.db_path)
         await _compact_empty_db_if_bloated(conn)
-        log.info('database_initialized', schema_version=SCHEMA_VERSION)
+        log.info("database_initialized", schema_version=SCHEMA_VERSION)
     finally:
         await conn.close()
-
 
 
 async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
@@ -706,21 +722,21 @@ async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
     Ensure schema_version row exists and apply forward migrations to the
     expected runtime SCHEMA_VERSION.
     """
-    cursor = await conn.execute('SELECT version FROM schema_version LIMIT 1')
+    cursor = await conn.execute("SELECT version FROM schema_version LIMIT 1")
     row = await cursor.fetchone()
     if row is None:
-        await conn.execute('INSERT INTO schema_version (version) VALUES (?)', (SCHEMA_VERSION,))
+        await conn.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
         await _reconcile_chat_messages_schema(conn)
         return
 
-    existing = int(row['version'])
+    existing = int(row["version"])
     if existing == SCHEMA_VERSION:
         await _reconcile_chat_messages_schema(conn)
         return
     if existing > SCHEMA_VERSION:
         raise RuntimeError(
-            f'Database schema version mismatch: found {existing}, expected <= {SCHEMA_VERSION}. '
-            'Downgrade is not supported.'
+            f"Database schema version mismatch: found {existing}, expected <= {SCHEMA_VERSION}. "
+            "Downgrade is not supported."
         )
 
     current = existing
@@ -743,17 +759,18 @@ async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
         elif next_version == 9:
             await _migrate_to_v9(conn)
         else:
-            raise RuntimeError(f'No migration path defined for schema version {next_version}')
-        await conn.execute('UPDATE schema_version SET version = ?', (next_version,))
+            raise RuntimeError(f"No migration path defined for schema version {next_version}")
+        await conn.execute("UPDATE schema_version SET version = ?", (next_version,))
         current = next_version
 
     await _reconcile_chat_messages_schema(conn)
 
 
 async def _table_column_names(conn: aiosqlite.Connection, table: str) -> set[str]:
+    """Internal helper for table column names."""
     cursor = await conn.execute(f"PRAGMA table_info('{table}')")
     columns = await cursor.fetchall()
-    return {str(row['name']) for row in columns}
+    return {str(row["name"]) for row in columns}
 
 
 async def _ensure_additive_columns(
@@ -762,29 +779,36 @@ async def _ensure_additive_columns(
     table: str,
     columns: tuple[tuple[str, str], ...],
 ) -> None:
+    """Internal helper for ensure additive columns."""
     existing = await _table_column_names(conn, table)
     for name, column_def in columns:
         if name in existing:
             continue
-        await conn.execute(f'ALTER TABLE {table} ADD COLUMN {name} {column_def}')
-        log.info('schema_additive_column_added', table=table, column=name)
+        await conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {column_def}")
+        log.info("schema_additive_column_added", table=table, column=name)
 
 
 async def _reconcile_chat_messages_schema(conn: aiosqlite.Connection) -> None:
+    """Internal helper for reconcile chat messages schema."""
     cursor = await conn.execute(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='chat_messages'"
     )
     if await cursor.fetchone() is None:
         return
 
-    column_names = await _table_column_names(conn, 'chat_messages')
-    if 'role_id' in column_names and 'specialization_id' not in column_names:
-        await conn.execute('ALTER TABLE chat_messages RENAME COLUMN role_id TO specialization_id')
-        log.info('schema_column_renamed', table='chat_messages', from_column='role_id', to_column='specialization_id')
+    column_names = await _table_column_names(conn, "chat_messages")
+    if "role_id" in column_names and "specialization_id" not in column_names:
+        await conn.execute("ALTER TABLE chat_messages RENAME COLUMN role_id TO specialization_id")
+        log.info(
+            "schema_column_renamed",
+            table="chat_messages",
+            from_column="role_id",
+            to_column="specialization_id",
+        )
 
     await _ensure_additive_columns(
         conn,
-        table='chat_messages',
+        table="chat_messages",
         columns=_CHAT_MESSAGES_ADDITIVE_COLUMNS,
     )
     await _ensure_chat_translation_indexes(conn)
@@ -797,9 +821,9 @@ async def _migrate_to_v2(conn: aiosqlite.Connection) -> None:
     """
     cursor = await conn.execute("PRAGMA table_info('chat_messages')")
     columns = await cursor.fetchall()
-    column_names = {str(row['name']) for row in columns}
-    if 'specialization_id' not in column_names:
-        await conn.execute('ALTER TABLE chat_messages ADD COLUMN specialization_id TEXT')
+    column_names = {str(row["name"]) for row in columns}
+    if "specialization_id" not in column_names:
+        await conn.execute("ALTER TABLE chat_messages ADD COLUMN specialization_id TEXT")
 
 
 async def _migrate_to_v3(conn: aiosqlite.Connection) -> None:
@@ -809,17 +833,19 @@ async def _migrate_to_v3(conn: aiosqlite.Connection) -> None:
     """
     cursor = await conn.execute("PRAGMA table_info('response_diagnostics_metrics')")
     columns = await cursor.fetchall()
-    column_names = {str(row['name']) for row in columns}
-    if 'pre_first_yield_timeout_occurred' not in column_names:
+    column_names = {str(row["name"]) for row in columns}
+    if "pre_first_yield_timeout_occurred" not in column_names:
         await conn.execute(
-            'ALTER TABLE response_diagnostics_metrics ADD COLUMN pre_first_yield_timeout_occurred INTEGER'
+            "ALTER TABLE response_diagnostics_metrics ADD COLUMN pre_first_yield_timeout_occurred INTEGER"
         )
-    if 'pre_first_yield_elapsed_seconds' not in column_names:
+    if "pre_first_yield_elapsed_seconds" not in column_names:
         await conn.execute(
-            'ALTER TABLE response_diagnostics_metrics ADD COLUMN pre_first_yield_elapsed_seconds REAL'
+            "ALTER TABLE response_diagnostics_metrics ADD COLUMN pre_first_yield_elapsed_seconds REAL"
         )
-    if 'pre_first_yield_stage' not in column_names:
-        await conn.execute('ALTER TABLE response_diagnostics_metrics ADD COLUMN pre_first_yield_stage TEXT')
+    if "pre_first_yield_stage" not in column_names:
+        await conn.execute(
+            "ALTER TABLE response_diagnostics_metrics ADD COLUMN pre_first_yield_stage TEXT"
+        )
 
 
 async def _migrate_to_v4(conn: aiosqlite.Connection) -> None:
@@ -828,7 +854,7 @@ async def _migrate_to_v4(conn: aiosqlite.Connection) -> None:
     - add log_events table and supporting indexes for user-facing activity logs.
     """
     await conn.execute(
-        '''
+        """
         CREATE TABLE IF NOT EXISTS log_events (
             id             INTEGER PRIMARY KEY AUTOINCREMENT,
             event_id       TEXT NOT NULL UNIQUE,
@@ -845,21 +871,23 @@ async def _migrate_to_v4(conn: aiosqlite.Connection) -> None:
             scan_id        INTEGER,
             created_by     TEXT
         )
-        '''
+        """
     )
     await conn.execute(
-        'CREATE INDEX IF NOT EXISTS idx_log_events_channel_created_at ON log_events(channel, created_at DESC, id DESC)'
+        "CREATE INDEX IF NOT EXISTS idx_log_events_channel_created_at ON log_events(channel, created_at DESC, id DESC)"
     )
     await conn.execute(
-        'CREATE INDEX IF NOT EXISTS idx_log_events_event_type_created_at ON log_events(event_type, created_at DESC, id DESC)'
+        "CREATE INDEX IF NOT EXISTS idx_log_events_event_type_created_at ON log_events(event_type, created_at DESC, id DESC)"
     )
     await conn.execute(
-        'CREATE INDEX IF NOT EXISTS idx_log_events_source_created_at ON log_events(source, created_at DESC, id DESC)'
+        "CREATE INDEX IF NOT EXISTS idx_log_events_source_created_at ON log_events(source, created_at DESC, id DESC)"
     )
     await conn.execute(
-        'CREATE INDEX IF NOT EXISTS idx_log_events_event_name_created_at ON log_events(event_name, created_at DESC, id DESC)'
+        "CREATE INDEX IF NOT EXISTS idx_log_events_event_name_created_at ON log_events(event_name, created_at DESC, id DESC)"
     )
-    await conn.execute('CREATE INDEX IF NOT EXISTS idx_log_events_correlation_id ON log_events(correlation_id)')
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_log_events_correlation_id ON log_events(correlation_id)"
+    )
 
 
 async def _migrate_to_v5(conn: aiosqlite.Connection) -> None:
@@ -868,7 +896,7 @@ async def _migrate_to_v5(conn: aiosqlite.Connection) -> None:
     - add translate_jobs and translate_job_sections tables for document translation feature.
     """
     await conn.execute(
-        '''
+        """
         CREATE TABLE IF NOT EXISTS translate_jobs (
             job_id           TEXT PRIMARY KEY,
             file_id          INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
@@ -885,12 +913,16 @@ async def _migrate_to_v5(conn: aiosqlite.Connection) -> None:
             created_at       TEXT NOT NULL,
             updated_at       TEXT NOT NULL
         )
-        '''
+        """
     )
-    await conn.execute('CREATE INDEX IF NOT EXISTS idx_translate_jobs_file_id ON translate_jobs(file_id)')
-    await conn.execute('CREATE INDEX IF NOT EXISTS idx_translate_jobs_status ON translate_jobs(status)')
     await conn.execute(
-        '''
+        "CREATE INDEX IF NOT EXISTS idx_translate_jobs_file_id ON translate_jobs(file_id)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_translate_jobs_status ON translate_jobs(status)"
+    )
+    await conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS translate_job_sections (
             section_id     TEXT PRIMARY KEY,
             job_id         TEXT NOT NULL REFERENCES translate_jobs(job_id) ON DELETE CASCADE,
@@ -904,10 +936,14 @@ async def _migrate_to_v5(conn: aiosqlite.Connection) -> None:
             created_at     TEXT NOT NULL,
             updated_at     TEXT NOT NULL
         )
-        '''
+        """
     )
-    await conn.execute('CREATE INDEX IF NOT EXISTS idx_translate_job_sections_job_id ON translate_job_sections(job_id)')
-    await conn.execute('CREATE INDEX IF NOT EXISTS idx_translate_job_sections_job_index ON translate_job_sections(job_id, section_index)')
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_translate_job_sections_job_id ON translate_job_sections(job_id)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_translate_job_sections_job_index ON translate_job_sections(job_id, section_index)"
+    )
 
 
 async def _migrate_to_v6(conn: aiosqlite.Connection) -> None:
@@ -917,9 +953,9 @@ async def _migrate_to_v6(conn: aiosqlite.Connection) -> None:
     """
     cursor = await conn.execute("PRAGMA table_info('chat_messages')")
     columns = await cursor.fetchall()
-    column_names = {str(row['name']) for row in columns}
-    if 'role_id' in column_names and 'specialization_id' not in column_names:
-        await conn.execute('ALTER TABLE chat_messages RENAME COLUMN role_id TO specialization_id')
+    column_names = {str(row["name"]) for row in columns}
+    if "role_id" in column_names and "specialization_id" not in column_names:
+        await conn.execute("ALTER TABLE chat_messages RENAME COLUMN role_id TO specialization_id")
 
 
 async def _migrate_to_v7(conn: aiosqlite.Connection) -> None:
@@ -929,19 +965,23 @@ async def _migrate_to_v7(conn: aiosqlite.Connection) -> None:
     """
     cursor = await conn.execute("PRAGMA table_info('chat_messages')")
     columns = await cursor.fetchall()
-    column_names = {str(row['name']) for row in columns}
-    if 'translated_from_message_id' not in column_names:
+    column_names = {str(row["name"]) for row in columns}
+    if "translated_from_message_id" not in column_names:
         await conn.execute(
-            'ALTER TABLE chat_messages ADD COLUMN translated_from_message_id INTEGER REFERENCES chat_messages(id) ON DELETE CASCADE'
+            "ALTER TABLE chat_messages ADD COLUMN translated_from_message_id INTEGER REFERENCES chat_messages(id) ON DELETE CASCADE"
         )
-    if 'translation_language' not in column_names:
-        await conn.execute('ALTER TABLE chat_messages ADD COLUMN translation_language TEXT')
-    if 'translation_tone' not in column_names:
-        await conn.execute('ALTER TABLE chat_messages ADD COLUMN translation_tone TEXT')
-    if 'translation_source_hash' not in column_names:
-        await conn.execute("ALTER TABLE chat_messages ADD COLUMN translation_source_hash TEXT NOT NULL DEFAULT ''")
-    if 'translation_is_stale' not in column_names:
-        await conn.execute('ALTER TABLE chat_messages ADD COLUMN translation_is_stale INTEGER DEFAULT 0')
+    if "translation_language" not in column_names:
+        await conn.execute("ALTER TABLE chat_messages ADD COLUMN translation_language TEXT")
+    if "translation_tone" not in column_names:
+        await conn.execute("ALTER TABLE chat_messages ADD COLUMN translation_tone TEXT")
+    if "translation_source_hash" not in column_names:
+        await conn.execute(
+            "ALTER TABLE chat_messages ADD COLUMN translation_source_hash TEXT NOT NULL DEFAULT ''"
+        )
+    if "translation_is_stale" not in column_names:
+        await conn.execute(
+            "ALTER TABLE chat_messages ADD COLUMN translation_is_stale INTEGER DEFAULT 0"
+        )
     await _ensure_chat_translation_indexes(conn)
 
 
@@ -960,14 +1000,17 @@ async def _migrate_to_v9(conn: aiosqlite.Connection) -> None:
     """
     cursor = await conn.execute("PRAGMA table_info('response_diagnostics_metrics')")
     columns = await cursor.fetchall()
-    column_names = {str(row['name']) for row in columns}
-    if 'guardrail_applied' not in column_names:
-        await conn.execute('ALTER TABLE response_diagnostics_metrics ADD COLUMN guardrail_applied TEXT')
+    column_names = {str(row["name"]) for row in columns}
+    if "guardrail_applied" not in column_names:
+        await conn.execute(
+            "ALTER TABLE response_diagnostics_metrics ADD COLUMN guardrail_applied TEXT"
+        )
 
 
 async def _ensure_chat_translation_indexes(conn: aiosqlite.Connection) -> None:
+    """Internal helper for ensure chat translation indexes."""
     await conn.execute(
-        'CREATE INDEX IF NOT EXISTS idx_chat_translation_source_message_id ON chat_messages(translated_from_message_id)'
+        "CREATE INDEX IF NOT EXISTS idx_chat_translation_source_message_id ON chat_messages(translated_from_message_id)"
     )
     await conn.execute(
         """
@@ -981,9 +1024,10 @@ async def _ensure_chat_translation_indexes(conn: aiosqlite.Connection) -> None:
 async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
     # Self-heal path: if DB is logically empty but file still retains many free
     # pages (e.g., reset vacuum was blocked by concurrent readers), compact now.
+    """Internal helper for compact empty db if bloated."""
     try:
         cursor = await conn.execute(
-            '''
+            """
             SELECT
               (SELECT COUNT(*) FROM files) AS files_count,
               (SELECT COUNT(*) FROM chunks) AS chunks_count,
@@ -991,26 +1035,26 @@ async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
               (SELECT COUNT(*) FROM chat_messages) AS chats_count,
               (SELECT COUNT(*) FROM continuation_pass_artifacts) AS continuation_count,
               (SELECT COUNT(*) FROM term_entries) AS term_entries_count
-            '''
+            """
         )
         row = await cursor.fetchone()
         if row is None:
             return
 
         is_empty = (
-            int(row['files_count']) == 0
-            and int(row['chunks_count']) == 0
-            and int(row['vectors_count']) == 0
-            and int(row['chats_count']) == 0
-            and int(row['continuation_count']) == 0
-            and int(row['term_entries_count']) == 0
+            int(row["files_count"]) == 0
+            and int(row["chunks_count"]) == 0
+            and int(row["vectors_count"]) == 0
+            and int(row["chats_count"]) == 0
+            and int(row["continuation_count"]) == 0
+            and int(row["term_entries_count"]) == 0
         )
         if not is_empty:
             return
 
-        page_count_row = await (await conn.execute('PRAGMA page_count')).fetchone()
-        freelist_row = await (await conn.execute('PRAGMA freelist_count')).fetchone()
-        page_size_row = await (await conn.execute('PRAGMA page_size')).fetchone()
+        page_count_row = await (await conn.execute("PRAGMA page_count")).fetchone()
+        freelist_row = await (await conn.execute("PRAGMA freelist_count")).fetchone()
+        page_size_row = await (await conn.execute("PRAGMA page_size")).fetchone()
         if page_count_row is None or freelist_row is None or page_size_row is None:
             return
 
@@ -1024,23 +1068,24 @@ async def _compact_empty_db_if_bloated(conn: aiosqlite.Connection) -> None:
         if file_size_bytes < 16 * 1024 * 1024 or free_ratio < 0.5:
             return
 
-        await conn.execute('PRAGMA wal_checkpoint(TRUNCATE)')
-        await conn.execute('VACUUM')
+        await conn.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        await conn.execute("VACUUM")
         await conn.commit()
         log.info(
-            'database_compacted_on_startup',
+            "database_compacted_on_startup",
             file_size_bytes=file_size_bytes,
             freelist_count=freelist_count,
             page_count=page_count,
             free_ratio=round(free_ratio, 4),
         )
     except (aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError) as exc:
-        log.warning('startup_database_compaction_skipped', error=str(exc))
+        log.warning("startup_database_compaction_skipped", error=str(exc))
 
 
 async def compact_database_if_empty_with_retries() -> dict[str, object]:
     # Best-effort compaction pass intended for post-reset execution while the app
     # is still running. Uses a fresh connection and retries to ride out brief locks.
+    """Compact database if empty with retries."""
     compacted = False
     error: str | None = None
     for attempt in range(1, _RESET_COMPACTION_RETRY_ATTEMPTS + 1):
@@ -1058,13 +1103,14 @@ async def compact_database_if_empty_with_retries() -> dict[str, object]:
             await conn.close()
 
     return {
-        'storage_compacted': compacted,
-        'compaction_error': error,
+        "storage_compacted": compacted,
+        "compaction_error": error,
     }
 
 
 async def get_db() -> AsyncGenerator[aiosqlite.Connection]:
     # FastAPI dependency that yields an aiosqlite connection.
+    """Get db."""
     conn = await get_connection()
     try:
         yield conn
@@ -1076,167 +1122,187 @@ async def get_db() -> AsyncGenerator[aiosqlite.Connection]:
 # Helper — Row to Model Converters
 # ==============================================================================
 
+
 def row_to_indexed_file(row: aiosqlite.Row) -> IndexedFile:
     # Convert a SQLite row to an IndexedFile model.
+    """Row to indexed file."""
     return IndexedFile(
-        id                     = row['id'],
-        source_provider        = row['source_provider'] or 'filesystem',
-        entity_type            = row['entity_type'] or 'file',
-        source_item_id         = row['source_item_id'] or row['path'] or '',
-        path                   = row['path'],
-        filename               = row['filename'],
-        extension              = row['extension'] or '',
-        size_bytes             = row['size_bytes'] or 0,
-        content_hash           = row['content_hash'] or '',
-        extracted_text_preview = row['extracted_text_preview'] or '',
-        category               = parse_file_category(row['category']),
-        tags                   = parse_json_tags(row['tags']),
-        year                   = row['year'],
-        extractor              = row['extractor'],
-        encoding               = row['encoding'],
-        language               = row['language'],
-        mime_type              = row['mime_type'],
-        ocr_used               = bool(row['ocr_used']),
-        page_count             = row['page_count'],
-        tables_count           = row['tables_count'],
-        form_items_count       = row['form_items_count'],
-        key_value_items_count  = row['key_value_items_count'],
-        pictures_count         = row['pictures_count'],
-        document_hash          = row['document_hash'],
-        indexed_at             = parse_timestamp(row['indexed_at']),
-        modified_at            = parse_timestamp(row['modified_at']) or datetime.now(UTC),
-        created_at             = parse_timestamp(row['created_at']),
+        id=row["id"],
+        source_provider=row["source_provider"] or "filesystem",
+        entity_type=row["entity_type"] or "file",
+        source_item_id=row["source_item_id"] or row["path"] or "",
+        path=row["path"],
+        filename=row["filename"],
+        extension=row["extension"] or "",
+        size_bytes=row["size_bytes"] or 0,
+        content_hash=row["content_hash"] or "",
+        extracted_text_preview=row["extracted_text_preview"] or "",
+        category=parse_file_category(row["category"]),
+        tags=parse_json_tags(row["tags"]),
+        year=row["year"],
+        extractor=row["extractor"],
+        encoding=row["encoding"],
+        language=row["language"],
+        mime_type=row["mime_type"],
+        ocr_used=bool(row["ocr_used"]),
+        page_count=row["page_count"],
+        tables_count=row["tables_count"],
+        form_items_count=row["form_items_count"],
+        key_value_items_count=row["key_value_items_count"],
+        pictures_count=row["pictures_count"],
+        document_hash=row["document_hash"],
+        indexed_at=parse_timestamp(row["indexed_at"]),
+        modified_at=parse_timestamp(row["modified_at"]) or datetime.now(UTC),
+        created_at=parse_timestamp(row["created_at"]),
     )
 
 
 def _row_to_chunk(row: aiosqlite.Row) -> Chunk:
     # Convert a SQLite row to a Chunk model.
+    """Internal helper for row to chunk."""
     return Chunk(
-        id           = row['id'],
-        file_id      = row['file_id'],
-        chunk_index  = row['chunk_index'],
-        content      = row['content'],
-        token_count  = row['token_count'] or 0,
-        parent_id    = row['parent_id'],
-        page_number  = row['page_number'],
-        start_page   = row['start_page'],
-        end_page     = row['end_page'],
-        section_path = row['section_path'],
-        block_type   = row['block_type'],
-        created_at   = parse_timestamp(row['created_at']),
+        id=row["id"],
+        file_id=row["file_id"],
+        chunk_index=row["chunk_index"],
+        content=row["content"],
+        token_count=row["token_count"] or 0,
+        parent_id=row["parent_id"],
+        page_number=row["page_number"],
+        start_page=row["start_page"],
+        end_page=row["end_page"],
+        section_path=row["section_path"],
+        block_type=row["block_type"],
+        created_at=parse_timestamp(row["created_at"]),
     )
 
 
 def _row_to_scan_record(row: aiosqlite.Row) -> ScanRecord:
     # Convert a SQLite row to a ScanRecord model.
+    """Internal helper for row to scan record."""
     status = ScanStatus.RUNNING
-    if row['status']:
+    if row["status"]:
         try:
-            status = ScanStatus(row['status'])
+            status = ScanStatus(row["status"])
         except (ValueError, KeyError):
             status = ScanStatus.RUNNING
 
     return ScanRecord(
-        id            = row['id'],
-        started_at    = parse_timestamp(row['started_at']) or datetime.now(UTC),
-        completed_at  = parse_timestamp(row['completed_at']),
-        files_scanned = row['files_scanned'] or 0,
-        files_indexed = row['files_indexed'] or 0,
-        errors        = row['errors'] or 0,
-        status        = status,
+        id=row["id"],
+        started_at=parse_timestamp(row["started_at"]) or datetime.now(UTC),
+        completed_at=parse_timestamp(row["completed_at"]),
+        files_scanned=row["files_scanned"] or 0,
+        files_indexed=row["files_indexed"] or 0,
+        errors=row["errors"] or 0,
+        status=status,
     )
 
 
 def _row_to_scan_error_record(row: aiosqlite.Row) -> ScanErrorRecord:
     # Convert a SQLite row to a ScanErrorRecord model.
+    """Internal helper for row to scan error record."""
     return ScanErrorRecord(
-        id=row['id'],
-        scan_id=row['scan_id'],
-        path=row['path'] or '',
-        filename=row['filename'] or '',
-        extension=row['extension'] or '',
-        operation=row['operation'] or '',
-        error_code=row['error_code'],
-        error_message=row['error_message'] or '',
-        is_timeout=bool(row['is_timeout']),
-        created_at=parse_timestamp(row['created_at']),
+        id=row["id"],
+        scan_id=row["scan_id"],
+        path=row["path"] or "",
+        filename=row["filename"] or "",
+        extension=row["extension"] or "",
+        operation=row["operation"] or "",
+        error_code=row["error_code"],
+        error_message=row["error_message"] or "",
+        is_timeout=bool(row["is_timeout"]),
+        created_at=parse_timestamp(row["created_at"]),
     )
 
 
 def _row_to_scan_skipped_file_record(row: aiosqlite.Row) -> ScanSkippedFileRecord:
     # Convert a SQLite row to a ScanSkippedFileRecord model.
+    """Internal helper for row to scan skipped file record."""
     return ScanSkippedFileRecord(
-        id=row['id'],
-        scan_id=row['scan_id'],
-        path=row['path'] or '',
-        filename=row['filename'] or '',
-        extension=row['extension'] or '',
-        reason=row['reason'] or '',
-        error_code=row['error_code'],
-        created_at=parse_timestamp(row['created_at']),
+        id=row["id"],
+        scan_id=row["scan_id"],
+        path=row["path"] or "",
+        filename=row["filename"] or "",
+        extension=row["extension"] or "",
+        reason=row["reason"] or "",
+        error_code=row["error_code"],
+        created_at=parse_timestamp(row["created_at"]),
     )
 
 
 def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
     # Convert a SQLite row to a ChatMessage model.
-    row_keys = set(row.keys()) if hasattr(row, 'keys') else set()
+    """Internal helper for row to chat message."""
+    row_keys = set(row.keys()) if hasattr(row, "keys") else set()
     try:
-        specialization_id = row['specialization_id']
+        specialization_id = row["specialization_id"]
     except (KeyError, IndexError):
         try:
-            specialization_id = row['role_id']
+            specialization_id = row["role_id"]
         except (KeyError, IndexError):
             specialization_id = None
     return ChatMessage(
-        id                 = row['id'],
-        chat_id            = row['chat_id'],
-        role               = row['role'],
-        content            = row['content'],
-        sources            = parse_json_sources(row['sources']),
-        generation_seconds = row['generation_seconds'],
-        completion_mode    = row['completion_mode'],
-        stopped_by_user    = bool(row['stopped_by_user']),
-        has_remaining_scope = bool(row['has_remaining_scope']),
-        next_action        = row['next_action'],
-        next_action_reason = row['next_action_reason'],
-        chat_mode          = row['chat_mode'],
-        specialization_id            = specialization_id,
-        translated_from_message_id = row['translated_from_message_id'] if 'translated_from_message_id' in row_keys else None,
-        translation_language = row['translation_language'] if 'translation_language' in row_keys else None,
-        translation_tone   = row['translation_tone'] if 'translation_tone' in row_keys else None,
-        translation_source_hash = row['translation_source_hash'] if 'translation_source_hash' in row_keys else None,
-        translation_is_stale = bool(row['translation_is_stale']) if 'translation_is_stale' in row_keys else False,
-        retrieval_scope_kind = row['retrieval_scope_kind'],
-        retrieval_scope_key = row['retrieval_scope_key'],
-        model_filename     = row['model_filename'],
-        is_internal        = bool(row['is_internal']),
-        created_at         = parse_timestamp(row['created_at']),
+        id=row["id"],
+        chat_id=row["chat_id"],
+        role=row["role"],
+        content=row["content"],
+        sources=parse_json_sources(row["sources"]),
+        generation_seconds=row["generation_seconds"],
+        completion_mode=row["completion_mode"],
+        stopped_by_user=bool(row["stopped_by_user"]),
+        has_remaining_scope=bool(row["has_remaining_scope"]),
+        next_action=row["next_action"],
+        next_action_reason=row["next_action_reason"],
+        chat_mode=row["chat_mode"],
+        specialization_id=specialization_id,
+        translated_from_message_id=row["translated_from_message_id"]
+        if "translated_from_message_id" in row_keys
+        else None,
+        translation_language=row["translation_language"]
+        if "translation_language" in row_keys
+        else None,
+        translation_tone=row["translation_tone"] if "translation_tone" in row_keys else None,
+        translation_source_hash=row["translation_source_hash"]
+        if "translation_source_hash" in row_keys
+        else None,
+        translation_is_stale=bool(row["translation_is_stale"])
+        if "translation_is_stale" in row_keys
+        else False,
+        retrieval_scope_kind=row["retrieval_scope_kind"],
+        retrieval_scope_key=row["retrieval_scope_key"],
+        model_filename=row["model_filename"],
+        is_internal=bool(row["is_internal"]),
+        created_at=parse_timestamp(row["created_at"]),
     )
 
 
 def _row_to_chat_upload_attachment(row: aiosqlite.Row) -> ChatUploadAttachment:
-    referenced_ids_raw = row['referenced_message_ids']
+    """Internal helper for row to chat upload attachment."""
+    referenced_ids_raw = row["referenced_message_ids"]
     referenced_ids: list[int] = []
     if isinstance(referenced_ids_raw, str) and referenced_ids_raw.strip():
         try:
             parsed = json.loads(referenced_ids_raw)
             if isinstance(parsed, list):
-                referenced_ids = [int(v) for v in parsed if isinstance(v, int) or (isinstance(v, str) and v.isdigit())]
+                referenced_ids = [
+                    int(v)
+                    for v in parsed
+                    if isinstance(v, int) or (isinstance(v, str) and v.isdigit())
+                ]
         except (TypeError, ValueError, json.JSONDecodeError):
             referenced_ids = []
     return ChatUploadAttachment(
-        id=row['id'],
-        upload_id=str(row['upload_id'] or ''),
-        chat_id=str(row['chat_id'] or ''),
-        file_id=row['file_id'],
-        filename_at_upload=str(row['filename_at_upload'] or ''),
-        size_bytes=int(row['size_bytes'] or 0),
-        content_hash=str(row['content_hash'] or '').strip() or None,
-        state=str(row['state'] or 'uploading'),
+        id=row["id"],
+        upload_id=str(row["upload_id"] or ""),
+        chat_id=str(row["chat_id"] or ""),
+        file_id=row["file_id"],
+        filename_at_upload=str(row["filename_at_upload"] or ""),
+        size_bytes=int(row["size_bytes"] or 0),
+        content_hash=str(row["content_hash"] or "").strip() or None,
+        state=str(row["state"] or "uploading"),
         referenced_message_ids=referenced_ids,
-        uploaded_at=parse_timestamp(row['uploaded_at']),
-        updated_at=parse_timestamp(row['updated_at']),
-        removed_at=parse_timestamp(row['removed_at']),
+        uploaded_at=parse_timestamp(row["uploaded_at"]),
+        updated_at=parse_timestamp(row["updated_at"]),
+        removed_at=parse_timestamp(row["removed_at"]),
     )
 
 
@@ -1244,8 +1310,10 @@ def _row_to_chat_upload_attachment(row: aiosqlite.Row) -> ChatUploadAttachment:
 # Files — CRUD
 # ==============================================================================
 
+
 async def insert_file(db: aiosqlite.Connection, file: IndexedFile) -> IndexedFile:
     # Insert a new file record. Returns the file with its assigned id.
+    """Insert file."""
     cursor = await db.execute(
         """
         INSERT INTO files (
@@ -1292,8 +1360,9 @@ async def insert_file(db: aiosqlite.Connection, file: IndexedFile) -> IndexedFil
 
 async def get_file_by_path(db: aiosqlite.Connection, path: str) -> IndexedFile | None:
     # Look up a file by its absolute path.
-    cursor = await db.execute('SELECT * FROM files WHERE path = ?', (path,))
-    row    = await cursor.fetchone()
+    """Get file by path."""
+    cursor = await db.execute("SELECT * FROM files WHERE path = ?", (path,))
+    row = await cursor.fetchone()
     if row is None:
         return None
     return row_to_indexed_file(row)
@@ -1307,11 +1376,12 @@ async def get_file_by_source_identity(
     source_item_id: str,
 ) -> IndexedFile | None:
     # Look up a file by provider-safe source identity.
+    """Get file by source identity."""
     cursor = await db.execute(
-        '''
+        """
         SELECT * FROM files
         WHERE source_provider = ? AND entity_type = ? AND source_item_id = ?
-        ''',
+        """,
         (source_provider, entity_type, source_item_id),
     )
     row = await cursor.fetchone()
@@ -1329,6 +1399,7 @@ async def should_skip_file_retry(
     content_hash: str,
 ) -> tuple[bool, str | None]:
     # Return True when a file has a non-retryable failure for the same content hash.
+    """Should skip file retry."""
     cursor = await db.execute(
         """
         SELECT retryable, content_hash, error_code
@@ -1342,8 +1413,8 @@ async def should_skip_file_retry(
     row = await cursor.fetchone()
     if row is None:
         return False, None
-    if row['retryable'] == 0 and row['content_hash'] == content_hash:
-        return True, row['error_code']
+    if row["retryable"] == 0 and row["content_hash"] == content_hash:
+        return True, row["error_code"]
     return False, None
 
 
@@ -1360,6 +1431,7 @@ async def record_file_failure(
     retryable: bool,
 ) -> None:
     # Upsert extraction/indexing failure state for retry suppression.
+    """Record file failure."""
     now = datetime.now(UTC).isoformat()
     cursor = await db.execute(
         """
@@ -1407,13 +1479,14 @@ async def clear_file_failure(
     source_item_id: str,
 ) -> None:
     # Remove failure state after a successful index/reindex.
+    """Clear file failure."""
     await db.execute(
-        '''
+        """
         DELETE FROM file_failures
         WHERE source_provider = ?
           AND entity_type = ?
           AND source_item_id = ?
-        ''',
+        """,
         (source_provider, entity_type, source_item_id),
     )
     await db.commit()
@@ -1421,8 +1494,9 @@ async def clear_file_failure(
 
 async def get_file_by_id(db: aiosqlite.Connection, file_id: int) -> IndexedFile | None:
     # Look up a file by its id.
-    cursor = await db.execute('SELECT * FROM files WHERE id = ?', (file_id,))
-    row    = await cursor.fetchone()
+    """Get file by id."""
+    cursor = await db.execute("SELECT * FROM files WHERE id = ?", (file_id,))
+    row = await cursor.fetchone()
     if row is None:
         return None
     return row_to_indexed_file(row)
@@ -1430,15 +1504,16 @@ async def get_file_by_id(db: aiosqlite.Connection, file_id: int) -> IndexedFile 
 
 async def get_files_by_ids(db: aiosqlite.Connection, file_ids: list[int]) -> dict[int, IndexedFile]:
     # Batch-fetch files by a list of IDs.
+    """Get files by ids."""
     if not file_ids:
         return {}
-    placeholders = ', '.join('?' * len(file_ids))
+    placeholders = ", ".join("?" * len(file_ids))
     cursor = await db.execute(
-        f'SELECT * FROM files WHERE id IN ({placeholders})',
+        f"SELECT * FROM files WHERE id IN ({placeholders})",
         file_ids,
     )
     rows = await cursor.fetchall()
-    return {row['id']: row_to_indexed_file(row) for row in rows}
+    return {row["id"]: row_to_indexed_file(row) for row in rows}
 
 
 async def get_all_files_for_scan(
@@ -1449,90 +1524,97 @@ async def get_all_files_for_scan(
 ) -> list[IndexedFile]:
     # Return all indexed files (no pagination). Used by scan task for change
     # detection so every file on disk can be matched; avoids pagination limits.
+    """Get all files for scan."""
     conditions: list[str] = []
     params: list[str] = []
     if source_provider:
-        conditions.append('source_provider = ?')
+        conditions.append("source_provider = ?")
         params.append(source_provider)
     if entity_type:
-        conditions.append('entity_type = ?')
+        conditions.append("entity_type = ?")
         params.append(entity_type)
-    where_clause = ''
+    where_clause = ""
     if conditions:
-        where_clause = 'WHERE ' + ' AND '.join(conditions)
+        where_clause = "WHERE " + " AND ".join(conditions)
 
     cursor = await db.execute(
-        f'SELECT * FROM files {where_clause} ORDER BY path ASC',
+        f"SELECT * FROM files {where_clause} ORDER BY path ASC",
         params,
     )
-    rows   = await cursor.fetchall()
+    rows = await cursor.fetchall()
     return [row_to_indexed_file(row) for row in rows]
 
 
 async def get_files(
     db: aiosqlite.Connection,
-    category:    str | None = None,
-    extensions:  list[str] | None = None,
-    search:      str | None = None,
-    tag:         str | None = None,
+    category: str | None = None,
+    extensions: list[str] | None = None,
+    search: str | None = None,
+    tag: str | None = None,
     excluded_source_providers: list[str] | None = None,
-    sort_by:     str        = 'indexed_at',
-    order:       str        = 'desc',
-    offset:      int        = 0,
-    limit:       int        = 50,
+    sort_by: str = "indexed_at",
+    order: str = "desc",
+    offset: int = 0,
+    limit: int = 50,
 ) -> tuple[list[IndexedFile], int]:
     # List files with optional filtering, sorting, and pagination.
+    """Get files."""
     conditions: list[str] = []
-    params:     list[str | int] = []
+    params: list[str | int] = []
 
     if category is not None:
-        conditions.append('category = ?')
+        conditions.append("category = ?")
         params.append(category)
 
     if extensions is not None and len(extensions) > 0:
-        placeholders = ', '.join('?' * len(extensions))
-        conditions.append(f'extension IN ({placeholders})')
+        placeholders = ", ".join("?" * len(extensions))
+        conditions.append(f"extension IN ({placeholders})")
         params.extend(extensions)
 
     if tag is not None and tag.strip():
-        conditions.append(
-            "EXISTS (SELECT 1 FROM json_each(files.tags) WHERE json_each.value = ?)"
-        )
+        conditions.append("EXISTS (SELECT 1 FROM json_each(files.tags) WHERE json_each.value = ?)")
         params.append(tag.strip())
 
     if excluded_source_providers:
-        normalized_excluded_providers = [str(provider).strip() for provider in excluded_source_providers if str(provider).strip()]
+        normalized_excluded_providers = [
+            str(provider).strip() for provider in excluded_source_providers if str(provider).strip()
+        ]
         if normalized_excluded_providers:
-            placeholders = ', '.join('?' * len(normalized_excluded_providers))
-            conditions.append(f'source_provider NOT IN ({placeholders})')
+            placeholders = ", ".join("?" * len(normalized_excluded_providers))
+            conditions.append(f"source_provider NOT IN ({placeholders})")
             params.extend(normalized_excluded_providers)
 
     if search is not None:
-        escaped = search.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
+        escaped = search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
         conditions.append("(filename LIKE ? ESCAPE '\\' OR path LIKE ? ESCAPE '\\')")
-        search_pattern = f'%{escaped}%'
+        search_pattern = f"%{escaped}%"
         params.extend([search_pattern, search_pattern])
 
-    where_clause = ''
+    where_clause = ""
     if conditions:
-        where_clause = 'WHERE ' + ' AND '.join(conditions)
+        where_clause = "WHERE " + " AND ".join(conditions)
 
-    sort_col = sort_by if sort_by in {'filename', 'category', 'extension', 'size_bytes', 'indexed_at', 'modified_at'} else 'indexed_at'
-    order_val = 'ASC' if order.lower() == 'asc' else 'DESC'
+    sort_col = (
+        sort_by
+        if sort_by
+        in {"filename", "category", "extension", "size_bytes", "indexed_at", "modified_at"}
+        else "indexed_at"
+    )
+    order_val = "ASC" if order.lower() == "asc" else "DESC"
 
     count_cursor = await db.execute(
-        f'SELECT COUNT(*) as cnt FROM files {where_clause}',
+        f"SELECT COUNT(*) as cnt FROM files {where_clause}",
         params,
     )
-    count_row   = await count_cursor.fetchone()
-    total_count = count_row['cnt'] if count_row else 0
+    count_row = await count_cursor.fetchone()
+    total_count = count_row["cnt"] if count_row else 0
 
     query_params = params + [limit, offset]
     cursor = await db.execute(
-        f'SELECT * FROM files {where_clause} ORDER BY {sort_col} {order_val} LIMIT ? OFFSET ?',
+        f"SELECT * FROM files {where_clause} ORDER BY {sort_col} {order_val} LIMIT ? OFFSET ?",
         query_params,
     )
-    rows  = await cursor.fetchall()
+    rows = await cursor.fetchall()
     files = [row_to_indexed_file(row) for row in rows]
 
     return files, total_count
@@ -1540,6 +1622,7 @@ async def get_files(
 
 async def update_file(db: aiosqlite.Connection, file: IndexedFile) -> IndexedFile:
     # Update an existing file record by id.
+    """Update file."""
     await db.execute(
         """
         UPDATE files SET
@@ -1587,7 +1670,8 @@ async def update_file(db: aiosqlite.Connection, file: IndexedFile) -> IndexedFil
 
 async def delete_file(db: aiosqlite.Connection, file_id: int) -> bool:
     # Delete a file and its chunks (CASCADE).
-    cursor = await db.execute('DELETE FROM files WHERE id = ?', (file_id,))
+    """Delete file."""
+    cursor = await db.execute("DELETE FROM files WHERE id = ?", (file_id,))
     await db.commit()
     return cursor.rowcount > 0
 
@@ -1596,19 +1680,23 @@ async def delete_file(db: aiosqlite.Connection, file_id: int) -> bool:
 # Chunks
 # ==============================================================================
 
-async def insert_chunks_batch(db: aiosqlite.Connection, file_id: int, chunks: list[Chunk]) -> list[int]:
+
+async def insert_chunks_batch(
+    db: aiosqlite.Connection, file_id: int, chunks: list[Chunk]
+) -> list[int]:
     # Insert multiple chunks in a single transaction. Returns list of chunk IDs.
+    """Insert chunks batch."""
     if not chunks:
         return []
 
     # Capture ID watermark before insert so we can fetch exactly the rows we
     # inserted, avoiding ambiguous remapping when chunk_index values repeat.
     max_id_cursor = await db.execute(
-        'SELECT COALESCE(MAX(id), 0) AS max_id FROM chunks WHERE file_id = ?',
+        "SELECT COALESCE(MAX(id), 0) AS max_id FROM chunks WHERE file_id = ?",
         (file_id,),
     )
     max_id_row = await max_id_cursor.fetchone()
-    id_watermark = int(max_id_row['max_id']) if max_id_row else 0
+    id_watermark = int(max_id_row["max_id"]) if max_id_row else 0
 
     await db.executemany(
         """
@@ -1637,33 +1725,34 @@ async def insert_chunks_batch(db: aiosqlite.Connection, file_id: int, chunks: li
     await db.commit()
 
     cursor = await db.execute(
-        '''
+        """
         SELECT id
         FROM chunks
         WHERE file_id = ? AND id > ?
         ORDER BY id ASC
-        ''',
+        """,
         (file_id, id_watermark),
     )
     rows = await cursor.fetchall()
     if len(rows) != len(chunks):
         raise RuntimeError(
-            f'Chunk insert ID mapping mismatch for file_id={file_id}: '
-            f'expected {len(chunks)} new rows, got {len(rows)}'
+            f"Chunk insert ID mapping mismatch for file_id={file_id}: "
+            f"expected {len(chunks)} new rows, got {len(rows)}"
         )
-    return [row['id'] for row in rows]
+    return [row["id"] for row in rows]
 
 
 async def get_chunks_by_parent_ids(db: aiosqlite.Connection, parent_ids: list[int]) -> list[dict]:
     # Return parent chunks for Parent Document Retrieval.
     # Given a list of parent IDs, fetch the parent chunk content for LLM context.
     # Deduplicates: if same parent_id appears multiple times, returns it once.
+    """Get chunks by parent ids."""
     if not parent_ids:
         return []
 
     # Deduplicate parent_ids
     unique_parent_ids = list(dict.fromkeys(parent_ids))
-    placeholders = ','.join('?' * len(unique_parent_ids))
+    placeholders = ",".join("?" * len(unique_parent_ids))
 
     cursor = await db.execute(
         f"""
@@ -1679,16 +1768,16 @@ async def get_chunks_by_parent_ids(db: aiosqlite.Connection, parent_ids: list[in
     result = []
     for row in rows:
         chunk_dict = {
-            'chunk_id':   row['chunk_id'],
-            'file_id':    row['file_id'],
-            'file_path':  row['file_path'] or '',
-            'filename':   row['filename'] or '',
-            'chunk_text': row['chunk_text'] or '',
-            'page_number': row['page_number'],
-            'start_page': row['start_page'],
-            'end_page': row['end_page'],
-            'section_path': row['section_path'],
-            'block_type': row['block_type'],
+            "chunk_id": row["chunk_id"],
+            "file_id": row["file_id"],
+            "file_path": row["file_path"] or "",
+            "filename": row["filename"] or "",
+            "chunk_text": row["chunk_text"] or "",
+            "page_number": row["page_number"],
+            "start_page": row["start_page"],
+            "end_page": row["end_page"],
+            "section_path": row["section_path"],
+            "block_type": row["block_type"],
         }
         result.append(chunk_dict)
     return result
@@ -1696,11 +1785,12 @@ async def get_chunks_by_parent_ids(db: aiosqlite.Connection, parent_ids: list[in
 
 async def get_chunks_by_ids(db: aiosqlite.Connection, chunk_ids: list[int]) -> list[dict]:
     # Given chunk IDs, fetch the corresponding chunk metadata in one round-trip.
+    """Get chunks by ids."""
     if not chunk_ids:
         return []
 
     unique_chunk_ids = list(dict.fromkeys(int(chunk_id) for chunk_id in chunk_ids))
-    placeholders = ','.join('?' * len(unique_chunk_ids))
+    placeholders = ",".join("?" * len(unique_chunk_ids))
 
     cursor = await db.execute(
         f"""
@@ -1717,16 +1807,16 @@ async def get_chunks_by_ids(db: aiosqlite.Connection, chunk_ids: list[int]) -> l
     for row in rows:
         result.append(
             {
-                'chunk_id':   row['chunk_id'],
-                'file_id':    row['file_id'],
-                'file_path':  row['file_path'] or '',
-                'filename':   row['filename'] or '',
-                'chunk_text': row['chunk_text'] or '',
-                'page_number': row['page_number'],
-                'start_page': row['start_page'],
-                'end_page': row['end_page'],
-                'section_path': row['section_path'],
-                'block_type': row['block_type'],
+                "chunk_id": row["chunk_id"],
+                "file_id": row["file_id"],
+                "file_path": row["file_path"] or "",
+                "filename": row["filename"] or "",
+                "chunk_text": row["chunk_text"] or "",
+                "page_number": row["page_number"],
+                "start_page": row["start_page"],
+                "end_page": row["end_page"],
+                "section_path": row["section_path"],
+                "block_type": row["block_type"],
             },
         )
     return result
@@ -1734,24 +1824,28 @@ async def get_chunks_by_ids(db: aiosqlite.Connection, chunk_ids: list[int]) -> l
 
 async def delete_chunks_for_file(db: aiosqlite.Connection, file_id: int) -> int:
     # Delete all chunks for a file.
-    cursor = await db.execute('DELETE FROM chunks WHERE file_id = ?', (file_id,))
+    """Delete chunks for file."""
+    cursor = await db.execute("DELETE FROM chunks WHERE file_id = ?", (file_id,))
     await db.commit()
     return cursor.rowcount
 
 
 async def get_chunk_count_for_file(db: aiosqlite.Connection, file_id: int) -> int:
     # Return the number of chunks for a file (all chunks, for display).
-    cursor = await db.execute('SELECT COUNT(*) as cnt FROM chunks WHERE file_id = ?', (file_id,))
+    """Get chunk count for file."""
+    cursor = await db.execute("SELECT COUNT(*) as cnt FROM chunks WHERE file_id = ?", (file_id,))
     row = await cursor.fetchone()
-    return row['cnt'] if row else 0
+    return row["cnt"] if row else 0
 
 
 # ==============================================================================
 # Scan History
 # ==============================================================================
 
+
 async def insert_scan_record(db: aiosqlite.Connection, record: ScanRecord) -> ScanRecord:
     # Insert a new scan history record.
+    """Insert scan record."""
     cursor = await db.execute(
         """
         INSERT INTO scan_history (started_at, completed_at, files_scanned, files_indexed, errors, status)
@@ -1773,6 +1867,7 @@ async def insert_scan_record(db: aiosqlite.Connection, record: ScanRecord) -> Sc
 
 async def update_scan_record(db: aiosqlite.Connection, record: ScanRecord) -> ScanRecord:
     # Update an existing scan history record.
+    """Update scan record."""
     await db.execute(
         """
         UPDATE scan_history SET
@@ -1795,17 +1890,19 @@ async def update_scan_record(db: aiosqlite.Connection, record: ScanRecord) -> Sc
 
 async def get_latest_scan(db: aiosqlite.Connection) -> ScanRecord | None:
     # Get the most recent scan record.
-    cursor = await db.execute(
-        'SELECT * FROM scan_history ORDER BY started_at DESC LIMIT 1'
-    )
+    """Get latest scan."""
+    cursor = await db.execute("SELECT * FROM scan_history ORDER BY started_at DESC LIMIT 1")
     row = await cursor.fetchone()
     if row is None:
         return None
     return _row_to_scan_record(row)
 
 
-async def insert_scan_error_record(db: aiosqlite.Connection, record: ScanErrorRecord) -> ScanErrorRecord:
+async def insert_scan_error_record(
+    db: aiosqlite.Connection, record: ScanErrorRecord
+) -> ScanErrorRecord:
     # Insert a per-file scan error row.
+    """Insert scan error record."""
     cursor = await db.execute(
         """
         INSERT INTO scan_errors (
@@ -1834,6 +1931,7 @@ async def insert_scan_skipped_file_record(
     record: ScanSkippedFileRecord,
 ) -> ScanSkippedFileRecord:
     # Insert a per-file scan skip row.
+    """Insert scan skipped file record."""
     cursor = await db.execute(
         """
         INSERT INTO scan_skipped_files (
@@ -1861,6 +1959,7 @@ async def get_scan_error_records(
     limit: int = 10,
 ) -> list[ScanErrorRecord]:
     # Return most recent per-file scan errors for a scan.
+    """Get scan error records."""
     safe_limit = max(1, min(int(limit), 100))
     cursor = await db.execute(
         """
@@ -1884,6 +1983,7 @@ async def get_scan_error_records_page(
     offset: int = 0,
 ) -> list[ScanErrorRecord]:
     # Return paginated per-file scan errors for a scan, newest first.
+    """Get scan error records page."""
     safe_limit = max(1, min(int(limit), 1000))
     safe_offset = max(0, int(offset))
     cursor = await db.execute(
@@ -1906,6 +2006,7 @@ async def get_scan_skipped_file_records(
     limit: int = 200,
 ) -> list[ScanSkippedFileRecord]:
     # Return most recent per-file scan skips for a scan.
+    """Get scan skipped file records."""
     safe_limit = max(1, min(int(limit), 1000))
     cursor = await db.execute(
         """
@@ -1926,6 +2027,7 @@ async def get_scan_skipped_file_count(
     scan_id: int,
 ) -> int:
     # Return count of skipped files recorded for a scan.
+    """Get scan skipped file count."""
     cursor = await db.execute(
         """
         SELECT COUNT(*) AS cnt
@@ -1935,7 +2037,7 @@ async def get_scan_skipped_file_count(
         (scan_id,),
     )
     row = await cursor.fetchone()
-    return int(row['cnt']) if row else 0
+    return int(row["cnt"]) if row else 0
 
 
 async def get_scan_timeout_error_count(
@@ -1943,6 +2045,7 @@ async def get_scan_timeout_error_count(
     scan_id: int,
 ) -> int:
     # Return count of timeout errors recorded for a scan.
+    """Get scan timeout error count."""
     cursor = await db.execute(
         """
         SELECT COUNT(*) AS cnt
@@ -1952,18 +2055,19 @@ async def get_scan_timeout_error_count(
         (scan_id,),
     )
     row = await cursor.fetchone()
-    return int(row['cnt']) if row else 0
+    return int(row["cnt"]) if row else 0
 
 
 async def get_latest_completed_scan(db: aiosqlite.Connection) -> ScanRecord | None:
     # Get the most recent scan that has completed (for "last scan" display).
+    """Get latest completed scan."""
     cursor = await db.execute(
-        '''
+        """
         SELECT * FROM scan_history
         WHERE completed_at IS NOT NULL
         ORDER BY completed_at DESC
         LIMIT 1
-        '''
+        """
     )
     row = await cursor.fetchone()
     if row is None:
@@ -1971,10 +2075,9 @@ async def get_latest_completed_scan(db: aiosqlite.Connection) -> ScanRecord | No
     return _row_to_scan_record(row)
 
 
-
-
 async def clear_stale_running_scans() -> None:
     # Mark any scan_history rows still 'running' as 'failed'.
+    """Clear stale running scans."""
     conn = await get_connection()
     try:
         now = datetime.now(UTC).isoformat()
@@ -1987,7 +2090,7 @@ async def clear_stale_running_scans() -> None:
         )
         await conn.commit()
         if cursor.rowcount > 0:
-            log.info('stale_running_scans_cleared', count=cursor.rowcount)
+            log.info("stale_running_scans_cleared", count=cursor.rowcount)
     finally:
         await conn.close()
 
@@ -1996,9 +2099,13 @@ async def clear_stale_running_scans() -> None:
 # Chat Messages
 # ==============================================================================
 
-async def ensure_chat_exists(db: aiosqlite.Connection, chat_id: str, first_user_message: str | None = None) -> None:
+
+async def ensure_chat_exists(
+    db: aiosqlite.Connection, chat_id: str, first_user_message: str | None = None
+) -> None:
     # Ensure a chat record exists. Generate title from first user message if provided.
-    cursor = await db.execute('SELECT chat_id FROM chats WHERE chat_id = ?', (chat_id,))
+    """Ensure chat exists."""
+    cursor = await db.execute("SELECT chat_id FROM chats WHERE chat_id = ?", (chat_id,))
     if await cursor.fetchone():
         return
 
@@ -2006,20 +2113,20 @@ async def ensure_chat_exists(db: aiosqlite.Connection, chat_id: str, first_user_
     if first_user_message:
         # Simple title from first line with light markdown stripping.
         raw_title_candidate = first_user_message.splitlines()[0].strip()
-        normalized_title = _CHAT_TITLE_MARKDOWN_HEADING_RE.sub('', raw_title_candidate)
-        normalized_title = _CHAT_TITLE_MARKDOWN_LINK_RE.sub(r'\1', normalized_title)
-        normalized_title = _CHAT_TITLE_MARKDOWN_DECORATOR_RE.sub('', normalized_title)
-        normalized_title = _CHAT_TITLE_MARKDOWN_LEADING_LIST_RE.sub('', normalized_title)
-        normalized_title = _CHAT_TITLE_WHITESPACE_RE.sub(' ', normalized_title).strip()
+        normalized_title = _CHAT_TITLE_MARKDOWN_HEADING_RE.sub("", raw_title_candidate)
+        normalized_title = _CHAT_TITLE_MARKDOWN_LINK_RE.sub(r"\1", normalized_title)
+        normalized_title = _CHAT_TITLE_MARKDOWN_DECORATOR_RE.sub("", normalized_title)
+        normalized_title = _CHAT_TITLE_MARKDOWN_LEADING_LIST_RE.sub("", normalized_title)
+        normalized_title = _CHAT_TITLE_WHITESPACE_RE.sub(" ", normalized_title).strip()
 
         title_source = normalized_title or raw_title_candidate
         if title_source:
             title = title_source[:_CHAT_TITLE_MAX_LENGTH].strip()
             if len(title_source) > _CHAT_TITLE_MAX_LENGTH:
-                title += '...'
+                title += "..."
 
     await db.execute(
-        'INSERT INTO chats (chat_id, title) VALUES (?, ?)',
+        "INSERT INTO chats (chat_id, title) VALUES (?, ?)",
         (chat_id, title),
     )
     await db.commit()
@@ -2027,6 +2134,7 @@ async def ensure_chat_exists(db: aiosqlite.Connection, chat_id: str, first_user_
 
 async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) -> ChatMessage:
     # Insert a new chat message and update chat's updated_at timestamp.
+    """Insert chat message."""
     first_user_message = message.content if message.role == ChatRole.USER else None
     await ensure_chat_exists(db, message.chat_id, first_user_message=first_user_message)
 
@@ -2057,7 +2165,7 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
             message.translated_from_message_id,
             message.translation_language,
             message.translation_tone,
-            str(message.translation_source_hash or '').strip(),
+            str(message.translation_source_hash or "").strip(),
             1 if message.translation_is_stale else 0,
             message.retrieval_scope_kind,
             message.retrieval_scope_key,
@@ -2067,7 +2175,7 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
     )
     # Update chat's updated_at timestamp when a message is added
     await db.execute(
-        'UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?',
+        "UPDATE chats SET updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?",
         (message.chat_id,),
     )
     await db.commit()
@@ -2080,6 +2188,7 @@ async def get_chat_preferences(
     chat_id: str,
 ) -> dict[str, bool]:
     # Read chat-scoped UI/runtime preferences used by the chat surface.
+    """Get chat preferences."""
     cursor = await db.execute(
         """
         SELECT chat_web_search_enabled, chat_web_search_privacy_override
@@ -2091,12 +2200,12 @@ async def get_chat_preferences(
     row = await cursor.fetchone()
     if row is None:
         return {
-            'chat_web_search_enabled': False,
-            'chat_web_search_privacy_override': False,
+            "chat_web_search_enabled": False,
+            "chat_web_search_privacy_override": False,
         }
     return {
-        'chat_web_search_enabled': bool(row['chat_web_search_enabled']),
-        'chat_web_search_privacy_override': bool(row['chat_web_search_privacy_override']),
+        "chat_web_search_enabled": bool(row["chat_web_search_enabled"]),
+        "chat_web_search_privacy_override": bool(row["chat_web_search_privacy_override"]),
     }
 
 
@@ -2108,15 +2217,16 @@ async def upsert_chat_preferences(
     chat_web_search_privacy_override: bool | None = None,
 ) -> dict[str, bool]:
     # Upsert chat-scoped preferences. Unset fields preserve prior values.
+    """Upsert chat preferences."""
     await ensure_chat_exists(db, chat_id)
     current = await get_chat_preferences(db, chat_id)
     resolved_web_search_enabled = (
-        current['chat_web_search_enabled']
+        current["chat_web_search_enabled"]
         if chat_web_search_enabled is None
         else bool(chat_web_search_enabled)
     )
     resolved_privacy_override = (
-        current['chat_web_search_privacy_override']
+        current["chat_web_search_privacy_override"]
         if chat_web_search_privacy_override is None
         else bool(chat_web_search_privacy_override)
     )
@@ -2142,8 +2252,8 @@ async def upsert_chat_preferences(
     )
     await db.commit()
     return {
-        'chat_web_search_enabled': resolved_web_search_enabled,
-        'chat_web_search_privacy_override': resolved_privacy_override,
+        "chat_web_search_enabled": resolved_web_search_enabled,
+        "chat_web_search_privacy_override": resolved_privacy_override,
     }
 
 
@@ -2154,10 +2264,11 @@ async def insert_chat_upload_attachment(
     chat_id: str,
     filename_at_upload: str,
     size_bytes: int,
-    state: str = 'uploading',
+    state: str = "uploading",
     file_id: int | None = None,
     content_hash: str | None = None,
 ) -> ChatUploadAttachment:
+    """Insert chat upload attachment."""
     await ensure_chat_exists(db, chat_id)
     cursor = await db.execute(
         """
@@ -2176,7 +2287,7 @@ async def insert_chat_upload_attachment(
         file_id=file_id,
         filename_at_upload=filename_at_upload,
         size_bytes=int(size_bytes),
-        content_hash=(str(content_hash or '').strip() or None),
+        content_hash=(str(content_hash or "").strip() or None),
         state=state,
     )
 
@@ -2185,8 +2296,9 @@ async def get_chat_upload_attachment_by_id(
     db: aiosqlite.Connection,
     attachment_id: int,
 ) -> ChatUploadAttachment | None:
+    """Get chat upload attachment by id."""
     cursor = await db.execute(
-        'SELECT * FROM chat_upload_attachments WHERE id = ?',
+        "SELECT * FROM chat_upload_attachments WHERE id = ?",
         (attachment_id,),
     )
     row = await cursor.fetchone()
@@ -2201,14 +2313,15 @@ async def get_chat_upload_attachment_by_upload_id(
     upload_id: str,
     chat_id: str | None = None,
 ) -> ChatUploadAttachment | None:
+    """Get chat upload attachment by upload id."""
     if chat_id:
         cursor = await db.execute(
-            'SELECT * FROM chat_upload_attachments WHERE upload_id = ? AND chat_id = ?',
+            "SELECT * FROM chat_upload_attachments WHERE upload_id = ? AND chat_id = ?",
             (upload_id, chat_id),
         )
     else:
         cursor = await db.execute(
-            'SELECT * FROM chat_upload_attachments WHERE upload_id = ?',
+            "SELECT * FROM chat_upload_attachments WHERE upload_id = ?",
             (upload_id,),
         )
     row = await cursor.fetchone()
@@ -2223,11 +2336,12 @@ async def get_chat_upload_attachments(
     chat_id: str,
     include_deleted: bool = False,
 ) -> list[ChatUploadAttachment]:
-    query = 'SELECT * FROM chat_upload_attachments WHERE chat_id = ?'
+    """Get chat upload attachments."""
+    query = "SELECT * FROM chat_upload_attachments WHERE chat_id = ?"
     params: list[object] = [chat_id]
     if not include_deleted:
         query += " AND state != 'deleted'"
-    query += ' ORDER BY uploaded_at ASC, id ASC'
+    query += " ORDER BY uploaded_at ASC, id ASC"
     cursor = await db.execute(query, tuple(params))
     rows = await cursor.fetchall()
     return [_row_to_chat_upload_attachment(row) for row in rows]
@@ -2243,6 +2357,7 @@ async def update_chat_upload_attachment_state(
     content_hash: str | None = None,
     removed_at: datetime | None = None,
 ) -> None:
+    """Update chat upload attachment state."""
     await db.execute(
         """
         UPDATE chat_upload_attachments
@@ -2272,6 +2387,7 @@ async def append_chat_upload_reference_message(
     file_id: int,
     message_id: int,
 ) -> None:
+    """Append chat upload reference message."""
     cursor = await db.execute(
         """
         SELECT referenced_message_ids
@@ -2285,12 +2401,16 @@ async def append_chat_upload_reference_message(
     if row is None:
         return
     current_ids: list[int] = []
-    raw = row['referenced_message_ids']
+    raw = row["referenced_message_ids"]
     if isinstance(raw, str) and raw.strip():
         try:
             parsed = json.loads(raw)
             if isinstance(parsed, list):
-                current_ids = [int(v) for v in parsed if isinstance(v, int) or (isinstance(v, str) and str(v).isdigit())]
+                current_ids = [
+                    int(v)
+                    for v in parsed
+                    if isinstance(v, int) or (isinstance(v, str) and str(v).isdigit())
+                ]
         except (TypeError, ValueError, json.JSONDecodeError):
             current_ids = []
     if int(message_id) not in current_ids:
@@ -2311,11 +2431,12 @@ async def get_chat_upload_size_bytes(
     db: aiosqlite.Connection,
     *,
     chat_id: str,
-    include_states: tuple[str, ...] = ('uploading', 'indexing', 'ready'),
+    include_states: tuple[str, ...] = ("uploading", "indexing", "ready"),
 ) -> int:
+    """Get chat upload size bytes."""
     if not include_states:
         return 0
-    placeholders = ', '.join('?' * len(include_states))
+    placeholders = ", ".join("?" * len(include_states))
     cursor = await db.execute(
         f"""
         SELECT COALESCE(SUM(size_bytes), 0) AS total_size
@@ -2326,29 +2447,31 @@ async def get_chat_upload_size_bytes(
         (chat_id, *include_states),
     )
     row = await cursor.fetchone()
-    return int((row['total_size'] if row else 0) or 0)
+    return int((row["total_size"] if row else 0) or 0)
 
 
 def _build_continuation_artifact_payload_hash(artifact: ContinuationPassArtifact) -> str:
+    """Internal helper for build continuation artifact payload hash."""
     payload = {
-        'chat_id': artifact.chat_id,
-        'request_id': artifact.request_id,
-        'pass_index': artifact.pass_index,
-        'stitch_mode': artifact.stitch_mode,
-        'raw_answer': artifact.raw_answer,
-        'cleaned_answer': artifact.cleaned_answer,
-        'has_remaining_scope': bool(artifact.has_remaining_scope),
-        'completion_mode': artifact.completion_mode,
-        'next_action_reason': artifact.next_action_reason,
-        'sources': artifact.sources,
-        'pass_details': artifact.pass_details,
-        'status_transitions': artifact.status_transitions,
+        "chat_id": artifact.chat_id,
+        "request_id": artifact.request_id,
+        "pass_index": artifact.pass_index,
+        "stitch_mode": artifact.stitch_mode,
+        "raw_answer": artifact.raw_answer,
+        "cleaned_answer": artifact.cleaned_answer,
+        "has_remaining_scope": bool(artifact.has_remaining_scope),
+        "completion_mode": artifact.completion_mode,
+        "next_action_reason": artifact.next_action_reason,
+        "sources": artifact.sources,
+        "pass_details": artifact.pass_details,
+        "status_transitions": artifact.status_transitions,
     }
-    payload_json = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(',', ':'))
-    return hashlib.sha256(payload_json.encode('utf-8')).hexdigest()
+    payload_json = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    return hashlib.sha256(payload_json.encode("utf-8")).hexdigest()
 
 
 async def _prune_old_continuation_artifacts(db: aiosqlite.Connection) -> int:
+    """Internal helper for prune old continuation artifacts."""
     retention_days = int(settings.continuation_artifact_retention_days)
     if retention_days <= 0:
         return 0
@@ -2357,7 +2480,7 @@ async def _prune_old_continuation_artifacts(db: aiosqlite.Connection) -> int:
         DELETE FROM continuation_pass_artifacts
         WHERE created_at < datetime('now', ?)
         """,
-        (f'-{retention_days} days',),
+        (f"-{retention_days} days",),
     )
     return int(cursor.rowcount or 0)
 
@@ -2366,7 +2489,11 @@ async def prune_continuation_artifacts(db: aiosqlite.Connection) -> int:
     """Public entry point for startup-time artifact pruning. Returns pruned row count."""
     pruned = await _prune_old_continuation_artifacts(db)
     if pruned > 0:
-        log.info('continuation_artifacts_pruned', pruned_count=pruned, retention_days=int(settings.continuation_artifact_retention_days))
+        log.info(
+            "continuation_artifacts_pruned",
+            pruned_count=pruned,
+            retention_days=int(settings.continuation_artifact_retention_days),
+        )
     return pruned
 
 
@@ -2376,19 +2503,20 @@ async def prune_log_events(
     retention_days: int = 30,
     max_rows: int = 10_000,
 ) -> dict[str, int]:
+    """Prune log events."""
     normalized_days = max(1, int(retention_days))
     normalized_max_rows = max(1, int(max_rows))
     cutoff_dt = datetime.now(UTC) - timedelta(days=normalized_days)
-    cutoff_iso = cutoff_dt.isoformat().replace('+00:00', 'Z')
+    cutoff_iso = cutoff_dt.isoformat().replace("+00:00", "Z")
 
     delete_old_cursor = await db.execute(
-        'DELETE FROM log_events WHERE created_at < ?',
+        "DELETE FROM log_events WHERE created_at < ?",
         (cutoff_iso,),
     )
     deleted_by_age = int(delete_old_cursor.rowcount or 0)
 
     delete_overflow_cursor = await db.execute(
-        '''
+        """
         DELETE FROM log_events
         WHERE id IN (
             SELECT id
@@ -2396,17 +2524,17 @@ async def prune_log_events(
             ORDER BY created_at DESC, id DESC
             LIMIT -1 OFFSET ?
         )
-        ''',
+        """,
         (normalized_max_rows,),
     )
     deleted_by_count = int(delete_overflow_cursor.rowcount or 0)
     await db.commit()
 
     return {
-        'deleted_by_age': deleted_by_age,
-        'deleted_by_count': deleted_by_count,
-        'retention_days': normalized_days,
-        'max_rows': normalized_max_rows,
+        "deleted_by_age": deleted_by_age,
+        "deleted_by_count": deleted_by_count,
+        "retention_days": normalized_days,
+        "max_rows": normalized_max_rows,
     }
 
 
@@ -2415,6 +2543,7 @@ async def insert_continuation_pass_artifact(
     artifact: ContinuationPassArtifact,
 ) -> ContinuationPassArtifact:
     # Ensure parent chat exists before writing continuation artifacts.
+    """Insert continuation pass artifact."""
     await ensure_chat_exists(db, artifact.chat_id)
 
     payload_hash = _build_continuation_artifact_payload_hash(artifact)
@@ -2430,13 +2559,13 @@ async def insert_continuation_pass_artifact(
     )
     existing = await cursor.fetchone()
     if existing is not None:
-        existing_hash = str(existing['payload_hash'] or '')
+        existing_hash = str(existing["payload_hash"] or "")
         if existing_hash == payload_hash:
-            artifact.id = int(existing['id'])
+            artifact.id = int(existing["id"])
             return artifact
         raise RuntimeError(
-            'continuation_pass_artifact_conflict: existing row has different payload hash '
-            f'for key ({artifact.chat_id}, {artifact.request_id}, {artifact.pass_index})'
+            "continuation_pass_artifact_conflict: existing row has different payload hash "
+            f"for key ({artifact.chat_id}, {artifact.request_id}, {artifact.pass_index})"
         )
 
     insert_cursor = await db.execute(
@@ -2473,8 +2602,9 @@ async def insert_continuation_pass_artifact(
 
 async def get_chat(db: aiosqlite.Connection, chat_id: str) -> list[ChatMessage]:
     # Get all messages for a chat.
+    """Get chat."""
     cursor = await db.execute(
-        'SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY created_at ASC, id ASC',
+        "SELECT * FROM chat_messages WHERE chat_id = ? ORDER BY created_at ASC, id ASC",
         (chat_id,),
     )
     rows = await cursor.fetchall()
@@ -2483,8 +2613,9 @@ async def get_chat(db: aiosqlite.Connection, chat_id: str) -> list[ChatMessage]:
 
 async def get_chat_message_by_id(db: aiosqlite.Connection, message_id: int) -> ChatMessage | None:
     # Get a single message by id. Returns None if not found.
+    """Get chat message by id."""
     cursor = await db.execute(
-        'SELECT * FROM chat_messages WHERE id = ?',
+        "SELECT * FROM chat_messages WHERE id = ?",
         (message_id,),
     )
     row = await cursor.fetchone()
@@ -2502,6 +2633,7 @@ async def get_chat_translation_by_source(
     tone: str,
     source_hash: str,
 ) -> ChatMessage | None:
+    """Get chat translation by source."""
     cursor = await db.execute(
         """
         SELECT *
@@ -2522,14 +2654,15 @@ async def get_chat_translation_by_source(
 
 
 async def get_chat_title(db: aiosqlite.Connection, chat_id: str) -> str | None:
+    """Get chat title."""
     cursor = await db.execute(
-        'SELECT title FROM chats WHERE chat_id = ?',
+        "SELECT title FROM chats WHERE chat_id = ?",
         (chat_id,),
     )
     row = await cursor.fetchone()
     if row is None:
         return None
-    title = str(row['title'] or '').strip()
+    title = str(row["title"] or "").strip()
     return title or None
 
 
@@ -2542,9 +2675,10 @@ async def get_chats(
     # List all chats with last message preview, message count, first user message, last activity date, and generation time.
     # Optimized: Uses window functions and JOINs instead of correlated subqueries for better performance.
     # When search is provided, filters by title, last message, or first user message (case-insensitive).
-    search_trimmed = search.strip() if search else ''
-    search_pattern = f'%{search_trimmed.lower()}%' if search_trimmed else None
-    where_clause = ''
+    """Get chats."""
+    search_trimmed = search.strip() if search else ""
+    search_pattern = f"%{search_trimmed.lower()}%" if search_trimmed else None
+    where_clause = ""
     params: tuple = (limit, offset)
     if search_pattern:
         where_clause = """
@@ -2615,15 +2749,17 @@ async def get_chats(
     rows = await cursor.fetchall()
     return [
         {
-            'chat_id': row['chat_id'],
-            'title': row['title'],
-            'created_at': parse_timestamp(row['created_at']),
-            'updated_at': parse_timestamp(row['updated_at']),
-            'last_message_preview': row['last_message'] if row['last_message'] else None,
-            'first_user_message': row['first_user_message'] if row['first_user_message'] else None,
-            'message_count': row['message_count'] or 0,
-            'last_message_at': parse_timestamp(row['last_message_at']) if row['last_message_at'] else None,
-            'last_generation_seconds': row['last_generation_seconds'],
+            "chat_id": row["chat_id"],
+            "title": row["title"],
+            "created_at": parse_timestamp(row["created_at"]),
+            "updated_at": parse_timestamp(row["updated_at"]),
+            "last_message_preview": row["last_message"] if row["last_message"] else None,
+            "first_user_message": row["first_user_message"] if row["first_user_message"] else None,
+            "message_count": row["message_count"] or 0,
+            "last_message_at": parse_timestamp(row["last_message_at"])
+            if row["last_message_at"]
+            else None,
+            "last_generation_seconds": row["last_generation_seconds"],
         }
         for row in rows
     ]
@@ -2631,13 +2767,14 @@ async def get_chats(
 
 async def get_chat_count(db: aiosqlite.Connection, search: str | None = None) -> int:
     # Return the total number of chats. Use chats table (canonical source) so count matches History.
+    """Get chat count."""
     if not search or not search.strip():
-        cursor = await db.execute('SELECT COUNT(*) AS cnt FROM chats')
+        cursor = await db.execute("SELECT COUNT(*) AS cnt FROM chats")
         row = await cursor.fetchone()
-        return row['cnt'] if row else 0
+        return row["cnt"] if row else 0
 
     search_trimmed = search.strip()
-    search_pattern = f'%{search_trimmed.lower()}%'
+    search_pattern = f"%{search_trimmed.lower()}%"
     cursor = await db.execute(
         """
         WITH chat_search AS (
@@ -2660,13 +2797,14 @@ async def get_chat_count(db: aiosqlite.Connection, search: str | None = None) ->
         (search_pattern, search_pattern, search_pattern),
     )
     row = await cursor.fetchone()
-    return row['cnt'] if row else 0
+    return row["cnt"] if row else 0
 
 
 async def set_chat_title(db: aiosqlite.Connection, chat_id: str, title: str) -> None:
     # Set the title for a chat.
+    """Set chat title."""
     await db.execute(
-        'UPDATE chats SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?',
+        "UPDATE chats SET title = ?, updated_at = CURRENT_TIMESTAMP WHERE chat_id = ?",
         (title, chat_id),
     )
     await db.commit()
@@ -2675,9 +2813,10 @@ async def set_chat_title(db: aiosqlite.Connection, chat_id: str, title: str) -> 
 async def delete_chat(db: aiosqlite.Connection, chat_id: str) -> bool:
     # Delete a chat and all its messages. Must delete chat_messages first since
     # get_chat_count counts from chat_messages; otherwise the dashboard shows stale counts.
-    await db.execute('DELETE FROM chat_messages WHERE chat_id = ?', (chat_id,))
-    await db.execute('DELETE FROM response_diagnostics_metrics WHERE chat_id = ?', (chat_id,))
-    cursor = await db.execute('DELETE FROM chats WHERE chat_id = ?', (chat_id,))
+    """Delete chat."""
+    await db.execute("DELETE FROM chat_messages WHERE chat_id = ?", (chat_id,))
+    await db.execute("DELETE FROM response_diagnostics_metrics WHERE chat_id = ?", (chat_id,))
+    cursor = await db.execute("DELETE FROM chats WHERE chat_id = ?", (chat_id,))
     await db.commit()
     return cursor.rowcount > 0
 
@@ -2685,6 +2824,7 @@ async def delete_chat(db: aiosqlite.Connection, chat_id: str) -> bool:
 # ==============================================================================
 # Diagnostics Metrics
 # ==============================================================================
+
 
 async def insert_diagnostics_metrics(
     db: aiosqlite.Connection,
@@ -2702,35 +2842,37 @@ async def insert_diagnostics_metrics(
         run_id: Optional run ID for evaluation runs (None for user chats)
     """
     # Access EvalMetrics attributes dynamically to avoid import dependency.
-    raw_query_type = str(getattr(metrics, 'query_type', '') or '').strip().lower()
+    raw_query_type = str(getattr(metrics, "query_type", "") or "").strip().lower()
     if raw_query_type in CANONICAL_DIAGNOSTICS_QUERY_TYPES:
         query_type = raw_query_type
     else:
-        log.warning('diagnostics_query_type_unknown', raw_query_type=raw_query_type)
+        log.warning("diagnostics_query_type_unknown", raw_query_type=raw_query_type)
         query_type = DiagnosticsQueryType.UNKNOWN.value
 
     normalized_detected_issues: list[str] = []
     seen_issues: set[str] = set()
     for issue in detected_issues:
-        normalized_issue = str(issue or '').strip().lower()
+        normalized_issue = str(issue or "").strip().lower()
         if not normalized_issue:
             continue
         if normalized_issue not in CANONICAL_DIAGNOSTICS_ISSUE_TYPES:
-            log.warning('diagnostics_issue_type_unknown', issue=normalized_issue)
+            log.warning("diagnostics_issue_type_unknown", issue=normalized_issue)
             continue
         if normalized_issue in seen_issues:
             continue
         seen_issues.add(normalized_issue)
         normalized_detected_issues.append(normalized_issue)
-    pre_first_yield_timeout_occurred = bool(getattr(metrics, 'pre_first_yield_timeout_occurred', False))
-    pre_first_yield_elapsed_seconds_raw = getattr(metrics, 'pre_first_yield_elapsed_seconds', None)
+    pre_first_yield_timeout_occurred = bool(
+        getattr(metrics, "pre_first_yield_timeout_occurred", False)
+    )
+    pre_first_yield_elapsed_seconds_raw = getattr(metrics, "pre_first_yield_elapsed_seconds", None)
     pre_first_yield_elapsed_seconds = (
         float(pre_first_yield_elapsed_seconds_raw)
         if pre_first_yield_elapsed_seconds_raw is not None
         else None
     )
-    pre_first_yield_stage = str(getattr(metrics, 'pre_first_yield_stage', '') or '').strip() or None
-    guardrail_applied = str(getattr(metrics, 'guardrail_applied', '') or '').strip() or None
+    pre_first_yield_stage = str(getattr(metrics, "pre_first_yield_stage", "") or "").strip() or None
+    guardrail_applied = str(getattr(metrics, "guardrail_applied", "") or "").strip() or None
 
     await db.execute(
         """
@@ -2747,7 +2889,7 @@ async def insert_diagnostics_metrics(
         (
             metrics.chat_id,
             metrics.question,
-            'evaluation' if run_id else 'user',
+            "evaluation" if run_id else "user",
             metrics.model_filename,
             run_id,
             query_type,
@@ -2758,9 +2900,9 @@ async def insert_diagnostics_metrics(
             1 if metrics.timeout_occurred else 0,
             1 if metrics.has_empty_answer else 0,
             1 if metrics.has_refusal_pattern else 0,
-            int(getattr(metrics, 'unsupported_claim_count', 0) or 0),
-            float(getattr(metrics, 'evidence_coverage_rate', 0.0) or 0.0),
-            int(getattr(metrics, 'not_found_count', 0) or 0),
+            int(getattr(metrics, "unsupported_claim_count", 0) or 0),
+            float(getattr(metrics, "evidence_coverage_rate", 0.0) or 0.0),
+            int(getattr(metrics, "not_found_count", 0) or 0),
             1 if pre_first_yield_timeout_occurred else 0,
             pre_first_yield_elapsed_seconds,
             pre_first_yield_stage,
@@ -2798,15 +2940,15 @@ async def get_diagnostics_metrics_since(
 
     # Type filter
     if type_filter:
-        conditions.append('type = ?')
+        conditions.append("type = ?")
         params.append(type_filter)
 
     # Run ID filter
     if run_id_filter:
-        conditions.append('run_id = ?')
+        conditions.append("run_id = ?")
         params.append(run_id_filter)
 
-    where_clause = 'WHERE ' + ' AND '.join(conditions) if conditions else ''
+    where_clause = "WHERE " + " AND ".join(conditions) if conditions else ""
 
     cursor = await db.execute(
         f"""
@@ -2823,43 +2965,45 @@ async def get_diagnostics_metrics_since(
     for row in rows:
         # Parse detected_issues JSON
         detected_issues = []
-        if row['detected_issues']:
+        if row["detected_issues"]:
             try:
-                detected_issues = json.loads(row['detected_issues'])
+                detected_issues = json.loads(row["detected_issues"])
             except (json.JSONDecodeError, TypeError):
                 detected_issues = []
 
-        query_type = str(row['query_type'] or '').strip().lower()
+        query_type = str(row["query_type"] or "").strip().lower()
         if query_type not in CANONICAL_DIAGNOSTICS_QUERY_TYPES:
             query_type = DiagnosticsQueryType.UNKNOWN.value
 
         normalized_detected_issues = []
         for issue in detected_issues:
-            normalized_issue = str(issue or '').strip().lower()
+            normalized_issue = str(issue or "").strip().lower()
             if normalized_issue in CANONICAL_DIAGNOSTICS_ISSUE_TYPES:
                 normalized_detected_issues.append(normalized_issue)
 
-        result.append({
-            'id': row['id'],
-            'chat_id': row['chat_id'],
-            'question': row['question'],
-            'type': row['type'],
-            'model_filename': row['model_filename'],
-            'run_id': row['run_id'],
-            'query_type': query_type,
-            'raw_chunks_count': row['raw_chunks_count'],
-            'sources_count': row['sources_count'],
-            'generation_seconds': row['generation_seconds'],
-            'answer_length': row['answer_length'],
-            'timeout_occurred': bool(row['timeout_occurred']),
-            'has_empty_answer': bool(row['has_empty_answer']),
-            'has_refusal_pattern': bool(row['has_refusal_pattern']),
-            'unsupported_claim_count': int(row['unsupported_claim_count'] or 0),
-            'evidence_coverage_rate': float(row['evidence_coverage_rate'] or 0.0),
-            'not_found_count': int(row['not_found_count'] or 0),
-            'detected_issues': normalized_detected_issues,
-            'created_at': parse_timestamp(row['created_at']),
-        })
+        result.append(
+            {
+                "id": row["id"],
+                "chat_id": row["chat_id"],
+                "question": row["question"],
+                "type": row["type"],
+                "model_filename": row["model_filename"],
+                "run_id": row["run_id"],
+                "query_type": query_type,
+                "raw_chunks_count": row["raw_chunks_count"],
+                "sources_count": row["sources_count"],
+                "generation_seconds": row["generation_seconds"],
+                "answer_length": row["answer_length"],
+                "timeout_occurred": bool(row["timeout_occurred"]),
+                "has_empty_answer": bool(row["has_empty_answer"]),
+                "has_refusal_pattern": bool(row["has_refusal_pattern"]),
+                "unsupported_claim_count": int(row["unsupported_claim_count"] or 0),
+                "evidence_coverage_rate": float(row["evidence_coverage_rate"] or 0.0),
+                "not_found_count": int(row["not_found_count"] or 0),
+                "detected_issues": normalized_detected_issues,
+                "created_at": parse_timestamp(row["created_at"]),
+            }
+        )
 
     return result
 
@@ -2868,6 +3012,7 @@ async def get_diagnostics_metrics_since(
 # Utility Functions
 # ==============================================================================
 
+
 async def get_file_count(
     db: aiosqlite.Connection,
     *,
@@ -2875,32 +3020,35 @@ async def get_file_count(
     entity_type: str | None = None,
 ) -> int:
     # Total count of indexed files, optionally scoped by source/entity.
+    """Get file count."""
     if source_provider is not None and entity_type is not None:
         cursor = await db.execute(
-            '''
+            """
             SELECT COUNT(*) as count
             FROM files
             WHERE source_provider = ? AND entity_type = ?
-            ''',
+            """,
             (source_provider, entity_type),
         )
     else:
-        cursor = await db.execute('SELECT COUNT(*) as count FROM files')
+        cursor = await db.execute("SELECT COUNT(*) as count FROM files")
     row = await cursor.fetchone()
-    return int(row['count']) if row else 0
+    return int(row["count"]) if row else 0
 
 
 async def get_chunk_count(db: aiosqlite.Connection) -> int:
     # Total count of chunks.
-    cursor = await db.execute('SELECT COUNT(*) as count FROM chunks')
+    """Get chunk count."""
+    cursor = await db.execute("SELECT COUNT(*) as count FROM chunks")
     row = await cursor.fetchone()
-    return int(row['count']) if row else 0
+    return int(row["count"]) if row else 0
 
 
 async def get_index_scope_counts(db: aiosqlite.Connection) -> list[dict[str, object]]:
     # Aggregate indexed file/chunk counts per source scope.
+    """Get index scope counts."""
     cursor = await db.execute(
-        '''
+        """
         SELECT
             f.source_provider AS source_provider,
             f.entity_type AS entity_type,
@@ -2910,15 +3058,15 @@ async def get_index_scope_counts(db: aiosqlite.Connection) -> list[dict[str, obj
         LEFT JOIN chunks c ON c.file_id = f.id
         GROUP BY f.source_provider, f.entity_type
         ORDER BY f.source_provider ASC, f.entity_type ASC
-        '''
+        """
     )
     rows = await cursor.fetchall()
     return [
         {
-            'source_provider': str(row['source_provider'] or ''),
-            'entity_type': str(row['entity_type'] or ''),
-            'files_count': int(row['files_count'] or 0),
-            'chunks_count': int(row['chunks_count'] or 0),
+            "source_provider": str(row["source_provider"] or ""),
+            "entity_type": str(row["entity_type"] or ""),
+            "files_count": int(row["files_count"] or 0),
+            "chunks_count": int(row["chunks_count"] or 0),
         }
         for row in rows
     ]
@@ -2932,34 +3080,35 @@ async def get_corpus_stats(db: aiosqlite.Connection) -> dict:
         dict with total_files, total_parent_chunks, total_child_chunks, last_scan_at
     """
     cursor = await db.execute(
-        '''
+        """
         SELECT
             (SELECT COUNT(*) FROM files) AS total_files,
             (SELECT COUNT(*) FROM chunks WHERE parent_id IS NULL) AS total_parent_chunks,
             (SELECT COUNT(*) FROM chunks WHERE parent_id IS NOT NULL) AS total_child_chunks
-        '''
+        """
     )
     row = await cursor.fetchone()
-    total_files        = int(row['total_files']) if row else 0
-    total_parent_chunks = int(row['total_parent_chunks']) if row else 0
-    total_child_chunks  = int(row['total_child_chunks']) if row else 0
+    total_files = int(row["total_files"]) if row else 0
+    total_parent_chunks = int(row["total_parent_chunks"]) if row else 0
+    total_child_chunks = int(row["total_child_chunks"]) if row else 0
 
     latest = await get_latest_completed_scan(db)
     last_scan_at = latest.completed_at if latest else None
 
     return {
-        'total_files':         total_files,
-        'total_parent_chunks': total_parent_chunks,
-        'total_child_chunks':  total_child_chunks,
-        'last_scan_at':        last_scan_at,
+        "total_files": total_files,
+        "total_parent_chunks": total_parent_chunks,
+        "total_child_chunks": total_child_chunks,
+        "last_scan_at": last_scan_at,
     }
 
 
 async def get_indexed_content_size_bytes(db: aiosqlite.Connection) -> int:
     # Sum of size_bytes of all indexed files (logical size of content we index).
-    cursor = await db.execute('SELECT COALESCE(SUM(size_bytes), 0) as total FROM files')
+    """Get indexed content size bytes."""
+    cursor = await db.execute("SELECT COALESCE(SUM(size_bytes), 0) as total FROM files")
     row = await cursor.fetchone()
-    return int(row['total']) if row else 0
+    return int(row["total"]) if row else 0
 
 
 async def get_distinct_years(
@@ -2969,47 +3118,51 @@ async def get_distinct_years(
     """Distinct years from indexed files, optionally filtered by filename substring."""
     if filename_pattern:
         cursor = await db.execute(
-            'SELECT DISTINCT year FROM files WHERE year IS NOT NULL AND filename LIKE ? ORDER BY year ASC',
-            (f'%{filename_pattern}%',),
+            "SELECT DISTINCT year FROM files WHERE year IS NOT NULL AND filename LIKE ? ORDER BY year ASC",
+            (f"%{filename_pattern}%",),
         )
     else:
         cursor = await db.execute(
-            'SELECT DISTINCT year FROM files WHERE year IS NOT NULL ORDER BY year ASC',
+            "SELECT DISTINCT year FROM files WHERE year IS NOT NULL ORDER BY year ASC",
         )
     rows = await cursor.fetchall()
-    return [int(r['year']) for r in rows]
+    return [int(r["year"]) for r in rows]
 
 
 async def get_distinct_categories(db: aiosqlite.Connection) -> list[str]:
     # Distinct file categories.
+    """Get distinct categories."""
     cursor = await db.execute(
-        'SELECT DISTINCT category FROM files WHERE category IS NOT NULL ORDER BY category ASC',
+        "SELECT DISTINCT category FROM files WHERE category IS NOT NULL ORDER BY category ASC",
     )
     rows = await cursor.fetchall()
-    return [str(r['category']) for r in rows]
+    return [str(r["category"]) for r in rows]
 
 
 # ==============================================================================
 # Term Dictionary
 # ==============================================================================
 
+
 async def get_term_dictionary_current_version(db: aiosqlite.Connection) -> int:
+    """Get term dictionary current version."""
     cursor = await db.execute(
-        'SELECT current_version FROM term_dictionary_state WHERE singleton_id = 1'
+        "SELECT current_version FROM term_dictionary_state WHERE singleton_id = 1"
     )
     row = await cursor.fetchone()
-    return int(row['current_version']) if row and row['current_version'] is not None else 0
+    return int(row["current_version"]) if row and row["current_version"] is not None else 0
 
 
 async def set_term_dictionary_current_version(db: aiosqlite.Connection, version: int) -> None:
+    """Set term dictionary current version."""
     await db.execute(
-        '''
+        """
         INSERT INTO term_dictionary_state (singleton_id, current_version, updated_at)
         VALUES (1, ?, CURRENT_TIMESTAMP)
         ON CONFLICT(singleton_id) DO UPDATE SET
             current_version = excluded.current_version,
             updated_at = CURRENT_TIMESTAMP
-        ''',
+        """,
         (max(0, int(version)),),
     )
     await db.commit()
@@ -3021,13 +3174,14 @@ async def start_term_dictionary_build_run(
     run_id: str,
     target_version: int,
 ) -> None:
+    """Start term dictionary build run."""
     await db.execute(
-        '''
+        """
         INSERT INTO term_dictionary_build_runs (
             run_id, target_version, status, started_at, last_processed_chunk_id,
             processed_chunks, terms_inserted, aliases_inserted
         ) VALUES (?, ?, 'running', CURRENT_TIMESTAMP, 0, 0, 0, 0)
-        ''',
+        """,
         (run_id, int(target_version)),
     )
     await db.commit()
@@ -3040,13 +3194,14 @@ async def update_term_dictionary_build_run_progress(
     last_processed_chunk_id: int,
     processed_chunks: int,
 ) -> None:
+    """Update term dictionary build run progress."""
     await db.execute(
-        '''
+        """
         UPDATE term_dictionary_build_runs
         SET last_processed_chunk_id = ?,
             processed_chunks = ?
         WHERE run_id = ?
-        ''',
+        """,
         (int(last_processed_chunk_id), int(processed_chunks), run_id),
     )
     await db.commit()
@@ -3061,8 +3216,9 @@ async def finalize_term_dictionary_build_run(
     aliases_inserted: int = 0,
     error_summary: str | None = None,
 ) -> None:
+    """Finalize term dictionary build run."""
     await db.execute(
-        '''
+        """
         UPDATE term_dictionary_build_runs
         SET status = ?,
             completed_at = CURRENT_TIMESTAMP,
@@ -3070,42 +3226,44 @@ async def finalize_term_dictionary_build_run(
             aliases_inserted = ?,
             error_summary = ?
         WHERE run_id = ?
-        ''',
+        """,
         (status, int(terms_inserted), int(aliases_inserted), error_summary, run_id),
     )
     await db.commit()
 
 
 async def get_latest_term_dictionary_build_run(db: aiosqlite.Connection) -> dict | None:
+    """Get latest term dictionary build run."""
     cursor = await db.execute(
-        '''
+        """
         SELECT run_id, target_version, status, started_at, completed_at,
                last_processed_chunk_id, processed_chunks, terms_inserted, aliases_inserted, error_summary
         FROM term_dictionary_build_runs
         ORDER BY started_at DESC
         LIMIT 1
-        '''
+        """
     )
     row = await cursor.fetchone()
     if row is None:
         return None
     return {
-        'run_id': row['run_id'],
-        'target_version': row['target_version'],
-        'status': row['status'],
-        'started_at': row['started_at'],
-        'completed_at': row['completed_at'],
-        'last_processed_chunk_id': row['last_processed_chunk_id'],
-        'processed_chunks': row['processed_chunks'],
-        'terms_inserted': row['terms_inserted'],
-        'aliases_inserted': row['aliases_inserted'],
-        'error_summary': row['error_summary'],
+        "run_id": row["run_id"],
+        "target_version": row["target_version"],
+        "status": row["status"],
+        "started_at": row["started_at"],
+        "completed_at": row["completed_at"],
+        "last_processed_chunk_id": row["last_processed_chunk_id"],
+        "processed_chunks": row["processed_chunks"],
+        "terms_inserted": row["terms_inserted"],
+        "aliases_inserted": row["aliases_inserted"],
+        "error_summary": row["error_summary"],
     }
 
 
 async def delete_term_dictionary_version(db: aiosqlite.Connection, *, dict_version: int) -> None:
+    """Delete term dictionary version."""
     await db.execute(
-        'DELETE FROM term_entries WHERE dict_version = ?',
+        "DELETE FROM term_entries WHERE dict_version = ?",
         (int(dict_version),),
     )
     await db.commit()
@@ -3121,12 +3279,13 @@ async def insert_term_entry(
     status: str,
     dict_version: int,
 ) -> int:
+    """Insert term entry."""
     cursor = await db.execute(
-        '''
+        """
         INSERT INTO term_entries (
             canonical_term, normalized_term, type, confidence, status, dict_version, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        ''',
+        """,
         (
             canonical_term,
             normalized_term,
@@ -3149,12 +3308,13 @@ async def insert_term_alias(
     alias_type: str,
     confidence: float,
 ) -> None:
+    """Insert term alias."""
     await db.execute(
-        '''
+        """
         INSERT INTO term_aliases (
             term_id, alias, normalized_alias, alias_type, confidence, created_at
         ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ''',
+        """,
         (
             int(term_id),
             alias,
@@ -3175,12 +3335,13 @@ async def insert_term_evidence(
     evidence_snippet: str,
     extraction_method: str,
 ) -> None:
+    """Insert term evidence."""
     await db.execute(
-        '''
+        """
         INSERT INTO term_evidence (
             term_id, file_id, chunk_id, evidence_snippet, extraction_method, created_at
         ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-        ''',
+        """,
         (
             int(term_id),
             file_id,
@@ -3193,8 +3354,9 @@ async def insert_term_evidence(
 
 
 async def get_active_term_alias_rows(db: aiosqlite.Connection) -> list[dict]:
+    """Get active term alias rows."""
     cursor = await db.execute(
-        '''
+        """
         SELECT
             ta.alias,
             ta.normalized_alias,
@@ -3210,19 +3372,19 @@ async def get_active_term_alias_rows(db: aiosqlite.Connection) -> list[dict]:
         WHERE te.dict_version = tds.current_version
           AND te.status = 'active'
         ORDER BY LENGTH(ta.normalized_alias) DESC, ta.normalized_alias ASC
-        '''
+        """
     )
     rows = await cursor.fetchall()
     return [
         {
-            'alias': row['alias'] or '',
-            'normalized_alias': row['normalized_alias'] or '',
-            'alias_type': row['alias_type'] or '',
-            'alias_confidence': float(row['alias_confidence'] or 0.0),
-            'canonical_term': row['canonical_term'] or '',
-            'normalized_term': row['normalized_term'] or '',
-            'term_type': row['term_type'] or '',
-            'term_confidence': float(row['term_confidence'] or 0.0),
+            "alias": row["alias"] or "",
+            "normalized_alias": row["normalized_alias"] or "",
+            "alias_type": row["alias_type"] or "",
+            "alias_confidence": float(row["alias_confidence"] or 0.0),
+            "canonical_term": row["canonical_term"] or "",
+            "normalized_term": row["normalized_term"] or "",
+            "term_type": row["term_type"] or "",
+            "term_confidence": float(row["term_confidence"] or 0.0),
         }
         for row in rows
     ]
@@ -3234,8 +3396,9 @@ async def get_term_dictionary_source_rows(
     after_chunk_id: int = 0,
     limit: int = 500,
 ) -> list[dict]:
+    """Get term dictionary source rows."""
     cursor = await db.execute(
-        '''
+        """
         SELECT
             c.id AS chunk_id,
             c.file_id AS file_id,
@@ -3244,170 +3407,173 @@ async def get_term_dictionary_source_rows(
         WHERE c.id > ?
         ORDER BY c.id ASC
         LIMIT ?
-        ''',
+        """,
         (int(after_chunk_id), int(limit)),
     )
     rows = await cursor.fetchall()
     return [
         {
-            'chunk_id': int(row['chunk_id']),
-            'file_id': int(row['file_id']) if row['file_id'] is not None else None,
-            'content': row['content'] or '',
+            "chunk_id": int(row["chunk_id"]),
+            "file_id": int(row["file_id"]) if row["file_id"] is not None else None,
+            "content": row["content"] or "",
         }
         for row in rows
     ]
 
 
 async def purge_term_dictionary(db: aiosqlite.Connection) -> None:
-    await db.execute('DELETE FROM term_evidence')
-    await db.execute('DELETE FROM term_aliases')
-    await db.execute('DELETE FROM term_entries')
-    await db.execute('DELETE FROM term_dictionary_build_runs')
+    """Purge term dictionary."""
+    await db.execute("DELETE FROM term_evidence")
+    await db.execute("DELETE FROM term_aliases")
+    await db.execute("DELETE FROM term_entries")
+    await db.execute("DELETE FROM term_dictionary_build_runs")
     await db.execute(
-        '''
+        """
         INSERT INTO term_dictionary_state (singleton_id, current_version, updated_at)
         VALUES (1, 0, CURRENT_TIMESTAMP)
         ON CONFLICT(singleton_id) DO UPDATE SET
             current_version = 0,
             updated_at = CURRENT_TIMESTAMP
-        '''
+        """
     )
     await db.commit()
 
 
 async def get_index_integrity_issues(db: aiosqlite.Connection) -> dict[str, int]:
     # Detect index consistency issues across files/chunks/vec_chunks tables.
+    """Get index integrity issues."""
     checks: dict[str, str] = {
-        'orphan_chunks_missing_file': '''
+        "orphan_chunks_missing_file": """
             SELECT COUNT(*) AS cnt
             FROM chunks c
             LEFT JOIN files f ON f.id = c.file_id
             WHERE f.id IS NULL
-        ''',
-        'orphan_vectors_missing_chunk': '''
+        """,
+        "orphan_vectors_missing_chunk": """
             SELECT COUNT(*) AS cnt
             FROM vec_chunks v
             LEFT JOIN chunks c ON c.id = v.chunk_id
             WHERE c.id IS NULL
-        ''',
-        'orphan_vectors_missing_file': '''
+        """,
+        "orphan_vectors_missing_file": """
             SELECT COUNT(*) AS cnt
             FROM vec_chunks v
             LEFT JOIN files f ON f.id = v.file_id
             WHERE f.id IS NULL
-        ''',
-        'child_chunks_missing_parent': '''
+        """,
+        "child_chunks_missing_parent": """
             SELECT COUNT(*) AS cnt
             FROM chunks child
             LEFT JOIN chunks parent ON parent.id = child.parent_id
             WHERE child.parent_id IS NOT NULL AND parent.id IS NULL
-        ''',
-        'files_without_chunks': '''
+        """,
+        "files_without_chunks": """
             SELECT COUNT(*) AS cnt
             FROM files f
             LEFT JOIN chunks c ON c.file_id = f.id
             WHERE c.id IS NULL
-        ''',
-        'child_chunks_without_vector': '''
+        """,
+        "child_chunks_without_vector": """
             SELECT COUNT(*) AS cnt
             FROM chunks c
             LEFT JOIN vec_chunks v ON v.chunk_id = c.id
             WHERE c.parent_id IS NOT NULL AND v.chunk_id IS NULL
-        ''',
-        'vec_file_path_mismatch': '''
+        """,
+        "vec_file_path_mismatch": """
             SELECT COUNT(*) AS cnt
             FROM vec_chunks v
             JOIN files f ON f.id = v.file_id
             WHERE v.file_path != f.path
-        ''',
-        'vec_filename_mismatch': '''
+        """,
+        "vec_filename_mismatch": """
             SELECT COUNT(*) AS cnt
             FROM vec_chunks v
             JOIN files f ON f.id = v.file_id
             WHERE v.filename != f.filename
-        ''',
-        'vec_extension_mismatch': '''
+        """,
+        "vec_extension_mismatch": """
             SELECT COUNT(*) AS cnt
             FROM vec_chunks v
             JOIN files f ON f.id = v.file_id
             WHERE v.extension != f.extension
-        ''',
-        'vec_category_mismatch': '''
+        """,
+        "vec_category_mismatch": """
             SELECT COUNT(*) AS cnt
             FROM vec_chunks v
             JOIN files f ON f.id = v.file_id
             WHERE v.category != f.category
-        ''',
-        'vec_year_mismatch': '''
+        """,
+        "vec_year_mismatch": """
             SELECT COUNT(*) AS cnt
             FROM vec_chunks v
             JOIN files f ON f.id = v.file_id
             WHERE COALESCE(v.year, -1) != COALESCE(f.year, -1)
-        ''',
-        'vec_chunk_text_mismatch': '''
+        """,
+        "vec_chunk_text_mismatch": """
             SELECT COUNT(*) AS cnt
             FROM vec_chunks v
             JOIN chunks c ON c.id = v.chunk_id
             WHERE v.chunk_text != c.content
-        ''',
+        """,
     }
     issues: dict[str, int] = {}
     for key, sql in checks.items():
         cursor = await db.execute(sql)
         row = await cursor.fetchone()
-        issues[key] = int(row['cnt']) if row else 0
+        issues[key] = int(row["cnt"]) if row else 0
     return issues
 
 
 async def repair_index_integrity_issues(db: aiosqlite.Connection) -> dict[str, int]:
     # Repair known integrity issues by removing orphaned/incomplete rows.
+    """Repair index integrity issues."""
     repairs: dict[str, tuple[str, tuple[object, ...]]] = {
-        'orphan_chunks_deleted': (
-            '''
+        "orphan_chunks_deleted": (
+            """
             DELETE FROM chunks
             WHERE file_id NOT IN (SELECT id FROM files)
-            ''',
+            """,
             (),
         ),
-        'orphan_vectors_missing_chunk_deleted': (
-            '''
+        "orphan_vectors_missing_chunk_deleted": (
+            """
             DELETE FROM vec_chunks
             WHERE chunk_id NOT IN (SELECT id FROM chunks)
-            ''',
+            """,
             (),
         ),
-        'orphan_vectors_missing_file_deleted': (
-            '''
+        "orphan_vectors_missing_file_deleted": (
+            """
             DELETE FROM vec_chunks
             WHERE file_id NOT IN (SELECT id FROM files)
-            ''',
+            """,
             (),
         ),
-        'child_chunks_missing_parent_deleted': (
-            '''
+        "child_chunks_missing_parent_deleted": (
+            """
             DELETE FROM chunks
             WHERE parent_id IS NOT NULL
               AND parent_id NOT IN (SELECT id FROM chunks)
-            ''',
+            """,
             (),
         ),
-        'files_without_chunks_deleted': (
-            '''
+        "files_without_chunks_deleted": (
+            """
             DELETE FROM files
             WHERE id NOT IN (SELECT DISTINCT file_id FROM chunks)
-            ''',
+            """,
             (),
         ),
-        'child_chunks_without_vector_deleted': (
-            '''
+        "child_chunks_without_vector_deleted": (
+            """
             DELETE FROM chunks
             WHERE parent_id IS NOT NULL
               AND id NOT IN (SELECT chunk_id FROM vec_chunks)
-            ''',
+            """,
             (),
         ),
-        'vec_file_fields_synced': (
-            '''
+        "vec_file_fields_synced": (
+            """
             UPDATE vec_chunks
             SET
                 file_path = (SELECT f.path FROM files f WHERE f.id = vec_chunks.file_id),
@@ -3416,15 +3582,15 @@ async def repair_index_integrity_issues(db: aiosqlite.Connection) -> dict[str, i
                 category = (SELECT f.category FROM files f WHERE f.id = vec_chunks.file_id),
                 year = (SELECT f.year FROM files f WHERE f.id = vec_chunks.file_id)
             WHERE file_id IN (SELECT id FROM files)
-            ''',
+            """,
             (),
         ),
-        'vec_chunk_text_synced': (
-            '''
+        "vec_chunk_text_synced": (
+            """
             UPDATE vec_chunks
             SET chunk_text = (SELECT c.content FROM chunks c WHERE c.id = vec_chunks.chunk_id)
             WHERE chunk_id IN (SELECT id FROM chunks)
-            ''',
+            """,
             (),
         ),
     }
@@ -3453,17 +3619,20 @@ async def insert_log_event(
     scan_id: int | None = None,
     created_by: str | None = None,
 ) -> int:
-    channel_value = str(channel or '').strip().lower()
-    event_type_value = str(event_type or '').strip().lower()
+    """Insert log event."""
+    channel_value = str(channel or "").strip().lower()
+    event_type_value = str(event_type or "").strip().lower()
     if channel_value not in LOG_EVENT_CHANNELS:
-        raise ValueError(f'Unsupported log event channel: {channel}')
+        raise ValueError(f"Unsupported log event channel: {channel}")
     if event_type_value not in LOG_EVENT_TYPES:
-        raise ValueError(f'Unsupported log event type: {event_type}')
+        raise ValueError(f"Unsupported log event type: {event_type}")
 
-    details_json = json.dumps(details, ensure_ascii=False, separators=(',', ':')) if details else None
-    created_at_iso = created_at.astimezone(UTC).isoformat().replace('+00:00', 'Z')
+    details_json = (
+        json.dumps(details, ensure_ascii=False, separators=(",", ":")) if details else None
+    )
+    created_at_iso = created_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
     cursor = await db.execute(
-        '''
+        """
         INSERT OR IGNORE INTO log_events (
             event_id,
             created_at,
@@ -3480,7 +3649,7 @@ async def insert_log_event(
             created_by
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''',
+        """,
         (
             event_id,
             created_at_iso,
@@ -3511,12 +3680,13 @@ async def get_log_events(
     event_type: str | None = None,
     source: str | None = None,
 ) -> list[dict[str, object]]:
-    channel_value = str(channel or '').strip().lower()
+    """Get log events."""
+    channel_value = str(channel or "").strip().lower()
     if channel_value not in LOG_EVENT_CHANNELS:
-        raise ValueError(f'Unsupported log event channel: {channel}')
+        raise ValueError(f"Unsupported log event channel: {channel}")
 
     normalized_limit = max(1, min(int(limit), 200))
-    query = '''
+    query = """
         SELECT
             id,
             event_id,
@@ -3534,32 +3704,32 @@ async def get_log_events(
             created_by
         FROM log_events
         WHERE channel = ?
-    '''
+    """
     params: list[object] = [channel_value]
 
-    event_type_value = str(event_type or '').strip().lower()
+    event_type_value = str(event_type or "").strip().lower()
     if event_type_value:
         if event_type_value not in LOG_EVENT_TYPES:
-            raise ValueError(f'Unsupported log event type: {event_type}')
-        query += ' AND event_type = ?'
+            raise ValueError(f"Unsupported log event type: {event_type}")
+        query += " AND event_type = ?"
         params.append(event_type_value)
 
-    source_value = str(source or '').strip()
+    source_value = str(source or "").strip()
     if source_value:
-        query += ' AND source = ?'
+        query += " AND source = ?"
         params.append(source_value)
 
     if cursor_created_at and cursor_id is not None:
-        query += ' AND (created_at < ? OR (created_at = ? AND id < ?))'
+        query += " AND (created_at < ? OR (created_at = ? AND id < ?))"
         params.extend((cursor_created_at, cursor_created_at, int(cursor_id)))
 
-    query += ' ORDER BY created_at DESC, id DESC LIMIT ?'
+    query += " ORDER BY created_at DESC, id DESC LIMIT ?"
     params.append(normalized_limit)
     cursor = await db.execute(query, tuple(params))
     rows = await cursor.fetchall()
     events: list[dict[str, object]] = []
     for row in rows:
-        details_raw = row['details_json']
+        details_raw = row["details_json"]
         details_value: dict[str, object] | None = None
         if details_raw:
             try:
@@ -3570,20 +3740,20 @@ async def get_log_events(
                 details_value = None
         events.append(
             {
-                'id': int(row['id']),
-                'event_id': str(row['event_id']),
-                'created_at': str(row['created_at']),
-                'channel': str(row['channel']),
-                'event_type': str(row['event_type']),
-                'event_name': str(row['event_name']),
-                'source': str(row['source']),
-                'message': str(row['message']),
-                'details': details_value,
-                'scope': row['scope'],
-                'correlation_id': row['correlation_id'],
-                'file_id': row['file_id'],
-                'scan_id': row['scan_id'],
-                'created_by': row['created_by'],
+                "id": int(row["id"]),
+                "event_id": str(row["event_id"]),
+                "created_at": str(row["created_at"]),
+                "channel": str(row["channel"]),
+                "event_type": str(row["event_type"]),
+                "event_name": str(row["event_name"]),
+                "source": str(row["source"]),
+                "message": str(row["message"]),
+                "details": details_value,
+                "scope": row["scope"],
+                "correlation_id": row["correlation_id"],
+                "file_id": row["file_id"],
+                "scan_id": row["scan_id"],
+                "created_by": row["created_by"],
             }
         )
     return events
@@ -3593,30 +3763,31 @@ async def reset_all_data(db: aiosqlite.Connection) -> dict[str, object]:
     # Drop all tables and recreate from current schema so the database has the
     # latest structure (e.g. new columns). Returns a dict with table names and
     # 0 counts (tables are recreated empty).
+    """Reset all data."""
     tracked_tables = (
-        'response_diagnostics_metrics',
-        'continuation_pass_artifacts',
-        'chat_messages',
-        'chat_upload_attachments',
-        'chunks',
-        'chats',
-        'scan_errors',
-        'file_failures',
-        'scan_history',
-        'files',
-        'vec_chunks',
-        'term_entries',
-        'term_aliases',
-        'term_evidence',
-        'term_dictionary_build_runs',
+        "response_diagnostics_metrics",
+        "continuation_pass_artifacts",
+        "chat_messages",
+        "chat_upload_attachments",
+        "chunks",
+        "chats",
+        "scan_errors",
+        "file_failures",
+        "scan_history",
+        "files",
+        "vec_chunks",
+        "term_entries",
+        "term_aliases",
+        "term_evidence",
+        "term_dictionary_build_runs",
     )
 
     pre_counts: dict[str, object] = {table: 0 for table in tracked_tables}
     for table in tracked_tables:
         try:
-            cursor = await db.execute(f'SELECT COUNT(*) AS cnt FROM {table}')
+            cursor = await db.execute(f"SELECT COUNT(*) AS cnt FROM {table}")
             row = await cursor.fetchone()
-            pre_counts[table] = int(row['cnt']) if row else 0
+            pre_counts[table] = int(row["cnt"]) if row else 0
         except (aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError):
             pre_counts[table] = 0
     try:
@@ -3646,30 +3817,30 @@ async def reset_all_data(db: aiosqlite.Connection) -> dict[str, object]:
         )
         upload_counts_row = await upload_counts_cursor.fetchone()
         if upload_counts_row is not None:
-            pre_counts['upload_attachments'] = int(upload_counts_row['upload_attachments'] or 0)
-            pre_counts['upload_files'] = int(upload_counts_row['upload_files'] or 0)
-            pre_counts['upload_chunks'] = int(upload_counts_row['upload_chunks'] or 0)
-            pre_counts['upload_vectors'] = int(upload_counts_row['upload_vectors'] or 0)
+            pre_counts["upload_attachments"] = int(upload_counts_row["upload_attachments"] or 0)
+            pre_counts["upload_files"] = int(upload_counts_row["upload_files"] or 0)
+            pre_counts["upload_chunks"] = int(upload_counts_row["upload_chunks"] or 0)
+            pre_counts["upload_vectors"] = int(upload_counts_row["upload_vectors"] or 0)
     except (aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError):
-        pre_counts.setdefault('upload_attachments', 0)
-        pre_counts.setdefault('upload_files', 0)
-        pre_counts.setdefault('upload_chunks', 0)
-        pre_counts.setdefault('upload_vectors', 0)
+        pre_counts.setdefault("upload_attachments", 0)
+        pre_counts.setdefault("upload_files", 0)
+        pre_counts.setdefault("upload_chunks", 0)
+        pre_counts.setdefault("upload_vectors", 0)
 
     reset_error: Exception | None = None
     for attempt in range(1, _RESET_SCHEMA_RETRY_ATTEMPTS + 1):
         try:
             await db.executescript(_RESET_DROP_SQL)
             await db.executescript(_SCHEMA_SQL)
-            await db.execute('DELETE FROM schema_version')
-            await db.execute('INSERT INTO schema_version (version) VALUES (?)', (SCHEMA_VERSION,))
+            await db.execute("DELETE FROM schema_version")
+            await db.execute("INSERT INTO schema_version (version) VALUES (?)", (SCHEMA_VERSION,))
             await db.commit()
             reset_error = None
             break
         except (aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError) as exc:
             reset_error = exc
             message = str(exc).lower()
-            is_lock_error = 'locked' in message or 'busy' in message
+            is_lock_error = "locked" in message or "busy" in message
             if is_lock_error and attempt < _RESET_SCHEMA_RETRY_ATTEMPTS:
                 with suppress(aiosqlite.Error, RuntimeError, OSError, ValueError, TypeError):
                     await db.rollback()
@@ -3686,8 +3857,8 @@ async def reset_all_data(db: aiosqlite.Connection) -> dict[str, object]:
     compaction_error: str | None = None
     for attempt in range(1, _RESET_COMPACTION_RETRY_ATTEMPTS + 1):
         try:
-            await db.execute('PRAGMA wal_checkpoint(TRUNCATE)')
-            await db.execute('VACUUM')
+            await db.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            await db.execute("VACUUM")
             await db.commit()
             storage_compacted = True
             compaction_error = None
@@ -3699,10 +3870,10 @@ async def reset_all_data(db: aiosqlite.Connection) -> dict[str, object]:
             continue
 
     counts: dict[str, object] = dict(pre_counts)
-    counts['storage_compacted'] = storage_compacted
-    counts['compaction_error'] = compaction_error
+    counts["storage_compacted"] = storage_compacted
+    counts["compaction_error"] = compaction_error
     log.info(
-        'all_data_reset',
+        "all_data_reset",
         schema_recreated=True,
         schema_version=SCHEMA_VERSION,
         storage_compacted=storage_compacted,
@@ -3718,86 +3889,88 @@ async def reset_index_data_scope(
     entity_type: str,
 ) -> dict[str, object]:
     # Delete indexed content for one source scope only.
+    """Reset index data scope."""
     source_provider = source_provider.strip().lower()
     entity_type = entity_type.strip().lower()
 
     files_cursor = await db.execute(
-        '''
+        """
         SELECT id
         FROM files
         WHERE source_provider = ? AND entity_type = ?
-        ''',
+        """,
         (source_provider, entity_type),
     )
     file_rows = await files_cursor.fetchall()
-    file_ids = [int(row['id']) for row in file_rows]
+    file_ids = [int(row["id"]) for row in file_rows]
 
     files_deleted = len(file_ids)
     if files_deleted == 0:
         return {
-            'source_provider': source_provider,
-            'entity_type': entity_type,
-            'files_deleted': 0,
-            'chunks_deleted': 0,
-            'vectors_deleted': 0,
-            'file_failures_deleted': 0,
+            "source_provider": source_provider,
+            "entity_type": entity_type,
+            "files_deleted": 0,
+            "chunks_deleted": 0,
+            "vectors_deleted": 0,
+            "file_failures_deleted": 0,
         }
 
-    placeholders = ', '.join('?' * len(file_ids))
+    placeholders = ", ".join("?" * len(file_ids))
     chunks_cursor = await db.execute(
-        f'SELECT COUNT(*) AS cnt FROM chunks WHERE file_id IN ({placeholders})',
+        f"SELECT COUNT(*) AS cnt FROM chunks WHERE file_id IN ({placeholders})",
         file_ids,
     )
     chunk_row = await chunks_cursor.fetchone()
-    chunks_deleted = int(chunk_row['cnt']) if chunk_row else 0
+    chunks_deleted = int(chunk_row["cnt"]) if chunk_row else 0
 
     vectors_cursor = await db.execute(
-        f'SELECT COUNT(*) AS cnt FROM vec_chunks WHERE file_id IN ({placeholders})',
+        f"SELECT COUNT(*) AS cnt FROM vec_chunks WHERE file_id IN ({placeholders})",
         file_ids,
     )
     vector_row = await vectors_cursor.fetchone()
-    vectors_deleted = int(vector_row['cnt']) if vector_row else 0
+    vectors_deleted = int(vector_row["cnt"]) if vector_row else 0
 
     file_failures_cursor = await db.execute(
-        '''
+        """
         SELECT COUNT(*) AS cnt
         FROM file_failures
         WHERE source_provider = ? AND entity_type = ?
-        ''',
+        """,
         (source_provider, entity_type),
     )
     file_failures_row = await file_failures_cursor.fetchone()
-    file_failures_deleted = int(file_failures_row['cnt']) if file_failures_row else 0
+    file_failures_deleted = int(file_failures_row["cnt"]) if file_failures_row else 0
 
     await db.execute(
-        '''
+        """
         DELETE FROM file_failures
         WHERE source_provider = ? AND entity_type = ?
-        ''',
+        """,
         (source_provider, entity_type),
     )
     await db.execute(
-        '''
+        """
         DELETE FROM files
         WHERE source_provider = ? AND entity_type = ?
-        ''',
+        """,
         (source_provider, entity_type),
     )
     await db.commit()
 
     return {
-        'source_provider': source_provider,
-        'entity_type': entity_type,
-        'files_deleted': files_deleted,
-        'chunks_deleted': chunks_deleted,
-        'vectors_deleted': vectors_deleted,
-        'file_failures_deleted': file_failures_deleted,
+        "source_provider": source_provider,
+        "entity_type": entity_type,
+        "files_deleted": files_deleted,
+        "chunks_deleted": chunks_deleted,
+        "vectors_deleted": vectors_deleted,
+        "file_failures_deleted": file_failures_deleted,
     }
 
 
 # ==============================================================================
 # Translate Job Helpers
 # ==============================================================================
+
 
 async def create_translate_job(
     db: aiosqlite.Connection,
@@ -3806,22 +3979,24 @@ async def create_translate_job(
     file_id: int,
     target_language: str,
     tone: str,
-    output_mode: str = 'markdown',
+    output_mode: str = "markdown",
 ) -> None:
+    """Create translate job."""
     now = datetime.now(UTC).isoformat()
     await db.execute(
-        '''
+        """
         INSERT INTO translate_jobs
             (job_id, file_id, target_language, tone, output_mode, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, 'queued', ?, ?)
-        ''',
+        """,
         (job_id, file_id, target_language, tone, output_mode, now, now),
     )
     await db.commit()
 
 
 async def get_translate_job(db: aiosqlite.Connection, job_id: str) -> aiosqlite.Row | None:
-    cursor = await db.execute('SELECT * FROM translate_jobs WHERE job_id = ?', (job_id,))
+    """Get translate job."""
+    cursor = await db.execute("SELECT * FROM translate_jobs WHERE job_id = ?", (job_id,))
     return await cursor.fetchone()
 
 
@@ -3836,29 +4011,30 @@ async def update_translate_job(
     failed_sections: int | None = None,
     error: str | None = None,
 ) -> None:
+    """Update translate job."""
     now = datetime.now(UTC).isoformat()
-    fields: list[str] = ['updated_at = ?']
+    fields: list[str] = ["updated_at = ?"]
     params: list = [now]
     if status is not None:
-        fields.append('status = ?')
+        fields.append("status = ?")
         params.append(status)
     if glossary_json is not None:
-        fields.append('glossary_json = ?')
+        fields.append("glossary_json = ?")
         params.append(glossary_json)
     if section_count is not None:
-        fields.append('section_count = ?')
+        fields.append("section_count = ?")
         params.append(section_count)
     if completed_sections is not None:
-        fields.append('completed_sections = ?')
+        fields.append("completed_sections = ?")
         params.append(completed_sections)
     if failed_sections is not None:
-        fields.append('failed_sections = ?')
+        fields.append("failed_sections = ?")
         params.append(failed_sections)
     if error is not None:
-        fields.append('error = ?')
+        fields.append("error = ?")
         params.append(error)
     params.append(job_id)
-    await db.execute(f'UPDATE translate_jobs SET {", ".join(fields)} WHERE job_id = ?', params)
+    await db.execute(f"UPDATE translate_jobs SET {', '.join(fields)} WHERE job_id = ?", params)
     await db.commit()
 
 
@@ -3870,13 +4046,14 @@ async def create_translate_section(
     section_index: int,
     section_title: str | None,
 ) -> None:
+    """Create translate section."""
     now = datetime.now(UTC).isoformat()
     await db.execute(
-        '''
+        """
         INSERT INTO translate_job_sections
             (section_id, job_id, section_index, section_title, status, created_at, updated_at)
         VALUES (?, ?, ?, ?, 'pending', ?, ?)
-        ''',
+        """,
         (section_id, job_id, section_index, section_title, now, now),
     )
 
@@ -3890,49 +4067,53 @@ async def update_translate_section(
     attempt_count: int | None = None,
     error: str | None = None,
 ) -> None:
+    """Update translate section."""
     now = datetime.now(UTC).isoformat()
-    fields: list[str] = ['updated_at = ?']
+    fields: list[str] = ["updated_at = ?"]
     params: list = [now]
     if status is not None:
-        fields.append('status = ?')
+        fields.append("status = ?")
         params.append(status)
     if result_text is not None:
-        fields.append('result_text = ?')
+        fields.append("result_text = ?")
         params.append(result_text)
     if attempt_count is not None:
-        fields.append('attempt_count = ?')
+        fields.append("attempt_count = ?")
         params.append(attempt_count)
     if error is not None:
-        fields.append('error = ?')
+        fields.append("error = ?")
         params.append(error)
     params.append(section_id)
-    await db.execute(f'UPDATE translate_job_sections SET {", ".join(fields)} WHERE section_id = ?', params)
+    await db.execute(
+        f"UPDATE translate_job_sections SET {', '.join(fields)} WHERE section_id = ?", params
+    )
 
 
-async def get_translate_sections(
-    db: aiosqlite.Connection, job_id: str
-) -> list[aiosqlite.Row]:
+async def get_translate_sections(db: aiosqlite.Connection, job_id: str) -> list[aiosqlite.Row]:
+    """Get translate sections."""
     cursor = await db.execute(
-        'SELECT * FROM translate_job_sections WHERE job_id = ? ORDER BY section_index ASC',
+        "SELECT * FROM translate_job_sections WHERE job_id = ? ORDER BY section_index ASC",
         (job_id,),
     )
     return await cursor.fetchall()
 
 
 async def get_translate_job_result(db: aiosqlite.Connection, job_id: str) -> list[str]:
+    """Get translate job result."""
     cursor = await db.execute(
-        '''
+        """
         SELECT result_text FROM translate_job_sections
         WHERE job_id = ? AND status = 'done'
         ORDER BY section_index ASC
-        ''',
+        """,
         (job_id,),
     )
     rows = await cursor.fetchall()
-    return [str(r['result_text']) for r in rows if r['result_text']]
+    return [str(r["result_text"]) for r in rows if r["result_text"]]
 
 
 async def delete_translate_jobs_older_than(db: aiosqlite.Connection, cutoff_iso: str) -> int:
+    """Delete translate jobs older than."""
     cursor = await db.execute(
         "SELECT COUNT(*) FROM translate_jobs WHERE created_at < ?", (cutoff_iso,)
     )

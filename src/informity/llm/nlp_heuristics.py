@@ -3,8 +3,10 @@
 # Minimal retained heuristic pattern(s) used by production routing paths.
 # ==============================================================================
 
+"""Module for llm nlp heuristics."""
+
 import re
 
-BY_PER_YEAR_PATTERN = re.compile(r'\b(?:by|per)\s+year\b', re.IGNORECASE)
+BY_PER_YEAR_PATTERN = re.compile(r"\b(?:by|per)\s+year\b", re.IGNORECASE)
 
-__all__ = ['BY_PER_YEAR_PATTERN']
+__all__ = ["BY_PER_YEAR_PATTERN"]

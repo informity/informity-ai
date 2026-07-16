@@ -3,6 +3,10 @@
 # Centralized mode profiles, specialization overlays, and prompt composition utilities.
 # ==============================================================================
 
+"""Module for llm specializations."""
+
+# pylint: disable=line-too-long
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -23,8 +27,8 @@ class ModeProfile:
     name: str
     description: str
     identity_prompt: str
-    mode_policy: str = ''
-    disclaimer: str = ''
+    mode_policy: str = ""
+    disclaimer: str = ""
     capabilities: tuple[str, ...] = ()
 
 
@@ -35,20 +39,20 @@ class SpecializationProfile:
     id: str
     name: str
     description: str
-    identity_prompt: str = ''
-    scope_guidance: str = ''
+    identity_prompt: str = ""
+    scope_guidance: str = ""
     analysis_checklist: tuple[str, ...] = ()
     output_preferences: tuple[str, ...] = ()
-    overlay_prompt: str = ''
-    icon: str = ''
-    disclaimer: str = ''
+    overlay_prompt: str = ""
+    icon: str = ""
+    disclaimer: str = ""
     capabilities: tuple[str, ...] = ()
     retrieval_hints: tuple[str, ...] = ()
     visible_in_ui: bool = True
 
 
-
-_ASSISTANT_DEFAULT_PROMPT = """You are Informity AI, a helpful AI assistant. Answer conversationally, clearly, and directly.
+_ASSISTANT_DEFAULT_PROMPT = """You are Informity AI, a helpful AI assistant.
+Answer conversationally, clearly, and directly.
 
 Identity policy:
 - If asked who you are, say you are Informity AI.
@@ -69,7 +73,8 @@ Use provided web search context when relevant and answer directly.
 If web context is insufficient, say what remains uncertain.
 Keep responses concise."""
 
-_RESEARCHER_SIMPLE_PROMPT = """You are Informity AI, a helpful AI assistant. Answer questions conversationally and helpfully.
+_RESEARCHER_SIMPLE_PROMPT = """You are Informity AI, a helpful AI assistant.
+Answer questions conversationally and helpfully.
 
 Identity policy:
 - If asked who you are, say you are Informity AI.
@@ -121,45 +126,47 @@ Assistant Mode Rules:
 """
 
 MODE_REGISTRY: dict[str, ModeProfile] = {
-    'assistant_default': ModeProfile(
-        id='assistant_default',
-        name='Assistant (Default)',
-        description='General conversational assistant mode profile.',
+    "assistant_default": ModeProfile(
+        id="assistant_default",
+        name="Assistant (Default)",
+        description="General conversational assistant mode profile.",
         identity_prompt=_ASSISTANT_DEFAULT_PROMPT,
-        capabilities=('chat',),
+        capabilities=("chat",),
     ),
-    'assistant_web_search_synthesis': ModeProfile(
-        id='assistant_web_search_synthesis',
-        name='Assistant Web Synthesis',
-        description='Assistant profile for synthesizing web search results.',
+    "assistant_web_search_synthesis": ModeProfile(
+        id="assistant_web_search_synthesis",
+        name="Assistant Web Synthesis",
+        description="Assistant profile for synthesizing web search results.",
         identity_prompt=_ASSISTANT_WEB_SEARCH_SYNTHESIS_PROMPT,
-        capabilities=('chat', 'web_search'),
+        capabilities=("chat", "web_search"),
     ),
-    'researcher_default': ModeProfile(
-        id='researcher_default',
-        name='Researcher (Default)',
-        description='Research-aware conversational assistant mode profile.',
+    "researcher_default": ModeProfile(
+        id="researcher_default",
+        name="Researcher (Default)",
+        description="Research-aware conversational assistant mode profile.",
         identity_prompt=_RESEARCHER_SIMPLE_PROMPT,
-        capabilities=('chat', 'retrieval_awareness'),
+        capabilities=("chat", "retrieval_awareness"),
     ),
-    'chat_summary': ModeProfile(
-        id='chat_summary',
-        name='Chat Summary',
-        description='Persona for summarizing prior chat conversation only.',
+    "chat_summary": ModeProfile(
+        id="chat_summary",
+        name="Chat Summary",
+        description="Persona for summarizing prior chat conversation only.",
         identity_prompt=_CHAT_SUMMARY_PROMPT,
-        capabilities=('chat_summary',),
+        capabilities=("chat_summary",),
     ),
-    'researcher_rag': ModeProfile(
-        id='researcher_rag',
-        name='Researcher RAG',
-        description='Strict retrieval-grounded profile for RAG response generation.',
+    "researcher_rag": ModeProfile(
+        id="researcher_rag",
+        name="Researcher RAG",
+        description="Strict retrieval-grounded profile for RAG response generation.",
         identity_prompt=_RESEARCHER_RAG_PROMPT,
         mode_policy=_ASSISTANT_MODE_POLICY,
-        capabilities=('rag',),
+        capabilities=("rag",),
     ),
 }
 
+
 def _build_specialization_profile(spec: SpecializationPluginSpec) -> SpecializationProfile:
+    """Internal helper for build specialization profile."""
     return SpecializationProfile(
         id=spec.id,
         name=spec.name,
@@ -187,7 +194,7 @@ def get_mode_profile(mode_id: str) -> ModeProfile:
     try:
         return MODE_REGISTRY[mode_id]
     except KeyError as exc:
-        raise KeyError(f'Unknown mode_id: {mode_id}') from exc
+        raise KeyError(f"Unknown mode_id: {mode_id}") from exc
 
 
 def get_specialization_profile(specialization_id: str) -> SpecializationProfile:
@@ -195,10 +202,11 @@ def get_specialization_profile(specialization_id: str) -> SpecializationProfile:
     try:
         return SPECIALIZATION_REGISTRY[specialization_id]
     except KeyError as exc:
-        raise KeyError(f'Unknown specialization_id: {specialization_id}') from exc
+        raise KeyError(f"Unknown specialization_id: {specialization_id}") from exc
 
 
 def list_specialization_profiles(*, visible_only: bool = True) -> list[SpecializationProfile]:
+    """List specialization profiles."""
     profiles = list(SPECIALIZATION_REGISTRY.values())
     if visible_only:
         profiles = [profile for profile in profiles if profile.visible_in_ui]
@@ -206,21 +214,23 @@ def list_specialization_profiles(*, visible_only: bool = True) -> list[Specializ
 
 
 def describe_specialization(specialization_id: str) -> dict[str, object]:
+    """Describe specialization."""
     profile = get_specialization_profile(specialization_id)
     plugin_spec = SPECIALIZATION_PLUGIN_SPEC_REGISTRY.get(profile.id)
     return {
-        'id': profile.id,
-        'name': profile.name,
-        'description': profile.description,
-        'plugin_type': 'specialization',
-        'capabilities': list(profile.capabilities),
-        'retrieval_hints': list(profile.retrieval_hints),
-        'visible_in_ui': bool(profile.visible_in_ui),
-        'has_plugin_spec': plugin_spec is not None,
+        "id": profile.id,
+        "name": profile.name,
+        "description": profile.description,
+        "plugin_type": "specialization",
+        "capabilities": list(profile.capabilities),
+        "retrieval_hints": list(profile.retrieval_hints),
+        "visible_in_ui": bool(profile.visible_in_ui),
+        "has_plugin_spec": plugin_spec is not None,
     }
 
 
 def get_mode_prompt(mode_id: str) -> str:
+    """Get mode prompt."""
     return get_mode_profile(mode_id).identity_prompt
 
 
@@ -232,9 +242,9 @@ def compose_prompt(
 ) -> str:
     """Compose final prompt from mode profile + optional specialization overlay."""
     mode_profile = get_mode_profile(mode_id)
-    suppress_specialization_disclaimer = 'rag' in mode_profile.capabilities
+    suppress_specialization_disclaimer = "rag" in mode_profile.capabilities
     prompt = mode_profile.identity_prompt
-    if mode_profile.mode_policy and normalize_chat_mode(chat_mode) == 'assistant':
+    if mode_profile.mode_policy and normalize_chat_mode(chat_mode) == "assistant":
         prompt += mode_profile.mode_policy
 
     if specialization_id:
@@ -243,52 +253,62 @@ def compose_prompt(
         normalized_chat_mode = normalize_chat_mode(chat_mode)
         specialization_sections: list[str] = []
         if specialization_profile.identity_prompt:
-            specialization_sections.append(f'Specialization Identity:\n{specialization_profile.identity_prompt}')
+            specialization_sections.append(
+                f"Specialization Identity:\n{specialization_profile.identity_prompt}"
+            )
         if specialization_profile.scope_guidance:
-            specialization_sections.append(f'Specialization Scope:\n{specialization_profile.scope_guidance}')
+            specialization_sections.append(
+                f"Specialization Scope:\n{specialization_profile.scope_guidance}"
+            )
         if specialization_profile.analysis_checklist:
-            checklist_lines = '\n'.join(f'- {item}' for item in specialization_profile.analysis_checklist)
-            specialization_sections.append(f'Specialization Analysis Checklist:\n{checklist_lines}')
+            checklist_lines = "\n".join(
+                f"- {item}" for item in specialization_profile.analysis_checklist
+            )
+            specialization_sections.append(f"Specialization Analysis Checklist:\n{checklist_lines}")
         if specialization_profile.output_preferences:
-            output_lines = '\n'.join(f'- {item}' for item in specialization_profile.output_preferences)
-            specialization_sections.append(f'Specialization Output Preferences:\n{output_lines}')
+            output_lines = "\n".join(
+                f"- {item}" for item in specialization_profile.output_preferences
+            )
+            specialization_sections.append(f"Specialization Output Preferences:\n{output_lines}")
         if specialization_spec is not None:
             specialization_sections.extend(specialization_spec.isolated_rules)
-            if specialization_spec.id == 'technical' and normalized_chat_mode == 'assistant':
+            if specialization_spec.id == "technical" and normalized_chat_mode == "assistant":
                 specialization_sections.extend(specialization_spec.assistant_mode_rules)
         if specialization_profile.disclaimer and not suppress_specialization_disclaimer:
             specialization_sections.append(
-                'Disclaimer Placement Rule:\n'
+                "Disclaimer Placement Rule:\n"
                 '- Include the disclaimer at the end of the answer under a "Disclaimer:" line.\n'
-                '- Do not place the disclaimer at the beginning of the answer.'
+                "- Do not place the disclaimer at the beginning of the answer."
             )
         if specialization_profile.overlay_prompt:
-            specialization_sections.append(f'Specialization Overlay:\n{specialization_profile.overlay_prompt}')
+            specialization_sections.append(
+                f"Specialization Overlay:\n{specialization_profile.overlay_prompt}"
+            )
         if specialization_sections:
-            prompt = f'{prompt}\n\n' + '\n\n'.join(specialization_sections)
+            prompt = f"{prompt}\n\n" + "\n\n".join(specialization_sections)
         if specialization_profile.disclaimer and not suppress_specialization_disclaimer:
-            prompt = f'{prompt}\n\nSpecialization Disclaimer:\n{specialization_profile.disclaimer}'
+            prompt = f"{prompt}\n\nSpecialization Disclaimer:\n{specialization_profile.disclaimer}"
 
     return prompt
 
 
 def resolve_runtime_mode_id(chat_mode: str | None) -> str:
     """Resolve default runtime mode profile for simple chat by mode."""
-    if normalize_chat_mode(chat_mode) == 'assistant':
-        return 'assistant_default'
-    return 'researcher_default'
+    if normalize_chat_mode(chat_mode) == "assistant":
+        return "assistant_default"
+    return "researcher_default"
 
 
 __all__ = [
-    'ModeProfile',
-    'SpecializationProfile',
-    'MODE_REGISTRY',
-    'SPECIALIZATION_REGISTRY',
-    'compose_prompt',
-    'get_mode_profile',
-    'get_mode_prompt',
-    'get_specialization_profile',
-    'describe_specialization',
-    'list_specialization_profiles',
-    'resolve_runtime_mode_id',
+    "ModeProfile",
+    "SpecializationProfile",
+    "MODE_REGISTRY",
+    "SPECIALIZATION_REGISTRY",
+    "compose_prompt",
+    "get_mode_profile",
+    "get_mode_prompt",
+    "get_specialization_profile",
+    "describe_specialization",
+    "list_specialization_profiles",
+    "resolve_runtime_mode_id",
 ]

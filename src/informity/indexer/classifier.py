@@ -3,6 +3,10 @@
 # Simple extension-based classification and year extraction
 # ==============================================================================
 
+"""Module for indexer classifier."""
+
+# pylint: disable=unused-argument
+
 from pathlib import Path
 
 from informity.category_patterns import get_category_for_extension
@@ -10,11 +14,26 @@ from informity.db.models import FileCategory
 from informity.file_patterns import YEAR_PATTERN
 
 _YEAR_EXTRACTION_TEXT_LIMIT = 1000
-_SKIP_DIRS: frozenset[str] = frozenset({
-    'library', 'applications', 'system', 'users', 'home',
-    '.git', '.venv', '.env', 'node_modules', '__pycache__',
-    'desktop', 'documents', 'downloads', 'movies', 'music', 'pictures',
-})
+_SKIP_DIRS: frozenset[str] = frozenset(
+    {
+        "library",
+        "applications",
+        "system",
+        "users",
+        "home",
+        ".git",
+        ".venv",
+        ".env",
+        "node_modules",
+        "__pycache__",
+        "desktop",
+        "documents",
+        "downloads",
+        "movies",
+        "music",
+        "pictures",
+    }
+)
 
 
 def classify_file(path: Path, extension: str) -> FileCategory:
@@ -60,6 +79,7 @@ def extract_year(path: Path, text: str) -> int | None:
 def generate_tags(path: Path) -> list[str]:
     # Generate tags from directory path components.
     # Extracts meaningful directory names, filters system dirs, normalizes.
+    """Generate tags."""
     tags: list[str] = []
 
     # Extract directory components
@@ -71,7 +91,7 @@ def generate_tags(path: Path) -> list[str]:
             continue
 
         # Normalize: lowercase, replace spaces/hyphens with underscores
-        tag = part.lower().replace(' ', '_').replace('-', '_')
+        tag = part.lower().replace(" ", "_").replace("-", "_")
 
         # Skip if already added or invalid
         if tag and tag not in tags:

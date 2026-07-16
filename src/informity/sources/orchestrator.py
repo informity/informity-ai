@@ -1,3 +1,5 @@
+"""Module for sources orchestrator."""
+
 from __future__ import annotations
 
 import structlog
@@ -11,7 +13,9 @@ log = structlog.get_logger(__name__)
 
 
 class SourceIngestionOrchestrator:
+    """Class docstring."""
     def __init__(self, registry: SourceAdapterRegistry) -> None:
+        """Initialize the instance."""
         self.registry = registry
 
     def discover_filesystem_scanned_files(
@@ -22,13 +26,14 @@ class SourceIngestionOrchestrator:
         supported_extensions: list[str],
         follow_symlinks: bool,
     ) -> list[ScannedFile]:
+        """Discover filesystem scanned files."""
         adapter = self.registry.get(FILESYSTEM_PROVIDER)
         refs = adapter.discover(
             {
-                'directories': directories,
-                'ignore_patterns': ignore_patterns,
-                'supported_extensions': supported_extensions,
-                'follow_symlinks': follow_symlinks,
+                "directories": directories,
+                "ignore_patterns": ignore_patterns,
+                "supported_extensions": supported_extensions,
+                "follow_symlinks": follow_symlinks,
             }
         )
 
@@ -38,7 +43,7 @@ class SourceIngestionOrchestrator:
                 item = adapter.fetch(ref)
             except (RuntimeError, ValueError, TypeError, OSError) as exc:
                 log.warning(
-                    'source_item_fetch_failed',
+                    "source_item_fetch_failed",
                     provider=FILESYSTEM_PROVIDER,
                     source_item_id=ref.item_id,
                     locator=ref.locator,
@@ -46,13 +51,13 @@ class SourceIngestionOrchestrator:
                 )
                 continue
 
-            scanned = item.metadata.get('scanned_file')
+            scanned = item.metadata.get("scanned_file")
             if isinstance(scanned, ScannedFile):
                 scanned_files.append(scanned)
                 continue
 
             log.warning(
-                'source_item_missing_scanned_file',
+                "source_item_missing_scanned_file",
                 provider=FILESYSTEM_PROVIDER,
                 source_item_id=item.source_item_id,
             )
@@ -60,6 +65,7 @@ class SourceIngestionOrchestrator:
 
 
 def build_default_orchestrator() -> SourceIngestionOrchestrator:
+    """Build default orchestrator."""
     registry = SourceAdapterRegistry()
     registry.register(FilesystemSourceAdapter())
     return SourceIngestionOrchestrator(registry)

@@ -10,6 +10,8 @@
 # Each file contains one complete trace entry with timestamp, chat_id, message_id, and steps.
 # ==============================================================================
 
+"""Module for chat trace."""
+
 from __future__ import annotations
 
 import asyncio
@@ -39,23 +41,23 @@ log = structlog.get_logger(__name__)
 MAX_TRACE_SECTIONS = 50  # Maximum number of sections to include in trace sanitization
 MAX_TRACE_STRING_LENGTH = 8000  # Maximum string length before truncation in trace logs
 MAX_TRACE_LIST_ITEM_LENGTH = 2000  # Maximum length of list items in trace logs
-TRACE_SCHEMA_NAME = 'informity.chat_trace'
+TRACE_SCHEMA_NAME = "informity.chat_trace"
 TRACE_SCHEMA_VERSION = 1
-TRACE_SUMMARY_SCHEMA_NAME = 'informity.chat_trace.summary'
+TRACE_SUMMARY_SCHEMA_NAME = "informity.chat_trace.summary"
 TRACE_SUMMARY_SCHEMA_VERSION = 1
 _TRACE_PRUNE_INTERVAL_SECONDS = 3600.0
 _SECONDS_PER_DAY = 86400
-_TRACE_REDACTION_MODE_DEFAULT = 'strict'
-_TRACE_REDACTION_MODE_OPTIONS = {'off', 'minimal', 'strict'}
+_TRACE_REDACTION_MODE_DEFAULT = "strict"
+_TRACE_REDACTION_MODE_OPTIONS = {"off", "minimal", "strict"}
 _TRACE_RETENTION_DAYS_DEFAULT = 30
 _SENSITIVE_TRACE_KEYS = (
-    'question',
-    'answer',
-    'content',
-    'prompt',
-    'chunk',
-    'source',
-    'message',
+    "question",
+    "answer",
+    "content",
+    "prompt",
+    "chunk",
+    "source",
+    "message",
 )
 
 # ==============================================================================
@@ -68,6 +70,7 @@ _trace_prune_state_lock = threading.Lock()
 
 
 def _get_trace_lock() -> asyncio.Lock:
+    """Internal helper for get trace lock."""
     global _trace_write_lock
     if _trace_write_lock is None:
         _trace_write_lock = asyncio.Lock()
@@ -75,37 +78,58 @@ def _get_trace_lock() -> asyncio.Lock:
 
 
 def _get_redaction_mode() -> str:
-    mode = str(getattr(settings, 'chat_trace_redaction_mode', _TRACE_REDACTION_MODE_DEFAULT)).strip().lower()
+    """Internal helper for get redaction mode."""
+    mode = (
+        str(getattr(settings, "chat_trace_redaction_mode", _TRACE_REDACTION_MODE_DEFAULT))
+        .strip()
+        .lower()
+    )
     if mode in _TRACE_REDACTION_MODE_OPTIONS:
         return mode
     return _TRACE_REDACTION_MODE_DEFAULT
 
 
 def _is_sensitive_key(key: str) -> bool:
+    """Internal helper for is sensitive key."""
     key_lower = key.strip().lower()
     return any(marker in key_lower for marker in _SENSITIVE_TRACE_KEYS)
 
 
 def _sanitize_string(value: str, key: str, mode: str) -> str:
-    if mode == 'off':
-        return value if len(value) <= MAX_TRACE_STRING_LENGTH else value[:MAX_TRACE_STRING_LENGTH] + '... (truncated)'
+    """Internal helper for sanitize string."""
+    if mode == "off":
+        return (
+            value
+            if len(value) <= MAX_TRACE_STRING_LENGTH
+            else value[:MAX_TRACE_STRING_LENGTH] + "... (truncated)"
+        )
     if not _is_sensitive_key(key):
-        return value if len(value) <= MAX_TRACE_STRING_LENGTH else value[:MAX_TRACE_STRING_LENGTH] + '... (truncated)'
-    if mode == 'strict':
-        return f'[REDACTED length={len(value)}]'
+        return (
+            value
+            if len(value) <= MAX_TRACE_STRING_LENGTH
+            else value[:MAX_TRACE_STRING_LENGTH] + "... (truncated)"
+        )
+    if mode == "strict":
+        return f"[REDACTED length={len(value)}]"
     # minimal
     preview_limit = min(500, MAX_TRACE_STRING_LENGTH)
     preview = value[:preview_limit]
-    return preview + (f'... [REDACTED_TAIL length={len(value)}]' if len(value) > preview_limit else '')
+    return preview + (
+        f"... [REDACTED_TAIL length={len(value)}]" if len(value) > preview_limit else ""
+    )
 
 
 def _get_trace_retention_days(chat_type: str) -> int:
-    if chat_type == 'evaluation':
-        return int(getattr(settings, 'chat_trace_evaluation_retention_days', _TRACE_RETENTION_DAYS_DEFAULT))
-    return int(getattr(settings, 'chat_trace_user_retention_days', _TRACE_RETENTION_DAYS_DEFAULT))
+    """Internal helper for get trace retention days."""
+    if chat_type == "evaluation":
+        return int(
+            getattr(settings, "chat_trace_evaluation_retention_days", _TRACE_RETENTION_DAYS_DEFAULT)
+        )
+    return int(getattr(settings, "chat_trace_user_retention_days", _TRACE_RETENTION_DAYS_DEFAULT))
 
 
 async def _maybe_prune_traces(chat_type: str, base_dir: Path) -> None:
+    """Internal helper for maybe prune traces."""
     retention_days = _get_trace_retention_days(chat_type)
     if retention_days <= 0 or not base_dir.exists():
         return
@@ -118,15 +142,18 @@ async def _maybe_prune_traces(chat_type: str, base_dir: Path) -> None:
             return
         _last_trace_prune_ts[base_key] = now_mono
 
-    cutoff_ts = (datetime.now(UTC).timestamp() - (retention_days * _SECONDS_PER_DAY))
+    cutoff_ts = datetime.now(UTC).timestamp() - (retention_days * _SECONDS_PER_DAY)
 
     def _prune_sync() -> int:
+        """Internal helper for prune sync."""
         deleted_count = 0
-        if chat_type == 'evaluation':
+        if chat_type == "evaluation":
             # Retain only trace files under runs/*/traces/.
-            json_files = [p for p in base_dir.rglob('*.json') if '/traces/' in str(p).replace('\\', '/')]
+            json_files = [
+                p for p in base_dir.rglob("*.json") if "/traces/" in str(p).replace("\\", "/")
+            ]
         else:
-            json_files = list(base_dir.rglob('*.json'))
+            json_files = list(base_dir.rglob("*.json"))
         for file_path in json_files:
             try:
                 if file_path.stat().st_mtime < cutoff_ts:
@@ -139,12 +166,13 @@ async def _maybe_prune_traces(chat_type: str, base_dir: Path) -> None:
     deleted = await asyncio.to_thread(_prune_sync)
     if deleted > 0:
         log.info(
-            'trace_retention_pruned',
+            "trace_retention_pruned",
             chat_type=chat_type,
             base_dir=str(base_dir),
             retention_days=retention_days,
             files_deleted=deleted,
         )
+
 
 # ==============================================================================
 # Trace writer protocol and implementation
@@ -165,8 +193,11 @@ class TraceWriter(Protocol):
 class _ChatTraceWriter:
     """Collects trace steps for one chat message and writes one JSON object to the log file."""
 
-    def __init__(self, chat_id: str, message_id: str, chat_type: str = 'user', run_id: str | None = None) -> None:
-        self._chat_id  = chat_id
+    def __init__(
+        self, chat_id: str, message_id: str, chat_type: str = "user", run_id: str | None = None
+    ) -> None:
+        """Initialize the instance."""
+        self._chat_id = chat_id
         self._message_id = message_id
         self._chat_type = chat_type  # 'user' or 'evaluation'
         self._run_id = run_id  # Optional run_id for evaluation runs
@@ -176,6 +207,7 @@ class _ChatTraceWriter:
         self._context = dict(get_contextvars())
 
     def record(self, step: str, data: dict[str, Any]) -> None:
+        """Record."""
         self._steps.append((step, data))
 
     def get_sections(self) -> dict[str, Any]:
@@ -191,12 +223,14 @@ class _ChatTraceWriter:
         return sections
 
     def _get_latest_step_payload(self, step_name: str) -> dict[str, Any]:
+        """Internal helper for get latest step payload."""
         for current_step_name, payload in reversed(self._steps):
             if current_step_name == step_name and isinstance(payload, dict):
                 return payload
         return {}
 
     def _coerce_non_negative_int(self, value: Any) -> int | None:
+        """Internal helper for coerce non negative int."""
         if isinstance(value, bool):
             return int(value)
         if isinstance(value, int):
@@ -207,6 +241,7 @@ class _ChatTraceWriter:
         return None
 
     def _coerce_non_negative_float(self, value: Any) -> float | None:
+        """Internal helper for coerce non negative float."""
         if isinstance(value, bool):
             return float(value)
         if isinstance(value, (int, float)):
@@ -215,26 +250,28 @@ class _ChatTraceWriter:
         return None
 
     def _coerce_string(self, value: Any) -> str | None:
+        """Internal helper for coerce string."""
         if isinstance(value, str):
             stripped = value.strip()
             return stripped if stripped else None
         return None
 
     def _coerce_resource_snapshot(self, value: Any) -> dict[str, Any] | None:
+        """Internal helper for coerce resource snapshot."""
         if not isinstance(value, dict):
             return None
         snapshot: dict[str, Any] = {}
         for key in (
-            'captured_at_epoch_ms',
-            'system_cpu_percent',
-            'process_cpu_percent',
-            'process_rss_mb',
-            'process_vms_mb',
-            'system_memory_used_percent',
-            'system_memory_available_mb',
-            'system_memory_used_mb',
-            'logical_cpu_count',
-            'capture_error',
+            "captured_at_epoch_ms",
+            "system_cpu_percent",
+            "process_cpu_percent",
+            "process_rss_mb",
+            "process_vms_mb",
+            "system_memory_used_percent",
+            "system_memory_available_mb",
+            "system_memory_used_mb",
+            "logical_cpu_count",
+            "capture_error",
         ):
             item = value.get(key)
             if item is not None:
@@ -242,138 +279,162 @@ class _ChatTraceWriter:
         return snapshot if snapshot else None
 
     def _coerce_resource_metrics(self, value: Any) -> dict[str, Any] | None:
+        """Internal helper for coerce resource metrics."""
         if not isinstance(value, dict):
             return None
-        before_snapshot = self._coerce_resource_snapshot(value.get('before'))
-        after_snapshot = self._coerce_resource_snapshot(value.get('after'))
-        delta_value = value.get('delta')
+        before_snapshot = self._coerce_resource_snapshot(value.get("before"))
+        after_snapshot = self._coerce_resource_snapshot(value.get("after"))
+        delta_value = value.get("delta")
         delta_payload = delta_value if isinstance(delta_value, dict) and delta_value else None
         payload: dict[str, Any] = {}
         if before_snapshot is not None:
-            payload['before'] = before_snapshot
+            payload["before"] = before_snapshot
         if after_snapshot is not None:
-            payload['after'] = after_snapshot
+            payload["after"] = after_snapshot
         if delta_payload is not None:
-            payload['delta'] = delta_payload
+            payload["delta"] = delta_payload
         return payload if payload else None
 
     def _build_summary_envelope(self) -> dict[str, Any]:
-        request = self._get_latest_step_payload('request')
-        intent = self._get_latest_step_payload('intent')
-        retrieval = self._get_latest_step_payload('retrieval')
-        llm = self._get_latest_step_payload('llm')
-        sources = self._get_latest_step_payload('sources')
-        response = self._get_latest_step_payload('response')
-        response_cancelled = self._get_latest_step_payload('response_cancelled')
-        response_error = self._get_latest_step_payload('response_error')
+        """Internal helper for build summary envelope."""
+        request = self._get_latest_step_payload("request")
+        intent = self._get_latest_step_payload("intent")
+        retrieval = self._get_latest_step_payload("retrieval")
+        llm = self._get_latest_step_payload("llm")
+        sources = self._get_latest_step_payload("sources")
+        response = self._get_latest_step_payload("response")
+        response_cancelled = self._get_latest_step_payload("response_cancelled")
+        response_error = self._get_latest_step_payload("response_error")
 
-        intent_value = self._coerce_string(intent.get('intent'))
-        subtype_value = self._coerce_string(intent.get('subtype'))
-        query_type = self._coerce_string(intent.get('query_type')) or DiagnosticsQueryType.UNKNOWN.value
+        intent_value = self._coerce_string(intent.get("intent"))
+        subtype_value = self._coerce_string(intent.get("subtype"))
+        query_type = (
+            self._coerce_string(intent.get("query_type")) or DiagnosticsQueryType.UNKNOWN.value
+        )
 
-        raw_chunks_count = self._coerce_non_negative_int(retrieval.get('raw_chunks_count')) or 0
-        matching_files = self._coerce_non_negative_int(retrieval.get('matching_files'))
-        files_covered_after_fallback = self._coerce_non_negative_int(retrieval.get('files_covered_after_fallback'))
+        raw_chunks_count = self._coerce_non_negative_int(retrieval.get("raw_chunks_count")) or 0
+        matching_files = self._coerce_non_negative_int(retrieval.get("matching_files"))
+        files_covered_after_fallback = self._coerce_non_negative_int(
+            retrieval.get("files_covered_after_fallback")
+        )
 
-        llm_total_elapsed_ms = self._coerce_non_negative_float(llm.get('total_elapsed_ms'))
-        llm_token_count = self._coerce_non_negative_int(llm.get('token_count'))
+        llm_total_elapsed_ms = self._coerce_non_negative_float(llm.get("total_elapsed_ms"))
+        llm_token_count = self._coerce_non_negative_int(llm.get("token_count"))
 
-        sources_count = self._coerce_non_negative_int(sources.get('count'))
-        response_sources_count = self._coerce_non_negative_int(response.get('sources_count'))
+        sources_count = self._coerce_non_negative_int(sources.get("count"))
+        response_sources_count = self._coerce_non_negative_int(response.get("sources_count"))
         effective_sources_count = (
             sources_count
             if sources_count is not None
             else (response_sources_count if response_sources_count is not None else 0)
         )
 
-        answer_length = self._coerce_non_negative_int(response.get('answer_length')) or 0
-        display_answer_length = self._coerce_non_negative_int(response.get('display_answer_length')) or 0
-        unsupported_claim_count = self._coerce_non_negative_int(response.get('unsupported_claim_count')) or 0
-        evidence_coverage_rate = self._coerce_non_negative_float(response.get('evidence_coverage_rate')) or 0.0
-        not_found_count = self._coerce_non_negative_int(response.get('not_found_count')) or 0
-
-        response_error_text = self._coerce_string(response_error.get('error'))
-        cancelled_stopped_by_user = bool(response_cancelled.get('stopped_by_user')) if response_cancelled else False
-        request_resource_snapshot = self._coerce_resource_snapshot(request.get('resource_snapshot'))
-        response_resource_metrics = self._coerce_resource_metrics(response.get('resource_metrics'))
-        cancelled_resource_metrics = self._coerce_resource_metrics(response_cancelled.get('resource_metrics'))
-        errored_resource_metrics = self._coerce_resource_metrics(response_error.get('resource_metrics'))
-        effective_resource_metrics = (
-            response_resource_metrics
-            or cancelled_resource_metrics
-            or errored_resource_metrics
+        answer_length = self._coerce_non_negative_int(response.get("answer_length")) or 0
+        display_answer_length = (
+            self._coerce_non_negative_int(response.get("display_answer_length")) or 0
         )
-        specialization_value = request.get('specialization')
+        unsupported_claim_count = (
+            self._coerce_non_negative_int(response.get("unsupported_claim_count")) or 0
+        )
+        evidence_coverage_rate = (
+            self._coerce_non_negative_float(response.get("evidence_coverage_rate")) or 0.0
+        )
+        not_found_count = self._coerce_non_negative_int(response.get("not_found_count")) or 0
+
+        response_error_text = self._coerce_string(response_error.get("error"))
+        cancelled_stopped_by_user = (
+            bool(response_cancelled.get("stopped_by_user")) if response_cancelled else False
+        )
+        request_resource_snapshot = self._coerce_resource_snapshot(request.get("resource_snapshot"))
+        response_resource_metrics = self._coerce_resource_metrics(response.get("resource_metrics"))
+        cancelled_resource_metrics = self._coerce_resource_metrics(
+            response_cancelled.get("resource_metrics")
+        )
+        errored_resource_metrics = self._coerce_resource_metrics(
+            response_error.get("resource_metrics")
+        )
+        effective_resource_metrics = (
+            response_resource_metrics or cancelled_resource_metrics or errored_resource_metrics
+        )
+        specialization_value = request.get("specialization")
         specialization = specialization_value if isinstance(specialization_value, dict) else {}
-        specialization_id = self._coerce_string(request.get('specialization_id'))
+        specialization_id = self._coerce_string(request.get("specialization_id"))
 
         return {
-            'schema': TRACE_SUMMARY_SCHEMA_NAME,
-            'summary_version': TRACE_SUMMARY_SCHEMA_VERSION,
-            'specialization': {
-                'id': specialization_id,
-                'name': self._coerce_string(specialization.get('name')),
-                'description': self._coerce_string(specialization.get('description')),
-                'plugin_type': self._coerce_string(specialization.get('plugin_type')),
-                'visible_in_ui': bool(specialization.get('visible_in_ui')) if specialization else None,
+            "schema": TRACE_SUMMARY_SCHEMA_NAME,
+            "summary_version": TRACE_SUMMARY_SCHEMA_VERSION,
+            "specialization": {
+                "id": specialization_id,
+                "name": self._coerce_string(specialization.get("name")),
+                "description": self._coerce_string(specialization.get("description")),
+                "plugin_type": self._coerce_string(specialization.get("plugin_type")),
+                "visible_in_ui": bool(specialization.get("visible_in_ui"))
+                if specialization
+                else None,
             },
-            'intent': {
-                'intent': intent_value,
-                'subtype': subtype_value,
-                'query_type': query_type,
+            "intent": {
+                "intent": intent_value,
+                "subtype": subtype_value,
+                "query_type": query_type,
             },
-            'retrieval': {
-                'raw_chunks_count': raw_chunks_count,
-                'matching_files': matching_files,
-                'files_covered_after_fallback': files_covered_after_fallback,
+            "retrieval": {
+                "raw_chunks_count": raw_chunks_count,
+                "matching_files": matching_files,
+                "files_covered_after_fallback": files_covered_after_fallback,
             },
-            'llm': {
-                'total_elapsed_ms': llm_total_elapsed_ms,
-                'token_count': llm_token_count,
+            "llm": {
+                "total_elapsed_ms": llm_total_elapsed_ms,
+                "token_count": llm_token_count,
             },
-            'sources': {
-                'count': effective_sources_count,
+            "sources": {
+                "count": effective_sources_count,
             },
-            'response': {
-                'answer_length': answer_length,
-                'display_answer_length': display_answer_length,
-                'sources_count': response_sources_count,
-                'unsupported_claim_count': unsupported_claim_count,
-                'evidence_coverage_rate': evidence_coverage_rate,
-                'not_found_count': not_found_count,
+            "response": {
+                "answer_length": answer_length,
+                "display_answer_length": display_answer_length,
+                "sources_count": response_sources_count,
+                "unsupported_claim_count": unsupported_claim_count,
+                "evidence_coverage_rate": evidence_coverage_rate,
+                "not_found_count": not_found_count,
             },
-            'status': {
-                'has_response_error': response_error_text is not None,
-                'response_error': response_error_text,
-                'response_cancelled': bool(response_cancelled),
-                'stopped_by_user': cancelled_stopped_by_user,
+            "status": {
+                "has_response_error": response_error_text is not None,
+                "response_error": response_error_text,
+                "response_cancelled": bool(response_cancelled),
+                "stopped_by_user": cancelled_stopped_by_user,
             },
-            'diagnostics': {
-                'query_type': query_type,
-                'raw_chunks_count': raw_chunks_count,
-                'sources_count': effective_sources_count,
-                'generation_seconds': (llm_total_elapsed_ms / 1000.0) if llm_total_elapsed_ms is not None else None,
-                'answer_length': answer_length,
-                'unsupported_claim_count': unsupported_claim_count,
-                'evidence_coverage_rate': evidence_coverage_rate,
-                'not_found_count': not_found_count,
-                'resource_snapshot_start': request_resource_snapshot,
-                'resource_metrics': effective_resource_metrics,
+            "diagnostics": {
+                "query_type": query_type,
+                "raw_chunks_count": raw_chunks_count,
+                "sources_count": effective_sources_count,
+                "generation_seconds": (llm_total_elapsed_ms / 1000.0)
+                if llm_total_elapsed_ms is not None
+                else None,
+                "answer_length": answer_length,
+                "unsupported_claim_count": unsupported_claim_count,
+                "evidence_coverage_rate": evidence_coverage_rate,
+                "not_found_count": not_found_count,
+                "resource_snapshot_start": request_resource_snapshot,
+                "resource_metrics": effective_resource_metrics,
             },
         }
 
     def get_summary_envelope(self) -> dict[str, Any]:
+        """Get summary envelope."""
         return self._build_summary_envelope()
 
     def _build_steps(self) -> list[dict[str, Any]]:
         # Ordered step history; avoids information loss when a step name repeats.
+        """Internal helper for build steps."""
         steps: list[dict[str, Any]] = []
         for idx, (step_name, payload) in enumerate(self._steps):
-            steps.append({
-                'index': idx,
-                'name': step_name,
-                'data': _sanitize_for_trace(payload),
-            })
+            steps.append(
+                {
+                    "index": idx,
+                    "name": step_name,
+                    "data": _sanitize_for_trace(payload),
+                }
+            )
         return steps
 
     def _format_json(self) -> dict[str, Any]:
@@ -381,29 +442,30 @@ class _ChatTraceWriter:
         steps = self._build_steps()
 
         return {
-            'trace_version': TRACE_SCHEMA_VERSION,
-            'schema': TRACE_SCHEMA_NAME,
-            'started_at': self._started_at,
-            'flushed_at': datetime.now(UTC).isoformat(),
-            'type': self._chat_type,  # 'user' or 'evaluation'
-            'chat_id': self._chat_id,
-            'message_id': self._message_id,
-            'run_id': self._run_id,
-            'correlation': {
-                'request_id': self._context.get('request_id'),
-                'operation_id': self._context.get('operation_id'),
-                'operation_type': self._context.get('operation_type'),
+            "trace_version": TRACE_SCHEMA_VERSION,
+            "schema": TRACE_SCHEMA_NAME,
+            "started_at": self._started_at,
+            "flushed_at": datetime.now(UTC).isoformat(),
+            "type": self._chat_type,  # 'user' or 'evaluation'
+            "chat_id": self._chat_id,
+            "message_id": self._message_id,
+            "run_id": self._run_id,
+            "correlation": {
+                "request_id": self._context.get("request_id"),
+                "operation_id": self._context.get("operation_id"),
+                "operation_type": self._context.get("operation_type"),
             },
-            'summary': self._build_summary_envelope(),
-            'step_count': len(steps),
-            'steps': steps,
+            "summary": self._build_summary_envelope(),
+            "step_count": len(steps),
+            "steps": steps,
         }
 
     async def flush(self) -> None:
         # Evaluation chats must have a run_id - skip if missing
-        if self._chat_type == 'evaluation' and not self._run_id:
+        """Flush."""
+        if self._chat_type == "evaluation" and not self._run_id:
             log.warning(
-                'evaluation_trace_skipped_no_run_id',
+                "evaluation_trace_skipped_no_run_id",
                 chat_id=self._chat_id,
                 message_id=self._message_id,
             )
@@ -412,16 +474,18 @@ class _ChatTraceWriter:
         # For evaluation runs with run_id, always write a trace file (even if no steps)
         # so every query×model produces a trace for diagnostics processing.
         # User traces only flush when at least one step is recorded.
-        if not self._steps and self._chat_type != 'evaluation':
+        if not self._steps and self._chat_type != "evaluation":
             return
 
-        if self._chat_type == 'evaluation':
+        if self._chat_type == "evaluation":
             # Evaluation runs: write to runs/{run_id}/traces/
-            diagnostics_dir = settings.diagnostics_dir or (settings.app_data_dir / DirNames.DIAGNOSTICS)
+            diagnostics_dir = settings.diagnostics_dir or (
+                settings.app_data_dir / DirNames.DIAGNOSTICS
+            )
             base_dir = diagnostics_dir / DirNames.RUNS / self._run_id / DirNames.TRACES
             prune_base_dir = diagnostics_dir / DirNames.RUNS
             # Use chat_id--message_id format for trace filename
-            trace_path = base_dir / f'{self._chat_id}--{self._message_id}.json'
+            trace_path = base_dir / f"{self._chat_id}--{self._message_id}.json"
         else:
             # User chats go to app_data_dir/chats/{chat_id}/{message_id}.json.
             # run_id may still be present in metadata for correlation.
@@ -429,7 +493,7 @@ class _ChatTraceWriter:
             prune_base_dir = base_dir
             chat_dir = base_dir / self._chat_id
             ensure_directory(chat_dir)
-            trace_path = chat_dir / f'{self._message_id}.json'
+            trace_path = chat_dir / f"{self._message_id}.json"
 
         # Ensure directory exists
         ensure_file_directory(trace_path)
@@ -439,15 +503,16 @@ class _ChatTraceWriter:
 
         def _write_json() -> None:
             # Atomic write: write temp file then rename into place.
+            """Internal helper for write json."""
             ensure_file_directory(trace_path)
-            json_text = serialize_trace(trace_data) + '\n'
+            json_text = serialize_trace(trace_data) + "\n"
             with tempfile.NamedTemporaryFile(
-                mode='w',
-                encoding='utf-8',
+                mode="w",
+                encoding="utf-8",
                 delete=False,
                 dir=str(trace_path.parent),
-                prefix=f'.{trace_path.name}.',
-                suffix='.tmp',
+                prefix=f".{trace_path.name}.",
+                suffix=".tmp",
             ) as tmp:
                 tmp.write(json_text)
                 tmp.flush()
@@ -460,14 +525,15 @@ class _ChatTraceWriter:
                 await asyncio.to_thread(_write_json)
             except OSError as exc:
                 log.warning(
-                    'trace_write_failed',
-                    chat_id = self._chat_id,
-                    path    = str(trace_path),
-                    error   = str(exc),
+                    "trace_write_failed",
+                    chat_id=self._chat_id,
+                    path=str(trace_path),
+                    error=str(exc),
                 )
 
 
 def _sanitize_for_trace(data: dict[str, Any], mode: str | None = None) -> dict[str, Any]:
+    """Internal helper for sanitize for trace."""
     effective_mode = mode or _get_redaction_mode()
     out: dict[str, Any] = {}
     for k, v in data.items():
@@ -487,11 +553,12 @@ def _sanitize_for_trace(data: dict[str, Any], mode: str | None = None) -> dict[s
 
 
 def _sanitize_list(items: list[Any] | tuple[Any, ...], mode: str | None = None) -> list[Any]:
+    """Internal helper for sanitize list."""
     effective_mode = mode or _get_redaction_mode()
     result: list[Any] = []
     for i, item in enumerate(items):
         if i >= MAX_TRACE_SECTIONS:
-            result.append('... (list truncated)')
+            result.append("... (list truncated)")
             break
         if isinstance(item, dict):
             result.append(_sanitize_for_trace(item, mode=effective_mode))
@@ -499,7 +566,9 @@ def _sanitize_list(items: list[Any] | tuple[Any, ...], mode: str | None = None) 
             result.append(_sanitize_list(item, mode=effective_mode))
         elif isinstance(item, str):
             result.append(
-                item if len(item) <= MAX_TRACE_LIST_ITEM_LENGTH else item[:MAX_TRACE_LIST_ITEM_LENGTH] + '...'
+                item
+                if len(item) <= MAX_TRACE_LIST_ITEM_LENGTH
+                else item[:MAX_TRACE_LIST_ITEM_LENGTH] + "..."
             )
         elif isinstance(item, (int, float, bool)) or item is None:
             result.append(item)
@@ -513,7 +582,9 @@ def _sanitize_list(items: list[Any] | tuple[Any, ...], mode: str | None = None) 
 # ==============================================================================
 
 
-def get_trace_writer(chat_id: str, message_id: str, chat_type: str = 'user', run_id: str | None = None) -> TraceWriter | None:
+def get_trace_writer(
+    chat_id: str, message_id: str, chat_type: str = "user", run_id: str | None = None
+) -> TraceWriter | None:
     """
     Return a trace writer for this chat if chat_trace_logging is enabled.
     Otherwise return None. Uses persisted config file so the setting is
@@ -530,11 +601,11 @@ def get_trace_writer(chat_id: str, message_id: str, chat_type: str = 'user', run
             For user runs this is persisted in trace metadata for correlation.
     """
     # Auto-enable trace logging for evaluation runs
-    if chat_type == 'evaluation':
-        return _ChatTraceWriter(chat_id, message_id, chat_type='evaluation', run_id=run_id)
+    if chat_type == "evaluation":
+        return _ChatTraceWriter(chat_id, message_id, chat_type="evaluation", run_id=run_id)
     if not get_chat_trace_logging():
         return None
-    return _ChatTraceWriter(chat_id, message_id, chat_type='user', run_id=run_id)
+    return _ChatTraceWriter(chat_id, message_id, chat_type="user", run_id=run_id)
 
 
 async def flush_trace_writer(writer: TraceWriter | None) -> None:

@@ -1,3 +1,5 @@
+"""Module for api index finalize."""
+
 from __future__ import annotations
 
 import aiosqlite
@@ -22,8 +24,9 @@ async def finalize_index_operation(
     term_dictionary_failure_log_name: str,
     term_dictionary_run_id_prefix: str,
     vector_skip_log_name: str | None = None,
-    vector_skip_reason: str = 'exact_search_mode',
+    vector_skip_reason: str = "exact_search_mode",
 ) -> None:
+    """Finalize index operation."""
     integrity_issues = await get_index_integrity_issues(db)
     non_zero_issues = {key: value for key, value in integrity_issues.items() if value > 0}
     if non_zero_issues:
@@ -41,7 +44,7 @@ async def finalize_index_operation(
     try:
         term_dictionary_result = await rebuild_term_dictionary(
             db,
-            run_id=f'{term_dictionary_run_id_prefix}{scan_id}',
+            run_id=f"{term_dictionary_run_id_prefix}{scan_id}",
         )
         log.info(term_dictionary_log_name, scan_id=scan_id, result=term_dictionary_result)
     except _FINALIZE_INDEX_EXCEPTIONS as exc:

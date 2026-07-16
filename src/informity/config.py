@@ -259,7 +259,7 @@ EXCLUDE_DEVELOPER_PATTERNS: tuple[str, ...] = (
 
 def _config_path_for_loader() -> Path:
     # Config file path using same resolution as _load_config_file_values.
-    """ config path for loader."""
+    """config path for loader."""
     raw_dir = os.environ.get("INFORMITY_APP_DATA_DIR", "")
     app_data_dir = Path(raw_dir) if raw_dir else _DEFAULT_APP_DATA_DIR
     app_data_dir = normalize_path(app_data_dir, expand_user=True)
@@ -267,7 +267,7 @@ def _config_path_for_loader() -> Path:
 
 
 def _normalize_loaded_config_data(data: dict) -> tuple[dict, object | None, bool]:
-    """ normalize loaded config data."""
+    """normalize loaded config data."""
     original_enabled_specialization_ids = data.get("enabled_specialization_ids")
 
     # Resolve watched_directories to absolute paths so scans use consistent paths.
@@ -311,9 +311,7 @@ def _normalize_loaded_config_data(data: dict) -> tuple[dict, object | None, bool
 
     if isinstance(data.get("enabled_specialization_ids"), list):
         normalized_enabled_specialization_ids = [
-            str(item).strip()
-            for item in data["enabled_specialization_ids"]
-            if str(item).strip()
+            str(item).strip() for item in data["enabled_specialization_ids"] if str(item).strip()
         ]
         if normalized_enabled_specialization_ids != data["enabled_specialization_ids"]:
             data["enabled_specialization_ids"] = normalized_enabled_specialization_ids
@@ -325,7 +323,7 @@ def _normalize_loaded_config_data(data: dict) -> tuple[dict, object | None, bool
 def _load_config_file_values() -> dict:
     # Determine the app data dir (env var takes priority over default)
     # so we know where to find config.json before Settings is instantiated.
-    """ load config file values."""
+    """load config file values."""
     config_path = _config_path_for_loader()
     if not config_path.exists():
         return {}
@@ -400,6 +398,7 @@ def _load_config_file_values() -> dict:
 class Settings(BaseSettings):
     # -- Paths ----------------------------------------------------------------
     """Settings model."""
+
     app_data_dir: Path = _DEFAULT_APP_DATA_DIR
     cache_dir: Path | None = Field(
         default=None
@@ -407,9 +406,7 @@ class Settings(BaseSettings):
     db_path: Path | None = Field(
         default=None
     )  # Computed: app_data_dir / DirNames.DB / f'{APP_SLUG}.db'
-    models_dir: Path | None = Field(
-        default=None
-    )
+    models_dir: Path | None = Field(default=None)
     # Computed: desktop -> app_data_dir/DirNames.MODELS/DirNames.LLM; otherwise
     # cache_dir/DirNames.LLM
     classifier_models_dir: Path | None = Field(
@@ -739,7 +736,7 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def _compute_derived_paths(self) -> "Settings":
         # Resolve relative paths (e.g. ./data) to absolute
-        """ compute derived paths."""
+        """compute derived paths."""
         self.app_data_dir = normalize_path(self.app_data_dir, expand_user=True)
 
         # Cache directory: defaults to app_data_dir/cache (same root as models, DB, logs).
@@ -921,7 +918,7 @@ def _build_settings() -> Settings:
     # Persisted config (saved from the UI) should win over env so that the
     # checkbox state survives restarts. We do this by temporarily unsetting
     # env vars for any key present in the config file before building Settings.
-    """ build settings."""
+    """build settings."""
     config_values = _load_config_file_values()
 
     # Only log if console logging is not suppressed (for CLI tools)
@@ -1020,7 +1017,7 @@ def reset_to_factory_defaults() -> Settings:
 
 def _apply_thread_limits_early() -> None:
     # Set CPU thread limits from config before any heavy libraries load.
-    """ apply thread limits early."""
+    """apply thread limits early."""
     max_threads = settings.embedding_max_threads
 
     # Always disable tokenizers multiprocessing to prevent zombie processes

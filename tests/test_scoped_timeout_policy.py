@@ -1,3 +1,5 @@
+"""Test module for tests test scoped timeout policy."""
+
 from informity.timeout_policy import (
     POLICY_SCOPE_FILESYSTEM_FILE,
     ScopedTimeoutPolicy,
@@ -9,53 +11,68 @@ from informity.timeout_policy import (
 
 
 def test_resolve_timeout_uses_scope_override_when_present() -> None:
+    """Test resolve timeout uses scope override when present."""
     policy = ScopedTimeoutPolicy(
-        default=TimeoutPolicyLevel(base_seconds=100, seconds_per_mb=10.0, min_seconds=20, max_seconds=400),
+        default=TimeoutPolicyLevel(
+            base_seconds=100, seconds_per_mb=10.0, min_seconds=20, max_seconds=400
+        ),
         overrides={
-            'filesystem:file': TimeoutPolicyLevel(base_seconds=50, seconds_per_mb=5.0, min_seconds=10, max_seconds=300),
+            "filesystem:file": TimeoutPolicyLevel(
+                base_seconds=50, seconds_per_mb=5.0, min_seconds=10, max_seconds=300
+            ),
         },
     )
     # 10 MiB -> 50 + 50 = 100
-    resolved = resolve_timeout_seconds(policy, scope_key='filesystem:file', size_bytes=10 * 1024 * 1024)
+    resolved = resolve_timeout_seconds(
+        policy, scope_key="filesystem:file", size_bytes=10 * 1024 * 1024
+    )
     assert resolved == 100
 
 
 def test_resolve_timeout_falls_back_to_default_for_unknown_scope() -> None:
+    """Test resolve timeout falls back to default for unknown scope."""
     policy = ScopedTimeoutPolicy(
-        default=TimeoutPolicyLevel(base_seconds=100, seconds_per_mb=10.0, min_seconds=20, max_seconds=400),
+        default=TimeoutPolicyLevel(
+            base_seconds=100, seconds_per_mb=10.0, min_seconds=20, max_seconds=400
+        ),
         overrides={},
     )
     # 2 MiB -> 100 + 20 = 120
-    resolved = resolve_timeout_seconds(policy, scope_key='mail.apple:mail', size_bytes=2 * 1024 * 1024)
+    resolved = resolve_timeout_seconds(
+        policy, scope_key="mail.apple:mail", size_bytes=2 * 1024 * 1024
+    )
     assert resolved == 120
 
 
 def test_default_scoped_timeout_policy_is_valid() -> None:
+    """Test default scoped timeout policy is valid."""
     policy = default_scoped_timeout_policy()
-    resolved = resolve_timeout_seconds(policy, scope_key='filesystem:file', size_bytes=0)
+    resolved = resolve_timeout_seconds(policy, scope_key="filesystem:file", size_bytes=0)
     assert resolved >= policy.default.min_seconds
     assert resolved <= policy.default.max_seconds
 
 
 def test_normalize_scope_key_normalizes_case_and_whitespace() -> None:
-    assert normalize_scope_key('  Filesystem ', ' File ') == POLICY_SCOPE_FILESYSTEM_FILE
-    assert normalize_scope_key(None, None) == ':'
+    """Test normalize scope key normalizes case and whitespace."""
+    assert normalize_scope_key("  Filesystem ", " File ") == POLICY_SCOPE_FILESYSTEM_FILE
+    assert normalize_scope_key(None, None) == ":"
 
 
 def test_resolve_timeout_accepts_mapping_policy_input() -> None:
+    """Test resolve timeout accepts mapping policy input."""
     policy_mapping = {
-        'default': {
-            'base_seconds': 100,
-            'seconds_per_mb': 10.0,
-            'min_seconds': 20,
-            'max_seconds': 400,
+        "default": {
+            "base_seconds": 100,
+            "seconds_per_mb": 10.0,
+            "min_seconds": 20,
+            "max_seconds": 400,
         },
-        'overrides': {
+        "overrides": {
             POLICY_SCOPE_FILESYSTEM_FILE: {
-                'base_seconds': 50,
-                'seconds_per_mb': 5.0,
-                'min_seconds': 10,
-                'max_seconds': 300,
+                "base_seconds": 50,
+                "seconds_per_mb": 5.0,
+                "min_seconds": 10,
+                "max_seconds": 300,
             },
         },
     }

@@ -3,6 +3,8 @@
 # Protocol that all query handlers must implement
 # ==============================================================================
 
+"""Module for llm handlers query handler."""
+
 from collections.abc import AsyncGenerator
 from typing import Protocol, runtime_checkable
 
@@ -30,11 +32,11 @@ class QueryHandler(Protocol):
 
     async def handle(
         self,
-        question:       str,
+        question: str,
         classification: QueryClassification,
-        history:        list[ChatMessage] | None,
-        db:             aiosqlite.Connection,
-        trace:          object | None,
+        history: list[ChatMessage] | None,
+        db: aiosqlite.Connection,
+        trace: object | None,
         diagnostics_context: dict[str, object] | None = None,
         chat_id: str | None = None,
         file_ids: list[int] | None = None,

@@ -26,25 +26,25 @@ from informity.upload_policy import UPLOAD_PROVIDER
 MAX_MCP_RESULTS = 200
 MAX_SNIPPET_CHARS = 1200
 MAX_TOTAL_RESPONSE_BYTES = 500_000
-VALID_FILE_CATEGORIES = {'document', 'plaintext', 'data', 'web', 'other'}
+VALID_FILE_CATEGORIES = {"document", "plaintext", "data", "web", "other"}
 _EXCLUDED_SOURCE_PROVIDERS = (UPLOAD_PROVIDER, TRANSLATE_PROVIDER)
 FILE_TYPE_ALIASES: dict[str, str] = {
-    'pdf': '.pdf',
-    'docx': '.docx',
-    'pptx': '.pptx',
-    'epub': '.epub',
-    'txt': '.txt',
-    'md': '.md',
-    'rst': '.rst',
-    'log': '.log',
-    'csv': '.csv',
-    'xlsx': '.xlsx',
-    'html': '.html',
-    'htm': '.htm',
-    'json': '.json',
-    'yaml': '.yaml',
-    'yml': '.yml',
-    'toml': '.toml',
+    "pdf": ".pdf",
+    "docx": ".docx",
+    "pptx": ".pptx",
+    "epub": ".epub",
+    "txt": ".txt",
+    "md": ".md",
+    "rst": ".rst",
+    "log": ".log",
+    "csv": ".csv",
+    "xlsx": ".xlsx",
+    "html": ".html",
+    "htm": ".htm",
+    "json": ".json",
+    "yaml": ".yaml",
+    "yml": ".yml",
+    "toml": ".toml",
 }
 
 
@@ -52,7 +52,7 @@ FILE_TYPE_ALIASES: dict[str, str] = {
 class McpReadScope:
     """Scope controls for read-only MCP tool payloads."""
 
-    mode: str = 'metadata_only'
+    mode: str = "metadata_only"
     max_results: int = MAX_MCP_RESULTS
     max_snippet_chars: int = 320
     max_total_response_bytes: int = MAX_TOTAL_RESPONSE_BYTES
@@ -60,9 +60,9 @@ class McpReadScope:
     def normalize(self) -> McpReadScope:
         """Return a bounded copy of the current scope settings."""
 
-        mode = str(self.mode or 'metadata_only').strip().lower()
-        if mode not in {'metadata_only', 'search_snippets', 'full_content'}:
-            mode = 'metadata_only'
+        mode = str(self.mode or "metadata_only").strip().lower()
+        if mode not in {"metadata_only", "search_snippets", "full_content"}:
+            mode = "metadata_only"
         return McpReadScope(
             mode=mode,
             max_results=max(1, min(int(self.max_results), MAX_MCP_RESULTS)),
@@ -75,12 +75,13 @@ class McpReadScope:
 
 
 def _coerce_response_size(payload: dict[str, Any], max_bytes: int) -> dict[str, Any]:
+    """Internal helper for coerce response size."""
     if _serialized_size_bytes(payload) <= max_bytes:
         return payload
-    results = payload.get('results')
+    results = payload.get("results")
     if not isinstance(results, list):
         truncated = dict(payload)
-        truncated['truncated'] = True
+        truncated["truncated"] = True
         return truncated
 
     trimmed = dict(payload)
@@ -88,37 +89,41 @@ def _coerce_response_size(payload: dict[str, Any], max_bytes: int) -> dict[str, 
     trimmed_results: list[Any] = list(results)
     while trimmed_results:
         candidate = dict(trimmed)
-        candidate['results'] = trimmed_results
-        candidate['truncated'] = True
-        candidate['returned'] = len(trimmed_results)
-        candidate['total_before_truncation'] = original_total
+        candidate["results"] = trimmed_results
+        candidate["truncated"] = True
+        candidate["returned"] = len(trimmed_results)
+        candidate["total_before_truncation"] = original_total
         if _serialized_size_bytes(candidate) <= max_bytes:
             return candidate
         trimmed_results = trimmed_results[:-1]
 
     return {
-        'truncated': True,
-        'returned': 0,
-        'total_before_truncation': original_total,
+        "truncated": True,
+        "returned": 0,
+        "total_before_truncation": original_total,
     }
 
 
 def _serialized_size_bytes(payload: dict[str, Any]) -> int:
+    """Internal helper for serialized size bytes."""
     return len(
-        json.dumps(payload, ensure_ascii=False, separators=(',', ':'))
-        .encode('utf-8', errors='ignore')
+        json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode(
+            "utf-8", errors="ignore"
+        )
     )
 
 
 def _apply_scope_to_preview(preview: str, scope: McpReadScope) -> str | None:
-    if scope.mode == 'metadata_only':
+    """Internal helper for apply scope to preview."""
+    if scope.mode == "metadata_only":
         return None
-    if scope.mode == 'search_snippets':
-        return (preview or '')[:scope.max_snippet_chars]
+    if scope.mode == "search_snippets":
+        return (preview or "")[: scope.max_snippet_chars]
     return preview
 
 
 def _normalize_category(category: str | None) -> str | None:
+    """Internal helper for normalize category."""
     if category is None:
         return None
     normalized = str(category).strip().lower()
@@ -126,16 +131,17 @@ def _normalize_category(category: str | None) -> str | None:
 
 
 def _normalize_file_types(file_types: list[str] | None) -> set[str] | None:
+    """Internal helper for normalize file types."""
     if not file_types:
         return None
     normalized: set[str] = set()
     for raw in file_types:
-        item = str(raw or '').strip().lower()
+        item = str(raw or "").strip().lower()
         if not item:
             continue
         canonical = FILE_TYPE_ALIASES.get(item, item)
-        if not canonical.startswith('.'):
-            canonical = f'.{canonical}'
+        if not canonical.startswith("."):
+            canonical = f".{canonical}"
         normalized.add(canonical)
     return normalized or None
 
@@ -144,9 +150,9 @@ async def tool_health() -> dict[str, Any]:
     """Return the basic health payload for the MCP service."""
 
     return {
-        'ok': True,
-        'timestamp': datetime.now(UTC).isoformat(),
-        'component': 'informity.mcp.readonly',
+        "ok": True,
+        "timestamp": datetime.now(UTC).isoformat(),
+        "component": "informity.mcp.readonly",
     }
 
 
@@ -171,26 +177,28 @@ async def tool_files_list(
     )
     results = []
     for item in files:
-        results.append({
-            'file_id': int(item.id or 0),
-            'filename': item.filename,
-            'path': item.path,
-            'category': item.category.value,
-            'extension': item.extension,
-            'indexed_at': item.indexed_at.isoformat() if item.indexed_at else None,
-            'preview': (
-                None
-                if normalized_scope.mode == 'metadata_only'
-                else (item.extracted_text_preview or '')
-            ),
-        })
+        results.append(
+            {
+                "file_id": int(item.id or 0),
+                "filename": item.filename,
+                "path": item.path,
+                "category": item.category.value,
+                "extension": item.extension,
+                "indexed_at": item.indexed_at.isoformat() if item.indexed_at else None,
+                "preview": (
+                    None
+                    if normalized_scope.mode == "metadata_only"
+                    else (item.extracted_text_preview or "")
+                ),
+            }
+        )
     return _coerce_response_size(
         {
-            'results': results,
-            'total': int(total),
-            'limit': effective_limit,
-            'offset': max(0, int(offset)),
-            'scope_mode': normalized_scope.mode,
+            "results": results,
+            "total": int(total),
+            "limit": effective_limit,
+            "offset": max(0, int(offset)),
+            "scope_mode": normalized_scope.mode,
         },
         normalized_scope.max_total_response_bytes,
     )
@@ -208,16 +216,14 @@ async def tool_search_semantic(
     """Return semantic search results with optional metadata scoping."""
 
     normalized_scope = scope.normalize()
-    query_text = str(query or '').strip()
+    query_text = str(query or "").strip()
     if not query_text:
-        raise ValueError('query cannot be empty')
+        raise ValueError("query cannot be empty")
     normalized_category = _normalize_category(category)
     normalized_file_types = _normalize_file_types(file_types)
     effective_limit = max(1, min(int(limit), normalized_scope.max_results))
     fetch_limit = (
-        effective_limit * 3
-        if (normalized_category or normalized_file_types)
-        else effective_limit
+        effective_limit * 3 if (normalized_category or normalized_file_types) else effective_limit
     )
 
     query_vector = await asyncio.to_thread(embedder.embed_query, query_text)
@@ -226,9 +232,7 @@ async def tool_search_semantic(
         query_vector,
         fetch_limit,
     )
-    all_file_ids = list(
-        {hit['file_id'] for hit in raw_results if hit.get('file_id') is not None}
-    )
+    all_file_ids = list({hit["file_id"] for hit in raw_results if hit.get("file_id") is not None})
     files_by_id = await get_files_by_ids(db, all_file_ids)
 
     results: list[dict[str, Any]] = []
@@ -236,13 +240,13 @@ async def tool_search_semantic(
     for hit in raw_results:
         if len(results) >= effective_limit:
             break
-        file_id = hit.get('file_id')
+        file_id = hit.get("file_id")
         if file_id is None:
             continue
         indexed_file = files_by_id.get(file_id)
         if indexed_file is None:
             continue
-        if str(getattr(indexed_file, 'source_provider', '') or '').strip().lower() in {
+        if str(getattr(indexed_file, "source_provider", "") or "").strip().lower() in {
             UPLOAD_PROVIDER,
             TRANSLATE_PROVIDER,
         }:
@@ -251,50 +255,48 @@ async def tool_search_semantic(
             continue
         if (
             normalized_file_types is not None
-            and str(indexed_file.extension or '').strip().lower() not in normalized_file_types  # pylint: disable=unsupported-membership-test
+            and str(indexed_file.extension or "").strip().lower() not in normalized_file_types  # pylint: disable=unsupported-membership-test
         ):
             continue
-        content_hash = str(getattr(indexed_file, 'content_hash', '') or '').strip().lower()
+        content_hash = str(getattr(indexed_file, "content_hash", "") or "").strip().lower()
         if content_hash:
             if content_hash in seen_content_hashes:
                 continue
             seen_content_hashes.add(content_hash)
-        preview = (hit.get('chunk_text', '') or '')[:MAX_EXTRACTED_TEXT_PREVIEW]
+        preview = (hit.get("chunk_text", "") or "")[:MAX_EXTRACTED_TEXT_PREVIEW]
         scoped_preview = _apply_scope_to_preview(preview, normalized_scope)
 
         result = {
-            'file_id': indexed_file.id or int(file_id),
-            'filename': indexed_file.filename,
-            'path': indexed_file.path,
-            'extension': getattr(indexed_file, 'extension', '') or '',
-            'size_bytes': int(getattr(indexed_file, 'size_bytes', 0) or 0),
-            'indexed_at': getattr(indexed_file, 'indexed_at', None),
-            'modified_at': getattr(indexed_file, 'modified_at', None),
-            'content_hash': content_hash,
-            'extracted_text_preview': (
-                getattr(indexed_file, 'extracted_text_preview', '') or ''
-            ),
-            'preview': scoped_preview or '',
-            'score': float(hit.get('score', 0.0)),
-            'category': indexed_file.category.value,
-            'chunk_id': int(hit['chunk_id']) if hit.get('chunk_id') is not None else None,
-            'page_number': None,
-            'section_path': None,
-            'block_type': None,
+            "file_id": indexed_file.id or int(file_id),
+            "filename": indexed_file.filename,
+            "path": indexed_file.path,
+            "extension": getattr(indexed_file, "extension", "") or "",
+            "size_bytes": int(getattr(indexed_file, "size_bytes", 0) or 0),
+            "indexed_at": getattr(indexed_file, "indexed_at", None),
+            "modified_at": getattr(indexed_file, "modified_at", None),
+            "content_hash": content_hash,
+            "extracted_text_preview": (getattr(indexed_file, "extracted_text_preview", "") or ""),
+            "preview": scoped_preview or "",
+            "score": float(hit.get("score", 0.0)),
+            "category": indexed_file.category.value,
+            "chunk_id": int(hit["chunk_id"]) if hit.get("chunk_id") is not None else None,
+            "page_number": None,
+            "section_path": None,
+            "block_type": None,
         }
-        if normalized_scope.mode == 'metadata_only':
-            result.pop('preview', None)
-        elif normalized_scope.mode == 'search_snippets':
-            result['preview'] = scoped_preview or ''
+        if normalized_scope.mode == "metadata_only":
+            result.pop("preview", None)
+        elif normalized_scope.mode == "search_snippets":
+            result["preview"] = scoped_preview or ""
         else:
-            result['preview'] = preview
+            result["preview"] = preview
         results.append(result)
 
     response_payload = {
-        'query': query_text,
-        'total': len(results),
-        'results': results,
-        'scope_mode': normalized_scope.mode,
+        "query": query_text,
+        "total": len(results),
+        "results": results,
+        "scope_mode": normalized_scope.mode,
     }
     if len(results) == 0 and (normalized_category or normalized_file_types):
         filter_options = await _get_filter_options(db)
@@ -318,30 +320,28 @@ def _with_no_result_hints(
     """Attach filter hints when a filtered search returns no matches."""
 
     result = dict(payload)
-    available_categories = list(filter_options.get('categories', []))
-    available_file_types = list(filter_options.get('file_types', []))
+    available_categories = list(filter_options.get("categories", []))
+    available_file_types = list(filter_options.get("file_types", []))
     category_set = {str(item).strip().lower() for item in available_categories}
     file_type_set = {str(item).strip().lower() for item in available_file_types}
     unknown_file_types = sorted(
         [item for item in (normalized_file_types or set()) if item not in file_type_set]
     )
-    result['hints'] = {
-        'reason': 'No results matched current filters',
-        'applied_filters': {
-            'category': normalized_category,
-            'file_types': sorted(normalized_file_types) if normalized_file_types else [],
+    result["hints"] = {
+        "reason": "No results matched current filters",
+        "applied_filters": {
+            "category": normalized_category,
+            "file_types": sorted(normalized_file_types) if normalized_file_types else [],
         },
-        'valid_categories': available_categories,
-        'valid_file_types': available_file_types,
-        'unknown_filters': {
-            'unknown_category': bool(
+        "valid_categories": available_categories,
+        "valid_file_types": available_file_types,
+        "unknown_filters": {
+            "unknown_category": bool(
                 normalized_category and normalized_category not in category_set
             ),
-            'unknown_file_types': unknown_file_types,
+            "unknown_file_types": unknown_file_types,
         },
-        'guidance': (
-            'Try removing filters or use informity_filter_options for valid values.'
-        ),
+        "guidance": ("Try removing filters or use informity_filter_options for valid values."),
     }
     return result
 
@@ -351,11 +351,11 @@ async def tool_filter_options(db: aiosqlite.Connection) -> dict[str, Any]:
 
     filter_options = await _get_filter_options(db)
     return {
-        'categories': filter_options['categories'],
-        'file_types': filter_options['file_types'],
-        'notes': {
-            'category': 'Optional filter for informity_search_semantic.',
-            'file_types': 'Optional filter. Use dot extensions like .pdf.',
+        "categories": filter_options["categories"],
+        "file_types": filter_options["file_types"],
+        "notes": {
+            "category": "Optional filter for informity_search_semantic.",
+            "file_types": "Optional filter. Use dot extensions like .pdf.",
         },
     }
 
@@ -364,42 +364,34 @@ async def _get_filter_options(db: aiosqlite.Connection) -> dict[str, list[str]]:
     """Fetch distinct file categories and file types for filtering."""
 
     categories_cursor = await db.execute(
-        '''
+        """
         SELECT DISTINCT LOWER(category) AS category
         FROM files
         WHERE source_provider NOT IN (?, ?)
         ORDER BY category ASC
-        ''',
+        """,
         _EXCLUDED_SOURCE_PROVIDERS,
     )
     category_rows = await categories_cursor.fetchall()
-    categories = [
-        str(row['category'])
-        for row in category_rows
-        if row and row['category']
-    ]
+    categories = [str(row["category"]) for row in category_rows if row and row["category"]]
     if not categories:
         categories = sorted(VALID_FILE_CATEGORIES)
 
     extension_cursor = await db.execute(
-        '''
+        """
         SELECT DISTINCT LOWER(extension) AS extension
         FROM files
         WHERE source_provider NOT IN (?, ?)
           AND extension IS NOT NULL AND TRIM(extension) != ''
         ORDER BY extension ASC
-        ''',
+        """,
         _EXCLUDED_SOURCE_PROVIDERS,
     )
     extension_rows = await extension_cursor.fetchall()
-    file_types = [
-        str(row['extension'])
-        for row in extension_rows
-        if row and row['extension']
-    ]
+    file_types = [str(row["extension"]) for row in extension_rows if row and row["extension"]]
     return {
-        'categories': categories,
-        'file_types': file_types,
+        "categories": categories,
+        "file_types": file_types,
     }
 
 
@@ -407,30 +399,30 @@ async def tool_index_status(db: aiosqlite.Connection) -> dict[str, Any]:
     """Return a compact count of indexed files and chunks."""
 
     files_cursor = await db.execute(
-        '''
+        """
         SELECT COUNT(*) as count
         FROM files
         WHERE source_provider NOT IN (?, ?)
-        ''',
+        """,
         _EXCLUDED_SOURCE_PROVIDERS,
     )
     files_row = await files_cursor.fetchone()
-    total_files = int(files_row['count']) if files_row else 0
+    total_files = int(files_row["count"]) if files_row else 0
 
     chunks_cursor = await db.execute(
-        '''
+        """
         SELECT COUNT(*) as count
         FROM chunks c
         JOIN files f ON c.file_id = f.id
         WHERE f.source_provider NOT IN (?, ?)
-        ''',
+        """,
         _EXCLUDED_SOURCE_PROVIDERS,
     )
     chunks_row = await chunks_cursor.fetchone()
-    total_chunks = int(chunks_row['count']) if chunks_row else 0
+    total_chunks = int(chunks_row["count"]) if chunks_row else 0
     return {
-        'total_files': int(total_files),
-        'total_chunks': int(total_chunks),
+        "total_files": int(total_files),
+        "total_chunks": int(total_chunks),
     }
 
 
@@ -439,25 +431,25 @@ async def tool_scan_status(db: aiosqlite.Connection) -> dict[str, Any]:
 
     latest = await get_latest_scan(db)
     if latest is None:
-        return {'status': 'never_run'}
+        return {"status": "never_run"}
     skipped_files = await get_scan_skipped_file_records(db, int(latest.id or 0), limit=20)
     return {
-        'scan_id': int(latest.id or 0),
-        'status': latest.status.value,
-        'files_scanned': int(latest.files_scanned),
-        'files_indexed': int(latest.files_indexed),
-        'errors': int(latest.errors),
-        'skipped_count': await get_scan_skipped_file_count(db, int(latest.id or 0)),
-        'skipped_files': [
+        "scan_id": int(latest.id or 0),
+        "status": latest.status.value,
+        "files_scanned": int(latest.files_scanned),
+        "files_indexed": int(latest.files_indexed),
+        "errors": int(latest.errors),
+        "skipped_count": await get_scan_skipped_file_count(db, int(latest.id or 0)),
+        "skipped_files": [
             {
-                'path': item.path,
-                'filename': item.filename,
-                'extension': item.extension,
-                'reason': item.reason,
-                'error_code': item.error_code,
+                "path": item.path,
+                "filename": item.filename,
+                "extension": item.extension,
+                "reason": item.reason,
+                "error_code": item.error_code,
             }
             for item in skipped_files
         ],
-        'started_at': latest.started_at.isoformat() if latest.started_at else None,
-        'completed_at': latest.completed_at.isoformat() if latest.completed_at else None,
+        "started_at": latest.started_at.isoformat() if latest.started_at else None,
+        "completed_at": latest.completed_at.isoformat() if latest.completed_at else None,
     }

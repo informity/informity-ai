@@ -1,3 +1,5 @@
+"""Module for llm query classifier."""
+
 from __future__ import annotations
 
 import re
@@ -24,20 +26,23 @@ from informity.llm.types import (
 
 log = structlog.get_logger(__name__)
 
-_YEAR_PATTERN = re.compile(r'\b(19|20)\d{2}\b')
-_FILENAME_PATTERN = re.compile(r'\b([a-z0-9][a-z0-9._-]*\.[a-z0-9]{1,10})\b', re.IGNORECASE)
+_YEAR_PATTERN = re.compile(r"\b(19|20)\d{2}\b")
+_FILENAME_PATTERN = re.compile(r"\b([a-z0-9][a-z0-9._-]*\.[a-z0-9]{1,10})\b", re.IGNORECASE)
 _OUTPUT_PATTERNS = {
-    OutputFormat.TABLE: re.compile(r'\b(table|markdown table|in columns?)\b', re.IGNORECASE),
-    OutputFormat.BULLETS: re.compile(r'\b(bullet points?|bullets?)\b', re.IGNORECASE),
-    OutputFormat.CSV: re.compile(r'\b(csv|comma-separated)\b', re.IGNORECASE),
-    OutputFormat.LIST: re.compile(r'\b(list format|as a list)\b', re.IGNORECASE),
-    OutputFormat.NARRATIVE: re.compile(r'\b(narrative|paragraphs?)\b', re.IGNORECASE),
+    OutputFormat.TABLE: re.compile(r"\b(table|markdown table|in columns?)\b", re.IGNORECASE),
+    OutputFormat.BULLETS: re.compile(r"\b(bullet points?|bullets?)\b", re.IGNORECASE),
+    OutputFormat.CSV: re.compile(r"\b(csv|comma-separated)\b", re.IGNORECASE),
+    OutputFormat.LIST: re.compile(r"\b(list format|as a list)\b", re.IGNORECASE),
+    OutputFormat.NARRATIVE: re.compile(r"\b(narrative|paragraphs?)\b", re.IGNORECASE),
 }
-_CURRENT_INFO_PATTERN = re.compile(r'\b(today|now|current|latest|recent|this week|this month)\b', re.IGNORECASE)
+_CURRENT_INFO_PATTERN = re.compile(
+    r"\b(today|now|current|latest|recent|this week|this month)\b", re.IGNORECASE
+)
 
 
 @dataclass
 class QueryClassification:
+    """Class docstring."""
     intent: IntentLabel
     response_shape: OutputShape = OutputShape.NARRATIVE_SYNTHESIS
     route_candidate: IntentProfileId = IntentProfileId.TARGETED_FACT_LOOKUP
@@ -91,6 +96,7 @@ class QueryClassification:
 
     @property
     def confidence_band(self) -> ConfidenceBand:
+        """Confidence band."""
         if self.confidence >= settings.classification_confidence_high_threshold:
             return ConfidenceBand.HIGH
         if self.confidence >= settings.classification_confidence_medium_threshold:
@@ -99,6 +105,7 @@ class QueryClassification:
 
 
 def _extract_year_filter(text: str) -> int | None:
+    """Internal helper for extract year filter."""
     matches = [match.group(0) for match in _YEAR_PATTERN.finditer(text)]
     if len(matches) != 1:
         return None
@@ -107,16 +114,18 @@ def _extract_year_filter(text: str) -> int | None:
 
 
 def _extract_file_type(text: str) -> str | None:
+    """Internal helper for extract file type."""
     lowered = text.casefold()
-    if '.pdf' in lowered:
-        return '.pdf'
+    if ".pdf" in lowered:
+        return ".pdf"
     match = _FILENAME_PATTERN.search(lowered)
-    if match and match.group(1).lower().endswith('.pdf'):
-        return '.pdf'
+    if match and match.group(1).lower().endswith(".pdf"):
+        return ".pdf"
     return None
 
 
 def _extract_filename(text: str) -> str | None:
+    """Internal helper for extract filename."""
     match = _FILENAME_PATTERN.search(text)
     if not match:
         return None
@@ -125,6 +134,7 @@ def _extract_filename(text: str) -> str | None:
 
 
 def _detect_output_format(text: str) -> OutputFormat | None:
+    """Internal helper for detect output format."""
     for output_format, pattern in _OUTPUT_PATTERNS.items():
         if pattern.search(text):
             return output_format
@@ -132,9 +142,12 @@ def _detect_output_format(text: str) -> OutputFormat | None:
 
 
 def _derive_group_by(text: str, decision: FiveQDecision) -> GroupBy | None:
-    if decision.partitions and all(re.fullmatch(r'\d{4}', partition) for partition in decision.partitions):
+    """Internal helper for derive group by."""
+    if decision.partitions and all(
+        re.fullmatch(r"\d{4}", partition) for partition in decision.partitions
+    ):
         return GroupBy.YEAR
-    if re.search(r'\b(year|by year)\b', text, re.IGNORECASE):
+    if re.search(r"\b(year|by year)\b", text, re.IGNORECASE):
         return GroupBy.YEAR
     return None
 
@@ -146,6 +159,7 @@ def _build_context(
     scope_kind: str | None,
     prior_user_query: str | None,
 ) -> ClassifierContext:
+    """Internal helper for build context."""
     return ClassifierContext(
         chat_mode=chat_mode,
         scope_kind=scope_kind,
@@ -155,6 +169,7 @@ def _build_context(
 
 
 def _map_decision_to_classification(query: str, decision: FiveQDecision) -> QueryClassification:
+    """Internal helper for map decision to classification."""
     lowered = query.casefold()
     intent = decision.derive_intent()
     route_candidate = decision.derive_route_candidate()
@@ -164,29 +179,33 @@ def _map_decision_to_classification(query: str, decision: FiveQDecision) -> Quer
     filename_filter = _extract_filename(query)
     group_by = _derive_group_by(query, decision)
 
-    is_metadata_query = decision.source == 'index_metadata'
-    is_file_list_query = is_metadata_query and bool(re.search(r'\b(list|enumerate|show|what kinds|what type)\b', lowered))
-    needs_chat_history = decision.source == 'chat_history'
+    is_metadata_query = decision.source == "index_metadata"
+    is_file_list_query = is_metadata_query and bool(
+        re.search(r"\b(list|enumerate|show|what kinds|what type)\b", lowered)
+    )
+    needs_chat_history = decision.source == "chat_history"
     needs_current_info = bool(_CURRENT_INFO_PATTERN.search(query))
     mentions_time = needs_current_info
-    is_continuation = bool(re.search(r'\b(continue|keep going|go on|the rest|next part)\b', lowered))
+    is_continuation = bool(
+        re.search(r"\b(continue|keep going|go on|the rest|next part)\b", lowered)
+    )
 
     response_shape = OutputShape.NARRATIVE_SYNTHESIS
     if is_metadata_query:
         response_shape = OutputShape.METADATA_TABLE
-    elif decision.operation == 'compare':
+    elif decision.operation == "compare":
         response_shape = OutputShape.HYBRID
 
     subtype = decision.derive_subtype()
-    reason_codes = ['five_q_classifier']
-    if decision.source == 'index_metadata':
-        reason_codes.append('five_q_index_metadata')
-    elif decision.source == 'chat_history':
-        reason_codes.append('five_q_chat_history')
-    elif decision.source == 'app_knowledge':
-        reason_codes.append('five_q_app_knowledge')
+    reason_codes = ["five_q_classifier"]
+    if decision.source == "index_metadata":
+        reason_codes.append("five_q_index_metadata")
+    elif decision.source == "chat_history":
+        reason_codes.append("five_q_chat_history")
+    elif decision.source == "app_knowledge":
+        reason_codes.append("five_q_app_knowledge")
     else:
-        reason_codes.append('five_q_document_content')
+        reason_codes.append("five_q_document_content")
 
     return QueryClassification(
         intent=intent,
@@ -205,7 +224,9 @@ def _map_decision_to_classification(query: str, decision: FiveQDecision) -> Quer
         output_format=output_format,
         secondary_intent=None,
         filename_exclude=[],
-        is_negation_query=bool(re.search(r'\b(no|not|without|exclude|excluding|except)\b', lowered)),
+        is_negation_query=bool(
+            re.search(r"\b(no|not|without|exclude|excluding|except)\b", lowered)
+        ),
         is_metadata_query=is_metadata_query,
         is_file_list_query=is_file_list_query,
         is_continuation=is_continuation,
@@ -213,17 +234,18 @@ def _map_decision_to_classification(query: str, decision: FiveQDecision) -> Quer
         mentions_time=mentions_time,
         needs_chat_history=needs_chat_history,
         action_hints={
-            'should_enumerate': (
-                decision.source == 'document_content'
-                and decision.operation == 'count_enumerate'
+            "should_enumerate": (
+                decision.source == "document_content" and decision.operation == "count_enumerate"
             ),
         },
         retrieval_content_query=query,
         retrieval_content_confidence=decision.confidence,
-        retrieval_content_reasons=['five_q_direct'],
+        retrieval_content_reasons=["five_q_direct"],
         deterministic_override=False,
         llm_confidence=decision.confidence,
-        focus_has_referential_followup=bool(re.search(r'\b(this|that|it|same|above|earlier|previous|prior)\b', lowered)),
+        focus_has_referential_followup=bool(
+            re.search(r"\b(this|that|it|same|above|earlier|previous|prior)\b", lowered)
+        ),
         focus_has_topic_shift_cue=False,
         focus_explicit_title_reference=bool(filename_filter),
         focus_referential_title_anchor=None,
@@ -235,12 +257,12 @@ def _map_decision_to_classification(query: str, decision: FiveQDecision) -> Quer
         focus_rewritten_query=None,
         focus_resolved=True,
         shadow_classifier_decision={
-            'source': decision.source,
-            'scope': decision.scope,
-            'operation': decision.operation,
-            'partitions': list(decision.partitions),
-            'exhaustive': decision.exhaustive,
-            'confidence': decision.confidence,
+            "source": decision.source,
+            "scope": decision.scope,
+            "operation": decision.operation,
+            "partitions": list(decision.partitions),
+            "exhaustive": decision.exhaustive,
+            "confidence": decision.confidence,
         },
     )
 
@@ -253,9 +275,12 @@ def classify_query(
     scope_kind: str | None = None,
     prior_user_query: str | None = None,
 ) -> QueryClassification:
-    text = str(query or '').strip()
+    """Classify query."""
+    text = str(query or "").strip()
     if not text:
-        return QueryClassification(intent=QueryType.SIMPLE, confidence=0.0, shadow_classifier_raw_output='')
+        return QueryClassification(
+            intent=QueryType.SIMPLE, confidence=0.0, shadow_classifier_raw_output=""
+        )
 
     context = _build_context(
         history=history,
@@ -265,7 +290,7 @@ def classify_query(
     )
     classifier = get_classifier()
     if settings.dev_reload:
-        log.info('five_q_classifier_singleton_instance', classifier_id=id(classifier))
+        log.info("five_q_classifier_singleton_instance", classifier_id=id(classifier))
     result = classifier.classify(text, context)
     classification = _map_decision_to_classification(text, result.decision)
     classification.shadow_classifier_raw_output = result.raw_output or None
@@ -274,4 +299,4 @@ def classify_query(
     return classification
 
 
-__all__ = ['QueryClassification', 'classify_query']
+__all__ = ["QueryClassification", "classify_query"]

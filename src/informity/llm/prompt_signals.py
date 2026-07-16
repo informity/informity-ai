@@ -3,6 +3,10 @@
 # Generic prompt-shape signal extraction for app policy consumers.
 # ==============================================================================
 
+"""Module for llm prompt signals."""
+
+# pylint: disable=line-too-long
+
 from __future__ import annotations
 
 import re
@@ -62,6 +66,7 @@ _OUTPUT_FORMAT_PATTERNS = {
 
 @dataclass(frozen=True)
 class PromptSignalSnapshot:
+    """Class docstring."""
     has_discourse_prefix: bool = False
     has_topic_shift_cue: bool = False
     has_referential_followup: bool = False
@@ -71,28 +76,29 @@ class PromptSignalSnapshot:
 
 
 def _normalize_text(text: str) -> str:
+    """Internal helper for normalize text."""
     return " ".join(str(text or "").strip().split())
 
 
 def _fallback_signal_snapshot(text: str) -> PromptSignalSnapshot:
+    """Internal helper for fallback signal snapshot."""
     requested_output_formats = tuple(
-        sorted(
-            key
-            for key, pattern in _OUTPUT_FORMAT_PATTERNS.items()
-            if pattern.search(text)
-        )
+        sorted(key for key, pattern in _OUTPUT_FORMAT_PATTERNS.items() if pattern.search(text))
     )
     return PromptSignalSnapshot(
         has_discourse_prefix=bool(_DISCOURSE_PREFIX_PATTERN.match(text)),
         has_topic_shift_cue=bool(_TOPIC_SHIFT_CUE_PATTERN.search(text)),
         has_referential_followup=bool(_REFERENTIAL_FOLLOWUP_PATTERN.search(text)),
-        requests_continuation=any(pattern.search(text) for pattern in _CONTINUATION_REQUEST_PATTERNS),
+        requests_continuation=any(
+            pattern.search(text) for pattern in _CONTINUATION_REQUEST_PATTERNS
+        ),
         is_continuation=False,
         requested_output_formats=requested_output_formats,
     )
 
 
 def action_hint_enabled(action_hints: dict[str, object] | None, key: str) -> bool:
+    """Action hint enabled."""
     if not action_hints:
         return False
     return bool(action_hints.get(key))
@@ -101,6 +107,7 @@ def action_hint_enabled(action_hints: dict[str, object] | None, key: str) -> boo
 def extract_prompt_signals(
     text: str,
 ) -> PromptSignalSnapshot:
+    """Extract prompt signals."""
     normalized = _normalize_text(text)
     if not normalized:
         return PromptSignalSnapshot()

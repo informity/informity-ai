@@ -4,6 +4,8 @@
 # hash computation, and change detection.
 # ==============================================================================
 
+"""Test module for tests test crawler."""
+
 import hashlib
 import os
 from datetime import UTC, datetime
@@ -31,6 +33,7 @@ from informity.scanner.crawler import (
 def _create_file_tree(base: Path, structure: dict) -> None:
     # Recursively create a directory structure from a nested dict.
     # Keys are names, values are either strings (file content) or dicts (subdirs).
+    """Internal helper for create file tree."""
     for name, content in structure.items():
         path = base / name
         if isinstance(content, dict):
@@ -43,6 +46,7 @@ def _create_file_tree(base: Path, structure: dict) -> None:
 
 def _sha256(text: str) -> str:
     # Compute SHA-256 of a string for test assertions.
+    """Internal helper for sha256."""
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
@@ -55,6 +59,7 @@ def _make_indexed_file(
     source_item_id: str | None = None,
 ) -> IndexedFile:
     # Create a minimal IndexedFile for change detection tests.
+    """Internal helper for make indexed file."""
     return IndexedFile(
         id=1,
         source_provider=source_provider,
@@ -77,7 +82,9 @@ def _make_indexed_file(
 
 
 class TestDirectoryTraversal:
+    """Class docstring."""
     def test_finds_supported_files(self, tmp_path: Path) -> None:
+        """Test finds supported files."""
         _create_file_tree(
             tmp_path,
             {
@@ -96,6 +103,7 @@ class TestDirectoryTraversal:
         assert names == {"readme.txt", "notes.md", "data.csv"}
 
     def test_recurses_subdirectories(self, tmp_path: Path) -> None:
+        """Test recurses subdirectories."""
         _create_file_tree(
             tmp_path,
             {
@@ -118,15 +126,17 @@ class TestDirectoryTraversal:
         assert names == {"top.txt", "middle.txt", "bottom.txt"}
 
     def test_empty_directory(self, tmp_path: Path) -> None:
+        """Test empty directory."""
         results = _walk_directory(
             tmp_path,
             ignore_patterns=[],
             extensions={".txt"},
             follow_symlinks=False,
         )
-        assert results == []
+        assert not results
 
     def test_permission_error_handled(self, tmp_path: Path) -> None:
+        """Test permission error handled."""
         restricted = tmp_path / "restricted"
         restricted.mkdir()
         restricted.chmod(0o000)
@@ -137,11 +147,12 @@ class TestDirectoryTraversal:
                 extensions={".txt"},
                 follow_symlinks=False,
             )
-            assert results == []
+            assert not results
         finally:
             restricted.chmod(0o755)
 
     def test_skips_symlinks_by_default(self, tmp_path: Path) -> None:
+        """Test skips symlinks by default."""
         real_file = tmp_path / "real.txt"
         real_file.write_text("content")
         link = tmp_path / "link.txt"
@@ -158,6 +169,7 @@ class TestDirectoryTraversal:
         assert "link.txt" not in names
 
     def test_follows_symlinks_when_enabled(self, tmp_path: Path) -> None:
+        """Test follows symlinks when enabled."""
         real_file = tmp_path / "real.txt"
         real_file.write_text("content")
         link = tmp_path / "link.txt"
@@ -180,23 +192,29 @@ class TestDirectoryTraversal:
 
 
 class TestIgnorePatterns:
+    """Class docstring."""
     def test_ignore_by_filename(self) -> None:
+        """Test ignore by filename."""
         assert should_ignore(Path("/project/.DS_Store"), [".DS_Store"])
         assert should_ignore(Path("/project/.git"), [".git"])
 
     def test_ignore_by_glob_pattern(self) -> None:
+        """Test ignore by glob pattern."""
         assert should_ignore(Path("/project/archive.app"), ["*.app"])
         assert should_ignore(Path("/project/test.pyc"), ["*.pyc"])
 
     def test_ignore_by_path_component(self) -> None:
+        """Test ignore by path component."""
         assert should_ignore(Path("/project/node_modules/pkg/index.js"), ["node_modules"])
         assert should_ignore(Path("/home/user/.git/config"), [".git"])
 
     def test_no_match_returns_false(self) -> None:
+        """Test no match returns false."""
         assert not should_ignore(Path("/project/readme.txt"), [".git", "node_modules"])
         assert not should_ignore(Path("/project/src/main.py"), ["*.app"])
 
     def test_multiple_patterns(self) -> None:
+        """Test multiple patterns."""
         patterns = [".git", "node_modules", "__pycache__", ".DS_Store", "*.app"]
         assert should_ignore(Path("/project/.git"), patterns)
         assert should_ignore(Path("/project/node_modules"), patterns)
@@ -206,6 +224,7 @@ class TestIgnorePatterns:
         assert not should_ignore(Path("/project/readme.md"), patterns)
 
     def test_ignore_filters_walk_results(self, tmp_path: Path) -> None:
+        """Test ignore filters walk results."""
         _create_file_tree(
             tmp_path,
             {
@@ -242,7 +261,9 @@ class TestIgnorePatterns:
 
 
 class TestExtensionFiltering:
+    """Class docstring."""
     def test_includes_only_supported_extensions(self, tmp_path: Path) -> None:
+        """Test includes only supported extensions."""
         _create_file_tree(
             tmp_path,
             {
@@ -263,6 +284,7 @@ class TestExtensionFiltering:
         assert names == {"doc.txt", "notes.md"}
 
     def test_case_insensitive_extensions(self, tmp_path: Path) -> None:
+        """Test case insensitive extensions."""
         _create_file_tree(
             tmp_path,
             {
@@ -283,6 +305,7 @@ class TestExtensionFiltering:
         assert "lower.txt" in names
 
     def test_empty_extension_set(self, tmp_path: Path) -> None:
+        """Test empty extension set."""
         _create_file_tree(tmp_path, {"file.txt": "content"})
         results = _walk_directory(
             tmp_path,
@@ -290,9 +313,10 @@ class TestExtensionFiltering:
             extensions=set(),
             follow_symlinks=False,
         )
-        assert results == []
+        assert not results
 
     def test_no_extension_file_excluded(self, tmp_path: Path) -> None:
+        """Test no extension file excluded."""
         _create_file_tree(
             tmp_path,
             {
@@ -316,7 +340,9 @@ class TestExtensionFiltering:
 
 
 class TestHashComputation:
+    """Class docstring."""
     def test_hash_matches_expected(self, tmp_path: Path) -> None:
+        """Test hash matches expected."""
         f = tmp_path / "test.txt"
         content = "Hello, Informity!"
         f.write_text(content, encoding="utf-8")
@@ -326,6 +352,7 @@ class TestHashComputation:
         assert result[0] == expected
 
     def test_empty_file_hash(self, tmp_path: Path) -> None:
+        """Test empty file hash."""
         f = tmp_path / "empty.txt"
         f.write_text("")
         expected = hashlib.sha256(b"").hexdigest()
@@ -334,6 +361,7 @@ class TestHashComputation:
         assert result[0] == expected
 
     def test_hash_is_deterministic(self, tmp_path: Path) -> None:
+        """Test hash is deterministic."""
         f = tmp_path / "det.txt"
         f.write_text("deterministic content")
         r1 = _compute_file_hash_and_stat(str(f))
@@ -345,6 +373,7 @@ class TestHashComputation:
         assert h1 == h2
 
     def test_different_content_different_hash(self, tmp_path: Path) -> None:
+        """Test different content different hash."""
         f1 = tmp_path / "a.txt"
         f2 = tmp_path / "b.txt"
         f1.write_text("content A")
@@ -356,9 +385,11 @@ class TestHashComputation:
         assert r1[0] != r2[0]
 
     def test_missing_file_returns_empty(self, tmp_path: Path) -> None:
+        """Test missing file returns empty."""
         assert _compute_file_hash_and_stat(str(tmp_path / "missing.txt")) is None
 
     def test_binary_file_hash(self, tmp_path: Path) -> None:
+        """Test binary file hash."""
         f = tmp_path / "binary.bin"
         data = bytes(range(256))
         f.write_bytes(data)
@@ -367,7 +398,10 @@ class TestHashComputation:
         assert result is not None
         assert result[0] == expected
 
-    def test_oversized_file_hash_ignores_mtime(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    def test_oversized_file_hash_ignores_mtime(
+        self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    ) -> None:
+        """Test oversized file hash ignores mtime."""
         f = tmp_path / "large.bin"
         f.write_bytes(b"x" * 16)
         monkeypatch.setattr("informity.config.settings.scan_hash_max_file_size_bytes", 1)
@@ -390,7 +424,9 @@ class TestHashComputation:
 
 
 class TestScanDirectories:
+    """Class docstring."""
     def test_scan_returns_scanned_files(self, tmp_path: Path) -> None:
+        """Test scan returns scanned files."""
         _create_file_tree(
             tmp_path,
             {
@@ -409,6 +445,7 @@ class TestScanDirectories:
     def test_scan_uses_settings_supported_extensions_when_not_passed(self, tmp_path: Path) -> None:
         # When supported_extensions is not passed (e.g. API scan), crawler uses
         # settings.supported_extensions so that file types selected in Settings are respected.
+        """Test scan uses settings supported extensions when not passed."""
         _create_file_tree(
             tmp_path,
             {
@@ -417,8 +454,8 @@ class TestScanDirectories:
                 "c.md": "markdown",
             },
         )
-        with patch('informity.scanner.crawler.settings') as mock_settings:
-            mock_settings.supported_extensions = ['.txt', '.md']
+        with patch("informity.scanner.crawler.settings") as mock_settings:
+            mock_settings.supported_extensions = [".txt", ".md"]
             mock_settings.watched_directories = []  # unused when directories= is passed
             mock_settings.ignore_patterns = []
             mock_settings.follow_symlinks = False
@@ -428,10 +465,11 @@ class TestScanDirectories:
                 # Do not pass supported_extensions — must use settings
             )
         names = {sf.filename for sf in results}
-        assert names == {'a.txt', 'c.md'}
-        assert 'b.pdf' not in names
+        assert names == {"a.txt", "c.md"}
+        assert "b.pdf" not in names
 
     def test_scan_populates_fields(self, tmp_path: Path) -> None:
+        """Test scan populates fields."""
         content = "test content for hashing"
         f = tmp_path / "data.txt"
         f.write_text(content, encoding="utf-8")
@@ -451,22 +489,25 @@ class TestScanDirectories:
         assert sf.path == f.resolve()
 
     def test_scan_nonexistent_directory(self, tmp_path: Path) -> None:
+        """Test scan nonexistent directory."""
         results = scan_directories(
             directories=[tmp_path / "nonexistent"],
             ignore_patterns=[],
             supported_extensions=[".txt"],
         )
-        assert results == []
+        assert not results
 
     def test_scan_empty_directory_list(self) -> None:
+        """Test scan empty directory list."""
         results = scan_directories(
             directories=[],
             ignore_patterns=[],
             supported_extensions=[".txt"],
         )
-        assert results == []
+        assert not results
 
     def test_scan_respects_ignore_patterns(self, tmp_path: Path) -> None:
+        """Test scan respects ignore patterns."""
         _create_file_tree(
             tmp_path,
             {
@@ -490,6 +531,7 @@ class TestScanDirectories:
         assert "config.txt" not in names
 
     def test_scan_multiple_directories(self, tmp_path: Path) -> None:
+        """Test scan multiple directories."""
         dir_a = tmp_path / "dir_a"
         dir_b = tmp_path / "dir_b"
         dir_a.mkdir()
@@ -512,7 +554,9 @@ class TestScanDirectories:
 
 
 class TestChangeDetection:
+    """Class docstring."""
     def test_all_new_files(self, tmp_path: Path) -> None:
+        """Test all new files."""
         scanned = [
             ScannedFile(
                 path=tmp_path / "new.txt",
@@ -530,6 +574,7 @@ class TestChangeDetection:
         assert len(changeset.deleted) == 0
 
     def test_unchanged_file(self) -> None:
+        """Test unchanged file."""
         path_str = "/docs/readme.txt"
         scanned = [
             ScannedFile(
@@ -550,6 +595,7 @@ class TestChangeDetection:
         assert len(changeset.deleted) == 0
 
     def test_changed_file(self) -> None:
+        """Test changed file."""
         path_str = "/docs/readme.txt"
         scanned = [
             ScannedFile(
@@ -570,6 +616,7 @@ class TestChangeDetection:
         assert len(changeset.deleted) == 0
 
     def test_deleted_file(self) -> None:
+        """Test deleted file."""
         db_files = [_make_indexed_file("/docs/gone.txt", "hash")]
         changeset = compare_with_db(scanned=[], db_files=db_files)
         assert len(changeset.new) == 0
@@ -579,6 +626,7 @@ class TestChangeDetection:
         assert changeset.deleted[0].path == "/docs/gone.txt"
 
     def test_mixed_changes(self) -> None:
+        """Test mixed changes."""
         scanned = [
             ScannedFile(
                 path=Path("/docs/new.txt"),
@@ -622,6 +670,7 @@ class TestChangeDetection:
         assert changeset.deleted[0].path == "/docs/removed.txt"
 
     def test_empty_scanned_and_db(self) -> None:
+        """Test empty scanned and db."""
         changeset = compare_with_db(scanned=[], db_files=[])
         assert len(changeset.new) == 0
         assert len(changeset.changed) == 0
@@ -629,6 +678,7 @@ class TestChangeDetection:
         assert len(changeset.deleted) == 0
 
     def test_compare_is_scoped_to_provider_and_entity_type(self) -> None:
+        """Test compare is scoped to provider and entity type."""
         scanned = [
             ScannedFile(
                 path=Path("/docs/keep.txt"),
@@ -640,7 +690,9 @@ class TestChangeDetection:
             ),
         ]
         db_files = [
-            _make_indexed_file("/docs/keep.txt", "same_hash", source_provider="filesystem", entity_type="file"),
+            _make_indexed_file(
+                "/docs/keep.txt", "same_hash", source_provider="filesystem", entity_type="file"
+            ),
             _make_indexed_file(
                 "source://mail.apple/mail/msg-1",
                 "mail_hash",
@@ -662,6 +714,7 @@ class TestChangeDetection:
         assert len(changeset.deleted) == 0
 
     def test_changeset_dataclass_fields(self) -> None:
+        """Test changeset dataclass fields."""
         changeset = ChangeSet(new=[], changed=[], unchanged=[], deleted=[])
         assert hasattr(changeset, "new")
         assert hasattr(changeset, "changed")

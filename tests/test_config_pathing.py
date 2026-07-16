@@ -1,3 +1,5 @@
+"""Test module for tests test config pathing."""
+
 from pathlib import Path
 
 from informity.config import APP_SLUG, DirNames, Settings
@@ -7,6 +9,7 @@ def test_desktop_session_uses_app_data_model_paths(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    """Test desktop session uses app data model paths."""
     app_data = tmp_path / "app-data"
     cache_dir = tmp_path / "cache"
     monkeypatch.setenv("INFORMITY_TAURI_SESSION_TOKEN", "desktop-session-token")
@@ -27,6 +30,7 @@ def test_non_desktop_session_uses_app_data_model_paths(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
+    """Test non desktop session uses app data model paths."""
     app_data = tmp_path / "app-data"
     cache_dir = tmp_path / "cache"
     monkeypatch.delenv("INFORMITY_TAURI_SESSION_TOKEN", raising=False)
@@ -39,6 +43,7 @@ def test_non_desktop_session_uses_app_data_model_paths(
 
 
 def test_explicit_root_db_path_is_preserved(tmp_path: Path) -> None:
+    """Test explicit root db path is preserved."""
     app_data = tmp_path / "app-data"
     legacy_db_path = app_data / f"{APP_SLUG}.db"
 
@@ -48,6 +53,7 @@ def test_explicit_root_db_path_is_preserved(tmp_path: Path) -> None:
 
 
 def test_ensure_directories_does_not_remove_explicit_root_db_file(tmp_path: Path) -> None:
+    """Test ensure directories does not remove explicit root db file."""
     app_data = tmp_path / "app-data"
     app_data.mkdir(parents=True, exist_ok=True)
     legacy_db_path = app_data / f"{APP_SLUG}.db"

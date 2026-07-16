@@ -1,3 +1,5 @@
+"""Module for mcp lifecycle."""
+
 from __future__ import annotations
 
 import asyncio
@@ -23,6 +25,7 @@ class McpLifecycleManager:
     """
 
     def __init__(self) -> None:
+        """Initialize the instance."""
         self._lock = asyncio.Lock()
         self._running = False
         self._last_error: str | None = None
@@ -31,90 +34,99 @@ class McpLifecycleManager:
 
     @property
     def running(self) -> bool:
+        """Running."""
         return self._running
 
     @property
     def last_error(self) -> str | None:
+        """Last error."""
         return self._last_error
 
     async def start_from_settings(self) -> None:
+        """Start from settings."""
         async with self._lock:
             if self._running:
                 return
             if not settings.mcp_enabled:
                 self._last_error = None
                 return
-            if settings.mcp_transport == 'http' and not is_loopback_host(settings.mcp_http_host):
+            if settings.mcp_transport == "http" and not is_loopback_host(settings.mcp_http_host):
                 self._last_error = (
-                    'MCP HTTP host must be loopback (127.0.0.1/localhost/::1). '
-                    f'Configured: {settings.mcp_http_host}'
+                    "MCP HTTP host must be loopback (127.0.0.1/localhost/::1). "
+                    f"Configured: {settings.mcp_http_host}"
                 )
-                log.warning('mcp_start_denied_non_loopback_host', host=settings.mcp_http_host)
+                log.warning("mcp_start_denied_non_loopback_host", host=settings.mcp_http_host)
                 await emit_log_event(
-                    event_name='mcp_scope_denied',
-                    source='MCP Server',
-                    message='MCP server start denied because host is not loopback.',
-                    details={'host': settings.mcp_http_host},
+                    event_name="mcp_scope_denied",
+                    source="MCP Server",
+                    message="MCP server start denied because host is not loopback.",
+                    details={"host": settings.mcp_http_host},
                     dedupe_bucket_seconds=300,
                 )
                 return
 
-            if settings.mcp_transport == 'http':
+            if settings.mcp_transport == "http":
                 try:
                     await self._start_http_server_locked()
                 except OSError as exc:
                     self._running = False
-                    self._last_error = f'Failed to start MCP HTTP server: {exc}'
+                    self._last_error = f"Failed to start MCP HTTP server: {exc}"
                     log.error(
-                        'mcp_http_start_failed',
+                        "mcp_http_start_failed",
                         host=settings.mcp_http_host,
                         port=settings.mcp_http_port,
                         error=str(exc),
                     )
                     await emit_log_event(
-                        event_name='mcp_server_failed',
-                        source='MCP Server',
-                        message='MCP server failed to start.',
-                        details={'error': str(exc), 'host': settings.mcp_http_host, 'port': settings.mcp_http_port},
+                        event_name="mcp_server_failed",
+                        source="MCP Server",
+                        message="MCP server failed to start.",
+                        details={
+                            "error": str(exc),
+                            "host": settings.mcp_http_host,
+                            "port": settings.mcp_http_port,
+                        },
                         dedupe_bucket_seconds=120,
                     )
                     return
 
-            self._running = settings.mcp_transport == 'http'
+            self._running = settings.mcp_transport == "http"
             self._last_error = None
             log.info(
-                'mcp_lifecycle_started',
+                "mcp_lifecycle_started",
                 transport=settings.mcp_transport,
                 host=settings.mcp_http_host,
                 port=settings.mcp_http_port,
                 scope_mode=settings.mcp_scope_mode,
             )
             await emit_log_event(
-                event_name='mcp_server_started',
-                source='MCP Server',
-                message='MCP server started successfully.',
+                event_name="mcp_server_started",
+                source="MCP Server",
+                message="MCP server started successfully.",
                 details={
-                    'transport': settings.mcp_transport,
-                    'host': settings.mcp_http_host,
-                    'port': settings.mcp_http_port,
-                    'scope_mode': settings.mcp_scope_mode,
+                    "transport": settings.mcp_transport,
+                    "host": settings.mcp_http_host,
+                    "port": settings.mcp_http_port,
+                    "scope_mode": settings.mcp_scope_mode,
                 },
             )
 
     async def stop(self) -> None:
+        """Stop."""
         async with self._lock:
             if not self._running:
                 return
             await self._stop_http_server_locked()
             self._running = False
-            log.info('mcp_lifecycle_stopped')
+            log.info("mcp_lifecycle_stopped")
             await emit_log_event(
-                event_name='mcp_server_stopped',
-                source='MCP Server',
-                message='MCP server stopped.',
+                event_name="mcp_server_stopped",
+                source="MCP Server",
+                message="MCP server stopped.",
             )
 
     async def restart_from_settings(self) -> None:
+        """Restart from settings."""
         async with self._lock:
             was_running = self._running
         if was_running:
@@ -122,33 +134,36 @@ class McpLifecycleManager:
         await self.start_from_settings()
 
     def snapshot(self) -> dict[str, str | None]:
-        state = 'running' if self._running else 'disabled'
+        """Snapshot."""
+        state = "running" if self._running else "disabled"
         if self._last_error:
-            state = 'error'
+            state = "error"
         return {
-            'state': state,
-            'error': self._last_error,
+            "state": state,
+            "error": self._last_error,
         }
 
     async def _start_http_server_locked(self) -> None:
+        """Internal helper for start http server locked."""
         self._ensure_http_bindable(settings.mcp_http_host, int(settings.mcp_http_port))
         app = create_http_app()
         config = uvicorn.Config(
             app=app,
             host=settings.mcp_http_host,
             port=int(settings.mcp_http_port),
-            log_level='warning',
-            loop='asyncio',
-            lifespan='off',
+            log_level="warning",
+            loop="asyncio",
+            lifespan="off",
             access_log=False,
         )
         server = uvicorn.Server(config)
-        task = asyncio.create_task(server.serve(), name='informity-mcp-http-server')
+        task = asyncio.create_task(server.serve(), name="informity-mcp-http-server")
         await self._wait_for_http_startup(server, task)
         self._http_server = server
         self._http_task = task
 
     def _ensure_http_bindable(self, host: str, port: int) -> None:
+        """Internal helper for ensure http bindable."""
         infos = socket.getaddrinfo(host, port, socket.AF_UNSPEC, socket.SOCK_STREAM)
         last_error: OSError | None = None
         for family, socktype, proto, _canon, sockaddr in infos:
@@ -162,10 +177,15 @@ class McpLifecycleManager:
             finally:
                 sock.close()
         if last_error is not None:
-            raise OSError(f'Port bind check failed for {host}:{port}: {last_error}') from last_error
+            raise OSError(f"Port bind check failed for {host}:{port}: {last_error}") from last_error
 
-    async def _wait_for_http_startup(self, server: uvicorn.Server, task: asyncio.Task[None]) -> None:
+    async def _wait_for_http_startup(
+        self, server: uvicorn.Server, task: asyncio.Task[None]
+    ) -> None:
+        """Internal helper for wait for http startup."""
+
         async def _poll() -> None:
+            """Internal helper for poll."""
             while not server.started:
                 if task.done():
                     break
@@ -176,11 +196,12 @@ class McpLifecycleManager:
             try:
                 task.result()
             except BaseException as exc:  # noqa: BLE001
-                raise OSError(f'MCP HTTP server startup failed: {exc}') from exc
+                raise OSError(f"MCP HTTP server startup failed: {exc}") from exc
         if not server.started:
-            raise OSError('MCP HTTP server did not reach started state')
+            raise OSError("MCP HTTP server did not reach started state")
 
     async def _stop_http_server_locked(self) -> None:
+        """Internal helper for stop http server locked."""
         server = self._http_server
         task = self._http_task
         self._http_server = None

@@ -1,3 +1,5 @@
+"""Module for scanner extractors docling runtime."""
+
 from __future__ import annotations
 
 import os
@@ -34,15 +36,19 @@ _DOCLING_RUNTIME_EXCEPTIONS = (
 
 
 def prepare_docling_runtime() -> Path:
+    """Prepare docling runtime."""
     docling_cache = settings.cache_dir / DirNames.DOCLING
     ensure_directory(docling_cache)
-    os.environ['DOCLING_ARTIFACTS_PATH'] = str(docling_cache)
+    os.environ["DOCLING_ARTIFACTS_PATH"] = str(docling_cache)
     configure_hf_environment()
     ensure_docling_rapidocr_cache_compat(settings.cache_dir)
     return docling_cache
 
 
-def _build_pipeline_options(*, do_ocr: bool, force_full_page_ocr: bool = False) -> PdfPipelineOptions:
+def _build_pipeline_options(
+    *, do_ocr: bool, force_full_page_ocr: bool = False
+) -> PdfPipelineOptions:
+    """Internal helper for build pipeline options."""
     accelerator_options = AcceleratorOptions(num_threads=settings.embedding_max_threads or 4)
     if do_ocr:
         ocr_options = RapidOcrOptions(lang=[])
@@ -61,7 +67,10 @@ def build_docling_converter(
     force_full_page_ocr: bool = False,
     include_image_formats: bool = False,
 ) -> DocumentConverter:
-    pipeline_options = _build_pipeline_options(do_ocr=do_ocr, force_full_page_ocr=force_full_page_ocr)
+    """Build docling converter."""
+    pipeline_options = _build_pipeline_options(
+        do_ocr=do_ocr, force_full_page_ocr=force_full_page_ocr
+    )
     format_options: dict[InputFormat, object] = {
         InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
     }
@@ -76,6 +85,7 @@ def build_pdf_converter(
     force_full_page_ocr: bool = False,
     include_image_formats: bool = False,
 ) -> DocumentConverter:
+    """Build pdf converter."""
     return build_docling_converter(
         do_ocr=do_ocr,
         force_full_page_ocr=force_full_page_ocr,

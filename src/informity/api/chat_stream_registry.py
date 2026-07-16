@@ -3,12 +3,15 @@
 # Owns lifecycle and stop-signal state for in-flight chat streams.
 # ==============================================================================
 
+"""Module for api chat stream registry."""
+
 import asyncio
 from dataclasses import dataclass
 
 
 @dataclass
 class ActiveChatStream:
+    """Class docstring."""
     chat_id: str
     request_id: str
     stop_event: asyncio.Event
@@ -18,6 +21,7 @@ class ActiveChatStream:
 
 @dataclass
 class StopOutcome:
+    """Class docstring."""
     status: str
     stream_id: str | None = None
     chat_id: str | None = None
@@ -25,7 +29,9 @@ class StopOutcome:
 
 
 class ChatStreamRegistry:
+    """Class docstring."""
     def __init__(self) -> None:
+        """Initialize the instance."""
         self._streams: dict[str, ActiveChatStream] = {}
         self._streams_by_request_id: dict[str, str] = {}
         self._lock = asyncio.Lock()
@@ -38,6 +44,7 @@ class ChatStreamRegistry:
         stop_event: asyncio.Event,
         task: asyncio.Task[object] | None = None,
     ) -> None:
+        """Register."""
         async with self._lock:
             self._streams[stream_id] = ActiveChatStream(
                 chat_id=chat_id,
@@ -48,6 +55,7 @@ class ChatStreamRegistry:
             self._streams_by_request_id[request_id] = stream_id
 
     async def unregister(self, stream_id: str) -> bool:
+        """Unregister."""
         async with self._lock:
             stream = self._streams.pop(stream_id, None)
             if stream is not None:
@@ -62,6 +70,7 @@ class ChatStreamRegistry:
         request_id: str | None,
         chat_id: str | None,
     ) -> StopOutcome:
+        """Mark stopped by user."""
         async with self._lock:
             stream: ActiveChatStream | None = None
             resolved_stream_id: str | None = None
@@ -73,12 +82,12 @@ class ChatStreamRegistry:
                 stream = self._streams.get(mapped_stream_id) if mapped_stream_id else None
                 resolved_stream_id = mapped_stream_id if stream is not None else None
             if stream is None:
-                return StopOutcome(status='not_found')
+                return StopOutcome(status="not_found")
             if chat_id and stream.chat_id != chat_id:
-                return StopOutcome(status='not_found')
+                return StopOutcome(status="not_found")
             if stream.stopped_by_user:
                 return StopOutcome(
-                    status='already_terminal',
+                    status="already_terminal",
                     stream_id=resolved_stream_id,
                     chat_id=stream.chat_id,
                     request_id=stream.request_id,
@@ -88,22 +97,25 @@ class ChatStreamRegistry:
             if stream.task is not None and not stream.task.done():
                 stream.task.cancel()
             return StopOutcome(
-                status='stopped_now',
+                status="stopped_now",
                 stream_id=resolved_stream_id,
                 chat_id=stream.chat_id,
                 request_id=stream.request_id,
             )
 
     def is_stopped_by_user(self, stream_id: str) -> bool:
+        """Is stopped by user."""
         stream = self._streams.get(stream_id)
         return bool(stream and stream.stopped_by_user)
 
     async def has_stream(self, stream_id: str) -> bool:
+        """Has stream."""
         async with self._lock:
             return stream_id in self._streams
 
     async def stop_all(self) -> int:
         # Stop all active streams (used by global operations like reset-all).
+        """Stop all."""
         async with self._lock:
             active_streams = list(self._streams.items())
             for _, stream in active_streams:

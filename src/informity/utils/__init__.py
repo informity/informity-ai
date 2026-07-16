@@ -2,3 +2,4 @@
 # Informity AI — Utilities Package
 # Shared utility modules for common operations
 # ==============================================================================
+"""Package module."""

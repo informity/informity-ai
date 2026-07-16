@@ -4,6 +4,8 @@
 # Uses docling to convert documents to markdown with better structure preservation
 # ==============================================================================
 
+"""Module for scanner extractors docling."""
+
 from __future__ import annotations
 
 import gc
@@ -49,11 +51,20 @@ if TYPE_CHECKING:
 # With range-based metadata storage (#6) and explicit GC (#8), memory pressure is lower
 _MAX_CONVERSIONS_BEFORE_RESET = 25  # Recreate converter every N conversions
 
-_IMAGE_SUPPORTED_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.tif', '.tiff', '.bmp', '.webp']
+_IMAGE_SUPPORTED_EXTENSIONS = [".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".webp"]
 
 # Docling-supported formats, including OCR-able image uploads.
-_DOCLING_SUPPORTED_EXTENSIONS = ['.pdf', '.docx', '.pptx', '.xlsx', '.html', '.htm', '.csv', *_IMAGE_SUPPORTED_EXTENSIONS]
-_DOCLING_OCR_SUPPORTED_EXTENSIONS = frozenset({'.pdf', *_IMAGE_SUPPORTED_EXTENSIONS})
+_DOCLING_SUPPORTED_EXTENSIONS = [
+    ".pdf",
+    ".docx",
+    ".pptx",
+    ".xlsx",
+    ".html",
+    ".htm",
+    ".csv",
+    *_IMAGE_SUPPORTED_EXTENSIONS,
+]
+_DOCLING_OCR_SUPPORTED_EXTENSIONS = frozenset({".pdf", *_IMAGE_SUPPORTED_EXTENSIONS})
 _SPARSE_EXTRACTION_WORD_THRESHOLD = 24
 _SPARSE_EXTRACTION_ALPHA_TOKEN_THRESHOLD = 8
 
@@ -70,31 +81,35 @@ class _OcrAttempt:
 
 def _classify_docling_exception(exc: Exception) -> tuple[str, bool]:
     # Map docling/pdfium failures to stable, generic error codes and retryability.
+    """Internal helper for classify docling exception."""
     error_str = str(exc).lower()
 
-    if 'pdf_resources_dir' in error_str:
+    if "pdf_resources_dir" in error_str:
         # Packaged runtime is missing docling parse resources; this is an app setup issue.
-        return 'docling_runtime_resource_missing', True
-    if 'incorrect password' in error_str or ('password' in error_str and 'pdfium' in error_str):
-        return 'pdf_password_protected', False
-    if 'data format error' in error_str or 'is not valid' in error_str:
-        return 'pdf_invalid_or_corrupt', False
-    if 'font_name' in error_str and 'is not known' in error_str:
-        return 'pdf_unsupported_font_map', False
-    return 'docling_extraction_error', True
+        return "docling_runtime_resource_missing", True
+    if "incorrect password" in error_str or ("password" in error_str and "pdfium" in error_str):
+        return "pdf_password_protected", False
+    if "data format error" in error_str or "is not valid" in error_str:
+        return "pdf_invalid_or_corrupt", False
+    if "font_name" in error_str and "is not known" in error_str:
+        return "pdf_unsupported_font_map", False
+    return "docling_extraction_error", True
 
 
-def _classify_extraction_status_from_error_text(error_text: str | None) -> tuple[str, str | None, bool]:
-    lowered = str(error_text or '').casefold()
+def _classify_extraction_status_from_error_text(
+    error_text: str | None,
+) -> tuple[str, str | None, bool]:
+    """Internal helper for classify extraction status from error text."""
+    lowered = str(error_text or "").casefold()
     if not lowered:
-        return 'skipped_empty', 'file skipped — no extractable text found', False
-    if 'password' in lowered or 'encrypted' in lowered:
-        return 'skipped_encrypted', 'file skipped — password protected', False
-    if 'corrupt' in lowered or 'invalid' in lowered:
-        return 'skipped_corrupted', 'file skipped — file is corrupted', False
-    if 'unsupported' in lowered or 'not known' in lowered:
-        return 'skipped_unsupported', 'file skipped — unsupported format', False
-    return 'failed_unknown', None, True
+        return "skipped_empty", "file skipped — no extractable text found", False
+    if "password" in lowered or "encrypted" in lowered:
+        return "skipped_encrypted", "file skipped — password protected", False
+    if "corrupt" in lowered or "invalid" in lowered:
+        return "skipped_corrupted", "file skipped — file is corrupted", False
+    if "unsupported" in lowered or "not known" in lowered:
+        return "skipped_unsupported", "file skipped — unsupported format", False
+    return "failed_unknown", None, True
 
 
 class DoclingExtractor:
@@ -102,6 +117,7 @@ class DoclingExtractor:
     Unified extractor for docling-supported document formats.
     Converts documents to markdown with structure preservation and metadata extraction.
     """
+
     supported_extensions: list[str] = _DOCLING_SUPPORTED_EXTENSIONS
 
     # Class-level singleton converter with reset counter
@@ -109,12 +125,14 @@ class DoclingExtractor:
     _conversion_count: int = 0
 
     def can_handle(self, path: Path) -> bool:
+        """Can handle."""
         return path.suffix.lower() in self.supported_extensions
 
     @classmethod
     def reset_converter(cls) -> None:
         # Force-reset the converter singleton. Called after a timeout or cancellation
         # so the next file gets a fresh converter rather than one in a corrupted mid-run state.
+        """Reset converter."""
         if cls._converter is not None:
             del cls._converter
             cls._converter = None
@@ -125,6 +143,7 @@ class DoclingExtractor:
     def _get_converter(cls) -> DocumentConverter:
         # Lazy initialization: create converter on first use
         # Reset periodically to avoid memory leaks
+        """Internal helper for get converter."""
         if cls._converter is None or cls._conversion_count >= _MAX_CONVERSIONS_BEFORE_RESET:
             if cls._converter is not None:
                 del cls._converter
@@ -144,10 +163,12 @@ class DoclingExtractor:
             except _DOCLING_RUNTIME_EXCEPTIONS as exc:
                 # If converter creation fails, log error with helpful context
                 log.error(
-                    'docling_converter_failed',
+                    "docling_converter_failed",
                     error=str(exc),
-                    cache_path=str(docling_cache) if docling_cache else 'unknown',
-                    suggestion='If Full Privacy is enabled, ensure install script completed successfully',
+                    cache_path=str(docling_cache) if docling_cache else "unknown",
+                    suggestion=(
+                        "If Full Privacy is enabled, ensure install script completed successfully"
+                    ),
                     exc_info=True,
                 )
                 raise
@@ -163,14 +184,21 @@ class DoclingExtractor:
         """
         from informity.scanner.extractors.docling_runtime import build_docling_converter
 
-        return build_docling_converter(do_ocr=True, force_full_page_ocr=True, include_image_formats=True)
+        return build_docling_converter(
+            do_ocr=True, force_full_page_ocr=True, include_image_formats=True
+        )
 
     def _should_try_ocr(self, path: Path) -> bool:
-        return settings.enable_ocr_for_images and path.suffix.lower() in _DOCLING_OCR_SUPPORTED_EXTENSIONS
+        """Internal helper for should try ocr."""
+        return (
+            settings.enable_ocr_for_images
+            and path.suffix.lower() in _DOCLING_OCR_SUPPORTED_EXTENSIONS
+        )
 
     @staticmethod
     def _looks_effectively_empty(text: str) -> bool:
-        stripped = str(text or '').strip()
+        """Internal helper for looks effectively empty."""
+        stripped = str(text or "").strip()
         if not stripped:
             return True
 
@@ -183,16 +211,16 @@ class DoclingExtractor:
             return True
 
         low_signal_patterns = (
-            'page 1',
-            'page 2',
-            'figure 1',
-            'figure 2',
-            'table of contents',
-            '[image]',
-            '<image>',
-            '<!-- image -->',
-            '<!-- figure -->',
-            '<!-- table -->',
+            "page 1",
+            "page 2",
+            "figure 1",
+            "figure 2",
+            "table of contents",
+            "[image]",
+            "<image>",
+            "<!-- image -->",
+            "<!-- figure -->",
+            "<!-- table -->",
         )
         lowered = stripped.casefold()
         return (
@@ -202,30 +230,34 @@ class DoclingExtractor:
 
     @staticmethod
     def _is_image_source(path: Path) -> bool:
+        """Internal helper for is image source."""
         return path.suffix.lower() in _IMAGE_SUPPORTED_EXTENSIONS
 
     def _try_ocr_extract(self, path: Path) -> _OcrAttempt:
+        """Internal helper for try ocr extract."""
         try:
             ocr_converter = self._create_ocr_converter()
             ocr_result = ocr_converter.convert(str(path))
             ocr_doc = ocr_result.document
-            ocr_text = ocr_doc.export_to_markdown() if hasattr(ocr_doc, 'export_to_markdown') else ''
+            ocr_text = (
+                ocr_doc.export_to_markdown() if hasattr(ocr_doc, "export_to_markdown") else ""
+            )
             if not ocr_text.strip():
                 return _OcrAttempt(
-                    text='',
+                    text="",
                     page_count=None,
-                    preview_text='',
+                    preview_text="",
                     success=False,
-                    failure_reason='empty_text',
+                    failure_reason="empty_text",
                 )
 
             page_count: int | None = None
             try:
-                if hasattr(ocr_result, 'input') and hasattr(ocr_result.input, 'page_count'):
+                if hasattr(ocr_result, "input") and hasattr(ocr_result.input, "page_count"):
                     page_count = ocr_result.input.page_count
-                elif hasattr(ocr_doc, 'pages') and ocr_doc.pages:
+                elif hasattr(ocr_doc, "pages") and ocr_doc.pages:
                     page_count = len(ocr_doc.pages)
-                elif hasattr(ocr_doc, 'num_pages'):
+                elif hasattr(ocr_doc, "num_pages"):
                     page_count = ocr_doc.num_pages()
             except _DOCLING_RUNTIME_EXCEPTIONS:
                 pass
@@ -243,52 +275,57 @@ class DoclingExtractor:
             )
         except _DOCLING_RUNTIME_EXCEPTIONS as exc:
             return _OcrAttempt(
-                text='',
+                text="",
                 page_count=None,
-                preview_text='',
+                preview_text="",
                 success=False,
-                failure_reason='exception',
+                failure_reason="exception",
                 error=exc,
             )
 
     def extract(self, path: Path) -> ExtractedDocument:
+        """Extract."""
         start_time = time.perf_counter()
         try:
             file_size = path.stat().st_size
             if file_size > get_max_file_size_bytes():
                 return ExtractedDocument(
-                    text='',
+                    text="",
                     source_path=path,
-                    status='failed_unknown',
+                    status="failed_unknown",
                     extraction_time_ms=elapsed_ms(start_time),
-                    preview_text='',
-                    error=f'File too large: {file_size} bytes',
+                    preview_text="",
+                    error=f"File too large: {file_size} bytes",
                 )
 
             # PDF preflight: fail fast on password-protected/corrupt PDFs before full conversion.
-            if path.suffix.lower() == '.pdf':
+            if path.suffix.lower() == ".pdf":
                 try:
                     import pypdfium2 as pdfium
 
                     preflight_doc = pdfium.PdfDocument(str(path))
                     # Explicit close to avoid leaking handles in long scans.
-                    if hasattr(preflight_doc, 'close'):
+                    if hasattr(preflight_doc, "close"):
                         preflight_doc.close()
                 except _DOCLING_RUNTIME_EXCEPTIONS as preflight_exc:
                     error_code, retryable = _classify_docling_exception(preflight_exc)
-                    status, skip_reason, status_retryable = _classify_extraction_status_from_error_text(str(preflight_exc))
+                    status, skip_reason, status_retryable = (
+                        _classify_extraction_status_from_error_text(str(preflight_exc))
+                    )
                     return ExtractedDocument(
-                        text='',
+                        text="",
                         source_path=path,
                         metadata={
-                            'error_code': status if status.startswith('skipped_') else error_code,
-                            'retryable': 'false' if not (retryable and status_retryable) else 'true',
+                            "error_code": status if status.startswith("skipped_") else error_code,
+                            "retryable": "false"
+                            if not (retryable and status_retryable)
+                            else "true",
                         },
                         status=status,
                         skip_reason=skip_reason,
                         extraction_time_ms=elapsed_ms(start_time),
-                        preview_text='',
-                        error=skip_reason or f'Docling extraction failed: {preflight_exc}',
+                        preview_text="",
+                        error=skip_reason or f"Docling extraction failed: {preflight_exc}",
                     )
 
             # Get reusable converter instance (lazy-loaded, periodically reset)
@@ -305,11 +342,14 @@ class DoclingExtractor:
             # Build markdown text ourselves using iterate_items() to get accurate char positions
             # This enables correct page number and block type assignment (charspan from provenance
             # maps to original document positions, not exported markdown positions)
-            # Use range-based storage (start, end, value) instead of per-character dicts for memory efficiency
+            # Use range-based storage (start, end, value) instead of
+            # per-character dicts for memory efficiency.
             text_parts: list[str] = []
             char_to_page_ranges: list[tuple[int, int, int]] = []  # (start, end, page_no)
             char_to_block_type_ranges: list[tuple[int, int, str]] = []  # (start, end, block_type)
-            char_to_header_level_ranges: list[tuple[int, int, int]] = []  # (start, end, header_level)
+            char_to_header_level_ranges: list[
+                tuple[int, int, int]
+            ] = []  # (start, end, header_level)
             char_pos = 0
 
             def _append_structured_text(
@@ -319,6 +359,7 @@ class DoclingExtractor:
                 block_type: str | None,
                 header_level: int | None,
             ) -> None:
+                """Internal helper for append structured text."""
                 nonlocal char_pos
 
                 normalized_text = normalize_structured_block(item_text)
@@ -353,63 +394,69 @@ class DoclingExtractor:
 
                 # Iterate all document items in order
                 for item, _level in doc.iterate_items(with_groups=True):
-                    item_text = ''
+                    item_text = ""
                     page_no: int | None = None
                     block_type: str | None = None
                     header_level: int | None = None
 
                     # Extract page number from provenance (first prov item)
-                    if hasattr(item, 'prov') and item.prov:
+                    if hasattr(item, "prov") and item.prov:
                         prov = item.prov[0]
-                        if hasattr(prov, 'page_no'):
+                        if hasattr(prov, "page_no"):
                             page_no = prov.page_no
 
                     # Determine block type and extract text based on item type
                     if isinstance(item, SectionHeaderItem):
                         # Section headers: use text (formatted) or orig (raw), track level
-                        header_level = item.level if hasattr(item, 'level') else 1
-                        header_text = item.text if hasattr(item, 'text') else (item.orig if hasattr(item, 'orig') else '')
-                        block_type = 'narrative'
+                        header_level = item.level if hasattr(item, "level") else 1
+                        header_text = (
+                            item.text
+                            if hasattr(item, "text")
+                            else (item.orig if hasattr(item, "orig") else "")
+                        )
+                        block_type = "narrative"
                         # Format as markdown header (ensure proper formatting)
-                        if header_text.strip().startswith('#'):
+                        if header_text.strip().startswith("#"):
                             # Already formatted, use as-is
-                            item_text = header_text if header_text.endswith('\n') else header_text + '\n'
+                            item_text = (
+                                header_text if header_text.endswith("\n") else header_text + "\n"
+                            )
                         else:
                             # Format manually
-                            item_text = f'{"#" * header_level} {header_text.strip()}\n'
+                            item_text = f"{'#' * header_level} {header_text.strip()}\n"
 
                     elif isinstance(item, TableItem):
                         # Tables: use export_to_markdown with doc context for proper rendering
                         try:
                             item_text = item.export_to_markdown(doc=doc)
-                            if not item_text.endswith('\n'):
-                                item_text += '\n'
+                            if not item_text.endswith("\n"):
+                                item_text += "\n"
                         except _DOCLING_RUNTIME_EXCEPTIONS:
                             # Fallback: try text attribute
-                            item_text = item.text if hasattr(item, 'text') else ''
-                        block_type = 'table'
+                            item_text = item.text if hasattr(item, "text") else ""
+                        block_type = "table"
 
                     elif isinstance(item, KeyValueItem):
                         # Key-value items (form fields): format as markdown
-                        key = item.key if hasattr(item, 'key') else ''
-                        value = item.value if hasattr(item, 'value') else ''
+                        key = item.key if hasattr(item, "key") else ""
+                        value = item.value if hasattr(item, "value") else ""
                         if key and value:
-                            item_text = f'**{key}:** {value}\n'
-                        block_type = 'form'
+                            item_text = f"**{key}:** {value}\n"
+                        block_type = "form"
 
                     elif isinstance(item, TextItem):
                         # Regular text items: use text attribute
-                        item_text = item.text if hasattr(item, 'text') else ''
-                        block_type = 'narrative'
+                        item_text = item.text if hasattr(item, "text") else ""
+                        block_type = "narrative"
 
                     else:
                         # Unknown item type: try to get text
-                        if hasattr(item, 'text'):
+                        if hasattr(item, "text"):
                             item_text = item.text
-                            block_type = 'narrative'
-                        elif hasattr(item, 'orig'):
+                            block_type = "narrative"
+                        elif hasattr(item, "orig"):
                             item_text = item.orig
-                            block_type = 'narrative'
+                            block_type = "narrative"
 
                     _append_structured_text(
                         item_text,
@@ -419,11 +466,11 @@ class DoclingExtractor:
                     )
 
                 # Join all parts into final markdown text
-                text = ''.join(text_parts)
+                text = "".join(text_parts)
 
             except _DOCLING_RUNTIME_EXCEPTIONS as exc:
                 # Fallback: use export_to_markdown if iterate_items fails
-                log.warning('iterate_items_failed_fallback', path=str(path), error=str(exc))
+                log.warning("iterate_items_failed_fallback", path=str(path), error=str(exc))
                 text = doc.export_to_markdown()
                 # Clear mappings since they're unreliable
                 char_to_page_ranges = []
@@ -434,27 +481,29 @@ class DoclingExtractor:
             page_count: int | None = None
             try:
                 # Prefer result.input.page_count (most reliable for PDFs)
-                if hasattr(result, 'input') and hasattr(result.input, 'page_count'):
+                if hasattr(result, "input") and hasattr(result.input, "page_count"):
                     page_count = result.input.page_count
                 # Fallback to counting pages dict
-                elif hasattr(doc, 'pages') and doc.pages:
+                elif hasattr(doc, "pages") and doc.pages:
                     page_count = len(doc.pages)
                 # Last resort: num_pages() method
-                elif hasattr(doc, 'num_pages'):
+                elif hasattr(doc, "num_pages"):
                     page_count = doc.num_pages()
             except _DOCLING_RUNTIME_EXCEPTIONS:
-                log.debug('page_count_extraction_failed', path=str(path))
+                log.debug("page_count_extraction_failed", path=str(path))
 
             # High-value metadata: Content statistics
-            tables_count = len(doc.tables) if hasattr(doc, 'tables') else 0
-            form_items_count = len(doc.form_items) if hasattr(doc, 'form_items') else 0
-            key_value_items_count = len(doc.key_value_items) if hasattr(doc, 'key_value_items') else 0
+            tables_count = len(doc.tables) if hasattr(doc, "tables") else 0
+            form_items_count = len(doc.form_items) if hasattr(doc, "form_items") else 0
+            key_value_items_count = (
+                len(doc.key_value_items) if hasattr(doc, "key_value_items") else 0
+            )
 
             # Medium-value metadata
-            pictures_count = len(doc.pictures) if hasattr(doc, 'pictures') else 0
+            pictures_count = len(doc.pictures) if hasattr(doc, "pictures") else 0
             document_hash: str | None = None
             try:
-                if hasattr(result, 'input') and hasattr(result.input, 'document_hash'):
+                if hasattr(result, "input") and hasattr(result.input, "document_hash"):
                     document_hash = result.input.document_hash
             except _DOCLING_RUNTIME_EXCEPTIONS:
                 pass
@@ -462,7 +511,7 @@ class DoclingExtractor:
             # Log mapping statistics for debugging (only if mappings exist)
             if char_to_page_ranges:
                 log.debug(
-                    'per_chunk_metadata_ranges_created',
+                    "per_chunk_metadata_ranges_created",
                     path=str(path),
                     page_ranges=len(char_to_page_ranges),
                     block_type_ranges=len(char_to_block_type_ranges),
@@ -472,57 +521,59 @@ class DoclingExtractor:
 
             # Build metadata dict
             metadata: dict[str, str] = {
-                'converter': 'docling',
-                'format': path.suffix.lower(),
-                'page_count': str(page_count) if page_count else 'unknown',
-                'tables_count': str(tables_count),
-                'form_items_count': str(form_items_count),
-                'key_value_items_count': str(key_value_items_count),
-                'pictures_count': str(pictures_count),
+                "converter": "docling",
+                "format": path.suffix.lower(),
+                "page_count": str(page_count) if page_count else "unknown",
+                "tables_count": str(tables_count),
+                "form_items_count": str(form_items_count),
+                "key_value_items_count": str(key_value_items_count),
+                "pictures_count": str(pictures_count),
             }
             if document_hash:
-                metadata['document_hash'] = document_hash
+                metadata["document_hash"] = document_hash
             if self._is_image_source(path):
-                metadata['ocr_used'] = 'true'
-                metadata['converter'] = 'docling+ocr'
+                metadata["ocr_used"] = "true"
+                metadata["converter"] = "docling+ocr"
 
             word_count = len(text.split()) if text else 0
 
             # If extraction returned empty text and OCR is enabled, try OCR as fallback
             if self._should_try_ocr(path) and self._looks_effectively_empty(text):
                 log.info(
-                    'trying_ocr_fallback',
+                    "trying_ocr_fallback",
                     path=str(path),
-                    reason='regular_extraction_returned_empty_or_sparse_text'
+                    reason="regular_extraction_returned_empty_or_sparse_text",
                 )
                 ocr_attempt = self._try_ocr_extract(path)
                 if ocr_attempt.success:
                     log.info(
-                        'ocr_extraction_succeeded',
+                        "ocr_extraction_succeeded",
                         path=str(path),
                         text_length=len(ocr_attempt.text),
-                        word_count=len(ocr_attempt.text.split())
+                        word_count=len(ocr_attempt.text.split()),
                     )
                     text = ocr_attempt.text
                     word_count = len(text.split())
-                    metadata['ocr_used'] = 'true'
-                    metadata['converter'] = 'docling+ocr'
+                    metadata["ocr_used"] = "true"
+                    metadata["converter"] = "docling+ocr"
                     page_count = ocr_attempt.page_count
                     preview_text = ocr_attempt.preview_text
-                elif ocr_attempt.failure_reason == 'empty_text':
+                elif ocr_attempt.failure_reason == "empty_text":
                     log.debug(
-                        'ocr_extraction_empty',
+                        "ocr_extraction_empty",
                         path=str(path),
-                        reason='ocr_also_returned_empty_text'
+                        reason="ocr_also_returned_empty_text",
                     )
                     preview_text = text[:MAX_EXTRACTED_TEXT_PREVIEW]
                 else:
                     log.warning(
-                        'ocr_fallback_failed',
+                        "ocr_fallback_failed",
                         path=str(path),
                         error=str(ocr_attempt.error),
-                        error_type=type(ocr_attempt.error).__name__ if ocr_attempt.error is not None else 'UnknownError',
-                        action='indexing_file_with_zero_chunks'
+                        error_type=type(ocr_attempt.error).__name__
+                        if ocr_attempt.error is not None
+                        else "UnknownError",
+                        action="indexing_file_with_zero_chunks",
                     )
                     preview_text = text[:MAX_EXTRACTED_TEXT_PREVIEW]
             else:
@@ -534,47 +585,55 @@ class DoclingExtractor:
 
             if not text.strip():
                 return ExtractedDocument(
-                    text='',
+                    text="",
                     source_path=path,
                     metadata={
-                        'error_code': 'skipped_empty',
-                        'retryable': 'false',
+                        "error_code": "skipped_empty",
+                        "retryable": "false",
                     },
-                    status='skipped_empty',
-                    skip_reason='file skipped — no extractable text found',
+                    status="skipped_empty",
+                    skip_reason="file skipped — no extractable text found",
                     extraction_time_ms=elapsed_ms(start_time),
-                    preview_text='',
-                    error='file skipped — no extractable text found',
+                    preview_text="",
+                    error="file skipped — no extractable text found",
                 )
 
             return ExtractedDocument(
                 text=text,
                 source_path=path,
                 metadata=metadata,
-                status='ok',
+                status="ok",
                 page_count=page_count,
                 word_count=word_count,
                 extraction_time_ms=elapsed_ms(start_time),
                 preview_text=preview_text,
                 char_to_page_ranges=char_to_page_ranges if char_to_page_ranges else None,
-                char_to_block_type_ranges=char_to_block_type_ranges if char_to_block_type_ranges else None,
-                char_to_header_level_ranges=char_to_header_level_ranges if char_to_header_level_ranges else None,
+                char_to_block_type_ranges=char_to_block_type_ranges
+                if char_to_block_type_ranges
+                else None,
+                char_to_header_level_ranges=char_to_header_level_ranges
+                if char_to_header_level_ranges
+                else None,
             )
         except _DOCLING_RUNTIME_EXCEPTIONS as exc:
             error_str = str(exc).lower()
             # Provide helpful error message for offline mode issues
-            if 'offline' in error_str or 'cached snapshot' in error_str:
+            if "offline" in error_str or "cached snapshot" in error_str:
                 return ExtractedDocument(
-                    text='',
+                    text="",
                     source_path=path,
                     metadata={
-                        'error_code': 'docling_models_unavailable_offline',
-                        'retryable': 'true',
+                        "error_code": "docling_models_unavailable_offline",
+                        "retryable": "true",
                     },
-                    status='failed_unknown',
+                    status="failed_unknown",
                     extraction_time_ms=elapsed_ms(start_time),
-                    preview_text='',
-                    error='Docling extraction failed: Models not cached and offline mode enabled. Run install script to download models, or disable full_privacy temporarily.',
+                    preview_text="",
+                    error=(
+                        "Docling extraction failed: Models not cached and "
+                        "offline mode enabled. Run install script to download "
+                        "models, or disable full_privacy temporarily."
+                    ),
                 )
 
             error_code, retryable = _classify_docling_exception(exc)
@@ -582,88 +641,95 @@ class DoclingExtractor:
             # If OCR is enabled and this is a PDF, try OCR as fallback for extraction failures
             if self._should_try_ocr(path):
                 log.info(
-                    'trying_ocr_fallback_after_exception',
+                    "trying_ocr_fallback_after_exception",
                     path=str(path),
                     error=str(exc),
                     error_type=type(exc).__name__,
-                    reason='regular_extraction_raised_exception'
+                    reason="regular_extraction_raised_exception",
                 )
                 ocr_attempt = self._try_ocr_extract(path)
                 if ocr_attempt.success:
                     log.info(
-                        'ocr_extraction_succeeded_after_exception',
+                        "ocr_extraction_succeeded_after_exception",
                         path=str(path),
                         text_length=len(ocr_attempt.text),
-                        word_count=len(ocr_attempt.text.split())
+                        word_count=len(ocr_attempt.text.split()),
                     )
                     word_count = len(ocr_attempt.text.split())
                     metadata = {
-                        'converter': 'docling+ocr',
-                        'format': path.suffix.lower(),
-                        'page_count': str(ocr_attempt.page_count) if ocr_attempt.page_count else 'unknown',
-                        'ocr_used': 'true',
-                        'original_error': str(exc)[:200],
+                        "converter": "docling+ocr",
+                        "format": path.suffix.lower(),
+                        "page_count": str(ocr_attempt.page_count)
+                        if ocr_attempt.page_count
+                        else "unknown",
+                        "ocr_used": "true",
+                        "original_error": str(exc)[:200],
                     }
                     return ExtractedDocument(
                         text=ocr_attempt.text,
                         source_path=path,
                         metadata=metadata,
-                        status='ok',
+                        status="ok",
                         page_count=ocr_attempt.page_count,
                         word_count=word_count,
                         extraction_time_ms=elapsed_ms(start_time),
                         preview_text=ocr_attempt.preview_text,
                     )
-                if ocr_attempt.failure_reason == 'empty_text':
+                if ocr_attempt.failure_reason == "empty_text":
                     log.debug(
-                        'ocr_extraction_empty_after_exception',
+                        "ocr_extraction_empty_after_exception",
                         path=str(path),
-                        reason='ocr_also_returned_empty_text'
+                        reason="ocr_also_returned_empty_text",
                     )
                     return ExtractedDocument(
-                        text='',
+                        text="",
                         source_path=path,
                         metadata={
-                            'error_code': 'skipped_empty',
-                            'retryable': 'false',
+                            "error_code": "skipped_empty",
+                            "retryable": "false",
                         },
-                        status='skipped_empty',
-                        skip_reason='file skipped — no extractable text found',
+                        status="skipped_empty",
+                        skip_reason="file skipped — no extractable text found",
                         extraction_time_ms=elapsed_ms(start_time),
-                        preview_text='',
-                        error='file skipped — no extractable text found',
+                        preview_text="",
+                        error="file skipped — no extractable text found",
                     )
                 log.warning(
-                    'ocr_fallback_failed_after_exception',
+                    "ocr_fallback_failed_after_exception",
                     path=str(path),
                     original_error=str(exc),
                     ocr_error=str(ocr_attempt.error),
-                    error_type=type(ocr_attempt.error).__name__ if ocr_attempt.error is not None else 'UnknownError',
-                    action='indexing_file_with_zero_chunks'
+                    error_type=type(ocr_attempt.error).__name__
+                    if ocr_attempt.error is not None
+                    else "UnknownError",
+                    action="indexing_file_with_zero_chunks",
                 )
                 return ExtractedDocument(
-                    text='',
+                    text="",
                     source_path=path,
                     metadata={
-                        'error_code': error_code,
-                        'retryable': 'false' if not retryable else 'true',
+                        "error_code": error_code,
+                        "retryable": "false" if not retryable else "true",
                     },
-                    status='failed_unknown',
+                    status="failed_unknown",
                     extraction_time_ms=elapsed_ms(start_time),
-                    preview_text='',
-                    error=f'Docling extraction failed: {exc}. OCR fallback also failed: {ocr_attempt.error}',
+                    preview_text="",
+                    error=(
+                        f"Docling extraction failed: {exc}. OCR fallback also "
+                        f"failed: {ocr_attempt.error}"
+                    ),
                 )
 
             # OCR not enabled or not a PDF - return error result
             return ExtractedDocument(
-                text='',
+                text="",
                 source_path=path,
                 metadata={
-                    'error_code': error_code,
-                    'retryable': 'false' if not retryable else 'true',
+                    "error_code": error_code,
+                    "retryable": "false" if not retryable else "true",
                 },
-                status='failed_unknown',
+                status="failed_unknown",
                 extraction_time_ms=elapsed_ms(start_time),
-                preview_text='',
-                error=f'Docling extraction failed: {exc}',
+                preview_text="",
+                error=f"Docling extraction failed: {exc}",
             )

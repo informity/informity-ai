@@ -1,3 +1,5 @@
+"""Module for sources base."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -7,12 +9,13 @@ from typing import Any, Protocol
 
 SourceProvider = str
 SourceItemId = str
-FILESYSTEM_PROVIDER: SourceProvider = 'filesystem'
-SOURCE_ENTITY_FILE = 'file'
+FILESYSTEM_PROVIDER: SourceProvider = "filesystem"
+SOURCE_ENTITY_FILE = "file"
 
 
 @dataclass(frozen=True)
 class SourceItemRef:
+    """Class docstring."""
     provider: SourceProvider
     item_id: SourceItemId
     locator: str
@@ -22,6 +25,7 @@ class SourceItemRef:
 
 @dataclass
 class IngestionItem:
+    """Class docstring."""
     provider: SourceProvider
     source_item_id: SourceItemId
     item_type: str
@@ -36,6 +40,7 @@ class IngestionItem:
 
 
 class ContentSourceAdapter(Protocol):
+    """Class docstring."""
     provider: str
 
     def discover(self, scope: dict[str, Any]) -> list[SourceItemRef]:

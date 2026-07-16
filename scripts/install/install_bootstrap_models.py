@@ -24,7 +24,7 @@ APP_DATA_DIRNAME = ".informity"  # pylint: disable=invalid-name
 # huggingface_hub. This ensures models are downloaded to app data cache, not
 # ~/.cache/huggingface/hub/.
 def _default_app_data_dir() -> Path:
-    """ default app data dir."""
+    """default app data dir."""
     return Path.home() / APP_DATA_DIRNAME
 
 
@@ -59,7 +59,7 @@ except ImportError:
     DEFAULT_RERANKER_MODEL = "cross-encoder/ms-marco-MiniLM-L-6-v2"  # pylint: disable=invalid-name
 
     def _is_hf_model_cached(_model_name: str, _hf_hub_cache: Path) -> bool:
-        """ is hf model cached."""
+        """is hf model cached."""
         return False
 
 
@@ -207,7 +207,7 @@ def _download_docling_models(_app_data: Path) -> None:
 
 
 def _download_llm(app_data: Path, llm: dict) -> None:
-    """ download llm."""
+    """download llm."""
     from informity.config import DirNames
     from informity.llm.model_bootstrap import GGUFModelSpec, download_gguf_model
 
@@ -280,7 +280,7 @@ def _verify_models_cached(install_config: dict) -> bool:
 
 
 def _write_offline_config(app_data: Path, install_config: dict) -> None:
-    """ write offline config."""
+    """write offline config."""
     config_path = app_data / "config.json"
     existing: dict = {}
     if config_path.exists():
@@ -330,7 +330,7 @@ def _write_offline_config(app_data: Path, install_config: dict) -> None:
 
 
 def _download_classifier(_app_data: Path) -> None:
-    """ download classifier."""
+    """download classifier."""
     from informity.config import DirNames
     from informity.llm.model_bootstrap import CLASSIFIER_GGUF_SPEC, download_gguf_model
 

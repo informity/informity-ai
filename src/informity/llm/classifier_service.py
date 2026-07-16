@@ -1,3 +1,5 @@
+"""Module for llm classifier service."""
+
 from __future__ import annotations
 
 from functools import lru_cache
@@ -20,11 +22,11 @@ def get_classifier() -> FiveQClassifier:
     """
     classifier = FiveQClassifier()
     log.info(
-        'classifier_service_created',
+        "classifier_service_created",
         classifier_id=id(classifier),
-        classifier_model=getattr(classifier, '_model_filename', None),
+        classifier_model=getattr(classifier, "_model_filename", None),
     )
     return classifier
 
 
-__all__ = ['get_classifier']
+__all__ = ["get_classifier"]

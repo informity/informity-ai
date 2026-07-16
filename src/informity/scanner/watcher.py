@@ -4,6 +4,8 @@
 # On delete: remove from DB and vectors. Debounces rapid changes (2s).
 # ==============================================================================
 
+"""Module for scanner watcher."""
+
 from __future__ import annotations
 
 import asyncio
@@ -101,25 +103,28 @@ class _Debouncer:
         loop: asyncio.AbstractEventLoop,
         on_flush: Callable[[list[tuple[str, str]]], Coroutine[Any, Any, None]],
     ) -> None:
-        self._lock       = threading.Lock()
+        """Initialize the instance."""
+        self._lock = threading.Lock()
         self._pending: dict[str, str] = {}  # path_str -> 'index' | 'delete'
         self._timer: threading.Timer | None = None
-        self._loop       = loop
-        self._on_flush   = on_flush  # async callback
+        self._loop = loop
+        self._on_flush = on_flush  # async callback
 
     def enqueue(self, path: Path, action: str) -> None:
         # action is 'index' or 'delete'. For same path, delete wins (we coalesce).
+        """Enqueue."""
         with self._lock:
             path_str = str(path.resolve())
             current = self._pending.get(path_str)
-            if action == 'delete':
-                self._pending[path_str] = 'delete'
-            elif current != 'delete':
-                self._pending[path_str] = 'index'
+            if action == "delete":
+                self._pending[path_str] = "delete"
+            elif current != "delete":
+                self._pending[path_str] = "index"
 
             self._schedule()
 
     def _schedule(self) -> None:
+        """Internal helper for schedule."""
         if self._timer is not None:
             self._timer.cancel()
         self._timer = threading.Timer(DEBOUNCE_SECONDS, self._flush)
@@ -127,13 +132,14 @@ class _Debouncer:
         self._timer.start()
 
     def _flush(self) -> None:
+        """Internal helper for flush."""
         with self._lock:
             self._timer = None
             items = list(self._pending.items())
             self._pending.clear()
         if not items:
             return
-        log.debug('watcher_flush', count=len(items), paths=[p for p, _ in items])
+        log.debug("watcher_flush", count=len(items), paths=[p for p, _ in items])
         asyncio.run_coroutine_threadsafe(self._on_flush(items), self._loop)
 
 
@@ -146,45 +152,53 @@ class _InformityEventHandler(FileSystemEventHandler):
     """Handles create/modify/delete; filters by extension and ignore patterns."""
 
     def __init__(self, debouncer: _Debouncer) -> None:
+        """Initialize the instance."""
         super().__init__()
         self._debouncer = debouncer
 
     def _path(self, src_path: str) -> Path:
+        """Internal helper for path."""
         return normalize_path(src_path, expand_user=False)
 
     def _enqueue_index(self, path: Path) -> None:
+        """Internal helper for enqueue index."""
         if _is_watchable_file(path):
-            self._debouncer.enqueue(path, 'index')
+            self._debouncer.enqueue(path, "index")
 
     def _enqueue_delete(self, path: Path) -> None:
         # Deleted path might not exist; we still want to remove from DB by path.
+        """Internal helper for enqueue delete."""
         ext = path.suffix.lower()
         if ext in _get_cached_supported_extensions_set():
-            self._debouncer.enqueue(path, 'delete')
+            self._debouncer.enqueue(path, "delete")
 
     def on_created(self, event: FileSystemEvent) -> None:
+        """On created."""
         if event.is_directory:
             return
         self._enqueue_index(self._path(event.src_path))
 
     def on_modified(self, event: FileSystemEvent) -> None:
+        """On modified."""
         if event.is_directory:
             return
         self._enqueue_index(self._path(event.src_path))
 
     def on_deleted(self, event: FileSystemEvent) -> None:
+        """On deleted."""
         if event.is_directory:
             return
         self._enqueue_delete(self._path(event.src_path))
 
     def on_moved(self, event: FileMovedEvent) -> None:  # type: ignore[override]
+        """On moved."""
         if event.is_directory:
             return
         # Treat move as delete (src) + create (dest)
         self._enqueue_delete(self._path(event.src_path))
         dest = self._path(event.dest_path)
         if dest.exists() and _is_watchable_file(dest):
-            self._debouncer.enqueue(dest, 'index')
+            self._debouncer.enqueue(dest, "index")
 
 
 # ==============================================================================
@@ -221,7 +235,7 @@ async def _process_pending(items: list[tuple[str, str]]) -> None:
             for path_str, action in items:
                 path = Path(path_str)
                 source_item_id = str(normalize_path(path, expand_user=False))
-                if action == 'delete':
+                if action == "delete":
                     existing = await get_file_by_source_identity(
                         db,
                         source_provider=FILESYSTEM_PROVIDER,
@@ -233,11 +247,11 @@ async def _process_pending(items: list[tuple[str, str]]) -> None:
                     if existing is not None:
                         await remove_file(db, existing)
                     else:
-                        log.debug('watcher_delete_unknown_path', path=path_str)
+                        log.debug("watcher_delete_unknown_path", path=path_str)
                 else:
                     scanned = scanned_file_for_path(path)
                     if scanned is None:
-                        log.warning('watcher_scan_failed', path=path_str)
+                        log.warning("watcher_scan_failed", path=path_str)
                         continue
                     skip_retry, error_code = await should_skip_file_retry(
                         db,
@@ -248,7 +262,7 @@ async def _process_pending(items: list[tuple[str, str]]) -> None:
                     )
                     if skip_retry:
                         log.info(
-                            'watcher_retry_suppressed',
+                            "watcher_retry_suppressed",
                             path=path_str,
                             filename=scanned.filename,
                             error_code=error_code,
@@ -285,7 +299,7 @@ async def _process_pending(items: list[tuple[str, str]]) -> None:
                         error_message=result.error,
                         retryable=result.retryable,
                     )
-                    log.warning('watcher_index_failed', path=path_str, error=result.error)
+                    log.warning("watcher_index_failed", path=path_str, error=result.error)
         finally:
             await db.close()
 
@@ -296,7 +310,7 @@ def start_watcher(loop: asyncio.AbstractEventLoop) -> None:
 
     dirs = list(settings.watched_directories)
     if not dirs:
-        log.info('watcher_skipped', reason='no_watched_directories')
+        log.info("watcher_skipped", reason="no_watched_directories")
         return
 
     # Resolve and filter existing directories
@@ -304,26 +318,26 @@ def start_watcher(loop: asyncio.AbstractEventLoop) -> None:
     for d in dirs:
         resolved, exists = resolve_and_check_path(d)
         if not exists:
-            log.warning('watcher_directory_not_found', directory=str(resolved))
+            log.warning("watcher_directory_not_found", directory=str(resolved))
             continue
         if not resolved.is_dir():
-            log.warning('watcher_path_not_directory', path=str(resolved))
+            log.warning("watcher_path_not_directory", path=str(resolved))
             continue
         watch_dirs.append(resolved)
 
     if not watch_dirs:
-        log.warning('watcher_skipped', reason='no_valid_directories')
+        log.warning("watcher_skipped", reason="no_valid_directories")
         return
 
     _debouncer = _Debouncer(loop, _process_pending)
-    handler    = _InformityEventHandler(_debouncer)
-    _observer  = Observer()
+    handler = _InformityEventHandler(_debouncer)
+    _observer = Observer()
     for directory in watch_dirs:
         _observer.schedule(handler, str(directory), recursive=True)
-        log.debug('watcher_scheduled', directory=str(directory))
+        log.debug("watcher_scheduled", directory=str(directory))
 
     _observer.start()
-    log.info('watcher_started', directories=[str(d) for d in watch_dirs])
+    log.info("watcher_started", directories=[str(d) for d in watch_dirs])
 
 
 def stop_watcher() -> None:
@@ -336,7 +350,7 @@ def stop_watcher() -> None:
         _observer.stop()
         _observer.join(timeout=5.0)
     except _WATCHER_STOP_EXCEPTIONS as exc:
-        log.warning('watcher_stop_error', error=str(exc))
+        log.warning("watcher_stop_error", error=str(exc))
     _observer = None
     _debouncer = None
-    log.info('watcher_stopped')
+    log.info("watcher_stopped")

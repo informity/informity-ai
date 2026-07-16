@@ -4,6 +4,8 @@
 # Uses sentence-transformers CrossEncoder (PyTorch)
 # ==============================================================================
 
+"""Module for indexer reranker."""
+
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
@@ -20,16 +22,20 @@ log = structlog.get_logger(__name__)
 
 
 class Reranker:
+    """Class docstring."""
     def __init__(self) -> None:
+        """Initialize the instance."""
         self._model: CrossEncoder | None = None
 
     @property
     def model(self) -> CrossEncoder:
+        """Model."""
         if self._model is None:
             self._load_model()
         return self._model
 
     def _load_model(self) -> None:
+        """Internal helper for load model."""
         from sentence_transformers import CrossEncoder
 
         from informity.config import configure_hf_environment
@@ -40,17 +46,21 @@ class Reranker:
 
         model_name = settings.rag_reranker_model
 
-        log.info('loading_reranker_model', model=model_name)
+        log.info("loading_reranker_model", model=model_name)
         # sentence-transformers uses HuggingFace cache (configured via configure_hf_environment)
         # Suppress transformers warnings (they're noisy and not actionable)
         import warnings
+
         with warnings.catch_warnings():
-            warnings.filterwarnings('ignore', category=UserWarning, module='transformers')
+            warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
             self._model = CrossEncoder(
-                model_name,
-                device='mps' if self._is_mps_available() else 'cpu'
+                model_name, device="mps" if self._is_mps_available() else "cpu"
             )
-        log.info('reranker_model_loaded', model=model_name, device=self._model.device.type if hasattr(self._model, 'device') else 'unknown')
+        log.info(
+            "reranker_model_loaded",
+            model=model_name,
+            device=self._model.device.type if hasattr(self._model, "device") else "unknown",
+        )
 
     def _is_mps_available(self) -> bool:
         """Check if Apple Metal Performance Shaders (MPS) is available."""
@@ -58,28 +68,27 @@ class Reranker:
 
     def rerank(self, query: str, chunks: list[dict]) -> list[dict]:
         # Rerank chunks by relevance to query.
+        """Rerank."""
         if not chunks:
             return []
 
         # CrossEncoder.predict() takes list of [query, document] pairs
-        pairs = [[query, chunk['chunk_text']] for chunk in chunks]
+        pairs = [[query, chunk["chunk_text"]] for chunk in chunks]
         # Disable progress bars for server/runtime usage to avoid stderr-bound tqdm I/O errors.
         # predict() returns numpy array of scores (higher = more relevant).
         scores = self.model.predict(pairs, show_progress_bar=False)
 
         # Convert numpy array to list if needed
-        if hasattr(scores, 'tolist'):
+        if hasattr(scores, "tolist"):
             scores = scores.tolist()
 
         # Match chunks with scores and sort by score (higher = more relevant)
         ranked = sorted(zip(chunks, scores, strict=True), key=lambda x: x[1], reverse=True)
 
-        return [
-            {**chunk, 'score': float(score)}
-            for chunk, score in ranked
-        ]
+        return [{**chunk, "score": float(score)} for chunk, score in ranked]
 
     def unload(self) -> None:
+        """Unload."""
         if self._model is not None:
             del self._model
             self._model = None
