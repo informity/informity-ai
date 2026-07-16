@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 # pylint: disable=line-too-long
-
 import re
 import uuid
 from collections.abc import Callable
