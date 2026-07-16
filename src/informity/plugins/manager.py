@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # pylint: disable=line-too-long
-
 import json
 import re
 import shutil

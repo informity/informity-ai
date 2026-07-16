@@ -109,6 +109,8 @@ from informity.llm.model_adapter import get_profile
 from informity.llm.model_bootstrap import CLASSIFIER_GGUF_SPEC, download_gguf_model
 from informity.llm.prompt_builder import (
     BuildMessagesRequest,
+)
+from informity.llm.prompt_builder import (
     build_messages as _build_gen_messages,
 )
 from informity.logging_config import configure_logging
