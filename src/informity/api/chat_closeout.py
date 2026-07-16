@@ -7,10 +7,11 @@
 
 from __future__ import annotations
 
-# pylint: disable=line-too-long
 import re
 
 from informity.markdown_patterns import HORIZONTAL_RULE_PATTERN, TABLE_DIVIDER_PATTERN
+
+# pylint: disable=line-too-long
 
 _CODE_FENCE_OPEN_RE = re.compile(r"^```(?P<lang>[A-Za-z0-9_+\-]*)\s*$")
 _LIST_ITEM_RE = re.compile(r"^(?P<indent>\s*)(?P<marker>(?:[-*+])|(?:\d+[.)]))\s+(?P<body>.+)$")

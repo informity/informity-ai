@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-# pylint: disable=line-too-long
 import asyncio
 
 from informity.llm.engine import llm_engine
@@ -19,6 +18,8 @@ from informity.translate_policy import (
     TRANSLATE_SECTION_TIMEOUT_S,
     TRANSLATE_TEMPERATURE,
 )
+
+# pylint: disable=line-too-long
 
 
 def _normalize_tone(tone: str | None) -> str:
