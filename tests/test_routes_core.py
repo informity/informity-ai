@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # pylint: disable=unused-argument
-
 import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -28,6 +27,24 @@ async def _to_thread(func, *args, **kwargs):  # type: ignore[no-untyped-def]
 async def _noop_slot():
     """Internal helper for noop slot."""
     yield
+
+
+def _mock_search_similar(*_args, **_kwargs):
+    """Return a predictable semantic-search payload."""
+    return [
+        {
+            "file_id": 1,
+            "chunk_id": 11,
+            "chunk_text": "alpha chunk",
+            "score": 0.91,
+        },
+        {
+            "file_id": 2,
+            "chunk_id": 12,
+            "chunk_text": "beta chunk",
+            "score": 0.85,
+        },
+    ]
 
 
 @pytest.mark.asyncio

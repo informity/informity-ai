@@ -13,6 +13,16 @@ from informity.llm.rag_runtime.structured_numeric import (
 )
 
 
+def _identity_text(value: str) -> str:
+    """Return the original text unchanged."""
+    return value
+
+
+def _float_score(value: object) -> float:
+    """Coerce a relevance score to float for tests."""
+    return float(value)
+
+
 def test_structured_numeric_derives_heading_order_requirement() -> None:
     """Test structured numeric derives heading order requirement."""
     requirements = _derive_format_requirements(
