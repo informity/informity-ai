@@ -1045,17 +1045,25 @@ class TestRAGHandler:
                     "file_id": 1,
                     "filename": "beta.pdf",
                     "file_path": "/docs/beta.pdf",
-                    "chunk_text": "Key facts with strong evidence.",
-                    "score": 2.1,
-                },
-            ]
+                "chunk_text": "Key facts with strong evidence.",
+                "score": 2.1,
+            },
+        ]
+
+            mock_encoding = MagicMock()
+            mock_encoding.encode.side_effect = lambda value: [0] * max(
+                1, len(str(value)) // 4
+            )
 
             async def _fake_stream_llm(*_args, **_kwargs):
                 """Internal helper for fake stream llm."""
                 yield "Continuation answer token."
 
             results: list[object] = []
-            with patch("informity.llm.handlers.rag.stream_llm", _fake_stream_llm):
+            with (
+                patch("informity.llm.handlers.rag.stream_llm", _fake_stream_llm),
+                patch("informity.llm.tokenization._encoding", return_value=mock_encoding),
+            ):
                 async for item in handler.handle(
                     "continue with the same structure", classification, history, mock_db, None
                 ):
