@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 # pylint: disable=line-too-long
-
 import asyncio
 
 from informity.llm.engine import llm_engine

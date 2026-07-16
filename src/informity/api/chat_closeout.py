@@ -8,7 +8,6 @@
 from __future__ import annotations
 
 # pylint: disable=line-too-long
-
 import re
 
 from informity.markdown_patterns import HORIZONTAL_RULE_PATTERN, TABLE_DIVIDER_PATTERN
