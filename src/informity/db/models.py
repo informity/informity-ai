@@ -173,6 +173,7 @@ class ChatMessage(BaseModel):
     role: ChatRole
     content: str
     sources: list[dict] = Field(default_factory=list)  # Full source reference objects
+    file_discovery: dict[str, object] | None = None
     generation_seconds: float | None = (
         None  # Time taken to generate answer (assistant messages only)
     )

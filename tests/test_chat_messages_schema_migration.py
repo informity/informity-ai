@@ -160,6 +160,40 @@ async def test_v8_database_missing_scope_columns_is_reconciled_on_startup(
 
 
 @pytest.mark.asyncio
+async def test_v9_database_missing_file_discovery_column_is_reconciled_on_startup(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Test v9 database missing file discovery column is reconciled on startup."""
+    db_path = tmp_path / "chat-migration-v9-missing-file-discovery.db"
+    monkeypatch.setattr(settings, "db_path", db_path)
+
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("CREATE TABLE schema_version (version INTEGER PRIMARY KEY)")
+    conn.execute("INSERT INTO schema_version (version) VALUES (9)")
+    _create_legacy_chat_messages_table(
+        conn,
+        include_specialization_id=True,
+        include_translation_columns=True,
+        include_scope_columns=True,
+    )
+    conn.commit()
+    conn.close()
+
+    await init_db()
+
+    verify_conn = sqlite3.connect(str(db_path))
+    try:
+        columns = _chat_message_column_names(verify_conn)
+        assert "file_discovery" in columns
+        schema_row = verify_conn.execute("SELECT version FROM schema_version LIMIT 1").fetchone()
+        assert schema_row is not None
+        assert int(schema_row[0]) == SCHEMA_VERSION
+    finally:
+        verify_conn.close()
+
+
+@pytest.mark.asyncio
 async def test_v3_database_migrates_chat_messages_through_full_chain(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

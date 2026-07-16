@@ -96,6 +96,54 @@ async def test_translate_chat_message_persists_translation_metadata(
 
 
 @pytest.mark.asyncio
+async def test_chat_message_file_discovery_metadata_persists_and_round_trips(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Test chat message file discovery metadata persists and round trips."""
+    db = await _setup_translation_db(monkeypatch, tmp_path)
+    try:
+        chat_id = "chat-file-discovery-1"
+        await insert_chat_message(
+            db,
+            ChatMessage(
+                chat_id=chat_id,
+                role=ChatRole.USER,
+                content="Which files mention insurance?",
+            ),
+        )
+        assistant_message = await insert_chat_message(
+            db,
+            ChatMessage(
+                chat_id=chat_id,
+                role=ChatRole.ASSISTANT,
+                content="- **policy.pdf**\n- **claims.pdf**",
+                file_discovery={
+                    "is_file_discovery": True,
+                    "search_term": "insurance",
+                    "shown_count": 2,
+                    "total_count": 8,
+                },
+                chat_mode="researcher",
+            ),
+        )
+
+        history = await get_chat(db, chat_id)
+        assert history[-1].file_discovery == assistant_message.file_discovery
+
+        payload = await routes_chat.get_chat_messages(chat_id=chat_id, db=db)
+        persisted_message = payload["messages"][-1]
+        assert persisted_message["file_discovery"] == {
+            "is_file_discovery": True,
+            "search_term": "insurance",
+            "shown_count": 2,
+            "total_count": 8,
+        }
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
 async def test_translate_chat_message_reuses_existing_translation_and_rejects_translated_reply(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,

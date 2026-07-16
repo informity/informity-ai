@@ -71,7 +71,7 @@ _CHAT_TITLE_WHITESPACE_RE = re.compile(r"\s+")
 # Schema — DDL statements for all tables
 # ==============================================================================
 
-SCHEMA_VERSION = 9
+SCHEMA_VERSION = 10
 
 # Additive columns reconciled on every startup so legacy databases catch up even when
 # schema_version already matches SCHEMA_VERSION (e.g. columns added to _SCHEMA_SQL only).
@@ -93,6 +93,7 @@ _CHAT_MESSAGES_ADDITIVE_COLUMNS: tuple[tuple[str, str], ...] = (
     ("retrieval_scope_key", "TEXT"),
     ("model_filename", "TEXT"),
     ("is_internal", "INTEGER DEFAULT 0"),
+    ("file_discovery", "TEXT"),
 )
 
 DIAGNOSTICS_TYPE_USER = "user"
@@ -316,6 +317,7 @@ CREATE TABLE IF NOT EXISTS chat_messages (
     retrieval_scope_key  TEXT,
     model_filename     TEXT,
     is_internal        INTEGER DEFAULT 0,
+    file_discovery     TEXT,
     created_at         TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -758,6 +760,8 @@ async def _ensure_schema_version(conn: aiosqlite.Connection) -> None:
             await _migrate_to_v8(conn)
         elif next_version == 9:
             await _migrate_to_v9(conn)
+        elif next_version == 10:
+            await _migrate_to_v10(conn)
         else:
             raise RuntimeError(f"No migration path defined for schema version {next_version}")
         await conn.execute("UPDATE schema_version SET version = ?", (next_version,))
@@ -1007,6 +1011,14 @@ async def _migrate_to_v9(conn: aiosqlite.Connection) -> None:
         )
 
 
+async def _migrate_to_v10(conn: aiosqlite.Connection) -> None:
+    """
+    v10 migration:
+    - add persisted file discovery metadata to chat messages.
+    """
+    await _reconcile_chat_messages_schema(conn)
+
+
 async def _ensure_chat_translation_indexes(conn: aiosqlite.Connection) -> None:
     """Internal helper for ensure chat translation indexes."""
     await conn.execute(
@@ -1246,6 +1258,11 @@ def _row_to_chat_message(row: aiosqlite.Row) -> ChatMessage:
         role=row["role"],
         content=row["content"],
         sources=parse_json_sources(row["sources"]),
+        file_discovery=(
+            json.loads(row["file_discovery"])
+            if "file_discovery" in row_keys and row["file_discovery"]
+            else None
+        ),
         generation_seconds=row["generation_seconds"],
         completion_mode=row["completion_mode"],
         stopped_by_user=bool(row["stopped_by_user"]),
@@ -2145,9 +2162,9 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
             completion_mode, stopped_by_user, has_remaining_scope, next_action, next_action_reason,
             chat_mode, specialization_id, translated_from_message_id, translation_language,
             translation_tone, translation_source_hash, translation_is_stale,
-            retrieval_scope_kind, retrieval_scope_key, model_filename, is_internal
+            retrieval_scope_kind, retrieval_scope_key, model_filename, is_internal, file_discovery
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             message.chat_id,
@@ -2171,6 +2188,9 @@ async def insert_chat_message(db: aiosqlite.Connection, message: ChatMessage) ->
             message.retrieval_scope_key,
             message.model_filename,
             1 if message.is_internal else 0,
+            json.dumps(message.file_discovery, ensure_ascii=False)
+            if message.file_discovery is not None
+            else None,
         ),
     )
     # Update chat's updated_at timestamp when a message is added
