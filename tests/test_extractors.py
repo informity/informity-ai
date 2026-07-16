@@ -9,7 +9,6 @@ from pathlib import Path
 
 # pylint: disable=redefined-outer-name
 # pylint: disable=unused-argument
-
 import pytest
 
 from informity.api import routes_translate

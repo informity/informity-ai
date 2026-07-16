@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # pylint: disable=unused-argument
-
 from datetime import UTC, datetime
 from pathlib import Path
 

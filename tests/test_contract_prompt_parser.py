@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 # pylint: disable=line-too-long
-
 from informity.llm import contract_prompt_parser as parser
 
 
