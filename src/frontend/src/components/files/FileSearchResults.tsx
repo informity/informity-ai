@@ -107,6 +107,7 @@ export function FileSearchResults({
       <FileSearchResultsTable
         files={semanticFiles}
         total={total ?? results.length}
+        limit={Math.max(1, semanticFiles.length)}
         onChatAboutFile={onChatAboutFile}
         onTranslate={onTranslate}
         onReindex={onReindex}
