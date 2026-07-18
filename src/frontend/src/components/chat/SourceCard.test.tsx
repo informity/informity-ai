@@ -12,6 +12,12 @@ describe('SourceCard evidence rank display', () => {
     expect(container.querySelector('.source-card')).not.toHaveAttribute('title')
   })
 
+  it('does not render an open-file icon or tooltip badge', () => {
+    const { container } = render(<SourceCard filename="example.pdf" path="/tmp/example.pdf" />)
+    expect(container.querySelector('.ri-external-link-line')).toBeNull()
+    expect(screen.queryByText('Open file')).toBeNull()
+  })
+
   it('shows 100 for top-ranked source', () => {
     render(<SourceCard filename="example.pdf" rankIndex={0} rankTotal={5} />)
     expect(screen.getByText('100')).toBeInTheDocument()

@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING
 
 import structlog
 
+from informity.answer_sanitization import strip_source_artifacts, strip_think_blocks
 from informity.config import settings
 from informity.db.models import ChatMessage
 from informity.llm.chat_mode import normalize_chat_mode
@@ -31,6 +32,8 @@ log = structlog.get_logger(__name__)
 _GENERATION_RESERVE_TOKENS = 2000
 _TOKENIZER_MISMATCH_BUFFER_RATIO = 0.12
 _MESSAGE_OVERHEAD_TOKENS = 6
+_RUNNING_SUMMARY_MAX_TURNS = 6
+_RUNNING_SUMMARY_MAX_CHARS_PER_TURN = 180
 
 
 @dataclass(frozen=True)
@@ -62,6 +65,58 @@ def _coerce_source_rank(value: object) -> int | None:
 def _estimate_message_tokens(*, role: str, content: str) -> int:
     """estimate message tokens."""
     return _MESSAGE_OVERHEAD_TOKENS + count_tokens(role) + count_tokens(content)
+
+
+def _running_summary_enabled() -> bool:
+    """Whether running summary injection is enabled."""
+    return str(getattr(settings, "diagnostics_profile", "standard")) == "troubleshooting"
+
+
+def _normalize_summary_text(content: str) -> str:
+    """Normalize summary text."""
+    cleaned = strip_source_artifacts(strip_think_blocks(content or ""))
+    cleaned = " ".join(cleaned.split())
+    return cleaned.strip()
+
+
+def _truncate_summary_text(content: str, max_chars: int) -> str:
+    """Truncate summary text."""
+    cleaned = _normalize_summary_text(content)
+    if len(cleaned) <= max_chars:
+        return cleaned
+    return f"{cleaned[: max(0, max_chars - 1)].rstrip()}…"
+
+
+def _build_running_summary_message(omitted_history: list[ChatMessage]) -> ChatMessage | None:
+    """Build a compact synthetic summary message for omitted history."""
+    if not omitted_history:
+        return None
+    recent_omitted_history = omitted_history[-_RUNNING_SUMMARY_MAX_TURNS:]
+    summary_lines = [
+        "Conversation summary of earlier turns:",
+    ]
+    summarized_turns = 0
+    for message in recent_omitted_history:
+        summary_text = _truncate_summary_text(
+            message.content or "", _RUNNING_SUMMARY_MAX_CHARS_PER_TURN
+        )
+        if not summary_text:
+            continue
+        role_label = "User" if message.role == "user" else "Assistant"
+        summary_lines.append(f"- {role_label}: {summary_text}")
+        summarized_turns += 1
+    omitted_count = len(omitted_history) - summarized_turns
+    if omitted_count > 0:
+        summary_lines.append(f"- {omitted_count} earlier messages omitted.")
+    summary_content = "\n".join(summary_lines).strip()
+    if not summary_content:
+        return None
+    return ChatMessage(
+        chat_id=omitted_history[0].chat_id,
+        role="assistant",
+        content=summary_content,
+        is_internal=True,
+    )
 
 
 def _reorder_context_chunks_for_attention(context_chunks: list[dict]) -> list[dict]:
@@ -158,8 +213,17 @@ def _trim_history_by_token_budget(
     if history_limit == 0:
         return []
     capped_history = history[-history_limit:]
-    if not capped_history or model_profile is None:
+    if not capped_history:
         return capped_history
+
+    if model_profile is None:
+        selected = capped_history
+        omitted_count = len(history) - len(selected)
+        if omitted_count > 0 and _running_summary_enabled():
+            summary_message = _build_running_summary_message(history[:omitted_count])
+            if summary_message is not None:
+                selected = [summary_message, *selected]
+        return selected
 
     (
         capped_history,
@@ -178,11 +242,15 @@ def _trim_history_by_token_budget(
         capped_history, effective_history_budget
     )
     selected = list(reversed(selected_reversed))
-    trimmed_count = len(capped_history) - len(selected)
-    if trimmed_count > 0:
+    omitted_count = len(history) - len(selected)
+    if omitted_count > 0 and _running_summary_enabled():
+        summary_message = _build_running_summary_message(history[:omitted_count])
+        if summary_message is not None:
+            selected = [summary_message, *selected]
+    if omitted_count > 0:
         log.warning(
             "history_trimmed_by_token_budget",
-            trimmed_count=trimmed_count,
+            trimmed_count=omitted_count,
             kept_count=len(selected),
             history_limit=history_limit,
             context_length=context_length,

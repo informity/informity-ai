@@ -1,7 +1,6 @@
 /**
  * Informity AI — Source citation card
  * Compact card for RAG sources (filename + relevance).
- * Click to open file in system default application.
  */
 import { memo, useState, useCallback } from 'react'
 import { openFile } from '../../api'
@@ -98,14 +97,6 @@ function SourceCardComponent({
           <span className="source-card__filename">{filename?.trim() || 'Unknown'}</span>
         </div>
         <div className="source-card__badges">
-          {canOpen && (
-            <span className="source-card__tooltip-wrap ui-tooltip-trigger" aria-hidden>
-              <span className="source-card__open">
-                <i className="ri-external-link-line" />
-              </span>
-              <span className="source-card__tooltip ui-tooltip ui-tooltip--compact ui-tooltip--nowrap ui-tooltip--right-anchor">Open file</span>
-            </span>
-          )}
           {evidenceRank !== null && (
             <span className="source-card__tooltip-wrap ui-tooltip-trigger">
               <span className={`source-card__score source-card__score--${evidenceTier}`}>

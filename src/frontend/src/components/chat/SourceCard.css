@@ -7,7 +7,7 @@
   border-radius: 8px;
   overflow: visible;
   position: relative;
-  padding: 0.75rem 1rem;
+  padding: 0.75rem 1rem 0.75rem 0.75rem;
   box-sizing: border-box;
   background: var(--source-card-bg, var(--color-bg-surface));
   border: 1px solid var(--source-card-border, var(--color-border));
@@ -23,8 +23,7 @@
 }
 
 .source-card:hover .source-card__icon,
-.source-card:hover .source-card__filename,
-.source-card:hover .source-card__open {
+.source-card:hover .source-card__filename {
   color: var(--source-card-hover-fg, var(--color-text));
 }
 
@@ -35,7 +34,7 @@
 .source-card__header {
   display: flex;
   align-items: center;
-  gap: 0.125rem;
+  gap: var(--table-icon-title-gap);
   padding: 0;
   width: 100%;
   box-sizing: border-box;
@@ -77,6 +76,7 @@
   flex-shrink: 0;
   margin-left: auto;
   padding-left: 0.25rem;
+  padding-right: 0.75rem;
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -88,21 +88,6 @@
 
 .source-card__tooltip-wrap:hover {
   z-index: 120;
-}
-
-.source-card__open {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--source-card-open-color, var(--color-text-muted));
-  opacity: 0.6;
-  font-size: 0.875rem;
-  transition: opacity var(--transition-fast), color var(--transition-fast);
-}
-
-.source-card:hover .source-card__open {
-  opacity: 1;
-  color: var(--color-text);
 }
 
 .source-card__score {

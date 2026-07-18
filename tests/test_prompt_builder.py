@@ -270,6 +270,34 @@ class TestPromptBuilder:
         assert "Long message 7" in messages[1]["content"]
         assert messages[-1]["content"] == "Current question"
 
+    def test_running_summary_includes_older_history_when_diagnostics_profile_is_not_standard(
+        self,
+    ) -> None:
+        """Test running summary includes older history when diagnostics profile is not standard."""
+        original_profile = settings.diagnostics_profile
+        original_researcher = settings.chat_history_messages_researcher
+        try:
+            settings.diagnostics_profile = "troubleshooting"
+            settings.chat_history_messages_researcher = 2
+            history = [
+                ChatMessage(chat_id="test", role="user", content="Older question 1"),
+                ChatMessage(chat_id="test", role="assistant", content="Older answer 1"),
+                ChatMessage(chat_id="test", role="user", content="Older question 2"),
+                ChatMessage(chat_id="test", role="assistant", content="Older answer 2"),
+            ]
+
+            messages = build_messages("Current question", [], history, chat_mode="researcher")
+
+            assert messages[1]["role"] == "assistant"
+            assert "Conversation summary of earlier turns:" in messages[1]["content"]
+            assert "Older question 1" in messages[1]["content"]
+            assert "Older answer 1" in messages[1]["content"]
+            assert messages[-2]["content"] == "Older answer 2"
+            assert messages[-1]["content"] == "Current question"
+        finally:
+            settings.diagnostics_profile = original_profile
+            settings.chat_history_messages_researcher = original_researcher
+
     def test_custom_system_prompt_override(self) -> None:
         """Test custom system prompt override."""
         messages = build_messages(
