@@ -735,42 +735,39 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     })
   }, [offline, isStreaming, messages, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
 
-  const handleAskInAssistant = useCallback((assistantMessageIndex: number) => {
+  const handleAskInAssistant = useCallback(async (assistantMessageIndex: number) => {
     if (offline) return
     if (isStreaming) return
     if (hasScopedInputPill) return
-    if (lockedMode != null && lockedMode !== 'assistant') return
     const previousUser = [...messages]
       .slice(0, assistantMessageIndex)
       .reverse()
       .find((msg) => msg.role === 'user' && !msg.isInternal && !!msg.content?.trim())
     if (!previousUser) return
-    if (lockedMode == null) {
-      setChatMode('assistant')
-      try {
-        window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'assistant')
-      } catch {
-        // ignore storage errors
-      }
+    await newChat()
+    setChatMode('assistant')
+    setSelectedSpecializationId(null)
+    specializationSelectionExplicitRef.current = false
+    try {
+      window.localStorage.setItem(CHAT_MODE_STORAGE_KEY, 'assistant')
+      window.localStorage.removeItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
+    } catch {
+      // ignore storage errors
     }
-    void sendMessage(previousUser.content, {
+    await sendMessage(previousUser.content, {
       mode: 'assistant',
-      specializationId: requestSpecializationId,
-      fileScope: chatFileScope,
-      chatWebSearchEnabled,
-      chatWebSearchPrivacyOverride,
+      specializationId: null,
+      fileScope: null,
+      chatWebSearchEnabled: false,
+      chatWebSearchPrivacyOverride: false,
     })
   }, [
     offline,
     isStreaming,
     hasScopedInputPill,
     messages,
+    newChat,
     sendMessage,
-    requestSpecializationId,
-    chatFileScope,
-    chatWebSearchPrivacyOverride,
-    chatWebSearchEnabled,
-    lockedMode,
   ])
 
   const lastEditableUserMessageIndex = (() => {
@@ -1280,7 +1277,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       enableRawOutputControl={enableRawOutputControl}
                       onContinue={handleContinue}
                       onRegenerate={() => handleRegenerate(i)}
-                      onAssistantSwitch={hideAssistantSwitch ? undefined : (() => handleAskInAssistant(i))}
+                      onAssistantSwitch={hideAssistantSwitch ? undefined : (() => void handleAskInAssistant(i))}
                       onExport={handleExportAnswer}
                       onExportText={handleExportAnswerText}
                       canEdit={

@@ -20,6 +20,11 @@ describe('preprocessMarkdown — HTML normalisation', () => {
     expect(preprocessMarkdown('line one\\nline two')).toBe('line one\nline two')
   })
 
+  it('escapes currency amounts so they do not become markdown math', () => {
+    const prose = 'The amount was $1,115,000.00 and the loan was $590,000.00.'
+    expect(preprocessMarkdown(prose)).toBe('The amount was \\$1,115,000.00 and the loan was \\$590,000.00.')
+  })
+
   it('handles text with no HTML unchanged', () => {
     const md = '# Heading\n\nSome paragraph text.\n\n- item'
     expect(preprocessMarkdown(md)).toBe(md)

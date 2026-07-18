@@ -1096,6 +1096,67 @@ describe('ChatView new chat behavior', () => {
     expect(streamChatMock.mock.calls[0][3]).toMatchObject({ mode: 'assistant', specializationId: 'legal' })
   })
 
+  it('starts a fresh assistant branch when Ask Assistant is clicked', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_specializations: true })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getSpecializationsMock.mockResolvedValue([])
+    streamChatMock.mockImplementation(async (_message, _chatId, callbacks) => {
+      callbacks.onChatId?.('chat-assistant-branch-1')
+      callbacks.onDone?.({
+        elapsed_seconds: 0.1,
+        message_id: 9901,
+        completion_mode: 'complete',
+        next_action: 'none',
+        chat_mode: 'assistant',
+      })
+    })
+    getChatMock.mockResolvedValue({
+      messages: [
+        {
+          id: 9900,
+          role: 'user',
+          content: 'Which files mention insurance?',
+          specialization_id: null,
+          chat_mode: 'researcher',
+          sources: [],
+          created_at: '2026-02-23T12:00:00.000Z',
+        },
+        {
+          id: 9901,
+          role: 'assistant',
+          content: 'Here are the files related to your query:',
+          specialization_id: null,
+          chat_mode: 'researcher',
+          sources: [],
+          next_action: 'assistant_switch',
+          next_action_reason: 'out_of_scope',
+          completion_mode: 'complete',
+          has_remaining_scope: false,
+          created_at: '2026-02-23T12:00:02.000Z',
+        },
+      ],
+    })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView initialChatId="chat-researcher-assistant-switch-1" />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    await waitFor(() => expect(getChatMock).toHaveBeenCalledWith('chat-researcher-assistant-switch-1'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Ask Assistant' }))
+
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(1))
+    expect(streamChatMock.mock.calls[0][0]).toBe('Which files mention insurance?')
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ mode: 'assistant', specializationId: null, fileId: null })
+    expect(updateCurrentChatMock).toHaveBeenCalledWith(null)
+  })
+
   it('shows edit control only on the latest non-internal user message after streaming completes', async () => {
     getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })

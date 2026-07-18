@@ -252,6 +252,11 @@ html[data-accent='canvas'] .chat-message__copy-code:focus-visible {
   font-weight: 650;
 }
 
+.chat-message__markdown em {
+  font-style: italic;
+  font-family: inherit;
+}
+
 .chat-message__markdown blockquote {
   margin: 0.75rem 0;
   padding: 0.05rem 0 0.05rem 0.8rem;

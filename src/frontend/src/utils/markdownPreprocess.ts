@@ -61,7 +61,7 @@ export function preprocessMarkdown(text: string): string {
       }
       // Orphaned separator — silently dropped
     } else {
-      const stripped = stripSourceMarkers(line)
+      const stripped = escapeCurrencyAmounts(stripSourceMarkers(line))
       if (!/^\s*sources?\s*:\s*$/i.test(stripped)) {
         kept.push(stripped)
       }
@@ -75,4 +75,10 @@ const SOURCE_MARKER_PATTERN = /\s*\[\s*sources?\s*:\s*[^\]]+\]\s*/gi
 
 function stripSourceMarkers(line: string): string {
   return line.replace(SOURCE_MARKER_PATTERN, '').replace(/\s+\s*$/, '')
+}
+
+const CURRENCY_AMOUNT_PATTERN = /(?<!\\)\$(?=\d[\d,]*(?:\.\d+)?(?:$|[)\],.;:\s!?]))/g
+
+function escapeCurrencyAmounts(line: string): string {
+  return line.replace(CURRENCY_AMOUNT_PATTERN, '\\$')
 }
