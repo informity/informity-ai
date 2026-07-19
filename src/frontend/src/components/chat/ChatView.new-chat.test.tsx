@@ -209,6 +209,26 @@ describe('ChatView new chat behavior', () => {
     })
   })
 
+  it('hides the Export chat action until the conversation has an assistant reply', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockResolvedValue(undefined)
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({ messages: [] })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    expect(screen.queryByRole('button', { name: 'Export chat' })).toBeNull()
+  })
+
   it('sends selected chat mode in stream payload', async () => {
     getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })

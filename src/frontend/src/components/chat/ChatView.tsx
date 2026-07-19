@@ -193,6 +193,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const [pendingUploadCountsByChat, setPendingUploadCountsByChat] = useState<Record<string, number>>({})
   const [isDragOverComposer, setIsDragOverComposer] = useState(false)
   const uploadDragDepthRef = useRef(0)
+  const hasAssistantReply = useMemo(
+    () => messages.some((msg) => msg.role === 'assistant' && !msg.isInternal && !!msg.content?.trim()),
+    [messages],
+  )
 
   const pendingUploadCount = (() => {
     if (!contextChatId) return pendingUploadCountsByChat.__draft__ ?? 0
@@ -1184,31 +1188,33 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         className="chat-view__header"
         action={
           <div style={{ display: 'flex', gap: '0.5rem' }}>
-            <div ref={exportMenuRef} style={{ position: 'relative' }}>
-              <button
-                type="button"
-                className="chat-view__new-chat"
-                onClick={() => setExportMenuOpen(v => !v)}
-                disabled={offline || isStreaming || !contextChatId}
-                title="Export chat"
-                aria-label="Export chat"
-              >
-                <i className="ri-download-line" aria-hidden style={{ fontSize: '1.125rem' }} />
-                <span>Export</span>
-              </button>
-              {exportMenuOpen && (
-                <div className="chat-view__mode-menu" role="menu" style={{ left: 0, right: 'auto', minWidth: '9rem', bottom: 'auto', top: 'calc(100% + 0.375rem)' }}>
-                  <button type="button" className="chat-view__mode-option" onClick={() => handleExportFullChat('markdown')}>
-                    <i className="ri-markdown-line" aria-hidden style={{ fontSize: '1rem' }} />
-                    <span>Markdown</span>
-                  </button>
-                  <button type="button" className="chat-view__mode-option" onClick={() => handleExportFullChat('text')}>
-                    <i className="ri-file-text-line" aria-hidden style={{ fontSize: '1rem' }} />
-                    <span>Plain text</span>
-                  </button>
-                </div>
-              )}
-            </div>
+            {hasAssistantReply && (
+              <div ref={exportMenuRef} style={{ position: 'relative' }}>
+                <button
+                  type="button"
+                  className="chat-view__new-chat"
+                  onClick={() => setExportMenuOpen(v => !v)}
+                  disabled={offline || isStreaming || !contextChatId}
+                  title="Export chat"
+                  aria-label="Export chat"
+                >
+                  <i className="ri-download-line" aria-hidden style={{ fontSize: '1.125rem' }} />
+                  <span>Export</span>
+                </button>
+                {exportMenuOpen && (
+                  <div className="chat-view__mode-menu" role="menu" style={{ left: 0, right: 'auto', minWidth: '9rem', bottom: 'auto', top: 'calc(100% + 0.375rem)' }}>
+                    <button type="button" className="chat-view__mode-option" onClick={() => handleExportFullChat('markdown')}>
+                      <i className="ri-markdown-line" aria-hidden style={{ fontSize: '1rem' }} />
+                      <span>Markdown</span>
+                    </button>
+                    <button type="button" className="chat-view__mode-option" onClick={() => handleExportFullChat('text')}>
+                      <i className="ri-file-text-line" aria-hidden style={{ fontSize: '1rem' }} />
+                      <span>Plain text</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
             <button
               type="button"
               className="chat-view__new-chat"
