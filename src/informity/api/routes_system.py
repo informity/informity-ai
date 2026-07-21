@@ -324,10 +324,16 @@ def _is_setup_ready() -> bool:
 
 
 def _pick_first_ready_local_model_filename() -> str | None:
-    # Prefer known setup tier models when available so auto-heal picks canonical
-    # SKUs first, then fall back to any installed GGUF.
+    # Prefer the highest-quality ready setup tier when available so auto-heal
+    # restores the most capable default first, then fall back to lower tiers.
     """pick first ready local model filename."""
-    preferred = [opt.model_filename for opt in SETUP_TIER_OPTIONS]
+    preferred = [
+        option.model_filename
+        for option in sorted(
+            SETUP_TIER_OPTIONS,
+            key=lambda option: {"quality": 0, "balanced": 1, "small": 2}.get(option.tier, 99),
+        )
+    ]
     for filename in preferred:
         if _is_model_file_ready(filename):
             return filename

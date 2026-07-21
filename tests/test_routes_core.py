@@ -393,6 +393,27 @@ async def test_get_setup_status_ollama_provider_bypasses_local_setup_gate(
 
 
 @pytest.mark.asyncio
+async def test_get_setup_status_auto_heals_to_quality_model_first(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Test get setup status auto heals to quality model first."""
+    models_dir = tmp_path / "models"
+    models_dir.mkdir(parents=True)
+    (models_dir / "Qwen_Qwen3.5-9B-Q4_K_M.gguf").write_bytes(b"x")
+    (models_dir / "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf").write_bytes(b"x")
+    monkeypatch.setattr(routes_system.settings, "app_data_dir", tmp_path)
+    monkeypatch.setattr(routes_system.settings, "models_dir", models_dir)
+    monkeypatch.setattr(routes_system.settings, "llm_provider", "local_gguf")
+    monkeypatch.setattr(routes_system.settings, "llm_model_filename", "missing.gguf")
+    monkeypatch.setattr(routes_system, "_is_setup_ready", lambda _payload=None: True)
+
+    status = await routes_system.get_setup_status()
+    assert status.required_models_ready is True
+    assert routes_system.settings.llm_model_filename == "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+
+
+@pytest.mark.asyncio
 async def test_get_ollama_status_returns_probe_result(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test get ollama status returns probe result."""
     monkeypatch.setattr(routes_system.settings, "ollama_base_url", "http://127.0.0.1:11434")
