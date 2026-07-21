@@ -1473,15 +1473,37 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                   <div className="chat-view__controls-row composer__controls-row">
                     <div className="chat-view__controls-left">
                       {effectiveChatMode === 'researcher' && !chatFileScope && (
-                        <button
-                          type="button"
-                          className="chat-view__upload-toggle"
-                          onClick={handleUploadControl}
-                          disabled={offline || isStreaming}
-                          aria-label="Upload files"
-                        >
-                          <i className="ri-add-line" aria-hidden />
-                        </button>
+                        <>
+                          <button
+                            type="button"
+                            className="chat-view__upload-toggle"
+                            onClick={handleUploadControl}
+                            disabled={offline || isStreaming}
+                            aria-label="Upload files"
+                          >
+                            <i className="ri-add-line" aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            className={`chat-view__agent-toggle${agentMode ? ' chat-view__agent-toggle--active' : ''}`}
+                            onClick={() => {
+                              const next = !agentMode
+                              setAgentMode(next)
+                              try {
+                                window.localStorage.setItem(CHAT_AGENT_MODE_STORAGE_KEY, next ? '1' : '0')
+                              } catch {
+                                // ignore storage errors
+                              }
+                            }}
+                            disabled={offline || isStreaming}
+                            aria-pressed={agentMode}
+                            aria-label={agentMode ? 'Disable agent mode' : 'Enable agent mode'}
+                            title={agentMode ? 'Disable agent mode' : 'Enable agent mode'}
+                          >
+                            <i className="ri-ai-agent-line" aria-hidden />
+                            {agentMode && <span>Agent</span>}
+                          </button>
+                        </>
                       )}
                       {effectiveChatMode === 'assistant' && webSearchConfigured && (
                         <button
@@ -1580,28 +1602,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       )}
                     </div>
                     <div className="chat-view__controls-right">
-                      {effectiveChatMode === 'researcher' && (
-                        <button
-                          type="button"
-                          className={`chat-view__agent-toggle${agentMode ? ' chat-view__agent-toggle--active' : ''}`}
-                          onClick={() => {
-                            const next = !agentMode
-                            setAgentMode(next)
-                            try {
-                              window.localStorage.setItem(CHAT_AGENT_MODE_STORAGE_KEY, next ? '1' : '0')
-                            } catch {
-                              // ignore storage errors
-                            }
-                          }}
-                          disabled={offline || isStreaming}
-                          aria-pressed={agentMode}
-                          aria-label="Agent mode"
-                          title="Agent mode"
-                        >
-                          <i className="ri-robot-2-line" aria-hidden />
-                          <span>Agent</span>
-                        </button>
-                      )}
                       <div ref={modeMenuRef} className="chat-view__mode-selector">
                         <button
                           type="button"

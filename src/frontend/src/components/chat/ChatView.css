@@ -917,9 +917,11 @@ html[data-accent='canvas'] .chat-view__mode-option--active:hover {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+  justify-content: center;
   width: auto;
   min-height: 2rem;
-  padding: 0.375rem 0.625rem;
+  min-width: 2rem;
+  padding: 0.375rem 0.5rem;
   background: transparent;
   color: var(--chat-view-mode-emphasis);
   border: 1px solid transparent;
@@ -930,6 +932,15 @@ html[data-accent='canvas'] .chat-view__mode-option--active:hover {
   flex-shrink: 0;
   user-select: none;
   transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.chat-view__agent-toggle:not(.chat-view__agent-toggle--active) {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+.chat-view__agent-toggle--active {
+  justify-content: flex-start;
 }
 
 .chat-view__agent-toggle i {
