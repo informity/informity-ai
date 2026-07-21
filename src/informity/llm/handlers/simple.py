@@ -113,6 +113,7 @@ async def _collect_streamed_text(
     top_p: float,
     timeout_seconds: float,
     stop_sequences: list[str] | None,
+    chat_template_kwargs_override: dict[str, object] | None = None,
 ) -> str:
     """Internal helper for collect streamed text."""
     parts: list[str] = []
@@ -123,6 +124,7 @@ async def _collect_streamed_text(
         top_p=top_p,
         timeout_seconds=timeout_seconds,
         stop_sequences=stop_sequences,
+        chat_template_kwargs_override=chat_template_kwargs_override,
     ):
         parts.append(token)
     return "".join(parts).strip()
@@ -153,6 +155,7 @@ class SimpleHandler:
         specialization_id: str | None = None,
         chat_web_search_enabled: bool = False,
         chat_web_search_privacy_override: bool = False,
+        agent_mode: bool = False,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         """
         Handle simple query by using LLM directly without retrieval.
@@ -196,7 +199,16 @@ class SimpleHandler:
             # Get model profile settings for simple queries
             max_tokens = profile.get_max_tokens(query_type)
             timeout_seconds = profile.get_timeout_seconds(query_type)
-            stop_sequences = profile.get_stop_sequences(reasoning_enabled=False)
+            reasoning_enabled = profile.get_reasoning_enabled(
+                query_type,
+                reasoning_enabled_override=agent_mode if profile.supports_think_blocks else None,
+            )
+            stop_sequences = profile.get_stop_sequences(reasoning_enabled)
+            chat_template_kwargs_override = (
+                {"enable_thinking": True}
+                if agent_mode and profile.supports_think_blocks
+                else None
+            )
 
             llm_start = time.perf_counter()
             token_count = 0
@@ -339,6 +351,7 @@ class SimpleHandler:
                                 {"role": "user", "content": chunk_prompt},
                             ],
                             query_type,
+                            reasoning_enabled=reasoning_enabled,
                         )
                         chunk_summary = await _collect_streamed_text(
                             messages=chunk_messages,
@@ -347,6 +360,7 @@ class SimpleHandler:
                             top_p=min(profile.top_p, 0.8),
                             timeout_seconds=timeout_seconds,
                             stop_sequences=stop_sequences,
+                            chat_template_kwargs_override=chat_template_kwargs_override,
                         )
                         if chunk_summary:
                             chunk_summaries.append(f"Part {index}: {chunk_summary}")
@@ -376,7 +390,11 @@ class SimpleHandler:
                         chat_mode=normalized_chat_mode,
                     )
                 )
-            messages = profile.prepare_messages(messages, query_type)
+            messages = profile.prepare_messages(
+                messages,
+                query_type,
+                reasoning_enabled=reasoning_enabled,
+            )
 
             if trace is not None:
                 trace.record(
@@ -408,6 +426,7 @@ class SimpleHandler:
                 top_p=profile.top_p,
                 timeout_seconds=timeout_seconds,
                 stop_sequences=stop_sequences,
+                chat_template_kwargs_override=chat_template_kwargs_override,
             ):
                 if first_token_ms is None:
                     first_token_ms = (time.perf_counter() - llm_start) * 1000

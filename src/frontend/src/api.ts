@@ -305,6 +305,7 @@ export async function streamChat(
     scopedUploadIds?: string[] | null
     chatWebSearchEnabled?: boolean
     chatWebSearchPrivacyOverride?: boolean
+    agentMode?: boolean
   },
 ): Promise<void> {
   const { onToken, onChatId, onStreamId, onRequestId, onSources, onDone, onError, onCleaned, onStatus, onPlanStep, signal } = callbacks
@@ -330,6 +331,7 @@ export async function streamChat(
     request_id: options?.requestId ?? null,
     chat_web_search_enabled: options?.chatWebSearchEnabled ?? false,
     chat_web_search_privacy_override: options?.chatWebSearchPrivacyOverride ?? false,
+    agent_mode: options?.agentMode ?? false,
   })
 
   try {

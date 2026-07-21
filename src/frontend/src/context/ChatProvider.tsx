@@ -768,6 +768,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       fileScope?: ChatFileScope | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
+      agentMode?: boolean
     },
   ) => {
     const message = text.trim()
@@ -779,6 +780,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const providedScope = options?.fileScope ?? null
     const chatWebSearchEnabled = !!options?.chatWebSearchEnabled
     const chatWebSearchPrivacyOverride = !!options?.chatWebSearchPrivacyOverride
+    const agentMode = !!options?.agentMode
     if (!message || sendInFlightRef.current) return
     if (isStreamingRef.current) {
       if (!isInternalMessage) {
@@ -1443,6 +1445,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         scopedUploadIds: effectiveScopedUploadIds.length > 0 ? effectiveScopedUploadIds : null,
         chatWebSearchEnabled,
         chatWebSearchPrivacyOverride,
+        agentMode,
       })
     } finally {
       clearStreamWatchdog()
@@ -1627,6 +1630,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       fileScope?: ChatFileScope | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
+      agentMode?: boolean
     },
   ) => {
     if (typeof anchorMessageId === 'number') {
@@ -1641,6 +1645,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         fileScope: options?.fileScope ?? null,
         chatWebSearchEnabled: options?.chatWebSearchEnabled ?? false,
         chatWebSearchPrivacyOverride: options?.chatWebSearchPrivacyOverride ?? false,
+        agentMode: options?.agentMode ?? false,
       },
     )
   }, [sendMessage])

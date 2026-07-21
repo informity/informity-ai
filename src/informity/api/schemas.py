@@ -161,6 +161,7 @@ class ChatRequest(BaseModel):
     chat_web_search_privacy_override: bool | None = (
         None  # Optional chat-scoped privacy override for web search
     )
+    agent_mode: bool | None = None  # Optional request-scoped thinking override
 
     @model_validator(mode="after")
     def _normalize_scoped_file_ids(self) -> "ChatRequest":

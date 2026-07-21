@@ -64,6 +64,19 @@ _SLOW_PROFILE_WATCHDOG_RATIO = 0.50
 _SLOW_PROFILE_WATCHDOG_MAX_SECONDS = 600.0
 
 
+def _merge_chat_template_kwargs(
+    base_kwargs: dict[str, object] | None,
+    override_kwargs: dict[str, object] | None,
+) -> dict[str, object]:
+    """Merge template kwargs with request-scoped overrides."""
+    merged: dict[str, object] = {}
+    if base_kwargs:
+        merged.update(base_kwargs)
+    if override_kwargs:
+        merged.update(override_kwargs)
+    return merged
+
+
 # ==============================================================================
 # Finish reason normalisation
 # ==============================================================================
@@ -383,6 +396,7 @@ def _run_stream_worker(
     temp: float,
     top_p_val: float,
     stop_seqs: list[str],
+    chat_template_kwargs_override: dict[str, object] | None,
     loop: asyncio.AbstractEventLoop,
     queue: asyncio.Queue[str | object],
     exception_holder: list[BaseException],
@@ -403,7 +417,10 @@ def _run_stream_worker(
     # until the current n_predict budget is exhausted; output is discarded.
     """run stream worker."""
     try:
-        _tmpl_kwargs = get_profile().chat_template_kwargs
+        _tmpl_kwargs = _merge_chat_template_kwargs(
+            get_profile().chat_template_kwargs,
+            chat_template_kwargs_override,
+        )
         payload = json.dumps(
             {
                 "messages": messages,
@@ -763,6 +780,7 @@ class XllamaCppProvider:
         temperature: float = 0.0,
         stop: list[str] | None = None,
         response_format: dict | None = None,
+        chat_template_kwargs_override: dict[str, object] | None = None,
     ) -> dict:
         """
         Synchronous (blocking) chat completion via xllamacpp.
@@ -779,7 +797,10 @@ class XllamaCppProvider:
         """
         server = self._loaded_server
 
-        _tmpl_kwargs = get_profile().chat_template_kwargs
+        _tmpl_kwargs = _merge_chat_template_kwargs(
+            get_profile().chat_template_kwargs,
+            chat_template_kwargs_override,
+        )
         payload_dict: dict = {
             "messages": messages,
             "max_tokens": max_tokens,
@@ -837,6 +858,7 @@ class XllamaCppProvider:
         stop: list[str] | None = None,
         force_chatml: bool = False,
         timeout_seconds: float | None = None,
+        chat_template_kwargs_override: dict[str, object] | None = None,
     ) -> AsyncGenerator[str | tuple[str, object]]:
         # Stream generated tokens one at a time as an async generator.
         # Sends messages via handle_chat_completions in a background thread.
@@ -930,6 +952,7 @@ class XllamaCppProvider:
                 temp,
                 top_p_val,
                 stop_seqs,
+                chat_template_kwargs_override,
                 loop,
                 queue,
                 exception_holder,
@@ -1224,9 +1247,15 @@ class OllamaProvider:
         temperature: float = 0.0,
         stop: list[str] | None = None,
         response_format: dict | None = None,
+        chat_template_kwargs_override: dict[str, object] | None = None,
     ) -> dict:
         """chat complete."""
         model = self._resolve_model()
+        merged_template_kwargs = _merge_chat_template_kwargs(
+            get_profile().chat_template_kwargs,
+            chat_template_kwargs_override,
+        )
+        think_enabled = bool(merged_template_kwargs.get("enable_thinking", False))
         options: dict[str, object] = {
             "num_predict": int(max_tokens),
             "temperature": float(temperature),
@@ -1237,7 +1266,7 @@ class OllamaProvider:
             "model": model,
             "messages": messages,
             "stream": False,
-            "think": False,
+            "think": think_enabled,
             "options": options,
         }
         if response_format is not None:
@@ -1258,6 +1287,7 @@ class OllamaProvider:
         stop: list[str] | None = None,
         force_chatml: bool = False,
         timeout_seconds: float | None = None,
+        chat_template_kwargs_override: dict[str, object] | None = None,
     ) -> AsyncGenerator[str | tuple[str, object]]:
         """generate stream."""
         if not messages:
@@ -1268,6 +1298,11 @@ class OllamaProvider:
         top_p_val = 1.0 if top_p is None else top_p
         stop_seqs = stop if stop is not None else []
         wall_clock = 120.0 if timeout_seconds is None else float(timeout_seconds)
+        merged_template_kwargs = _merge_chat_template_kwargs(
+            get_profile().chat_template_kwargs,
+            chat_template_kwargs_override,
+        )
+        think_enabled = bool(merged_template_kwargs.get("enable_thinking", False))
 
         profile = get_profile()
         context_len = get_effective_context_length(profile)
@@ -1304,7 +1339,7 @@ class OllamaProvider:
             "model": model,
             "messages": messages,
             "stream": True,
-            "think": False,
+            "think": think_enabled,
             "options": {
                 "num_predict": int(max_tok),
                 "temperature": float(temp),
@@ -1634,6 +1669,7 @@ class LLMEngine:
         temperature: float = 0.0,
         stop: list[str] | None = None,
         response_format: dict | None = None,
+        chat_template_kwargs_override: dict[str, object] | None = None,
     ) -> dict:
         """chat complete."""
         return self._provider.chat_complete(
@@ -1642,6 +1678,7 @@ class LLMEngine:
             temperature=temperature,
             stop=stop,
             response_format=response_format,
+            chat_template_kwargs_override=chat_template_kwargs_override,
         )
 
     async def generate_stream(
@@ -1653,6 +1690,7 @@ class LLMEngine:
         stop: list[str] | None = None,
         force_chatml: bool = False,
         timeout_seconds: float | None = None,
+        chat_template_kwargs_override: dict[str, object] | None = None,
     ) -> AsyncGenerator[str | tuple[str, object]]:
         """generate stream."""
         async for item in self._provider.generate_stream(
@@ -1663,6 +1701,7 @@ class LLMEngine:
             stop=stop,
             force_chatml=force_chatml,
             timeout_seconds=timeout_seconds,
+            chat_template_kwargs_override=chat_template_kwargs_override,
         ):
             yield item
 

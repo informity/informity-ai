@@ -758,6 +758,11 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
   color: var(--color-text);
 }
 
+.chat-view__agent-toggle:hover:not(:disabled) {
+  background: var(--chat-view-toggle-hover-bg);
+  color: var(--color-text);
+}
+
 .chat-view__mode-button:disabled {
   opacity: 0.6;
   cursor: not-allowed;
@@ -905,6 +910,45 @@ html[data-accent='canvas'] .chat-view__mode-option--active:hover {
   flex-shrink: 0;
   user-select: none;
   transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.chat-view__agent-toggle {
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  width: auto;
+  min-height: 2rem;
+  padding: 0.375rem 0.625rem;
+  background: transparent;
+  color: var(--chat-view-mode-emphasis);
+  border: 1px solid transparent;
+  border-radius: var(--border-radius);
+  font-size: var(--font-size-base);
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.chat-view__agent-toggle i {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.chat-view__agent-toggle--active,
+.chat-view__agent-toggle--active:hover:not(:disabled) {
+  background: var(--chat-view-toggle-active-bg);
+  border-color: transparent;
+  color: var(--color-text);
+  font-weight: 500;
+  border-radius: var(--border-radius);
+}
+
+.chat-view__agent-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .chat-view__upload-toggle {

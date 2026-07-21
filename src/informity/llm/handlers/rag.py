@@ -611,6 +611,7 @@ class RAGHandler:
         trace: object | None,
         file_ids: list[int] | None = None,
         specialization_id: str | None = None,
+        agent_mode: bool = False,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         """Internal helper for handle minimal mode."""
         profile = get_profile()
@@ -671,7 +672,15 @@ class RAGHandler:
             effective_top_k = max(effective_top_k, _FILE_DISCOVERY_RETRIEVAL_TOP_K)
         max_tokens = profile.get_max_tokens(effective_query_type)
         timeout_seconds = profile.get_timeout_seconds(effective_query_type)
-        reasoning_enabled = profile.get_reasoning_enabled(effective_query_type)
+        reasoning_enabled = profile.get_reasoning_enabled(
+            effective_query_type,
+            reasoning_enabled_override=agent_mode if profile.supports_think_blocks else None,
+        )
+        chat_template_kwargs_override = (
+            {"enable_thinking": True}
+            if agent_mode and profile.supports_think_blocks
+            else None
+        )
         format_requirements: list[str] = []
         output_constraints: dict[str, int] = {}
 
@@ -1029,7 +1038,11 @@ class RAGHandler:
                 specialization_id=specialization_id,
             )
         )
-        messages = profile.prepare_messages(messages, effective_query_type)
+        messages = profile.prepare_messages(
+            messages,
+            effective_query_type,
+            reasoning_enabled=reasoning_enabled,
+        )
         prompt_build_ms = (time.perf_counter() - prompt_build_start) * 1000
 
         if trace is not None:
@@ -1073,6 +1086,7 @@ class RAGHandler:
             applied_degradations=[],
             output_contract_plan=None,
             collapse_duplicate_message_fn=_collapse_duplicate_insufficient_context_message,
+            chat_template_kwargs_override=chat_template_kwargs_override,
             stream_llm_fn=stream_llm,
         ):
             if isinstance(item, tuple):
@@ -1160,6 +1174,7 @@ class RAGHandler:
         file_ids: list[int] | None = None,
         chat_mode: str | None = None,
         specialization_id: str | None = None,
+        agent_mode: bool = False,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         """
         Handle RAG query using the single minimal runtime path.
@@ -1175,6 +1190,7 @@ class RAGHandler:
                 trace=trace,
                 file_ids=file_ids,
                 specialization_id=specialization_id,
+                agent_mode=agent_mode,
             ):
                 yield item
         except _HANDLER_RUNTIME_EXCEPTIONS as exc:

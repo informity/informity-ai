@@ -180,8 +180,14 @@ class ModelProfile:
         _ = query_type
         return self.timeout_seconds
 
-    def get_reasoning_enabled(self, query_type: QueryType) -> bool:
+    def get_reasoning_enabled(
+        self,
+        query_type: QueryType,
+        reasoning_enabled_override: bool | None = None,
+    ) -> bool:
         """Whether reasoning (<think> blocks) should be enabled for this query type."""
+        if reasoning_enabled_override is not None:
+            return bool(reasoning_enabled_override)
         if self.reasoning_mode == ReasoningMode.ALWAYS:
             return query_type != QueryType.SIMPLE
         if self.reasoning_mode == ReasoningMode.FOCUSED_ONLY:
@@ -236,12 +242,16 @@ class ModelProfile:
         self,
         messages: list[dict[str, str]],
         query_type: QueryType,
+        reasoning_enabled: bool | None = None,
     ) -> list[dict[str, str]]:
         """
         Apply model-specific message transformations (e.g. Qwen3 /no_think).
         Returns a potentially modified copy — never mutates the input.
         """
-        reasoning_enabled = self.get_reasoning_enabled(query_type)
+        reasoning_enabled = self.get_reasoning_enabled(
+            query_type,
+            reasoning_enabled_override=reasoning_enabled,
+        )
         messages = [m.copy() for m in messages]
 
         # Apply /no_think token for models that support it (e.g. Qwen3)

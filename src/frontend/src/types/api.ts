@@ -137,6 +137,7 @@ export interface StreamDonePayload {
     omitted_upload_ids?: string[]
   }
   file_discovery?: FileDiscoveryInfo | null
+  agent_mode?: boolean
 }
 
 export interface ChatUploadAttachment {

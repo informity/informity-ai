@@ -57,6 +57,7 @@ async def stream_generation_with_budget(
     applied_degradations: list[dict[str, object]],
     output_contract_plan: object | None,
     collapse_duplicate_message_fn: Callable[[str], tuple[str, bool]],
+    chat_template_kwargs_override: dict[str, object] | None = None,
     stream_llm_fn: Callable[..., AsyncGenerator[str | tuple[str, object]]] = stream_llm,
 ) -> AsyncGenerator[str | tuple[str, object]]:
     """Stream generation with budget."""
@@ -75,6 +76,7 @@ async def stream_generation_with_budget(
         top_p=top_p,
         timeout_seconds=timeout_seconds,
         stop_sequences=stop_sequences,
+        chat_template_kwargs_override=chat_template_kwargs_override,
     ):
         if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.TIMEOUT:
             timeout_payload = item[1] if isinstance(item[1], dict) else {}

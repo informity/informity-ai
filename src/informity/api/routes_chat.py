@@ -1374,6 +1374,7 @@ async def chat(
         if request.chat_web_search_privacy_override is None
         else bool(request.chat_web_search_privacy_override)
     )
+    resolved_agent_mode = bool(request.agent_mode)
     user_message_is_internal = _is_continuation_request(message_text)
 
     # Persist the user message
@@ -1430,6 +1431,7 @@ async def chat(
                 "model_filename": settings.llm_model_filename,
                 "chat_web_search_enabled": resolved_chat_web_search_enabled,
                 "chat_web_search_privacy_override": resolved_chat_web_search_privacy_override,
+                "agent_mode": resolved_agent_mode,
                 "resource_snapshot": request_resource_snapshot,
             },
         )
@@ -1673,6 +1675,7 @@ async def chat(
                             chat_web_search_privacy_override=(
                                 resolved_chat_web_search_privacy_override
                             ),
+                            agent_mode=resolved_agent_mode,
                         )
                     )
                     try:

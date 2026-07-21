@@ -88,6 +88,7 @@ class MetadataHandler:
         file_ids: list[int] | None = None,
         chat_mode: str | None = None,
         specialization_id: str | None = None,
+        agent_mode: bool = False,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         """
         Handle metadata query by routing to appropriate SQLite query.

@@ -23,6 +23,7 @@ import {
 import { logApiError } from '../../utils/logApiError'
 import {
   CHAT_MODE_STORAGE_KEY,
+  CHAT_AGENT_MODE_STORAGE_KEY,
   CHAT_SPECIALIZATION_ID_STORAGE_KEY,
   FORCE_NEW_CHAT_KEY,
 } from '../../utils/storageKeys'
@@ -155,6 +156,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const [inputValue, setInputValue] = useState(prefillMessage)
   const [chatMode, setChatMode] = useState<ChatMode>('researcher')
   const [, setDefaultChatMode] = useState<ChatMode>('researcher')
+  const [agentMode, setAgentMode] = useState(false)
   const [fullPrivacyMode, setFullPrivacyMode] = useState(true)
   const [webSearchConfigured, setWebSearchConfigured] = useState(false)
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
@@ -289,6 +291,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         hasStoredMode = true
         setChatMode(raw)
       }
+      const rawAgentMode = window.localStorage.getItem(CHAT_AGENT_MODE_STORAGE_KEY)
+      setAgentMode(rawAgentMode === '1')
       const storedSpecializationId = String(
         window.localStorage.getItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
         || ''
@@ -719,8 +723,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
+      agentMode: effectiveChatMode === 'researcher' && agentMode,
     })
-  }, [offline, continueLastScope, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, continueLastScope, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled, agentMode])
 
   const handleRegenerate = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -736,8 +741,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
+      agentMode: effectiveChatMode === 'researcher' && agentMode,
     })
-  }, [offline, isStreaming, messages, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, isStreaming, messages, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled, agentMode])
 
   const handleAskInAssistant = useCallback(async (assistantMessageIndex: number) => {
     if (offline) return
@@ -764,6 +770,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       fileScope: null,
       chatWebSearchEnabled: false,
       chatWebSearchPrivacyOverride: false,
+      agentMode: false,
     })
   }, [
     offline,
@@ -794,6 +801,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
+      agentMode: effectiveChatMode === 'researcher' && agentMode,
     })
   }, [
     offline,
@@ -805,6 +813,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     chatFileScope,
     chatWebSearchEnabled,
     chatWebSearchPrivacyOverride,
+    agentMode,
   ])
 
   const handleNewChat = useCallback(() => {
@@ -922,8 +931,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
+      agentMode: effectiveChatMode === 'researcher' && agentMode,
     })
-  }, [offline, inputValue, isTranslating, isTranslatingReply, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, inputValue, isTranslating, isTranslatingReply, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled, agentMode])
 
   const handleStop = useCallback(() => {
     if (offline) return
@@ -1570,6 +1580,28 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       )}
                     </div>
                     <div className="chat-view__controls-right">
+                      {effectiveChatMode === 'researcher' && (
+                        <button
+                          type="button"
+                          className={`chat-view__agent-toggle${agentMode ? ' chat-view__agent-toggle--active' : ''}`}
+                          onClick={() => {
+                            const next = !agentMode
+                            setAgentMode(next)
+                            try {
+                              window.localStorage.setItem(CHAT_AGENT_MODE_STORAGE_KEY, next ? '1' : '0')
+                            } catch {
+                              // ignore storage errors
+                            }
+                          }}
+                          disabled={offline || isStreaming}
+                          aria-pressed={agentMode}
+                          aria-label="Agent mode"
+                          title="Agent mode"
+                        >
+                          <i className="ri-robot-2-line" aria-hidden />
+                          <span>Agent</span>
+                        </button>
+                      )}
                       <div ref={modeMenuRef} className="chat-view__mode-selector">
                         <button
                           type="button"
