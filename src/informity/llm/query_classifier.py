@@ -67,6 +67,7 @@ class QueryClassification:
     is_negation_query: bool = False
     is_metadata_query: bool = False
     is_file_list_query: bool = False
+    agent_subqueries: list[str] = field(default_factory=list)
     is_continuation: bool = False
     is_scope_reset: bool = False
     needs_current_info: bool = False
@@ -157,12 +158,14 @@ def _build_context(
     history: list[ChatMessage] | None,
     chat_mode: str | None,
     scope_kind: str | None,
+    agent_mode: bool,
     prior_user_query: str | None,
 ) -> ClassifierContext:
     """Internal helper for build context."""
     return ClassifierContext(
         chat_mode=chat_mode,
         scope_kind=scope_kind,
+        agent_mode=agent_mode,
         has_prior_turns=bool(history),
         prior_user_query=prior_user_query,
     )
@@ -229,6 +232,7 @@ def _map_decision_to_classification(query: str, decision: FiveQDecision) -> Quer
         ),
         is_metadata_query=is_metadata_query,
         is_file_list_query=is_file_list_query,
+        agent_subqueries=list(decision.subqueries),
         is_continuation=is_continuation,
         needs_current_info=needs_current_info,
         mentions_time=mentions_time,
@@ -261,6 +265,7 @@ def _map_decision_to_classification(query: str, decision: FiveQDecision) -> Quer
             "scope": decision.scope,
             "operation": decision.operation,
             "partitions": list(decision.partitions),
+            "subqueries": list(decision.subqueries),
             "exhaustive": decision.exhaustive,
             "confidence": decision.confidence,
         },
@@ -273,6 +278,7 @@ def classify_query(
     history: list[ChatMessage] | None = None,
     chat_mode: str | None = None,
     scope_kind: str | None = None,
+    agent_mode: bool = False,
     prior_user_query: str | None = None,
 ) -> QueryClassification:
     """Classify query."""
@@ -286,6 +292,7 @@ def classify_query(
         history=history,
         chat_mode=chat_mode,
         scope_kind=scope_kind,
+        agent_mode=agent_mode,
         prior_user_query=prior_user_query,
     )
     classifier = get_classifier()

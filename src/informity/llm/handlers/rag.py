@@ -76,6 +76,7 @@ _COVERAGE_ENTITY_LISTING_TOP_K_MAX = 60
 _FILE_DISCOVERY_RETRIEVAL_TOP_K = 200
 _FILE_DISCOVERY_DISPLAY_LIMIT = 20
 _FILE_DISCOVERY_LEAD_IN = "Here are the files related to your query:"
+_AGENT_MULTI_QUERY_MAX_SUBQUERIES = 4
 _GLOBAL_ENTITY_ENUMERATION_PATTERN = build_global_entity_listing_pattern()
 _ENTITY_INVENTORY_SCOPE_PATTERN = build_exhaustive_entity_inventory_scope_pattern()
 _PERSON_INVENTORY_PATTERN = build_person_entity_listing_pattern()
@@ -113,6 +114,20 @@ def _distinct_file_count(chunks: list[dict]) -> int:
         if isinstance(file_id, int):
             file_ids.add(file_id)
     return len(file_ids)
+
+
+def _chunk_dedupe_key(chunk: dict) -> tuple[object, ...]:
+    """Internal helper for chunk dedupe key."""
+    chunk_id = chunk.get("chunk_id")
+    if isinstance(chunk_id, int):
+        return ("chunk_id", chunk_id)
+
+    file_id = chunk.get("file_id")
+    filename = str(chunk.get("filename") or "").casefold()
+    chunk_text = str(chunk.get("chunk_text") or "").casefold()[:120]
+    if isinstance(file_id, int):
+        return ("file_id", file_id, filename, chunk_text)
+    return ("fallback", filename, chunk_text)
 
 
 def _collapse_duplicate_insufficient_context_message(
@@ -297,6 +312,33 @@ def _should_boost_coverage_top_k(question: str, classification: QueryClassificat
         _GLOBAL_ENTITY_ENUMERATION_PATTERN.search(lowered)
         and _ENTITY_INVENTORY_SCOPE_PATTERN.search(lowered)
     )
+
+
+def _resolve_agent_retrieval_queries(
+    *,
+    retrieval_query: str,
+    classification: QueryClassification,
+) -> list[str]:
+    """Internal helper for resolve agent retrieval queries."""
+    normalized_queries = [
+        normalize_query_text(query).strip().strip(" .?!,;:")
+        for query in (classification.agent_subqueries or [])
+        if normalize_query_text(query).strip().strip(" .?!,;:")
+    ]
+    if normalized_queries:
+        seen_queries: set[str] = set()
+        resolved_queries: list[str] = []
+        for query in normalized_queries:
+            key = query.casefold()
+            if key in seen_queries:
+                continue
+            seen_queries.add(key)
+            resolved_queries.append(query)
+            if len(resolved_queries) >= _AGENT_MULTI_QUERY_MAX_SUBQUERIES:
+                break
+        return resolved_queries
+    fallback_query = normalize_query_text(retrieval_query).strip().strip(" .?!,;:")
+    return [fallback_query] if fallback_query else []
 
 
 def _resolve_minimal_answerability_settings(query_type: QueryType) -> tuple[float, int]:
@@ -759,34 +801,134 @@ class RAGHandler:
             )
         retrieval_start = time.perf_counter()
         comparison_style_request = has_comparison_cue(question)
-        chunks = await retrieve_chunks(
-            query=retrieval_query,
-            top_k=effective_top_k,
-            # Minimal mode keeps one retrieval call without secondary branches.
-            # retries. Do not apply strict L2 max_score pruning here; otherwise
-            # retrieval can collapse to empty and over-trigger refusals.
-            max_score=None,
-            year_filter=classification.year_filter,
-            category_filter=classification.category_filter,
-            extension_filter=classification.file_type_filter,
-            filename_filter=classification.filename_filter,
-            filename_exclude=classification.filename_exclude,
-            block_type_filter=classification.block_type_filter,
-            block_type_exclude=effective_block_type_exclude or None,
-            section_filter=classification.section_filter,
-            file_ids_filter=file_ids,
-            exclude_upload_sources=not bool(file_ids),
-            prefer_substantive_sections=summary_style_request,
-            prefer_title_alignment=prefer_title_alignment,
-            title_alignment_query=title_alignment_query if prefer_title_alignment else None,
-            strict_title_alignment=strict_title_alignment,
-            enable_term_expansion=not disable_term_expansion_for_focused_title,
-            prefer_within_file_diversity=summary_style_request or comparison_style_request,
-            query_type=effective_query_type,
-            db=db,
-            trace=trace,
-            timing_output=retrieval_timing,
-        )
+        base_retrieval_kwargs: dict[str, object] = {
+            "max_score": None,
+            "year_filter": classification.year_filter,
+            "category_filter": classification.category_filter,
+            "extension_filter": classification.file_type_filter,
+            "filename_filter": classification.filename_filter,
+            "filename_exclude": classification.filename_exclude,
+            "block_type_filter": classification.block_type_filter,
+            "block_type_exclude": effective_block_type_exclude or None,
+            "section_filter": classification.section_filter,
+            "file_ids_filter": file_ids,
+            "exclude_upload_sources": not bool(file_ids),
+            "prefer_substantive_sections": summary_style_request,
+            "prefer_title_alignment": prefer_title_alignment,
+            "title_alignment_query": title_alignment_query if prefer_title_alignment else None,
+            "strict_title_alignment": strict_title_alignment,
+            "enable_term_expansion": not disable_term_expansion_for_focused_title,
+            "prefer_within_file_diversity": summary_style_request or comparison_style_request,
+            "query_type": effective_query_type,
+            "db": db,
+        }
+
+        async def _retrieve_for_query(
+            query_text: str,
+            *,
+            top_k: int,
+            trace_obj: object | None,
+        ) -> tuple[list[dict], dict[str, float]]:
+            """Internal helper for retrieve for query."""
+            timing_output: dict[str, float] = {}
+            retrieved_chunks = await retrieve_chunks(
+                query=query_text,
+                top_k=top_k,
+                trace=trace_obj,
+                timing_output=timing_output,
+                **base_retrieval_kwargs,
+            )
+            return retrieved_chunks, timing_output
+
+        if agent_mode:
+            agent_retrieval_queries = _resolve_agent_retrieval_queries(
+                classification=classification,
+                retrieval_query=retrieval_query,
+            )
+        else:
+            agent_retrieval_queries = [retrieval_query]
+
+        chunks: list[dict] = []
+        if len(agent_retrieval_queries) > 1:
+            yield (
+                StreamSignalTag.PLAN_STEP,
+                {
+                    "step_id": 1,
+                    "description": "Decompose the request into retrieval subqueries.",
+                    "status": "running",
+                },
+            )
+            per_query_top_k = max(
+                4,
+                min(
+                    effective_top_k,
+                    (effective_top_k // len(agent_retrieval_queries)) + 2,
+                ),
+            )
+            yield (
+                StreamSignalTag.PLAN_STEP,
+                {
+                    "step_id": 1,
+                    "description": "Decompose the request into retrieval subqueries.",
+                    "status": "done",
+                },
+            )
+            yield (
+                StreamSignalTag.PLAN_STEP,
+                {
+                    "step_id": 2,
+                    "description": f"Retrieve evidence from {len(agent_retrieval_queries)} subqueries.",
+                    "status": "running",
+                },
+            )
+            seen_chunk_keys: set[tuple[object, ...]] = set()
+            for subquery_index, agent_query in enumerate(agent_retrieval_queries, start=1):
+                subquery_chunks, subquery_timing = await _retrieve_for_query(
+                    agent_query,
+                    top_k=per_query_top_k,
+                    trace_obj=trace,
+                )
+                for timing_key, timing_value in subquery_timing.items():
+                    if isinstance(timing_value, (int, float)):
+                        retrieval_timing[timing_key] = retrieval_timing.get(timing_key, 0.0) + float(
+                            timing_value
+                        )
+                for chunk in subquery_chunks:
+                    dedupe_key = _chunk_dedupe_key(chunk)
+                    if dedupe_key in seen_chunk_keys:
+                        continue
+                    seen_chunk_keys.add(dedupe_key)
+                    chunks.append(chunk)
+                    if len(chunks) >= effective_top_k:
+                        break
+                if trace is not None:
+                    trace.record(
+                        "agent_multi_query_retrieval_pass",
+                        {
+                            "pass_index": subquery_index,
+                            "query": agent_query,
+                            "returned_chunks": len(subquery_chunks),
+                            "merged_chunks": len(chunks),
+                        },
+                    )
+                if len(chunks) >= effective_top_k:
+                    break
+            if trace is not None:
+                trace.record(
+                    "agent_multi_query_retrieval",
+                    {
+                        "enabled": True,
+                        "subquery_count": len(agent_retrieval_queries),
+                        "returned_chunks": len(chunks),
+                        "per_query_top_k": per_query_top_k,
+                    },
+                )
+        else:
+            chunks, retrieval_timing = await _retrieve_for_query(
+                retrieval_query,
+                top_k=effective_top_k,
+                trace_obj=trace,
+            )
         if summary_style_request and explicit_title_reference:
             evidence_profile = evaluate_substantive_evidence(chunks)
             dominant_ratio = _dominant_file_ratio(chunks)
@@ -918,6 +1060,23 @@ class RAGHandler:
             if len(chunks) == 0:
                 total_chunks = await get_chunk_count(db)
                 index_empty = total_chunks == 0
+            if agent_mode and len(agent_retrieval_queries) > 1:
+                yield (
+                    StreamSignalTag.PLAN_STEP,
+                    {
+                        "step_id": 2,
+                        "description": f"Retrieve evidence from {len(agent_retrieval_queries)} subqueries.",
+                        "status": "done",
+                    },
+                )
+                yield (
+                    StreamSignalTag.PLAN_STEP,
+                    {
+                        "step_id": 3,
+                        "description": "Synthesize a final answer from the combined evidence.",
+                        "status": "empty",
+                    },
+                )
             yield (
                 StreamSignalTag.METRICS,
                 {
@@ -951,6 +1110,23 @@ class RAGHandler:
                 chunks=chunks,
             )
             deterministic_elapsed_ms = (time.perf_counter() - deterministic_start) * 1000.0
+            if agent_mode and len(agent_retrieval_queries) > 1:
+                yield (
+                    StreamSignalTag.PLAN_STEP,
+                    {
+                        "step_id": 2,
+                        "description": f"Retrieve evidence from {len(agent_retrieval_queries)} subqueries.",
+                        "status": "done",
+                    },
+                )
+                yield (
+                    StreamSignalTag.PLAN_STEP,
+                    {
+                        "step_id": 3,
+                        "description": "Synthesize a final answer from the combined evidence.",
+                        "status": "empty",
+                    },
+                )
             if trace is not None:
                 trace.record(
                     "deterministic_file_discovery",
@@ -1104,6 +1280,23 @@ class RAGHandler:
             answer_parts.append(item)
             yield item
         llm_elapsed_ms = (time.perf_counter() - llm_start) * 1000
+        if agent_mode and len(agent_retrieval_queries) > 1:
+            yield (
+                StreamSignalTag.PLAN_STEP,
+                {
+                    "step_id": 2,
+                    "description": f"Retrieve evidence from {len(agent_retrieval_queries)} subqueries.",
+                    "status": "done",
+                },
+            )
+            yield (
+                StreamSignalTag.PLAN_STEP,
+                {
+                    "step_id": 3,
+                    "description": "Synthesize a final answer from the combined evidence.",
+                    "status": "running",
+                },
+            )
         if stream_summary is not None:
             token_count = stream_summary.token_count
             first_token_ms = stream_summary.first_token_ms
@@ -1160,6 +1353,15 @@ class RAGHandler:
             normalize_relevance_score_fn=_retrieval_validation._normalize_relevance_score,
         )
         _generation_closeout.record_sources_trace(trace=trace, sources=sources)
+        if agent_mode and len(agent_retrieval_queries) > 1:
+            yield (
+                StreamSignalTag.PLAN_STEP,
+                {
+                    "step_id": 3,
+                    "description": "Synthesize a final answer from the combined evidence.",
+                    "status": "done",
+                },
+            )
         yield sources
 
     async def handle(

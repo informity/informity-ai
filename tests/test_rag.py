@@ -106,6 +106,7 @@ async def test_answer_question_calls_classify(mock_db):
             history=None,
             chat_mode="researcher",
             scope_kind="indexed_corpus",
+            agent_mode=False,
         )
 
 
@@ -449,6 +450,7 @@ async def test_answer_question_assistant_mode_forces_simple_handler(mock_db):
             history=None,
             chat_mode="assistant",
             scope_kind="assistant_mode",
+            agent_mode=False,
         )
         mock_simple_handler.assert_called_once()
         mock_rag_handler.assert_not_called()
@@ -487,6 +489,7 @@ async def test_answer_question_invalid_chat_mode_falls_back_to_researcher(mock_d
             history=None,
             chat_mode="researcher",
             scope_kind="indexed_corpus",
+            agent_mode=False,
         )
         mock_rag_handler.assert_called_once()
         assert results[-1] == []

@@ -184,6 +184,7 @@ async def answer_question(
                             history=history,
                             chat_mode=normalized_chat_mode,
                             scope_kind="assistant_mode",
+                            agent_mode=agent_mode,
                         ),
                         timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
                     )
@@ -266,6 +267,7 @@ async def answer_question(
                         history=history,
                         chat_mode=normalized_chat_mode,
                         scope_kind="indexed_corpus",
+                        agent_mode=agent_mode,
                     ),
                     timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
                 )

@@ -987,6 +987,105 @@ class TestRAGHandler:
         )
 
     @pytest.mark.asyncio
+    async def test_handle_agent_mode_uses_classifier_subqueries_for_retrieval(self) -> None:
+        """Test handle agent mode uses classifier subqueries for retrieval."""
+        handler = RAGHandler()
+        classification = QueryClassification(
+            intent="focused",
+            confidence=0.86,
+            agent_subqueries=[
+                "mortgage document evidence",
+                "Rocket Mortgage document evidence",
+            ],
+        )
+        mock_db = MagicMock()
+        with patch(
+            "informity.llm.handlers.rag.retrieve_chunks", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.side_effect = [
+                [
+                    {
+                        "file_id": 1,
+                        "filename": "mortgage.pdf",
+                        "file_path": "/docs/mortgage.pdf",
+                        "chunk_text": "Mortgage evidence chunk A.",
+                        "score": 1.0,
+                    },
+                    {
+                        "file_id": 1,
+                        "filename": "mortgage.pdf",
+                        "file_path": "/docs/mortgage.pdf",
+                        "chunk_text": "Mortgage evidence chunk B.",
+                        "score": 0.9,
+                    },
+                    {
+                        "file_id": 1,
+                        "filename": "mortgage.pdf",
+                        "file_path": "/docs/mortgage.pdf",
+                        "chunk_text": "Mortgage evidence chunk C.",
+                        "score": 0.8,
+                    },
+                ],
+                [
+                    {
+                        "file_id": 2,
+                        "filename": "rocket_mortgage.pdf",
+                        "file_path": "/docs/rocket_mortgage.pdf",
+                        "chunk_text": "Rocket Mortgage evidence chunk A.",
+                        "score": 1.0,
+                    },
+                    {
+                        "file_id": 2,
+                        "filename": "rocket_mortgage.pdf",
+                        "file_path": "/docs/rocket_mortgage.pdf",
+                        "chunk_text": "Rocket Mortgage evidence chunk B.",
+                        "score": 0.9,
+                    },
+                    {
+                        "file_id": 2,
+                        "filename": "rocket_mortgage.pdf",
+                        "file_path": "/docs/rocket_mortgage.pdf",
+                        "chunk_text": "Rocket Mortgage evidence chunk C.",
+                        "score": 0.8,
+                    },
+                ],
+            ]
+
+            async def _fake_stream_llm(*_args, **_kwargs):
+                """Internal helper for fake stream llm."""
+                yield "Comparison answer token."
+
+            results: list[object] = []
+            with patch("informity.llm.handlers.rag.stream_llm", _fake_stream_llm):
+                async for item in handler.handle(
+                    "Compare the mortgage document and the Rocket Mortgage document.",
+                    classification,
+                    None,
+                    mock_db,
+                    None,
+                    agent_mode=True,
+                ):
+                    results.append(item)
+
+        assert mock_retrieve.await_count == 2
+        called_queries = [call.kwargs["query"] for call in mock_retrieve.await_args_list]
+        assert any("mortgage document evidence" in str(query).casefold() for query in called_queries)
+        assert any(
+            "rocket mortgage document evidence" in str(query).casefold()
+            for query in called_queries
+        )
+        assert any(
+            isinstance(item, tuple)
+            and item[0] == "__plan_step__"
+            and isinstance(item[1], dict)
+            for item in results
+        )
+        assert any(
+            isinstance(item, str) and "comparison answer token" in item.casefold()
+            for item in results
+        )
+
+    @pytest.mark.asyncio
     async def test_handle_uses_decomposed_retrieval_content_query(self) -> None:
         """Test handle uses decomposed retrieval content query."""
         handler = RAGHandler()

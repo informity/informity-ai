@@ -22,6 +22,7 @@ async def classify_query_with_timing(
     history: list[ChatMessage] | None = None,
     chat_mode: str | None = None,
     scope_kind: str | None = None,
+    agent_mode: bool = False,
     prior_user_query: str | None = None,
 ) -> tuple[QueryClassification, float]:
     """
@@ -34,6 +35,7 @@ async def classify_query_with_timing(
         history=history,
         chat_mode=chat_mode,
         scope_kind=scope_kind,
+        agent_mode=agent_mode,
         prior_user_query=prior_user_query,
     )
     classify_elapsed_ms = (time.perf_counter() - classify_start) * 1000.0
@@ -55,6 +57,7 @@ async def classify_query_with_timing(
                 "shadow_decision": classification.shadow_classifier_decision,
                 "chat_mode": chat_mode,
                 "scope_kind": scope_kind,
+                "agent_mode": agent_mode,
                 "elapsed_ms": round(classify_elapsed_ms, 1),
             },
         )

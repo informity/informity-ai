@@ -35,6 +35,7 @@ Return this object:
   "scope": "targeted | broad | none",
   "operation": "lookup | count_enumerate | summarize_synthesize | compare",
   "partitions": ["..."],
+  "subqueries": ["..."],
   "exhaustive": true|false,
   "confidence": 0.0-1.0
 }
@@ -56,9 +57,9 @@ Rules:
   list, table, bullets, or breakdown of files/documents stay index_metadata, even if a
   semantic-looking phrase appears in the file label/topic. This does NOT apply to
   explicit inventory verbs ("how many", "count", "list all my documents") which stay
-  index_metadata. Use the inventory rule for requests like "List the mortgage-related
+  index_metadata. Use the inventory rule for requests like "List the Topic A-related
   files in bullet points." Use the content rule for requests like "Show me all files
-  related to my mortgage."
+  related to Topic A."
 - scope=none whenever source is index_metadata, chat_history, or app_knowledge.
   scope is only ever targeted or broad when source=document_content.
 - scope=targeted when the user refers to one specific document, even when that document
@@ -91,6 +92,10 @@ Rules:
   existence check ("what does it do", "does it support", "what is").
 - operation=summarize_synthesize for app_knowledge queries asking for an explanation,
   overview, or walkthrough ("explain", "overview", "how does it work", "walk me through").
+- When agent_mode is true, include subqueries only if the query clearly benefits from
+  multiple retrieval passes over distinct evidence. Keep subqueries empty for ordinary
+  single-topic questions. Each subquery must be a concise plain-language retrieval
+  phrase, not an explanation.
 - exhaustive=true only when the user explicitly asks for totals, every matching item for
   an aggregate calculation, or a complete audit across all matches.
 - A table or breakdown of counts and types is exhaustive=false — it is an inventory
@@ -119,8 +124,8 @@ Examples:
 - "What uploads are available?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
 - "Use bullets: what documents do I have from 2024?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2024"], exhaustive=false
 - "Create a table of all document types and counts for 2023 and 2025." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2023","2025"], exhaustive=false
-- "List the mortgage-related files in bullet points." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
-- "Show me a table of the documents about the Escondido property." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "List the Topic A-related files in bullet points." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "Show me a table of the documents about Topic B." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
 - "Summarize our last conversation." -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What did we talk about earlier?" -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Recap this conversation." -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
@@ -133,7 +138,7 @@ Examples:
 - "How does the application work?" -> source=app_knowledge, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What is the value of Field X in my Document A?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
 - "What is the Field X rate?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
-- "What is the mortgage interest rate?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
+- "What is the Topic A rate?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
 - "What does Document A say about Topic X?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "What did Package A say about Topic X?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Summarize the 2024 Document A." -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2024"], exhaustive=false
@@ -149,7 +154,7 @@ Examples:
 - "Give me an overview of the Category B files." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Create a short table summarizing the Type X documents." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Show the answer in bullet points: what does the 2025 refinancing package tell us?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
-- "Show me all files related to my mortgage." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
+- "Show me all files related to Topic A." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
 - "Show me all tax-related files." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
 - "Which files mention insurance?" -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
 - "Find all documents about Category X." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
@@ -174,6 +179,7 @@ Examples:
 - "Show me what we have on the refinancing." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false, confidence=0.75
 - "What is the total of Field X across all my Type Y documents?" -> source=document_content, scope=broad, operation=lookup, partitions=[], exhaustive=true
 - "Give me Field X for every Type Y document I have." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=true
+- "Show me the files about Topic A and the files about Topic B." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
 """
 
 _APP_HELP_PATTERN = re.compile(
@@ -199,6 +205,7 @@ class ClassifierContext:
 
     chat_mode: str | None = None
     scope_kind: str | None = None
+    agent_mode: bool = False
     has_prior_turns: bool = False
     prior_user_query: str | None = None
 
@@ -253,6 +260,8 @@ def _normalize_decision(data: dict[str, Any]) -> FiveQDecision:
         operation = "lookup"
     partitions_value = data.get("partitions") or []
     partitions = [str(item).strip() for item in partitions_value if str(item).strip()]
+    subqueries_value = data.get("subqueries") or []
+    subqueries = [str(item).strip() for item in subqueries_value if str(item).strip()]
     exhaustive = bool(data.get("exhaustive", False))
     confidence = float(data.get("confidence") or 0.0)
     confidence = max(0.0, min(1.0, confidence))
@@ -261,6 +270,7 @@ def _normalize_decision(data: dict[str, Any]) -> FiveQDecision:
         scope=scope,  # type: ignore[arg-type]
         operation=operation,  # type: ignore[arg-type]
         partitions=partitions,
+        subqueries=subqueries,
         exhaustive=exhaustive,
         confidence=confidence,
     )
@@ -346,6 +356,7 @@ class FiveQClassifier:
         user_lines = [
             f"chat_mode: {context.chat_mode or 'unknown'}",
             f"scope_kind: {context.scope_kind or 'unknown'}",
+            f"agent_mode: {str(bool(context.agent_mode)).lower()}",
             f"has_prior_turns: {str(bool(context.has_prior_turns)).lower()}",
             f"prior_user_query: {prior_user_query or 'none'}",
             "",
