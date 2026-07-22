@@ -189,6 +189,9 @@ function ChatMessageComponent({
   const remainingProgressText = showSectionProgress
     ? streamSectionProgress.remaining.map((heading) => heading.replace(/^#{1,6}\s*/, '').trim()).join(' · ')
     : ''
+  const typingIndicatorClassName = `chat-message__typing-indicator${
+    streamStatusText ? ' chat-message__typing-indicator--status' : ''
+  }`
   const showPlanSteps = !!streamPlanSteps && streamPlanSteps.length > 0
   const canEnterEdit = isUser && canEdit && !actionsDisabled
   const showEditControls = canEnterEdit || isEditing
@@ -524,28 +527,45 @@ function ChatMessageComponent({
             <>
               <div className="chat-message__markdown">
                 {showBouncingDots ? (
-                  <span className="chat-message__typing-indicator" aria-label="Thinking">
-                    <span className="chat-message__cursor" />
-                    {streamStatusText && (
-                      <span className="chat-message__typing-status">
-                        <span>{streamStatusText}</span>
-                        {showSectionProgress && (
-                          <span className="chat-message__typing-progress">
-                            {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections…'}
-                            {remainingProgressText ? ` | ${remainingProgressText}` : ''}
+                  <span className={typingIndicatorClassName} aria-label="Thinking">
+                    {streamStatusText ? (
+                      <>
+                        <span className="chat-message__typing-header">
+                          <span className="chat-message__cursor" />
+                          <span className="chat-message__typing-status">
+                            <span>{streamStatusText}</span>
+                            {showSectionProgress && (
+                              <span className="chat-message__typing-progress">
+                                {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections…'}
+                                {remainingProgressText ? ` | ${remainingProgressText}` : ''}
+                              </span>
+                            )}
                           </span>
-                        )}
+                        </span>
                         {showPlanSteps && (
                           <span className="chat-message__plan-steps">
                             {streamPlanSteps!.map(step => (
                               <span key={step.step_id} className={`chat-message__plan-step chat-message__plan-step--${step.status}`}>
-                                {step.status === 'done' ? '\u2713' : step.status === 'empty' ? '\u2212' : '\u25cc'}
-                                {' '}{step.description}
+                                <i
+                                  className={
+                                    step.status === 'done'
+                                      ? 'ri-checkbox-circle-line chat-message__plan-step-icon'
+                                      : 'ri-checkbox-blank-circle-line chat-message__plan-step-icon chat-message__plan-step-icon--active'
+                                  }
+                                  aria-hidden="true"
+                                />
+                                <span className="chat-message__plan-step-text">{step.description}</span>
                               </span>
                             ))}
                           </span>
                         )}
-                      </span>
+                      </>
+                    ) : (
+                      <>
+                        <span className="chat-message__typing-dot" />
+                        <span className="chat-message__typing-dot" />
+                        <span className="chat-message__typing-dot" />
+                      </>
                     )}
                   </span>
                 ) : (
@@ -560,21 +580,23 @@ function ChatMessageComponent({
                         codeBlockCopied={codeBlockCopied}
                       />
                     ) : safeContent && isStreaming ? (
-                      <span className="chat-message__typing-indicator" aria-label="Thinking">
-                        <span className="chat-message__typing-dot" />
-                        <span className="chat-message__typing-dot" />
-                        <span className="chat-message__typing-dot" />
-                        {streamStatusText && (
-                          <span className="chat-message__typing-status">
-                            <span>{streamStatusText}</span>
-                            {showSectionProgress && (
-                              <span className="chat-message__typing-progress">
-                                {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections…'}
-                                {remainingProgressText ? ` | ${remainingProgressText}` : ''}
-                              </span>
-                            )}
-                          </span>
-                        )}
+                      <span className={typingIndicatorClassName} aria-label="Thinking">
+                        <span className="chat-message__typing-header">
+                          <span className="chat-message__typing-dot" />
+                          <span className="chat-message__typing-dot" />
+                          <span className="chat-message__typing-dot" />
+                          {streamStatusText && (
+                            <span className="chat-message__typing-status">
+                              <span>{streamStatusText}</span>
+                              {showSectionProgress && (
+                                <span className="chat-message__typing-progress">
+                                  {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections…'}
+                                  {remainingProgressText ? ` | ${remainingProgressText}` : ''}
+                                </span>
+                              )}
+                            </span>
+                          )}
+                        </span>
                       </span>
                     ) : safeContent ? (
                       <p className="chat-message__text chat-message__text--muted">
