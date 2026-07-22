@@ -47,9 +47,10 @@ vi.mock('../api', () => {
       callbacks.onRequestId?.('req-stream-1')
       callbacks.onToken?.('Hello')
       if (String(message || '').toLowerCase().includes('agent')) {
-        callbacks.onStatus?.({ state: 'retrieving', message: 'Planning retrieval...' })
+        callbacks.onStatus?.({ state: 'generating', message: 'Generating answer...' })
         callbacks.onPlanStep?.({ step_id: 1, description: 'Analyzing the request', status: 'done' })
-        callbacks.onPlanStep?.({ step_id: 2, description: 'Retrieving evidence from the corpus', status: 'running' })
+        callbacks.onPlanStep?.({ step_id: 2, description: 'Retrieving evidence from subqueries', status: 'running' })
+        callbacks.onPlanStep?.({ step_id: 3, description: 'Combining evidence into an answer', status: 'running' })
       }
       callbacks.onSources?.([])
       await Promise.resolve()
@@ -254,7 +255,7 @@ describe('ChatProvider streaming lifecycle', () => {
     await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
     expect(streamChatMock.mock.calls[0]?.[3]).toEqual(expect.objectContaining({ agentMode: true }))
     await waitFor(() => expect(screen.getByTestId('streaming')).toHaveTextContent('yes'))
-    await waitFor(() => expect(screen.getByTestId('assistant-plan-steps')).toHaveTextContent('2'))
+    await waitFor(() => expect(screen.getByTestId('assistant-plan-steps')).toHaveTextContent('3'))
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
 

@@ -849,7 +849,7 @@ class RAGHandler:
             agent_retrieval_queries = [retrieval_query]
         agent_plan_enabled = bool(agent_mode)
         agent_plan_step_2_description = (
-            f"Retrieving evidence from {len(agent_retrieval_queries)} subqueries"
+            "Retrieving evidence from subqueries"
             if len(agent_retrieval_queries) > 1
             else "Retrieving evidence from the corpus"
         )
@@ -950,7 +950,7 @@ class RAGHandler:
                 StreamSignalTag.PLAN_STEP,
                 {
                     "step_id": 3,
-                    "description": "Synthesizing a final answer from the combined evidence",
+                    "description": "Combining evidence into an answer",
                     "status": "running",
                 },
             )
@@ -1088,12 +1088,12 @@ class RAGHandler:
             if agent_plan_enabled:
                 yield (
                     StreamSignalTag.PLAN_STEP,
-                    {
-                        "step_id": 3,
-                        "description": "Synthesizing a final answer from the combined evidence",
-                        "status": "empty",
-                    },
-                )
+                {
+                    "step_id": 3,
+                    "description": "Combining evidence into an answer",
+                    "status": "empty",
+                },
+            )
             yield (
                 StreamSignalTag.METRICS,
                 {
@@ -1350,7 +1350,7 @@ class RAGHandler:
                 StreamSignalTag.PLAN_STEP,
                 {
                     "step_id": 3,
-                    "description": "Synthesizing a final answer from the combined evidence",
+                    "description": "Combining evidence into an answer",
                     "status": "done",
                 },
             )

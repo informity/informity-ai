@@ -1638,11 +1638,7 @@ async def chat(
                         _retrieval_message = (
                             "Checking document index..."
                             if locked_classification.is_metadata_query
-                            else (
-                                "Planning retrieval..."
-                                if resolved_agent_mode
-                                else "Searching for relevant information..."
-                            )
+                            else "Generating answer..."
                         )
                         retrieving_status = status_emitter.build_event(
                             "retrieving", message=_retrieval_message
@@ -1793,11 +1789,7 @@ async def chat(
                                     _retrieval_message = (
                                         "Checking document index..."
                                         if _classification.is_metadata_query
-                                        else (
-                                            "Planning retrieval..."
-                                            if resolved_agent_mode
-                                            else "Searching for relevant information..."
-                                        )
+                                        else "Generating answer..."
                                     )
                                     retrieving_status = status_emitter.build_event(
                                         "retrieving",
