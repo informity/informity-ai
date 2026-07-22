@@ -847,29 +847,28 @@ class RAGHandler:
             )
         else:
             agent_retrieval_queries = [retrieval_query]
+        agent_plan_enabled = bool(agent_mode)
+        agent_plan_step_2_description = (
+            f"Retrieve evidence from {len(agent_retrieval_queries)} subqueries."
+            if len(agent_retrieval_queries) > 1
+            else "Retrieve evidence from the corpus."
+        )
 
         chunks: list[dict] = []
-        if len(agent_retrieval_queries) > 1:
+        if agent_plan_enabled:
             yield (
                 StreamSignalTag.PLAN_STEP,
                 {
                     "step_id": 1,
-                    "description": "Decompose the request into retrieval subqueries.",
+                    "description": "Analyze the request.",
                     "status": "running",
                 },
             )
-            per_query_top_k = max(
-                4,
-                min(
-                    effective_top_k,
-                    (effective_top_k // len(agent_retrieval_queries)) + 2,
-                ),
-            )
             yield (
                 StreamSignalTag.PLAN_STEP,
                 {
                     "step_id": 1,
-                    "description": "Decompose the request into retrieval subqueries.",
+                    "description": "Analyze the request.",
                     "status": "done",
                 },
             )
@@ -877,9 +876,17 @@ class RAGHandler:
                 StreamSignalTag.PLAN_STEP,
                 {
                     "step_id": 2,
-                    "description": f"Retrieve evidence from {len(agent_retrieval_queries)} subqueries.",
+                    "description": agent_plan_step_2_description,
                     "status": "running",
                 },
+            )
+        if len(agent_retrieval_queries) > 1:
+            per_query_top_k = max(
+                4,
+                min(
+                    effective_top_k,
+                    (effective_top_k // len(agent_retrieval_queries)) + 2,
+                ),
             )
             seen_chunk_keys: set[tuple[object, ...]] = set()
             for subquery_index, agent_query in enumerate(agent_retrieval_queries, start=1):
@@ -890,9 +897,10 @@ class RAGHandler:
                 )
                 for timing_key, timing_value in subquery_timing.items():
                     if isinstance(timing_value, (int, float)):
-                        retrieval_timing[timing_key] = retrieval_timing.get(timing_key, 0.0) + float(
+                        accumulated_timing = retrieval_timing.get(timing_key, 0.0) + float(
                             timing_value
                         )
+                        retrieval_timing[timing_key] = accumulated_timing
                 for chunk in subquery_chunks:
                     dedupe_key = _chunk_dedupe_key(chunk)
                     if dedupe_key in seen_chunk_keys:
@@ -928,6 +936,23 @@ class RAGHandler:
                 retrieval_query,
                 top_k=effective_top_k,
                 trace_obj=trace,
+            )
+        if agent_plan_enabled:
+            yield (
+                StreamSignalTag.PLAN_STEP,
+                {
+                    "step_id": 2,
+                    "description": agent_plan_step_2_description,
+                    "status": "done",
+                },
+            )
+            yield (
+                StreamSignalTag.PLAN_STEP,
+                {
+                    "step_id": 3,
+                    "description": "Synthesize a final answer from the combined evidence.",
+                    "status": "running",
+                },
             )
         if summary_style_request and explicit_title_reference:
             evidence_profile = evaluate_substantive_evidence(chunks)
@@ -1060,15 +1085,7 @@ class RAGHandler:
             if len(chunks) == 0:
                 total_chunks = await get_chunk_count(db)
                 index_empty = total_chunks == 0
-            if agent_mode and len(agent_retrieval_queries) > 1:
-                yield (
-                    StreamSignalTag.PLAN_STEP,
-                    {
-                        "step_id": 2,
-                        "description": f"Retrieve evidence from {len(agent_retrieval_queries)} subqueries.",
-                        "status": "done",
-                    },
-                )
+            if agent_plan_enabled:
                 yield (
                     StreamSignalTag.PLAN_STEP,
                     {
@@ -1110,23 +1127,6 @@ class RAGHandler:
                 chunks=chunks,
             )
             deterministic_elapsed_ms = (time.perf_counter() - deterministic_start) * 1000.0
-            if agent_mode and len(agent_retrieval_queries) > 1:
-                yield (
-                    StreamSignalTag.PLAN_STEP,
-                    {
-                        "step_id": 2,
-                        "description": f"Retrieve evidence from {len(agent_retrieval_queries)} subqueries.",
-                        "status": "done",
-                    },
-                )
-                yield (
-                    StreamSignalTag.PLAN_STEP,
-                    {
-                        "step_id": 3,
-                        "description": "Synthesize a final answer from the combined evidence.",
-                        "status": "empty",
-                    },
-                )
             if trace is not None:
                 trace.record(
                     "deterministic_file_discovery",
@@ -1155,6 +1155,15 @@ class RAGHandler:
             )
             yield (StreamSignalTag.FILE_DISCOVERY, file_discovery)
             yield answer_text
+            if agent_plan_enabled:
+                yield (
+                    StreamSignalTag.PLAN_STEP,
+                    {
+                        "step_id": 3,
+                        "description": "Synthesize a final answer from the combined evidence.",
+                        "status": "done",
+                    },
+                )
             sources = _generation_closeout.build_source_references(
                 chunks=chunks,
                 answer_text=answer_text,
@@ -1280,23 +1289,6 @@ class RAGHandler:
             answer_parts.append(item)
             yield item
         llm_elapsed_ms = (time.perf_counter() - llm_start) * 1000
-        if agent_mode and len(agent_retrieval_queries) > 1:
-            yield (
-                StreamSignalTag.PLAN_STEP,
-                {
-                    "step_id": 2,
-                    "description": f"Retrieve evidence from {len(agent_retrieval_queries)} subqueries.",
-                    "status": "done",
-                },
-            )
-            yield (
-                StreamSignalTag.PLAN_STEP,
-                {
-                    "step_id": 3,
-                    "description": "Synthesize a final answer from the combined evidence.",
-                    "status": "running",
-                },
-            )
         if stream_summary is not None:
             token_count = stream_summary.token_count
             first_token_ms = stream_summary.first_token_ms
@@ -1353,7 +1345,7 @@ class RAGHandler:
             normalize_relevance_score_fn=_retrieval_validation._normalize_relevance_score,
         )
         _generation_closeout.record_sources_trace(trace=trace, sources=sources)
-        if agent_mode and len(agent_retrieval_queries) > 1:
+        if agent_plan_enabled:
             yield (
                 StreamSignalTag.PLAN_STEP,
                 {

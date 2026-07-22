@@ -1180,6 +1180,63 @@ class TestRAGHandler:
         )
 
     @pytest.mark.asyncio
+    async def test_handle_agent_mode_streams_plan_steps_for_single_retrieval(self) -> None:
+        """Test handle agent mode streams plan steps for single retrieval."""
+        handler = RAGHandler()
+        classification = QueryClassification(
+            intent="focused",
+            confidence=0.86,
+            agent_subqueries=[],
+        )
+        mock_db = MagicMock()
+        with patch(
+            "informity.llm.handlers.rag.retrieve_chunks", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.return_value = [
+                {
+                    "file_id": 1,
+                    "filename": "one.pdf",
+                    "file_path": "/docs/one.pdf",
+                    "chunk_text": "Single retrieval chunk.",
+                    "score": 1.0,
+                }
+            ]
+
+            async def _fake_stream_llm(*_args, **_kwargs):
+                """Internal helper for fake stream llm."""
+                yield "Single agent answer token."
+
+            results: list[object] = []
+            with patch("informity.llm.handlers.rag.stream_llm", _fake_stream_llm):
+                async for item in handler.handle(
+                    "Summarize the available context.",
+                    classification,
+                    None,
+                    mock_db,
+                    None,
+                    agent_mode=True,
+                ):
+                    results.append(item)
+
+        assert mock_retrieve.await_count == 1
+        plan_steps = [
+            item[1]
+            for item in results
+            if isinstance(item, tuple)
+            and item[0] == "__plan_step__"
+            and isinstance(item[1], dict)
+        ]
+        assert plan_steps[0]["step_id"] == 1
+        assert plan_steps[0]["status"] == "running"
+        assert any(step["step_id"] == 2 and step["status"] == "running" for step in plan_steps)
+        assert any(step["step_id"] == 3 and step["status"] == "running" for step in plan_steps)
+        assert any(step["step_id"] == 3 and step["status"] == "done" for step in plan_steps)
+        assert any(
+            isinstance(item, str) and "single agent answer token" in item.casefold()
+            for item in results
+        )
+
+    @pytest.mark.asyncio
     async def test_handle_uses_decomposed_retrieval_content_query(self) -> None:
         """Test handle uses decomposed retrieval content query."""
         handler = RAGHandler()
