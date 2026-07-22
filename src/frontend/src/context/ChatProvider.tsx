@@ -73,7 +73,7 @@ const STREAM_STATUS_LABELS: Record<string, string> = {
   classifying: 'Analyzing your request…',
   retrieving: 'Searching for relevant information…',
   searching: 'Searching the web…',
-  generating: 'Generating response…',
+  generating: 'Generating answer…',
   continuing: 'Continuing response…',
   finalizing: 'Finalizing answer…',
 }
@@ -797,6 +797,9 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const chatWebSearchEnabled = !!options?.chatWebSearchEnabled
     const chatWebSearchPrivacyOverride = !!options?.chatWebSearchPrivacyOverride
     const agentMode = !!options?.agentMode
+    const initialStreamStatusText = agentMode
+      ? 'Retrieving evidence…'
+      : getStreamStatusLabel('retrieving')
     if (!message || sendInFlightRef.current) return
     if (isStreamingRef.current) {
       if (!isInternalMessage) {
@@ -865,7 +868,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       isContinuation: isInternalMessage,
       streamStatusText: isInternalMessage
         ? getStreamStatusLabel('continuing')
-        : 'Generating response…',
+        : initialStreamStatusText,
       isPartial: false,
       streamSectionProgress: undefined,
       createdAt: now,
@@ -889,7 +892,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const requestId = createChatRequestId()
     streamRequestIdRef.current = requestId
     streamStopRequestedRef.current = false
-    streamStatusBaseMessageRef.current = String(assistantDraft.streamStatusText || 'Generating response…')
+    streamStatusBaseMessageRef.current = String(assistantDraft.streamStatusText || initialStreamStatusText)
     streamStatusStateRef.current = isInternalMessage ? 'continuing' : 'generating'
     streamStatusStartMsRef.current = Date.now()
     clearStreamStatusTimer()

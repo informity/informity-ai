@@ -851,7 +851,7 @@ class RAGHandler:
         agent_plan_step_2_description = (
             "Retrieving evidence from subqueries"
             if len(agent_retrieval_queries) > 1
-            else "Retrieving evidence from the corpus"
+            else "Retrieving evidence"
         )
 
         chunks: list[dict] = []
@@ -950,7 +950,7 @@ class RAGHandler:
                 StreamSignalTag.PLAN_STEP,
                 {
                     "step_id": 3,
-                    "description": "Combining evidence into an answer",
+                    "description": "Generating answer",
                     "status": "running",
                 },
             )
@@ -1090,7 +1090,7 @@ class RAGHandler:
                     StreamSignalTag.PLAN_STEP,
                 {
                     "step_id": 3,
-                    "description": "Combining evidence into an answer",
+                    "description": "Generating answer",
                     "status": "empty",
                 },
             )
@@ -1350,7 +1350,7 @@ class RAGHandler:
                 StreamSignalTag.PLAN_STEP,
                 {
                     "step_id": 3,
-                    "description": "Combining evidence into an answer",
+                    "description": "Generating answer",
                     "status": "done",
                 },
             )
