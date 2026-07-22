@@ -1086,6 +1086,100 @@ class TestRAGHandler:
         )
 
     @pytest.mark.asyncio
+    async def test_handle_agent_mode_caps_classifier_subqueries(self) -> None:
+        """Test handle agent mode caps classifier subqueries."""
+        handler = RAGHandler()
+        classification = QueryClassification(
+            intent="focused",
+            confidence=0.86,
+            agent_subqueries=[
+                "first evidence request",
+                "second evidence request",
+                "third evidence request",
+                "fourth evidence request",
+                "fifth evidence request",
+                "sixth evidence request",
+            ],
+        )
+        mock_db = MagicMock()
+        with patch(
+            "informity.llm.handlers.rag.retrieve_chunks", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.side_effect = [
+                [
+                    {
+                        "file_id": 1,
+                        "filename": "one.pdf",
+                        "file_path": "/docs/one.pdf",
+                        "chunk_text": "First evidence chunk.",
+                        "score": 1.0,
+                    }
+                ],
+                [
+                    {
+                        "file_id": 2,
+                        "filename": "two.pdf",
+                        "file_path": "/docs/two.pdf",
+                        "chunk_text": "Second evidence chunk.",
+                        "score": 1.0,
+                    }
+                ],
+                [
+                    {
+                        "file_id": 3,
+                        "filename": "three.pdf",
+                        "file_path": "/docs/three.pdf",
+                        "chunk_text": "Third evidence chunk.",
+                        "score": 1.0,
+                    }
+                ],
+                [
+                    {
+                        "file_id": 4,
+                        "filename": "four.pdf",
+                        "file_path": "/docs/four.pdf",
+                        "chunk_text": "Fourth evidence chunk.",
+                        "score": 1.0,
+                    }
+                ],
+            ]
+
+            async def _fake_stream_llm(*_args, **_kwargs):
+                """Internal helper for fake stream llm."""
+                yield "Agent answer token."
+
+            results: list[object] = []
+            with patch("informity.llm.handlers.rag.stream_llm", _fake_stream_llm):
+                async for item in handler.handle(
+                    "Show me evidence across multiple documents.",
+                    classification,
+                    None,
+                    mock_db,
+                    None,
+                    agent_mode=True,
+                ):
+                    results.append(item)
+
+        assert mock_retrieve.await_count == 4
+        called_queries = [call.kwargs["query"] for call in mock_retrieve.await_args_list]
+        assert [str(query).casefold() for query in called_queries] == [
+            "first evidence request",
+            "second evidence request",
+            "third evidence request",
+            "fourth evidence request",
+        ]
+        assert any(
+            isinstance(item, tuple)
+            and item[0] == "__plan_step__"
+            and isinstance(item[1], dict)
+            for item in results
+        )
+        assert any(
+            isinstance(item, str) and "agent answer token" in item.casefold()
+            for item in results
+        )
+
+    @pytest.mark.asyncio
     async def test_handle_uses_decomposed_retrieval_content_query(self) -> None:
         """Test handle uses decomposed retrieval content query."""
         handler = RAGHandler()

@@ -86,6 +86,9 @@ function ChatProbe() {
       <button onClick={() => void sendMessage('test query')} type="button">
         Send
       </button>
+      <button onClick={() => void sendMessage('agent query', { agentMode: true })} type="button">
+        SendAgent
+      </button>
       <button
         onClick={() => void uploadFiles([new File(['content'], 'template.docx')])}
         type="button"
@@ -222,6 +225,29 @@ describe('ChatProvider streaming lifecycle', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Send' }))
     await waitFor(() => expect(screen.getByTestId('streaming')).toHaveTextContent('yes'))
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+
+    await waitFor(() => expect(stopChatStreamMock).toHaveBeenCalledTimes(1))
+    expect(stopChatStreamMock.mock.calls[0]?.[0]).toBe('chat-1')
+    expect(stopChatStreamMock.mock.calls[0]?.[1]).toEqual({
+      streamId: null,
+      requestId: 'req-stream-1',
+    })
+  })
+
+  it('keeps stop behavior intact for agent-mode sends', async () => {
+    finishStream = null
+    const streamChatMock = vi.mocked(streamChat)
+    const stopChatStreamMock = vi.mocked(stopChatStream)
+    streamChatMock.mockClear()
+    stopChatStreamMock.mockClear()
+    render(<Harness />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'SendAgent' }))
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
+    expect(streamChatMock.mock.calls[0]?.[3]).toEqual(expect.objectContaining({ agentMode: true }))
+    await waitFor(() => expect(screen.getByTestId('streaming')).toHaveTextContent('yes'))
+
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
 
     await waitFor(() => expect(stopChatStreamMock).toHaveBeenCalledTimes(1))
