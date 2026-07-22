@@ -47,9 +47,9 @@ vi.mock('../api', () => {
       callbacks.onRequestId?.('req-stream-1')
       callbacks.onToken?.('Hello')
       if (String(message || '').toLowerCase().includes('agent')) {
-        callbacks.onStatus?.({ state: 'retrieving', message: 'Searching for relevant information...' })
-        callbacks.onPlanStep?.({ step_id: 1, description: 'Analyze the request.', status: 'done' })
-        callbacks.onPlanStep?.({ step_id: 2, description: 'Retrieve evidence from the corpus.', status: 'running' })
+        callbacks.onStatus?.({ state: 'retrieving', message: 'Planning retrieval...' })
+        callbacks.onPlanStep?.({ step_id: 1, description: 'Analyzing the request', status: 'done' })
+        callbacks.onPlanStep?.({ step_id: 2, description: 'Retrieving evidence from the corpus', status: 'running' })
       }
       callbacks.onSources?.([])
       await Promise.resolve()

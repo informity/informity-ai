@@ -849,9 +849,9 @@ class RAGHandler:
             agent_retrieval_queries = [retrieval_query]
         agent_plan_enabled = bool(agent_mode)
         agent_plan_step_2_description = (
-            f"Retrieve evidence from {len(agent_retrieval_queries)} subqueries."
+            f"Retrieving evidence from {len(agent_retrieval_queries)} subqueries"
             if len(agent_retrieval_queries) > 1
-            else "Retrieve evidence from the corpus."
+            else "Retrieving evidence from the corpus"
         )
 
         chunks: list[dict] = []
@@ -860,7 +860,7 @@ class RAGHandler:
                 StreamSignalTag.PLAN_STEP,
                 {
                     "step_id": 1,
-                    "description": "Analyze the request.",
+                    "description": "Analyzing the request",
                     "status": "running",
                 },
             )
@@ -868,7 +868,7 @@ class RAGHandler:
                 StreamSignalTag.PLAN_STEP,
                 {
                     "step_id": 1,
-                    "description": "Analyze the request.",
+                    "description": "Analyzing the request",
                     "status": "done",
                 },
             )
@@ -950,7 +950,7 @@ class RAGHandler:
                 StreamSignalTag.PLAN_STEP,
                 {
                     "step_id": 3,
-                    "description": "Synthesize a final answer from the combined evidence.",
+                    "description": "Synthesizing a final answer from the combined evidence",
                     "status": "running",
                 },
             )
@@ -1090,7 +1090,7 @@ class RAGHandler:
                     StreamSignalTag.PLAN_STEP,
                     {
                         "step_id": 3,
-                        "description": "Synthesize a final answer from the combined evidence.",
+                        "description": "Synthesizing a final answer from the combined evidence",
                         "status": "empty",
                     },
                 )
@@ -1160,7 +1160,7 @@ class RAGHandler:
                     StreamSignalTag.PLAN_STEP,
                     {
                         "step_id": 3,
-                        "description": "Synthesize a final answer from the combined evidence.",
+                        "description": "Synthesizing a final answer from the combined evidence",
                         "status": "done",
                     },
                 )
@@ -1350,7 +1350,7 @@ class RAGHandler:
                 StreamSignalTag.PLAN_STEP,
                 {
                     "step_id": 3,
-                    "description": "Synthesize a final answer from the combined evidence.",
+                    "description": "Synthesizing a final answer from the combined evidence",
                     "status": "done",
                 },
             )

@@ -1537,13 +1537,13 @@ async def chat(
 
             try:
                 _raise_if_user_stopped()
-                if resolved_chat_mode != "assistant":
-                    classifying_status = status_emitter.build_event(
-                        "classifying",
-                        message="Analyzing your request...",
-                    )
-                    if classifying_status is not None:
-                        yield classifying_status
+                    if resolved_chat_mode != "assistant":
+                        classifying_status = status_emitter.build_event(
+                            "classifying",
+                            message="Analyzing your request...",
+                        )
+                        if classifying_status is not None:
+                            yield classifying_status
 
                 generation_started = False
                 source_map: dict[tuple[str, str], ChatSourceReference] = {}
@@ -1638,7 +1638,11 @@ async def chat(
                         _retrieval_message = (
                             "Checking document index..."
                             if locked_classification.is_metadata_query
-                            else "Searching for relevant information..."
+                            else (
+                                "Planning retrieval..."
+                                if resolved_agent_mode
+                                else "Searching for relevant information..."
+                            )
                         )
                         retrieving_status = status_emitter.build_event(
                             "retrieving", message=_retrieval_message
@@ -1789,7 +1793,11 @@ async def chat(
                                     _retrieval_message = (
                                         "Checking document index..."
                                         if _classification.is_metadata_query
-                                        else "Searching for relevant information..."
+                                        else (
+                                            "Planning retrieval..."
+                                            if resolved_agent_mode
+                                            else "Searching for relevant information..."
+                                        )
                                     )
                                     retrieving_status = status_emitter.build_event(
                                         "retrieving",
