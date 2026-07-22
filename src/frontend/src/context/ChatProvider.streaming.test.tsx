@@ -42,10 +42,15 @@ vi.mock('../api', () => {
     })),
     stopChatStream: vi.fn(async () => ({ stopped: true, status: 'stopped_now' })),
     updateCurrentChat: vi.fn(async () => ({})),
-    streamChat: vi.fn(async (_message, _chatId, callbacks) => {
+    streamChat: vi.fn(async (message, _chatId, callbacks) => {
       callbacks.onChatId?.('chat-1')
       callbacks.onRequestId?.('req-stream-1')
       callbacks.onToken?.('Hello')
+      if (String(message || '').toLowerCase().includes('agent')) {
+        callbacks.onStatus?.({ state: 'retrieving', message: 'Searching for relevant information...' })
+        callbacks.onPlanStep?.({ step_id: 1, description: 'Analyze the request.', status: 'done' })
+        callbacks.onPlanStep?.({ step_id: 2, description: 'Retrieve evidence from the corpus.', status: 'running' })
+      }
       callbacks.onSources?.([])
       await Promise.resolve()
 
@@ -107,6 +112,8 @@ function ChatProbe() {
       <div data-testid="assistant-streaming">{assistant?.isStreaming ? 'yes' : 'no'}</div>
       <div data-testid="assistant-id">{assistant?.id ?? ''}</div>
       <div data-testid="assistant-seconds">{assistant?.generationSeconds ?? ''}</div>
+      <div data-testid="assistant-status">{assistant?.streamStatusText ?? ''}</div>
+      <div data-testid="assistant-plan-steps">{assistant?.streamPlanSteps?.length ?? 0}</div>
       <div data-testid="upload-count">{chatUploads.length}</div>
     </div>
   )
@@ -247,6 +254,7 @@ describe('ChatProvider streaming lifecycle', () => {
     await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
     expect(streamChatMock.mock.calls[0]?.[3]).toEqual(expect.objectContaining({ agentMode: true }))
     await waitFor(() => expect(screen.getByTestId('streaming')).toHaveTextContent('yes'))
+    await waitFor(() => expect(screen.getByTestId('assistant-plan-steps')).toHaveTextContent('2'))
 
     fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
 
@@ -256,6 +264,8 @@ describe('ChatProvider streaming lifecycle', () => {
       streamId: null,
       requestId: 'req-stream-1',
     })
+    await waitFor(() => expect(screen.getByTestId('assistant-plan-steps')).toHaveTextContent('0'))
+    expect(screen.getByTestId('assistant-status')).toHaveTextContent('')
   })
 
 })

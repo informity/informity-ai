@@ -378,6 +378,20 @@ export function ChatProvider({ children }: ChatProviderProps) {
     })
   }, [isViewingGeneratingChat])
 
+  const clearVisibleStreamActivity = useCallback(() => {
+    const draft = streamDraftRef.current
+    if (!draft || !isViewingGeneratingChat()) return
+    streamPlanStepsRef.current = []
+    streamDraftRef.current = {
+      ...draft,
+      isStreaming: true,
+      streamStatusText: undefined,
+      streamSectionProgress: undefined,
+      streamPlanSteps: undefined,
+    }
+    applyStreamDraftToVisibleMessages()
+  }, [applyStreamDraftToVisibleMessages, isViewingGeneratingChat])
+
   const clearRevealTimer = useCallback(() => {
     if (streamRevealTimerRef.current) {
       clearTimeout(streamRevealTimerRef.current)
@@ -715,11 +729,13 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const stopStreamingInternal = useCallback(async (): Promise<boolean> => {
     if (!isStreamingRef.current) return false
     clearStreamWatchdog()
+    clearStreamStatusTimer()
     streamWatchdogTimedOutRef.current = false
     const streamId = streamIdRef.current
     const requestId = streamRequestIdRef.current ?? activeGenerationRequestId
     const chatId = streamChatIdRef.current ?? currentChatIdRef.current
     streamStopRequestedRef.current = true
+    clearVisibleStreamActivity()
     if (!streamId && !requestId) {
       abortControllerRef.current?.abort()
       return true
@@ -757,7 +773,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     } catch {
       return true
     }
-  }, [activeGenerationRequestId, clearStreamWatchdog])
+  }, [activeGenerationRequestId, clearStreamStatusTimer, clearStreamWatchdog, clearVisibleStreamActivity])
 
   const sendMessage = useCallback(async (
     text: string,
