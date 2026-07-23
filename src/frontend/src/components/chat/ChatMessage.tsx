@@ -5,7 +5,7 @@ import { formatDuration } from '../../utils/formatDuration'
 import { getMessageRaw } from '../../api'
 import { SourceCard } from './SourceCard'
 import { MessageBlocks } from './MessageBlocks'
-import type { ChatMode, ChatSourceReference, DisplayBlock, FileDiscoveryInfo } from '../../types/api'
+import type { AgentEventPayload, ChatMode, ChatSourceReference, DisplayBlock, FileDiscoveryInfo } from '../../types/api'
 import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
 import 'highlight.js/styles/github-dark.min.css'
 import './ChatMessage.css'
@@ -42,6 +42,7 @@ interface ChatMessageProps {
     total: number
   }
   streamPlanSteps?: Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>
+  streamAgentEvents?: AgentEventPayload[]
   scopedFileName?: string | null
   translateTargetLanguage?: string | null
   translationLanguage?: string | null
@@ -89,6 +90,7 @@ function ChatMessageComponent({
   streamStatusText,
   streamSectionProgress,
   streamPlanSteps,
+  streamAgentEvents,
   scopedFileName = null,
   translateTargetLanguage = null,
   translationLanguage = null,
@@ -193,6 +195,7 @@ function ChatMessageComponent({
     streamStatusText ? ' chat-message__typing-indicator--status' : ''
   }`
   const showPlanSteps = !!streamPlanSteps && streamPlanSteps.length > 0
+  const showAgentEvents = !!streamAgentEvents && streamAgentEvents.length > 0
   const canEnterEdit = isUser && canEdit && !actionsDisabled
   const showEditControls = canEnterEdit || isEditing
   const assistantMetaItems = [] as Array<{ key: string; node: ReactElement }>
@@ -559,6 +562,53 @@ function ChatMessageComponent({
                             ))}
                           </span>
                         )}
+                        {showAgentEvents && (
+                          <span className="chat-message__plan-steps">
+                            {streamAgentEvents!.map((event, index) => {
+                              const eventKind = event.kind || 'observation'
+                              const eventStatus = event.status === 'done' || event.status === 'empty'
+                                ? event.status
+                                : 'running'
+                              const eventTitle = typeof event.title === 'string' && event.title.trim().length > 0
+                                ? event.title.trim()
+                                : (
+                                    eventKind === 'tool_call'
+                                      ? 'Tool call'
+                                      : eventKind === 'decision'
+                                        ? 'Decision'
+                                        : 'Observation'
+                                  )
+                              const eventMessageParts = [
+                                typeof event.tool_name === 'string' && event.tool_name.trim().length > 0
+                                  ? event.tool_name.trim()
+                                  : '',
+                                typeof event.message === 'string' && event.message.trim().length > 0
+                                  ? event.message.trim()
+                                  : '',
+                              ].filter((value) => value.length > 0)
+                              const eventMessage = eventMessageParts.join(' · ')
+                              return (
+                                <span
+                                  key={`${eventKind}-${event.subquery_index ?? index}-${eventTitle}-${eventMessage}`}
+                                  className={`chat-message__plan-step chat-message__plan-step--${eventStatus}`}
+                                >
+                                  <i
+                                    className={
+                                      eventStatus === 'done'
+                                        ? 'ri-checkbox-circle-line chat-message__plan-step-icon'
+                                        : 'ri-checkbox-blank-circle-line chat-message__plan-step-icon chat-message__plan-step-icon--active'
+                                    }
+                                    aria-hidden="true"
+                                  />
+                                  <span className="chat-message__plan-step-text">
+                                    <strong>{eventTitle}</strong>
+                                    {eventMessage ? `: ${eventMessage}` : ''}
+                                  </span>
+                                </span>
+                              )
+                            })}
+                          </span>
+                        )}
                       </>
                     ) : (
                       <>
@@ -802,6 +852,7 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.streamStatusText === next.streamStatusText &&
     prev.streamSectionProgress === next.streamSectionProgress &&
     prev.streamPlanSteps === next.streamPlanSteps &&
+    prev.streamAgentEvents === next.streamAgentEvents &&
     prev.scopedFileName === next.scopedFileName &&
     prev.translationLanguage === next.translationLanguage &&
     prev.translationTone === next.translationTone &&

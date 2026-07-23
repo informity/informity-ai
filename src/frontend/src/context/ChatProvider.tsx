@@ -37,6 +37,7 @@ import type {
   ChatMessageApi,
   ChatMessageDisplay,
   ChatUploadAttachment,
+  AgentEventPayload,
   DisplayBlock,
   NextAction,
   NextActionReason,
@@ -334,6 +335,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
   const streamStatusStateRef = useRef<string>('generating')
   const streamStatusStartMsRef = useRef<number>(0)
   const streamPlanStepsRef = useRef<Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>>([])
+  const streamAgentEventsRef = useRef<Array<AgentEventPayload>>([])
   const streamStopRequestedRef = useRef(false)
   const currentChatIdRef = useRef<string | null>(null)
   const isStreamingRef = useRef(false)
@@ -382,12 +384,14 @@ export function ChatProvider({ children }: ChatProviderProps) {
     const draft = streamDraftRef.current
     if (!draft || !isViewingGeneratingChat()) return
     streamPlanStepsRef.current = []
+    streamAgentEventsRef.current = []
     streamDraftRef.current = {
       ...draft,
       isStreaming: true,
       streamStatusText: undefined,
       streamSectionProgress: undefined,
       streamPlanSteps: undefined,
+      streamAgentEvents: undefined,
     }
     applyStreamDraftToVisibleMessages()
   }, [applyStreamDraftToVisibleMessages, isViewingGeneratingChat])
@@ -883,6 +887,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
     streamRevealActiveRef.current = false
     streamPendingDoneRef.current = null
     streamPlanStepsRef.current = []
+    streamAgentEventsRef.current = []
     clearRevealTimer()
     streamSessionRef.current += 1
     const sessionId = streamSessionRef.current
@@ -1016,6 +1021,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
         streamRevealActiveRef.current = false
         streamPendingDoneRef.current = null
         setIsStreaming(false)
+        streamPlanStepsRef.current = []
+        streamAgentEventsRef.current = []
         const elapsed = data?.elapsed_seconds
         const messageId = data?.message_id
         const completionMode = normalizeCompletionMode(data?.completion_mode)
@@ -1069,6 +1076,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           streamStatusText: undefined,
           streamSectionProgress: undefined,
           streamPlanSteps: undefined,
+          streamAgentEvents: undefined,
           isPartial,
           hasRemainingScope,
           completionMode,
@@ -1097,6 +1105,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 streamStatusText: undefined,
                 streamSectionProgress: undefined,
                 streamPlanSteps: undefined,
+                streamAgentEvents: undefined,
                 isPartial,
                 hasRemainingScope,
                 completionMode,
@@ -1159,6 +1168,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           streamStatusText: undefined,
           streamSectionProgress: undefined,
           streamPlanSteps: undefined,
+          streamAgentEvents: undefined,
         }
         applyStreamDraftToVisibleMessages()
         streamRevealTimerRef.current = setTimeout(runCleanedReveal, CLEANED_REVEAL_INTERVAL_MS)
@@ -1220,6 +1230,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           streamRevealActiveRef.current = true
           streamContentRef.current = ''
           streamPlanStepsRef.current = []
+          streamAgentEventsRef.current = []
           streamDraftRef.current = {
             ...(streamDraftRef.current || assistantDraft),
             content: '',
@@ -1227,6 +1238,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
             streamStatusText: undefined,
             streamSectionProgress: undefined,
             streamPlanSteps: undefined,
+            streamAgentEvents: undefined,
           }
           if (streamThrottleRef.current) {
             clearTimeout(streamThrottleRef.current)
@@ -1315,6 +1327,56 @@ export function ChatProvider({ children }: ChatProviderProps) {
           }
           applyStreamDraftToVisibleMessages()
         },
+        onAgentEvent: (payload: AgentEventPayload) => {
+          if (streamSessionRef.current !== sessionId) return
+          touchStreamWatchdog()
+          const kind = typeof payload?.kind === 'string' ? payload.kind.trim().toLowerCase() : ''
+          const status = typeof payload?.status === 'string' ? payload.status.trim().toLowerCase() : ''
+          const title = typeof payload?.title === 'string' && payload.title.trim().length > 0
+            ? payload.title.trim()
+            : undefined
+          const messageText = typeof payload?.message === 'string' && payload.message.trim().length > 0
+            ? payload.message.trim()
+            : undefined
+          if (!kind && !title && !messageText) return
+          const normalizedEvent: AgentEventPayload = {
+            ...payload,
+            kind: kind === 'tool_call' || kind === 'observation' || kind === 'decision' ? kind : 'observation',
+            status: status === 'done' || status === 'empty' ? status : 'running',
+            title,
+            message: messageText,
+          }
+          const eventKey = [
+            normalizedEvent.kind || 'observation',
+            normalizedEvent.tool_name || '',
+            normalizedEvent.subquery_index ?? '',
+            normalizedEvent.subquery_total ?? '',
+            normalizedEvent.title || '',
+            normalizedEvent.query || '',
+          ].join('::')
+          const existing = streamAgentEventsRef.current
+          const idx = existing.findIndex((entry) => [
+            entry.kind || 'observation',
+            entry.tool_name || '',
+            entry.subquery_index ?? '',
+            entry.subquery_total ?? '',
+            entry.title || '',
+            entry.query || '',
+          ].join('::') === eventKey)
+          if (idx >= 0) {
+            const updated = [...existing]
+            updated[idx] = normalizedEvent
+            streamAgentEventsRef.current = updated
+          } else {
+            streamAgentEventsRef.current = [...existing, normalizedEvent]
+          }
+          streamDraftRef.current = {
+            ...(streamDraftRef.current || assistantDraft),
+            streamAgentEvents: [...streamAgentEventsRef.current],
+            isStreaming: true,
+          }
+          applyStreamDraftToVisibleMessages()
+        },
         onDone: (data) => {
           if (streamSessionRef.current !== sessionId) return
           clearStreamWatchdog()
@@ -1362,6 +1424,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                       streamStatusText: undefined,
                       streamSectionProgress: undefined,
                       streamPlanSteps: undefined,
+                      streamAgentEvents: undefined,
                       completionMode: 'partial',
                       hasRemainingScope: true,
                       nextAction: 'regenerate',
@@ -1376,6 +1439,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
               streamRequestIdRef.current = null
               streamCleanedContentRef.current = null
               streamDraftRef.current = null
+              streamPlanStepsRef.current = []
+              streamAgentEventsRef.current = []
               streamStopRequestedRef.current = false
               setActiveGenerationChatId(null)
               setActiveGenerationRequestId(null)
@@ -1399,6 +1464,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                     streamStatusText: undefined,
                     streamSectionProgress: undefined,
                     streamPlanSteps: undefined,
+                    streamAgentEvents: undefined,
                     completionMode: userRequestedStop ? 'stopped' : 'partial',
                     stoppedByUser: userRequestedStop,
                     hasRemainingScope: true,
@@ -1415,6 +1481,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
             streamRequestIdRef.current = null
             streamCleanedContentRef.current = null
             streamStopRequestedRef.current = false
+            streamPlanStepsRef.current = []
+            streamAgentEventsRef.current = []
             setActiveGenerationChatId(null)
             setActiveGenerationRequestId(null)
             streamWatchdogTimedOutRef.current = false
@@ -1441,6 +1509,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                   streamStatusText: undefined,
                   streamSectionProgress: undefined,
                   streamPlanSteps: undefined,
+                  streamAgentEvents: undefined,
                 }
               }
               return next
@@ -1451,6 +1520,8 @@ export function ChatProvider({ children }: ChatProviderProps) {
           streamRequestIdRef.current = null
           streamCleanedContentRef.current = null
           streamStopRequestedRef.current = false
+          streamPlanStepsRef.current = []
+          streamAgentEventsRef.current = []
           streamDraftRef.current = null
           setActiveGenerationChatId(null)
           setActiveGenerationRequestId(null)

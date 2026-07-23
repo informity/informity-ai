@@ -93,9 +93,15 @@ Rules:
 - operation=summarize_synthesize for app_knowledge queries asking for an explanation,
   overview, or walkthrough ("explain", "overview", "how does it work", "walk me through").
 - When agent_mode is true, include subqueries only if the query clearly benefits from
-  multiple retrieval passes over distinct evidence. Keep subqueries empty for ordinary
-  single-topic questions. Each subquery must be a concise plain-language retrieval
-  phrase, not an explanation.
+  multiple retrieval passes over distinct evidence and a single coherent retrieval pass
+  would likely miss important evidence. Keep subqueries empty for ordinary single-topic
+  questions, broad synthesis requests about one topic or document set, and inventory-
+  style wording. Each subquery must be a concise plain-language retrieval phrase for a
+  distinct evidence slice, not an explanation or paraphrase of the original question.
+- When agent_mode is true and operation=compare, prefer explicit comparison subqueries
+  that separate the compared document sets and any named comparison dimensions. For
+  compare queries, do not collapse the work into one broad subquery when two or more
+  document sets are being compared.
 - exhaustive=true only when the user explicitly asks for totals, every matching item for
   an aggregate calculation, or a complete audit across all matches.
 - A table or breakdown of counts and types is exhaustive=false — it is an inventory

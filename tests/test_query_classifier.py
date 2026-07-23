@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from informity.llm.five_q_classifier import _SYSTEM_PROMPT
 from informity.llm.query_classifier import QueryClassification, classify_query
 
 
@@ -56,3 +57,15 @@ def test_continuation_signal_is_detected() -> None:
     """Test continuation signal is detected."""
     result = classify_query("Show me the rest")
     assert result.is_continuation is True
+
+
+def test_agent_mode_subquery_instruction_is_conservative() -> None:
+    """Test agent mode subquery instruction is conservative."""
+    lowered = " ".join(_SYSTEM_PROMPT.casefold().split())
+    assert "include subqueries only if the query clearly benefits from" in lowered
+    assert "single coherent retrieval pass would likely miss important evidence" in lowered
+    assert "keep subqueries empty for ordinary single-topic questions" in lowered
+    assert "inventory" in lowered
+    assert "style wording" in lowered
+    assert "when agent_mode is true and operation=compare" in lowered
+    assert "do not collapse the work into one broad subquery" in lowered

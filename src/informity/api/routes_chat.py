@@ -1898,6 +1898,19 @@ async def chat(
                             if (
                                 isinstance(item, tuple)
                                 and len(item) == 2
+                                and item[0] == StreamSignalTag.AGENT_EVENT
+                            ):
+                                agent_event_payload = item[1] if isinstance(item[1], dict) else {}
+                                _update_sse_phase("plan_step")
+                                yield {
+                                    "event": "agent_event",
+                                    "data": serialize_api_response(agent_event_payload),
+                                }
+                                continue
+
+                            if (
+                                isinstance(item, tuple)
+                                and len(item) == 2
                                 and item[0] == StreamSignalTag.FILE_DISCOVERY
                             ):
                                 file_discovery_payload = (

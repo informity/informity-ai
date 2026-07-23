@@ -51,6 +51,25 @@ vi.mock('../api', () => {
         callbacks.onPlanStep?.({ step_id: 1, description: 'Analyzing the request', status: 'done' })
         callbacks.onPlanStep?.({ step_id: 2, description: 'Retrieving evidence from subqueries', status: 'running' })
         callbacks.onPlanStep?.({ step_id: 3, description: 'Generating answer', status: 'running' })
+        callbacks.onAgentEvent?.({
+          kind: 'tool_call',
+          status: 'running',
+          title: 'Tool call',
+          tool_name: 'search_vectors',
+          subquery_index: 1,
+          subquery_total: 2,
+          query: 'agent query',
+        })
+        callbacks.onAgentEvent?.({
+          kind: 'observation',
+          status: 'done',
+          title: 'Observation',
+          tool_name: 'search_vectors',
+          subquery_index: 1,
+          subquery_total: 2,
+          result_count: 3,
+          message: 'Retrieved 3 chunks',
+        })
       }
       callbacks.onSources?.([])
       await Promise.resolve()
@@ -115,6 +134,7 @@ function ChatProbe() {
       <div data-testid="assistant-seconds">{assistant?.generationSeconds ?? ''}</div>
       <div data-testid="assistant-status">{assistant?.streamStatusText ?? ''}</div>
       <div data-testid="assistant-plan-steps">{assistant?.streamPlanSteps?.length ?? 0}</div>
+      <div data-testid="assistant-agent-events">{assistant?.streamAgentEvents?.length ?? 0}</div>
       <div data-testid="upload-count">{chatUploads.length}</div>
     </div>
   )
@@ -166,6 +186,21 @@ describe('ChatProvider streaming lifecycle', () => {
     expect(screen.getByTestId('assistant-streaming')).toHaveTextContent('no')
     expect(screen.getByTestId('assistant-id')).toHaveTextContent('321')
     expect(screen.getByTestId('assistant-seconds')).toHaveTextContent('1.25')
+  })
+
+  it('streams structured agent events alongside plan steps', async () => {
+    finishStream = null
+    render(<Harness />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'SendAgent' }))
+    await waitFor(() => expect(screen.getByTestId('assistant-plan-steps')).toHaveTextContent('3'))
+    await waitFor(() => expect(screen.getByTestId('assistant-agent-events')).toHaveTextContent('2'))
+    expect(screen.getByTestId('assistant-status')).toHaveTextContent(/Retrieving evidence/)
+
+    await act(async () => {
+      finishStream?.()
+      await Promise.resolve()
+    })
   })
 
   it('sends the active chat id when continuing or sending in an existing thread', async () => {
