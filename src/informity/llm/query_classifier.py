@@ -171,7 +171,12 @@ def _build_context(
     )
 
 
-def _map_decision_to_classification(query: str, decision: FiveQDecision) -> QueryClassification:
+def _map_decision_to_classification(
+    query: str,
+    decision: FiveQDecision,
+    *,
+    agent_mode: bool = False,
+) -> QueryClassification:
     """Internal helper for map decision to classification."""
     lowered = query.casefold()
     intent = decision.derive_intent()
@@ -232,7 +237,7 @@ def _map_decision_to_classification(query: str, decision: FiveQDecision) -> Quer
         ),
         is_metadata_query=is_metadata_query,
         is_file_list_query=is_file_list_query,
-        agent_subqueries=list(decision.subqueries),
+        agent_subqueries=list(decision.subqueries) if decision.subqueries and agent_mode else [],
         is_continuation=is_continuation,
         needs_current_info=needs_current_info,
         mentions_time=mentions_time,
@@ -265,7 +270,7 @@ def _map_decision_to_classification(query: str, decision: FiveQDecision) -> Quer
             "scope": decision.scope,
             "operation": decision.operation,
             "partitions": list(decision.partitions),
-            "subqueries": list(decision.subqueries),
+            "subqueries": list(decision.subqueries) if agent_mode else [],
             "exhaustive": decision.exhaustive,
             "confidence": decision.confidence,
         },
@@ -299,7 +304,7 @@ def classify_query(
     if settings.dev_reload:
         log.info("five_q_classifier_singleton_instance", classifier_id=id(classifier))
     result = classifier.classify(text, context)
-    classification = _map_decision_to_classification(text, result.decision)
+    classification = _map_decision_to_classification(text, result.decision, agent_mode=agent_mode)
     classification.shadow_classifier_raw_output = result.raw_output or None
     classification.shadow_classifier_model = result.model_name
     classification.guardrail_applied = result.guardrail_applied
