@@ -1297,6 +1297,7 @@ class RAGHandler:
                 model_profile=profile,
                 chat_mode="researcher",
                 specialization_id=specialization_id,
+                agent_mode=agent_mode,
             )
         )
         messages = profile.prepare_messages(

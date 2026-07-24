@@ -49,6 +49,7 @@ class BuildMessagesRequest:
     system_prompt: str | None = None
     chat_mode: str | None = None
     specialization_id: str | None = None
+    agent_mode: bool = False
 
 
 def _coerce_source_rank(value: object) -> int | None:
@@ -329,7 +330,7 @@ def _build_messages_impl(request: BuildMessagesRequest) -> list[dict[str, str]]:
     # Build system message
     active_system_prompt = (
         compose_prompt(
-            mode_id="researcher_rag",
+            mode_id="researcher_agent_rag" if request.agent_mode else "researcher_rag",
             chat_mode=request.chat_mode,
             specialization_id=request.specialization_id,
         )
@@ -382,6 +383,7 @@ def build_messages(*args: object, **kwargs: object) -> list[dict[str, str]]:
         system_prompt = kwargs.pop("system_prompt", None)
         chat_mode = kwargs.pop("chat_mode", None)
         specialization_id = kwargs.pop("specialization_id", None)
+        agent_mode = kwargs.pop("agent_mode", False)
 
         if kwargs:
             unexpected = ", ".join(sorted(str(key) for key in kwargs))
@@ -410,5 +412,6 @@ def build_messages(*args: object, **kwargs: object) -> list[dict[str, str]]:
             system_prompt=str(system_prompt) if system_prompt is not None else None,
             chat_mode=str(chat_mode) if chat_mode is not None else None,
             specialization_id=str(specialization_id) if specialization_id is not None else None,
+            agent_mode=bool(agent_mode),
         )
     return _build_messages_impl(request)
