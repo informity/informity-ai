@@ -71,6 +71,9 @@ Rules:
 - In agent mode, do not classify a year-scoped package/analysis/closing package/
   refinancing package as scope=targeted unless the user names one exact file or one
   explicitly singular document identifier.
+- In agent mode, if the query names a year together with package/analysis/closing
+  package/refinancing package/escrow analysis wording and asks to summarize, explain,
+  or ask what it says, choose scope=broad.
 - Compare operations are always scope=broad regardless of how many documents are named.
 - If the user asks what a year-scoped package, bundle, collection, or document set
   includes/covers/tells us, classify scope=broad even when the phrase is singular.
@@ -318,6 +321,10 @@ Examples:
 - "What does the 2023 Package A say about Topic X?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
 - "What does the 2023 package include?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
 - "What does the 2025 Package A tell us?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
+- "Summarize the 2025 Escondido property closing package." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
+- "What does the 2025 Rocket Mortgage annual escrow analysis say about taxes and insurance?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
+- "What does the 2025 closing package say?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
+- "What does the 2025 escrow analysis say?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
 - "What do the Category A documents tell me?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Give me an overview of the Category B files." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Create a short table summarizing the Type X documents." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
