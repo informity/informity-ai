@@ -22,6 +22,11 @@
   --chat-view-toggle-active-bg: var(--color-bg-hover);
   --chat-view-toggle-active-border: transparent;
   --chat-view-scoped-top-padding: 3.7rem;
+  --chat-view-textarea-padding-top: 0.75rem;
+  --chat-view-textarea-padding-right: var(--chat-view-inline-inset);
+  --chat-view-textarea-padding-bottom: 3.5rem;
+  --chat-view-textarea-padding-left: calc(var(--chat-view-inline-inset) + 6px);
+  --chat-view-controls-row-bottom: 0.75rem;
   --chat-view-scroll-clip-top-default: 0.95rem;
   --chat-view-scroll-clip-bottom: 3.3rem;
 }
@@ -552,7 +557,11 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
   max-width: 100%;
   min-height: 104px;
   max-height: 304px;
-  padding: 0.75rem var(--chat-view-inline-inset) 3.25rem calc(var(--chat-view-inline-inset) + 6px);
+  padding:
+    var(--chat-view-textarea-padding-top)
+    var(--chat-view-textarea-padding-right)
+    var(--chat-view-textarea-padding-bottom)
+    var(--chat-view-textarea-padding-left);
   font-family: inherit;
   font-size: var(--font-size-base);
   line-height: 1.5;
@@ -568,6 +577,7 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
 
 .chat-view__textarea--scoped {
   padding-top: var(--chat-view-scoped-top-padding);
+  padding-bottom: var(--chat-view-scoped-top-padding);
 }
 
 .chat-view__textarea:focus,
@@ -621,7 +631,7 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
   position: absolute;
   left: var(--chat-view-controls-left-inset);
   right: var(--chat-view-inline-inset);
-  bottom: 0.75rem;
+  bottom: var(--chat-view-controls-row-bottom);
   z-index: 8;
   display: flex;
   align-items: center;
