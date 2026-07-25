@@ -819,6 +819,15 @@ Core types live in `src/informity/diagnostics/` (issue_types, observer, resource
 - Signal/atexit: _cleanup_models; SIGTERM/SIGINT (when not dev_reload) call _signal_cleanup then _exit.
 - **Imports:** routers (scan, index, chat, search, settings), config, db.sqlite (init_db, clear_stale_running_scans), embedder, reranker, watcher, logging_config, llm.engine (remove_models_dir_cache)
 
+### Frontend Error Surfaces
+- **Top banner:** shared, page-wide banner for backend connectivity problems and other global service unavailability states. This is the canonical surface for “service unavailable / restart the app” messaging.
+- **Toast:** transient, bottom-right feedback for action outcomes and recoverable operation failures (save, delete, export, translate, etc.).
+- **Inline page error:** local page-specific failures that affect a single view but do not block the entire app (for example, a list load failure on Files/History/Settings).
+- **Centered state:** blocking or empty-state style failure when the whole view cannot render a meaningful list or action surface.
+- **Chat callout / assistant status:** chat-local progress or outcome messaging that is part of the conversation UI, not a generic app-level alert.
+- **Error boundary:** last-resort fallback for unexpected React crashes.
+- **Rule of thumb:** prefer the narrowest surface that matches the scope of the failure; use the top banner only for app-wide connectivity/service availability issues.
+
 ---
 
 

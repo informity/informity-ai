@@ -243,26 +243,6 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
   display: none;
 }
 
-.chat-view__error {
-  margin-bottom: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  font-size: var(--font-size-sm);
-  color: var(--color-danger-solid);
-  background: var(--color-danger-bg);
-  border-radius: var(--border-radius-md);
-}
-
-.chat-view__error-link {
-  background: none;
-  border: none;
-  padding: 0;
-  color: inherit;
-  font-size: inherit;
-  font-weight: var(--font-weight-heading);
-  text-decoration: underline;
-  cursor: pointer;
-}
-
 /* Inline busy hint in the controls row — replaces warning boxes */
 .chat-view__busy-hint {
   background: none;

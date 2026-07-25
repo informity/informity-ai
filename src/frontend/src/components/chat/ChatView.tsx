@@ -133,7 +133,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     messages,
     isStreaming,
     loadingChat,
-    error,
     enableRawOutputControl,
     chatWebSearchEnabled,
     chatWebSearchPrivacyOverride,
@@ -1322,7 +1321,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                   `chat-view__input-area composer-wrap${isCenteredComposer ? ' chat-view__input-area--centered' : ''}${animateToDocked ? ' chat-view__input-area--docking composer-wrap--docking' : ''}`
                 }
               >
-                {error && <div className="chat-view__error">{error}</div>}
                 <div
                   className={
                     `chat-view__input-wrapper composer__input-wrapper${textareaCanScroll ? ' chat-view__input-wrapper--scrollable composer__input-wrapper--scrollable' : ''}${textareaHasTopScroll ? ' chat-view__input-wrapper--top-scrolled composer__input-wrapper--top-scrolled' : ''}${hasScopedInputPill ? ' chat-view__input-wrapper--scoped composer__input-wrapper--scoped' : ''}${isDragOverComposer ? ' chat-view__input-wrapper--drag-active composer__input-wrapper--drag-active' : ''}`

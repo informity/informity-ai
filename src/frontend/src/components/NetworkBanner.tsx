@@ -1,19 +1,22 @@
 /**
  * Informity AI — Service unavailable banner
- * Uses shared backend reachability state.
+ * Uses shared backend reachability state and chat network errors.
  */
+import { useChatContext } from '../context/useChatContext'
 import { useBackendStatus } from '../context/useBackendStatus'
-import './NetworkBanner.css'
+import { SERVICE_UNAVAILABLE_MESSAGE } from '../utils/networkErrors'
+import { TopBanner } from './TopBanner'
 
 export function NetworkBanner() {
   const { offline } = useBackendStatus()
+  const { error } = useChatContext()
 
-  if (!offline) return null
+  const showServiceUnavailable = offline || error === SERVICE_UNAVAILABLE_MESSAGE
+  if (!showServiceUnavailable) return null
 
   return (
-    <div className="network-banner" role="alert">
-      <i className="ri-server-line" aria-hidden style={{ fontSize: '1.125rem' }} />
-      <span>Service unavailable. Start or restart Informity AI, then try again.</span>
-    </div>
+    <TopBanner tone="danger" iconClassName="ri-server-line">
+      {SERVICE_UNAVAILABLE_MESSAGE}
+    </TopBanner>
   )
 }
