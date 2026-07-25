@@ -20,6 +20,7 @@ import {
 import { showToast } from './useToast'
 import { logApiError } from '../utils/logApiError'
 import { extractErrorMessage } from '../utils/errorMessages'
+import { SERVICE_UNAVAILABLE_MESSAGE, isBackendConnectionError } from '../utils/networkErrors'
 import {
   CHAT_FILE_SCOPE_MAP_STORAGE_KEY,
   FORCE_NEW_CHAT_KEY,
@@ -77,6 +78,14 @@ const STREAM_STATUS_LABELS: Record<string, string> = {
   generating: 'Generating answer…',
   continuing: 'Continuing response…',
   finalizing: 'Finalizing answer…',
+}
+
+function shouldSuppressChatTransportToast(message: string): boolean {
+  return (
+    message === SERVICE_UNAVAILABLE_MESSAGE
+    || message === STREAM_WATCHDOG_TIMEOUT_MESSAGE
+    || message === STREAM_WATCHDOG_INTERRUPTED_MESSAGE
+  )
 }
 
 interface PersistedChatTranslationRequest {
@@ -1411,7 +1420,6 @@ export function ChatProvider({ children }: ChatProviderProps) {
             if (streamWatchdogTimedOutRef.current) {
               const timeoutMsg = STREAM_WATCHDOG_TIMEOUT_MESSAGE
               setError(timeoutMsg)
-              showToast('error', timeoutMsg)
               if (isViewingGeneratingChat()) {
                 setMessages((prev) => {
                   const next = [...prev]
@@ -1492,9 +1500,13 @@ export function ChatProvider({ children }: ChatProviderProps) {
           // generation is active, and we intentionally surface a stable UX message.
           const msg = err instanceof ApiError
             ? (err.status === 429 ? ACTIVE_GENERATION_REJECT_MESSAGE : err.detail)
-            : (err.message || 'Failed to send message')
+            : (isBackendConnectionError(err)
+              ? SERVICE_UNAVAILABLE_MESSAGE
+              : (err instanceof Error ? err.message : 'Failed to send message'))
           setError(msg)
-          showToast('error', msg)
+          if (!shouldSuppressChatTransportToast(msg)) {
+            showToast('error', msg)
+          }
           const errContent = streamContentRef.current || 'Response was interrupted.'
           if (isViewingGeneratingChat()) {
             setMessages((prev) => {

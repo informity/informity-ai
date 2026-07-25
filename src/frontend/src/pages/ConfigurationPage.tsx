@@ -5,6 +5,7 @@
 import { useState, useEffect } from 'react'
 import { getEnvVars } from '../api'
 import { PageHeader } from '../components/PageHeader'
+import { CenteredState } from '../components/CenteredState'
 import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { showToast } from '../context/useToast'
 import { useBackendStatus } from '../context/useBackendStatus'
@@ -120,7 +121,13 @@ export function ConfigurationPage() {
     return (
       <div className="page">
         {pageHeader}
-        <div className="page__scroll"><p>Loading…</p></div>
+        <div className="page__scroll">
+          <CenteredState
+            icon="ri-loader-4-line"
+            title="Loading environment variables…"
+            description="Fetching the current runtime configuration."
+          />
+        </div>
       </div>
     )
   }
@@ -130,7 +137,15 @@ export function ConfigurationPage() {
       <div className="page">
         {pageHeader}
         <div className="page__scroll">
-          {offline ? <ServiceUnavailableState /> : <p className="page__error">{error}</p>}
+          {offline ? (
+            <ServiceUnavailableState />
+          ) : (
+            <CenteredState
+              icon="ri-error-warning-line"
+              title="Failed to load environment variables."
+              description={error}
+            />
+          )}
         </div>
       </div>
     )

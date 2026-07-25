@@ -423,7 +423,13 @@ export function FilesPage() {
         icon="ri-folder-line"
       />
       <div className="page__scroll">
-        {error && <div className="page__error">{error}</div>}
+        {error && (
+          <CenteredState
+            icon="ri-error-warning-line"
+            title="Failed to load files."
+            description={error}
+          />
+        )}
         {showBaseEmptyState ? (
           <CenteredState
             icon="ri-file-copy-2-line"
@@ -443,7 +449,11 @@ export function FilesPage() {
             <div className="files-page__table-wrapper">
               {semanticSearchActive ? (
                 semanticError ? (
-                  <div className="page__error">{semanticError}</div>
+                  <CenteredState
+                    icon="ri-search-eye-line"
+                    title="Semantic search unavailable."
+                    description={semanticError}
+                  />
                 ) : (
                   <FileSearchResults
                     results={semanticResults}

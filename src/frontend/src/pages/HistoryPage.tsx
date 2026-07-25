@@ -116,7 +116,13 @@ export function HistoryPage() {
         icon="ri-history-line"
       />
       <div className="page__scroll">
-        {error && <div className="page__error">{error}</div>}
+        {error && (
+          <CenteredState
+            icon="ri-error-warning-line"
+            title="Failed to load chat history."
+            description={error}
+          />
+        )}
         {showBaseEmptyState ? (
           <CenteredState
             icon="ri-chat-off-line"
@@ -128,10 +134,11 @@ export function HistoryPage() {
             <HistoryFilters filters={filters} onChange={handleFiltersChange} />
             <div className="history-page__table-wrapper">
               {loading && chats.length === 0 ? (
-                <div className="history-page__loading">
-                  <i className="ri-loader-4-line" aria-hidden style={{ fontSize: '1.5rem' }} />
-                  <span>Loading chats...</span>
-                </div>
+                <CenteredState
+                  icon="ri-loader-4-line"
+                  title="Loading chats…"
+                  description="Fetching chat history."
+                />
               ) : (
                 <>
                   <HistoryTable

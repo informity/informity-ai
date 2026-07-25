@@ -3,6 +3,7 @@ import { useLocation } from 'react-router-dom'
 import { PageHeader } from '../components/PageHeader'
 import { MarkdownContent } from '../components/MarkdownContent'
 import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
+import { CenteredState } from '../components/CenteredState'
 import { useBackendStatus } from '../context/useBackendStatus'
 import { useTranslateContext } from '../context/useTranslateContext'
 import { useChatContext } from '../context/useChatContext'
@@ -526,9 +527,11 @@ export function TranslatePage() {
         <div className={`translate-page__composer-wrap${animateToDocked ? ' translate-page__composer-wrap--docking' : ''}`}>
 
           {exceedsSoftLimit && fileId && estimatedMinutes !== null && (
-            <p className="translate-page__error">
-              Large document (~{pageCount ?? '?'} pages) · ~{estimatedMinutes} min estimated
-            </p>
+            <CenteredState
+              icon="ri-information-line"
+              title="Large document detected."
+              description={`~${pageCount ?? '?'} pages · ~${estimatedMinutes} min estimated`}
+            />
           )}
           {/* isStreaming hint is now inline in the controls row — no warning box */}
 
