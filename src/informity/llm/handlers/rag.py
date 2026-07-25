@@ -1230,7 +1230,6 @@ class RAGHandler:
                 ),
             )
             yield (StreamSignalTag.FILE_DISCOVERY, file_discovery)
-            yield answer_text
             if agent_plan_enabled:
                 yield (
                     StreamSignalTag.PLAN_STEP,
@@ -1240,6 +1239,7 @@ class RAGHandler:
                         "status": "done",
                     },
                 )
+            yield answer_text
             sources = _generation_closeout.build_source_references(
                 chunks=chunks,
                 answer_text=answer_text,

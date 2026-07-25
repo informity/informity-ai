@@ -175,13 +175,11 @@ def _load_setup_state_file(path: Path) -> tuple[dict[str, object] | None, str | 
 
 def _recommend_setup_tier(*, ram_total_gb: float, free_disk_gb: float) -> tuple[str, str]:
     """recommend setup tier."""
-    if free_disk_gb < 14.0:
-        return "small", "Low free disk detected; smaller model is safer for setup."
-    if ram_total_gb >= 32.0:
-        return "quality", "Detected >=32 GB RAM; quality tier fits this device best."
-    if ram_total_gb >= 24.0:
-        return "balanced", "Detected >=24 GB RAM; balanced tier is recommended."
-    return "small", "Detected <24 GB RAM; small tier is recommended for reliability."
+    _ = (ram_total_gb, free_disk_gb)
+    return (
+        "quality",
+        "Using the quality tier keeps first-run setup aligned with the default 35B model.",
+    )
 
 
 def _setup_state_path() -> Path:

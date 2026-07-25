@@ -81,3 +81,19 @@ def test_load_config_file_values_migrates_legacy_specialization_keys(tmp_path, m
     assert persisted["enabled_specialization_ids"] == ["legal", "financial"]
     assert "enable_chat_roles" not in persisted
     assert "enabled_chat_role_ids" not in persisted
+
+
+def test_reset_to_factory_defaults_uses_qwen3_6_35b(tmp_path, monkeypatch) -> None:
+    """Test reset to factory defaults uses qwen3 6 35b."""
+    config_path = tmp_path / "config.json"
+    monkeypatch.setattr(config, "_config_path_for_loader", lambda: config_path)
+    monkeypatch.setattr(config, "ensure_private_file", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(config, "_apply_thread_limits_early", lambda: None)
+
+    reset_settings = config.reset_to_factory_defaults()
+
+    assert reset_settings.llm_model_id == "qwen3.6:35b"
+    assert reset_settings.llm_model_filename == "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+    persisted = json.loads(config_path.read_text(encoding="utf-8"))
+    assert persisted["llm_model_id"] == "qwen3.6:35b"
+    assert persisted["llm_model_filename"] == "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"

@@ -8,6 +8,9 @@ const NETWORK_ERROR_PATTERNS = [
   'load failed',
 ]
 
+export const SERVICE_UNAVAILABLE_MESSAGE =
+  'Service unavailable. Start or restart Informity AI, then try again.'
+
 export function isBackendConnectionError(error: unknown): boolean {
   if (error instanceof ApiError) return false
   if (!(error instanceof Error)) return false

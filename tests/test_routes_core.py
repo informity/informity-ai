@@ -346,7 +346,7 @@ async def test_get_setup_status_returns_ready_when_required_models_cached(
     status = await routes_system.get_setup_status()
     assert status.state == "ready"
     assert status.required_models_ready is True
-    assert status.recommended_tier in {"small", "balanced", "quality"}
+    assert status.recommended_tier == "quality"
     assert status.tier_options
 
 
@@ -477,18 +477,18 @@ async def test_retry_setup_ollama_uses_classic_workflow(monkeypatch: pytest.Monk
     assert called["scheduled"] is True
 
 
-def test_recommend_setup_tier_prefers_small_on_16gb_class_devices() -> None:
-    """Test recommend setup tier prefers small on 16gb class devices."""
+def test_recommend_setup_tier_prefers_quality_for_first_run() -> None:
+    """Test recommend setup tier prefers quality for first run."""
     tier, reason = routes_system._recommend_setup_tier(ram_total_gb=16.0, free_disk_gb=200.0)
-    assert tier == "small"
-    assert "24 GB" in reason
+    assert tier == "quality"
+    assert "35B" in reason
 
 
-def test_recommend_setup_tier_uses_balanced_for_24gb_and_above() -> None:
-    """Test recommend setup tier uses balanced for 24gb and above."""
-    tier, reason = routes_system._recommend_setup_tier(ram_total_gb=24.0, free_disk_gb=200.0)
-    assert tier == "balanced"
-    assert "24 GB" in reason
+def test_recommend_setup_tier_uses_quality_even_with_lower_disk() -> None:
+    """Test recommend setup tier uses quality even with lower disk."""
+    tier, reason = routes_system._recommend_setup_tier(ram_total_gb=24.0, free_disk_gb=10.0)
+    assert tier == "quality"
+    assert "35B" in reason
 
 
 @pytest.mark.asyncio
