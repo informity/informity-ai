@@ -49,26 +49,21 @@ vi.mock('../api', () => {
       if (String(message || '').toLowerCase().includes('agent')) {
         callbacks.onStatus?.({ state: 'retrieving', message: 'Retrieving evidence...' })
         callbacks.onPlanStep?.({ step_id: 1, description: 'Analyzing the request', status: 'done' })
-        callbacks.onPlanStep?.({ step_id: 2, description: 'Retrieving evidence from subqueries', status: 'running' })
+        callbacks.onPlanStep?.({ step_id: 2, description: 'Retrieving evidence', status: 'running' })
         callbacks.onPlanStep?.({ step_id: 3, description: 'Generating answer', status: 'running' })
         callbacks.onAgentEvent?.({
           kind: 'tool_call',
           status: 'running',
-          title: 'Tool call',
+          title: 'Retrieving evidence',
           tool_name: 'search_vectors',
-          subquery_index: 1,
-          subquery_total: 2,
           query: 'agent query',
         })
         callbacks.onAgentEvent?.({
           kind: 'observation',
           status: 'done',
-          title: 'Observation',
+          title: 'Retrieving evidence',
           tool_name: 'search_vectors',
-          subquery_index: 1,
-          subquery_total: 2,
-          result_count: 3,
-          message: 'Retrieved 3 chunks',
+          query: 'agent query',
         })
       }
       callbacks.onSources?.([])
@@ -135,6 +130,10 @@ function ChatProbe() {
       <div data-testid="assistant-status">{assistant?.streamStatusText ?? ''}</div>
       <div data-testid="assistant-plan-steps">{assistant?.streamPlanSteps?.length ?? 0}</div>
       <div data-testid="assistant-agent-events">{assistant?.streamAgentEvents?.length ?? 0}</div>
+      <div data-testid="assistant-agent-event-0-title">{assistant?.streamAgentEvents?.[0]?.title ?? ''}</div>
+      <div data-testid="assistant-agent-event-0-status">{assistant?.streamAgentEvents?.[0]?.status ?? ''}</div>
+      <div data-testid="assistant-agent-event-1-title">{assistant?.streamAgentEvents?.[1]?.title ?? ''}</div>
+      <div data-testid="assistant-agent-event-1-status">{assistant?.streamAgentEvents?.[1]?.status ?? ''}</div>
       <div data-testid="upload-count">{chatUploads.length}</div>
     </div>
   )
@@ -196,6 +195,10 @@ describe('ChatProvider streaming lifecycle', () => {
     await waitFor(() => expect(screen.getByTestId('assistant-plan-steps')).toHaveTextContent('3'))
     await waitFor(() => expect(screen.getByTestId('assistant-agent-events')).toHaveTextContent('2'))
     expect(screen.getByTestId('assistant-status')).toHaveTextContent(/Retrieving evidence/)
+    expect(screen.getByTestId('assistant-agent-event-0-title')).toHaveTextContent('Retrieving evidence')
+    expect(screen.getByTestId('assistant-agent-event-0-status')).toHaveTextContent('running')
+    expect(screen.getByTestId('assistant-agent-event-1-title')).toHaveTextContent('Retrieving evidence')
+    expect(screen.getByTestId('assistant-agent-event-1-status')).toHaveTextContent('done')
 
     await act(async () => {
       finishStream?.()

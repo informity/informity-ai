@@ -916,21 +916,15 @@ class RAGHandler:
                 ),
             )
             seen_chunk_keys: set[tuple[object, ...]] = set()
+            if agent_plan_enabled:
+                yield _build_agent_event(
+                    "tool_call",
+                    "Retrieving evidence",
+                    "",
+                    status="running",
+                    tool_name="search_vectors",
+                )
             for subquery_index, agent_query in enumerate(agent_retrieval_queries, start=1):
-                if agent_plan_enabled:
-                    yield _build_agent_event(
-                        "tool_call",
-                        "Tool call",
-                        (
-                            f"search_vectors for subquery {subquery_index}"
-                            f" of {len(agent_retrieval_queries)}"
-                        ),
-                        status="running",
-                        tool_name="search_vectors",
-                        subquery_index=subquery_index,
-                        subquery_total=len(agent_retrieval_queries),
-                        query=agent_query,
-                    )
                 subquery_chunks, subquery_timing = await _retrieve_for_query(
                     agent_query,
                     top_k=per_query_top_k,
@@ -960,18 +954,6 @@ class RAGHandler:
                             "merged_chunks": len(chunks),
                         },
                     )
-                if agent_plan_enabled:
-                    yield _build_agent_event(
-                        "observation",
-                        "Observation",
-                        f"Retrieved {len(subquery_chunks)} chunks",
-                        status="done",
-                        tool_name="search_vectors",
-                        subquery_index=subquery_index,
-                        subquery_total=len(agent_retrieval_queries),
-                        result_count=len(subquery_chunks),
-                        query=agent_query,
-                    )
                 if len(chunks) >= effective_top_k:
                     break
             if trace is not None:
@@ -983,17 +965,23 @@ class RAGHandler:
                         "returned_chunks": len(chunks),
                         "per_query_top_k": per_query_top_k,
                     },
-            )
+                )
+            if agent_plan_enabled:
+                yield _build_agent_event(
+                    "observation",
+                    "Retrieving evidence",
+                    "",
+                    status="done",
+                    tool_name="search_vectors",
+                )
         else:
             if agent_plan_enabled:
                 yield _build_agent_event(
                     "tool_call",
-                    "Tool call",
-                    "search_vectors for the current query",
+                    "Retrieving evidence",
+                    "",
                     status="running",
                     tool_name="search_vectors",
-                    subquery_index=1,
-                    subquery_total=1,
                     query=retrieval_query,
                 )
             chunks, retrieval_timing = await _retrieve_for_query(
@@ -1004,13 +992,10 @@ class RAGHandler:
             if agent_plan_enabled:
                 yield _build_agent_event(
                     "observation",
-                    "Observation",
-                    f"Retrieved {len(chunks)} chunks",
+                    "Retrieving evidence",
+                    "",
                     status="done",
                     tool_name="search_vectors",
-                    subquery_index=1,
-                    subquery_total=1,
-                    result_count=len(chunks),
                     query=retrieval_query,
                 )
         if agent_plan_enabled:

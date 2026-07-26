@@ -24,6 +24,16 @@ function stripThinkArtifactsForStreaming(text: string): string {
   return next
 }
 
+function normalizePlanStepStatus(status?: 'running' | 'done' | 'empty') {
+  return status === 'done' ? 'done' : 'running'
+}
+
+function getPlanStepIconClassName(status?: 'running' | 'done' | 'empty') {
+  return normalizePlanStepStatus(status) === 'done'
+    ? 'ri-checkbox-circle-line chat-message__plan-step-icon'
+    : 'ri-circle-line chat-message__plan-step-icon chat-message__plan-step-icon--active'
+}
+
 interface ChatMessageProps {
   id?: number
   role: string
@@ -548,13 +558,12 @@ function ChatMessageComponent({
                         {showPlanSteps && (
                           <span className="chat-message__plan-steps">
                             {streamPlanSteps!.map(step => (
-                              <span key={step.step_id} className={`chat-message__plan-step chat-message__plan-step--${step.status}`}>
+                              <span
+                                key={step.step_id}
+                                className={`chat-message__plan-step chat-message__plan-step--${normalizePlanStepStatus(step.status)}`}
+                              >
                                 <i
-                                  className={
-                                    step.status === 'done'
-                                      ? 'ri-checkbox-circle-line chat-message__plan-step-icon'
-                                      : 'ri-checkbox-blank-circle-line chat-message__plan-step-icon chat-message__plan-step-icon--active'
-                                  }
+                                  className={getPlanStepIconClassName(step.status)}
                                   aria-hidden="true"
                                 />
                                 <span className="chat-message__plan-step-text">{step.description}</span>
@@ -566,9 +575,7 @@ function ChatMessageComponent({
                           <span className="chat-message__plan-steps">
                             {streamAgentEvents!.map((event, index) => {
                               const eventKind = event.kind || 'observation'
-                              const eventStatus = event.status === 'done' || event.status === 'empty'
-                                ? event.status
-                                : 'running'
+                              const eventStatus = normalizePlanStepStatus(event.status)
                               const eventTitle = typeof event.title === 'string' && event.title.trim().length > 0
                                 ? event.title.trim()
                                 : (
@@ -592,14 +599,7 @@ function ChatMessageComponent({
                                   key={`${eventKind}-${event.subquery_index ?? index}-${eventTitle}-${eventMessage}`}
                                   className={`chat-message__plan-step chat-message__plan-step--${eventStatus}`}
                                 >
-                                  <i
-                                    className={
-                                      eventStatus === 'done'
-                                        ? 'ri-checkbox-circle-line chat-message__plan-step-icon'
-                                        : 'ri-checkbox-blank-circle-line chat-message__plan-step-icon chat-message__plan-step-icon--active'
-                                    }
-                                    aria-hidden="true"
-                                  />
+                                  <i className={getPlanStepIconClassName(eventStatus)} aria-hidden="true" />
                                   <span className="chat-message__plan-step-text">
                                     <strong>{eventTitle}</strong>
                                     {eventMessage ? `: ${eventMessage}` : ''}
