@@ -54,6 +54,17 @@ type MenuActionCallback = (action: string) => void
 
 const BACKEND_STARTUP_STATUS_EVENT = 'informity://backend-startup-status'
 const MENU_ACTION_EVENT = 'informity://menu-action'
+const DEFAULT_API_BASE = 'http://localhost:8420'
+
+function getApiBase(): string {
+  if (window.__INFORMITY_API_BASE__ !== undefined) return window.__INFORMITY_API_BASE__
+  if (import.meta.env.VITE_API_URL !== undefined) return import.meta.env.VITE_API_URL
+  return DEFAULT_API_BASE
+}
+
+function getSessionToken(): string | null {
+  return window.__INFORMITY_API_TOKEN__ || null
+}
 
 function formatUnknownError(error: unknown): string {
   if (error instanceof Error && error.message) {
@@ -79,6 +90,44 @@ function formatUnknownError(error: unknown): string {
     }
   }
   return String(error)
+}
+
+export async function logAppError(source: string, error: unknown): Promise<void> {
+  const trimmedSource = String(source || '').trim()
+  if (!trimmedSource) return
+
+  const detail = formatUnknownError(error).trim()
+  if (!detail) return
+
+  const url = `${getApiBase()}/api/client-error`
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      cache: 'no-store',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(getSessionToken() ? { 'X-Informity-Session': getSessionToken() as string } : {}),
+      },
+      body: JSON.stringify({ source: trimmedSource, detail }),
+    })
+    if (response.ok) return
+  } catch {
+    // Fall through to other logging paths.
+  }
+
+  if (isDesktopRuntime()) {
+    try {
+      await invokeTauri<void>('append_app_error_log', {
+        source: trimmedSource,
+        detail,
+      })
+      return
+    } catch {
+      // Fall through to console logging so the error is still visible in dev.
+    }
+  }
+
+  console.warn(`[${trimmedSource}]`, detail, error)
 }
 
 function parseStartupFailurePayload(error: unknown): StartupFailureInfo | null {

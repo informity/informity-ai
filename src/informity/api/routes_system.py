@@ -36,6 +36,8 @@ from informity.api.schemas import (
     SetupStartRequest,
     SetupStartResponse,
     SetupStatusResponse,
+    UpdateCheckResponse,
+    UpdateMetadata,
 )
 from informity.api.security import is_loopback_host
 from informity.api.setup_models import (
@@ -86,6 +88,19 @@ from informity.version import APP_VERSION
 log = structlog.get_logger(__name__)
 _SYSTEM_DIAGNOSTICS_EXCEPTIONS = (OSError, RuntimeError, ValueError, TypeError)
 _SYSTEM_WORKFLOW_EXCEPTIONS = (LLMError, OSError, RuntimeError, ValueError, TypeError, TimeoutError)
+_UPDATE_METADATA_URL = "https://raw.githubusercontent.com/informity/informity-ai/develop/latest.json"
+_UPDATE_METADATA_TIMEOUT_SECONDS = 8.0
+
+
+def _compare_version_strings(left: str, right: str) -> int:
+    """Compare semantic version strings."""
+
+    def _parts(version: str) -> tuple[int, int, int]:
+        core = version.split("-", 1)[0].split("+", 1)[0]
+        major, minor, patch = (int(part) for part in core.split("."))
+        return major, minor, patch
+
+    return (_parts(left) > _parts(right)) - (_parts(left) < _parts(right))
 
 
 def _llm_engine_get_model_path() -> Path:
@@ -140,6 +155,12 @@ _model_runtime: dict[str, object] = {
 _model_task: asyncio.Task[None] | None = None
 _model_cancel_event: threading.Event | None = None
 _model_lock = asyncio.Lock()
+
+class ClientErrorLogRequest(BaseModel):
+    """ClientErrorLogRequest model."""
+
+    source: str
+    detail: str
 
 # ==============================================================================
 # Router
@@ -227,6 +248,61 @@ def _task_is_active(task: object | None) -> bool:
         return not bool(done())
     except Exception:  # pragma: no cover - defensive for task doubles
         return True
+
+
+@router.post("/client-error")
+async def log_client_error(request: ClientErrorLogRequest) -> dict[str, bool]:
+    """Log a frontend/client error into the app log stream."""
+    source = request.source.strip()
+    detail = request.detail.strip()
+    if not source or not detail:
+        return {"ok": True}
+    log.error("client_error", source=source, detail=detail)
+    return {"ok": True}
+
+
+def _fetch_update_metadata(url: str) -> UpdateMetadata:
+    """Fetch update metadata from the release JSON source."""
+    req = urllib.request.Request(url=url, method="GET")
+    with urllib.request.urlopen(req, timeout=_UPDATE_METADATA_TIMEOUT_SECONDS) as resp:  # noqa: S310
+        status = getattr(resp, "status", 200)
+        if status != 200:
+            raise HTTPException(status_code=502, detail=f"Update metadata request failed ({status})")
+        payload = json.loads(resp.read().decode("utf-8"))
+    metadata = UpdateMetadata.model_validate(payload)
+    if not metadata.version.strip() or not metadata.download_url.strip():
+        raise HTTPException(status_code=502, detail="Update metadata is missing required fields")
+    return metadata
+
+
+@router.get("/update-check", response_model=UpdateCheckResponse)
+async def get_update_check() -> UpdateCheckResponse:
+    """Check whether a newer app version is available."""
+    checked_at_iso = datetime.now(UTC).isoformat()
+    try:
+        metadata = await asyncio.to_thread(_fetch_update_metadata, _UPDATE_METADATA_URL)
+    except urllib.error.HTTPError as exc:
+        log.error("update_check_failed", error=str(exc), url=_UPDATE_METADATA_URL)
+        raise HTTPException(status_code=502, detail=f"Update metadata request failed ({exc.code})") from exc
+    except urllib.error.URLError as exc:
+        log.error("update_check_failed", error=str(exc), url=_UPDATE_METADATA_URL)
+        raise HTTPException(status_code=502, detail=f"Update metadata request failed ({exc.reason})") from exc
+    except HTTPException:
+        log.error("update_check_failed", error="invalid_update_metadata", url=_UPDATE_METADATA_URL)
+        raise
+    except Exception as exc:
+        log.error("update_check_failed", error=str(exc), url=_UPDATE_METADATA_URL)
+        raise HTTPException(status_code=502, detail="Update metadata request failed") from exc
+
+    current_version = APP_VERSION
+    update_available = _compare_version_strings(metadata.version, current_version) > 0
+    return UpdateCheckResponse(
+        current_version=current_version,
+        latest_version=metadata.version,
+        update_available=update_available,
+        metadata=metadata,
+        checked_at_iso=checked_at_iso,
+    )
 
 
 def _update_setup_config(

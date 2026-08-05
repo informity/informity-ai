@@ -818,6 +818,25 @@ class HealthResponse(BaseModel):
     progress_percent: float | None = None
 
 
+class UpdateMetadata(BaseModel):
+    """UpdateMetadata model."""
+
+    version: str
+    release_notes: str = ""
+    download_url: str
+    published_at: str | None = None
+
+
+class UpdateCheckResponse(BaseModel):
+    """UpdateCheckResponse model."""
+
+    current_version: str
+    latest_version: str | None = None
+    update_available: bool
+    metadata: UpdateMetadata | None = None
+    checked_at_iso: str
+
+
 class SetupTierOption(BaseModel):
     """SetupTierOption model."""
 

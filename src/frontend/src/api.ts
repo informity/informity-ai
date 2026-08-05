@@ -15,6 +15,7 @@ import type {
   PlanStepPayload,
   StreamChatCallbacks,
   StreamDonePayload,
+  UpdateCheckResponse,
 } from './types/api'
 import type { SetupState } from './types/setupState'
 
@@ -746,6 +747,10 @@ export async function getConfigReference(): Promise<unknown> {
 
 export async function getHealth(): Promise<unknown> {
   return request('GET', '/api/health')
+}
+
+export async function getUpdateCheck(): Promise<UpdateCheckResponse> {
+  return request<UpdateCheckResponse>('GET', '/api/update-check')
 }
 
 export interface SetupStatusResponse {

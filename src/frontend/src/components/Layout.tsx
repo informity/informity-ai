@@ -18,6 +18,7 @@ import {
   UPDATE_CHECK_EVENT,
   type UpdateCheckResult,
 } from '../utils/updateCheck'
+import { logAppError } from '../tauriRuntime'
 import '../pages/PlaceholderPage.css'
 import './Layout.css'
 
@@ -146,7 +147,8 @@ export function Layout() {
         setUpdateResult(result)
         persistUpdateCheckResult(result)
         setUpdateModalState(result.updateAvailable ? 'update_available' : 'up_to_date')
-      } catch {
+      } catch (error) {
+        void logAppError('update-check', error)
         setUpdateModalState('error')
       } finally {
         setUpdateCheckPending(false)

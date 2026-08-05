@@ -4,6 +4,7 @@ from __future__ import annotations
 
 # pylint: disable=unused-argument
 import json
+import urllib.error
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -390,6 +391,90 @@ async def test_get_setup_status_ollama_provider_bypasses_local_setup_gate(
     assert status.ollama_reachable is True
     assert status.ollama_model_ready is False
     assert status.detail is None
+
+
+@pytest.mark.asyncio
+async def test_get_setup_status_auto_heals_to_quality_model_first(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Test get setup status auto heals to quality model first."""
+    models_dir = tmp_path / "models"
+    models_dir.mkdir(parents=True)
+    (models_dir / "Qwen_Qwen3.5-9B-Q4_K_M.gguf").write_bytes(b"x")
+    (models_dir / "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf").write_bytes(b"x")
+    monkeypatch.setattr(routes_system.settings, "app_data_dir", tmp_path)
+    monkeypatch.setattr(routes_system.settings, "models_dir", models_dir)
+    monkeypatch.setattr(routes_system.settings, "llm_provider", "local_gguf")
+    monkeypatch.setattr(routes_system.settings, "llm_model_filename", "missing.gguf")
+    monkeypatch.setattr(routes_system, "_is_setup_ready", lambda _payload=None: True)
+
+    status = await routes_system.get_setup_status()
+    assert status.required_models_ready is True
+    assert routes_system.settings.llm_model_filename == "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+
+
+@pytest.mark.asyncio
+async def test_get_update_check_returns_backend_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test get update check returns backend metadata."""
+    monkeypatch.setattr(routes_system, "APP_VERSION", "0.15.1")
+
+    class _FakeResponse:
+        """Internal helper for fake response."""
+
+        status = 200
+
+        @staticmethod
+        def read() -> bytes:
+            """Return encoded payload."""
+            return json.dumps(
+                {
+                    "version": "0.15.2",
+                    "release_notes": "Test release",
+                    "download_url": "https://example.com/download.dmg",
+                    "published_at": "2026-05-14T12:00:00Z",
+                }
+            ).encode("utf-8")
+
+        def __enter__(self) -> _FakeResponse:
+            return self
+
+        def __exit__(self, *_args: object) -> None:
+            return None
+
+    def _fake_urlopen(_req: object, timeout: float) -> _FakeResponse:
+        """Return fake update metadata."""
+        assert timeout == pytest.approx(8.0)
+        return _FakeResponse()
+
+    monkeypatch.setattr(routes_system.urllib.request, "urlopen", _fake_urlopen)
+
+    response = await routes_system.get_update_check()
+
+    assert response.current_version == "0.15.1"
+    assert response.latest_version == "0.15.2"
+    assert response.update_available is True
+    assert response.metadata is not None
+    assert response.metadata.download_url == "https://example.com/download.dmg"
+
+
+@pytest.mark.asyncio
+async def test_get_update_check_returns_502_when_metadata_fetch_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test get update check returns 502 when metadata fetch fails."""
+
+    def _fake_urlopen(_req: object, _timeout: float) -> None:
+        """Raise a url error."""
+        raise urllib.error.URLError("no network")
+
+    monkeypatch.setattr(routes_system.urllib.request, "urlopen", _fake_urlopen)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await routes_system.get_update_check()
+
+    assert exc_info.value.status_code == 502
+    assert "Update metadata request failed" in str(exc_info.value.detail)
 
 
 @pytest.mark.asyncio
