@@ -11,6 +11,21 @@ export interface ChatSourceReference {
   file_id?: number | null
 }
 
+export interface UpdateMetadata {
+  version: string
+  release_notes: string
+  download_url: string
+  published_at?: string | null
+}
+
+export interface UpdateCheckResponse {
+  current_version: string
+  latest_version: string | null
+  update_available: boolean
+  metadata: UpdateMetadata | null
+  checked_at_iso: string
+}
+
 export interface FileDiscoveryInfo {
   is_file_discovery: true
   search_term: string

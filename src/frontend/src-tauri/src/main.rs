@@ -502,6 +502,26 @@ fn emit_backend_startup_status(app: &AppHandle, health: &BackendHealthPayload) {
     let _ = app.emit(BACKEND_STARTUP_STATUS_EVENT, payload);
 }
 
+fn append_app_error_log_line(app: &AppHandle, source: &str, detail: &str) {
+    let app_data_dir = match resolve_managed_app_data_dir(app) {
+        Ok(path) => path,
+        Err(_) => return,
+    };
+    let log_dir = app_data_dir.join(LOGS_DIRNAME);
+    if std::fs::create_dir_all(&log_dir).is_err() {
+        return;
+    }
+    let log_path = log_dir.join(ERROR_LOG_FILENAME);
+    let ts = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let line = format!("[{ts}] {source}: {detail}\n");
+    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(log_path) {
+        let _ = f.write_all(line.as_bytes());
+    }
+}
+
 #[tauri::command]
 async fn backend_status(
     controller: State<'_, BackendController>,
@@ -776,23 +796,22 @@ fn resolve_managed_cache_dir(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 fn append_backend_startup_error(app: &AppHandle, detail: &str) {
-    let app_data_dir = match resolve_managed_app_data_dir(app) {
-        Ok(path) => path,
-        Err(_) => return,
-    };
-    let log_dir = app_data_dir.join(LOGS_DIRNAME);
-    if std::fs::create_dir_all(&log_dir).is_err() {
-        return;
+    append_app_error_log_line(app, "tauri backend startup failed", detail);
+}
+
+#[tauri::command]
+fn append_app_error_log(
+    app: AppHandle,
+    source: String,
+    detail: String,
+) -> Result<(), String> {
+    let trimmed_source = source.trim();
+    let trimmed_detail = detail.trim();
+    if trimmed_source.is_empty() || trimmed_detail.is_empty() {
+        return Ok(());
     }
-    let log_path = log_dir.join(ERROR_LOG_FILENAME);
-    let ts = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    let line = format!("[{ts}] tauri backend startup failed: {detail}\n");
-    if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(log_path) {
-        let _ = f.write_all(line.as_bytes());
-    }
+    append_app_error_log_line(&app, trimmed_source, trimmed_detail);
+    Ok(())
 }
 
 fn managed_backend_pid_file_path(app_data_dir: &Path) -> PathBuf {
@@ -1514,6 +1533,7 @@ fn main() {
             backend_start,
             backend_status,
             backend_stop,
+            append_app_error_log,
             set_menu_bar_icon_enabled
         ])
         .build(tauri::generate_context!())
