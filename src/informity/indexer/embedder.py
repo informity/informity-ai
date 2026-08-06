@@ -50,6 +50,7 @@ class Embedder:
         self._model: SentenceTransformer | None = None
         self._query_embed_cache: OrderedDict[str, tuple[list[float], float]] = OrderedDict()
         self._cache_lock = threading.Lock()
+        self._encode_lock = threading.Lock()
         self._mps_available: bool | None = None
 
     @property
@@ -151,9 +152,10 @@ class Embedder:
         for i in range(0, len(prefixed), safe_batch_size):
             batch = prefixed[i : i + safe_batch_size]
             # encode() returns numpy array, convert to list of lists
-            batch_embeddings = self.model.encode(
-                batch, convert_to_numpy=True, show_progress_bar=False
-            )
+            with self._encode_lock:
+                batch_embeddings = self.model.encode(
+                    batch, convert_to_numpy=True, show_progress_bar=False
+                )
             # Convert numpy array to list of lists
             if batch_embeddings.ndim == 1:
                 embeddings.append(batch_embeddings.tolist())
@@ -171,7 +173,10 @@ class Embedder:
             return cached
         prefixed = f"{_TASK_PREFIX_QUERY}{query}"
         # encode() returns numpy array, convert to list
-        embedding = self.model.encode([prefixed], convert_to_numpy=True, show_progress_bar=False)
+        with self._encode_lock:
+            embedding = self.model.encode(
+                [prefixed], convert_to_numpy=True, show_progress_bar=False
+            )
         result = embedding[0].tolist() if embedding.ndim == 2 else embedding.tolist()
         self._cache_query_embedding(query_key, result)
         return result
