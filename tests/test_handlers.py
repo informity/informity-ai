@@ -33,6 +33,7 @@ from informity.llm.handlers.rag import (
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification
 from informity.llm.specializations import get_mode_prompt
+from informity.llm.rag_runtime import generation_stream as _generation_stream
 from informity.llm.types import OutputFormat
 from informity.llm.web_search import SearchResult, WebSearchOutcome
 
@@ -844,6 +845,71 @@ class TestRAGHandler:
             assert mock_retrieve.await_count == 1
 
     @pytest.mark.asyncio
+    async def test_handle_records_llm_timing_metrics_from_stream_summary(self) -> None:
+        """Test handle records llm timing metrics from stream summary."""
+        handler = RAGHandler()
+        classification = QueryClassification(intent="focused")
+        mock_db = MagicMock()
+
+        async def _fake_stream_generation_with_budget(*_args, **_kwargs):
+            """Internal helper for fake stream generation with budget."""
+            yield "Answer token."
+            yield (
+                _generation_stream.STREAM_SUMMARY_EVENT,
+                _generation_stream.StreamExecutionSummary(
+                    token_count=1,
+                    first_token_ms=12.3,
+                    total_elapsed_ms=25.0,
+                    submit_ms=4.5,
+                    queue_wait_ms=7.26,
+                    timeout_reason=None,
+                    stream_recovery_reason=None,
+                    soft_budget_checkpoints_hit=[],
+                    completion_mode=_generation_stream.CompletionMode.COMPLETE,
+                    has_remaining_scope=False,
+                    final_answer="Answer token.",
+                    ttft_ms=12.3,
+                ),
+            )
+
+        with (
+            patch(
+                "informity.llm.handlers.rag.retrieve_chunks",
+                new_callable=AsyncMock,
+            ) as mock_retrieve,
+            patch(
+                "informity.llm.handlers.rag._evaluate_minimal_answerability",
+                return_value=(True, 0.9, 0.5, 1),
+            ),
+            patch(
+                "informity.llm.handlers.rag._generation_stream.stream_generation_with_budget",
+                new=_fake_stream_generation_with_budget,
+            ),
+        ):
+            mock_retrieve.return_value = [
+                {
+                    "file_id": 1,
+                    "filename": "alpha.pdf",
+                    "file_path": "/docs/alpha.pdf",
+                    "chunk_text": "Alpha chunk.",
+                    "score": 1.0,
+                }
+            ]
+            results: list[object] = []
+            async for item in handler.handle("test question", classification, None, mock_db, None):
+                results.append(item)
+
+        metrics_events = [
+            item for item in results if isinstance(item, tuple) and item[0] == "__metrics__"
+        ]
+        assert metrics_events
+        metrics = metrics_events[0][1]
+        assert metrics["llm_submit_ms"] == 4.5
+        assert metrics["llm_queue_wait_ms"] == 7.3
+        assert metrics["llm_decode_first_token_ms"] == 12.3
+        assert metrics["generation_skipped"] is False
+
+    @pytest.mark.asyncio
     async def test_handle_passes_file_scopes_to_retrieve_chunks(self) -> None:
         """Test handle passes file scopes to retrieve chunks."""
         handler = RAGHandler()
@@ -1235,6 +1301,16 @@ class TestRAGHandler:
             isinstance(item, str) and "single agent answer token" in item.casefold()
             for item in results
         )
+        metrics_events = [
+            item for item in results if isinstance(item, tuple) and item[0] == "__metrics__"
+        ]
+        assert metrics_events
+        metrics = metrics_events[0][1]
+        assert metrics.get("agent_mode") is True
+        assert metrics.get("agent_planning_duration_ms") is not None
+        assert metrics.get("agent_retrieval_duration_ms") is not None
+        assert metrics.get("agent_generation_duration_ms") is not None
+        assert metrics.get("agent_generation_first_token_ms") is not None
 
     @pytest.mark.asyncio
     async def test_handle_uses_decomposed_retrieval_content_query(self) -> None:

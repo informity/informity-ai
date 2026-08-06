@@ -11,6 +11,7 @@ import asyncio
 
 from informity.llm.engine import llm_engine
 from informity.llm.model_adapter import get_profile
+from informity.llm.types import StreamSignalTag
 from informity.translate_languages import get_translate_language_model_name
 from informity.translate_policy import (
     TONE_INSTRUCTIONS,
@@ -97,6 +98,8 @@ async def translate_chat_message_text(
                 return None, "cancelled"
             if isinstance(item, tuple):
                 token, meta = item
+                if token == StreamSignalTag.STREAM_SUMMARY:
+                    continue
                 if token == "__timeout__":
                     finish_reason = "timeout"
                 else:

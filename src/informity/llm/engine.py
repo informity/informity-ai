@@ -401,6 +401,8 @@ def _run_stream_worker(
     queue: asyncio.Queue[str | object],
     exception_holder: list[BaseException],
     cancel_event: threading.Event,
+    request_start: float | None = None,
+    timing_state: dict[str, float | None] | None = None,
 ) -> None:
     # Run the blocking xllamacpp generation call in a background thread.
     # Sends messages via handle_chat_completions (OpenAI-compatible chat API)
@@ -417,6 +419,8 @@ def _run_stream_worker(
     # until the current n_predict budget is exhausted; output is discarded.
     """run stream worker."""
     try:
+        if timing_state is not None and request_start is not None:
+            timing_state["submit_ms"] = (time.perf_counter() - request_start) * 1000
         _tmpl_kwargs = _merge_chat_template_kwargs(
             get_profile().chat_template_kwargs,
             chat_template_kwargs_override,
@@ -942,6 +946,7 @@ class XllamaCppProvider:
         queue: asyncio.Queue[str | object] = asyncio.Queue()
         exception_holder: list[BaseException] = []
         cancel_event = threading.Event()
+        timing_state: dict[str, float | None] = {"submit_ms": None}
 
         worker = threading.Thread(
             target=_run_stream_worker,
@@ -957,6 +962,8 @@ class XllamaCppProvider:
                 queue,
                 exception_holder,
                 cancel_event,
+                start,
+                timing_state,
             ),
             name="llm-stream-worker",
             daemon=True,
@@ -1115,6 +1122,10 @@ class XllamaCppProvider:
                     )
 
             elapsed_ms = (time.perf_counter() - start) * 1000
+            request_submit_ms = timing_state.get("submit_ms")
+            queue_wait_ms: float | None = None
+            if isinstance(request_submit_ms, (int, float)) and first_token_ms is not None:
+                queue_wait_ms = max(0.0, first_token_ms - float(request_submit_ms))
             log.info(
                 "llm_stream_completed",
                 messages_count=len(messages),
@@ -1128,6 +1139,18 @@ class XllamaCppProvider:
                 timeout_reason=timeout_reason,
                 provider="local_gguf",
             )
+        yield (
+            StreamSignalTag.STREAM_SUMMARY,
+            {
+                "token_count": token_count,
+                "first_token_ms": round(first_token_ms, 1) if first_token_ms is not None else None,
+                "total_elapsed_ms": round(elapsed_ms, 1),
+                "submit_ms": round(request_submit_ms, 1) if isinstance(request_submit_ms, (int, float)) else None,
+                "queue_wait_ms": round(queue_wait_ms, 1) if queue_wait_ms is not None else None,
+                "timeout_reason": timeout_reason,
+                "finish_reason": finish_reason,
+            },
+        )
 
 
 class OllamaProvider:
@@ -1354,9 +1377,12 @@ class OllamaProvider:
         empty_content_frame_count = 0
         raw_frame_samples: list[str] = []
         done_frame_snapshot: dict[str, object] | None = None
+        request_submit_ms: float | None = None
+        start = time.perf_counter()
 
         def _worker() -> None:
             """worker."""
+            nonlocal request_submit_ms
             nonlocal raw_frame_count, parsed_frame_count, non_dict_frame_count
             nonlocal json_decode_error_count, empty_content_frame_count
             nonlocal raw_frame_samples, done_frame_snapshot
@@ -1368,6 +1394,7 @@ class OllamaProvider:
                 method="POST",
             )
             try:
+                request_submit_ms = (time.perf_counter() - start) * 1000
                 with urllib.request.urlopen(req, timeout=self._timeout_seconds) as resp:
                     # noqa: S310
                     for raw_line in resp:
@@ -1436,8 +1463,6 @@ class OllamaProvider:
 
         worker = threading.Thread(target=_worker, name="ollama-stream-worker", daemon=True)
         worker.start()
-
-        start = time.perf_counter()
         token_count = 0
         first_token_ms: float | None = None
         total_text_parts: list[str] = []
@@ -1517,6 +1542,9 @@ class OllamaProvider:
                 cancel_event.set()
                 await asyncio.to_thread(worker.join, 0.25)
 
+            queue_wait_ms: float | None = None
+            if request_submit_ms is not None and first_token_ms is not None:
+                queue_wait_ms = max(0.0, first_token_ms - request_submit_ms)
             elapsed_ms = (time.perf_counter() - start) * 1000
             log.info(
                 "llm_stream_completed",
@@ -1531,6 +1559,18 @@ class OllamaProvider:
                 timeout_occurred=timeout_occurred,
                 timeout_reason=timeout_reason,
             )
+        yield (
+            StreamSignalTag.STREAM_SUMMARY,
+            {
+                "token_count": token_count,
+                "first_token_ms": round(first_token_ms, 1) if first_token_ms is not None else None,
+                "total_elapsed_ms": round(elapsed_ms, 1),
+                "submit_ms": round(request_submit_ms, 1) if request_submit_ms is not None else None,
+                "queue_wait_ms": round(queue_wait_ms, 1) if queue_wait_ms is not None else None,
+                "timeout_reason": timeout_reason,
+                "finish_reason": finish_reason,
+            },
+        )
 
 
 class LLMEngine:

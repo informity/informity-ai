@@ -96,6 +96,19 @@ def test_resolve_chat_mode_accepts_assistant_and_researcher() -> None:
     assert routes_chat.resolve_chat_mode("Assistant") == "assistant"
 
 
+def test_resolve_answer_stream_first_item_timeout_seconds_scales_for_agent_mode() -> None:
+    """Test resolve answer stream first item timeout seconds scales for agent mode."""
+    base_timeout_seconds = routes_chat._ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS
+    assert (
+        routes_chat._resolve_answer_stream_first_item_timeout_seconds(agent_mode=False)
+        == base_timeout_seconds
+    )
+    assert (
+        routes_chat._resolve_answer_stream_first_item_timeout_seconds(agent_mode=True)
+        == base_timeout_seconds * 2.0
+    )
+
+
 def test_validate_contract_detects_missing_required_heading() -> None:
     """Test validate contract detects missing required heading."""
     answer = "## Scope\nDone\n## Method\nDone"

@@ -29,6 +29,8 @@ class StreamExecutionSummary:
     token_count: int
     first_token_ms: float | None
     total_elapsed_ms: float
+    submit_ms: float | None
+    queue_wait_ms: float | None
     timeout_reason: TimeoutReason | str | None
     stream_recovery_reason: str | None
     soft_budget_checkpoints_hit: list[int]
@@ -63,6 +65,8 @@ async def stream_generation_with_budget(
     """Stream generation with budget."""
     timeout_reason: TimeoutReason | str | None = None
     stream_recovery_reason: str | None = None
+    engine_submit_ms: float | None = None
+    engine_queue_wait_ms: float | None = None
 
     llm_start = time.perf_counter()
     token_count = 0
@@ -82,6 +86,15 @@ async def stream_generation_with_budget(
             timeout_payload = item[1] if isinstance(item[1], dict) else {}
             timeout_reason = normalize_timeout_reason(timeout_payload.get("reason"))
             yield (StreamSignalTag.TIMEOUT, timeout_payload)
+            continue
+        if isinstance(item, tuple) and len(item) == 2 and item[0] == STREAM_SUMMARY_EVENT:
+            summary_payload = item[1] if isinstance(item[1], dict) else {}
+            submit_ms = summary_payload.get("submit_ms")
+            queue_wait_ms = summary_payload.get("queue_wait_ms")
+            if isinstance(submit_ms, (int, float)):
+                engine_submit_ms = float(submit_ms)
+            if isinstance(queue_wait_ms, (int, float)):
+                engine_queue_wait_ms = float(queue_wait_ms)
             continue
 
         if not isinstance(item, str):
@@ -133,11 +146,14 @@ async def stream_generation_with_budget(
             token_count=token_count,
             first_token_ms=first_token_ms,
             total_elapsed_ms=llm_elapsed_ms,
+            submit_ms=engine_submit_ms,
+            queue_wait_ms=engine_queue_wait_ms,
             timeout_reason=timeout_reason,
             stream_recovery_reason=stream_recovery_reason,
             soft_budget_checkpoints_hit=[],
             completion_mode=completion_mode,
             has_remaining_scope=has_remaining_scope,
             final_answer="".join(answer_parts),
+            ttft_ms=first_token_ms,
         ),
     )

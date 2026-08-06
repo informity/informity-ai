@@ -154,12 +154,12 @@ def _make_stream_worker_that_emits(tokens: list[str]):
         temp,
         top_p_val,
         stop_seqs,  # type: ignore[no-untyped-def]
-        loop,
-        queue,
-        exception_holder,
-        cancel_event,
+        *args,
     ) -> None:
         """Internal helper for worker."""
+        loop = args[0]
+        queue = args[1]
+        cancel_event = args[3]
         for token in tokens:
             if cancel_event.is_set():
                 break
@@ -274,12 +274,13 @@ async def test_generate_stream_cancellation_cleans_up_worker(
         temp,
         top_p_val,
         stop_seqs,  # type: ignore[no-untyped-def]
-        loop,
-        queue,
-        exception_holder,
-        cancel_event,
+        *args,
     ) -> None:
         """Internal helper for blocking worker."""
+        loop = args[0]
+        queue = args[1]
+        exception_holder = args[2]
+        cancel_event = args[3]
         _ = (server, messages, max_tok, temp, top_p_val, stop_seqs, exception_holder)
         try:
             while not cancel_event.is_set():
@@ -427,6 +428,55 @@ async def test_stream_worker_accepts_choice_message_content_chunk(
 
     assert "Hello" in emitted
     assert (StreamSignalTag.FINISH_REASON, "stop") in emitted
+
+
+@pytest.mark.asyncio
+async def test_generate_stream_emits_summary_timings_for_local_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test generate stream emits summary timings for local provider."""
+    _force_local_provider(monkeypatch)
+    monkeypatch.setattr(
+        "informity.llm.engine.get_profile",
+        lambda: SimpleNamespace(
+            context_length=4096,
+            generation_tokens_per_second=12.0,
+            chat_template_kwargs={},
+        ),
+    )
+    monkeypatch.setattr(
+        "informity.llm.engine._truncate_messages_to_fit",
+        lambda **kwargs: (
+            kwargs["messages"],
+            {"truncated": False, "original_tokens": 1, "available_budget": 3900},
+        ),
+    )
+
+    class _FakeServer:
+        def handle_chat_completions(self, payload: str, callback) -> None:  # type: ignore[no-untyped-def]
+            """Handle chat completions."""
+            _ = payload
+            callback({"choices": [{"delta": {"content": "Hello"}}]})
+            callback({"choices": [{"finish_reason": "stop"}]})
+
+    engine = LLMEngine()
+    engine._server = _FakeServer()  # type: ignore[assignment]
+
+    summary = None
+    parts: list[str] = []
+    async for item in engine.generate_stream(messages=[{"role": "user", "content": "hi"}]):
+        if isinstance(item, tuple) and item[0] == StreamSignalTag.STREAM_SUMMARY:
+            summary = item[1]
+            continue
+        if isinstance(item, str):
+            parts.append(item)
+
+    assert "".join(parts) == "Hello"
+    assert summary is not None
+    assert summary["submit_ms"] is not None
+    assert summary["queue_wait_ms"] is not None
+    assert summary["first_token_ms"] is not None
+    assert summary["total_elapsed_ms"] >= summary["first_token_ms"]
 
 
 def test_chat_complete_includes_chat_template_kwargs(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -629,7 +679,11 @@ async def test_ollama_generate_stream_maps_tokens_and_finish(
     monkeypatch.setattr("informity.llm.engine.settings.ollama_timeout_seconds", 5.0)
     monkeypatch.setattr(
         "informity.llm.engine.get_profile",
-        lambda: SimpleNamespace(context_length=4096, generation_tokens_per_second=12.0),
+        lambda: SimpleNamespace(
+            context_length=4096,
+            generation_tokens_per_second=12.0,
+            chat_template_kwargs={},
+        ),
     )
 
     class _StreamResp:
@@ -667,6 +721,57 @@ async def test_ollama_generate_stream_maps_tokens_and_finish(
     )
     assert out == "Hello"
     assert captured_payload.get("think") is False
+
+
+@pytest.mark.asyncio
+async def test_ollama_generate_stream_emits_summary_timings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Test ollama generate stream emits summary timings."""
+    monkeypatch.setattr("informity.llm.engine.settings.llm_provider", "ollama")
+    monkeypatch.setattr("informity.llm.engine.settings.llm_model_id", "qwen3:14b")
+    monkeypatch.setattr("informity.llm.engine.settings.ollama_base_url", "http://127.0.0.1:11434")
+    monkeypatch.setattr("informity.llm.engine.settings.ollama_timeout_seconds", 5.0)
+    monkeypatch.setattr(
+        "informity.llm.engine.get_profile",
+        lambda: SimpleNamespace(
+            context_length=4096,
+            generation_tokens_per_second=12.0,
+            chat_template_kwargs={},
+        ),
+    )
+
+    class _StreamResp:
+        def __enter__(self) -> _StreamResp:
+            """Enter the context manager."""
+            return self
+
+        def __exit__(self, _exc_type, _exc, _tb) -> bool:  # type: ignore[no-untyped-def]
+            """Exit the context manager."""
+            return False
+
+        def __iter__(self):  # type: ignore[no-untyped-def]
+            """Internal helper for iter."""
+            yield json.dumps({"message": {"content": "Hel"}}).encode("utf-8")
+            yield json.dumps({"message": {"content": "lo"}}).encode("utf-8")
+            yield json.dumps({"done": True, "done_reason": "stop"}).encode("utf-8")
+
+    monkeypatch.setattr(
+        "informity.llm.engine.urllib.request.urlopen", lambda *_args, **_kwargs: _StreamResp()
+    )
+
+    engine = LLMEngine()
+    summary = None
+    async for item in engine.generate_stream(messages=[{"role": "user", "content": "hi"}]):
+        if isinstance(item, tuple) and item[0] == "__stream_summary__":
+            summary = item[1]
+
+    assert summary is not None
+    assert summary["submit_ms"] is not None
+    assert summary["queue_wait_ms"] is not None
+    assert summary["queue_wait_ms"] >= 0
+    assert summary["first_token_ms"] is not None
+    assert summary["total_elapsed_ms"] >= summary["first_token_ms"]
 
 
 @pytest.mark.asyncio

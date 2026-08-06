@@ -175,10 +175,13 @@ class ModelProfile:
         _ = query_type
         return self.max_tokens
 
-    def get_timeout_seconds(self, query_type: QueryType) -> int:
+    def get_timeout_seconds(self, query_type: QueryType, agent_mode: bool = False) -> int:
         """Return single profile timeout_seconds (query-type agnostic)."""
         _ = query_type
-        return self.timeout_seconds
+        timeout_seconds = self.timeout_seconds
+        if agent_mode:
+            timeout_seconds = int(round(timeout_seconds * float(settings.agent_timeout_multiplier)))
+        return timeout_seconds
 
     def get_reasoning_enabled(
         self,

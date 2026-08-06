@@ -216,6 +216,14 @@ def _normalize_diagnostics_query_type(value: object) -> str:
         return DiagnosticsQueryType.UNKNOWN.value
 
 
+def _resolve_answer_stream_first_item_timeout_seconds(*, agent_mode: bool) -> float:
+    """Resolve the first-item watchdog timeout for the answer stream."""
+    timeout_seconds = _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS
+    if agent_mode:
+        timeout_seconds *= float(settings.agent_timeout_multiplier)
+    return timeout_seconds
+
+
 def _answer_signals_out_of_scope(text: str) -> bool:
     """answer signals out of scope."""
     return bool(_OUT_OF_SCOPE_RESPONSE_PATTERN.search(str(text or "")))
@@ -1664,6 +1672,10 @@ async def chat(
                     answer_tokens_seen = 0
                     answer_list_events = 0
                     answer_next_task: asyncio.Task[object] | None = None
+                    first_item_timeout_seconds = _resolve_answer_stream_first_item_timeout_seconds(
+                        agent_mode=resolved_agent_mode
+                    )
+                    first_item_timeout_seconds_display = int(round(first_item_timeout_seconds))
                     answer_iter = aiter(
                         answer_question(
                             question=pass_question,
@@ -1710,7 +1722,7 @@ async def chat(
                                 if (
                                     answer_items_seen == 0
                                     and elapsed_wait_seconds
-                                    >= _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS
+                                    >= first_item_timeout_seconds
                                 ):
                                     pre_first_yield_timeout_occurred = True
                                     pre_first_yield_elapsed_seconds = float(
@@ -1738,18 +1750,13 @@ async def chat(
                                         request_id=request_id,
                                         pass_index=pass_index,
                                         elapsed_seconds=round(elapsed_wait_seconds, 1),
-                                        timeout_seconds=round(
-                                            _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS, 1
-                                        ),
+                                        timeout_seconds=round(first_item_timeout_seconds, 1),
                                     )
                                     if answer_next_task is not None and not answer_next_task.done():
                                         answer_next_task.cancel()
                                         with contextlib.suppress(asyncio.CancelledError):
                                             await answer_next_task
                                     answer_next_task = None
-                                    first_item_timeout_seconds = int(
-                                        _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS
-                                    )
                                     _update_sse_phase("timeout")
                                     yield {
                                         "event": "timeout",
@@ -1759,14 +1766,14 @@ async def chat(
                                                     "Response truncated: generation did not "
                                                     "start in time "
                                                     "("
-                                                    f"{first_item_timeout_seconds}s "
+                                                    f"{first_item_timeout_seconds_display}s "
                                                     "watchdog)"
                                                 ),
                                                 "elapsed_seconds": round(
                                                     time.time() - start_time, 1
                                                 ),
                                                 "timeout_seconds": (
-                                                    _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS
+                                                    first_item_timeout_seconds
                                                 ),
                                                 "timeout_reason": timeout_reason,
                                             }
@@ -1976,6 +1983,21 @@ async def chat(
                                         "answerability_passed"
                                     ),
                                     generation_skipped=metrics_payload.get("generation_skipped"),
+                                    agent_mode=metrics_payload.get("agent_mode"),
+                                    agent_planning_duration_ms=metrics_payload.get(
+                                        "agent_planning_duration_ms"
+                                    ),
+                                    agent_retrieval_duration_ms=metrics_payload.get(
+                                        "agent_retrieval_duration_ms"
+                                    ),
+                                    agent_generation_duration_ms=metrics_payload.get(
+                                        "agent_generation_duration_ms"
+                                    ),
+                                    agent_generation_first_token_ms=metrics_payload.get(
+                                        "agent_generation_first_token_ms"
+                                    ),
+                                    llm_submit_ms=metrics_payload.get("llm_submit_ms"),
+                                    llm_queue_wait_ms=metrics_payload.get("llm_queue_wait_ms"),
                                     elapsed_seconds=round(
                                         time.perf_counter() - answer_stream_started_at, 2
                                     ),

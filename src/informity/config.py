@@ -523,6 +523,8 @@ class Settings(BaseSettings):
     )
     llm_max_tokens: int = 2048
     llm_temperature: float = 0.2  # Low for factual extraction; avoids determinism-induced loops
+    # Agent mode intentionally gets a longer generation budget so multi-step retrieval can finish.
+    agent_timeout_multiplier: float = 2.0
     # Retrieval top-k: model-profile-only (ModelProfile.rag_top_k, coverage_top_k).
     # Use model_adapter.get_retrieval_top_k(query_type). No config/env.
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (moved to ModelProfile).

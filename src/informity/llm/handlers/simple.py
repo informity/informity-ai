@@ -198,7 +198,7 @@ class SimpleHandler:
 
             # Get model profile settings for simple queries
             max_tokens = profile.get_max_tokens(query_type)
-            timeout_seconds = profile.get_timeout_seconds(query_type)
+            timeout_seconds = profile.get_timeout_seconds(query_type, agent_mode=agent_mode)
             reasoning_enabled = profile.get_reasoning_enabled(
                 query_type,
                 reasoning_enabled_override=agent_mode if profile.supports_think_blocks else None,
@@ -428,6 +428,8 @@ class SimpleHandler:
                 stop_sequences=stop_sequences,
                 chat_template_kwargs_override=chat_template_kwargs_override,
             ):
+                if isinstance(token, tuple):
+                    continue
                 if first_token_ms is None:
                     first_token_ms = (time.perf_counter() - llm_start) * 1000
                 token_count += 1
