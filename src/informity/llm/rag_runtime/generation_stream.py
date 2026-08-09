@@ -31,12 +31,15 @@ class StreamExecutionSummary:
     total_elapsed_ms: float
     submit_ms: float | None
     queue_wait_ms: float | None
+    submit_at_s: float | None
+    first_token_at_s: float | None
     timeout_reason: TimeoutReason | str | None
     stream_recovery_reason: str | None
     soft_budget_checkpoints_hit: list[int]
     completion_mode: CompletionMode
     has_remaining_scope: bool
     final_answer: str = ""
+    runtime_metrics: dict[str, object] | None = None
     # Per-stage latency breakdown (set by rag.py after streaming completes).
     # All values are wall-clock milliseconds measured with perf_counter.
     embed_ms: float | None = None  # Query embedding time
@@ -60,6 +63,8 @@ async def stream_generation_with_budget(
     output_contract_plan: object | None,
     collapse_duplicate_message_fn: Callable[[str], tuple[str, bool]],
     chat_template_kwargs_override: dict[str, object] | None = None,
+    timing_context: dict[str, object] | None = None,
+    probe_context: dict[str, object] | None = None,
     stream_llm_fn: Callable[..., AsyncGenerator[str | tuple[str, object]]] = stream_llm,
 ) -> AsyncGenerator[str | tuple[str, object]]:
     """Stream generation with budget."""
@@ -81,6 +86,8 @@ async def stream_generation_with_budget(
         timeout_seconds=timeout_seconds,
         stop_sequences=stop_sequences,
         chat_template_kwargs_override=chat_template_kwargs_override,
+        timing_context=timing_context,
+        probe_context=probe_context,
     ):
         if isinstance(item, tuple) and len(item) == 2 and item[0] == StreamSignalTag.TIMEOUT:
             timeout_payload = item[1] if isinstance(item[1], dict) else {}
@@ -114,6 +121,8 @@ async def stream_generation_with_budget(
 
         if first_token_ms is None:
             first_token_ms = (time.perf_counter() - llm_start) * 1000
+            if timing_context is not None:
+                timing_context.setdefault("runtime_first_token_at_s", time.time())
 
         token_count += 1
         answer_parts.append(item)
@@ -148,6 +157,12 @@ async def stream_generation_with_budget(
             total_elapsed_ms=llm_elapsed_ms,
             submit_ms=engine_submit_ms,
             queue_wait_ms=engine_queue_wait_ms,
+            submit_at_s=timing_context.get("payload_sent_to_model_runtime_at_s")
+            if timing_context is not None
+            else None,
+            first_token_at_s=timing_context.get("runtime_first_token_at_s")
+            if timing_context is not None
+            else None,
             timeout_reason=timeout_reason,
             stream_recovery_reason=stream_recovery_reason,
             soft_budget_checkpoints_hit=[],
@@ -155,5 +170,8 @@ async def stream_generation_with_budget(
             has_remaining_scope=has_remaining_scope,
             final_answer="".join(answer_parts),
             ttft_ms=first_token_ms,
+            runtime_metrics=(
+                timing_context.get("runtime_metrics") if timing_context is not None else None
+            ),
         ),
     )

@@ -18,6 +18,8 @@ async def stream_llm(
     timeout_seconds: float | None = None,
     stop_sequences: list[str] | None = None,
     chat_template_kwargs_override: dict[str, object] | None = None,
+    timing_context: dict[str, object] | None = None,
+    probe_context: dict[str, object] | None = None,
 ) -> AsyncGenerator[str | tuple[str, object]]:
     # Stream LLM response. Minimal post-processing.
     # Stop sequences prevent model-specific artifacts (Chinese prompts, reasoning leaks, etc.)
@@ -30,5 +32,7 @@ async def stream_llm(
         timeout_seconds=timeout_seconds,
         stop=stop_sequences or [],
         chat_template_kwargs_override=chat_template_kwargs_override,
+        timing_context=timing_context,
+        probe_context=probe_context,
     ):
         yield token

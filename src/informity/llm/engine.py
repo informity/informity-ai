@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import traceback
 import os
 import shutil
 import threading
@@ -26,6 +27,7 @@ import urllib.error
 import urllib.request
 from collections.abc import AsyncGenerator, Callable
 from contextlib import suppress
+from contextvars import ContextVar, Token, copy_context
 from pathlib import Path
 
 import structlog
@@ -46,6 +48,10 @@ from informity.llm.types import StreamSignalTag, TimeoutReason
 
 log = structlog.get_logger(__name__)
 _PROMPT_RENDER_EXCEPTIONS = (ValueError, TypeError, AttributeError, RuntimeError)
+_RUNTIME_CALL_PROBE_CONTEXT: ContextVar[dict[str, object] | None] = ContextVar(
+    "informity_runtime_call_probe_context",
+    default=None,
+)
 
 # ==============================================================================
 # Constants
@@ -75,6 +81,108 @@ def _merge_chat_template_kwargs(
     if override_kwargs:
         merged.update(override_kwargs)
     return merged
+
+
+def set_runtime_call_probe_context(context: dict[str, object] | None) -> Token[dict[str, object] | None]:
+    """Set the current request-scoped runtime call probe context."""
+    return _RUNTIME_CALL_PROBE_CONTEXT.set(context)
+
+
+def reset_runtime_call_probe_context(token: Token[dict[str, object] | None]) -> None:
+    """Reset the current request-scoped runtime call probe context."""
+    _RUNTIME_CALL_PROBE_CONTEXT.reset(token)
+
+
+def _get_runtime_call_probe_context() -> dict[str, object] | None:
+    """Return the active runtime call probe context, if any."""
+    context = _RUNTIME_CALL_PROBE_CONTEXT.get()
+    if not isinstance(context, dict):
+        return None
+    if not bool(context.get("runtime_call_probe_enabled", True)):
+        return None
+    return context
+
+
+def _resolve_runtime_call_caller_tag() -> str:
+    """Resolve the first non-engine caller tag from the current stack."""
+    engine_filename = Path(__file__).resolve()
+    for frame in reversed(traceback.extract_stack(limit=24)[:-1]):
+        frame_path = Path(frame.filename).resolve()
+        if frame_path == engine_filename:
+            continue
+        if frame_path.name in {"threading.py", "asyncio.py"}:
+            continue
+        return f"{frame_path.name}:{frame.name}"
+    return "unknown"
+
+
+def _runtime_probe_claim_sequence(context: dict[str, object]) -> int:
+    """Claim the next runtime-call sequence number for a request."""
+    current_sequence = int(context.get("_runtime_call_sequence") or 0) + 1
+    context["_runtime_call_sequence"] = current_sequence
+    return current_sequence
+
+
+def _runtime_probe_append_record(context: dict[str, object], record: dict[str, object]) -> None:
+    """Append a runtime-call probe record to the request context."""
+    records = context.setdefault("runtime_call_records", [])
+    if isinstance(records, list):
+        records.append(record)
+
+
+def _record_runtime_call_probe(
+    *,
+    context: dict[str, object] | None = None,
+    call_kind: str,
+    caller_tag: str,
+    duration_ms: float,
+    prompt_token_count: int | None,
+    completion_token_count: int | None,
+    runtime_metrics: dict[str, object] | None,
+    status: str,
+    error: str | None = None,
+) -> None:
+    """Record and log a runtime-call probe if the request context enables it."""
+    context = context if isinstance(context, dict) else _get_runtime_call_probe_context()
+    if context is None:
+        return
+    sequence = _runtime_probe_claim_sequence(context)
+    record: dict[str, object] = {
+        "sequence": sequence,
+        "caller": caller_tag,
+        "call_kind": call_kind,
+        "status": status,
+        "prompt_tokens": prompt_token_count,
+        "completion_tokens": completion_token_count,
+        "duration_ms": round(duration_ms, 1),
+    }
+    if error:
+        record["error"] = error
+    if runtime_metrics is not None:
+        prompt_token_source = runtime_metrics.get("prompt_token_count_source")
+        cached_token_count = runtime_metrics.get("cached_token_count")
+        prefix_cache_hit = runtime_metrics.get("prefix_cache_hit")
+        prompt_eval_tps = runtime_metrics.get("prompt_eval_tokens_per_second")
+        generation_tps = runtime_metrics.get("generation_tokens_per_second")
+        prompt_eval_duration_ms = runtime_metrics.get("prompt_eval_duration_ms")
+        generation_duration_ms = runtime_metrics.get("generation_duration_ms")
+        if prompt_token_source is not None:
+            record["prompt_tokens_source"] = prompt_token_source
+        if cached_token_count is not None:
+            record["cached_tokens"] = cached_token_count
+        if prefix_cache_hit is not None:
+            record["prefix_cache_hit"] = prefix_cache_hit
+        if prompt_eval_tps is not None:
+            record["prompt_eval_tokens_per_second"] = prompt_eval_tps
+        if generation_tps is not None:
+            record["generation_tokens_per_second"] = generation_tps
+        if prompt_eval_duration_ms is not None:
+            record["prompt_eval_duration_ms"] = prompt_eval_duration_ms
+        if generation_duration_ms is not None:
+            record["generation_duration_ms"] = generation_duration_ms
+
+    _runtime_probe_append_record(context, record)
+    log.info("researcher_runtime_call", **record)
 
 
 # ==============================================================================
@@ -117,6 +225,234 @@ def _resolve_first_token_deadline_seconds(*, wall_clock: float, profile_tps: flo
     return base_deadline
 
 
+def _coerce_runtime_int(value: object) -> int | None:
+    """Internal helper for coerce runtime int."""
+    if isinstance(value, bool):
+        return int(value)
+    if isinstance(value, int):
+        return value if value >= 0 else 0
+    if isinstance(value, float):
+        as_int = int(value)
+        return as_int if as_int >= 0 else 0
+    if isinstance(value, str):
+        with suppress(ValueError):
+            return max(0, int(float(value.strip())))
+    return None
+
+
+def _coerce_runtime_float(value: object) -> float | None:
+    """Internal helper for coerce runtime float."""
+    if isinstance(value, bool):
+        return float(value)
+    if isinstance(value, (int, float)):
+        as_float = float(value)
+        return as_float if as_float >= 0.0 else 0.0
+    if isinstance(value, str):
+        with suppress(ValueError):
+            parsed = float(value.strip())
+            return parsed if parsed >= 0.0 else 0.0
+    return None
+
+
+def _duration_value_to_seconds(key: str, value: object) -> float | None:
+    """Internal helper for convert runtime duration values to seconds."""
+    numeric = _coerce_runtime_float(value)
+    if numeric is None:
+        return None
+    lowered = key.casefold()
+    if lowered.endswith("_ms") or "_ms_" in lowered or "milliseconds" in lowered:
+        return numeric / 1000.0
+    if lowered.endswith("_us") or "microseconds" in lowered:
+        return numeric / 1_000_000.0
+    if lowered.endswith("_s") or "seconds" in lowered or "duration_s" in lowered:
+        return numeric
+    # Most llama.cpp / Ollama duration fields are reported in nanoseconds.
+    return numeric / 1_000_000_000.0
+
+
+def _estimate_prompt_token_count(chat_template: str, messages: list[dict[str, str]]) -> int | None:
+    """Estimate prompt token count from the rendered prompt."""
+    try:
+        prompt = _messages_to_prompt(chat_template, messages)
+    except Exception:  # pragma: no cover - defensive instrumentation
+        return None
+    try:
+        return count_tokens(prompt)
+    except Exception:  # pragma: no cover - defensive instrumentation
+        return None
+
+
+def _extract_runtime_metrics_from_chunks(
+    chunks: list[dict[str, object]],
+    *,
+    prompt_token_estimate: int | None = None,
+    total_elapsed_ms: float | None = None,
+    token_count: int | None = None,
+) -> dict[str, object]:
+    """Extract model runtime metrics from collected response chunks."""
+    dict_chunks = [chunk for chunk in chunks if isinstance(chunk, dict)]
+    if not dict_chunks:
+        return {}
+    final_chunk = dict_chunks[-1]
+    usage = final_chunk.get("usage")
+    usage_dict = usage if isinstance(usage, dict) else {}
+
+    prompt_token_count = None
+    prompt_token_source = None
+    for candidate_key in (
+        "prompt_tokens",
+        "prompt_eval_count",
+        "prompt_token_count",
+        "prompt_eval_tokens",
+    ):
+        prompt_token_count = _coerce_runtime_int(usage_dict.get(candidate_key))
+        if prompt_token_count is not None:
+            prompt_token_source = "usage"
+            break
+        prompt_token_count = _coerce_runtime_int(final_chunk.get(candidate_key))
+        if prompt_token_count is not None:
+            prompt_token_source = "response"
+            break
+    if prompt_token_count is None and prompt_token_estimate is not None:
+        prompt_token_count = int(prompt_token_estimate)
+        prompt_token_source = "estimate"
+
+    completion_token_count = None
+    completion_token_source = None
+    for candidate_key in (
+        "completion_tokens",
+        "completion_token_count",
+        "eval_count",
+        "generated_tokens",
+        "generation_tokens",
+        "output_tokens",
+    ):
+        completion_token_count = _coerce_runtime_int(usage_dict.get(candidate_key))
+        if completion_token_count is not None:
+            completion_token_source = "usage"
+            break
+        completion_token_count = _coerce_runtime_int(final_chunk.get(candidate_key))
+        if completion_token_count is not None:
+            completion_token_source = "response"
+            break
+    if completion_token_count is None and token_count is not None:
+        completion_token_count = int(token_count)
+        completion_token_source = "stream_count"
+
+    cached_token_count = None
+    for candidate_key in (
+        "cached_tokens",
+        "cache_hit_tokens",
+        "prompt_cached_tokens",
+        "kv_cache_tokens",
+        "cached_token_count",
+    ):
+        cached_token_count = _coerce_runtime_int(usage_dict.get(candidate_key))
+        if cached_token_count is not None:
+            break
+        cached_token_count = _coerce_runtime_int(final_chunk.get(candidate_key))
+        if cached_token_count is not None:
+            break
+
+    prefix_cache_hit = None
+    for candidate_key in (
+        "prefix_cache_hit",
+        "cache_hit",
+        "prompt_cache_hit",
+        "kv_cache_hit",
+    ):
+        value = usage_dict.get(candidate_key)
+        if isinstance(value, bool):
+            prefix_cache_hit = value
+            break
+        value = final_chunk.get(candidate_key)
+        if isinstance(value, bool):
+            prefix_cache_hit = value
+            break
+    if prefix_cache_hit is None and cached_token_count is not None:
+        prefix_cache_hit = cached_token_count > 0
+
+    prompt_eval_duration_seconds = None
+    generation_duration_seconds = None
+    prompt_eval_tps = None
+    generation_tps = None
+    prompt_eval_duration_keys = (
+        "prompt_eval_duration",
+        "prompt_eval_duration_ms",
+        "prompt_eval_duration_s",
+    )
+    generation_duration_keys = ("eval_duration", "generation_duration", "completion_duration")
+
+    for candidate_key in prompt_eval_duration_keys:
+        prompt_eval_duration_seconds = _duration_value_to_seconds(
+            candidate_key,
+            usage_dict.get(candidate_key),
+        )
+        if prompt_eval_duration_seconds is not None:
+            break
+        prompt_eval_duration_seconds = _duration_value_to_seconds(
+            candidate_key,
+            final_chunk.get(candidate_key),
+        )
+        if prompt_eval_duration_seconds is not None:
+            break
+
+    for candidate_key in generation_duration_keys:
+        generation_duration_seconds = _duration_value_to_seconds(
+            candidate_key,
+            usage_dict.get(candidate_key),
+        )
+        if generation_duration_seconds is not None:
+            break
+        generation_duration_seconds = _duration_value_to_seconds(
+            candidate_key,
+            final_chunk.get(candidate_key),
+        )
+        if generation_duration_seconds is not None:
+            break
+
+    for candidate_key in ("prompt_eval_tps", "prompt_eval_tokens_per_second"):
+        prompt_eval_tps = _coerce_runtime_float(usage_dict.get(candidate_key))
+        if prompt_eval_tps is not None:
+            break
+        prompt_eval_tps = _coerce_runtime_float(final_chunk.get(candidate_key))
+        if prompt_eval_tps is not None:
+            break
+
+    for candidate_key in ("eval_tps", "generation_tokens_per_second", "completion_tokens_per_second"):
+        generation_tps = _coerce_runtime_float(usage_dict.get(candidate_key))
+        if generation_tps is not None:
+            break
+        generation_tps = _coerce_runtime_float(final_chunk.get(candidate_key))
+        if generation_tps is not None:
+            break
+
+    if prompt_eval_tps is None and prompt_token_count is not None and prompt_eval_duration_seconds:
+        prompt_eval_tps = prompt_token_count / max(prompt_eval_duration_seconds, 1e-9)
+    if generation_tps is None and token_count is not None and total_elapsed_ms is not None:
+        generation_tps = token_count / max(total_elapsed_ms / 1000.0, 1e-9)
+
+    runtime_metrics: dict[str, object] = {
+        "prompt_token_count": prompt_token_count,
+        "prompt_token_count_source": prompt_token_source,
+        "completion_token_count": completion_token_count,
+        "completion_token_count_source": completion_token_source,
+        "cached_token_count": cached_token_count,
+        "prefix_cache_hit": prefix_cache_hit,
+        "prompt_eval_tokens_per_second": round(prompt_eval_tps, 3)
+        if prompt_eval_tps is not None
+        else None,
+        "generation_tokens_per_second": round(generation_tps, 3) if generation_tps is not None else None,
+    }
+    if prompt_eval_duration_seconds is not None:
+        runtime_metrics["prompt_eval_duration_ms"] = round(prompt_eval_duration_seconds * 1000.0, 3)
+    if generation_duration_seconds is not None:
+        runtime_metrics["generation_duration_ms"] = round(generation_duration_seconds * 1000.0, 3)
+    if total_elapsed_ms is not None:
+        runtime_metrics["total_elapsed_ms"] = round(total_elapsed_ms, 3)
+    return runtime_metrics
+
+
 async def _stream_from_queue(
     queue: asyncio.Queue[str | object],
     _cancel_event: threading.Event,
@@ -125,6 +461,7 @@ async def _stream_from_queue(
     wall_clock: float,
     first_token_deadline_seconds: float,
     stripper: ThinkStrip,
+    timing_context: dict[str, object] | None = None,
 ) -> AsyncGenerator[tuple[str, object]]:
     """stream from queue."""
     first_token_seen = False
@@ -169,6 +506,13 @@ async def _stream_from_queue(
             continue
 
         raw_token = str(item)
+        if (
+            timing_context is not None
+            and raw_token
+            and "runtime_first_raw_token_at_s" not in timing_context
+        ):
+            timing_context["runtime_first_raw_token_at_s"] = time.time()
+        in_think_before = stripper.in_think_block
         emit_text = stripper.feed(raw_token)
         if not emit_text:
             continue
@@ -403,6 +747,9 @@ def _run_stream_worker(
     cancel_event: threading.Event,
     request_start: float | None = None,
     timing_state: dict[str, float | None] | None = None,
+    probe_context: dict[str, object] | None = None,
+    runtime_probe_record: dict[str, object] | None = None,
+    caller_tag: str | None = None,
 ) -> None:
     # Run the blocking xllamacpp generation call in a background thread.
     # Sends messages via handle_chat_completions (OpenAI-compatible chat API)
@@ -419,8 +766,23 @@ def _run_stream_worker(
     # until the current n_predict budget is exhausted; output is discarded.
     """run stream worker."""
     try:
+        probe_context = probe_context if isinstance(probe_context, dict) else _get_runtime_call_probe_context()
+        call_started_at = time.perf_counter()
+        if probe_context is not None and runtime_probe_record is None:
+            runtime_probe_record = {
+                "sequence": _runtime_probe_claim_sequence(probe_context),
+                "caller": caller_tag or "unknown",
+                "call_kind": "generate_stream",
+                "status": "running",
+                "prompt_tokens": None,
+                "completion_tokens": None,
+                "duration_ms": 0.0,
+            }
+            _runtime_probe_append_record(probe_context, runtime_probe_record)
         if timing_state is not None and request_start is not None:
             timing_state["submit_ms"] = (time.perf_counter() - request_start) * 1000
+            timing_state["submit_at_s"] = time.time()
+        runtime_frames: list[dict[str, object]] = []
         _tmpl_kwargs = _merge_chat_template_kwargs(
             get_profile().chat_template_kwargs,
             chat_template_kwargs_override,
@@ -465,6 +827,7 @@ def _run_stream_worker(
 
             if not isinstance(data, dict):
                 return
+            runtime_frames.append(data)
 
             # OpenAI chat completions streaming format: choices[0].delta.content
             choices = data.get("choices") or []
@@ -482,6 +845,8 @@ def _run_stream_worker(
                 token = data.get("content") or ""
 
             if token and not cancel_event.is_set():
+                if timing_state is not None and "runtime_first_raw_token_at_s" not in timing_state:
+                    timing_state["runtime_first_raw_token_at_s"] = time.time()
                 loop.call_soon_threadsafe(queue.put_nowait, token)
 
             # Finish reason from OpenAI format
@@ -506,6 +871,80 @@ def _run_stream_worker(
             queue.put_nowait,
             (StreamSignalTag.FINISH_REASON, finish_reason),
         )
+        if timing_state is not None:
+            timing_state["runtime_frames"] = runtime_frames
+        if runtime_probe_record is not None:
+            prompt_token_count = None
+            completion_token_count = None
+            if runtime_frames:
+                runtime_metrics = _extract_runtime_metrics_from_chunks(
+                    runtime_frames,
+                    prompt_token_estimate=None,
+                    total_elapsed_ms=(time.perf_counter() - call_started_at) * 1000.0,
+                    token_count=None,
+                )
+                prompt_token_count = runtime_metrics.get("prompt_token_count")
+                completion_token_count = runtime_metrics.get("completion_token_count")
+            else:
+                runtime_metrics = {}
+            runtime_probe_record.update(
+                {
+                    "duration_ms": round((time.perf_counter() - call_started_at) * 1000, 1),
+                    "prompt_tokens": int(prompt_token_count)
+                    if isinstance(prompt_token_count, int)
+                    else None,
+                    "completion_tokens": int(completion_token_count)
+                    if isinstance(completion_token_count, int)
+                    else None,
+                "status": "ok",
+                }
+            )
+            if runtime_metrics is not None:
+                prompt_token_source = runtime_metrics.get("prompt_token_count_source")
+                cached_token_count = runtime_metrics.get("cached_token_count")
+                prefix_cache_hit = runtime_metrics.get("prefix_cache_hit")
+                prompt_eval_tps = runtime_metrics.get("prompt_eval_tokens_per_second")
+                generation_tps = runtime_metrics.get("generation_tokens_per_second")
+                prompt_eval_duration_ms = runtime_metrics.get("prompt_eval_duration_ms")
+                generation_duration_ms = runtime_metrics.get("generation_duration_ms")
+                if prompt_token_source is not None:
+                    runtime_probe_record["prompt_tokens_source"] = prompt_token_source
+                if cached_token_count is not None:
+                    runtime_probe_record["cached_tokens"] = cached_token_count
+                if prefix_cache_hit is not None:
+                    runtime_probe_record["prefix_cache_hit"] = prefix_cache_hit
+                if prompt_eval_tps is not None:
+                    runtime_probe_record["prompt_eval_tokens_per_second"] = prompt_eval_tps
+                if generation_tps is not None:
+                    runtime_probe_record["generation_tokens_per_second"] = generation_tps
+                if prompt_eval_duration_ms is not None:
+                    runtime_probe_record["prompt_eval_duration_ms"] = prompt_eval_duration_ms
+                if generation_duration_ms is not None:
+                    runtime_probe_record["generation_duration_ms"] = generation_duration_ms
+            log.info("researcher_runtime_call", **runtime_probe_record)
+            if runtime_metrics is not None:
+                prompt_token_source = runtime_metrics.get("prompt_token_count_source")
+                cached_token_count = runtime_metrics.get("cached_token_count")
+                prefix_cache_hit = runtime_metrics.get("prefix_cache_hit")
+                prompt_eval_tps = runtime_metrics.get("prompt_eval_tokens_per_second")
+                generation_tps = runtime_metrics.get("generation_tokens_per_second")
+                prompt_eval_duration_ms = runtime_metrics.get("prompt_eval_duration_ms")
+                generation_duration_ms = runtime_metrics.get("generation_duration_ms")
+                if prompt_token_source is not None:
+                    runtime_probe_record["prompt_tokens_source"] = prompt_token_source
+                if cached_token_count is not None:
+                    runtime_probe_record["cached_tokens"] = cached_token_count
+                if prefix_cache_hit is not None:
+                    runtime_probe_record["prefix_cache_hit"] = prefix_cache_hit
+                if prompt_eval_tps is not None:
+                    runtime_probe_record["prompt_eval_tokens_per_second"] = prompt_eval_tps
+                if generation_tps is not None:
+                    runtime_probe_record["generation_tokens_per_second"] = generation_tps
+                if prompt_eval_duration_ms is not None:
+                    runtime_probe_record["prompt_eval_duration_ms"] = prompt_eval_duration_ms
+                if generation_duration_ms is not None:
+                    runtime_probe_record["generation_duration_ms"] = generation_duration_ms
+            log.info("researcher_runtime_call", **runtime_probe_record)
 
     except (
         AttributeError,
@@ -517,6 +956,15 @@ def _run_stream_worker(
         ValueError,
     ) as exc:
         exception_holder.append(exc)
+        if runtime_probe_record is not None:
+            runtime_probe_record.update(
+                {
+                    "duration_ms": round((time.perf_counter() - call_started_at) * 1000, 1),
+                    "status": "error",
+                    "error": str(exc),
+                }
+            )
+            log.info("researcher_runtime_call", **runtime_probe_record)
     finally:
         with suppress(RuntimeError):
             loop.call_soon_threadsafe(queue.put_nowait, _STREAM_END)
@@ -800,6 +1248,9 @@ class XllamaCppProvider:
             LLMError: If inference fails.
         """
         server = self._loaded_server
+        start = time.perf_counter()
+        probe_context = _get_runtime_call_probe_context()
+        caller_tag = _resolve_runtime_call_caller_tag() if probe_context is not None else None
 
         _tmpl_kwargs = _merge_chat_template_kwargs(
             get_profile().chat_template_kwargs,
@@ -834,6 +1285,17 @@ class XllamaCppProvider:
         try:
             server.handle_chat_completions(payload, _cb)  # type: ignore[attr-defined]
         except Exception as exc:
+            if probe_context is not None:
+                _record_runtime_call_probe(
+                    call_kind="chat_complete",
+                    caller_tag=caller_tag or "unknown",
+                    duration_ms=(time.perf_counter() - start) * 1000.0,
+                    prompt_token_count=None,
+                    completion_token_count=None,
+                    runtime_metrics=None,
+                    status="error",
+                    error=str(exc),
+                )
             raise LLMError(f"Chat completion inference failed: {exc}") from exc
 
         # Assemble content from collected chunks.
@@ -849,6 +1311,45 @@ class XllamaCppProvider:
                 if delta.get("content"):
                     content_parts.append(delta["content"])
 
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        runtime_metrics = _extract_runtime_metrics_from_chunks(
+            collected,
+            prompt_token_estimate=_estimate_prompt_token_count(self._chat_template, messages),
+            total_elapsed_ms=elapsed_ms,
+            token_count=None,
+        )
+        if probe_context is not None:
+            _record_runtime_call_probe(
+                call_kind="chat_complete",
+                caller_tag=caller_tag or "unknown",
+                duration_ms=elapsed_ms,
+                prompt_token_count=(
+                    int(runtime_metrics["prompt_token_count"])
+                    if isinstance(runtime_metrics.get("prompt_token_count"), int)
+                    else None
+                ),
+                completion_token_count=(
+                    int(runtime_metrics["completion_token_count"])
+                    if isinstance(runtime_metrics.get("completion_token_count"), int)
+                    else None
+                ),
+                runtime_metrics=runtime_metrics,
+                status="ok",
+            )
+        log.info(
+            "llm_chat_complete_completed",
+            provider="local_gguf",
+            model=self._model_filename_override or settings.llm_model_filename,
+            prompt_token_count=runtime_metrics.get("prompt_token_count"),
+            prompt_token_count_source=runtime_metrics.get("prompt_token_count_source"),
+            cached_token_count=runtime_metrics.get("cached_token_count"),
+            prefix_cache_hit=runtime_metrics.get("prefix_cache_hit"),
+            prompt_eval_tokens_per_second=runtime_metrics.get("prompt_eval_tokens_per_second"),
+            generation_tokens_per_second=runtime_metrics.get("generation_tokens_per_second"),
+            prompt_eval_duration_ms=runtime_metrics.get("prompt_eval_duration_ms"),
+            generation_duration_ms=runtime_metrics.get("generation_duration_ms"),
+            elapsed_ms=round(elapsed_ms, 1),
+        )
         return {"choices": [{"message": {"content": "".join(content_parts)}}]}
 
     # -- Streaming generation -------------------------------------------------
@@ -863,6 +1364,8 @@ class XllamaCppProvider:
         force_chatml: bool = False,
         timeout_seconds: float | None = None,
         chat_template_kwargs_override: dict[str, object] | None = None,
+        timing_context: dict[str, object] | None = None,
+        probe_context: dict[str, object] | None = None,
     ) -> AsyncGenerator[str | tuple[str, object]]:
         # Stream generated tokens one at a time as an async generator.
         # Sends messages via handle_chat_completions in a background thread.
@@ -903,6 +1406,12 @@ class XllamaCppProvider:
         profile = get_profile()
         context_len = get_effective_context_length(profile)
         server = self._loaded_server
+        probe_context = (
+            probe_context
+            if isinstance(probe_context, dict)
+            else _get_runtime_call_probe_context()
+        )
+        caller_tag = _resolve_runtime_call_caller_tag() if probe_context is not None else None
 
         truncated_messages, truncation_info = _truncate_messages_to_fit(
             chat_template=self._chat_template,
@@ -941,16 +1450,31 @@ class XllamaCppProvider:
         start = time.perf_counter()
         token_count = 0
         first_token_ms: float | None = None
+        first_token_at_s: float | None = None
         total_text_parts: list[str] = []
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[str | object] = asyncio.Queue()
         exception_holder: list[BaseException] = []
         cancel_event = threading.Event()
-        timing_state: dict[str, float | None] = {"submit_ms": None}
+        timing_state: dict[str, object | None] = {"submit_ms": None, "submit_at_s": None}
+        runtime_probe_record: dict[str, object] | None = None
+        if probe_context is not None:
+            runtime_probe_record = {
+                "sequence": _runtime_probe_claim_sequence(probe_context),
+                "caller": caller_tag or "unknown",
+                "call_kind": "generate_stream",
+                "status": "running",
+                "prompt_tokens": None,
+                "completion_tokens": None,
+                "duration_ms": 0.0,
+            }
+            _runtime_probe_append_record(probe_context, runtime_probe_record)
 
+        request_context = copy_context()
         worker = threading.Thread(
-            target=_run_stream_worker,
+            target=request_context.run,
             args=(
+                _run_stream_worker,
                 server,
                 messages,
                 max_tok,
@@ -964,6 +1488,9 @@ class XllamaCppProvider:
                 cancel_event,
                 start,
                 timing_state,
+                probe_context,
+                runtime_probe_record,
+                caller_tag,
             ),
             name="llm-stream-worker",
             daemon=True,
@@ -988,6 +1515,7 @@ class XllamaCppProvider:
                 wall_clock=wall_clock,
                 first_token_deadline_seconds=first_token_deadline_seconds,
                 stripper=stripper,
+                timing_context=timing_context,
             ):
                 if event_kind == "timeout":
                     timeout_payload = payload if isinstance(payload, dict) else {}
@@ -1025,6 +1553,9 @@ class XllamaCppProvider:
                 emit_text = str(payload)
                 if first_token_ms is None:
                     first_token_ms = (time.perf_counter() - start) * 1000
+                    first_token_at_s = time.time()
+                    if timing_context is not None:
+                        timing_context["runtime_first_token_at_s"] = first_token_at_s
                 token_count += 1
                 total_text_parts.append(emit_text)
                 yield emit_text
@@ -1123,6 +1654,24 @@ class XllamaCppProvider:
 
             elapsed_ms = (time.perf_counter() - start) * 1000
             request_submit_ms = timing_state.get("submit_ms")
+            request_submit_at_s = timing_state.get("submit_at_s")
+            runtime_frames = (
+                timing_state.get("runtime_frames") if isinstance(timing_state.get("runtime_frames"), list) else []
+            )
+            runtime_metrics = _extract_runtime_metrics_from_chunks(
+                runtime_frames if isinstance(runtime_frames, list) else [],
+                prompt_token_estimate=_estimate_prompt_token_count(self._chat_template, messages),
+                total_elapsed_ms=elapsed_ms,
+                token_count=token_count,
+            )
+            timing_state["runtime_metrics"] = runtime_metrics
+            if timing_context is not None:
+                timing_context["payload_sent_to_model_runtime_at_s"] = (
+                    request_submit_at_s if isinstance(request_submit_at_s, (int, float)) else None
+                )
+                timing_context["runtime_metrics"] = runtime_metrics
+                if first_token_at_s is not None:
+                    timing_context["runtime_first_token_at_s"] = first_token_at_s
             queue_wait_ms: float | None = None
             if isinstance(request_submit_ms, (int, float)) and first_token_ms is not None:
                 queue_wait_ms = max(0.0, first_token_ms - float(request_submit_ms))
@@ -1133,6 +1682,12 @@ class XllamaCppProvider:
                 output_length=len("".join(total_text_parts)),
                 elapsed_ms=round(elapsed_ms, 1),
                 first_token_ms=round(first_token_ms, 1) if first_token_ms is not None else None,
+                prompt_token_count=runtime_metrics.get("prompt_token_count"),
+                prompt_token_count_source=runtime_metrics.get("prompt_token_count_source"),
+                cached_token_count=runtime_metrics.get("cached_token_count"),
+                prefix_cache_hit=runtime_metrics.get("prefix_cache_hit"),
+                prompt_eval_tokens_per_second=runtime_metrics.get("prompt_eval_tokens_per_second"),
+                generation_tokens_per_second=runtime_metrics.get("generation_tokens_per_second"),
                 finish_reason=finish_reason,
                 cancelled=cancel_event.is_set(),
                 timeout_occurred=timeout_occurred,
@@ -1147,8 +1702,11 @@ class XllamaCppProvider:
                 "total_elapsed_ms": round(elapsed_ms, 1),
                 "submit_ms": round(request_submit_ms, 1) if isinstance(request_submit_ms, (int, float)) else None,
                 "queue_wait_ms": round(queue_wait_ms, 1) if queue_wait_ms is not None else None,
+                "submit_at_s": request_submit_at_s if isinstance(request_submit_at_s, (int, float)) else None,
+                "first_token_at_s": first_token_at_s,
                 "timeout_reason": timeout_reason,
                 "finish_reason": finish_reason,
+                "runtime_metrics": runtime_metrics,
             },
         )
 
@@ -1273,6 +1831,9 @@ class OllamaProvider:
         chat_template_kwargs_override: dict[str, object] | None = None,
     ) -> dict:
         """chat complete."""
+        start = time.perf_counter()
+        probe_context = _get_runtime_call_probe_context()
+        caller_tag = _resolve_runtime_call_caller_tag() if probe_context is not None else None
         model = self._resolve_model()
         merged_template_kwargs = _merge_chat_template_kwargs(
             get_profile().chat_template_kwargs,
@@ -1295,10 +1856,63 @@ class OllamaProvider:
         if response_format is not None:
             payload["format"] = response_format
 
-        parsed = self._post_chat(payload=payload, stream=False)
+        try:
+            parsed = self._post_chat(payload=payload, stream=False)
+        except Exception as exc:
+            if probe_context is not None:
+                _record_runtime_call_probe(
+                    call_kind="chat_complete",
+                    caller_tag=caller_tag or "unknown",
+                    duration_ms=(time.perf_counter() - start) * 1000.0,
+                    prompt_token_count=None,
+                    completion_token_count=None,
+                    runtime_metrics=None,
+                    status="error",
+                    error=str(exc),
+                )
+            raise
         if not isinstance(parsed, dict):
             raise LLMError("Invalid Ollama response format")
         content = str((parsed.get("message") or {}).get("content") or "")
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        runtime_metrics = _extract_runtime_metrics_from_chunks(
+            [parsed],
+            prompt_token_estimate=None,
+            total_elapsed_ms=elapsed_ms,
+            token_count=None,
+        )
+        if probe_context is not None:
+            _record_runtime_call_probe(
+                call_kind="chat_complete",
+                caller_tag=caller_tag or "unknown",
+                duration_ms=elapsed_ms,
+                prompt_token_count=(
+                    int(runtime_metrics["prompt_token_count"])
+                    if isinstance(runtime_metrics.get("prompt_token_count"), int)
+                    else None
+                ),
+                completion_token_count=(
+                    int(runtime_metrics["completion_token_count"])
+                    if isinstance(runtime_metrics.get("completion_token_count"), int)
+                    else None
+                ),
+                runtime_metrics=runtime_metrics,
+                status="ok",
+            )
+        log.info(
+            "llm_chat_complete_completed",
+            provider="ollama",
+            model=model,
+            prompt_token_count=runtime_metrics.get("prompt_token_count"),
+            prompt_token_count_source=runtime_metrics.get("prompt_token_count_source"),
+            cached_token_count=runtime_metrics.get("cached_token_count"),
+            prefix_cache_hit=runtime_metrics.get("prefix_cache_hit"),
+            prompt_eval_tokens_per_second=runtime_metrics.get("prompt_eval_tokens_per_second"),
+            generation_tokens_per_second=runtime_metrics.get("generation_tokens_per_second"),
+            prompt_eval_duration_ms=runtime_metrics.get("prompt_eval_duration_ms"),
+            generation_duration_ms=runtime_metrics.get("generation_duration_ms"),
+            elapsed_ms=round(elapsed_ms, 1),
+        )
         return {"choices": [{"message": {"content": content}}]}
 
     async def generate_stream(
@@ -1311,6 +1925,8 @@ class OllamaProvider:
         force_chatml: bool = False,
         timeout_seconds: float | None = None,
         chat_template_kwargs_override: dict[str, object] | None = None,
+        timing_context: dict[str, object] | None = None,
+        probe_context: dict[str, object] | None = None,
     ) -> AsyncGenerator[str | tuple[str, object]]:
         """generate stream."""
         if not messages:
@@ -1321,6 +1937,12 @@ class OllamaProvider:
         top_p_val = 1.0 if top_p is None else top_p
         stop_seqs = stop if stop is not None else []
         wall_clock = 120.0 if timeout_seconds is None else float(timeout_seconds)
+        probe_context = (
+            probe_context
+            if isinstance(probe_context, dict)
+            else _get_runtime_call_probe_context()
+        )
+        caller_tag = _resolve_runtime_call_caller_tag() if probe_context is not None else None
         merged_template_kwargs = _merge_chat_template_kwargs(
             get_profile().chat_template_kwargs,
             chat_template_kwargs_override,
@@ -1378,11 +2000,47 @@ class OllamaProvider:
         raw_frame_samples: list[str] = []
         done_frame_snapshot: dict[str, object] | None = None
         request_submit_ms: float | None = None
+        request_submit_at_s: float | None = None
         start = time.perf_counter()
+        runtime_probe_record: dict[str, object] | None = None
+        if probe_context is not None:
+            runtime_probe_record = {
+                "sequence": _runtime_probe_claim_sequence(probe_context),
+                "caller": caller_tag or "unknown",
+                "call_kind": "generate_stream",
+                "status": "running",
+                "prompt_tokens": None,
+                "completion_tokens": None,
+                "duration_ms": 0.0,
+            }
+            _runtime_probe_append_record(probe_context, runtime_probe_record)
 
-        def _worker() -> None:
+        request_context = copy_context()
+
+        def _worker(
+            explicit_probe_context: dict[str, object] | None,
+            worker_runtime_probe_record: dict[str, object] | None,
+        ) -> None:
             """worker."""
+            probe_context = (
+                explicit_probe_context
+                if isinstance(explicit_probe_context, dict)
+                else _get_runtime_call_probe_context()
+            )
+            runtime_probe_record = worker_runtime_probe_record
+            if probe_context is not None and runtime_probe_record is None:
+                runtime_probe_record = {
+                    "sequence": _runtime_probe_claim_sequence(probe_context),
+                    "caller": caller_tag or "unknown",
+                    "call_kind": "generate_stream",
+                    "status": "running",
+                    "prompt_tokens": None,
+                    "completion_tokens": None,
+                    "duration_ms": 0.0,
+                }
+                _runtime_probe_append_record(probe_context, runtime_probe_record)
             nonlocal request_submit_ms
+            nonlocal request_submit_at_s
             nonlocal raw_frame_count, parsed_frame_count, non_dict_frame_count
             nonlocal json_decode_error_count, empty_content_frame_count
             nonlocal raw_frame_samples, done_frame_snapshot
@@ -1395,6 +2053,7 @@ class OllamaProvider:
             )
             try:
                 request_submit_ms = (time.perf_counter() - start) * 1000
+                request_submit_at_s = time.time()
                 with urllib.request.urlopen(req, timeout=self._timeout_seconds) as resp:
                     # noqa: S310
                     for raw_line in resp:
@@ -1458,13 +2117,68 @@ class OllamaProvider:
                 loop.call_soon_threadsafe(
                     queue.put_nowait, (StreamSignalTag.FINISH_REASON, finish_reason)
                 )
+                if runtime_probe_record is not None:
+                    elapsed_ms = (time.perf_counter() - start) * 1000
+                    runtime_metrics = _extract_runtime_metrics_from_chunks(
+                        [done_frame_snapshot] if done_frame_snapshot is not None else [],
+                        prompt_token_estimate=None,
+                        total_elapsed_ms=elapsed_ms,
+                        token_count=token_count,
+                    )
+                    runtime_probe_record.update(
+                        {
+                            "duration_ms": round(elapsed_ms, 1),
+                            "prompt_tokens": (
+                                int(runtime_metrics["prompt_token_count"])
+                                if isinstance(runtime_metrics.get("prompt_token_count"), int)
+                                else None
+                            ),
+                            "completion_tokens": (
+                                int(runtime_metrics["completion_token_count"])
+                                if isinstance(runtime_metrics.get("completion_token_count"), int)
+                                else None
+                            ),
+                            "status": "error" if exception_holder else "ok",
+                        }
+                    )
+                    if exception_holder:
+                        runtime_probe_record["error"] = str(exception_holder[-1])
+                    if runtime_metrics is not None:
+                        prompt_token_source = runtime_metrics.get("prompt_token_count_source")
+                        cached_token_count = runtime_metrics.get("cached_token_count")
+                        prefix_cache_hit = runtime_metrics.get("prefix_cache_hit")
+                        prompt_eval_tps = runtime_metrics.get("prompt_eval_tokens_per_second")
+                        generation_tps = runtime_metrics.get("generation_tokens_per_second")
+                        prompt_eval_duration_ms = runtime_metrics.get("prompt_eval_duration_ms")
+                        generation_duration_ms = runtime_metrics.get("generation_duration_ms")
+                        if prompt_token_source is not None:
+                            runtime_probe_record["prompt_tokens_source"] = prompt_token_source
+                        if cached_token_count is not None:
+                            runtime_probe_record["cached_tokens"] = cached_token_count
+                        if prefix_cache_hit is not None:
+                            runtime_probe_record["prefix_cache_hit"] = prefix_cache_hit
+                        if prompt_eval_tps is not None:
+                            runtime_probe_record["prompt_eval_tokens_per_second"] = prompt_eval_tps
+                        if generation_tps is not None:
+                            runtime_probe_record["generation_tokens_per_second"] = generation_tps
+                        if prompt_eval_duration_ms is not None:
+                            runtime_probe_record["prompt_eval_duration_ms"] = prompt_eval_duration_ms
+                        if generation_duration_ms is not None:
+                            runtime_probe_record["generation_duration_ms"] = generation_duration_ms
+                    log.info("researcher_runtime_call", **runtime_probe_record)
                 with suppress(RuntimeError):
                     loop.call_soon_threadsafe(queue.put_nowait, _STREAM_END)
 
-        worker = threading.Thread(target=_worker, name="ollama-stream-worker", daemon=True)
+        worker = threading.Thread(
+            target=request_context.run,
+            args=(_worker, probe_context, runtime_probe_record),
+            name="ollama-stream-worker",
+            daemon=True,
+        )
         worker.start()
         token_count = 0
         first_token_ms: float | None = None
+        first_token_at_s: float | None = None
         total_text_parts: list[str] = []
         finish_reason: str | None = None
         timeout_occurred = False
@@ -1483,6 +2197,7 @@ class OllamaProvider:
                 wall_clock=wall_clock,
                 first_token_deadline_seconds=first_token_deadline_seconds,
                 stripper=stripper,
+                timing_context=timing_context,
             ):
                 if event_kind == "timeout":
                     timeout_payload = payload if isinstance(payload, dict) else {}
@@ -1500,6 +2215,9 @@ class OllamaProvider:
                 emit_text = str(payload)
                 if first_token_ms is None:
                     first_token_ms = (time.perf_counter() - start) * 1000
+                    if timing_context is not None:
+                        first_token_at_s = time.time()
+                        timing_context["runtime_first_token_at_s"] = first_token_at_s
                 token_count += 1
                 total_text_parts.append(emit_text)
                 yield emit_text
@@ -1546,6 +2264,57 @@ class OllamaProvider:
             if request_submit_ms is not None and first_token_ms is not None:
                 queue_wait_ms = max(0.0, first_token_ms - request_submit_ms)
             elapsed_ms = (time.perf_counter() - start) * 1000
+            runtime_metrics = _extract_runtime_metrics_from_chunks(
+                [done_frame_snapshot] if done_frame_snapshot is not None else [],
+                prompt_token_estimate=None,
+                total_elapsed_ms=elapsed_ms,
+                token_count=token_count,
+            )
+            if runtime_probe_record is not None:
+                runtime_probe_record.update(
+                    {
+                        "duration_ms": round(elapsed_ms, 1),
+                        "prompt_tokens": (
+                            int(runtime_metrics["prompt_token_count"])
+                            if isinstance(runtime_metrics.get("prompt_token_count"), int)
+                            else None
+                        ),
+                        "completion_tokens": (
+                            int(runtime_metrics["completion_token_count"])
+                            if isinstance(runtime_metrics.get("completion_token_count"), int)
+                            else None
+                        ),
+                        "status": "error" if exception_holder else "ok",
+                    }
+                )
+                if exception_holder:
+                    runtime_probe_record["error"] = str(exception_holder[0])
+                if runtime_metrics is not None:
+                    prompt_token_source = runtime_metrics.get("prompt_token_count_source")
+                    cached_token_count = runtime_metrics.get("cached_token_count")
+                    prefix_cache_hit = runtime_metrics.get("prefix_cache_hit")
+                    prompt_eval_tps = runtime_metrics.get("prompt_eval_tokens_per_second")
+                    generation_tps = runtime_metrics.get("generation_tokens_per_second")
+                    prompt_eval_duration_ms = runtime_metrics.get("prompt_eval_duration_ms")
+                    generation_duration_ms = runtime_metrics.get("generation_duration_ms")
+                    if prompt_token_source is not None:
+                        runtime_probe_record["prompt_tokens_source"] = prompt_token_source
+                    if cached_token_count is not None:
+                        runtime_probe_record["cached_tokens"] = cached_token_count
+                    if prefix_cache_hit is not None:
+                        runtime_probe_record["prefix_cache_hit"] = prefix_cache_hit
+                    if prompt_eval_tps is not None:
+                        runtime_probe_record["prompt_eval_tokens_per_second"] = prompt_eval_tps
+                    if generation_tps is not None:
+                        runtime_probe_record["generation_tokens_per_second"] = generation_tps
+                    if prompt_eval_duration_ms is not None:
+                        runtime_probe_record["prompt_eval_duration_ms"] = prompt_eval_duration_ms
+                    if generation_duration_ms is not None:
+                        runtime_probe_record["generation_duration_ms"] = generation_duration_ms
+                log.info("researcher_runtime_call", **runtime_probe_record)
+            if timing_context is not None:
+                timing_context["payload_sent_to_model_runtime_at_s"] = request_submit_at_s
+                timing_context["runtime_metrics"] = runtime_metrics
             log.info(
                 "llm_stream_completed",
                 provider="ollama",
@@ -1554,6 +2323,12 @@ class OllamaProvider:
                 output_length=len("".join(total_text_parts)),
                 elapsed_ms=round(elapsed_ms, 1),
                 first_token_ms=round(first_token_ms, 1) if first_token_ms is not None else None,
+                prompt_token_count=runtime_metrics.get("prompt_token_count"),
+                prompt_token_count_source=runtime_metrics.get("prompt_token_count_source"),
+                cached_token_count=runtime_metrics.get("cached_token_count"),
+                prefix_cache_hit=runtime_metrics.get("prefix_cache_hit"),
+                prompt_eval_tokens_per_second=runtime_metrics.get("prompt_eval_tokens_per_second"),
+                generation_tokens_per_second=runtime_metrics.get("generation_tokens_per_second"),
                 finish_reason=finish_reason,
                 cancelled=cancel_event.is_set(),
                 timeout_occurred=timeout_occurred,
@@ -1731,6 +2506,8 @@ class LLMEngine:
         force_chatml: bool = False,
         timeout_seconds: float | None = None,
         chat_template_kwargs_override: dict[str, object] | None = None,
+        timing_context: dict[str, object] | None = None,
+        probe_context: dict[str, object] | None = None,
     ) -> AsyncGenerator[str | tuple[str, object]]:
         """generate stream."""
         async for item in self._provider.generate_stream(
@@ -1742,6 +2519,8 @@ class LLMEngine:
             force_chatml=force_chatml,
             timeout_seconds=timeout_seconds,
             chat_template_kwargs_override=chat_template_kwargs_override,
+            timing_context=timing_context,
+            probe_context=probe_context,
         ):
             yield item
 
