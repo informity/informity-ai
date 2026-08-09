@@ -50,6 +50,7 @@ class Embedder:
         self._model: SentenceTransformer | None = None
         self._query_embed_cache: OrderedDict[str, tuple[list[float], float]] = OrderedDict()
         self._cache_lock = threading.Lock()
+        self._model_lock = threading.Lock()
         self._encode_lock = threading.Lock()
         self._mps_available: bool | None = None
 
@@ -57,7 +58,9 @@ class Embedder:
     def model(self) -> SentenceTransformer:
         """Model."""
         if self._model is None:
-            self._load_model()
+            with self._model_lock:
+                if self._model is None:
+                    self._load_model()
         return self._model
 
     def _load_model(self) -> None:
