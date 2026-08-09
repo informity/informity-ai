@@ -114,6 +114,7 @@ async def _collect_streamed_text(
     timeout_seconds: float,
     stop_sequences: list[str] | None,
     chat_template_kwargs_override: dict[str, object] | None = None,
+    probe_context: dict[str, object] | None = None,
 ) -> str:
     """Internal helper for collect streamed text."""
     parts: list[str] = []
@@ -125,6 +126,7 @@ async def _collect_streamed_text(
         timeout_seconds=timeout_seconds,
         stop_sequences=stop_sequences,
         chat_template_kwargs_override=chat_template_kwargs_override,
+        probe_context=probe_context,
     ):
         parts.append(token)
     return "".join(parts).strip()
@@ -167,6 +169,11 @@ class SimpleHandler:
             profile = get_profile()
             query_type = QueryType.SIMPLE
             normalized_chat_mode = resolve_chat_mode(chat_mode)
+            probe_context = None
+            if isinstance(diagnostics_context, dict):
+                timing_candidate = diagnostics_context.get("timing")
+                if isinstance(timing_candidate, dict):
+                    probe_context = timing_candidate
             system_prompt = compose_prompt(
                 mode_id=resolve_runtime_mode_id(normalized_chat_mode),
                 chat_mode=normalized_chat_mode,
@@ -358,10 +365,11 @@ class SimpleHandler:
                             max_tokens=max_tokens,
                             temperature=min(profile.temperature, 0.25),
                             top_p=min(profile.top_p, 0.8),
-                            timeout_seconds=timeout_seconds,
-                            stop_sequences=stop_sequences,
-                            chat_template_kwargs_override=chat_template_kwargs_override,
-                        )
+                        timeout_seconds=timeout_seconds,
+                        stop_sequences=stop_sequences,
+                        chat_template_kwargs_override=chat_template_kwargs_override,
+                        probe_context=probe_context,
+                    )
                         if chunk_summary:
                             chunk_summaries.append(f"Part {index}: {chunk_summary}")
                     response_question = (
@@ -427,6 +435,7 @@ class SimpleHandler:
                 timeout_seconds=timeout_seconds,
                 stop_sequences=stop_sequences,
                 chat_template_kwargs_override=chat_template_kwargs_override,
+                probe_context=probe_context,
             ):
                 if isinstance(token, tuple):
                     continue

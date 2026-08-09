@@ -165,6 +165,12 @@ async def answer_question(
         yield []
         return
 
+    timing_context: dict[str, object] | None = None
+    if isinstance(diagnostics_context, dict):
+        timing_candidate = diagnostics_context.get("timing")
+        if isinstance(timing_candidate, dict):
+            timing_context = timing_candidate
+
     try:
         normalized_chat_mode = resolve_chat_mode(chat_mode)
 

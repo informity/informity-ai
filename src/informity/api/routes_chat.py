@@ -1118,6 +1118,7 @@ async def chat(
     await CHAT_GUARD.check_rate_limit()
     requested_run_id = str(request.run_id or "").strip() or None
     resolved_chat_mode = resolve_chat_mode(request.mode)
+    resolved_agent_mode = bool(request.agent_mode)
     requested_specialization_id = str(request.specialization_id or "").strip() or None
     requested_specialization = (
         describe_specialization(requested_specialization_id)
@@ -1382,7 +1383,6 @@ async def chat(
         if request.chat_web_search_privacy_override is None
         else bool(request.chat_web_search_privacy_override)
     )
-    resolved_agent_mode = bool(request.agent_mode)
     user_message_is_internal = _is_continuation_request(message_text)
 
     # Persist the user message

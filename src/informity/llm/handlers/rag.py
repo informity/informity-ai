@@ -76,7 +76,6 @@ _COVERAGE_ENTITY_LISTING_TOP_K_MAX = 60
 _FILE_DISCOVERY_RETRIEVAL_TOP_K = 200
 _FILE_DISCOVERY_DISPLAY_LIMIT = 20
 _FILE_DISCOVERY_LEAD_IN = "Here are the files related to your query:"
-_AGENT_MULTI_QUERY_MAX_SUBQUERIES = 4
 _GLOBAL_ENTITY_ENUMERATION_PATTERN = build_global_entity_listing_pattern()
 _ENTITY_INVENTORY_SCOPE_PATTERN = build_exhaustive_entity_inventory_scope_pattern()
 _PERSON_INVENTORY_PATTERN = build_person_entity_listing_pattern()
@@ -334,7 +333,7 @@ def _resolve_agent_retrieval_queries(
                 continue
             seen_queries.add(key)
             resolved_queries.append(query)
-            if len(resolved_queries) >= _AGENT_MULTI_QUERY_MAX_SUBQUERIES:
+            if len(resolved_queries) >= int(settings.agent_multi_query_max_subqueries):
                 break
         return resolved_queries
     fallback_query = normalize_query_text(retrieval_query).strip().strip(" .?!,;:")
@@ -651,6 +650,7 @@ class RAGHandler:
         history: list[ChatMessage] | None,
         db: aiosqlite.Connection,
         trace: object | None,
+        timing_context: dict[str, object] | None = None,
         file_ids: list[int] | None = None,
         specialization_id: str | None = None,
         agent_mode: bool = False,
@@ -951,10 +951,20 @@ class RAGHandler:
             ) in enumerate(zip(agent_retrieval_queries, subquery_results, strict=True), start=1):
                 for timing_key, timing_value in subquery_timing.items():
                     if isinstance(timing_value, (int, float)):
-                        accumulated_timing = retrieval_timing.get(timing_key, 0.0) + float(
-                            timing_value
-                        )
-                        retrieval_timing[timing_key] = accumulated_timing
+                        numeric_timing = float(timing_value)
+                        current_timing = retrieval_timing.get(timing_key)
+                        if timing_key.endswith("_at_s"):
+                            retrieval_timing[timing_key] = (
+                                max(float(current_timing), numeric_timing)
+                                if isinstance(current_timing, (int, float))
+                                else numeric_timing
+                            )
+                        else:
+                            retrieval_timing[timing_key] = (
+                                float(current_timing)
+                                if isinstance(current_timing, (int, float))
+                                else 0.0
+                            ) + numeric_timing
                 for chunk in subquery_chunks:
                     dedupe_key = _chunk_dedupe_key(chunk)
                     if dedupe_key in seen_chunk_keys:
@@ -1138,10 +1148,25 @@ class RAGHandler:
                             chunks is comparison_retry_chunks and comparison_retry_chunks
                         ),
                     },
-                )
+        )
         retrieval_elapsed_ms = (time.perf_counter() - retrieval_start) * 1000
         agent_retrieval_elapsed_ms = retrieval_elapsed_ms if agent_plan_enabled else None
         stream_summary: _generation_stream.StreamExecutionSummary | None = None
+
+        if timing_context is not None:
+            for timing_key in (
+                "embed_complete_at_s",
+                "search_complete_at_s",
+                "retrieval_complete_at_s",
+            ):
+                timing_value = retrieval_timing.get(timing_key)
+                if isinstance(timing_value, (int, float)):
+                    current_timing = timing_context.get(timing_key)
+                    timing_context[timing_key] = (
+                        max(float(current_timing), float(timing_value))
+                        if isinstance(current_timing, (int, float))
+                        else float(timing_value)
+                    )
 
         answerability_passed, answerability_score, answerability_threshold, min_chunks = (
             _evaluate_minimal_answerability(
@@ -1343,6 +1368,8 @@ class RAGHandler:
             generation_top_p = min(generation_top_p, _SUMMARY_TITLE_MAX_TOP_P)
 
         prompt_build_start = time.perf_counter()
+        if timing_context is not None:
+            timing_context.setdefault("prompt_build_started_at_s", time.time())
         messages = build_messages(
             BuildMessagesRequest(
                 question=question,
@@ -1354,6 +1381,7 @@ class RAGHandler:
                 chat_mode="researcher",
                 specialization_id=specialization_id,
                 agent_mode=agent_mode,
+                agent_synthesis_focus=classification.agent_synthesis_focus,
             )
         )
         messages = profile.prepare_messages(
@@ -1362,6 +1390,8 @@ class RAGHandler:
             reasoning_enabled=reasoning_enabled,
         )
         prompt_build_ms = (time.perf_counter() - prompt_build_start) * 1000
+        if timing_context is not None:
+            timing_context["prompt_build_complete_at_s"] = time.time()
 
         if trace is not None:
             trace.record(
@@ -1390,6 +1420,8 @@ class RAGHandler:
         ):
             answer_parts.append(_DETERMINISTIC_EXTRACTION_HEADING)
             yield _DETERMINISTIC_EXTRACTION_HEADING
+        if timing_context is not None:
+            timing_context.setdefault("generation_started_at_s", time.time())
         async for item in _generation_stream.stream_generation_with_budget(
             messages=messages,
             max_tokens=max_tokens,
@@ -1405,7 +1437,9 @@ class RAGHandler:
             output_contract_plan=None,
             collapse_duplicate_message_fn=_collapse_duplicate_insufficient_context_message,
             chat_template_kwargs_override=chat_template_kwargs_override,
+            probe_context=timing_context,
             stream_llm_fn=stream_llm,
+            timing_context=timing_context,
         ):
             if isinstance(item, tuple):
                 if item[0] == _generation_stream.STREAM_SUMMARY_EVENT:
@@ -1422,10 +1456,19 @@ class RAGHandler:
             answer_parts.append(item)
             yield item
         llm_elapsed_ms = (time.perf_counter() - llm_start) * 1000
+        if timing_context is not None:
+            timing_context["generation_complete_at_s"] = time.time()
         if stream_summary is not None:
             token_count = stream_summary.token_count
             first_token_ms = stream_summary.first_token_ms
             llm_elapsed_ms = stream_summary.total_elapsed_ms
+            if timing_context is not None:
+                if stream_summary.submit_at_s is not None:
+                    timing_context["payload_sent_to_model_runtime_at_s"] = stream_summary.submit_at_s
+                if stream_summary.first_token_at_s is not None:
+                    timing_context["runtime_first_token_at_s"] = stream_summary.first_token_at_s
+                if stream_summary.runtime_metrics is not None:
+                    timing_context["runtime_metrics"] = stream_summary.runtime_metrics
         answer_text = "".join(answer_parts)
 
         if trace is not None:
@@ -1549,6 +1592,11 @@ class RAGHandler:
         """
         Handle RAG query using the single minimal runtime path.
         """
+        timing_context: dict[str, object] | None = None
+        if isinstance(diagnostics_context, dict):
+            timing_candidate = diagnostics_context.get("timing")
+            if isinstance(timing_candidate, dict):
+                timing_context = timing_candidate
         try:
             if diagnostics_context is not None and trace is not None:
                 trace.record("diagnostics_context", diagnostics_context)
@@ -1558,6 +1606,7 @@ class RAGHandler:
                 history=history,
                 db=db,
                 trace=trace,
+                timing_context=timing_context,
                 file_ids=file_ids,
                 specialization_id=specialization_id,
                 agent_mode=agent_mode,

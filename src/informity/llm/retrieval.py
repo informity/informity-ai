@@ -31,6 +31,7 @@ from informity.upload_policy import UPLOAD_ENTITY_TYPE, UPLOAD_PROVIDER
 from informity.utils.file_utils import normalize_extension
 
 log = structlog.get_logger(__name__)
+_QUERY_EMBEDDING_LOCK = asyncio.Lock()
 _COVERAGE_DIVERSITY_PRIMARY_FILE_CAP = 1
 _COVERAGE_DIVERSITY_SECONDARY_FILE_CAP = 2
 _STRUCTURAL_SECTION_PATTERNS = (
@@ -628,8 +629,10 @@ async def retrieve_chunks(
         )
 
     embed_start = time.perf_counter()
-    query_vector = await asyncio.to_thread(embedder.embed_query, query_for_embedding)
+    async with _QUERY_EMBEDDING_LOCK:
+        query_vector = await asyncio.to_thread(embedder.embed_query, query_for_embedding)
     embed_elapsed_ms = (time.perf_counter() - embed_start) * 1000
+    embed_complete_at_s = time.time()
 
     start = time.perf_counter()
 
@@ -778,6 +781,7 @@ async def retrieve_chunks(
                 raw_candidates=raw_before_score_filter,
             )
     search_elapsed_ms = (time.perf_counter() - start) * 1000
+    search_complete_at_s = time.time()
 
     # FTS5 candidate augmentation — add exact-match pool candidates before reranking.
     # Candidate-only: FTS5 contributes chunk IDs to the pool, reranker remains sole scorer.
@@ -1174,6 +1178,9 @@ async def retrieve_chunks(
             "fts5_augmented_count": fts5_augmented_count,
             "rerank_min_score": rerank_min_score,
             "rerank_threshold_removed_count": rerank_threshold_removed_count,
+            "embed_complete_at_s": embed_complete_at_s,
+            "search_complete_at_s": search_complete_at_s,
+            "retrieval_complete_at_s": time.time(),
         }
         trace.record("retrieval", trace_data)
         trace.record(
@@ -1215,5 +1222,8 @@ async def retrieve_chunks(
         timing_output["embed_ms"] = round(embed_elapsed_ms, 1)
         timing_output["vector_search_ms"] = round(search_elapsed_ms, 1)
         timing_output["rerank_ms"] = round(rerank_elapsed_ms, 1)
+        timing_output["embed_complete_at_s"] = embed_complete_at_s
+        timing_output["search_complete_at_s"] = search_complete_at_s
+        timing_output["retrieval_complete_at_s"] = time.time()
 
     return final

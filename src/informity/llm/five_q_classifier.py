@@ -25,7 +25,6 @@ _ALLOWED_OPERATIONS = {"lookup", "count_enumerate", "summarize_synthesize", "com
 _ALLOWED_APP_KNOWLEDGE_OPERATIONS = {"lookup", "summarize_synthesize"}
 _ROUTER_MAX_TOKENS = 220
 _ROUTER_TEMPERATURE = 0.0
-
 _SYSTEM_PROMPT = """You are a query classifier for a document chat app.
 Answer exactly five questions using JSON only.
 
@@ -65,15 +64,6 @@ Rules:
   has a year in its name or uses package/bundle/statement wording for a single document.
 - scope=broad when a year scopes a set or group of documents, or for any compare
   operation, multi-document synthesis, or named collection or document set.
-- In agent mode, a year-scoped package, bundle, analysis, closing package,
-  refinancing package, escrow analysis, or similar named document set is scope=broad,
-  even if the query sounds singular or asks to summarize/explain one package.
-- In agent mode, do not classify a year-scoped package/analysis/closing package/
-  refinancing package as scope=targeted unless the user names one exact file or one
-  explicitly singular document identifier.
-- In agent mode, if the query names a year together with package/analysis/closing
-  package/refinancing package/escrow analysis wording and asks to summarize, explain,
-  or ask what it says, choose scope=broad.
 - Compare operations are always scope=broad regardless of how many documents are named.
 - If the user asks what a year-scoped package, bundle, collection, or document set
   includes/covers/tells us, classify scope=broad even when the phrase is singular.
@@ -154,10 +144,6 @@ Examples:
 - "What does the 2023 Package A say about Topic X?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
 - "What does the 2023 package include?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
 - "What does the 2025 Package A tell us?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
-- "Summarize the 2025 Escondido property closing package." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
-- "What does the 2025 Rocket Mortgage annual escrow analysis say about taxes and insurance?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
-- "Summarize the 2025 closing package for the Escondido property." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
-- "What does the 2025 escrow analysis for the property say?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
 - "What do the Category A documents tell me?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Give me an overview of the Category B files." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Create a short table summarizing the Type X documents." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
@@ -199,6 +185,7 @@ Return this object:
   "operation": "lookup | count_enumerate | summarize_synthesize | compare",
   "partitions": ["..."],
   "subqueries": ["..."],
+  "agent_synthesis_focus": "..." | null,
   "exhaustive": true|false,
   "confidence": 0.0-1.0
 }
@@ -256,15 +243,25 @@ Rules:
 - operation=summarize_synthesize for app_knowledge queries asking for an explanation,
   overview, or walkthrough ("explain", "overview", "how does it work", "walk me through").
 - agent_mode only changes how subqueries are produced; keep the same source, scope,
-  operation, partitions, and exhaustive rules as the default classifier.
+  operation, partitions, and exhaustive rules as the default classifier. When the model
+  needs a final synthesis step, place that instruction in agent_synthesis_focus instead
+  of smuggling it into a subquery.
 - Use subqueries only when the query benefits from multiple retrieval slices and a
   single retrieval phrase would miss important evidence.
 - For broad questions about one document set, property, package, or topic, split the
   retrieval into a few concise evidence slices that reflect the query's major facets.
 - For compare questions, create separate subqueries for each compared set and any
   clearly named comparison dimension instead of collapsing everything into one phrase.
+  Compare questions must produce subqueries: at least one retrieval query per compared
+  item, plus any distinct comparison dimension. Put the overall compare instruction in
+  agent_synthesis_focus.
 - For file-discovery and mention-style questions, keep subqueries focused on the topic
   signal and avoid inventing unrelated retrieval phrases.
+- Every subquery must be a standalone retrieval query answerable from document text.
+  Synthesis, merging, and final reasoning happen after retrieval and must never appear
+  as a subquery. Use agent_synthesis_focus for the synthesis instruction.
+- A subquery must not be a paraphrase of the original query. Each subquery should target
+  a distinct facet, entity, time period, or document type.
 - Keep subqueries empty for simple lookups, narrow targeted questions, or pure inventory
   requests.
 - exhaustive=true only when the user explicitly asks for totals, every matching item for
@@ -329,6 +326,7 @@ Examples:
 - "Give me an overview of the Category B files." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Create a short table summarizing the Type X documents." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
 - "Show the answer in bullet points: what does the 2025 refinancing package tell us?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
+- "Show me all information I have on my home office setup." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], subqueries=["What documents exist for the home office setup?","What information is contained in the home office documents regarding equipment, expenses, or usage?"], agent_synthesis_focus="Synthesize the setup details, costs, and related documents.", exhaustive=false
 - "Show me all files related to my mortgage." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
 - "Show me all tax-related files." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
 - "Which files mention insurance?" -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
@@ -347,9 +345,11 @@ Examples:
 - "Compare Document A with Document B." -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
 - "Compare the 2023 package and the 2025 package." -> source=document_content, scope=broad, operation=compare, partitions=["2023","2025"], exhaustive=false
 - "Compare the Type X documents and the Type Y documents." -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
+- "How do the kitchen renovation budget and appliance invoice relate?" -> source=document_content, scope=broad, operation=compare, partitions=[], subqueries=["What is the content and purpose of the kitchen renovation budget?","What is the content and purpose of the appliance invoice?"], agent_synthesis_focus="Explain how the kitchen renovation budget and appliance invoice relate to each other.", exhaustive=false
 - "How do Document A and Document B relate?" -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
 - "Compare the 2022 and 2024 reports." -> source=document_content, scope=broad, operation=compare, partitions=["2022","2024"], exhaustive=false
 - "What changed between 2021 and 2023?" -> source=document_content, scope=broad, operation=compare, partitions=["2021","2023"], exhaustive=false
+- Negative example: "Synthesize the overall answer from the documents." -> subqueries must be empty because synthesis is not a retrieval query; agent_synthesis_focus should carry the synthesis instruction instead.
 - "Tell me about the documents." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false, confidence=0.65
 - "Show me what we have on the refinancing." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false, confidence=0.75
 - "What is the total of Field X across all my Type Y documents?" -> source=document_content, scope=broad, operation=lookup, partitions=[], exhaustive=true
@@ -436,6 +436,10 @@ def _normalize_decision(data: dict[str, Any]) -> FiveQDecision:
     partitions = [str(item).strip() for item in partitions_value if str(item).strip()]
     subqueries_value = data.get("subqueries") or []
     subqueries = [str(item).strip() for item in subqueries_value if str(item).strip()]
+    agent_synthesis_focus_value = data.get("agent_synthesis_focus")
+    agent_synthesis_focus = (
+        str(agent_synthesis_focus_value).strip() if agent_synthesis_focus_value is not None else None
+    )
     exhaustive = bool(data.get("exhaustive", False))
     confidence = float(data.get("confidence") or 0.0)
     confidence = max(0.0, min(1.0, confidence))
@@ -445,6 +449,7 @@ def _normalize_decision(data: dict[str, Any]) -> FiveQDecision:
         operation=operation,  # type: ignore[arg-type]
         partitions=partitions,
         subqueries=subqueries,
+        agent_synthesis_focus=agent_synthesis_focus or None,
         exhaustive=exhaustive,
         confidence=confidence,
     )
@@ -530,12 +535,13 @@ class FiveQClassifier:
         user_lines = [
             f"chat_mode: {context.chat_mode or 'unknown'}",
             f"scope_kind: {context.scope_kind or 'unknown'}",
-            f"agent_mode: {str(bool(context.agent_mode)).lower()}",
             f"has_prior_turns: {str(bool(context.has_prior_turns)).lower()}",
             f"prior_user_query: {prior_user_query or 'none'}",
             "",
             f"query: {text}",
         ]
+        if context.agent_mode:
+            user_lines.insert(2, "agent_mode: true")
         system_prompt = _AGENT_SYSTEM_PROMPT if context.agent_mode else _SYSTEM_PROMPT
         messages = [
             {"role": "system", "content": system_prompt},
