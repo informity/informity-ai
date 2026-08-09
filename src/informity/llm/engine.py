@@ -20,6 +20,7 @@ import asyncio
 import json
 import os
 import shutil
+import socket
 import threading
 import time
 import urllib.error
@@ -80,6 +81,13 @@ def _merge_chat_template_kwargs(
     if override_kwargs:
         merged.update(override_kwargs)
     return merged
+
+
+def _pick_free_loopback_port() -> int:
+    """Pick an ephemeral loopback port for the embedded xllamacpp server."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
 
 
 def set_runtime_call_probe_context(context: dict[str, object] | None) -> Token[dict[str, object] | None]:
@@ -985,6 +993,7 @@ class XllamaCppProvider:
             # TTFT regresses)
             params.cpuparams.n_threads = settings.llm_cpu_threads  # Cap CPU threads
             params.cpuparams_batch.n_threads = settings.llm_cpu_threads
+            params.port = _pick_free_loopback_port()
 
             # Read chat template from GGUF metadata before constructing Server,
             # while we still have direct file access.

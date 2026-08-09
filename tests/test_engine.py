@@ -596,6 +596,7 @@ def test_load_model_caps_context_length_to_configured_limit(
             """Initialize the instance."""
             captured["n_ctx"] = getattr(params, "n_ctx", None)
             captured["n_threads"] = getattr(getattr(params, "cpuparams", None), "n_threads", None)
+            captured["port"] = getattr(params, "port", None)
 
     class _FakeCommonParams:
         def __init__(self) -> None:
@@ -604,6 +605,7 @@ def test_load_model_caps_context_length_to_configured_limit(
             self.n_ctx = 0
             self.n_gpu_layers = 0
             self.n_batch = 0
+            self.port = 0
             self.cpuparams = SimpleNamespace(n_threads=0)
             self.cpuparams_batch = SimpleNamespace(n_threads=0)
             self.verbosity = 0
@@ -618,6 +620,7 @@ def test_load_model_caps_context_length_to_configured_limit(
         "informity.llm.engine.get_profile_for_filename",
         lambda _name: SimpleNamespace(context_length=24576),
     )
+    monkeypatch.setattr("informity.llm.engine._pick_free_loopback_port", lambda: 46321)
 
     model_path = tmp_path / "model.gguf"
     model_path.write_bytes(b"gguf")
@@ -632,6 +635,8 @@ def test_load_model_caps_context_length_to_configured_limit(
 
     assert captured["n_ctx"] == 8192
     assert captured["n_threads"] == 4
+    assert isinstance(captured["port"], int)
+    assert int(captured["port"]) > 0
 
 
 def test_ollama_chat_complete_maps_response(monkeypatch: pytest.MonkeyPatch) -> None:
