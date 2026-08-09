@@ -12,7 +12,6 @@ import threading
 import time
 import urllib.error
 from contextlib import suppress
-from contextvars import copy_context
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -23,8 +22,6 @@ from informity.llm.engine import (
     LLMEngine,
     StreamSignalTag,
     _run_stream_worker,
-    reset_runtime_call_probe_context,
-    set_runtime_call_probe_context,
     _truncate_messages_to_fit,
 )
 
@@ -379,7 +376,6 @@ async def test_stream_worker_includes_chat_template_kwargs(monkeypatch: pytest.M
         queue=queue,
         exception_holder=exception_holder,
         cancel_event=threading.Event(),
-        runtime_probe_record=None,
     )
 
     assert not exception_holder
@@ -419,7 +415,6 @@ async def test_stream_worker_accepts_choice_message_content_chunk(
         queue=queue,
         exception_holder=exception_holder,
         cancel_event=threading.Event(),
-        runtime_probe_record=None,
     )
 
     assert not exception_holder
@@ -439,104 +434,6 @@ async def test_stream_worker_accepts_choice_message_content_chunk(
     assert (StreamSignalTag.FINISH_REASON, "stop") in emitted
 
 
-@pytest.mark.asyncio
-async def test_stream_worker_propagates_runtime_probe_context_into_thread(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test stream worker propagates runtime probe context into thread."""
-    _force_local_provider(monkeypatch)
-    probe_context: dict[str, object] = {"runtime_call_probe_enabled": True}
-    token = set_runtime_call_probe_context(probe_context)
-
-    class _FakeServer:
-        def handle_chat_completions(self, payload: str, callback) -> None:  # type: ignore[no-untyped-def]
-            """Handle chat completions."""
-            _ = payload
-            callback({"choices": [{"delta": {"content": "Hello"}}]})
-            callback({"choices": [{"finish_reason": "stop"}]})
-
-    queue: asyncio.Queue[str | object] = asyncio.Queue()
-    exception_holder: list[BaseException] = []
-    cancel_event = threading.Event()
-    thread_context = copy_context()
-
-    try:
-        thread = threading.Thread(
-            target=thread_context.run,
-            args=(
-                _run_stream_worker,
-                _FakeServer(),
-                [{"role": "user", "content": "hi"}],
-                8,
-                0.0,
-                1.0,
-                [],
-                None,
-                asyncio.get_running_loop(),
-                queue,
-                exception_holder,
-                cancel_event,
-                None,
-                None,
-                None,
-                None,
-                "test-worker",
-            ),
-            daemon=True,
-        )
-        thread.start()
-        await asyncio.to_thread(thread.join)
-    finally:
-        reset_runtime_call_probe_context(token)
-
-    assert not exception_holder
-    records = probe_context.get("runtime_call_records")
-    assert isinstance(records, list)
-    assert len(records) == 1
-    assert records[0]["call_kind"] == "generate_stream"
-    assert records[0]["caller"] == "test-worker"
-
-
-
-@pytest.mark.asyncio
-async def test_generate_stream_forwards_probe_context_to_provider(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """Test generate stream forwards probe context to provider."""
-    _force_local_provider(monkeypatch)
-    engine = LLMEngine()
-
-    probe_context: dict[str, object] = {"runtime_call_probe_enabled": True}
-    seen: dict[str, object | None] = {"probe_context": None}
-
-    class _FakeProvider:
-        async def generate_stream(self, *args, **kwargs):  # type: ignore[no-untyped-def]
-            seen["probe_context"] = kwargs.get("probe_context")
-            yield "hello"
-
-    engine._provider = _FakeProvider()  # type: ignore[assignment]
-    monkeypatch.setattr(
-        "informity.llm.engine.get_profile",
-        lambda: SimpleNamespace(context_length=4096),
-    )
-    monkeypatch.setattr(
-        "informity.llm.engine._truncate_messages_to_fit",
-        lambda **kwargs: (
-            kwargs["messages"],
-            {"truncated": False, "original_tokens": 1, "available_budget": 3900},
-        ),
-    )
-
-    emitted = [
-        item
-        async for item in engine.generate_stream(
-            messages=[{"role": "user", "content": "hi"}],
-            probe_context=probe_context,
-        )
-    ]
-
-    assert emitted == ["hello"]
-    assert seen["probe_context"] is probe_context
 @pytest.mark.asyncio
 async def test_generate_stream_emits_summary_timings_for_local_provider(
     monkeypatch: pytest.MonkeyPatch,

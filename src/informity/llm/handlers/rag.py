@@ -1437,7 +1437,6 @@ class RAGHandler:
             output_contract_plan=None,
             collapse_duplicate_message_fn=_collapse_duplicate_insufficient_context_message,
             chat_template_kwargs_override=chat_template_kwargs_override,
-            probe_context=timing_context,
             stream_llm_fn=stream_llm,
             timing_context=timing_context,
         ):
