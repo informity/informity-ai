@@ -33,8 +33,9 @@ from pathlib import Path
 import structlog
 from thinkstrip import ThinkStrip, strip_think_prefill
 
-from informity.config import DEFAULT_OLLAMA_BASE_URL, STARTUP_RAM_HEADROOM_RATIO, settings
+from informity.config import DEFAULT_OLLAMA_BASE_URL, settings
 from informity.diagnostics.resource_snapshot import capture_resource_snapshot
+from informity.config import STARTUP_RAM_HEADROOM_RATIO
 from informity.exceptions import LLMError
 from informity.llm.model_adapter import (
     get_effective_context_length,
@@ -121,6 +122,14 @@ def _check_generation_model_memory_headroom(*, model_path: Path, stage: str) -> 
         raise LLMError("insufficient memory available for this model")
 
 
+def _profile_chat_template_kwargs(profile: object) -> dict[str, object]:
+    """Return profile chat-template kwargs, defaulting to an empty mapping."""
+    template_kwargs = getattr(profile, "chat_template_kwargs", {})
+    if isinstance(template_kwargs, dict):
+        return template_kwargs
+    return {}
+
+
 def set_runtime_call_probe_context(context: dict[str, object] | None) -> Token[dict[str, object] | None]:
     """Set the current request-scoped runtime call probe context."""
     return _RUNTIME_CALL_PROBE_CONTEXT.set(context)
@@ -142,6 +151,8 @@ def _get_runtime_call_probe_context() -> dict[str, object] | None:
 def _record_runtime_call_probe(
     *,
     call_kind: str,
+    max_tokens: int | None,
+    enable_thinking: bool | None,
     duration_ms: float,
     prompt_token_count: int | None,
     completion_token_count: int | None,
@@ -160,6 +171,8 @@ def _record_runtime_call_probe(
         "sequence": len(records) + 1,
         "call_kind": call_kind,
         "status": status,
+        "max_tokens": max_tokens,
+        "enable_thinking": enable_thinking,
         "prompt_tokens": prompt_token_count,
         "completion_tokens": completion_token_count,
         "duration_ms": round(duration_ms, 1),
@@ -192,6 +205,38 @@ def _record_runtime_call_probe(
     records.append(record)
     context["runtime_call_count"] = len(records)
     log.info("researcher_runtime_call", **record)
+
+
+def _record_generation_memory_snapshot(
+    *,
+    point: str,
+    timing_context: dict[str, object] | None,
+) -> None:
+    """Capture a compact generation-time memory snapshot."""
+    snapshot = capture_resource_snapshot()
+    previous_snapshot: dict[str, object] | None = None
+    if isinstance(timing_context, dict):
+        snapshots = timing_context.setdefault("generation_memory_snapshots", [])
+        if isinstance(snapshots, list):
+            if snapshots and isinstance(snapshots[-1], dict):
+                previous_snapshot = snapshots[-1]
+            snapshot["point"] = point
+            snapshot["generation_snapshot_index"] = len(snapshots) + 1
+            if previous_snapshot is not None:
+                for key, delta_key in (
+                    ("system_pageins", "pageins_delta"),
+                    ("system_pageouts", "pageouts_delta"),
+                ):
+                    before_value = previous_snapshot.get(key)
+                    after_value = snapshot.get(key)
+                    if isinstance(before_value, (int, float)) and isinstance(
+                        after_value, (int, float)
+                    ):
+                        snapshot[delta_key] = round(float(after_value) - float(before_value), 2)
+            snapshots.append(snapshot)
+    log_snapshot = dict(snapshot)
+    log_snapshot.pop("point", None)
+    log.info("llm_generation_memory_snapshot", **log_snapshot)
 
 
 # ==============================================================================
@@ -443,6 +488,7 @@ async def _stream_from_queue(
 ) -> AsyncGenerator[tuple[str, object]]:
     """stream from queue."""
     first_token_seen = False
+    think_to_visible_snapshot_taken = False
     while True:
         elapsed = time.perf_counter() - start
         if elapsed >= wall_clock:
@@ -494,6 +540,18 @@ async def _stream_from_queue(
         emit_text = stripper.feed(raw_token)
         if not emit_text:
             continue
+
+        if (
+            timing_context is not None
+            and not think_to_visible_snapshot_taken
+            and in_think_before
+            and not stripper.in_think_block
+        ):
+            think_to_visible_snapshot_taken = True
+            _record_generation_memory_snapshot(
+                point="think_to_visible",
+                timing_context=timing_context,
+            )
 
         first_token_seen = True
         yield ("text", emit_text)
@@ -725,6 +783,7 @@ def _run_stream_worker(
     cancel_event: threading.Event,
     request_start: float | None = None,
     timing_state: dict[str, float | None] | None = None,
+    timing_context: dict[str, object] | None = None,
 ) -> None:
     # Run the blocking xllamacpp generation call in a background thread.
     # Sends messages via handle_chat_completions (OpenAI-compatible chat API)
@@ -747,7 +806,7 @@ def _run_stream_worker(
             timing_state["submit_at_s"] = time.time()
         runtime_frames: list[dict[str, object]] = []
         _tmpl_kwargs = _merge_chat_template_kwargs(
-            get_profile().chat_template_kwargs,
+            _profile_chat_template_kwargs(get_profile()),
             chat_template_kwargs_override,
         )
         payload = json.dumps(
@@ -845,7 +904,7 @@ def _run_stream_worker(
         TypeError,
         UnicodeError,
         ValueError,
-        ) as exc:
+    ) as exc:
         exception_holder.append(exc)
     finally:
         elapsed_ms = (time.perf_counter() - call_started_at) * 1000.0
@@ -856,6 +915,8 @@ def _run_stream_worker(
         )
         _record_runtime_call_probe(
             call_kind="generate_stream",
+            max_tokens=max_tok,
+            enable_thinking=bool(_tmpl_kwargs.get("enable_thinking", False)),
             duration_ms=elapsed_ms,
             prompt_token_count=(
                 int(runtime_metrics["prompt_token_count"])
@@ -1011,6 +1072,7 @@ class XllamaCppProvider:
             n_batch=256,
             n_threads=settings.llm_cpu_threads,
         )
+        load_memory_before = capture_resource_snapshot()
 
         start = time.perf_counter()
 
@@ -1063,11 +1125,16 @@ class XllamaCppProvider:
             raise LLMError(f'Failed to load LLM model "{model_path.name}": {exc}') from exc
 
         elapsed_ms = (time.perf_counter() - start) * 1000
+        load_memory_after = capture_resource_snapshot()
         log.info(
             "llm_model_loaded",
             model=model_path.name,
             elapsed_ms=round(elapsed_ms, 1),
             chat_template_found=bool(self._chat_template),
+            available_ram_mb_before=load_memory_before.get("system_memory_available_mb"),
+            available_ram_mb_after=load_memory_after.get("system_memory_available_mb"),
+            process_rss_mb_before=load_memory_before.get("process_rss_mb"),
+            process_rss_mb_after=load_memory_after.get("process_rss_mb"),
         )
 
     # -- Model download -------------------------------------------------------
@@ -1159,7 +1226,7 @@ class XllamaCppProvider:
         start = time.perf_counter()
 
         _tmpl_kwargs = _merge_chat_template_kwargs(
-            get_profile().chat_template_kwargs,
+            _profile_chat_template_kwargs(get_profile()),
             chat_template_kwargs_override,
         )
         payload_dict: dict = {
@@ -1193,6 +1260,8 @@ class XllamaCppProvider:
         except Exception as exc:
             _record_runtime_call_probe(
                 call_kind="chat_complete",
+                max_tokens=max_tokens,
+                enable_thinking=bool(_tmpl_kwargs.get("enable_thinking", False)),
                 duration_ms=(time.perf_counter() - start) * 1000.0,
                 prompt_token_count=None,
                 completion_token_count=None,
@@ -1224,6 +1293,8 @@ class XllamaCppProvider:
         )
         _record_runtime_call_probe(
             call_kind="chat_complete",
+            max_tokens=max_tokens,
+            enable_thinking=bool(_tmpl_kwargs.get("enable_thinking", False)),
             duration_ms=elapsed_ms,
             prompt_token_count=(
                 int(runtime_metrics["prompt_token_count"])
@@ -1242,6 +1313,8 @@ class XllamaCppProvider:
             "llm_chat_complete_completed",
             provider="local_gguf",
             model=self._model_filename_override or settings.llm_model_filename,
+            max_tokens=max_tokens,
+            enable_thinking=bool(_tmpl_kwargs.get("enable_thinking", False)),
             prompt_token_count=runtime_metrics.get("prompt_token_count"),
             prompt_token_count_source=runtime_metrics.get("prompt_token_count_source"),
             cached_token_count=runtime_metrics.get("cached_token_count"),
@@ -1306,6 +1379,12 @@ class XllamaCppProvider:
 
         profile = get_profile()
         context_len = get_effective_context_length(profile)
+        merged_template_kwargs = _merge_chat_template_kwargs(
+            _profile_chat_template_kwargs(profile),
+            chat_template_kwargs_override,
+        )
+        think_enabled = bool(merged_template_kwargs.get("enable_thinking", False))
+        _check_generation_model_memory_headroom(model_path=self.get_model_path(), stage="generate_stream")
         server = self._loaded_server
 
         truncated_messages, truncation_info = _truncate_messages_to_fit(
@@ -1343,6 +1422,7 @@ class XllamaCppProvider:
         )
 
         start = time.perf_counter()
+        _record_generation_memory_snapshot(point="generation_start", timing_context=timing_context)
         token_count = 0
         first_token_ms: float | None = None
         first_token_at_s: float | None = None
@@ -1371,6 +1451,7 @@ class XllamaCppProvider:
                 cancel_event,
                 start,
                 timing_state,
+                timing_context,
             ),
             name="llm-stream-worker",
             daemon=True,
@@ -1436,11 +1517,19 @@ class XllamaCppProvider:
                     first_token_at_s = time.time()
                     if timing_context is not None:
                         timing_context["runtime_first_token_at_s"] = first_token_at_s
+                    _record_generation_memory_snapshot(
+                        point="first_token",
+                        timing_context=timing_context,
+                    )
                 token_count += 1
                 total_text_parts.append(emit_text)
                 yield emit_text
 
             if timeout_occurred:
+                _record_generation_memory_snapshot(
+                    point="watchdog_timeout",
+                    timing_context=timing_context,
+                )
                 timeout_notice = (
                     f"\n\n[Response truncated: generation time limit ({int(wall_clock)}s) reached]"
                 )
@@ -1488,6 +1577,12 @@ class XllamaCppProvider:
                         yield cleaned_fallback
                 if token_count == 0:
                     raise LLMError("Local model returned no response tokens")
+
+            if token_count > 0 and not timeout_occurred and not exception_holder:
+                _record_generation_memory_snapshot(
+                    point="healthy_completion",
+                    timing_context=timing_context,
+                )
 
             if exception_holder:
                 exc = exception_holder[0]
@@ -1562,6 +1657,8 @@ class XllamaCppProvider:
                 output_length=len("".join(total_text_parts)),
                 elapsed_ms=round(elapsed_ms, 1),
                 first_token_ms=round(first_token_ms, 1) if first_token_ms is not None else None,
+                max_tokens=max_tok,
+                enable_thinking=think_enabled,
                 prompt_token_count=runtime_metrics.get("prompt_token_count"),
                 prompt_token_count_source=runtime_metrics.get("prompt_token_count_source"),
                 cached_token_count=runtime_metrics.get("cached_token_count"),
@@ -1714,7 +1811,7 @@ class OllamaProvider:
         start = time.perf_counter()
         model = self._resolve_model()
         merged_template_kwargs = _merge_chat_template_kwargs(
-            get_profile().chat_template_kwargs,
+            _profile_chat_template_kwargs(get_profile()),
             chat_template_kwargs_override,
         )
         think_enabled = bool(merged_template_kwargs.get("enable_thinking", False))
@@ -1739,6 +1836,8 @@ class OllamaProvider:
         except Exception as exc:
             _record_runtime_call_probe(
                 call_kind="chat_complete",
+                max_tokens=max_tokens,
+                enable_thinking=think_enabled,
                 duration_ms=(time.perf_counter() - start) * 1000.0,
                 prompt_token_count=None,
                 completion_token_count=None,
@@ -1759,6 +1858,8 @@ class OllamaProvider:
         )
         _record_runtime_call_probe(
             call_kind="chat_complete",
+            max_tokens=max_tokens,
+            enable_thinking=think_enabled,
             duration_ms=elapsed_ms,
             prompt_token_count=(
                 int(runtime_metrics["prompt_token_count"])
@@ -1777,6 +1878,8 @@ class OllamaProvider:
             "llm_chat_complete_completed",
             provider="ollama",
             model=model,
+            max_tokens=max_tokens,
+            enable_thinking=think_enabled,
             prompt_token_count=runtime_metrics.get("prompt_token_count"),
             prompt_token_count_source=runtime_metrics.get("prompt_token_count_source"),
             cached_token_count=runtime_metrics.get("cached_token_count"),
@@ -1811,7 +1914,7 @@ class OllamaProvider:
         stop_seqs = stop if stop is not None else []
         wall_clock = 120.0 if timeout_seconds is None else float(timeout_seconds)
         merged_template_kwargs = _merge_chat_template_kwargs(
-            get_profile().chat_template_kwargs,
+            _profile_chat_template_kwargs(get_profile()),
             chat_template_kwargs_override,
         )
         think_enabled = bool(merged_template_kwargs.get("enable_thinking", False))
@@ -1869,6 +1972,7 @@ class OllamaProvider:
         request_submit_ms: float | None = None
         request_submit_at_s: float | None = None
         start = time.perf_counter()
+        _record_generation_memory_snapshot(point="generation_start", timing_context=timing_context)
 
         request_context = copy_context()
 
@@ -1952,8 +2056,8 @@ class OllamaProvider:
                 loop.call_soon_threadsafe(
                     queue.put_nowait, (StreamSignalTag.FINISH_REASON, finish_reason)
                 )
-                with suppress(RuntimeError):
-                    loop.call_soon_threadsafe(queue.put_nowait, _STREAM_END)
+            with suppress(RuntimeError):
+                loop.call_soon_threadsafe(queue.put_nowait, _STREAM_END)
 
         worker = threading.Thread(
             target=request_context.run,
@@ -1993,6 +2097,10 @@ class OllamaProvider:
                     cancel_event.set()
                     timeout_occurred = True
                     timeout_reason = timeout_reason_value or TimeoutReason.UNKNOWN_TIMEOUT.value
+                    _record_generation_memory_snapshot(
+                        point="watchdog_timeout",
+                        timing_context=timing_context,
+                    )
                     break
                 if event_kind == "finish_reason":
                     finish_reason = payload if isinstance(payload, str) else None
@@ -2004,6 +2112,10 @@ class OllamaProvider:
                     if timing_context is not None:
                         first_token_at_s = time.time()
                         timing_context["runtime_first_token_at_s"] = first_token_at_s
+                    _record_generation_memory_snapshot(
+                        point="first_token",
+                        timing_context=timing_context,
+                    )
                 token_count += 1
                 total_text_parts.append(emit_text)
                 yield emit_text
@@ -2041,6 +2153,11 @@ class OllamaProvider:
                     raw_frame_samples=raw_frame_samples,
                 )
                 raise LLMError("Ollama returned no response tokens")
+            if token_count > 0 and not timeout_occurred and not exception_holder:
+                _record_generation_memory_snapshot(
+                    point="healthy_completion",
+                    timing_context=timing_context,
+                )
         finally:
             if worker.is_alive():
                 cancel_event.set()
@@ -2067,6 +2184,8 @@ class OllamaProvider:
                 output_length=len("".join(total_text_parts)),
                 elapsed_ms=round(elapsed_ms, 1),
                 first_token_ms=round(first_token_ms, 1) if first_token_ms is not None else None,
+                max_tokens=max_tok,
+                enable_thinking=think_enabled,
                 prompt_token_count=runtime_metrics.get("prompt_token_count"),
                 prompt_token_count_source=runtime_metrics.get("prompt_token_count_source"),
                 cached_token_count=runtime_metrics.get("cached_token_count"),

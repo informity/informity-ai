@@ -2597,6 +2597,9 @@ async def chat(
                         timing_trace_payload["runtime_generation_tokens_per_second"] = (
                             round(runtime_generation_tokens_per_second, 3)
                         )
+                    generation_memory_snapshots = request_timing.get("generation_memory_snapshots")
+                    if isinstance(generation_memory_snapshots, list) and generation_memory_snapshots:
+                        timing_trace_payload["generation_memory_snapshots"] = generation_memory_snapshots
                     runtime_call_records = request_timing.get("runtime_call_records")
                     if isinstance(runtime_call_records, list) and runtime_call_records:
                         prompt_token_sum = 0
@@ -2610,6 +2613,8 @@ async def chat(
                                 "sequence": record.get("sequence"),
                                 "caller": record.get("caller"),
                                 "call_kind": record.get("call_kind"),
+                                "max_tokens": record.get("max_tokens"),
+                                "enable_thinking": record.get("enable_thinking"),
                                 "prompt_tokens": record.get("prompt_tokens"),
                                 "completion_tokens": record.get("completion_tokens"),
                                 "duration_ms": record.get("duration_ms"),

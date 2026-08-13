@@ -32,6 +32,7 @@ def capture_resource_snapshot() -> dict[str, Any]:
         process = psutil.Process()
         process_mem = process.memory_info()
         virtual_mem = psutil.virtual_memory()
+        swap_mem = psutil.swap_memory()
         return {
             "captured_at_epoch_ms": int(time.time() * 1000),
             "system_cpu_percent": _round_metric(psutil.cpu_percent(interval=None)),
@@ -41,6 +42,11 @@ def capture_resource_snapshot() -> dict[str, Any]:
             "system_memory_used_percent": _round_metric(virtual_mem.percent),
             "system_memory_available_mb": _round_metric(virtual_mem.available / (1024 * 1024)),
             "system_memory_used_mb": _round_metric(virtual_mem.used / (1024 * 1024)),
+            "system_memory_total_mb": _round_metric(virtual_mem.total / (1024 * 1024)),
+            "system_swap_used_mb": _round_metric(swap_mem.used / (1024 * 1024)),
+            "system_swap_free_mb": _round_metric(swap_mem.free / (1024 * 1024)),
+            "system_pageins": _round_metric(getattr(swap_mem, "sin", None)),
+            "system_pageouts": _round_metric(getattr(swap_mem, "sout", None)),
             "logical_cpu_count": psutil.cpu_count(logical=True),
         }
     except _RESOURCE_SNAPSHOT_EXCEPTIONS as exc:
@@ -68,6 +74,11 @@ def build_resource_delta(
         "system_memory_used_percent",
         "system_memory_available_mb",
         "system_memory_used_mb",
+        "system_memory_total_mb",
+        "system_swap_used_mb",
+        "system_swap_free_mb",
+        "system_pageins",
+        "system_pageouts",
     )
     for key in tracked_keys:
         before_value = before.get(key)
