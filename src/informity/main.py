@@ -81,6 +81,7 @@ from informity.config import (
     APP_DISPLAY_NAME,
     are_required_models_cached,
     configure_hf_environment,
+    STARTUP_RAM_HEADROOM_RATIO,
     settings,
 )
 from informity.exceptions import LLMError
@@ -145,7 +146,6 @@ _MANAGED_PID_FILE_RAW = _os.environ.get(_MANAGED_PID_FILE_ENV, "").strip()
 _MANAGED_PID_FILE_PATH: Path | None = (
     Path(_MANAGED_PID_FILE_RAW).expanduser() if _MANAGED_PID_FILE_RAW else None
 )
-_STARTUP_RAM_HEADROOM_RATIO = 0.85
 _STARTUP_STATE_UNSET = object()
 
 
@@ -391,7 +391,7 @@ async def _run_llm_warmup() -> bool:
             return False
         model_size_gb = model_path.stat().st_size / (1024**3)
         available_ram_gb = _get_available_ram_gb()
-        will_warm = model_size_gb <= available_ram_gb * _STARTUP_RAM_HEADROOM_RATIO
+        will_warm = model_size_gb <= available_ram_gb * STARTUP_RAM_HEADROOM_RATIO
         log.info(
             "startup_warmup_check",
             model=model_path.name,
@@ -405,7 +405,7 @@ async def _run_llm_warmup() -> bool:
                 model=model_path.name,
                 model_size_gb=round(model_size_gb, 1),
                 available_ram_gb=round(available_ram_gb, 1),
-                headroom_ratio=_STARTUP_RAM_HEADROOM_RATIO,
+                headroom_ratio=STARTUP_RAM_HEADROOM_RATIO,
                 msg="Skipping warmup for current model — will load on first query",
             )
             return False

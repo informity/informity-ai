@@ -33,7 +33,8 @@ from pathlib import Path
 import structlog
 from thinkstrip import ThinkStrip, strip_think_prefill
 
-from informity.config import DEFAULT_OLLAMA_BASE_URL, settings
+from informity.config import DEFAULT_OLLAMA_BASE_URL, STARTUP_RAM_HEADROOM_RATIO, settings
+from informity.diagnostics.resource_snapshot import capture_resource_snapshot
 from informity.exceptions import LLMError
 from informity.llm.model_adapter import (
     get_effective_context_length,
@@ -88,6 +89,36 @@ def _pick_free_loopback_port() -> int:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind(("127.0.0.1", 0))
         return int(sock.getsockname()[1])
+
+
+def _check_generation_model_memory_headroom(*, model_path: Path, stage: str) -> None:
+    """Fail fast when the generation model would exceed the configured RAM headroom."""
+    # Local GGUF only: OllamaProvider is a separate synthesis backend and should
+    # not use this in-process memory gate.
+    if model_path.name != settings.llm_model_filename:
+        return
+    if not model_path.is_file():
+        return
+
+    snapshot = capture_resource_snapshot()
+    available_mb = snapshot.get("system_memory_available_mb")
+    if not isinstance(available_mb, (int, float)):
+        return
+
+    model_size_gb = model_path.stat().st_size / (1024**3)
+    available_ram_gb = float(available_mb) / 1024.0
+    allowed = model_size_gb <= available_ram_gb * STARTUP_RAM_HEADROOM_RATIO
+    log.info(
+        "llm_generation_memory_gate",
+        stage=stage,
+        model=model_path.name,
+        model_size_gb=round(model_size_gb, 1),
+        available_ram_gb=round(available_ram_gb, 1),
+        headroom_ratio=STARTUP_RAM_HEADROOM_RATIO,
+        allowed=allowed,
+    )
+    if not allowed:
+        raise LLMError("insufficient memory available for this model")
 
 
 def set_runtime_call_probe_context(context: dict[str, object] | None) -> Token[dict[str, object] | None]:
@@ -963,6 +994,8 @@ class XllamaCppProvider:
                 )
             log.info("model_not_found_locally", path=str(model_path), filename=profile_filename)
             self._download_model(model_path)
+
+        _check_generation_model_memory_headroom(model_path=model_path, stage="load_model")
 
         profile = get_profile_for_filename(profile_filename)
         profile_ctx_len = int(profile.context_length)

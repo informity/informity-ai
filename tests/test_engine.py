@@ -24,11 +24,17 @@ from informity.llm.engine import (
     _run_stream_worker,
     _truncate_messages_to_fit,
 )
+from informity.api.error_messages import LOW_MEMORY_RUNTIME_ERROR_MESSAGE, to_client_error_message
+from informity.exceptions import LLMError
 
 
 def _force_local_provider(monkeypatch: pytest.MonkeyPatch) -> None:
     """Internal helper for force local provider."""
     monkeypatch.setattr("informity.llm.engine.settings.llm_provider", "local_gguf")
+    monkeypatch.setattr(
+        "informity.llm.engine.capture_resource_snapshot",
+        lambda: {"system_memory_available_mb": 32768.0},
+    )
 
 
 def test_truncate_messages_removes_history_before_system_content() -> None:
@@ -176,6 +182,10 @@ def _make_stream_worker_that_emits(tokens: list[str]):
 def _common_engine_monkeypatches(monkeypatch: pytest.MonkeyPatch, worker_fn) -> LLMEngine:  # type: ignore[no-untyped-def]
     """Internal helper for common engine monkeypatches."""
     _force_local_provider(monkeypatch)
+    monkeypatch.setattr(
+        "informity.llm.engine._check_generation_model_memory_headroom",
+        lambda **_kwargs: None,
+    )
     engine = LLMEngine()
     engine._server = object()  # type: ignore[assignment]
     monkeypatch.setattr(
@@ -372,6 +382,7 @@ async def test_stream_worker_includes_chat_template_kwargs(monkeypatch: pytest.M
         temp=0.0,
         top_p_val=1.0,
         stop_seqs=[],
+        chat_template_kwargs_override=None,
         loop=asyncio.get_running_loop(),
         queue=queue,
         exception_holder=exception_holder,
@@ -411,6 +422,7 @@ async def test_stream_worker_accepts_choice_message_content_chunk(
         temp=0.0,
         top_p_val=1.0,
         stop_seqs=[],
+        chat_template_kwargs_override=None,
         loop=asyncio.get_running_loop(),
         queue=queue,
         exception_holder=exception_holder,
@@ -639,6 +651,111 @@ def test_load_model_caps_context_length_to_configured_limit(
     assert int(captured["port"]) > 0
 
 
+def test_generation_memory_gate_blocks_low_ram_before_load(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test generation memory gate blocks low ram before load."""
+    class _FakeServer:
+        def __init__(self, params) -> None:  # type: ignore[no-untyped-def]
+            """Initialize the instance."""
+            _ = params
+            raise AssertionError("Server should not be constructed when RAM is insufficient")
+
+    class _FakeCommonParams:
+        def __init__(self) -> None:
+            """Initialize the instance."""
+            self.model = SimpleNamespace(path="")
+            self.n_ctx = 0
+            self.n_gpu_layers = 0
+            self.n_batch = 0
+            self.port = 0
+            self.cpuparams = SimpleNamespace(n_threads=0)
+            self.cpuparams_batch = SimpleNamespace(n_threads=0)
+            self.verbosity = 0
+
+    model_path = tmp_path / "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+    with model_path.open("wb") as handle:
+        handle.truncate(3 * 1024 * 1024 * 1024)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "xllamacpp",
+        SimpleNamespace(CommonParams=_FakeCommonParams, Server=_FakeServer),
+    )
+    monkeypatch.setattr("informity.llm.engine.settings.llm_provider", "local_gguf")
+    monkeypatch.setattr("informity.llm.engine._read_gguf_chat_template", lambda _p: None)
+    monkeypatch.setattr("informity.llm.engine.get_profile_for_filename", lambda _n: SimpleNamespace(context_length=24576))
+    monkeypatch.setattr("informity.llm.engine.capture_resource_snapshot", lambda: {"system_memory_available_mb": 2000.0})
+    monkeypatch.setattr("informity.llm.engine.settings.models_dir", tmp_path)
+    monkeypatch.setattr("informity.llm.engine.settings.llm_model_filename", model_path.name)
+    monkeypatch.setattr("informity.llm.engine.settings.llm_context_length", 8192)
+    monkeypatch.setattr("informity.llm.engine.settings.llm_cpu_threads", 4)
+    monkeypatch.setattr("informity.llm.engine.get_profile", lambda: SimpleNamespace(context_length=4096, generation_tokens_per_second=12.0, chat_template_kwargs={}))
+
+    engine = LLMEngine()
+    with pytest.raises(LLMError, match="insufficient memory available for this model"):
+        engine.load_model()
+
+
+def test_generation_memory_gate_blocks_lazy_load_model_path(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Test generation memory gate blocks lazy load model path."""
+    class _FakeServer:
+        def __init__(self, params) -> None:  # type: ignore[no-untyped-def]
+            """Initialize the instance."""
+            _ = params
+            raise AssertionError("Server should not be constructed when RAM is insufficient")
+
+    class _FakeCommonParams:
+        def __init__(self) -> None:
+            """Initialize the instance."""
+            self.model = SimpleNamespace(path="")
+            self.n_ctx = 0
+            self.n_gpu_layers = 0
+            self.n_batch = 0
+            self.port = 0
+            self.cpuparams = SimpleNamespace(n_threads=0)
+            self.cpuparams_batch = SimpleNamespace(n_threads=0)
+            self.verbosity = 0
+
+    model_path = tmp_path / "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf"
+    with model_path.open("wb") as handle:
+        handle.truncate(3 * 1024 * 1024 * 1024)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "xllamacpp",
+        SimpleNamespace(CommonParams=_FakeCommonParams, Server=_FakeServer),
+    )
+    monkeypatch.setattr("informity.llm.engine.settings.llm_provider", "local_gguf")
+    monkeypatch.setattr("informity.llm.engine._read_gguf_chat_template", lambda _p: None)
+    monkeypatch.setattr("informity.llm.engine.get_profile_for_filename", lambda _n: SimpleNamespace(context_length=24576))
+    monkeypatch.setattr("informity.llm.engine.capture_resource_snapshot", lambda: {"system_memory_available_mb": 2000.0})
+    monkeypatch.setattr("informity.llm.engine.settings.models_dir", tmp_path)
+    monkeypatch.setattr("informity.llm.engine.settings.llm_model_filename", model_path.name)
+    monkeypatch.setattr("informity.llm.engine.settings.llm_context_length", 8192)
+    monkeypatch.setattr("informity.llm.engine.settings.llm_cpu_threads", 4)
+    monkeypatch.setattr("informity.llm.engine.get_profile", lambda: SimpleNamespace(context_length=4096, generation_tokens_per_second=12.0, chat_template_kwargs={}))
+
+    engine = LLMEngine()
+    engine._server = object()  # type: ignore[assignment]
+    with pytest.raises(LLMError, match="insufficient memory available for this model"):
+        async def _run() -> None:
+            async for _ in engine.generate_stream(messages=[{"role": "user", "content": "hi"}]):
+                pass
+
+        asyncio.run(_run())
+
+
+def test_low_memory_error_maps_to_client_message() -> None:
+    """Test low memory error maps to client message."""
+    assert (
+        to_client_error_message(LLMError(LOW_MEMORY_RUNTIME_ERROR_MESSAGE))
+        == LOW_MEMORY_RUNTIME_ERROR_MESSAGE
+    )
+
+
 def test_ollama_chat_complete_maps_response(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test ollama chat complete maps response."""
     monkeypatch.setattr("informity.llm.engine.settings.llm_provider", "ollama")
@@ -794,7 +911,11 @@ async def test_ollama_generate_stream_raises_on_empty_output(
     monkeypatch.setattr("informity.llm.engine.settings.ollama_timeout_seconds", 5.0)
     monkeypatch.setattr(
         "informity.llm.engine.get_profile",
-        lambda: SimpleNamespace(context_length=4096, generation_tokens_per_second=12.0),
+        lambda: SimpleNamespace(
+            context_length=4096,
+            generation_tokens_per_second=12.0,
+            chat_template_kwargs={},
+        ),
     )
 
     class _StreamResp:
