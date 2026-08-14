@@ -33,9 +33,8 @@ from pathlib import Path
 import structlog
 from thinkstrip import ThinkStrip, strip_think_prefill
 
-from informity.config import DEFAULT_OLLAMA_BASE_URL, settings
+from informity.config import DEFAULT_OLLAMA_BASE_URL, STARTUP_RAM_HEADROOM_RATIO, settings
 from informity.diagnostics.resource_snapshot import capture_resource_snapshot
-from informity.config import STARTUP_RAM_HEADROOM_RATIO
 from informity.exceptions import LLMError
 from informity.llm.model_adapter import (
     get_effective_context_length,

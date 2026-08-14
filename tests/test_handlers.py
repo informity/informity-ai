@@ -32,8 +32,8 @@ from informity.llm.handlers.rag import (
 )
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification
-from informity.llm.specializations import get_mode_prompt
 from informity.llm.rag_runtime import generation_stream as _generation_stream
+from informity.llm.specializations import get_mode_prompt
 from informity.llm.types import OutputFormat
 from informity.llm.web_search import SearchResult, WebSearchOutcome
 
@@ -862,6 +862,8 @@ class TestRAGHandler:
                     total_elapsed_ms=25.0,
                     submit_ms=4.5,
                     queue_wait_ms=7.26,
+                    submit_at_s=1.0,
+                    first_token_at_s=1.0123,
                     timeout_reason=None,
                     stream_recovery_reason=None,
                     soft_budget_checkpoints_hit=[],

@@ -113,8 +113,7 @@ from informity.llm.contract_gate import (
     enforce_required_sections,
     validate_contract,
 )
-from informity.llm.engine import reset_runtime_call_probe_context
-from informity.llm.engine import set_runtime_call_probe_context
+from informity.llm.engine import reset_runtime_call_probe_context, set_runtime_call_probe_context
 from informity.llm.rag import answer_question
 from informity.llm.specializations import (
     describe_specialization,

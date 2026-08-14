@@ -79,9 +79,9 @@ from informity.api.security import (
 )
 from informity.config import (
     APP_DISPLAY_NAME,
+    STARTUP_RAM_HEADROOM_RATIO,
     are_required_models_cached,
     configure_hf_environment,
-    STARTUP_RAM_HEADROOM_RATIO,
     settings,
 )
 from informity.exceptions import LLMError

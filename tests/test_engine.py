@@ -17,6 +17,8 @@ from types import SimpleNamespace
 
 import pytest
 
+from informity.api.error_messages import LOW_MEMORY_RUNTIME_ERROR_MESSAGE, to_client_error_message
+from informity.exceptions import LLMError
 from informity.llm.engine import (
     _STREAM_END,
     LLMEngine,
@@ -24,8 +26,6 @@ from informity.llm.engine import (
     _run_stream_worker,
     _truncate_messages_to_fit,
 )
-from informity.api.error_messages import LOW_MEMORY_RUNTIME_ERROR_MESSAGE, to_client_error_message
-from informity.exceptions import LLMError
 
 
 def _force_local_provider(monkeypatch: pytest.MonkeyPatch) -> None:
