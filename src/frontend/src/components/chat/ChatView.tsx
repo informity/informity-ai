@@ -23,7 +23,7 @@ import {
 import { logApiError } from '../../utils/logApiError'
 import {
   CHAT_MODE_STORAGE_KEY,
-  CHAT_AGENT_MODE_STORAGE_KEY,
+  CHAT_AGENT_MODE_MAP_STORAGE_KEY,
   CHAT_SPECIALIZATION_ID_STORAGE_KEY,
   FORCE_NEW_CHAT_KEY,
 } from '../../utils/storageKeys'
@@ -106,6 +106,52 @@ function resolveLockedSpecializationId(history: ChatMessageDisplay[]): string | 
     ?? history.find((msg) => msg.role === 'assistant' && !!msg.specializationId)?.specializationId
     ?? null
   )
+}
+
+function readStoredChatAgentModes(): Record<string, boolean> {
+  try {
+    const raw = window.localStorage.getItem(CHAT_AGENT_MODE_MAP_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const normalized: Record<string, boolean> = {}
+    for (const [chatId, value] of Object.entries(parsed || {})) {
+      if (!chatId || chatId === '__draft__') continue
+      if (typeof value === 'boolean') normalized[chatId] = value
+    }
+    return normalized
+  } catch {
+    return {}
+  }
+}
+
+function readStoredChatAgentMode(chatId: string | null): boolean | null {
+  if (!chatId) return null
+  const modes = readStoredChatAgentModes()
+  return typeof modes[chatId] === 'boolean' ? modes[chatId] : null
+}
+
+function persistStoredChatAgentModes(modes: Record<string, boolean>): void {
+  try {
+    const persisted: Record<string, boolean> = {}
+    for (const [chatId, value] of Object.entries(modes || {})) {
+      if (!chatId || chatId === '__draft__') continue
+      persisted[chatId] = !!value
+    }
+    window.localStorage.setItem(CHAT_AGENT_MODE_MAP_STORAGE_KEY, JSON.stringify(persisted))
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function storeChatAgentMode(chatId: string | null, agentMode: boolean): void {
+  if (!chatId) return
+  try {
+    const modes = readStoredChatAgentModes()
+    modes[chatId] = agentMode
+    persistStoredChatAgentModes(modes)
+  } catch {
+    // ignore storage failures
+  }
 }
 
 function formatSpecializationNameFromId(specializationId: string): string {
@@ -194,6 +240,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const [pendingUploadCountsByChat, setPendingUploadCountsByChat] = useState<Record<string, number>>({})
   const [isDragOverComposer, setIsDragOverComposer] = useState(false)
   const uploadDragDepthRef = useRef(0)
+  const pendingAgentModeRef = useRef<boolean | null>(null)
   const hasAssistantReply = useMemo(
     () => messages.some((msg) => msg.role === 'assistant' && !msg.isInternal && !!msg.content?.trim()),
     [messages],
@@ -290,8 +337,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
         hasStoredMode = true
         setChatMode(raw)
       }
-      const rawAgentMode = window.localStorage.getItem(CHAT_AGENT_MODE_STORAGE_KEY)
-      setAgentMode(rawAgentMode === '1')
       const storedSpecializationId = String(
         window.localStorage.getItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
         || ''
@@ -343,6 +388,23 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       specializationsCancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!contextChatId) return
+    const pendingAgentMode = pendingAgentModeRef.current
+    if (typeof pendingAgentMode === 'boolean') {
+      setAgentMode(pendingAgentMode)
+      storeChatAgentMode(contextChatId, pendingAgentMode)
+      pendingAgentModeRef.current = null
+      return
+    }
+    const storedAgentMode = readStoredChatAgentMode(contextChatId)
+    if (typeof storedAgentMode === 'boolean') {
+      setAgentMode(storedAgentMode)
+      return
+    }
+    setAgentMode(false)
+  }, [contextChatId])
 
   useEffect(() => {
     const handleSettingsUpdated = (event: Event) => {
@@ -716,6 +778,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
 
   const handleContinue = useCallback((anchorMessageId?: number) => {
     if (offline) return
+    if (!contextChatId) {
+      pendingAgentModeRef.current = effectiveChatMode === 'researcher' && agentMode
+    }
     void continueLastScope(anchorMessageId, {
       mode: effectiveChatMode,
       specializationId: requestSpecializationId,
@@ -734,6 +799,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       .reverse()
       .find((msg) => msg.role === 'user' && !msg.isInternal && !!msg.content?.trim())
     if (!previousUser) return
+    if (!contextChatId) {
+      pendingAgentModeRef.current = effectiveChatMode === 'researcher' && agentMode
+    }
     void sendMessage(previousUser.content, {
       mode: effectiveChatMode,
       specializationId: requestSpecializationId,
@@ -794,6 +862,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     if (offline) return
     if (isStreaming) return
     if (loadingChat) return
+    if (!contextChatId) {
+      pendingAgentModeRef.current = effectiveChatMode === 'researcher' && agentMode
+    }
     await sendMessage(editedText, {
       mode: effectiveChatMode,
       specializationId: requestSpecializationId,
@@ -818,8 +889,10 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const handleNewChat = useCallback(() => {
     if (offline) return
     newChatRequestedRef.current = true
+    pendingAgentModeRef.current = null
     setInputValue('')
     setChatMode('researcher')
+    setAgentMode(false)
     setSelectedSpecializationId(null)
     specializationSelectionExplicitRef.current = false
     try {
@@ -924,6 +997,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     if (!text) return
 
     setInputValue('')
+    if (!contextChatId) {
+      pendingAgentModeRef.current = effectiveChatMode === 'researcher' && agentMode
+    }
     await sendMessage(text, {
       mode: effectiveChatMode,
       specializationId: requestSpecializationId,
@@ -1487,10 +1563,8 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                             onClick={() => {
                               const next = !agentMode
                               setAgentMode(next)
-                              try {
-                                window.localStorage.setItem(CHAT_AGENT_MODE_STORAGE_KEY, next ? '1' : '0')
-                              } catch {
-                                // ignore storage errors
+                              if (contextChatId) {
+                                storeChatAgentMode(contextChatId, next)
                               }
                             }}
                             disabled={offline || isStreaming}
