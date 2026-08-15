@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { streamChat } from './api'
+import { ApiError, streamChat } from './api'
 import type { StreamDonePayload } from './types/api'
 
 function makeSsePayload(events: Array<{ event: string; data: string }>): string {
@@ -79,6 +79,39 @@ describe('streamChat SSE contract', () => {
     expect(done.completion_mode).toBe('partial')
     expect(statusMessage).toBe('Searching for relevant information...')
     expect(statusProgressTotal).toBe(2)
+
+    vi.unstubAllGlobals()
+  })
+
+  it('forwards SSE error events as ApiError failures', async () => {
+    const payload = makeSsePayload([
+      { event: 'chat', data: JSON.stringify({ chat_id: 'chat-error' }) },
+      { event: 'status', data: JSON.stringify({ state: 'retrieving', message: 'Searching...' }) },
+      { event: 'error', data: JSON.stringify({ error: 'insufficient memory available for this model' }) },
+      { event: 'done', data: JSON.stringify({ elapsed_seconds: 0.5 }) },
+    ])
+
+    const fetchMock = vi.fn(async () => {
+      const body = new TextEncoder().encode(payload)
+      return new Response(body, {
+        status: 200,
+        headers: { 'Content-Type': 'text/event-stream' },
+      })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const onError = vi.fn()
+    const onDone = vi.fn()
+
+    await streamChat('hello', null, {
+      onError,
+      onDone,
+    })
+
+    expect(onError).toHaveBeenCalledTimes(1)
+    expect(onError.mock.calls[0]?.[0]).toBeInstanceOf(ApiError)
+    expect((onError.mock.calls[0]?.[0] as ApiError).detail).toBe('insufficient memory available for this model')
+    expect(onDone).not.toHaveBeenCalled()
 
     vi.unstubAllGlobals()
   })

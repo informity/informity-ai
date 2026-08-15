@@ -1499,15 +1499,17 @@ export function ChatProvider({ children }: ChatProviderProps) {
           // Keep explicit 429 handling here: backend uses this code when another
           // generation is active, and we intentionally surface a stable UX message.
           const msg = err instanceof ApiError
-            ? (err.status === 429 ? ACTIVE_GENERATION_REJECT_MESSAGE : err.detail)
+            ? (err.status === 429
+              ? ACTIVE_GENERATION_REJECT_MESSAGE
+              : (err.detail || `HTTP ${err.status}`))
             : (isBackendConnectionError(err)
               ? SERVICE_UNAVAILABLE_MESSAGE
-              : (err instanceof Error ? err.message : 'Failed to send message'))
+              : 'Failed to send message')
           setError(msg)
           if (!shouldSuppressChatTransportToast(msg)) {
             showToast('error', msg)
           }
-          const errContent = streamContentRef.current || 'Response was interrupted.'
+          const errContent = streamContentRef.current || msg
           if (isViewingGeneratingChat()) {
             setMessages((prev) => {
               const next = [...prev]
