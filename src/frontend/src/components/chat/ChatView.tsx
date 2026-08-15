@@ -1546,7 +1546,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                   />
                   <div className="chat-view__controls-row composer__controls-row">
                     <div className="chat-view__controls-left">
-                      {effectiveChatMode === 'researcher' && !chatFileScope && (
+                      {effectiveChatMode === 'researcher' && !chatFileScope && import.meta.env.DEV && (
                         <>
                           <button
                             type="button"
