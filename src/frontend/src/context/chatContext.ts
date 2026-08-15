@@ -49,6 +49,7 @@ export interface ChatContextValue {
       fileScope?: ChatFileScope | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
+      agentMode?: boolean
     },
   ) => Promise<void>
   continueLastScope: (
@@ -59,6 +60,7 @@ export interface ChatContextValue {
       fileScope?: ChatFileScope | null
       chatWebSearchEnabled?: boolean
       chatWebSearchPrivacyOverride?: boolean
+      agentMode?: boolean
     },
   ) => Promise<void>
   translateAssistantMessage: (

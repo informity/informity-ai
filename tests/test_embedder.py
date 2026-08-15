@@ -7,6 +7,8 @@
 
 """Test module for tests test embedder."""
 
+import threading
+from time import sleep
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -250,6 +252,39 @@ class TestEmbedQuery:
         _ = emb.embed_query("cache me")
 
         assert emb._model.encode.call_count == 1
+
+    def test_query_embedding_serializes_concurrent_encode_calls(self) -> None:
+        """Test query embedding serializes concurrent encode calls."""
+        emb = _make_embedder_with_mock()
+        overlap_detected = False
+        active_calls = 0
+        active_lock = threading.Lock()
+
+        def _encode(*_args, **_kwargs):
+            """Internal helper for encode."""
+            nonlocal active_calls, overlap_detected
+            with active_lock:
+                active_calls += 1
+                if active_calls > 1:
+                    overlap_detected = True
+            sleep(0.05)
+            with active_lock:
+                active_calls -= 1
+            return np.array([[0.1] * VECTOR_DIMENSION], dtype=np.float32)
+
+        emb._model.encode = MagicMock(side_effect=_encode)
+
+        threads = [
+            threading.Thread(target=emb.embed_query, args=(f"query-{index}",))
+            for index in range(4)
+        ]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join()
+
+        assert overlap_detected is False
+        assert emb._model.encode.call_count == 4
 
 
 # ==============================================================================

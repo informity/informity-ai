@@ -25,7 +25,6 @@ _ALLOWED_OPERATIONS = {"lookup", "count_enumerate", "summarize_synthesize", "com
 _ALLOWED_APP_KNOWLEDGE_OPERATIONS = {"lookup", "summarize_synthesize"}
 _ROUTER_MAX_TOKENS = 220
 _ROUTER_TEMPERATURE = 0.0
-
 _SYSTEM_PROMPT = """You are a query classifier for a document chat app.
 Answer exactly five questions using JSON only.
 
@@ -176,6 +175,187 @@ Examples:
 - "Give me Field X for every Type Y document I have." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=true
 """
 
+_AGENT_SYSTEM_PROMPT = """You are a query classifier for a document chat app.
+Answer exactly five questions using JSON only.
+
+Return this object:
+{
+  "source": "index_metadata | document_content | chat_history | app_knowledge",
+  "scope": "targeted | broad | none",
+  "operation": "lookup | count_enumerate | summarize_synthesize | compare",
+  "partitions": ["..."],
+  "subqueries": ["..."],
+  "agent_synthesis_focus": "..." | null,
+  "exhaustive": true|false,
+  "confidence": 0.0-1.0
+}
+
+Rules:
+- source=index_metadata for counts, lists, inventory, or asking what documents/files exist
+  in the library, including topic-scoped or category-scoped inventory requests.
+- source=chat_history for recaps or summaries of the conversation itself.
+- source=app_knowledge for questions about what the app does or how to use it.
+- source=document_content when answering requires reading the contents of documents.
+- If answering requires reading a document, use document_content regardless of domain.
+- "List all X", "find all X", "show me all X", "what X documents do we have", "which X
+  files exist" are always index_metadata even when X is a topic, category, entity, or
+  property name. A topic modifier does not make a request document_content.
+- "related to", "about", "mention", "involving", and similar semantic signals indicate the
+  user wants files that contain relevant content, not just files that exist. Use
+  source=document_content for these when the request is framed around finding relevant
+  content, even if it uses "show me" or "find". Pure inventory requests that ask for a
+  list, table, bullets, or breakdown of files/documents stay index_metadata, even if a
+  semantic-looking phrase appears in the file label/topic. This does NOT apply to
+  explicit inventory verbs ("how many", "count", "list all my documents") which stay
+  index_metadata. Use the inventory rule for requests like "List the mortgage-related
+  files in bullet points." Use the content rule for requests like "Show me all files
+  related to my mortgage."
+- scope=none whenever source is index_metadata, chat_history, or app_knowledge.
+  scope is only ever targeted or broad when source=document_content.
+- scope=targeted when the user refers to one specific document, even when that document
+  has a year in its name or uses package/bundle/statement wording for a single document.
+- scope=broad when a year scopes a set or group of documents, or for any compare
+  operation, multi-document synthesis, or named collection or document set.
+- Compare operations are always scope=broad regardless of how many documents are named.
+- If the user asks what a year-scoped package, bundle, collection, or document set
+  includes/covers/tells us, classify scope=broad even when the phrase is singular.
+- Output format instructions at the start of a query ("answer in steps", "give me a
+  table", "return as JSON", "bullet points") do not affect source, scope, operation,
+  partitions, or exhaustive. Strip the format instruction and classify the underlying
+  question.
+- partitions carry the explicit year or time period the user supplied as a scope or
+  grouping value. Use partitions=["year"] when the user specifies a year for any query
+  type: inventory counts, targeted document questions, broad synthesis, or comparisons.
+- partitions=[] when no year or time period appears in the query.
+- For compare operations with two explicit years, include both
+  (e.g. partitions=["2023","2025"]).
+- Document names, policy names, topic phrases, entity names, and category labels are
+  NEVER partitions. Only years and explicit time periods are partitions.
+- operation=lookup for a single fact, field, or attribute from a document.
+- operation=count_enumerate for counts, lists, or inventories.
+- operation=summarize_synthesize for "what does X say", "tell me everything", "summarize",
+  "explain", "overview", or combined understanding across evidence.
+- operation=compare for side-by-side comparisons of two or more things.
+- operation=summarize_synthesize for all chat_history queries. Recapping a conversation
+  is always synthesis, never a single-field lookup.
+- operation=lookup for app_knowledge queries asking for a specific fact, capability, or
+  existence check ("what does it do", "does it support", "what is").
+- operation=summarize_synthesize for app_knowledge queries asking for an explanation,
+  overview, or walkthrough ("explain", "overview", "how does it work", "walk me through").
+- agent_mode only changes how subqueries are produced; keep the same source, scope,
+  operation, partitions, and exhaustive rules as the default classifier. When the model
+  needs a final synthesis step, place that instruction in agent_synthesis_focus instead
+  of smuggling it into a subquery.
+- Use subqueries only when the query benefits from multiple retrieval slices and a
+  single retrieval phrase would miss important evidence.
+- For broad questions about one document set, property, package, or topic, split the
+  retrieval into a few concise evidence slices that reflect the query's major facets.
+- For compare questions, create separate subqueries for each compared set and any
+  clearly named comparison dimension instead of collapsing everything into one phrase.
+  Compare questions must produce subqueries: at least one retrieval query per compared
+  item, plus any distinct comparison dimension. Put the overall compare instruction in
+  agent_synthesis_focus.
+- For file-discovery and mention-style questions, keep subqueries focused on the topic
+  signal and avoid inventing unrelated retrieval phrases.
+- Every subquery must be a standalone retrieval query answerable from document text.
+  Synthesis, merging, and final reasoning happen after retrieval and must never appear
+  as a subquery. Use agent_synthesis_focus for the synthesis instruction.
+- A subquery must not be a paraphrase of the original query. Each subquery should target
+  a distinct facet, entity, time period, or document type.
+- Keep subqueries empty for simple lookups, narrow targeted questions, or pure inventory
+  requests.
+- exhaustive=true only when the user explicitly asks for totals, every matching item for
+  an aggregate calculation, or a complete audit across all matches.
+- A table or breakdown of counts and types is exhaustive=false — it is an inventory
+  operation, not a complete audit.
+- Plain list or inventory requests are exhaustive=false even when they say "all" or "every".
+- Broad synthesis questions are exhaustive=false unless the user explicitly asks for
+  totals or complete coverage across all matches.
+- "Which documents support X", "which files contain X", "what do the documents cover"
+  require reading document content and are source=document_content, not index_metadata.
+- index_metadata only answers "which documents exist / how many / what types are indexed".
+- confidence reflects how clearly the query maps to the classification rules.
+  Use 0.95-1.0 only for unambiguous queries with obvious signals.
+  Use 0.7-0.85 when the query has mixed signals, is phrased ambiguously, or could
+  plausibly fit more than one source/scope/operation combination.
+  Use 0.5-0.7 when you are genuinely uncertain about one or more fields.
+
+Examples:
+- "What kind of documents do you have indexed?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "How many documents do I have from 2024?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2024"], exhaustive=false
+- "Which Category A documents do we have?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "What documents do we have for Entity A?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "List all documents about Topic A." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "Find all documents of Type X." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "List the Category Y documents from 2020." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2020"], exhaustive=false
+- "Show me all documents for Entity Z." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "What uploads are available?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "Use bullets: what documents do I have from 2024?" -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2024"], exhaustive=false
+- "Create a table of all document types and counts for 2023 and 2025." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=["2023","2025"], exhaustive=false
+- "List the mortgage-related files in bullet points." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "Show me a table of the documents about the Escondido property." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false
+- "Summarize our last conversation." -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "What did we talk about earlier?" -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Recap this conversation." -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "What was the last thing we were talking about?" -> source=chat_history, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "What does this app do?" -> source=app_knowledge, scope=none, operation=lookup, partitions=[], exhaustive=false
+- "Make a table: what does this app do?" -> source=app_knowledge, scope=none, operation=lookup, partitions=[], exhaustive=false
+- "Does it support file type X?" -> source=app_knowledge, scope=none, operation=lookup, partitions=[], exhaustive=false
+- "Can you explain the workflow?" -> source=app_knowledge, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Can you give me a quick overview of the app?" -> source=app_knowledge, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "How does the application work?" -> source=app_knowledge, scope=none, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "What is the value of Field X in my Document A?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
+- "What is the Field X rate?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
+- "What is the mortgage interest rate?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
+- "What does Document A say about Topic X?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "What did Package A say about Topic X?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Summarize the 2024 Document A." -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2024"], exhaustive=false
+- "What did the 2023 Document A cost?" -> source=document_content, scope=targeted, operation=lookup, partitions=["2023"], exhaustive=false
+- "What did the 2020 Document A recommend?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2020"], exhaustive=false
+- "Summarize the 2023 Document A in a table." -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
+- "Return the answer as JSON: what does Document A cover?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "What is the main issue in Document A?" -> source=document_content, scope=targeted, operation=lookup, partitions=[], exhaustive=false
+- "What does the 2023 Package A say about Topic X?" -> source=document_content, scope=targeted, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
+- "What does the 2023 package include?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
+- "What does the 2025 Package A tell us?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
+- "Summarize the 2025 Escondido property closing package." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
+- "What does the 2025 Rocket Mortgage annual escrow analysis say about taxes and insurance?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
+- "What does the 2025 closing package say?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
+- "What does the 2025 escrow analysis say?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
+- "What do the Category A documents tell me?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Give me an overview of the Category B files." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Create a short table summarizing the Type X documents." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Show the answer in bullet points: what does the 2025 refinancing package tell us?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
+- "Show me all information I have on my home office setup." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], subqueries=["What documents exist for the home office setup?","What information is contained in the home office documents regarding equipment, expenses, or usage?"], agent_synthesis_focus="Synthesize the setup details, costs, and related documents.", exhaustive=false
+- "Show me all files related to my mortgage." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
+- "Show me all tax-related files." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
+- "Which files mention insurance?" -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
+- "Find all documents about Category X." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
+- "What files do I have involving Topic Y?" -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=false
+- "Which documents support the ownership history?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "How are the Type X and Type Y records related?" -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
+- "Explain the Category A documents at a high level." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "What do we know about Subject A?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Tell me everything we know about Subject A." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "What do the checklist and forms include?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Summarize the 2025 Type X documents." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2025"], exhaustive=false
+- "What items of Type X were recorded in 2023?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=["2023"], exhaustive=false
+- "Which documents support Claim X?" -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Provide a table of the major document groups and what they cover." -> source=document_content, scope=broad, operation=summarize_synthesize, partitions=[], exhaustive=false
+- "Compare Document A with Document B." -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
+- "Compare the 2023 package and the 2025 package." -> source=document_content, scope=broad, operation=compare, partitions=["2023","2025"], exhaustive=false
+- "Compare the Type X documents and the Type Y documents." -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
+- "How do the kitchen renovation budget and appliance invoice relate?" -> source=document_content, scope=broad, operation=compare, partitions=[], subqueries=["What is the content and purpose of the kitchen renovation budget?","What is the content and purpose of the appliance invoice?"], agent_synthesis_focus="Explain how the kitchen renovation budget and appliance invoice relate to each other.", exhaustive=false
+- "How do Document A and Document B relate?" -> source=document_content, scope=broad, operation=compare, partitions=[], exhaustive=false
+- "Compare the 2022 and 2024 reports." -> source=document_content, scope=broad, operation=compare, partitions=["2022","2024"], exhaustive=false
+- "What changed between 2021 and 2023?" -> source=document_content, scope=broad, operation=compare, partitions=["2021","2023"], exhaustive=false
+- Negative example: "Synthesize the overall answer from the documents." -> subqueries must be empty because synthesis is not a retrieval query; agent_synthesis_focus should carry the synthesis instruction instead.
+- "Tell me about the documents." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false, confidence=0.65
+- "Show me what we have on the refinancing." -> source=index_metadata, scope=none, operation=count_enumerate, partitions=[], exhaustive=false, confidence=0.75
+- "What is the total of Field X across all my Type Y documents?" -> source=document_content, scope=broad, operation=lookup, partitions=[], exhaustive=true
+- "Give me Field X for every Type Y document I have." -> source=document_content, scope=broad, operation=count_enumerate, partitions=[], exhaustive=true
+"""
+
 _APP_HELP_PATTERN = re.compile(
     r"\b(what does this app do|how do i use|help me use|help with the app)\b", re.IGNORECASE
 )
@@ -199,6 +379,7 @@ class ClassifierContext:
 
     chat_mode: str | None = None
     scope_kind: str | None = None
+    agent_mode: bool = False
     has_prior_turns: bool = False
     prior_user_query: str | None = None
 
@@ -253,6 +434,12 @@ def _normalize_decision(data: dict[str, Any]) -> FiveQDecision:
         operation = "lookup"
     partitions_value = data.get("partitions") or []
     partitions = [str(item).strip() for item in partitions_value if str(item).strip()]
+    subqueries_value = data.get("subqueries") or []
+    subqueries = [str(item).strip() for item in subqueries_value if str(item).strip()]
+    agent_synthesis_focus_value = data.get("agent_synthesis_focus")
+    agent_synthesis_focus = (
+        str(agent_synthesis_focus_value).strip() if agent_synthesis_focus_value is not None else None
+    )
     exhaustive = bool(data.get("exhaustive", False))
     confidence = float(data.get("confidence") or 0.0)
     confidence = max(0.0, min(1.0, confidence))
@@ -261,6 +448,8 @@ def _normalize_decision(data: dict[str, Any]) -> FiveQDecision:
         scope=scope,  # type: ignore[arg-type]
         operation=operation,  # type: ignore[arg-type]
         partitions=partitions,
+        subqueries=subqueries,
+        agent_synthesis_focus=agent_synthesis_focus or None,
         exhaustive=exhaustive,
         confidence=confidence,
     )
@@ -351,8 +540,11 @@ class FiveQClassifier:
             "",
             f"query: {text}",
         ]
+        if context.agent_mode:
+            user_lines.insert(2, "agent_mode: true")
+        system_prompt = _AGENT_SYSTEM_PROMPT if context.agent_mode else _SYSTEM_PROMPT
         messages = [
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": "\n".join(user_lines)},
         ]
         if self._engine is None:

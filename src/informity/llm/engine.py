@@ -20,18 +20,21 @@ import asyncio
 import json
 import os
 import shutil
+import socket
 import threading
 import time
 import urllib.error
 import urllib.request
 from collections.abc import AsyncGenerator, Callable
 from contextlib import suppress
+from contextvars import ContextVar, Token, copy_context
 from pathlib import Path
 
 import structlog
 from thinkstrip import ThinkStrip, strip_think_prefill
 
-from informity.config import DEFAULT_OLLAMA_BASE_URL, settings
+from informity.config import DEFAULT_OLLAMA_BASE_URL, STARTUP_RAM_HEADROOM_RATIO, settings
+from informity.diagnostics.resource_snapshot import capture_resource_snapshot
 from informity.exceptions import LLMError
 from informity.llm.model_adapter import (
     get_effective_context_length,
@@ -46,6 +49,10 @@ from informity.llm.types import StreamSignalTag, TimeoutReason
 
 log = structlog.get_logger(__name__)
 _PROMPT_RENDER_EXCEPTIONS = (ValueError, TypeError, AttributeError, RuntimeError)
+_RUNTIME_CALL_PROBE_CONTEXT: ContextVar[dict[str, object] | None] = ContextVar(
+    "informity_runtime_call_probe_context",
+    default=None,
+)
 
 # ==============================================================================
 # Constants
@@ -62,6 +69,181 @@ _FIRST_TOKEN_WATCHDOG_RATIO = 0.30
 _SLOW_PROFILE_TPS_THRESHOLD = 6.0
 _SLOW_PROFILE_WATCHDOG_RATIO = 0.50
 _SLOW_PROFILE_WATCHDOG_MAX_SECONDS = 600.0
+
+
+def _merge_chat_template_kwargs(
+    base_kwargs: dict[str, object] | None,
+    override_kwargs: dict[str, object] | None,
+) -> dict[str, object]:
+    """Merge template kwargs with request-scoped overrides."""
+    merged: dict[str, object] = {}
+    if base_kwargs:
+        merged.update(base_kwargs)
+    if override_kwargs:
+        merged.update(override_kwargs)
+    return merged
+
+
+def _pick_free_loopback_port() -> int:
+    """Pick an ephemeral loopback port for the embedded xllamacpp server."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.bind(("127.0.0.1", 0))
+        return int(sock.getsockname()[1])
+
+
+def _check_generation_model_memory_headroom(*, model_path: Path, stage: str) -> None:
+    """Fail fast when the generation model would exceed the configured RAM headroom."""
+    # Local GGUF only: OllamaProvider is a separate synthesis backend and should
+    # not use this in-process memory gate.
+    if not model_path.is_file():
+        return
+
+    snapshot = capture_resource_snapshot()
+    available_mb = snapshot.get("system_memory_available_mb")
+    if not isinstance(available_mb, (int, float)):
+        log.warning(
+            "llm_generation_memory_gate",
+            stage=stage,
+            model=model_path.name,
+            model_size_gb=round(model_path.stat().st_size / (1024**3), 1),
+            available_ram_gb=None,
+            headroom_ratio=STARTUP_RAM_HEADROOM_RATIO,
+            allowed=False,
+            reason="memory_snapshot_unavailable",
+        )
+        raise LLMError("insufficient memory available for this model")
+
+    model_size_gb = model_path.stat().st_size / (1024**3)
+    available_ram_gb = float(available_mb) / 1024.0
+    allowed = model_size_gb <= available_ram_gb * STARTUP_RAM_HEADROOM_RATIO
+    log.info(
+        "llm_generation_memory_gate",
+        stage=stage,
+        model=model_path.name,
+        model_size_gb=round(model_size_gb, 1),
+        available_ram_gb=round(available_ram_gb, 1),
+        headroom_ratio=STARTUP_RAM_HEADROOM_RATIO,
+        allowed=allowed,
+    )
+    if not allowed:
+        raise LLMError("insufficient memory available for this model")
+
+
+def _profile_chat_template_kwargs(profile: object) -> dict[str, object]:
+    """Return profile chat-template kwargs, defaulting to an empty mapping."""
+    template_kwargs = getattr(profile, "chat_template_kwargs", {})
+    if isinstance(template_kwargs, dict):
+        return template_kwargs
+    return {}
+
+
+def set_runtime_call_probe_context(context: dict[str, object] | None) -> Token[dict[str, object] | None]:
+    """Set the current request-scoped runtime call probe context."""
+    return _RUNTIME_CALL_PROBE_CONTEXT.set(context)
+
+
+def reset_runtime_call_probe_context(token: Token[dict[str, object] | None]) -> None:
+    """Reset the current request-scoped runtime call probe context."""
+    _RUNTIME_CALL_PROBE_CONTEXT.reset(token)
+
+
+def _get_runtime_call_probe_context() -> dict[str, object] | None:
+    """Return the active runtime call probe context, if any."""
+    context = _RUNTIME_CALL_PROBE_CONTEXT.get()
+    if not isinstance(context, dict):
+        return None
+    return context
+
+
+def _record_runtime_call_probe(
+    *,
+    call_kind: str,
+    max_tokens: int | None,
+    enable_thinking: bool | None,
+    duration_ms: float,
+    prompt_token_count: int | None,
+    completion_token_count: int | None,
+    runtime_metrics: dict[str, object] | None,
+    status: str,
+    error: str | None = None,
+) -> None:
+    """Record and log a runtime-call probe for the active request context."""
+    context = _get_runtime_call_probe_context()
+    if context is None:
+        return
+    records = context.setdefault("runtime_call_records", [])
+    if not isinstance(records, list):
+        return
+    record: dict[str, object] = {
+        "sequence": len(records) + 1,
+        "call_kind": call_kind,
+        "status": status,
+        "max_tokens": max_tokens,
+        "enable_thinking": enable_thinking,
+        "prompt_tokens": prompt_token_count,
+        "completion_tokens": completion_token_count,
+        "duration_ms": round(duration_ms, 1),
+    }
+    if error:
+        record["error"] = error
+    if runtime_metrics is not None:
+        prompt_token_source = runtime_metrics.get("prompt_token_count_source")
+        cached_token_count = runtime_metrics.get("cached_token_count")
+        prefix_cache_hit = runtime_metrics.get("prefix_cache_hit")
+        prompt_eval_tps = runtime_metrics.get("prompt_eval_tokens_per_second")
+        generation_tps = runtime_metrics.get("generation_tokens_per_second")
+        prompt_eval_duration_ms = runtime_metrics.get("prompt_eval_duration_ms")
+        generation_duration_ms = runtime_metrics.get("generation_duration_ms")
+        if prompt_token_source is not None:
+            record["prompt_tokens_source"] = prompt_token_source
+        if cached_token_count is not None:
+            record["cached_tokens"] = cached_token_count
+        if prefix_cache_hit is not None:
+            record["prefix_cache_hit"] = prefix_cache_hit
+        if prompt_eval_tps is not None:
+            record["prompt_eval_tokens_per_second"] = prompt_eval_tps
+        if generation_tps is not None:
+            record["generation_tokens_per_second"] = generation_tps
+        if prompt_eval_duration_ms is not None:
+            record["prompt_eval_duration_ms"] = prompt_eval_duration_ms
+        if generation_duration_ms is not None:
+            record["generation_duration_ms"] = generation_duration_ms
+
+    records.append(record)
+    context["runtime_call_count"] = len(records)
+    log.info("researcher_runtime_call", **record)
+
+
+def _record_generation_memory_snapshot(
+    *,
+    point: str,
+    timing_context: dict[str, object] | None,
+) -> None:
+    """Capture a compact generation-time memory snapshot."""
+    snapshot = capture_resource_snapshot()
+    previous_snapshot: dict[str, object] | None = None
+    if isinstance(timing_context, dict):
+        snapshots = timing_context.setdefault("generation_memory_snapshots", [])
+        if isinstance(snapshots, list):
+            if snapshots and isinstance(snapshots[-1], dict):
+                previous_snapshot = snapshots[-1]
+            snapshot["point"] = point
+            snapshot["generation_snapshot_index"] = len(snapshots) + 1
+            if previous_snapshot is not None:
+                for key, delta_key in (
+                    ("system_pageins", "pageins_delta"),
+                    ("system_pageouts", "pageouts_delta"),
+                ):
+                    before_value = previous_snapshot.get(key)
+                    after_value = snapshot.get(key)
+                    if isinstance(before_value, (int, float)) and isinstance(
+                        after_value, (int, float)
+                    ):
+                        snapshot[delta_key] = round(float(after_value) - float(before_value), 2)
+            snapshots.append(snapshot)
+    log_snapshot = dict(snapshot)
+    log_snapshot.pop("point", None)
+    log.info("llm_generation_memory_snapshot", **log_snapshot)
 
 
 # ==============================================================================
@@ -104,6 +286,203 @@ def _resolve_first_token_deadline_seconds(*, wall_clock: float, profile_tps: flo
     return base_deadline
 
 
+def _extract_runtime_metrics_from_chunks(
+    chunks: list[dict[str, object]],
+    *,
+    prompt_token_estimate: int | None = None,
+    total_elapsed_ms: float | None = None,
+    token_count: int | None = None,
+) -> dict[str, object]:
+    """Extract model runtime metrics from collected response chunks."""
+    def _to_int(value: object) -> int | None:
+        if isinstance(value, bool):
+            return int(value)
+        if isinstance(value, int):
+            return value if value >= 0 else 0
+        if isinstance(value, float):
+            value = int(value)
+            return value if value >= 0 else 0
+        if isinstance(value, str):
+            with suppress(ValueError):
+                return max(0, int(float(value.strip())))
+        return None
+
+    def _to_float(value: object) -> float | None:
+        if isinstance(value, bool):
+            return float(value)
+        if isinstance(value, (int, float)):
+            value = float(value)
+            return value if value >= 0.0 else 0.0
+        if isinstance(value, str):
+            with suppress(ValueError):
+                value = float(value.strip())
+                return value if value >= 0.0 else 0.0
+        return None
+
+    def _duration_to_seconds(key: str, value: object) -> float | None:
+        numeric = _to_float(value)
+        if numeric is None:
+            return None
+        lowered = key.casefold()
+        if lowered.endswith("_ms") or "_ms_" in lowered or "milliseconds" in lowered:
+            return numeric / 1000.0
+        if lowered.endswith("_us") or "microseconds" in lowered:
+            return numeric / 1_000_000.0
+        if lowered.endswith("_s") or "seconds" in lowered or "duration_s" in lowered:
+            return numeric
+        return numeric / 1_000_000_000.0
+
+    dict_chunks = [chunk for chunk in chunks if isinstance(chunk, dict)]
+    if not dict_chunks:
+        return {}
+    final_chunk = dict_chunks[-1]
+    usage = final_chunk.get("usage")
+    usage_dict = usage if isinstance(usage, dict) else {}
+
+    prompt_token_count = None
+    prompt_token_source = None
+    for candidate_key in (
+        "prompt_tokens",
+        "prompt_eval_count",
+        "prompt_token_count",
+        "prompt_eval_tokens",
+    ):
+        prompt_token_count = _to_int(usage_dict.get(candidate_key))
+        if prompt_token_count is not None:
+            prompt_token_source = "usage"
+            break
+        prompt_token_count = _to_int(final_chunk.get(candidate_key))
+        if prompt_token_count is not None:
+            prompt_token_source = "response"
+            break
+    if prompt_token_count is None and prompt_token_estimate is not None:
+        prompt_token_count = int(prompt_token_estimate)
+        prompt_token_source = "estimate"
+
+    completion_token_count = None
+    completion_token_source = None
+    for candidate_key in (
+        "completion_tokens",
+        "completion_token_count",
+        "eval_count",
+        "generated_tokens",
+        "generation_tokens",
+        "output_tokens",
+    ):
+        completion_token_count = _to_int(usage_dict.get(candidate_key))
+        if completion_token_count is not None:
+            completion_token_source = "usage"
+            break
+        completion_token_count = _to_int(final_chunk.get(candidate_key))
+        if completion_token_count is not None:
+            completion_token_source = "response"
+            break
+    if completion_token_count is None and token_count is not None:
+        completion_token_count = int(token_count)
+        completion_token_source = "stream_count"
+
+    cached_token_count = None
+    for candidate_key in (
+        "cached_tokens",
+        "cache_hit_tokens",
+        "prompt_cached_tokens",
+        "kv_cache_tokens",
+        "cached_token_count",
+    ):
+        cached_token_count = _to_int(usage_dict.get(candidate_key))
+        if cached_token_count is not None:
+            break
+        cached_token_count = _to_int(final_chunk.get(candidate_key))
+        if cached_token_count is not None:
+            break
+
+    prefix_cache_hit = None
+    for candidate_key in (
+        "prefix_cache_hit",
+        "cache_hit",
+        "prompt_cache_hit",
+        "kv_cache_hit",
+    ):
+        value = usage_dict.get(candidate_key)
+        if isinstance(value, bool):
+            prefix_cache_hit = value
+            break
+        value = final_chunk.get(candidate_key)
+        if isinstance(value, bool):
+            prefix_cache_hit = value
+            break
+    if prefix_cache_hit is None and cached_token_count is not None:
+        prefix_cache_hit = cached_token_count > 0
+
+    prompt_eval_duration_seconds = None
+    generation_duration_seconds = None
+    prompt_eval_tps = None
+    generation_tps = None
+    prompt_eval_duration_keys = (
+        "prompt_eval_duration",
+        "prompt_eval_duration_ms",
+        "prompt_eval_duration_s",
+    )
+    generation_duration_keys = ("eval_duration", "generation_duration", "completion_duration")
+
+    for candidate_key in prompt_eval_duration_keys:
+        prompt_eval_duration_seconds = _duration_to_seconds(candidate_key, usage_dict.get(candidate_key))
+        if prompt_eval_duration_seconds is not None:
+            break
+        prompt_eval_duration_seconds = _duration_to_seconds(candidate_key, final_chunk.get(candidate_key))
+        if prompt_eval_duration_seconds is not None:
+            break
+
+    for candidate_key in generation_duration_keys:
+        generation_duration_seconds = _duration_to_seconds(candidate_key, usage_dict.get(candidate_key))
+        if generation_duration_seconds is not None:
+            break
+        generation_duration_seconds = _duration_to_seconds(candidate_key, final_chunk.get(candidate_key))
+        if generation_duration_seconds is not None:
+            break
+
+    for candidate_key in ("prompt_eval_tps", "prompt_eval_tokens_per_second"):
+        prompt_eval_tps = _to_float(usage_dict.get(candidate_key))
+        if prompt_eval_tps is not None:
+            break
+        prompt_eval_tps = _to_float(final_chunk.get(candidate_key))
+        if prompt_eval_tps is not None:
+            break
+
+    for candidate_key in ("eval_tps", "generation_tokens_per_second", "completion_tokens_per_second"):
+        generation_tps = _to_float(usage_dict.get(candidate_key))
+        if generation_tps is not None:
+            break
+        generation_tps = _to_float(final_chunk.get(candidate_key))
+        if generation_tps is not None:
+            break
+
+    if prompt_eval_tps is None and prompt_token_count is not None and prompt_eval_duration_seconds:
+        prompt_eval_tps = prompt_token_count / max(prompt_eval_duration_seconds, 1e-9)
+    if generation_tps is None and token_count is not None and total_elapsed_ms is not None:
+        generation_tps = token_count / max(total_elapsed_ms / 1000.0, 1e-9)
+
+    runtime_metrics: dict[str, object] = {
+        "prompt_token_count": prompt_token_count,
+        "prompt_token_count_source": prompt_token_source,
+        "completion_token_count": completion_token_count,
+        "completion_token_count_source": completion_token_source,
+        "cached_token_count": cached_token_count,
+        "prefix_cache_hit": prefix_cache_hit,
+        "prompt_eval_tokens_per_second": round(prompt_eval_tps, 3)
+        if prompt_eval_tps is not None
+        else None,
+        "generation_tokens_per_second": round(generation_tps, 3) if generation_tps is not None else None,
+    }
+    if prompt_eval_duration_seconds is not None:
+        runtime_metrics["prompt_eval_duration_ms"] = round(prompt_eval_duration_seconds * 1000.0, 3)
+    if generation_duration_seconds is not None:
+        runtime_metrics["generation_duration_ms"] = round(generation_duration_seconds * 1000.0, 3)
+    if total_elapsed_ms is not None:
+        runtime_metrics["total_elapsed_ms"] = round(total_elapsed_ms, 3)
+    return runtime_metrics
+
+
 async def _stream_from_queue(
     queue: asyncio.Queue[str | object],
     _cancel_event: threading.Event,
@@ -112,9 +491,11 @@ async def _stream_from_queue(
     wall_clock: float,
     first_token_deadline_seconds: float,
     stripper: ThinkStrip,
+    timing_context: dict[str, object] | None = None,
 ) -> AsyncGenerator[tuple[str, object]]:
     """stream from queue."""
     first_token_seen = False
+    think_to_visible_snapshot_taken = False
     while True:
         elapsed = time.perf_counter() - start
         if elapsed >= wall_clock:
@@ -156,9 +537,28 @@ async def _stream_from_queue(
             continue
 
         raw_token = str(item)
+        if (
+            timing_context is not None
+            and raw_token
+            and "runtime_first_raw_token_at_s" not in timing_context
+        ):
+            timing_context["runtime_first_raw_token_at_s"] = time.time()
+        in_think_before = stripper.in_think_block
         emit_text = stripper.feed(raw_token)
         if not emit_text:
             continue
+
+        if (
+            timing_context is not None
+            and not think_to_visible_snapshot_taken
+            and in_think_before
+            and not stripper.in_think_block
+        ):
+            think_to_visible_snapshot_taken = True
+            _record_generation_memory_snapshot(
+                point="think_to_visible",
+                timing_context=timing_context,
+            )
 
         first_token_seen = True
         yield ("text", emit_text)
@@ -383,10 +783,14 @@ def _run_stream_worker(
     temp: float,
     top_p_val: float,
     stop_seqs: list[str],
+    chat_template_kwargs_override: dict[str, object] | None,
     loop: asyncio.AbstractEventLoop,
     queue: asyncio.Queue[str | object],
     exception_holder: list[BaseException],
     cancel_event: threading.Event,
+    request_start: float | None = None,
+    timing_state: dict[str, float | None] | None = None,
+    timing_context: dict[str, object] | None = None,
 ) -> None:
     # Run the blocking xllamacpp generation call in a background thread.
     # Sends messages via handle_chat_completions (OpenAI-compatible chat API)
@@ -403,7 +807,15 @@ def _run_stream_worker(
     # until the current n_predict budget is exhausted; output is discarded.
     """run stream worker."""
     try:
-        _tmpl_kwargs = get_profile().chat_template_kwargs
+        call_started_at = time.perf_counter()
+        if timing_state is not None and request_start is not None:
+            timing_state["submit_ms"] = (time.perf_counter() - request_start) * 1000
+            timing_state["submit_at_s"] = time.time()
+        runtime_frames: list[dict[str, object]] = []
+        _tmpl_kwargs = _merge_chat_template_kwargs(
+            _profile_chat_template_kwargs(get_profile()),
+            chat_template_kwargs_override,
+        )
         payload = json.dumps(
             {
                 "messages": messages,
@@ -444,6 +856,7 @@ def _run_stream_worker(
 
             if not isinstance(data, dict):
                 return
+            runtime_frames.append(data)
 
             # OpenAI chat completions streaming format: choices[0].delta.content
             choices = data.get("choices") or []
@@ -461,6 +874,8 @@ def _run_stream_worker(
                 token = data.get("content") or ""
 
             if token and not cancel_event.is_set():
+                if timing_state is not None and "runtime_first_raw_token_at_s" not in timing_state:
+                    timing_state["runtime_first_raw_token_at_s"] = time.time()
                 loop.call_soon_threadsafe(queue.put_nowait, token)
 
             # Finish reason from OpenAI format
@@ -485,6 +900,8 @@ def _run_stream_worker(
             queue.put_nowait,
             (StreamSignalTag.FINISH_REASON, finish_reason),
         )
+        if timing_state is not None:
+            timing_state["runtime_frames"] = runtime_frames
 
     except (
         AttributeError,
@@ -497,6 +914,31 @@ def _run_stream_worker(
     ) as exc:
         exception_holder.append(exc)
     finally:
+        elapsed_ms = (time.perf_counter() - call_started_at) * 1000.0
+        runtime_metrics = _extract_runtime_metrics_from_chunks(
+            runtime_frames,
+            total_elapsed_ms=elapsed_ms,
+            token_count=None,
+        )
+        _record_runtime_call_probe(
+            call_kind="generate_stream",
+            max_tokens=max_tok,
+            enable_thinking=bool(_tmpl_kwargs.get("enable_thinking", False)),
+            duration_ms=elapsed_ms,
+            prompt_token_count=(
+                int(runtime_metrics["prompt_token_count"])
+                if isinstance(runtime_metrics.get("prompt_token_count"), int)
+                else None
+            ),
+            completion_token_count=(
+                int(runtime_metrics["completion_token_count"])
+                if isinstance(runtime_metrics.get("completion_token_count"), int)
+                else None
+            ),
+            runtime_metrics=runtime_metrics,
+            status="error" if exception_holder else "ok",
+            error=str(exception_holder[-1]) if exception_holder else None,
+        )
         with suppress(RuntimeError):
             loop.call_soon_threadsafe(queue.put_nowait, _STREAM_END)
 
@@ -621,6 +1063,8 @@ class XllamaCppProvider:
             log.info("model_not_found_locally", path=str(model_path), filename=profile_filename)
             self._download_model(model_path)
 
+        _check_generation_model_memory_headroom(model_path=model_path, stage="load_model")
+
         profile = get_profile_for_filename(profile_filename)
         profile_ctx_len = int(profile.context_length)
         configured_ctx_len = int(getattr(settings, "llm_context_length", 0) or 0)
@@ -635,6 +1079,7 @@ class XllamaCppProvider:
             n_batch=256,
             n_threads=settings.llm_cpu_threads,
         )
+        load_memory_before = capture_resource_snapshot()
 
         start = time.perf_counter()
 
@@ -650,6 +1095,7 @@ class XllamaCppProvider:
             # TTFT regresses)
             params.cpuparams.n_threads = settings.llm_cpu_threads  # Cap CPU threads
             params.cpuparams_batch.n_threads = settings.llm_cpu_threads
+            params.port = _pick_free_loopback_port()
 
             # Read chat template from GGUF metadata before constructing Server,
             # while we still have direct file access.
@@ -686,11 +1132,16 @@ class XllamaCppProvider:
             raise LLMError(f'Failed to load LLM model "{model_path.name}": {exc}') from exc
 
         elapsed_ms = (time.perf_counter() - start) * 1000
+        load_memory_after = capture_resource_snapshot()
         log.info(
             "llm_model_loaded",
             model=model_path.name,
             elapsed_ms=round(elapsed_ms, 1),
             chat_template_found=bool(self._chat_template),
+            available_ram_mb_before=load_memory_before.get("system_memory_available_mb"),
+            available_ram_mb_after=load_memory_after.get("system_memory_available_mb"),
+            process_rss_mb_before=load_memory_before.get("process_rss_mb"),
+            process_rss_mb_after=load_memory_after.get("process_rss_mb"),
         )
 
     # -- Model download -------------------------------------------------------
@@ -763,6 +1214,7 @@ class XllamaCppProvider:
         temperature: float = 0.0,
         stop: list[str] | None = None,
         response_format: dict | None = None,
+        chat_template_kwargs_override: dict[str, object] | None = None,
     ) -> dict:
         """
         Synchronous (blocking) chat completion via xllamacpp.
@@ -778,8 +1230,12 @@ class XllamaCppProvider:
             LLMError: If inference fails.
         """
         server = self._loaded_server
+        start = time.perf_counter()
 
-        _tmpl_kwargs = get_profile().chat_template_kwargs
+        _tmpl_kwargs = _merge_chat_template_kwargs(
+            _profile_chat_template_kwargs(get_profile()),
+            chat_template_kwargs_override,
+        )
         payload_dict: dict = {
             "messages": messages,
             "max_tokens": max_tokens,
@@ -809,6 +1265,17 @@ class XllamaCppProvider:
         try:
             server.handle_chat_completions(payload, _cb)  # type: ignore[attr-defined]
         except Exception as exc:
+            _record_runtime_call_probe(
+                call_kind="chat_complete",
+                max_tokens=max_tokens,
+                enable_thinking=bool(_tmpl_kwargs.get("enable_thinking", False)),
+                duration_ms=(time.perf_counter() - start) * 1000.0,
+                prompt_token_count=None,
+                completion_token_count=None,
+                runtime_metrics=None,
+                status="error",
+                error=str(exc),
+            )
             raise LLMError(f"Chat completion inference failed: {exc}") from exc
 
         # Assemble content from collected chunks.
@@ -824,6 +1291,47 @@ class XllamaCppProvider:
                 if delta.get("content"):
                     content_parts.append(delta["content"])
 
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        runtime_metrics = _extract_runtime_metrics_from_chunks(
+            collected,
+            prompt_token_estimate=count_tokens(_messages_to_prompt(self._chat_template, messages)),
+            total_elapsed_ms=elapsed_ms,
+            token_count=None,
+        )
+        _record_runtime_call_probe(
+            call_kind="chat_complete",
+            max_tokens=max_tokens,
+            enable_thinking=bool(_tmpl_kwargs.get("enable_thinking", False)),
+            duration_ms=elapsed_ms,
+            prompt_token_count=(
+                int(runtime_metrics["prompt_token_count"])
+                if isinstance(runtime_metrics.get("prompt_token_count"), int)
+                else None
+            ),
+            completion_token_count=(
+                int(runtime_metrics["completion_token_count"])
+                if isinstance(runtime_metrics.get("completion_token_count"), int)
+                else None
+            ),
+            runtime_metrics=runtime_metrics,
+            status="ok",
+        )
+        log.info(
+            "llm_chat_complete_completed",
+            provider="local_gguf",
+            model=self._model_filename_override or settings.llm_model_filename,
+            max_tokens=max_tokens,
+            enable_thinking=bool(_tmpl_kwargs.get("enable_thinking", False)),
+            prompt_token_count=runtime_metrics.get("prompt_token_count"),
+            prompt_token_count_source=runtime_metrics.get("prompt_token_count_source"),
+            cached_token_count=runtime_metrics.get("cached_token_count"),
+            prefix_cache_hit=runtime_metrics.get("prefix_cache_hit"),
+            prompt_eval_tokens_per_second=runtime_metrics.get("prompt_eval_tokens_per_second"),
+            generation_tokens_per_second=runtime_metrics.get("generation_tokens_per_second"),
+            prompt_eval_duration_ms=runtime_metrics.get("prompt_eval_duration_ms"),
+            generation_duration_ms=runtime_metrics.get("generation_duration_ms"),
+            elapsed_ms=round(elapsed_ms, 1),
+        )
         return {"choices": [{"message": {"content": "".join(content_parts)}}]}
 
     # -- Streaming generation -------------------------------------------------
@@ -837,6 +1345,8 @@ class XllamaCppProvider:
         stop: list[str] | None = None,
         force_chatml: bool = False,
         timeout_seconds: float | None = None,
+        chat_template_kwargs_override: dict[str, object] | None = None,
+        timing_context: dict[str, object] | None = None,
     ) -> AsyncGenerator[str | tuple[str, object]]:
         # Stream generated tokens one at a time as an async generator.
         # Sends messages via handle_chat_completions in a background thread.
@@ -876,6 +1386,12 @@ class XllamaCppProvider:
 
         profile = get_profile()
         context_len = get_effective_context_length(profile)
+        merged_template_kwargs = _merge_chat_template_kwargs(
+            _profile_chat_template_kwargs(profile),
+            chat_template_kwargs_override,
+        )
+        think_enabled = bool(merged_template_kwargs.get("enable_thinking", False))
+        _check_generation_model_memory_headroom(model_path=self.get_model_path(), stage="generate_stream")
         server = self._loaded_server
 
         truncated_messages, truncation_info = _truncate_messages_to_fit(
@@ -913,27 +1429,36 @@ class XllamaCppProvider:
         )
 
         start = time.perf_counter()
+        _record_generation_memory_snapshot(point="generation_start", timing_context=timing_context)
         token_count = 0
         first_token_ms: float | None = None
+        first_token_at_s: float | None = None
         total_text_parts: list[str] = []
         loop = asyncio.get_running_loop()
         queue: asyncio.Queue[str | object] = asyncio.Queue()
         exception_holder: list[BaseException] = []
         cancel_event = threading.Event()
+        timing_state: dict[str, object | None] = {"submit_ms": None, "submit_at_s": None}
 
+        request_context = copy_context()
         worker = threading.Thread(
-            target=_run_stream_worker,
+            target=request_context.run,
             args=(
+                _run_stream_worker,
                 server,
                 messages,
                 max_tok,
                 temp,
                 top_p_val,
                 stop_seqs,
+                chat_template_kwargs_override,
                 loop,
                 queue,
                 exception_holder,
                 cancel_event,
+                start,
+                timing_state,
+                timing_context,
             ),
             name="llm-stream-worker",
             daemon=True,
@@ -958,6 +1483,7 @@ class XllamaCppProvider:
                 wall_clock=wall_clock,
                 first_token_deadline_seconds=first_token_deadline_seconds,
                 stripper=stripper,
+                timing_context=timing_context,
             ):
                 if event_kind == "timeout":
                     timeout_payload = payload if isinstance(payload, dict) else {}
@@ -995,11 +1521,22 @@ class XllamaCppProvider:
                 emit_text = str(payload)
                 if first_token_ms is None:
                     first_token_ms = (time.perf_counter() - start) * 1000
+                    first_token_at_s = time.time()
+                    if timing_context is not None:
+                        timing_context["runtime_first_token_at_s"] = first_token_at_s
+                    _record_generation_memory_snapshot(
+                        point="first_token",
+                        timing_context=timing_context,
+                    )
                 token_count += 1
                 total_text_parts.append(emit_text)
                 yield emit_text
 
             if timeout_occurred:
+                _record_generation_memory_snapshot(
+                    point="watchdog_timeout",
+                    timing_context=timing_context,
+                )
                 timeout_notice = (
                     f"\n\n[Response truncated: generation time limit ({int(wall_clock)}s) reached]"
                 )
@@ -1048,6 +1585,12 @@ class XllamaCppProvider:
                 if token_count == 0:
                     raise LLMError("Local model returned no response tokens")
 
+            if token_count > 0 and not timeout_occurred and not exception_holder:
+                _record_generation_memory_snapshot(
+                    point="healthy_completion",
+                    timing_context=timing_context,
+                )
+
             if exception_holder:
                 exc = exception_holder[0]
                 if not isinstance(exc, Exception):
@@ -1092,6 +1635,28 @@ class XllamaCppProvider:
                     )
 
             elapsed_ms = (time.perf_counter() - start) * 1000
+            request_submit_ms = timing_state.get("submit_ms")
+            request_submit_at_s = timing_state.get("submit_at_s")
+            runtime_frames = (
+                timing_state.get("runtime_frames") if isinstance(timing_state.get("runtime_frames"), list) else []
+            )
+            runtime_metrics = _extract_runtime_metrics_from_chunks(
+                runtime_frames if isinstance(runtime_frames, list) else [],
+                prompt_token_estimate=count_tokens(_messages_to_prompt(self._chat_template, messages)),
+                total_elapsed_ms=elapsed_ms,
+                token_count=token_count,
+            )
+            timing_state["runtime_metrics"] = runtime_metrics
+            if timing_context is not None:
+                timing_context["payload_sent_to_model_runtime_at_s"] = (
+                    request_submit_at_s if isinstance(request_submit_at_s, (int, float)) else None
+                )
+                timing_context["runtime_metrics"] = runtime_metrics
+                if first_token_at_s is not None:
+                    timing_context["runtime_first_token_at_s"] = first_token_at_s
+            queue_wait_ms: float | None = None
+            if isinstance(request_submit_ms, (int, float)) and first_token_ms is not None:
+                queue_wait_ms = max(0.0, first_token_ms - float(request_submit_ms))
             log.info(
                 "llm_stream_completed",
                 messages_count=len(messages),
@@ -1099,12 +1664,35 @@ class XllamaCppProvider:
                 output_length=len("".join(total_text_parts)),
                 elapsed_ms=round(elapsed_ms, 1),
                 first_token_ms=round(first_token_ms, 1) if first_token_ms is not None else None,
+                max_tokens=max_tok,
+                enable_thinking=think_enabled,
+                prompt_token_count=runtime_metrics.get("prompt_token_count"),
+                prompt_token_count_source=runtime_metrics.get("prompt_token_count_source"),
+                cached_token_count=runtime_metrics.get("cached_token_count"),
+                prefix_cache_hit=runtime_metrics.get("prefix_cache_hit"),
+                prompt_eval_tokens_per_second=runtime_metrics.get("prompt_eval_tokens_per_second"),
+                generation_tokens_per_second=runtime_metrics.get("generation_tokens_per_second"),
                 finish_reason=finish_reason,
                 cancelled=cancel_event.is_set(),
                 timeout_occurred=timeout_occurred,
                 timeout_reason=timeout_reason,
                 provider="local_gguf",
             )
+        yield (
+            StreamSignalTag.STREAM_SUMMARY,
+            {
+                "token_count": token_count,
+                "first_token_ms": round(first_token_ms, 1) if first_token_ms is not None else None,
+                "total_elapsed_ms": round(elapsed_ms, 1),
+                "submit_ms": round(request_submit_ms, 1) if isinstance(request_submit_ms, (int, float)) else None,
+                "queue_wait_ms": round(queue_wait_ms, 1) if queue_wait_ms is not None else None,
+                "submit_at_s": request_submit_at_s if isinstance(request_submit_at_s, (int, float)) else None,
+                "first_token_at_s": first_token_at_s,
+                "timeout_reason": timeout_reason,
+                "finish_reason": finish_reason,
+                "runtime_metrics": runtime_metrics,
+            },
+        )
 
 
 class OllamaProvider:
@@ -1224,9 +1812,16 @@ class OllamaProvider:
         temperature: float = 0.0,
         stop: list[str] | None = None,
         response_format: dict | None = None,
+        chat_template_kwargs_override: dict[str, object] | None = None,
     ) -> dict:
         """chat complete."""
+        start = time.perf_counter()
         model = self._resolve_model()
+        merged_template_kwargs = _merge_chat_template_kwargs(
+            _profile_chat_template_kwargs(get_profile()),
+            chat_template_kwargs_override,
+        )
+        think_enabled = bool(merged_template_kwargs.get("enable_thinking", False))
         options: dict[str, object] = {
             "num_predict": int(max_tokens),
             "temperature": float(temperature),
@@ -1237,16 +1832,71 @@ class OllamaProvider:
             "model": model,
             "messages": messages,
             "stream": False,
-            "think": False,
+            "think": think_enabled,
             "options": options,
         }
         if response_format is not None:
             payload["format"] = response_format
 
-        parsed = self._post_chat(payload=payload, stream=False)
+        try:
+            parsed = self._post_chat(payload=payload, stream=False)
+        except Exception as exc:
+            _record_runtime_call_probe(
+                call_kind="chat_complete",
+                max_tokens=max_tokens,
+                enable_thinking=think_enabled,
+                duration_ms=(time.perf_counter() - start) * 1000.0,
+                prompt_token_count=None,
+                completion_token_count=None,
+                runtime_metrics=None,
+                status="error",
+                error=str(exc),
+            )
+            raise
         if not isinstance(parsed, dict):
             raise LLMError("Invalid Ollama response format")
         content = str((parsed.get("message") or {}).get("content") or "")
+        elapsed_ms = (time.perf_counter() - start) * 1000.0
+        runtime_metrics = _extract_runtime_metrics_from_chunks(
+            [parsed],
+            prompt_token_estimate=None,
+            total_elapsed_ms=elapsed_ms,
+            token_count=None,
+        )
+        _record_runtime_call_probe(
+            call_kind="chat_complete",
+            max_tokens=max_tokens,
+            enable_thinking=think_enabled,
+            duration_ms=elapsed_ms,
+            prompt_token_count=(
+                int(runtime_metrics["prompt_token_count"])
+                if isinstance(runtime_metrics.get("prompt_token_count"), int)
+                else None
+            ),
+            completion_token_count=(
+                int(runtime_metrics["completion_token_count"])
+                if isinstance(runtime_metrics.get("completion_token_count"), int)
+                else None
+            ),
+            runtime_metrics=runtime_metrics,
+            status="ok",
+        )
+        log.info(
+            "llm_chat_complete_completed",
+            provider="ollama",
+            model=model,
+            max_tokens=max_tokens,
+            enable_thinking=think_enabled,
+            prompt_token_count=runtime_metrics.get("prompt_token_count"),
+            prompt_token_count_source=runtime_metrics.get("prompt_token_count_source"),
+            cached_token_count=runtime_metrics.get("cached_token_count"),
+            prefix_cache_hit=runtime_metrics.get("prefix_cache_hit"),
+            prompt_eval_tokens_per_second=runtime_metrics.get("prompt_eval_tokens_per_second"),
+            generation_tokens_per_second=runtime_metrics.get("generation_tokens_per_second"),
+            prompt_eval_duration_ms=runtime_metrics.get("prompt_eval_duration_ms"),
+            generation_duration_ms=runtime_metrics.get("generation_duration_ms"),
+            elapsed_ms=round(elapsed_ms, 1),
+        )
         return {"choices": [{"message": {"content": content}}]}
 
     async def generate_stream(
@@ -1258,6 +1908,8 @@ class OllamaProvider:
         stop: list[str] | None = None,
         force_chatml: bool = False,
         timeout_seconds: float | None = None,
+        chat_template_kwargs_override: dict[str, object] | None = None,
+        timing_context: dict[str, object] | None = None,
     ) -> AsyncGenerator[str | tuple[str, object]]:
         """generate stream."""
         if not messages:
@@ -1268,6 +1920,11 @@ class OllamaProvider:
         top_p_val = 1.0 if top_p is None else top_p
         stop_seqs = stop if stop is not None else []
         wall_clock = 120.0 if timeout_seconds is None else float(timeout_seconds)
+        merged_template_kwargs = _merge_chat_template_kwargs(
+            _profile_chat_template_kwargs(get_profile()),
+            chat_template_kwargs_override,
+        )
+        think_enabled = bool(merged_template_kwargs.get("enable_thinking", False))
 
         profile = get_profile()
         context_len = get_effective_context_length(profile)
@@ -1304,7 +1961,7 @@ class OllamaProvider:
             "model": model,
             "messages": messages,
             "stream": True,
-            "think": False,
+            "think": think_enabled,
             "options": {
                 "num_predict": int(max_tok),
                 "temperature": float(temp),
@@ -1319,9 +1976,17 @@ class OllamaProvider:
         empty_content_frame_count = 0
         raw_frame_samples: list[str] = []
         done_frame_snapshot: dict[str, object] | None = None
+        request_submit_ms: float | None = None
+        request_submit_at_s: float | None = None
+        start = time.perf_counter()
+        _record_generation_memory_snapshot(point="generation_start", timing_context=timing_context)
+
+        request_context = copy_context()
 
         def _worker() -> None:
             """worker."""
+            nonlocal request_submit_ms
+            nonlocal request_submit_at_s
             nonlocal raw_frame_count, parsed_frame_count, non_dict_frame_count
             nonlocal json_decode_error_count, empty_content_frame_count
             nonlocal raw_frame_samples, done_frame_snapshot
@@ -1333,6 +1998,8 @@ class OllamaProvider:
                 method="POST",
             )
             try:
+                request_submit_ms = (time.perf_counter() - start) * 1000
+                request_submit_at_s = time.time()
                 with urllib.request.urlopen(req, timeout=self._timeout_seconds) as resp:
                     # noqa: S310
                     for raw_line in resp:
@@ -1396,15 +2063,19 @@ class OllamaProvider:
                 loop.call_soon_threadsafe(
                     queue.put_nowait, (StreamSignalTag.FINISH_REASON, finish_reason)
                 )
-                with suppress(RuntimeError):
-                    loop.call_soon_threadsafe(queue.put_nowait, _STREAM_END)
+            with suppress(RuntimeError):
+                loop.call_soon_threadsafe(queue.put_nowait, _STREAM_END)
 
-        worker = threading.Thread(target=_worker, name="ollama-stream-worker", daemon=True)
+        worker = threading.Thread(
+            target=request_context.run,
+            args=(_worker,),
+            name="ollama-stream-worker",
+            daemon=True,
+        )
         worker.start()
-
-        start = time.perf_counter()
         token_count = 0
         first_token_ms: float | None = None
+        first_token_at_s: float | None = None
         total_text_parts: list[str] = []
         finish_reason: str | None = None
         timeout_occurred = False
@@ -1423,6 +2094,7 @@ class OllamaProvider:
                 wall_clock=wall_clock,
                 first_token_deadline_seconds=first_token_deadline_seconds,
                 stripper=stripper,
+                timing_context=timing_context,
             ):
                 if event_kind == "timeout":
                     timeout_payload = payload if isinstance(payload, dict) else {}
@@ -1432,6 +2104,10 @@ class OllamaProvider:
                     cancel_event.set()
                     timeout_occurred = True
                     timeout_reason = timeout_reason_value or TimeoutReason.UNKNOWN_TIMEOUT.value
+                    _record_generation_memory_snapshot(
+                        point="watchdog_timeout",
+                        timing_context=timing_context,
+                    )
                     break
                 if event_kind == "finish_reason":
                     finish_reason = payload if isinstance(payload, str) else None
@@ -1440,6 +2116,13 @@ class OllamaProvider:
                 emit_text = str(payload)
                 if first_token_ms is None:
                     first_token_ms = (time.perf_counter() - start) * 1000
+                    if timing_context is not None:
+                        first_token_at_s = time.time()
+                        timing_context["runtime_first_token_at_s"] = first_token_at_s
+                    _record_generation_memory_snapshot(
+                        point="first_token",
+                        timing_context=timing_context,
+                    )
                 token_count += 1
                 total_text_parts.append(emit_text)
                 yield emit_text
@@ -1477,12 +2160,29 @@ class OllamaProvider:
                     raw_frame_samples=raw_frame_samples,
                 )
                 raise LLMError("Ollama returned no response tokens")
+            if token_count > 0 and not timeout_occurred and not exception_holder:
+                _record_generation_memory_snapshot(
+                    point="healthy_completion",
+                    timing_context=timing_context,
+                )
         finally:
             if worker.is_alive():
                 cancel_event.set()
                 await asyncio.to_thread(worker.join, 0.25)
 
+            queue_wait_ms: float | None = None
+            if request_submit_ms is not None and first_token_ms is not None:
+                queue_wait_ms = max(0.0, first_token_ms - request_submit_ms)
             elapsed_ms = (time.perf_counter() - start) * 1000
+            runtime_metrics = _extract_runtime_metrics_from_chunks(
+                [done_frame_snapshot] if done_frame_snapshot is not None else [],
+                prompt_token_estimate=None,
+                total_elapsed_ms=elapsed_ms,
+                token_count=token_count,
+            )
+            if timing_context is not None:
+                timing_context["payload_sent_to_model_runtime_at_s"] = request_submit_at_s
+                timing_context["runtime_metrics"] = runtime_metrics
             log.info(
                 "llm_stream_completed",
                 provider="ollama",
@@ -1491,11 +2191,31 @@ class OllamaProvider:
                 output_length=len("".join(total_text_parts)),
                 elapsed_ms=round(elapsed_ms, 1),
                 first_token_ms=round(first_token_ms, 1) if first_token_ms is not None else None,
+                max_tokens=max_tok,
+                enable_thinking=think_enabled,
+                prompt_token_count=runtime_metrics.get("prompt_token_count"),
+                prompt_token_count_source=runtime_metrics.get("prompt_token_count_source"),
+                cached_token_count=runtime_metrics.get("cached_token_count"),
+                prefix_cache_hit=runtime_metrics.get("prefix_cache_hit"),
+                prompt_eval_tokens_per_second=runtime_metrics.get("prompt_eval_tokens_per_second"),
+                generation_tokens_per_second=runtime_metrics.get("generation_tokens_per_second"),
                 finish_reason=finish_reason,
                 cancelled=cancel_event.is_set(),
                 timeout_occurred=timeout_occurred,
                 timeout_reason=timeout_reason,
             )
+        yield (
+            StreamSignalTag.STREAM_SUMMARY,
+            {
+                "token_count": token_count,
+                "first_token_ms": round(first_token_ms, 1) if first_token_ms is not None else None,
+                "total_elapsed_ms": round(elapsed_ms, 1),
+                "submit_ms": round(request_submit_ms, 1) if request_submit_ms is not None else None,
+                "queue_wait_ms": round(queue_wait_ms, 1) if queue_wait_ms is not None else None,
+                "timeout_reason": timeout_reason,
+                "finish_reason": finish_reason,
+            },
+        )
 
 
 class LLMEngine:
@@ -1634,6 +2354,7 @@ class LLMEngine:
         temperature: float = 0.0,
         stop: list[str] | None = None,
         response_format: dict | None = None,
+        chat_template_kwargs_override: dict[str, object] | None = None,
     ) -> dict:
         """chat complete."""
         return self._provider.chat_complete(
@@ -1642,6 +2363,7 @@ class LLMEngine:
             temperature=temperature,
             stop=stop,
             response_format=response_format,
+            chat_template_kwargs_override=chat_template_kwargs_override,
         )
 
     async def generate_stream(
@@ -1653,6 +2375,8 @@ class LLMEngine:
         stop: list[str] | None = None,
         force_chatml: bool = False,
         timeout_seconds: float | None = None,
+        chat_template_kwargs_override: dict[str, object] | None = None,
+        timing_context: dict[str, object] | None = None,
     ) -> AsyncGenerator[str | tuple[str, object]]:
         """generate stream."""
         async for item in self._provider.generate_stream(
@@ -1663,6 +2387,8 @@ class LLMEngine:
             stop=stop,
             force_chatml=force_chatml,
             timeout_seconds=timeout_seconds,
+            chat_template_kwargs_override=chat_template_kwargs_override,
+            timing_context=timing_context,
         ):
             yield item
 

@@ -70,6 +70,7 @@ def test_registry_contains_core_default_specialization_profiles() -> None:
     assert "assistant_default" in MODE_REGISTRY
     assert "researcher_default" in MODE_REGISTRY
     assert "researcher_rag" in MODE_REGISTRY
+    assert "researcher_agent_rag" in MODE_REGISTRY
 
 
 def test_runtime_specialization_resolution_by_mode() -> None:
@@ -110,6 +111,7 @@ def test_compose_prompt_mode_only_is_stable() -> None:
     """Test compose prompt mode only is stable."""
     assert compose_prompt(mode_id="researcher_rag", chat_mode="assistant")
     assert compose_prompt(mode_id="researcher_rag", chat_mode="researcher")
+    assert compose_prompt(mode_id="researcher_agent_rag", chat_mode="researcher")
 
 
 def test_specialization_registry_contains_builtin_specializations() -> None:
@@ -157,6 +159,16 @@ def test_general_mode_prompt_parity_when_specialization_absent() -> None:
         compose_prompt(mode_id="researcher_default", chat_mode="researcher", specialization_id=None)
         == _EXPECTED_RESEARCHER_SIMPLE_PROMPT
     )
+
+
+def test_agent_rag_prompt_adds_deliberate_exploration_guidance() -> None:
+    """Test agent rag prompt adds deliberate exploration guidance."""
+    prompt = compose_prompt(mode_id="researcher_agent_rag", chat_mode="researcher")
+
+    assert "Agent mode guidance:" in prompt
+    assert "Treat the retrieval results as an evidence set" in prompt
+    assert "deliberate synthesis" in prompt
+    assert "short sections or bullets" in prompt
 
 
 def test_system_prompt_exports_match_golden_baseline_exactly() -> None:

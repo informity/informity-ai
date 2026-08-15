@@ -67,6 +67,8 @@ class QueryClassification:
     is_negation_query: bool = False
     is_metadata_query: bool = False
     is_file_list_query: bool = False
+    agent_subqueries: list[str] = field(default_factory=list)
+    agent_synthesis_focus: str | None = None
     is_continuation: bool = False
     is_scope_reset: bool = False
     needs_current_info: bool = False
@@ -157,18 +159,25 @@ def _build_context(
     history: list[ChatMessage] | None,
     chat_mode: str | None,
     scope_kind: str | None,
+    agent_mode: bool,
     prior_user_query: str | None,
 ) -> ClassifierContext:
     """Internal helper for build context."""
     return ClassifierContext(
         chat_mode=chat_mode,
         scope_kind=scope_kind,
+        agent_mode=agent_mode,
         has_prior_turns=bool(history),
         prior_user_query=prior_user_query,
     )
 
 
-def _map_decision_to_classification(query: str, decision: FiveQDecision) -> QueryClassification:
+def _map_decision_to_classification(
+    query: str,
+    decision: FiveQDecision,
+    *,
+    agent_mode: bool = False,
+) -> QueryClassification:
     """Internal helper for map decision to classification."""
     lowered = query.casefold()
     intent = decision.derive_intent()
@@ -229,6 +238,10 @@ def _map_decision_to_classification(query: str, decision: FiveQDecision) -> Quer
         ),
         is_metadata_query=is_metadata_query,
         is_file_list_query=is_file_list_query,
+        agent_subqueries=list(decision.subqueries) if decision.subqueries and agent_mode else [],
+        agent_synthesis_focus=(
+            decision.agent_synthesis_focus if agent_mode and decision.agent_synthesis_focus else None
+        ),
         is_continuation=is_continuation,
         needs_current_info=needs_current_info,
         mentions_time=mentions_time,
@@ -261,6 +274,10 @@ def _map_decision_to_classification(query: str, decision: FiveQDecision) -> Quer
             "scope": decision.scope,
             "operation": decision.operation,
             "partitions": list(decision.partitions),
+            "subqueries": list(decision.subqueries) if agent_mode else [],
+            "agent_synthesis_focus": (
+                decision.agent_synthesis_focus if agent_mode else None
+            ),
             "exhaustive": decision.exhaustive,
             "confidence": decision.confidence,
         },
@@ -273,6 +290,7 @@ def classify_query(
     history: list[ChatMessage] | None = None,
     chat_mode: str | None = None,
     scope_kind: str | None = None,
+    agent_mode: bool = False,
     prior_user_query: str | None = None,
 ) -> QueryClassification:
     """Classify query."""
@@ -286,13 +304,14 @@ def classify_query(
         history=history,
         chat_mode=chat_mode,
         scope_kind=scope_kind,
+        agent_mode=agent_mode,
         prior_user_query=prior_user_query,
     )
     classifier = get_classifier()
     if settings.dev_reload:
         log.info("five_q_classifier_singleton_instance", classifier_id=id(classifier))
     result = classifier.classify(text, context)
-    classification = _map_decision_to_classification(text, result.decision)
+    classification = _map_decision_to_classification(text, result.decision, agent_mode=agent_mode)
     classification.shadow_classifier_raw_output = result.raw_output or None
     classification.shadow_classifier_model = result.model_name
     classification.guardrail_applied = result.guardrail_applied

@@ -679,23 +679,73 @@ html:not([data-accent='canvas']) .chat-message__copy-code:focus-visible {
 
 .chat-message__typing-indicator {
   display: inline-flex;
+  flex-direction: row;
+  align-items: center;
   gap: 4px;
   padding: 4px 0;
+}
+
+.chat-message__typing-indicator--status {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.34rem;
+}
+
+.chat-message__typing-header {
+  display: inline-flex;
   align-items: center;
+  gap: 0.45rem;
 }
 
 .chat-message__typing-status {
   display: inline-flex;
   flex-direction: column;
-  margin-left: 0.4rem;
+  align-items: flex-start;
   color: var(--color-text-dimmed);
-  font-size: var(--font-size-description);
+  font-size: inherit;
+  line-height: 1.62;
 }
 
 .chat-message__typing-progress {
-  margin-top: 0.15rem;
+  margin-top: 0;
   color: var(--color-text-dimmed);
-  font-size: var(--font-size-description);
+  font-size: inherit;
+}
+
+.chat-message__plan-steps {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.42rem;
+  margin-left: calc(2px + 0.45rem);
+}
+
+.chat-message__plan-step {
+  display: flex;
+  align-items: center;
+  gap: 0.46rem;
+  line-height: 1.62;
+  font-size: inherit;
+  color: var(--color-text-dimmed);
+}
+
+.chat-message__plan-step-icon {
+  width: 1em;
+  min-width: 1em;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-dimmed);
+  opacity: 0.82;
+}
+
+.chat-message__plan-step-icon--active {
+  opacity: 0.58;
+}
+
+.chat-message__plan-step-text {
+  flex: 1;
+  font-size: inherit;
 }
 
 .chat-message__typing-dot {
@@ -729,10 +779,11 @@ html:not([data-accent='canvas']) .chat-message__copy-code:focus-visible {
   display: inline-block;
   width: 2px;
   height: 1em;
-  margin-left: 2px;
+  margin-left: 0;
   background: var(--color-accent);
   animation: cursor-blink 1s step-end infinite;
-  vertical-align: text-bottom;
+  align-self: center;
+  transform: translateY(1px);
 }
 
 

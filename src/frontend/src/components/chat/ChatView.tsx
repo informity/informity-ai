@@ -23,6 +23,7 @@ import {
 import { logApiError } from '../../utils/logApiError'
 import {
   CHAT_MODE_STORAGE_KEY,
+  CHAT_AGENT_MODE_MAP_STORAGE_KEY,
   CHAT_SPECIALIZATION_ID_STORAGE_KEY,
   FORCE_NEW_CHAT_KEY,
 } from '../../utils/storageKeys'
@@ -107,6 +108,52 @@ function resolveLockedSpecializationId(history: ChatMessageDisplay[]): string | 
   )
 }
 
+function readStoredChatAgentModes(): Record<string, boolean> {
+  try {
+    const raw = window.localStorage.getItem(CHAT_AGENT_MODE_MAP_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, unknown>
+    const normalized: Record<string, boolean> = {}
+    for (const [chatId, value] of Object.entries(parsed || {})) {
+      if (!chatId || chatId === '__draft__') continue
+      if (typeof value === 'boolean') normalized[chatId] = value
+    }
+    return normalized
+  } catch {
+    return {}
+  }
+}
+
+function readStoredChatAgentMode(chatId: string | null): boolean | null {
+  if (!chatId) return null
+  const modes = readStoredChatAgentModes()
+  return typeof modes[chatId] === 'boolean' ? modes[chatId] : null
+}
+
+function persistStoredChatAgentModes(modes: Record<string, boolean>): void {
+  try {
+    const persisted: Record<string, boolean> = {}
+    for (const [chatId, value] of Object.entries(modes || {})) {
+      if (!chatId || chatId === '__draft__') continue
+      persisted[chatId] = !!value
+    }
+    window.localStorage.setItem(CHAT_AGENT_MODE_MAP_STORAGE_KEY, JSON.stringify(persisted))
+  } catch {
+    // ignore storage failures
+  }
+}
+
+function storeChatAgentMode(chatId: string | null, agentMode: boolean): void {
+  if (!chatId) return
+  try {
+    const modes = readStoredChatAgentModes()
+    modes[chatId] = agentMode
+    persistStoredChatAgentModes(modes)
+  } catch {
+    // ignore storage failures
+  }
+}
+
 function formatSpecializationNameFromId(specializationId: string): string {
   return specializationId
     .split('_')
@@ -132,7 +179,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     messages,
     isStreaming,
     loadingChat,
-    error,
     enableRawOutputControl,
     chatWebSearchEnabled,
     chatWebSearchPrivacyOverride,
@@ -155,6 +201,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const [inputValue, setInputValue] = useState(prefillMessage)
   const [chatMode, setChatMode] = useState<ChatMode>('researcher')
   const [, setDefaultChatMode] = useState<ChatMode>('researcher')
+  const [agentMode, setAgentMode] = useState(false)
   const [fullPrivacyMode, setFullPrivacyMode] = useState(true)
   const [webSearchConfigured, setWebSearchConfigured] = useState(false)
   const [modeMenuOpen, setModeMenuOpen] = useState(false)
@@ -193,6 +240,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const [pendingUploadCountsByChat, setPendingUploadCountsByChat] = useState<Record<string, number>>({})
   const [isDragOverComposer, setIsDragOverComposer] = useState(false)
   const uploadDragDepthRef = useRef(0)
+  const pendingAgentModeRef = useRef<boolean | null>(null)
   const hasAssistantReply = useMemo(
     () => messages.some((msg) => msg.role === 'assistant' && !msg.isInternal && !!msg.content?.trim()),
     [messages],
@@ -340,6 +388,23 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       specializationsCancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (!contextChatId) return
+    const pendingAgentMode = pendingAgentModeRef.current
+    if (typeof pendingAgentMode === 'boolean') {
+      setAgentMode(pendingAgentMode)
+      storeChatAgentMode(contextChatId, pendingAgentMode)
+      pendingAgentModeRef.current = null
+      return
+    }
+    const storedAgentMode = readStoredChatAgentMode(contextChatId)
+    if (typeof storedAgentMode === 'boolean') {
+      setAgentMode(storedAgentMode)
+      return
+    }
+    setAgentMode(false)
+  }, [contextChatId])
 
   useEffect(() => {
     const handleSettingsUpdated = (event: Event) => {
@@ -713,14 +778,18 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
 
   const handleContinue = useCallback((anchorMessageId?: number) => {
     if (offline) return
+    if (!contextChatId) {
+      pendingAgentModeRef.current = effectiveChatMode === 'researcher' && agentMode
+    }
     void continueLastScope(anchorMessageId, {
       mode: effectiveChatMode,
       specializationId: requestSpecializationId,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
+      agentMode: effectiveChatMode === 'researcher' && agentMode,
     })
-  }, [offline, continueLastScope, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, continueLastScope, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled, agentMode])
 
   const handleRegenerate = useCallback((assistantMessageIndex: number) => {
     if (offline) return
@@ -730,14 +799,18 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       .reverse()
       .find((msg) => msg.role === 'user' && !msg.isInternal && !!msg.content?.trim())
     if (!previousUser) return
+    if (!contextChatId) {
+      pendingAgentModeRef.current = effectiveChatMode === 'researcher' && agentMode
+    }
     void sendMessage(previousUser.content, {
       mode: effectiveChatMode,
       specializationId: requestSpecializationId,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
+      agentMode: effectiveChatMode === 'researcher' && agentMode,
     })
-  }, [offline, isStreaming, messages, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, isStreaming, messages, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled, agentMode])
 
   const handleAskInAssistant = useCallback(async (assistantMessageIndex: number) => {
     if (offline) return
@@ -764,6 +837,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       fileScope: null,
       chatWebSearchEnabled: false,
       chatWebSearchPrivacyOverride: false,
+      agentMode: false,
     })
   }, [
     offline,
@@ -788,12 +862,16 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     if (offline) return
     if (isStreaming) return
     if (loadingChat) return
+    if (!contextChatId) {
+      pendingAgentModeRef.current = effectiveChatMode === 'researcher' && agentMode
+    }
     await sendMessage(editedText, {
       mode: effectiveChatMode,
       specializationId: requestSpecializationId,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
+      agentMode: effectiveChatMode === 'researcher' && agentMode,
     })
   }, [
     offline,
@@ -805,13 +883,16 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     chatFileScope,
     chatWebSearchEnabled,
     chatWebSearchPrivacyOverride,
+    agentMode,
   ])
 
   const handleNewChat = useCallback(() => {
     if (offline) return
     newChatRequestedRef.current = true
+    pendingAgentModeRef.current = null
     setInputValue('')
     setChatMode('researcher')
+    setAgentMode(false)
     setSelectedSpecializationId(null)
     specializationSelectionExplicitRef.current = false
     try {
@@ -916,14 +997,18 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     if (!text) return
 
     setInputValue('')
+    if (!contextChatId) {
+      pendingAgentModeRef.current = effectiveChatMode === 'researcher' && agentMode
+    }
     await sendMessage(text, {
       mode: effectiveChatMode,
       specializationId: requestSpecializationId,
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
+      agentMode: effectiveChatMode === 'researcher' && agentMode,
     })
-  }, [offline, inputValue, isTranslating, isTranslatingReply, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled])
+  }, [offline, inputValue, isTranslating, isTranslatingReply, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled, agentMode])
 
   const handleStop = useCallback(() => {
     if (offline) return
@@ -1312,7 +1397,6 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                   `chat-view__input-area composer-wrap${isCenteredComposer ? ' chat-view__input-area--centered' : ''}${animateToDocked ? ' chat-view__input-area--docking composer-wrap--docking' : ''}`
                 }
               >
-                {error && <div className="chat-view__error">{error}</div>}
                 <div
                   className={
                     `chat-view__input-wrapper composer__input-wrapper${textareaCanScroll ? ' chat-view__input-wrapper--scrollable composer__input-wrapper--scrollable' : ''}${textareaHasTopScroll ? ' chat-view__input-wrapper--top-scrolled composer__input-wrapper--top-scrolled' : ''}${hasScopedInputPill ? ' chat-view__input-wrapper--scoped composer__input-wrapper--scoped' : ''}${isDragOverComposer ? ' chat-view__input-wrapper--drag-active composer__input-wrapper--drag-active' : ''}`
@@ -1462,16 +1546,36 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                   />
                   <div className="chat-view__controls-row composer__controls-row">
                     <div className="chat-view__controls-left">
-                      {effectiveChatMode === 'researcher' && !chatFileScope && (
-                        <button
-                          type="button"
-                          className="chat-view__upload-toggle"
-                          onClick={handleUploadControl}
-                          disabled={offline || isStreaming}
-                          aria-label="Upload files"
-                        >
-                          <i className="ri-add-line" aria-hidden />
-                        </button>
+                      {effectiveChatMode === 'researcher' && !chatFileScope && import.meta.env.DEV && (
+                        <>
+                          <button
+                            type="button"
+                            className="chat-view__upload-toggle"
+                            onClick={handleUploadControl}
+                            disabled={offline || isStreaming}
+                            aria-label="Upload files"
+                          >
+                            <i className="ri-add-line" aria-hidden />
+                          </button>
+                          <button
+                            type="button"
+                            className={`chat-view__agent-toggle${agentMode ? ' chat-view__agent-toggle--active' : ''}`}
+                            onClick={() => {
+                              const next = !agentMode
+                              setAgentMode(next)
+                              if (contextChatId) {
+                                storeChatAgentMode(contextChatId, next)
+                              }
+                            }}
+                            disabled={offline || isStreaming}
+                            aria-pressed={agentMode}
+                            aria-label={agentMode ? 'Disable agent mode' : 'Enable agent mode'}
+                            title={agentMode ? 'Disable agent mode' : 'Enable agent mode'}
+                          >
+                            <i className="ri-ai-agent-line" aria-hidden />
+                            {agentMode && <span>Agent</span>}
+                          </button>
+                        </>
                       )}
                       {effectiveChatMode === 'assistant' && webSearchConfigured && (
                         <button

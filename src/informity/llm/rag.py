@@ -155,6 +155,7 @@ async def answer_question(
     specialization_id: str | None = None,
     chat_web_search_enabled: bool = False,
     chat_web_search_privacy_override: bool = False,
+    agent_mode: bool = False,
 ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
     """
     Query router - dispatches queries to appropriate handlers.
@@ -183,6 +184,7 @@ async def answer_question(
                             history=history,
                             chat_mode=normalized_chat_mode,
                             scope_kind="assistant_mode",
+                            agent_mode=agent_mode,
                         ),
                         timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
                     )
@@ -243,6 +245,7 @@ async def answer_question(
                 specialization_id=specialization_id,
                 chat_web_search_enabled=chat_web_search_enabled,
                 chat_web_search_privacy_override=chat_web_search_privacy_override,
+                agent_mode=agent_mode,
             ):
                 if not first_item_seen:
                     first_item_seen = True
@@ -264,6 +267,7 @@ async def answer_question(
                         history=history,
                         chat_mode=normalized_chat_mode,
                         scope_kind="indexed_corpus",
+                        agent_mode=agent_mode,
                     ),
                     timeout=_CLASSIFICATION_TIMEOUT_SECONDS,
                 )
@@ -396,6 +400,7 @@ async def answer_question(
                     file_ids=file_ids,
                     chat_mode=normalized_chat_mode or "researcher",
                     specialization_id=specialization_id,
+                    agent_mode=agent_mode,
                 ):
                     yield item
                 return
@@ -431,6 +436,7 @@ async def answer_question(
                     file_ids=file_ids,
                     chat_mode=normalized_chat_mode or "researcher",
                     specialization_id=specialization_id,
+                    agent_mode=agent_mode,
                 ):
                     if isinstance(item, list):
                         for source in item:

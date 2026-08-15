@@ -196,13 +196,11 @@ def _load_setup_state_file(path: Path) -> tuple[dict[str, object] | None, str | 
 
 def _recommend_setup_tier(*, ram_total_gb: float, free_disk_gb: float) -> tuple[str, str]:
     """recommend setup tier."""
-    if free_disk_gb < 14.0:
-        return "small", "Low free disk detected; smaller model is safer for setup."
-    if ram_total_gb >= 32.0:
-        return "quality", "Detected >=32 GB RAM; quality tier fits this device best."
-    if ram_total_gb >= 24.0:
-        return "balanced", "Detected >=24 GB RAM; balanced tier is recommended."
-    return "small", "Detected <24 GB RAM; small tier is recommended for reliability."
+    _ = (ram_total_gb, free_disk_gb)
+    return (
+        "quality",
+        "Using the quality tier keeps first-run setup aligned with the default 35B model.",
+    )
 
 
 def _setup_state_path() -> Path:
@@ -400,10 +398,16 @@ def _is_setup_ready() -> bool:
 
 
 def _pick_first_ready_local_model_filename() -> str | None:
-    # Prefer known setup tier models when available so auto-heal picks canonical
-    # SKUs first, then fall back to any installed GGUF.
+    # Prefer the highest-quality ready setup tier when available so auto-heal
+    # restores the most capable default first, then fall back to lower tiers.
     """pick first ready local model filename."""
-    preferred = [opt.model_filename for opt in SETUP_TIER_OPTIONS]
+    preferred = [
+        option.model_filename
+        for option in sorted(
+            SETUP_TIER_OPTIONS,
+            key=lambda option: {"quality": 0, "balanced": 1, "small": 2}.get(option.tier, 99),
+        )
+    ]
     for filename in preferred:
         if _is_model_file_ready(filename):
             return filename

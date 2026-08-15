@@ -357,6 +357,15 @@ class TestPromptBuilder:
         expected_system_prefix = compose_prompt(mode_id="researcher_rag", chat_mode="assistant")
         assert messages[0]["content"] == f"{expected_system_prefix}\n\nContext:\n"
 
+    def test_builder_agent_mode_system_prompt_matches_composer_exactly(self) -> None:
+        """Test builder agent mode system prompt matches composer exactly."""
+        messages = build_messages("Question", [], chat_mode="researcher", agent_mode=True)
+        expected_system_prefix = compose_prompt(
+            mode_id="researcher_agent_rag",
+            chat_mode="researcher",
+        )
+        assert messages[0]["content"] == f"{expected_system_prefix}\n\nContext:\n"
+
     def test_builder_general_specialization_parity_when_specialization_absent(self) -> None:
         """Test builder general specialization parity when specialization absent."""
         messages_no_specialization = build_messages(

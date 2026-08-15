@@ -3,7 +3,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 import { ChatView } from './ChatView'
 import { ChatProvider } from '../../context/ChatProvider'
 import { ConfirmProvider } from '../../context/ConfirmProvider'
-import { CHAT_FILE_SCOPE_MAP_STORAGE_KEY, CHAT_MODE_STORAGE_KEY, CHAT_SPECIALIZATION_ID_STORAGE_KEY, CHAT_TRANSLATION_REQUEST_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
+import { CHAT_AGENT_MODE_MAP_STORAGE_KEY, CHAT_FILE_SCOPE_MAP_STORAGE_KEY, CHAT_MODE_STORAGE_KEY, CHAT_SPECIALIZATION_ID_STORAGE_KEY, CHAT_TRANSLATION_REQUEST_STORAGE_KEY, FORCE_NEW_CHAT_KEY } from '../../utils/storageKeys'
 
 const {
   getFilesMock,
@@ -97,6 +97,7 @@ describe('ChatView new chat behavior', () => {
 
   afterEach(() => {
     cleanup()
+    window.localStorage.removeItem(CHAT_AGENT_MODE_MAP_STORAGE_KEY)
     window.localStorage.removeItem(CHAT_FILE_SCOPE_MAP_STORAGE_KEY)
     window.localStorage.removeItem(CHAT_MODE_STORAGE_KEY)
     window.localStorage.removeItem(CHAT_SPECIALIZATION_ID_STORAGE_KEY)
@@ -106,6 +107,7 @@ describe('ChatView new chat behavior', () => {
   })
 
   it('does not reselect initial history chat after New Chat', async () => {
+    window.localStorage.setItem(CHAT_AGENT_MODE_MAP_STORAGE_KEY, JSON.stringify({ 'chat-history-1': true }))
     getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
     getMessageRawMock.mockResolvedValue({ raw_content: null })
@@ -134,6 +136,7 @@ describe('ChatView new chat behavior', () => {
 
     await waitFor(() => expect(getChatMock).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(screen.getByText('Loaded history answer')).toBeInTheDocument())
+    expect(screen.getByRole('button', { name: 'Disable agent mode' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Start New Chat' }))
 
@@ -143,6 +146,7 @@ describe('ChatView new chat behavior', () => {
     await waitFor(() => expect(getChatMock).toHaveBeenCalledTimes(1))
     const inputArea = screen.getByLabelText('Chat message input').closest('.chat-view__input-area')
     expect(inputArea).toHaveClass('chat-view__input-area--centered')
+    expect(screen.getByRole('button', { name: 'Enable agent mode' })).toBeInTheDocument()
     expect(updateCurrentChatMock).toHaveBeenCalledWith(null)
   })
 

@@ -243,24 +243,6 @@
 .translate-page__new-btn:hover:not(:disabled) { color: var(--color-text); }
 .translate-page__new-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
-/* Inline error / warning */
-.translate-page__error {
-  margin: 0 0 var(--space-xs);
-  padding: var(--space-xs) var(--space-sm);
-  font-size: var(--font-size-sm);
-  color: var(--color-warning-text, #b45309);
-  background: color-mix(in srgb, var(--color-warning-text, #b45309) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-warning-text, #b45309) 22%, transparent);
-  border-radius: var(--border-radius-md);
-}
-
-/* Info variant — softer, muted tone for non-critical advisories */
-.translate-page__error--info {
-  color: var(--color-text-muted);
-  background: color-mix(in srgb, var(--color-text-muted) 6%, transparent);
-  border-color: color-mix(in srgb, var(--color-text-muted) 18%, transparent);
-}
-
 /* Pending upload chip — spinner only, no text, matches Chat's upload-overflow-chip--pending */
 .translate-page__pending-chip {
   justify-content: center;

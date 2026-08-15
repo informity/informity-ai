@@ -113,6 +113,7 @@ from informity.llm.contract_gate import (
     enforce_required_sections,
     validate_contract,
 )
+from informity.llm.engine import reset_runtime_call_probe_context, set_runtime_call_probe_context
 from informity.llm.rag import answer_question
 from informity.llm.specializations import (
     describe_specialization,
@@ -157,6 +158,25 @@ from informity.utils.json_utils import serialize_api_response
 from informity.utils.number_utils import safe_float, safe_int
 
 _normalize_continuation_classification = normalize_continuation_classification
+
+
+def _set_timing_point(
+    timing: dict[str, object],
+    key: str,
+    value: float | None = None,
+) -> None:
+    """Set a timing point to the latest wall-clock value."""
+    timestamp = time.time() if value is None else float(value)
+    current_value = timing.get(key)
+    if not isinstance(current_value, (int, float)) or timestamp >= float(current_value):
+        timing[key] = timestamp
+
+
+def _timing_delta_ms(start: object | None, end: object | None) -> float | None:
+    """Return wall-clock delta in milliseconds when both points are available."""
+    if isinstance(start, (int, float)) and isinstance(end, (int, float)):
+        return round((float(end) - float(start)) * 1000.0, 1)
+    return None
 
 # Trace logging constants
 MAX_ANSWER_PREVIEW_LENGTH = 1500  # Maximum length of answer preview in trace logs
@@ -214,6 +234,14 @@ def _normalize_diagnostics_query_type(value: object) -> str:
         return DiagnosticsQueryType(normalized).value
     except ValueError:
         return DiagnosticsQueryType.UNKNOWN.value
+
+
+def _resolve_answer_stream_first_item_timeout_seconds(*, agent_mode: bool) -> float:
+    """Resolve the first-item watchdog timeout for the answer stream."""
+    timeout_seconds = _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS
+    if agent_mode:
+        timeout_seconds *= float(settings.agent_timeout_multiplier)
+    return timeout_seconds
 
 
 def _answer_signals_out_of_scope(text: str) -> bool:
@@ -1110,6 +1138,7 @@ async def chat(
     await CHAT_GUARD.check_rate_limit()
     requested_run_id = str(request.run_id or "").strip() or None
     resolved_chat_mode = resolve_chat_mode(request.mode)
+    resolved_agent_mode = bool(request.agent_mode)
     requested_specialization_id = str(request.specialization_id or "").strip() or None
     requested_specialization = (
         describe_specialization(requested_specialization_id)
@@ -1157,6 +1186,16 @@ async def chat(
         or str(uuid.uuid4())
     )
     artifact_request_id = request_id
+    request_timing: dict[str, object] = {
+        "request_received_at_s": time.time(),
+        "chat_mode": resolved_chat_mode,
+        "agent_mode": resolved_agent_mode,
+        "request_id": request_id,
+        "chat_id": chat_id,
+        "runtime_call_records": [],
+        "_runtime_call_sequence": 0,
+        "runtime_call_probe_enabled": resolved_chat_mode == "researcher",
+    }
 
     upload_attachments = await get_chat_upload_attachments(
         db, chat_id=chat_id, include_deleted=False
@@ -1430,6 +1469,8 @@ async def chat(
                 "model_filename": settings.llm_model_filename,
                 "chat_web_search_enabled": resolved_chat_web_search_enabled,
                 "chat_web_search_privacy_override": resolved_chat_web_search_privacy_override,
+                "agent_mode": resolved_agent_mode,
+                "timing": dict(request_timing),
                 "resource_snapshot": request_resource_snapshot,
             },
         )
@@ -1438,7 +1479,7 @@ async def chat(
     async def _event_stream() -> AsyncGenerator[dict]:
         """event stream."""
         async with CHAT_GUARD.slot(check_rate=False):
-            start_time = time.time()
+            start_time = float(request_timing.get("request_received_at_s") or time.time())
             sse_tracker = SseContractTracker()
             status_emitter = SseStatusEmitter(chat_id=chat_id, start_time=start_time)
             stop_event = asyncio.Event()
@@ -1636,7 +1677,11 @@ async def chat(
                         _retrieval_message = (
                             "Checking document index..."
                             if locked_classification.is_metadata_query
-                            else "Searching for relevant information..."
+                            else (
+                                "Retrieving evidence..."
+                                if resolved_agent_mode
+                                else "Searching for relevant information..."
+                            )
                         )
                         retrieving_status = status_emitter.build_event(
                             "retrieving", message=_retrieval_message
@@ -1658,6 +1703,15 @@ async def chat(
                     answer_tokens_seen = 0
                     answer_list_events = 0
                     answer_next_task: asyncio.Task[object] | None = None
+                    first_item_timeout_seconds = _resolve_answer_stream_first_item_timeout_seconds(
+                        agent_mode=resolved_agent_mode
+                    )
+                    first_item_timeout_seconds_display = int(round(first_item_timeout_seconds))
+                    runtime_probe_token = (
+                        set_runtime_call_probe_context(request_timing)
+                        if resolved_chat_mode == "researcher"
+                        else None
+                    )
                     answer_iter = aiter(
                         answer_question(
                             question=pass_question,
@@ -1666,6 +1720,7 @@ async def chat(
                             history=pass_history,
                             db=db,
                             trace=trace_writer,
+                            diagnostics_context={"timing": request_timing},
                             classification=locked_classification,
                             chat_mode=resolved_chat_mode,
                             specialization_id=resolved_specialization_id,
@@ -1673,6 +1728,7 @@ async def chat(
                             chat_web_search_privacy_override=(
                                 resolved_chat_web_search_privacy_override
                             ),
+                            agent_mode=resolved_agent_mode,
                         )
                     )
                     try:
@@ -1703,7 +1759,7 @@ async def chat(
                                 if (
                                     answer_items_seen == 0
                                     and elapsed_wait_seconds
-                                    >= _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS
+                                    >= first_item_timeout_seconds
                                 ):
                                     pre_first_yield_timeout_occurred = True
                                     pre_first_yield_elapsed_seconds = float(
@@ -1731,18 +1787,13 @@ async def chat(
                                         request_id=request_id,
                                         pass_index=pass_index,
                                         elapsed_seconds=round(elapsed_wait_seconds, 1),
-                                        timeout_seconds=round(
-                                            _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS, 1
-                                        ),
+                                        timeout_seconds=round(first_item_timeout_seconds, 1),
                                     )
                                     if answer_next_task is not None and not answer_next_task.done():
                                         answer_next_task.cancel()
                                         with contextlib.suppress(asyncio.CancelledError):
                                             await answer_next_task
                                     answer_next_task = None
-                                    first_item_timeout_seconds = int(
-                                        _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS
-                                    )
                                     _update_sse_phase("timeout")
                                     yield {
                                         "event": "timeout",
@@ -1752,14 +1803,14 @@ async def chat(
                                                     "Response truncated: generation did not "
                                                     "start in time "
                                                     "("
-                                                    f"{first_item_timeout_seconds}s "
+                                                    f"{first_item_timeout_seconds_display}s "
                                                     "watchdog)"
                                                 ),
                                                 "elapsed_seconds": round(
                                                     time.time() - start_time, 1
                                                 ),
                                                 "timeout_seconds": (
-                                                    _ANSWER_STREAM_FIRST_ITEM_TIMEOUT_SECONDS
+                                                    first_item_timeout_seconds
                                                 ),
                                                 "timeout_reason": timeout_reason,
                                             }
@@ -1782,11 +1833,16 @@ async def chat(
                             ):
                                 locked_classification = item[1]
                                 _classification = item[1]
+                                _set_timing_point(request_timing, "classification_complete_at_s")
                                 if resolved_chat_mode != "assistant":
                                     _retrieval_message = (
                                         "Checking document index..."
                                         if _classification.is_metadata_query
-                                        else "Searching for relevant information..."
+                                        else (
+                                            "Retrieving evidence..."
+                                            if resolved_agent_mode
+                                            else "Searching for relevant information..."
+                                        )
                                     )
                                     retrieving_status = status_emitter.build_event(
                                         "retrieving",
@@ -1887,6 +1943,19 @@ async def chat(
                             if (
                                 isinstance(item, tuple)
                                 and len(item) == 2
+                                and item[0] == StreamSignalTag.AGENT_EVENT
+                            ):
+                                agent_event_payload = item[1] if isinstance(item[1], dict) else {}
+                                _update_sse_phase("plan_step")
+                                yield {
+                                    "event": "agent_event",
+                                    "data": serialize_api_response(agent_event_payload),
+                                }
+                                continue
+
+                            if (
+                                isinstance(item, tuple)
+                                and len(item) == 2
                                 and item[0] == StreamSignalTag.FILE_DISCOVERY
                             ):
                                 file_discovery_payload = (
@@ -1952,6 +2021,21 @@ async def chat(
                                         "answerability_passed"
                                     ),
                                     generation_skipped=metrics_payload.get("generation_skipped"),
+                                    agent_mode=metrics_payload.get("agent_mode"),
+                                    agent_planning_duration_ms=metrics_payload.get(
+                                        "agent_planning_duration_ms"
+                                    ),
+                                    agent_retrieval_duration_ms=metrics_payload.get(
+                                        "agent_retrieval_duration_ms"
+                                    ),
+                                    agent_generation_duration_ms=metrics_payload.get(
+                                        "agent_generation_duration_ms"
+                                    ),
+                                    agent_generation_first_token_ms=metrics_payload.get(
+                                        "agent_generation_first_token_ms"
+                                    ),
+                                    llm_submit_ms=metrics_payload.get("llm_submit_ms"),
+                                    llm_queue_wait_ms=metrics_payload.get("llm_queue_wait_ms"),
                                     elapsed_seconds=round(
                                         time.perf_counter() - answer_stream_started_at, 2
                                     ),
@@ -1962,6 +2046,7 @@ async def chat(
                                 answer_tokens_seen += 1
                                 if not generation_started:
                                     generation_started = True
+                                    _set_timing_point(request_timing, "ui_first_token_visible_at_s")
                                     log.info(
                                         "chat_answer_stream_first_token",
                                         chat_id=chat_id,
@@ -1973,7 +2058,7 @@ async def chat(
                                     )
                                     generating_status = status_emitter.build_event(
                                         "generating",
-                                        message="Generating response...",
+                                        message="Generating answer...",
                                     )
                                     if generating_status is not None:
                                         yield generating_status
@@ -1989,6 +2074,8 @@ async def chat(
                             answer_next_task.cancel()
                             with contextlib.suppress(asyncio.CancelledError):
                                 await answer_next_task
+                        if runtime_probe_token is not None:
+                            reset_runtime_call_probe_context(runtime_probe_token)
                     log.info(
                         "chat_answer_stream_end",
                         chat_id=chat_id,
@@ -2353,6 +2440,227 @@ async def chat(
                     timing_trace_payload: dict[str, object] = {
                         "elapsed_seconds": round(generation_seconds, 3),
                     }
+                    request_received_at_s = request_timing.get("request_received_at_s")
+                    classification_complete_at_s = request_timing.get("classification_complete_at_s")
+                    embed_complete_at_s = request_timing.get("embed_complete_at_s")
+                    search_complete_at_s = request_timing.get("search_complete_at_s")
+                    retrieval_complete_at_s = request_timing.get("retrieval_complete_at_s")
+                    prompt_build_started_at_s = request_timing.get("prompt_build_started_at_s")
+                    prompt_build_complete_at_s = request_timing.get("prompt_build_complete_at_s")
+                    payload_sent_to_model_runtime_at_s = request_timing.get(
+                        "payload_sent_to_model_runtime_at_s"
+                    )
+                    runtime_first_token_at_s = request_timing.get("runtime_first_token_at_s")
+                    ui_first_token_visible_at_s = request_timing.get("ui_first_token_visible_at_s")
+                    generation_started_at_s = request_timing.get("generation_started_at_s")
+                    generation_complete_at_s = request_timing.get("generation_complete_at_s")
+                    runtime_metrics = request_timing.get("runtime_metrics")
+                    runtime_prompt_eval_started_at_s: float | None = None
+                    runtime_prompt_eval_duration_ms: float | None = None
+                    runtime_prompt_token_count: int | None = None
+                    runtime_cached_token_count: int | None = None
+                    runtime_prefix_cache_hit: bool | None = None
+                    runtime_prompt_eval_tokens_per_second: float | None = None
+                    runtime_generation_tokens_per_second: float | None = None
+                    if isinstance(runtime_metrics, dict):
+                        runtime_prompt_eval_duration = runtime_metrics.get(
+                            "prompt_eval_duration_ms"
+                        )
+                        if isinstance(runtime_prompt_eval_duration, (int, float)):
+                            runtime_prompt_eval_duration_ms = float(runtime_prompt_eval_duration)
+                            if isinstance(runtime_first_token_at_s, (int, float)):
+                                runtime_prompt_eval_started_at_s = float(
+                                    runtime_first_token_at_s
+                                ) - (runtime_prompt_eval_duration_ms / 1000.0)
+                        runtime_prompt_token_count = safe_int(
+                            runtime_metrics.get("prompt_token_count"),
+                            default=0,
+                        )
+                        runtime_cached_token_count = safe_int(
+                            runtime_metrics.get("cached_token_count"),
+                            default=0,
+                        )
+                        runtime_prefix_cache_hit_value = runtime_metrics.get("prefix_cache_hit")
+                        if isinstance(runtime_prefix_cache_hit_value, bool):
+                            runtime_prefix_cache_hit = runtime_prefix_cache_hit_value
+                        runtime_prompt_eval_tokens_per_second = safe_float(
+                            runtime_metrics.get("prompt_eval_tokens_per_second"),
+                            default=0.0,
+                        )
+                        runtime_generation_tokens_per_second = safe_float(
+                            runtime_metrics.get("generation_tokens_per_second"),
+                            default=0.0,
+                        )
+                    timing_points = {
+                        "request_received_at_s": request_received_at_s,
+                        "classification_complete_at_s": classification_complete_at_s,
+                        "embed_complete_at_s": embed_complete_at_s,
+                        "search_complete_at_s": search_complete_at_s,
+                        "retrieval_complete_at_s": retrieval_complete_at_s,
+                        "prompt_build_started_at_s": prompt_build_started_at_s,
+                        "prompt_build_complete_at_s": prompt_build_complete_at_s,
+                        "payload_sent_to_model_runtime_at_s": payload_sent_to_model_runtime_at_s,
+                        "runtime_prompt_eval_started_at_s": runtime_prompt_eval_started_at_s,
+                        "runtime_first_token_at_s": runtime_first_token_at_s,
+                        "ui_first_token_visible_at_s": ui_first_token_visible_at_s,
+                        "generation_started_at_s": generation_started_at_s,
+                        "generation_complete_at_s": generation_complete_at_s,
+                    }
+                    for key, value in timing_points.items():
+                        if isinstance(value, (int, float)):
+                            timing_trace_payload[key] = round(float(value), 6)
+                    for key, start_value, end_value in (
+                        (
+                            "request_to_classification_ms",
+                            request_received_at_s,
+                            classification_complete_at_s,
+                        ),
+                        ("request_to_embed_complete_ms", request_received_at_s, embed_complete_at_s),
+                        (
+                            "request_to_search_complete_ms",
+                            request_received_at_s,
+                            search_complete_at_s,
+                        ),
+                        (
+                            "request_to_retrieval_complete_ms",
+                            request_received_at_s,
+                            retrieval_complete_at_s,
+                        ),
+                        (
+                            "request_to_prompt_build_complete_ms",
+                            request_received_at_s,
+                            prompt_build_complete_at_s,
+                        ),
+                        (
+                            "request_to_payload_sent_ms",
+                            request_received_at_s,
+                            payload_sent_to_model_runtime_at_s,
+                        ),
+                        (
+                            "request_to_runtime_prompt_eval_started_ms",
+                            request_received_at_s,
+                            runtime_prompt_eval_started_at_s,
+                        ),
+                        (
+                            "request_to_runtime_first_token_ms",
+                            request_received_at_s,
+                            runtime_first_token_at_s,
+                        ),
+                        (
+                            "request_to_ui_first_token_visible_ms",
+                            request_received_at_s,
+                            ui_first_token_visible_at_s,
+                        ),
+                        (
+                            "request_to_generation_complete_ms",
+                            request_received_at_s,
+                            generation_complete_at_s,
+                        ),
+                        (
+                            "payload_to_runtime_first_token_ms",
+                            payload_sent_to_model_runtime_at_s,
+                            runtime_first_token_at_s,
+                        ),
+                        (
+                            "runtime_prompt_eval_ms",
+                            runtime_prompt_eval_started_at_s,
+                            runtime_first_token_at_s,
+                        ),
+                        (
+                            "runtime_first_token_to_ui_visible_ms",
+                            runtime_first_token_at_s,
+                            ui_first_token_visible_at_s,
+                        ),
+                    ):
+                        delta_value = _timing_delta_ms(start_value, end_value)
+                        if delta_value is not None:
+                            timing_trace_payload[key] = delta_value
+                    if runtime_prompt_eval_duration_ms is not None:
+                        timing_trace_payload["runtime_prompt_eval_duration_ms"] = round(
+                            runtime_prompt_eval_duration_ms,
+                            3,
+                        )
+                    if runtime_prompt_token_count is not None:
+                        timing_trace_payload["runtime_prompt_token_count"] = runtime_prompt_token_count
+                    if runtime_cached_token_count is not None:
+                        timing_trace_payload["runtime_cached_token_count"] = (
+                            runtime_cached_token_count
+                        )
+                    if runtime_prefix_cache_hit is not None:
+                        timing_trace_payload["runtime_prefix_cache_hit"] = runtime_prefix_cache_hit
+                    if runtime_prompt_eval_tokens_per_second is not None:
+                        timing_trace_payload["runtime_prompt_eval_tokens_per_second"] = (
+                            round(runtime_prompt_eval_tokens_per_second, 3)
+                        )
+                    if runtime_generation_tokens_per_second is not None:
+                        timing_trace_payload["runtime_generation_tokens_per_second"] = (
+                            round(runtime_generation_tokens_per_second, 3)
+                        )
+                    generation_memory_snapshots = request_timing.get("generation_memory_snapshots")
+                    if isinstance(generation_memory_snapshots, list) and generation_memory_snapshots:
+                        timing_trace_payload["generation_memory_snapshots"] = generation_memory_snapshots
+                    runtime_call_records = request_timing.get("runtime_call_records")
+                    if isinstance(runtime_call_records, list) and runtime_call_records:
+                        prompt_token_sum = 0
+                        completion_token_sum = 0
+                        runtime_duration_sum_ms = 0.0
+                        summarized_records: list[dict[str, object]] = []
+                        for record in runtime_call_records:
+                            if not isinstance(record, dict):
+                                continue
+                            summarized_record = {
+                                "sequence": record.get("sequence"),
+                                "caller": record.get("caller"),
+                                "call_kind": record.get("call_kind"),
+                                "max_tokens": record.get("max_tokens"),
+                                "enable_thinking": record.get("enable_thinking"),
+                                "prompt_tokens": record.get("prompt_tokens"),
+                                "completion_tokens": record.get("completion_tokens"),
+                                "duration_ms": record.get("duration_ms"),
+                                "status": record.get("status"),
+                            }
+                            summarized_records.append(summarized_record)
+                            prompt_token_sum += safe_int(record.get("prompt_tokens"), default=0)
+                            completion_token_sum += safe_int(
+                                record.get("completion_tokens"),
+                                default=0,
+                            )
+                            runtime_duration_sum_ms += safe_float(
+                                record.get("duration_ms"),
+                                default=0.0,
+                            )
+                        request_received_at_summary = safe_float(
+                            request_timing.get("request_received_at_s"),
+                            default=0.0,
+                        )
+                        request_wall_clock_ms = (
+                            (time.time() - request_received_at_summary) * 1000.0
+                            if request_received_at_summary > 0.0
+                            else None
+                        )
+                        runtime_call_summary = {
+                            "total_calls": len(summarized_records),
+                            "prompt_token_sum": prompt_token_sum,
+                            "completion_token_sum": completion_token_sum,
+                            "runtime_duration_sum_ms": round(runtime_duration_sum_ms, 1),
+                            "request_wall_clock_ms": round(request_wall_clock_ms, 1)
+                            if request_wall_clock_ms is not None
+                            else None,
+                            "records": summarized_records,
+                        }
+                        timing_trace_payload["runtime_call_summary"] = runtime_call_summary
+                        log.info(
+                            "researcher_runtime_call_summary",
+                            chat_id=chat_id,
+                            request_id=request_id,
+                            chat_mode=resolved_chat_mode,
+                            total_calls=runtime_call_summary["total_calls"],
+                            prompt_token_sum=runtime_call_summary["prompt_token_sum"],
+                            completion_token_sum=runtime_call_summary["completion_token_sum"],
+                            runtime_duration_sum_ms=runtime_call_summary["runtime_duration_sum_ms"],
+                            request_wall_clock_ms=runtime_call_summary["request_wall_clock_ms"],
+                            records=summarized_records,
+                        )
                     for key in (
                         "classification_duration_ms",
                         "retrieval_duration_ms",
@@ -2374,6 +2682,15 @@ async def chat(
                             continue
                         if isinstance(value, (int, float)):
                             timing_trace_payload[key] = round(float(value), 3)
+                    log.info(
+                        "researcher_timing_breakdown",
+                        chat_id=chat_id,
+                        request_id=request_id,
+                        pass_index=pass_index,
+                        chat_mode=resolved_chat_mode,
+                        agent_mode=resolved_agent_mode,
+                        **timing_trace_payload,
+                    )
                     trace_writer.record("timing", timing_trace_payload)
                     trace_writer.record(
                         "response",

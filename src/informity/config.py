@@ -74,6 +74,7 @@ DEFAULT_RERANKER_MODEL = _DEFAULT_RERANKER_MODEL
 
 # Default Hugging Face repository for LLM model downloads
 _DEFAULT_LLM_HF_REPO = "unsloth/Qwen3.6-35B-A3B-GGUF"
+STARTUP_RAM_HEADROOM_RATIO = 0.85
 
 # Default auto-continuation policy for long responses.
 _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT = (
@@ -523,6 +524,10 @@ class Settings(BaseSettings):
     )
     llm_max_tokens: int = 2048
     llm_temperature: float = 0.2  # Low for factual extraction; avoids determinism-induced loops
+    # Agent mode intentionally gets a longer generation budget so multi-step retrieval can finish.
+    agent_timeout_multiplier: float = 2.0
+    # Agent mode can split a query into a few independent retrieval slices before synthesis.
+    agent_multi_query_max_subqueries: int = 4
     # Retrieval top-k: model-profile-only (ModelProfile.rag_top_k, coverage_top_k).
     # Use model_adapter.get_retrieval_top_k(query_type). No config/env.
     # NOTE: rag_max_score and rag_context_ratio are now model-specific (moved to ModelProfile).

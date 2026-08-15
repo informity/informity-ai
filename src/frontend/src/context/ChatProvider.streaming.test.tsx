@@ -42,10 +42,30 @@ vi.mock('../api', () => {
     })),
     stopChatStream: vi.fn(async () => ({ stopped: true, status: 'stopped_now' })),
     updateCurrentChat: vi.fn(async () => ({})),
-    streamChat: vi.fn(async (_message, _chatId, callbacks) => {
+    streamChat: vi.fn(async (message, _chatId, callbacks) => {
       callbacks.onChatId?.('chat-1')
       callbacks.onRequestId?.('req-stream-1')
       callbacks.onToken?.('Hello')
+      if (String(message || '').toLowerCase().includes('agent')) {
+        callbacks.onStatus?.({ state: 'retrieving', message: 'Retrieving evidence...' })
+        callbacks.onPlanStep?.({ step_id: 1, description: 'Analyzing the request', status: 'done' })
+        callbacks.onPlanStep?.({ step_id: 2, description: 'Retrieving evidence', status: 'running' })
+        callbacks.onPlanStep?.({ step_id: 3, description: 'Generating answer', status: 'running' })
+        callbacks.onAgentEvent?.({
+          kind: 'tool_call',
+          status: 'running',
+          title: 'Retrieving evidence',
+          tool_name: 'search_vectors',
+          query: 'agent query',
+        })
+        callbacks.onAgentEvent?.({
+          kind: 'observation',
+          status: 'done',
+          title: 'Retrieving evidence',
+          tool_name: 'search_vectors',
+          query: 'agent query',
+        })
+      }
       callbacks.onSources?.([])
       await Promise.resolve()
 
@@ -86,6 +106,9 @@ function ChatProbe() {
       <button onClick={() => void sendMessage('test query')} type="button">
         Send
       </button>
+      <button onClick={() => void sendMessage('agent query', { agentMode: true })} type="button">
+        SendAgent
+      </button>
       <button
         onClick={() => void uploadFiles([new File(['content'], 'template.docx')])}
         type="button"
@@ -104,6 +127,13 @@ function ChatProbe() {
       <div data-testid="assistant-streaming">{assistant?.isStreaming ? 'yes' : 'no'}</div>
       <div data-testid="assistant-id">{assistant?.id ?? ''}</div>
       <div data-testid="assistant-seconds">{assistant?.generationSeconds ?? ''}</div>
+      <div data-testid="assistant-status">{assistant?.streamStatusText ?? ''}</div>
+      <div data-testid="assistant-plan-steps">{assistant?.streamPlanSteps?.length ?? 0}</div>
+      <div data-testid="assistant-agent-events">{assistant?.streamAgentEvents?.length ?? 0}</div>
+      <div data-testid="assistant-agent-event-0-title">{assistant?.streamAgentEvents?.[0]?.title ?? ''}</div>
+      <div data-testid="assistant-agent-event-0-status">{assistant?.streamAgentEvents?.[0]?.status ?? ''}</div>
+      <div data-testid="assistant-agent-event-1-title">{assistant?.streamAgentEvents?.[1]?.title ?? ''}</div>
+      <div data-testid="assistant-agent-event-1-status">{assistant?.streamAgentEvents?.[1]?.status ?? ''}</div>
       <div data-testid="upload-count">{chatUploads.length}</div>
     </div>
   )
@@ -155,6 +185,25 @@ describe('ChatProvider streaming lifecycle', () => {
     expect(screen.getByTestId('assistant-streaming')).toHaveTextContent('no')
     expect(screen.getByTestId('assistant-id')).toHaveTextContent('321')
     expect(screen.getByTestId('assistant-seconds')).toHaveTextContent('1.25')
+  })
+
+  it('streams structured agent events alongside plan steps', async () => {
+    finishStream = null
+    render(<Harness />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'SendAgent' }))
+    await waitFor(() => expect(screen.getByTestId('assistant-plan-steps')).toHaveTextContent('3'))
+    await waitFor(() => expect(screen.getByTestId('assistant-agent-events')).toHaveTextContent('2'))
+    expect(screen.getByTestId('assistant-status')).toHaveTextContent(/Retrieving evidence/)
+    expect(screen.getByTestId('assistant-agent-event-0-title')).toHaveTextContent('Retrieving evidence')
+    expect(screen.getByTestId('assistant-agent-event-0-status')).toHaveTextContent('running')
+    expect(screen.getByTestId('assistant-agent-event-1-title')).toHaveTextContent('Retrieving evidence')
+    expect(screen.getByTestId('assistant-agent-event-1-status')).toHaveTextContent('done')
+
+    await act(async () => {
+      finishStream?.()
+      await Promise.resolve()
+    })
   })
 
   it('sends the active chat id when continuing or sending in an existing thread', async () => {
@@ -230,6 +279,32 @@ describe('ChatProvider streaming lifecycle', () => {
       streamId: null,
       requestId: 'req-stream-1',
     })
+  })
+
+  it('keeps stop behavior intact for agent-mode sends', async () => {
+    finishStream = null
+    const streamChatMock = vi.mocked(streamChat)
+    const stopChatStreamMock = vi.mocked(stopChatStream)
+    streamChatMock.mockClear()
+    stopChatStreamMock.mockClear()
+    render(<Harness />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'SendAgent' }))
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalled())
+    expect(streamChatMock.mock.calls[0]?.[3]).toEqual(expect.objectContaining({ agentMode: true }))
+    await waitFor(() => expect(screen.getByTestId('streaming')).toHaveTextContent('yes'))
+    await waitFor(() => expect(screen.getByTestId('assistant-plan-steps')).toHaveTextContent('3'))
+
+    fireEvent.click(screen.getByRole('button', { name: 'Stop' }))
+
+    await waitFor(() => expect(stopChatStreamMock).toHaveBeenCalledTimes(1))
+    expect(stopChatStreamMock.mock.calls[0]?.[0]).toBe('chat-1')
+    expect(stopChatStreamMock.mock.calls[0]?.[1]).toEqual({
+      streamId: null,
+      requestId: 'req-stream-1',
+    })
+    await waitFor(() => expect(screen.getByTestId('assistant-plan-steps')).toHaveTextContent('0'))
+    expect(screen.getByTestId('assistant-status')).toHaveTextContent('')
   })
 
 })

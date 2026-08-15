@@ -306,9 +306,10 @@ export async function streamChat(
     scopedUploadIds?: string[] | null
     chatWebSearchEnabled?: boolean
     chatWebSearchPrivacyOverride?: boolean
+    agentMode?: boolean
   },
 ): Promise<void> {
-  const { onToken, onChatId, onStreamId, onRequestId, onSources, onDone, onError, onCleaned, onStatus, onPlanStep, signal } = callbacks
+  const { onToken, onChatId, onStreamId, onRequestId, onSources, onDone, onError, onCleaned, onStatus, onPlanStep, onAgentEvent, signal } = callbacks
   let doneData: StreamDonePayload | null = null
   const streamState = { seenSources: false, seenCleaned: false, seenDone: false }
   const url = `${getApiBase()}/api/chat`
@@ -331,6 +332,7 @@ export async function streamChat(
     request_id: options?.requestId ?? null,
     chat_web_search_enabled: options?.chatWebSearchEnabled ?? false,
     chat_web_search_privacy_override: options?.chatWebSearchPrivacyOverride ?? false,
+    agent_mode: options?.agentMode ?? false,
   })
 
   try {
@@ -366,6 +368,7 @@ export async function streamChat(
       onCleaned,
       onStatus,
       onPlanStep,
+      onAgentEvent,
     }
 
     while (true) {
@@ -421,12 +424,12 @@ export async function streamChat(
 function handleEvent(
   event: string,
   data: string,
-  callbacks: Pick<StreamChatCallbacks, 'onToken' | 'onChatId' | 'onStreamId' | 'onRequestId' | 'onSources' | 'onCleaned' | 'onStatus' | 'onPlanStep'>,
+  callbacks: Pick<StreamChatCallbacks, 'onToken' | 'onChatId' | 'onStreamId' | 'onRequestId' | 'onSources' | 'onCleaned' | 'onStatus' | 'onPlanStep' | 'onAgentEvent'>,
   state: { seenSources: boolean; seenCleaned: boolean; seenDone: boolean },
 ): StreamDonePayload | undefined {
   if (state.seenDone && event !== 'done') return undefined
 
-  const { onToken, onChatId, onStreamId, onRequestId, onSources, onCleaned, onStatus, onPlanStep } = callbacks
+  const { onToken, onChatId, onStreamId, onRequestId, onSources, onCleaned, onStatus, onPlanStep, onAgentEvent } = callbacks
   switch (event) {
     case 'token':
       // Keep accepting tokens after `sources`; backend may emit sources before
@@ -480,6 +483,15 @@ function handleEvent(
       try {
         const parsed = JSON.parse(data) as PlanStepPayload
         onPlanStep?.(parsed)
+      } catch {
+        // ignore
+      }
+      break
+    }
+    case 'agent_event': {
+      try {
+        const parsed = JSON.parse(data) as { kind?: string; status?: string; title?: string; message?: string; tool_name?: string; subquery_index?: number; subquery_total?: number; result_count?: number; query?: string }
+        onAgentEvent?.(parsed)
       } catch {
         // ignore
       }

@@ -5,7 +5,7 @@ import { formatDuration } from '../../utils/formatDuration'
 import { getMessageRaw } from '../../api'
 import { SourceCard } from './SourceCard'
 import { MessageBlocks } from './MessageBlocks'
-import type { ChatMode, ChatSourceReference, DisplayBlock, FileDiscoveryInfo } from '../../types/api'
+import type { AgentEventPayload, ChatMode, ChatSourceReference, DisplayBlock, FileDiscoveryInfo } from '../../types/api'
 import { CHAT_MODE_ICONS, CHAT_MODE_LABELS } from '../../utils/chatModeConfig'
 import 'highlight.js/styles/github-dark.min.css'
 import './ChatMessage.css'
@@ -22,6 +22,16 @@ function stripThinkArtifactsForStreaming(text: string): string {
     next = next.slice(0, openIdx)
   }
   return next
+}
+
+function normalizePlanStepStatus(status?: 'running' | 'done' | 'empty') {
+  return status === 'done' ? 'done' : 'running'
+}
+
+function getPlanStepIconClassName(status?: 'running' | 'done' | 'empty') {
+  return normalizePlanStepStatus(status) === 'done'
+    ? 'ri-checkbox-circle-line chat-message__plan-step-icon'
+    : 'ri-circle-line chat-message__plan-step-icon chat-message__plan-step-icon--active'
 }
 
 interface ChatMessageProps {
@@ -42,6 +52,7 @@ interface ChatMessageProps {
     total: number
   }
   streamPlanSteps?: Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>
+  streamAgentEvents?: AgentEventPayload[]
   scopedFileName?: string | null
   translateTargetLanguage?: string | null
   translationLanguage?: string | null
@@ -89,6 +100,7 @@ function ChatMessageComponent({
   streamStatusText,
   streamSectionProgress,
   streamPlanSteps,
+  streamAgentEvents,
   scopedFileName = null,
   translateTargetLanguage = null,
   translationLanguage = null,
@@ -189,7 +201,11 @@ function ChatMessageComponent({
   const remainingProgressText = showSectionProgress
     ? streamSectionProgress.remaining.map((heading) => heading.replace(/^#{1,6}\s*/, '').trim()).join(' · ')
     : ''
+  const typingIndicatorClassName = `chat-message__typing-indicator${
+    streamStatusText ? ' chat-message__typing-indicator--status' : ''
+  }`
   const showPlanSteps = !!streamPlanSteps && streamPlanSteps.length > 0
+  const showAgentEvents = !!streamAgentEvents && streamAgentEvents.length > 0
   const canEnterEdit = isUser && canEdit && !actionsDisabled
   const showEditControls = canEnterEdit || isEditing
   const assistantMetaItems = [] as Array<{ key: string; node: ReactElement }>
@@ -524,28 +540,82 @@ function ChatMessageComponent({
             <>
               <div className="chat-message__markdown">
                 {showBouncingDots ? (
-                  <span className="chat-message__typing-indicator" aria-label="Thinking">
-                    <span className="chat-message__cursor" />
-                    {streamStatusText && (
-                      <span className="chat-message__typing-status">
-                        <span>{streamStatusText}</span>
-                        {showSectionProgress && (
-                          <span className="chat-message__typing-progress">
-                            {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections…'}
-                            {remainingProgressText ? ` | ${remainingProgressText}` : ''}
+                  <span className={typingIndicatorClassName} aria-label="Thinking">
+                    {streamStatusText ? (
+                      <>
+                        <span className="chat-message__typing-header">
+                          <span className="chat-message__cursor" />
+                          <span className="chat-message__typing-status">
+                            <span>{streamStatusText}</span>
+                            {showSectionProgress && (
+                              <span className="chat-message__typing-progress">
+                                {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections…'}
+                                {remainingProgressText ? ` | ${remainingProgressText}` : ''}
+                              </span>
+                            )}
                           </span>
-                        )}
+                        </span>
                         {showPlanSteps && (
                           <span className="chat-message__plan-steps">
                             {streamPlanSteps!.map(step => (
-                              <span key={step.step_id} className={`chat-message__plan-step chat-message__plan-step--${step.status}`}>
-                                {step.status === 'done' ? '\u2713' : step.status === 'empty' ? '\u2212' : '\u25cc'}
-                                {' '}{step.description}
+                              <span
+                                key={step.step_id}
+                                className={`chat-message__plan-step chat-message__plan-step--${normalizePlanStepStatus(step.status)}`}
+                              >
+                                <i
+                                  className={getPlanStepIconClassName(step.status)}
+                                  aria-hidden="true"
+                                />
+                                <span className="chat-message__plan-step-text">{step.description}</span>
                               </span>
                             ))}
                           </span>
                         )}
-                      </span>
+                        {showAgentEvents && (
+                          <span className="chat-message__plan-steps">
+                            {streamAgentEvents!.map((event, index) => {
+                              const eventKind = event.kind || 'observation'
+                              const eventStatus = normalizePlanStepStatus(event.status)
+                              const eventTitle = typeof event.title === 'string' && event.title.trim().length > 0
+                                ? event.title.trim()
+                                : (
+                                    eventKind === 'tool_call'
+                                      ? 'Tool call'
+                                      : eventKind === 'decision'
+                                        ? 'Decision'
+                                        : 'Observation'
+                                  )
+                              const eventMessageParts = [
+                                typeof event.tool_name === 'string' && event.tool_name.trim().length > 0
+                                  ? event.tool_name.trim()
+                                  : '',
+                                typeof event.message === 'string' && event.message.trim().length > 0
+                                  ? event.message.trim()
+                                  : '',
+                              ].filter((value) => value.length > 0)
+                              const eventMessage = eventMessageParts.join(' · ')
+                              return (
+                                <span
+                                  key={`${eventKind}-${event.subquery_index ?? index}-${eventTitle}-${eventMessage}`}
+                                  className={`chat-message__plan-step chat-message__plan-step--${eventStatus}`}
+                                >
+                                  <i className={getPlanStepIconClassName(eventStatus)} aria-hidden="true" />
+                                  <span className="chat-message__plan-step-text">
+                                    <strong>{eventTitle}</strong>
+                                    {eventMessage ? `: ${eventMessage}` : ''}
+                                  </span>
+                                </span>
+                              )
+                            })}
+                          </span>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <span className="chat-message__typing-dot" />
+                        <span className="chat-message__typing-dot" />
+                        <span className="chat-message__typing-dot" />
+                      </>
                     )}
                   </span>
                 ) : (
@@ -560,21 +630,23 @@ function ChatMessageComponent({
                         codeBlockCopied={codeBlockCopied}
                       />
                     ) : safeContent && isStreaming ? (
-                      <span className="chat-message__typing-indicator" aria-label="Thinking">
-                        <span className="chat-message__typing-dot" />
-                        <span className="chat-message__typing-dot" />
-                        <span className="chat-message__typing-dot" />
-                        {streamStatusText && (
-                          <span className="chat-message__typing-status">
-                            <span>{streamStatusText}</span>
-                            {showSectionProgress && (
-                              <span className="chat-message__typing-progress">
-                                {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections…'}
-                                {remainingProgressText ? ` | ${remainingProgressText}` : ''}
-                              </span>
-                            )}
-                          </span>
-                        )}
+                      <span className={typingIndicatorClassName} aria-label="Thinking">
+                        <span className="chat-message__typing-header">
+                          <span className="chat-message__typing-dot" />
+                          <span className="chat-message__typing-dot" />
+                          <span className="chat-message__typing-dot" />
+                          {streamStatusText && (
+                            <span className="chat-message__typing-status">
+                              <span>{streamStatusText}</span>
+                              {showSectionProgress && (
+                                <span className="chat-message__typing-progress">
+                                  {completedProgressText ? `\u2713 ${completedProgressText}` : 'Starting sections…'}
+                                  {remainingProgressText ? ` | ${remainingProgressText}` : ''}
+                                </span>
+                              )}
+                            </span>
+                          )}
+                        </span>
                       </span>
                     ) : safeContent ? (
                       <p className="chat-message__text chat-message__text--muted">
@@ -780,6 +852,7 @@ function areChatMessagePropsEqual(prev: ChatMessageProps, next: ChatMessageProps
     prev.streamStatusText === next.streamStatusText &&
     prev.streamSectionProgress === next.streamSectionProgress &&
     prev.streamPlanSteps === next.streamPlanSteps &&
+    prev.streamAgentEvents === next.streamAgentEvents &&
     prev.scopedFileName === next.scopedFileName &&
     prev.translationLanguage === next.translationLanguage &&
     prev.translationTone === next.translationTone &&

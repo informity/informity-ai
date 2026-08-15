@@ -40,7 +40,6 @@
   flex-direction: column;
 }
 
-.page__scroll > .page__error,
 .page__scroll > .history-filters,
 .page__scroll > .file-filters {
   flex-shrink: 0;
@@ -90,10 +89,6 @@
 .page__subtitle {
   margin: 0 0 1rem 0;
   font-size: var(--font-size-base);
-}
-
-.page__error {
-  color: #ef4444;
 }
 
 .chat-page {

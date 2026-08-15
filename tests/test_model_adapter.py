@@ -264,6 +264,12 @@ class TestModelProfileMethods:
         profile = QWEN3_6_35B_A3B_PROFILE
         assert profile.get_prompt_format("unknown") == profile.prompt_format
 
+    def test_get_timeout_seconds_scales_for_agent_mode(self) -> None:
+        """Test get timeout seconds scales for agent mode."""
+        profile = QWEN3_6_35B_A3B_PROFILE
+        assert profile.get_timeout_seconds("focused") == profile.timeout_seconds
+        assert profile.get_timeout_seconds("focused", agent_mode=True) == profile.timeout_seconds * 2
+
     def test_prepare_messages_no_mutation(self) -> None:
         """Test prepare messages no mutation."""
         messages = [{"role": "user", "content": "Test"}]

@@ -32,6 +32,7 @@ from informity.llm.handlers.rag import (
 )
 from informity.llm.handlers.simple import SimpleHandler
 from informity.llm.query_classifier import QueryClassification
+from informity.llm.rag_runtime import generation_stream as _generation_stream
 from informity.llm.specializations import get_mode_prompt
 from informity.llm.types import OutputFormat
 from informity.llm.web_search import SearchResult, WebSearchOutcome
@@ -844,6 +845,73 @@ class TestRAGHandler:
             assert mock_retrieve.await_count == 1
 
     @pytest.mark.asyncio
+    async def test_handle_records_llm_timing_metrics_from_stream_summary(self) -> None:
+        """Test handle records llm timing metrics from stream summary."""
+        handler = RAGHandler()
+        classification = QueryClassification(intent="focused")
+        mock_db = MagicMock()
+
+        async def _fake_stream_generation_with_budget(*_args, **_kwargs):
+            """Internal helper for fake stream generation with budget."""
+            yield "Answer token."
+            yield (
+                _generation_stream.STREAM_SUMMARY_EVENT,
+                _generation_stream.StreamExecutionSummary(
+                    token_count=1,
+                    first_token_ms=12.3,
+                    total_elapsed_ms=25.0,
+                    submit_ms=4.5,
+                    queue_wait_ms=7.26,
+                    submit_at_s=1.0,
+                    first_token_at_s=1.0123,
+                    timeout_reason=None,
+                    stream_recovery_reason=None,
+                    soft_budget_checkpoints_hit=[],
+                    completion_mode=_generation_stream.CompletionMode.COMPLETE,
+                    has_remaining_scope=False,
+                    final_answer="Answer token.",
+                    ttft_ms=12.3,
+                ),
+            )
+
+        with (
+            patch(
+                "informity.llm.handlers.rag.retrieve_chunks",
+                new_callable=AsyncMock,
+            ) as mock_retrieve,
+            patch(
+                "informity.llm.handlers.rag._evaluate_minimal_answerability",
+                return_value=(True, 0.9, 0.5, 1),
+            ),
+            patch(
+                "informity.llm.handlers.rag._generation_stream.stream_generation_with_budget",
+                new=_fake_stream_generation_with_budget,
+            ),
+        ):
+            mock_retrieve.return_value = [
+                {
+                    "file_id": 1,
+                    "filename": "alpha.pdf",
+                    "file_path": "/docs/alpha.pdf",
+                    "chunk_text": "Alpha chunk.",
+                    "score": 1.0,
+                }
+            ]
+            results: list[object] = []
+            async for item in handler.handle("test question", classification, None, mock_db, None):
+                results.append(item)
+
+        metrics_events = [
+            item for item in results if isinstance(item, tuple) and item[0] == "__metrics__"
+        ]
+        assert metrics_events
+        metrics = metrics_events[0][1]
+        assert metrics["llm_submit_ms"] == 4.5
+        assert metrics["llm_queue_wait_ms"] == 7.3
+        assert metrics["llm_decode_first_token_ms"] == 12.3
+        assert metrics["generation_skipped"] is False
+
+    @pytest.mark.asyncio
     async def test_handle_passes_file_scopes_to_retrieve_chunks(self) -> None:
         """Test handle passes file scopes to retrieve chunks."""
         handler = RAGHandler()
@@ -985,6 +1053,266 @@ class TestRAGHandler:
             isinstance(item, str) and "comparison answer token" in item.casefold()
             for item in results
         )
+
+    @pytest.mark.asyncio
+    async def test_handle_agent_mode_uses_classifier_subqueries_for_retrieval(self) -> None:
+        """Test handle agent mode uses classifier subqueries for retrieval."""
+        handler = RAGHandler()
+        classification = QueryClassification(
+            intent="focused",
+            confidence=0.86,
+            agent_subqueries=[
+                "mortgage document evidence",
+                "Rocket Mortgage document evidence",
+            ],
+        )
+        mock_db = MagicMock()
+        with patch(
+            "informity.llm.handlers.rag.retrieve_chunks", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.side_effect = [
+                [
+                    {
+                        "file_id": 1,
+                        "filename": "mortgage.pdf",
+                        "file_path": "/docs/mortgage.pdf",
+                        "chunk_text": "Mortgage evidence chunk A.",
+                        "score": 1.0,
+                    },
+                    {
+                        "file_id": 1,
+                        "filename": "mortgage.pdf",
+                        "file_path": "/docs/mortgage.pdf",
+                        "chunk_text": "Mortgage evidence chunk B.",
+                        "score": 0.9,
+                    },
+                    {
+                        "file_id": 1,
+                        "filename": "mortgage.pdf",
+                        "file_path": "/docs/mortgage.pdf",
+                        "chunk_text": "Mortgage evidence chunk C.",
+                        "score": 0.8,
+                    },
+                ],
+                [
+                    {
+                        "file_id": 2,
+                        "filename": "rocket_mortgage.pdf",
+                        "file_path": "/docs/rocket_mortgage.pdf",
+                        "chunk_text": "Rocket Mortgage evidence chunk A.",
+                        "score": 1.0,
+                    },
+                    {
+                        "file_id": 2,
+                        "filename": "rocket_mortgage.pdf",
+                        "file_path": "/docs/rocket_mortgage.pdf",
+                        "chunk_text": "Rocket Mortgage evidence chunk B.",
+                        "score": 0.9,
+                    },
+                    {
+                        "file_id": 2,
+                        "filename": "rocket_mortgage.pdf",
+                        "file_path": "/docs/rocket_mortgage.pdf",
+                        "chunk_text": "Rocket Mortgage evidence chunk C.",
+                        "score": 0.8,
+                    },
+                ],
+            ]
+
+            async def _fake_stream_llm(*_args, **_kwargs):
+                """Internal helper for fake stream llm."""
+                yield "Comparison answer token."
+
+            results: list[object] = []
+            with patch("informity.llm.handlers.rag.stream_llm", _fake_stream_llm):
+                async for item in handler.handle(
+                    "Compare the mortgage document and the Rocket Mortgage document.",
+                    classification,
+                    None,
+                    mock_db,
+                    None,
+                    agent_mode=True,
+                ):
+                    results.append(item)
+
+        assert mock_retrieve.await_count == 2
+        called_queries = [call.kwargs["query"] for call in mock_retrieve.await_args_list]
+        assert any("mortgage document evidence" in str(query).casefold() for query in called_queries)
+        assert any(
+            "rocket mortgage document evidence" in str(query).casefold()
+            for query in called_queries
+        )
+        assert any(
+            isinstance(item, tuple)
+            and item[0] == "__plan_step__"
+            and isinstance(item[1], dict)
+            for item in results
+        )
+        assert any(
+            isinstance(item, str) and "comparison answer token" in item.casefold()
+            for item in results
+        )
+
+    @pytest.mark.asyncio
+    async def test_handle_agent_mode_caps_classifier_subqueries(self) -> None:
+        """Test handle agent mode caps classifier subqueries."""
+        handler = RAGHandler()
+        classification = QueryClassification(
+            intent="focused",
+            confidence=0.86,
+            agent_subqueries=[
+                "first evidence request",
+                "second evidence request",
+                "third evidence request",
+                "fourth evidence request",
+                "fifth evidence request",
+                "sixth evidence request",
+            ],
+        )
+        mock_db = MagicMock()
+        with patch(
+            "informity.llm.handlers.rag.retrieve_chunks", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.side_effect = [
+                [
+                    {
+                        "file_id": 1,
+                        "filename": "one.pdf",
+                        "file_path": "/docs/one.pdf",
+                        "chunk_text": "First evidence chunk.",
+                        "score": 1.0,
+                    }
+                ],
+                [
+                    {
+                        "file_id": 2,
+                        "filename": "two.pdf",
+                        "file_path": "/docs/two.pdf",
+                        "chunk_text": "Second evidence chunk.",
+                        "score": 1.0,
+                    }
+                ],
+                [
+                    {
+                        "file_id": 3,
+                        "filename": "three.pdf",
+                        "file_path": "/docs/three.pdf",
+                        "chunk_text": "Third evidence chunk.",
+                        "score": 1.0,
+                    }
+                ],
+                [
+                    {
+                        "file_id": 4,
+                        "filename": "four.pdf",
+                        "file_path": "/docs/four.pdf",
+                        "chunk_text": "Fourth evidence chunk.",
+                        "score": 1.0,
+                    }
+                ],
+            ]
+
+            async def _fake_stream_llm(*_args, **_kwargs):
+                """Internal helper for fake stream llm."""
+                yield "Agent answer token."
+
+            results: list[object] = []
+            with patch("informity.llm.handlers.rag.stream_llm", _fake_stream_llm):
+                async for item in handler.handle(
+                    "Show me evidence across multiple documents.",
+                    classification,
+                    None,
+                    mock_db,
+                    None,
+                    agent_mode=True,
+                ):
+                    results.append(item)
+
+        assert mock_retrieve.await_count == 4
+        called_queries = [call.kwargs["query"] for call in mock_retrieve.await_args_list]
+        assert [str(query).casefold() for query in called_queries] == [
+            "first evidence request",
+            "second evidence request",
+            "third evidence request",
+            "fourth evidence request",
+        ]
+        assert any(
+            isinstance(item, tuple)
+            and item[0] == "__plan_step__"
+            and isinstance(item[1], dict)
+            for item in results
+        )
+        assert any(
+            isinstance(item, str) and "agent answer token" in item.casefold()
+            for item in results
+        )
+
+    @pytest.mark.asyncio
+    async def test_handle_agent_mode_streams_plan_steps_for_single_retrieval(self) -> None:
+        """Test handle agent mode streams plan steps for single retrieval."""
+        handler = RAGHandler()
+        classification = QueryClassification(
+            intent="focused",
+            confidence=0.86,
+            agent_subqueries=[],
+        )
+        mock_db = MagicMock()
+        with patch(
+            "informity.llm.handlers.rag.retrieve_chunks", new_callable=AsyncMock
+        ) as mock_retrieve:
+            mock_retrieve.return_value = [
+                {
+                    "file_id": 1,
+                    "filename": "one.pdf",
+                    "file_path": "/docs/one.pdf",
+                    "chunk_text": "Single retrieval chunk.",
+                    "score": 1.0,
+                }
+            ]
+
+            async def _fake_stream_llm(*_args, **_kwargs):
+                """Internal helper for fake stream llm."""
+                yield "Single agent answer token."
+
+            results: list[object] = []
+            with patch("informity.llm.handlers.rag.stream_llm", _fake_stream_llm):
+                async for item in handler.handle(
+                    "Summarize the available context.",
+                    classification,
+                    None,
+                    mock_db,
+                    None,
+                    agent_mode=True,
+                ):
+                    results.append(item)
+
+        assert mock_retrieve.await_count == 1
+        plan_steps = [
+            item[1]
+            for item in results
+            if isinstance(item, tuple)
+            and item[0] == "__plan_step__"
+            and isinstance(item[1], dict)
+        ]
+        assert plan_steps[0]["step_id"] == 1
+        assert plan_steps[0]["status"] == "running"
+        assert any(step["step_id"] == 2 and step["status"] == "running" for step in plan_steps)
+        assert any(step["step_id"] == 3 and step["status"] == "running" for step in plan_steps)
+        assert any(step["step_id"] == 3 and step["status"] == "done" for step in plan_steps)
+        assert any(
+            isinstance(item, str) and "single agent answer token" in item.casefold()
+            for item in results
+        )
+        metrics_events = [
+            item for item in results if isinstance(item, tuple) and item[0] == "__metrics__"
+        ]
+        assert metrics_events
+        metrics = metrics_events[0][1]
+        assert metrics.get("agent_mode") is True
+        assert metrics.get("agent_planning_duration_ms") is not None
+        assert metrics.get("agent_retrieval_duration_ms") is not None
+        assert metrics.get("agent_generation_duration_ms") is not None
+        assert metrics.get("agent_generation_first_token_ms") is not None
 
     @pytest.mark.asyncio
     async def test_handle_uses_decomposed_retrieval_content_query(self) -> None:

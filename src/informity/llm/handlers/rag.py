@@ -115,6 +115,20 @@ def _distinct_file_count(chunks: list[dict]) -> int:
     return len(file_ids)
 
 
+def _chunk_dedupe_key(chunk: dict) -> tuple[object, ...]:
+    """Internal helper for chunk dedupe key."""
+    chunk_id = chunk.get("chunk_id")
+    if isinstance(chunk_id, int):
+        return ("chunk_id", chunk_id)
+
+    file_id = chunk.get("file_id")
+    filename = str(chunk.get("filename") or "").casefold()
+    chunk_text = str(chunk.get("chunk_text") or "").casefold()[:120]
+    if isinstance(file_id, int):
+        return ("file_id", file_id, filename, chunk_text)
+    return ("fallback", filename, chunk_text)
+
+
 def _collapse_duplicate_insufficient_context_message(
     answer: str,
     *,
@@ -297,6 +311,33 @@ def _should_boost_coverage_top_k(question: str, classification: QueryClassificat
         _GLOBAL_ENTITY_ENUMERATION_PATTERN.search(lowered)
         and _ENTITY_INVENTORY_SCOPE_PATTERN.search(lowered)
     )
+
+
+def _resolve_agent_retrieval_queries(
+    *,
+    retrieval_query: str,
+    classification: QueryClassification,
+) -> list[str]:
+    """Internal helper for resolve agent retrieval queries."""
+    normalized_queries = [
+        normalize_query_text(query).strip().strip(" .?!,;:")
+        for query in (classification.agent_subqueries or [])
+        if normalize_query_text(query).strip().strip(" .?!,;:")
+    ]
+    if normalized_queries:
+        seen_queries: set[str] = set()
+        resolved_queries: list[str] = []
+        for query in normalized_queries:
+            key = query.casefold()
+            if key in seen_queries:
+                continue
+            seen_queries.add(key)
+            resolved_queries.append(query)
+            if len(resolved_queries) >= int(settings.agent_multi_query_max_subqueries):
+                break
+        return resolved_queries
+    fallback_query = normalize_query_text(retrieval_query).strip().strip(" .?!,;:")
+    return [fallback_query] if fallback_query else []
 
 
 def _resolve_minimal_answerability_settings(query_type: QueryType) -> tuple[float, int]:
@@ -609,8 +650,10 @@ class RAGHandler:
         history: list[ChatMessage] | None,
         db: aiosqlite.Connection,
         trace: object | None,
+        timing_context: dict[str, object] | None = None,
         file_ids: list[int] | None = None,
         specialization_id: str | None = None,
+        agent_mode: bool = False,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         """Internal helper for handle minimal mode."""
         profile = get_profile()
@@ -670,8 +713,19 @@ class RAGHandler:
         if _should_use_deterministic_file_discovery_response(classification):
             effective_top_k = max(effective_top_k, _FILE_DISCOVERY_RETRIEVAL_TOP_K)
         max_tokens = profile.get_max_tokens(effective_query_type)
-        timeout_seconds = profile.get_timeout_seconds(effective_query_type)
-        reasoning_enabled = profile.get_reasoning_enabled(effective_query_type)
+        timeout_seconds = profile.get_timeout_seconds(
+            effective_query_type,
+            agent_mode=agent_mode,
+        )
+        reasoning_enabled = profile.get_reasoning_enabled(
+            effective_query_type,
+            reasoning_enabled_override=agent_mode if profile.supports_think_blocks else None,
+        )
+        chat_template_kwargs_override = (
+            {"enable_thinking": True}
+            if agent_mode and profile.supports_think_blocks
+            else None
+        )
         format_requirements: list[str] = []
         output_constraints: dict[str, int] = {}
 
@@ -748,36 +802,249 @@ class RAGHandler:
                     "term_expansion_enabled": not disable_term_expansion_for_focused_title,
                 },
             )
-        retrieval_start = time.perf_counter()
         comparison_style_request = has_comparison_cue(question)
-        chunks = await retrieve_chunks(
-            query=retrieval_query,
-            top_k=effective_top_k,
-            # Minimal mode keeps one retrieval call without secondary branches.
-            # retries. Do not apply strict L2 max_score pruning here; otherwise
-            # retrieval can collapse to empty and over-trigger refusals.
-            max_score=None,
-            year_filter=classification.year_filter,
-            category_filter=classification.category_filter,
-            extension_filter=classification.file_type_filter,
-            filename_filter=classification.filename_filter,
-            filename_exclude=classification.filename_exclude,
-            block_type_filter=classification.block_type_filter,
-            block_type_exclude=effective_block_type_exclude or None,
-            section_filter=classification.section_filter,
-            file_ids_filter=file_ids,
-            exclude_upload_sources=not bool(file_ids),
-            prefer_substantive_sections=summary_style_request,
-            prefer_title_alignment=prefer_title_alignment,
-            title_alignment_query=title_alignment_query if prefer_title_alignment else None,
-            strict_title_alignment=strict_title_alignment,
-            enable_term_expansion=not disable_term_expansion_for_focused_title,
-            prefer_within_file_diversity=summary_style_request or comparison_style_request,
-            query_type=effective_query_type,
-            db=db,
-            trace=trace,
-            timing_output=retrieval_timing,
+        base_retrieval_kwargs: dict[str, object] = {
+            "max_score": None,
+            "year_filter": classification.year_filter,
+            "category_filter": classification.category_filter,
+            "extension_filter": classification.file_type_filter,
+            "filename_filter": classification.filename_filter,
+            "filename_exclude": classification.filename_exclude,
+            "block_type_filter": classification.block_type_filter,
+            "block_type_exclude": effective_block_type_exclude or None,
+            "section_filter": classification.section_filter,
+            "file_ids_filter": file_ids,
+            "exclude_upload_sources": not bool(file_ids),
+            "prefer_substantive_sections": summary_style_request,
+            "prefer_title_alignment": prefer_title_alignment,
+            "title_alignment_query": title_alignment_query if prefer_title_alignment else None,
+            "strict_title_alignment": strict_title_alignment,
+            "enable_term_expansion": not disable_term_expansion_for_focused_title,
+            "prefer_within_file_diversity": summary_style_request or comparison_style_request,
+            "query_type": effective_query_type,
+            "db": db,
+        }
+
+        async def _retrieve_for_query(
+            query_text: str,
+            *,
+            top_k: int,
+            trace_obj: object | None,
+        ) -> tuple[list[dict], dict[str, float]]:
+            """Internal helper for retrieve for query."""
+            timing_output: dict[str, float] = {}
+            retrieved_chunks = await retrieve_chunks(
+                query=query_text,
+                top_k=top_k,
+                trace=trace_obj,
+                timing_output=timing_output,
+                **base_retrieval_kwargs,
+            )
+            return retrieved_chunks, timing_output
+
+        agent_planning_start = time.perf_counter() if agent_mode else None
+        if agent_mode:
+            agent_retrieval_queries = _resolve_agent_retrieval_queries(
+                classification=classification,
+                retrieval_query=retrieval_query,
+            )
+        else:
+            agent_retrieval_queries = [retrieval_query]
+        agent_plan_enabled = bool(agent_mode)
+        agent_plan_step_2_description = (
+            "Retrieving evidence from subqueries"
+            if len(agent_retrieval_queries) > 1
+            else "Retrieving evidence"
         )
+
+        def _build_agent_event(
+            kind: str,
+            title: str,
+            message: str,
+            *,
+            status: str = "running",
+            tool_name: str | None = None,
+            subquery_index: int | None = None,
+            subquery_total: int | None = None,
+            result_count: int | None = None,
+            query: str | None = None,
+        ) -> tuple[StreamSignalTag, dict[str, object]]:
+            return (
+                StreamSignalTag.AGENT_EVENT,
+                {
+                    "kind": kind,
+                    "status": status,
+                    "title": title,
+                    "message": message,
+                    "tool_name": tool_name,
+                    "subquery_index": subquery_index,
+                    "subquery_total": subquery_total,
+                    "result_count": result_count,
+                    "query": query,
+                },
+            )
+
+        chunks: list[dict] = []
+        if agent_plan_enabled:
+            yield (
+                StreamSignalTag.PLAN_STEP,
+                {
+                    "step_id": 1,
+                    "description": "Analyzing the request",
+                    "status": "running",
+                },
+            )
+            yield (
+                StreamSignalTag.PLAN_STEP,
+                {
+                    "step_id": 1,
+                    "description": "Analyzing the request",
+                    "status": "done",
+                },
+            )
+            yield (
+                StreamSignalTag.PLAN_STEP,
+                {
+                    "step_id": 2,
+                    "description": agent_plan_step_2_description,
+                    "status": "running",
+                },
+            )
+        agent_planning_elapsed_ms = (
+            (time.perf_counter() - agent_planning_start) * 1000.0
+            if agent_planning_start is not None
+            else None
+        )
+        if len(agent_retrieval_queries) > 1:
+            per_query_top_k = max(
+                4,
+                min(
+                    effective_top_k,
+                    (effective_top_k // len(agent_retrieval_queries)) + 2,
+                ),
+            )
+            seen_chunk_keys: set[tuple[object, ...]] = set()
+            retrieval_start = time.perf_counter()
+            if agent_plan_enabled:
+                yield _build_agent_event(
+                    "tool_call",
+                    "Retrieving evidence",
+                    "",
+                    status="running",
+                    tool_name="search_vectors",
+                )
+            # Agent subqueries are independent retrieval slices, so run them in parallel
+            # to reduce time-to-first-answer without changing ranking or dedupe behavior.
+            subquery_results = await asyncio.gather(
+                *(
+                    _retrieve_for_query(
+                        agent_query,
+                        top_k=per_query_top_k,
+                        trace_obj=trace,
+                    )
+                    for agent_query in agent_retrieval_queries
+                )
+            )
+            for subquery_index, (
+                agent_query,
+                (subquery_chunks, subquery_timing),
+            ) in enumerate(zip(agent_retrieval_queries, subquery_results, strict=True), start=1):
+                for timing_key, timing_value in subquery_timing.items():
+                    if isinstance(timing_value, (int, float)):
+                        numeric_timing = float(timing_value)
+                        current_timing = retrieval_timing.get(timing_key)
+                        if timing_key.endswith("_at_s"):
+                            retrieval_timing[timing_key] = (
+                                max(float(current_timing), numeric_timing)
+                                if isinstance(current_timing, (int, float))
+                                else numeric_timing
+                            )
+                        else:
+                            retrieval_timing[timing_key] = (
+                                float(current_timing)
+                                if isinstance(current_timing, (int, float))
+                                else 0.0
+                            ) + numeric_timing
+                for chunk in subquery_chunks:
+                    dedupe_key = _chunk_dedupe_key(chunk)
+                    if dedupe_key in seen_chunk_keys:
+                        continue
+                    seen_chunk_keys.add(dedupe_key)
+                    chunks.append(chunk)
+                    if len(chunks) >= effective_top_k:
+                        break
+                if trace is not None:
+                    trace.record(
+                        "agent_multi_query_retrieval_pass",
+                        {
+                            "pass_index": subquery_index,
+                            "query": agent_query,
+                            "returned_chunks": len(subquery_chunks),
+                            "merged_chunks": len(chunks),
+                        },
+                    )
+                if len(chunks) >= effective_top_k:
+                    break
+            if trace is not None:
+                trace.record(
+                    "agent_multi_query_retrieval",
+                    {
+                        "enabled": True,
+                        "subquery_count": len(agent_retrieval_queries),
+                        "returned_chunks": len(chunks),
+                        "per_query_top_k": per_query_top_k,
+                    },
+                )
+            if agent_plan_enabled:
+                yield _build_agent_event(
+                    "observation",
+                    "Retrieving evidence",
+                    "",
+                    status="done",
+                    tool_name="search_vectors",
+                )
+        else:
+            retrieval_start = time.perf_counter()
+            if agent_plan_enabled:
+                yield _build_agent_event(
+                    "tool_call",
+                    "Retrieving evidence",
+                    "",
+                    status="running",
+                    tool_name="search_vectors",
+                    query=retrieval_query,
+                )
+            chunks, retrieval_timing = await _retrieve_for_query(
+                retrieval_query,
+                top_k=effective_top_k,
+                trace_obj=trace,
+            )
+            if agent_plan_enabled:
+                yield _build_agent_event(
+                    "observation",
+                    "Retrieving evidence",
+                    "",
+                    status="done",
+                    tool_name="search_vectors",
+                    query=retrieval_query,
+                )
+        if agent_plan_enabled:
+            yield (
+                StreamSignalTag.PLAN_STEP,
+                {
+                    "step_id": 2,
+                    "description": agent_plan_step_2_description,
+                    "status": "done",
+                },
+            )
+            yield (
+                StreamSignalTag.PLAN_STEP,
+                {
+                    "step_id": 3,
+                    "description": "Generating answer",
+                    "status": "running",
+                },
+            )
         if summary_style_request and explicit_title_reference:
             evidence_profile = evaluate_substantive_evidence(chunks)
             dominant_ratio = _dominant_file_ratio(chunks)
@@ -881,8 +1148,25 @@ class RAGHandler:
                             chunks is comparison_retry_chunks and comparison_retry_chunks
                         ),
                     },
-                )
+        )
         retrieval_elapsed_ms = (time.perf_counter() - retrieval_start) * 1000
+        agent_retrieval_elapsed_ms = retrieval_elapsed_ms if agent_plan_enabled else None
+        stream_summary: _generation_stream.StreamExecutionSummary | None = None
+
+        if timing_context is not None:
+            for timing_key in (
+                "embed_complete_at_s",
+                "search_complete_at_s",
+                "retrieval_complete_at_s",
+            ):
+                timing_value = retrieval_timing.get(timing_key)
+                if isinstance(timing_value, (int, float)):
+                    current_timing = timing_context.get(timing_key)
+                    timing_context[timing_key] = (
+                        max(float(current_timing), float(timing_value))
+                        if isinstance(current_timing, (int, float))
+                        else float(timing_value)
+                    )
 
         answerability_passed, answerability_score, answerability_threshold, min_chunks = (
             _evaluate_minimal_answerability(
@@ -903,21 +1187,65 @@ class RAGHandler:
                     "mode": "minimal",
                 },
             )
+        if agent_plan_enabled and trace is not None:
+            trace.record(
+                "agent_planning",
+                {
+                    "enabled": True,
+                    "duration_ms": round(agent_planning_elapsed_ms, 1)
+                    if agent_planning_elapsed_ms is not None
+                    else None,
+                    "subquery_count": len(agent_retrieval_queries),
+                    "multi_query": len(agent_retrieval_queries) > 1,
+                },
+            )
+            trace.record(
+                "agent_retrieval",
+                {
+                    "enabled": True,
+                    "duration_ms": round(agent_retrieval_elapsed_ms, 1)
+                    if agent_retrieval_elapsed_ms is not None
+                    else None,
+                    "subquery_count": len(agent_retrieval_queries),
+                    "returned_chunks": len(chunks),
+                    "multi_query": len(agent_retrieval_queries) > 1,
+                },
+            )
 
         if not answerability_passed:
             index_empty = False
             if len(chunks) == 0:
                 total_chunks = await get_chunk_count(db)
                 index_empty = total_chunks == 0
+            if agent_plan_enabled:
+                yield (
+                    StreamSignalTag.PLAN_STEP,
+                    {
+                        "step_id": 3,
+                        "description": "Generating answer",
+                        "status": "empty",
+                    },
+                )
             yield (
                 StreamSignalTag.METRICS,
                 {
                     "query_type": effective_query_type,
                     "raw_chunks_count": len(chunks),
                     "retrieval_duration_ms": round(retrieval_elapsed_ms, 1),
+                    "agent_mode": agent_plan_enabled,
+                    "agent_planning_duration_ms": round(agent_planning_elapsed_ms, 1)
+                    if agent_planning_elapsed_ms is not None
+                    else None,
+                    "agent_retrieval_duration_ms": round(agent_retrieval_elapsed_ms, 1)
+                    if agent_retrieval_elapsed_ms is not None
+                    else None,
                     "prompt_build_ms": "N/A",
-                    "llm_submit_ms": "N/A",
-                    "llm_queue_wait_ms": "N/A",
+                    "llm_submit_ms": round(stream_summary.submit_ms, 1)
+                    if stream_summary is not None and stream_summary.submit_ms is not None
+                    else "N/A",
+                    "llm_queue_wait_ms": round(stream_summary.queue_wait_ms, 1)
+                    if stream_summary is not None and stream_summary.queue_wait_ms is not None
+                    else "N/A",
                     "llm_decode_first_token_ms": "N/A",
                     "answerability_passed": False,
                     "answerability_score": round(answerability_score, 4),
@@ -951,6 +1279,13 @@ class RAGHandler:
                         "shown_count": file_discovery["shown_count"],
                         "search_term": file_discovery["search_term"],
                         "duration_ms": round(deterministic_elapsed_ms, 1),
+                        "agent_mode": agent_plan_enabled,
+                        "agent_planning_duration_ms": round(agent_planning_elapsed_ms, 1)
+                        if agent_planning_elapsed_ms is not None
+                        else None,
+                        "agent_retrieval_duration_ms": round(agent_retrieval_elapsed_ms, 1)
+                        if agent_retrieval_elapsed_ms is not None
+                        else None,
                     },
                 )
             yield (
@@ -959,6 +1294,13 @@ class RAGHandler:
                     query_type=effective_query_type,
                     raw_chunks_count=len(chunks),
                     retrieval_duration_ms=round(retrieval_elapsed_ms, 1),
+                    agent_mode=agent_plan_enabled,
+                    agent_planning_duration_ms=round(agent_planning_elapsed_ms, 1)
+                    if agent_planning_elapsed_ms is not None
+                    else None,
+                    agent_retrieval_duration_ms=round(agent_retrieval_elapsed_ms, 1)
+                    if agent_retrieval_elapsed_ms is not None
+                    else None,
                     prompt_build_ms="N/A",
                     llm_submit_ms="N/A",
                     llm_queue_wait_ms="N/A",
@@ -969,6 +1311,15 @@ class RAGHandler:
                 ),
             )
             yield (StreamSignalTag.FILE_DISCOVERY, file_discovery)
+            if agent_plan_enabled:
+                yield (
+                    StreamSignalTag.PLAN_STEP,
+                    {
+                        "step_id": 3,
+                        "description": "Synthesizing a final answer from the combined evidence",
+                        "status": "done",
+                    },
+                )
             yield answer_text
             sources = _generation_closeout.build_source_references(
                 chunks=chunks,
@@ -1017,6 +1368,8 @@ class RAGHandler:
             generation_top_p = min(generation_top_p, _SUMMARY_TITLE_MAX_TOP_P)
 
         prompt_build_start = time.perf_counter()
+        if timing_context is not None:
+            timing_context.setdefault("prompt_build_started_at_s", time.time())
         messages = build_messages(
             BuildMessagesRequest(
                 question=question,
@@ -1027,10 +1380,18 @@ class RAGHandler:
                 model_profile=profile,
                 chat_mode="researcher",
                 specialization_id=specialization_id,
+                agent_mode=agent_mode,
+                agent_synthesis_focus=classification.agent_synthesis_focus,
             )
         )
-        messages = profile.prepare_messages(messages, effective_query_type)
+        messages = profile.prepare_messages(
+            messages,
+            effective_query_type,
+            reasoning_enabled=reasoning_enabled,
+        )
         prompt_build_ms = (time.perf_counter() - prompt_build_start) * 1000
+        if timing_context is not None:
+            timing_context["prompt_build_complete_at_s"] = time.time()
 
         if trace is not None:
             trace.record(
@@ -1059,6 +1420,8 @@ class RAGHandler:
         ):
             answer_parts.append(_DETERMINISTIC_EXTRACTION_HEADING)
             yield _DETERMINISTIC_EXTRACTION_HEADING
+        if timing_context is not None:
+            timing_context.setdefault("generation_started_at_s", time.time())
         async for item in _generation_stream.stream_generation_with_budget(
             messages=messages,
             max_tokens=max_tokens,
@@ -1073,7 +1436,9 @@ class RAGHandler:
             applied_degradations=[],
             output_contract_plan=None,
             collapse_duplicate_message_fn=_collapse_duplicate_insufficient_context_message,
+            chat_template_kwargs_override=chat_template_kwargs_override,
             stream_llm_fn=stream_llm,
+            timing_context=timing_context,
         ):
             if isinstance(item, tuple):
                 if item[0] == _generation_stream.STREAM_SUMMARY_EVENT:
@@ -1090,10 +1455,19 @@ class RAGHandler:
             answer_parts.append(item)
             yield item
         llm_elapsed_ms = (time.perf_counter() - llm_start) * 1000
+        if timing_context is not None:
+            timing_context["generation_complete_at_s"] = time.time()
         if stream_summary is not None:
             token_count = stream_summary.token_count
             first_token_ms = stream_summary.first_token_ms
             llm_elapsed_ms = stream_summary.total_elapsed_ms
+            if timing_context is not None:
+                if stream_summary.submit_at_s is not None:
+                    timing_context["payload_sent_to_model_runtime_at_s"] = stream_summary.submit_at_s
+                if stream_summary.first_token_at_s is not None:
+                    timing_context["runtime_first_token_at_s"] = stream_summary.first_token_at_s
+                if stream_summary.runtime_metrics is not None:
+                    timing_context["runtime_metrics"] = stream_summary.runtime_metrics
         answer_text = "".join(answer_parts)
 
         if trace is not None:
@@ -1108,6 +1482,32 @@ class RAGHandler:
                     "total_elapsed_ms": round(llm_elapsed_ms, 1),
                     "model_profile": profile.name,
                     "minimal_mode": True,
+                    "agent_mode": agent_plan_enabled,
+                    "agent_generation_duration_ms": round(llm_elapsed_ms, 1)
+                    if agent_plan_enabled
+                    else None,
+                    "agent_generation_first_token_ms": round(first_token_ms, 1)
+                    if first_token_ms is not None and agent_plan_enabled
+                    else None,
+                    "llm_submit_ms": round(stream_summary.submit_ms, 1)
+                    if stream_summary is not None and stream_summary.submit_ms is not None
+                    else None,
+                    "llm_queue_wait_ms": round(stream_summary.queue_wait_ms, 1)
+                    if stream_summary is not None and stream_summary.queue_wait_ms is not None
+                    else None,
+                },
+            )
+        if agent_plan_enabled and trace is not None:
+            trace.record(
+                "agent_generation",
+                {
+                    "enabled": True,
+                    "duration_ms": round(llm_elapsed_ms, 1),
+                    "first_token_ms": round(first_token_ms, 1)
+                    if first_token_ms is not None
+                    else None,
+                    "token_count": token_count,
+                    "model_profile": profile.name,
                 },
             )
 
@@ -1117,6 +1517,19 @@ class RAGHandler:
                 query_type=effective_query_type,
                 raw_chunks_count=len(chunks),
                 retrieval_duration_ms=round(retrieval_elapsed_ms, 1),
+                agent_mode=agent_plan_enabled,
+                agent_planning_duration_ms=round(agent_planning_elapsed_ms, 1)
+                if agent_planning_elapsed_ms is not None
+                else None,
+                agent_retrieval_duration_ms=round(agent_retrieval_elapsed_ms, 1)
+                if agent_retrieval_elapsed_ms is not None
+                else None,
+                agent_generation_duration_ms=round(llm_elapsed_ms, 1)
+                if agent_plan_enabled
+                else None,
+                agent_generation_first_token_ms=round(first_token_ms, 1)
+                if first_token_ms is not None and agent_plan_enabled
+                else None,
                 first_token_latency_ms=round(first_token_ms, 1)
                 if first_token_ms is not None
                 else None,
@@ -1125,8 +1538,12 @@ class RAGHandler:
                 vector_search_ms=retrieval_timing.get("vector_search_ms"),
                 rerank_ms=retrieval_timing.get("rerank_ms"),
                 prompt_build_ms=round(prompt_build_ms, 1),
-                llm_submit_ms="N/A",
-                llm_queue_wait_ms="N/A",
+                llm_submit_ms=round(stream_summary.submit_ms, 1)
+                if stream_summary is not None and stream_summary.submit_ms is not None
+                else "N/A",
+                llm_queue_wait_ms=round(stream_summary.queue_wait_ms, 1)
+                if stream_summary is not None and stream_summary.queue_wait_ms is not None
+                else "N/A",
                 llm_decode_first_token_ms=(
                     round(first_token_ms, 1) if first_token_ms is not None else "N/A"
                 ),
@@ -1146,6 +1563,15 @@ class RAGHandler:
             normalize_relevance_score_fn=_retrieval_validation._normalize_relevance_score,
         )
         _generation_closeout.record_sources_trace(trace=trace, sources=sources)
+        if agent_plan_enabled:
+            yield (
+                StreamSignalTag.PLAN_STEP,
+                {
+                    "step_id": 3,
+                    "description": "Generating answer",
+                    "status": "done",
+                },
+            )
         yield sources
 
     async def handle(
@@ -1160,10 +1586,16 @@ class RAGHandler:
         file_ids: list[int] | None = None,
         chat_mode: str | None = None,
         specialization_id: str | None = None,
+        agent_mode: bool = False,
     ) -> AsyncGenerator[str | list[ChatSourceReference] | tuple[str, object]]:
         """
         Handle RAG query using the single minimal runtime path.
         """
+        timing_context: dict[str, object] | None = None
+        if isinstance(diagnostics_context, dict):
+            timing_candidate = diagnostics_context.get("timing")
+            if isinstance(timing_candidate, dict):
+                timing_context = timing_candidate
         try:
             if diagnostics_context is not None and trace is not None:
                 trace.record("diagnostics_context", diagnostics_context)
@@ -1173,8 +1605,10 @@ class RAGHandler:
                 history=history,
                 db=db,
                 trace=trace,
+                timing_context=timing_context,
                 file_ids=file_ids,
                 specialization_id=specialization_id,
+                agent_mode=agent_mode,
             ):
                 yield item
         except _HANDLER_RUNTIME_EXCEPTIONS as exc:

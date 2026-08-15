@@ -39,6 +39,7 @@ from informity.db.sqlite import (
 from informity.indexer.pipeline import remove_file
 from informity.llm.engine import llm_engine
 from informity.llm.model_adapter import get_profile
+from informity.llm.types import StreamSignalTag
 from informity.log_events import emit_log_event
 from informity.scanner.crawler import scanned_file_for_path
 from informity.translate_languages import (
@@ -953,6 +954,8 @@ async def _extract_glossary(
                 # Tuple signals end-of-stream from generate_stream; the first element
                 # is the final token (or '__timeout__'). Append if valid, then stop.
                 token, _ = item
+                if token == StreamSignalTag.STREAM_SUMMARY:
+                    continue
                 if isinstance(token, str) and token and token != "__timeout__":
                     parts.append(token)
                 break
@@ -1145,6 +1148,8 @@ async def _translate_section(
             if isinstance(item, tuple):
                 # Tuple signals end-of-stream; first element is final token or '__timeout__'
                 token, meta = item
+                if token == StreamSignalTag.STREAM_SUMMARY:
+                    continue
                 if token == "__timeout__":
                     finish_reason = "timeout"
                 else:

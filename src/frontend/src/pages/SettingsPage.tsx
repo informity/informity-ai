@@ -19,6 +19,7 @@ import {
 } from '../api'
 import { SettingsView } from '../components/settings/SettingsView'
 import { PageHeader } from '../components/PageHeader'
+import { CenteredState } from '../components/CenteredState'
 import { ServiceUnavailableState } from '../components/ServiceUnavailableState'
 import { showToast } from '../context/useToast'
 import { useConfirm } from '../context/useConfirm'
@@ -723,7 +724,11 @@ export function SettingsPage() {
       <div className="page" onWheel={handlePageWheel}>
         <PageHeader title={sectionMeta.title} subtitle={sectionMeta.subtitle} icon={sectionMeta.icon} />
         <div className="page__scroll" ref={pageScrollRef}>
-          <p>Loading settings...</p>
+          <CenteredState
+            icon="ri-loader-4-line"
+            title="Loading settings…"
+            description="Fetching the current configuration."
+          />
         </div>
       </div>
     )
@@ -734,7 +739,15 @@ export function SettingsPage() {
       <div className="page" onWheel={handlePageWheel}>
         <PageHeader title={sectionMeta.title} subtitle={sectionMeta.subtitle} icon={sectionMeta.icon} />
         <div className="page__scroll" ref={pageScrollRef}>
-          {offline ? <ServiceUnavailableState /> : <p className="page__error">{error}</p>}
+          {offline ? (
+            <ServiceUnavailableState />
+          ) : (
+            <CenteredState
+              icon="ri-error-warning-line"
+              title="Failed to load settings."
+              description={error}
+            />
+          )}
         </div>
       </div>
     )

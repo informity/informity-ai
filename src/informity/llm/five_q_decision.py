@@ -19,6 +19,8 @@ class FiveQDecision:
     scope: FiveQScope = "none"
     operation: FiveQOperation = "lookup"
     partitions: list[str] = field(default_factory=list)
+    subqueries: list[str] = field(default_factory=list)
+    agent_synthesis_focus: str | None = None
     exhaustive: bool = False
     confidence: float = 0.0
 

@@ -110,6 +110,18 @@ export interface PlanStepPayload {
   status?: 'running' | 'done' | 'empty'
 }
 
+export interface AgentEventPayload {
+  kind?: 'tool_call' | 'observation' | 'decision'
+  status?: 'running' | 'done' | 'empty'
+  title?: string
+  message?: string
+  tool_name?: string
+  subquery_index?: number
+  subquery_total?: number
+  result_count?: number
+  query?: string
+}
+
 export interface StreamStatusPayload {
   state?: StreamStatusState
   message?: string
@@ -152,6 +164,7 @@ export interface StreamDonePayload {
     omitted_upload_ids?: string[]
   }
   file_discovery?: FileDiscoveryInfo | null
+  agent_mode?: boolean
 }
 
 export interface ChatUploadAttachment {
@@ -232,6 +245,17 @@ export interface ChatMessageDisplay {
   continueLabel?: 'Continue' | 'Continue Again'
   webSearchUsed?: boolean
   streamPlanSteps?: Array<{ step_id: number; description: string; status: 'running' | 'done' | 'empty' }>
+  streamAgentEvents?: Array<{
+    kind?: 'tool_call' | 'observation' | 'decision'
+    status?: 'running' | 'done' | 'empty'
+    title?: string
+    message?: string
+    tool_name?: string
+    subquery_index?: number
+    subquery_total?: number
+    result_count?: number
+    query?: string
+  }>
   scopedFileName?: string | null
 }
 
@@ -254,6 +278,7 @@ export interface StreamChatCallbacks {
   onCleaned?: (cleanedAnswer: string) => void
   onStatus?: (status: StreamStatusPayload) => void
   onPlanStep?: (payload: PlanStepPayload) => void
+  onAgentEvent?: (payload: AgentEventPayload) => void
   onDone?: (data?: StreamDonePayload) => void
   onError?: (err: Error) => void
   signal?: AbortSignal

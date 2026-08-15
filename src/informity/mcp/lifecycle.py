@@ -9,8 +9,8 @@ from contextlib import suppress
 import structlog
 import uvicorn
 
+from informity import config
 from informity.api.security import is_loopback_host
-from informity.config import settings
 from informity.log_events import emit_log_event
 from informity.mcp.http_server import create_http_app
 
@@ -47,25 +47,30 @@ class McpLifecycleManager:
         async with self._lock:
             if self._running:
                 return
-            if not settings.mcp_enabled:
+            if not config.settings.mcp_enabled:
                 self._last_error = None
                 return
-            if settings.mcp_transport == "http" and not is_loopback_host(settings.mcp_http_host):
+            if config.settings.mcp_transport == "http" and not is_loopback_host(
+                config.settings.mcp_http_host
+            ):
                 self._last_error = (
                     "MCP HTTP host must be loopback (127.0.0.1/localhost/::1). "
-                    f"Configured: {settings.mcp_http_host}"
+                    f"Configured: {config.settings.mcp_http_host}"
                 )
-                log.warning("mcp_start_denied_non_loopback_host", host=settings.mcp_http_host)
+                log.warning(
+                    "mcp_start_denied_non_loopback_host",
+                    host=config.settings.mcp_http_host,
+                )
                 await emit_log_event(
                     event_name="mcp_scope_denied",
                     source="MCP Server",
                     message="MCP server start denied because host is not loopback.",
-                    details={"host": settings.mcp_http_host},
+                    details={"host": config.settings.mcp_http_host},
                     dedupe_bucket_seconds=300,
                 )
                 return
 
-            if settings.mcp_transport == "http":
+            if config.settings.mcp_transport == "http":
                 try:
                     await self._start_http_server_locked()
                 except OSError as exc:
@@ -73,8 +78,8 @@ class McpLifecycleManager:
                     self._last_error = f"Failed to start MCP HTTP server: {exc}"
                     log.error(
                         "mcp_http_start_failed",
-                        host=settings.mcp_http_host,
-                        port=settings.mcp_http_port,
+                        host=config.settings.mcp_http_host,
+                        port=config.settings.mcp_http_port,
                         error=str(exc),
                     )
                     await emit_log_event(
@@ -83,31 +88,31 @@ class McpLifecycleManager:
                         message="MCP server failed to start.",
                         details={
                             "error": str(exc),
-                            "host": settings.mcp_http_host,
-                            "port": settings.mcp_http_port,
+                            "host": config.settings.mcp_http_host,
+                            "port": config.settings.mcp_http_port,
                         },
                         dedupe_bucket_seconds=120,
                     )
                     return
 
-            self._running = settings.mcp_transport == "http"
+            self._running = config.settings.mcp_transport == "http"
             self._last_error = None
             log.info(
                 "mcp_lifecycle_started",
-                transport=settings.mcp_transport,
-                host=settings.mcp_http_host,
-                port=settings.mcp_http_port,
-                scope_mode=settings.mcp_scope_mode,
+                transport=config.settings.mcp_transport,
+                host=config.settings.mcp_http_host,
+                port=config.settings.mcp_http_port,
+                scope_mode=config.settings.mcp_scope_mode,
             )
             await emit_log_event(
                 event_name="mcp_server_started",
                 source="MCP Server",
                 message="MCP server started successfully.",
                 details={
-                    "transport": settings.mcp_transport,
-                    "host": settings.mcp_http_host,
-                    "port": settings.mcp_http_port,
-                    "scope_mode": settings.mcp_scope_mode,
+                    "transport": config.settings.mcp_transport,
+                    "host": config.settings.mcp_http_host,
+                    "port": config.settings.mcp_http_port,
+                    "scope_mode": config.settings.mcp_scope_mode,
                 },
             )
 
@@ -145,18 +150,18 @@ class McpLifecycleManager:
 
     async def _start_http_server_locked(self) -> None:
         """Internal helper for start http server locked."""
-        self._ensure_http_bindable(settings.mcp_http_host, int(settings.mcp_http_port))
+        self._ensure_http_bindable(config.settings.mcp_http_host, int(config.settings.mcp_http_port))
         app = create_http_app()
-        config = uvicorn.Config(
+        uvicorn_config = uvicorn.Config(
             app=app,
-            host=settings.mcp_http_host,
-            port=int(settings.mcp_http_port),
+            host=config.settings.mcp_http_host,
+            port=int(config.settings.mcp_http_port),
             log_level="warning",
             loop="asyncio",
             lifespan="off",
             access_log=False,
         )
-        server = uvicorn.Server(config)
+        server = uvicorn.Server(uvicorn_config)
         task = asyncio.create_task(server.serve(), name="informity-mcp-http-server")
         await self._wait_for_http_startup(server, task)
         self._http_server = server

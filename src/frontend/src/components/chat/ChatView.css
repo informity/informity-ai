@@ -22,6 +22,11 @@
   --chat-view-toggle-active-bg: var(--color-bg-hover);
   --chat-view-toggle-active-border: transparent;
   --chat-view-scoped-top-padding: 3.7rem;
+  --chat-view-textarea-padding-top: 0.75rem;
+  --chat-view-textarea-padding-right: var(--chat-view-inline-inset);
+  --chat-view-textarea-padding-bottom: 3.5rem;
+  --chat-view-textarea-padding-left: calc(var(--chat-view-inline-inset) + 6px);
+  --chat-view-controls-row-bottom: 0.75rem;
   --chat-view-scroll-clip-top-default: 0.95rem;
   --chat-view-scroll-clip-bottom: 3.3rem;
 }
@@ -241,26 +246,6 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
 
 .chat-view__input-area::before {
   display: none;
-}
-
-.chat-view__error {
-  margin-bottom: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  font-size: var(--font-size-sm);
-  color: var(--color-danger-solid);
-  background: var(--color-danger-bg);
-  border-radius: var(--border-radius-md);
-}
-
-.chat-view__error-link {
-  background: none;
-  border: none;
-  padding: 0;
-  color: inherit;
-  font-size: inherit;
-  font-weight: var(--font-weight-heading);
-  text-decoration: underline;
-  cursor: pointer;
 }
 
 /* Inline busy hint in the controls row — replaces warning boxes */
@@ -572,7 +557,11 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
   max-width: 100%;
   min-height: 104px;
   max-height: 304px;
-  padding: 0.75rem var(--chat-view-inline-inset) 3.25rem calc(var(--chat-view-inline-inset) + 6px);
+  padding:
+    var(--chat-view-textarea-padding-top)
+    var(--chat-view-textarea-padding-right)
+    var(--chat-view-textarea-padding-bottom)
+    var(--chat-view-textarea-padding-left);
   font-family: inherit;
   font-size: var(--font-size-base);
   line-height: 1.5;
@@ -588,6 +577,7 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
 
 .chat-view__textarea--scoped {
   padding-top: var(--chat-view-scoped-top-padding);
+  padding-bottom: var(--chat-view-scoped-top-padding);
 }
 
 .chat-view__textarea:focus,
@@ -641,7 +631,7 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
   position: absolute;
   left: var(--chat-view-controls-left-inset);
   right: var(--chat-view-inline-inset);
-  bottom: 0.75rem;
+  bottom: var(--chat-view-controls-row-bottom);
   z-index: 8;
   display: flex;
   align-items: center;
@@ -754,6 +744,11 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
 
 .chat-view__web-search-toggle:hover:not(:disabled),
 .chat-view__upload-toggle:hover:not(:disabled) {
+  background: var(--chat-view-toggle-hover-bg);
+  color: var(--color-text);
+}
+
+.chat-view__agent-toggle:hover:not(:disabled) {
   background: var(--chat-view-toggle-hover-bg);
   color: var(--color-text);
 }
@@ -905,6 +900,56 @@ html[data-accent='canvas'] .chat-view__mode-option--active:hover {
   flex-shrink: 0;
   user-select: none;
   transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.chat-view__agent-toggle {
+  position: static;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  justify-content: center;
+  width: auto;
+  min-height: 2rem;
+  min-width: 2rem;
+  padding: 0.375rem 0.5rem;
+  background: transparent;
+  color: var(--chat-view-mode-emphasis);
+  border: 1px solid transparent;
+  border-radius: var(--border-radius);
+  font-size: var(--font-size-base);
+  line-height: 1;
+  cursor: pointer;
+  flex-shrink: 0;
+  user-select: none;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast);
+}
+
+.chat-view__agent-toggle:not(.chat-view__agent-toggle--active) {
+  padding-left: 0.5rem;
+  padding-right: 0.5rem;
+}
+
+.chat-view__agent-toggle--active {
+  justify-content: flex-start;
+}
+
+.chat-view__agent-toggle i {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.chat-view__agent-toggle--active,
+.chat-view__agent-toggle--active:hover:not(:disabled) {
+  background: var(--chat-view-toggle-active-bg);
+  border-color: transparent;
+  color: var(--color-text);
+  font-weight: 500;
+  border-radius: var(--border-radius);
+}
+
+.chat-view__agent-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 .chat-view__upload-toggle {

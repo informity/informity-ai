@@ -134,6 +134,7 @@ class StreamSignalTag(StrEnum):
     TIMEOUT = "__timeout__"
     BUDGET_CHECKPOINT = "__budget_checkpoint__"
     PLAN_STEP = "__plan_step__"
+    AGENT_EVENT = "__agent_event__"
     METRICS = "__metrics__"
     FILE_DISCOVERY = "__file_discovery__"
     STREAM_SUMMARY = "__stream_summary__"

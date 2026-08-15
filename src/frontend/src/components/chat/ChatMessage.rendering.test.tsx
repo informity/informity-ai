@@ -412,7 +412,7 @@ describe('ChatMessage markdown rendering', () => {
         role="assistant"
         content=""
         isStreaming={true}
-        streamStatusText="Generating response..."
+        streamStatusText="Generating answer..."
         streamSectionProgress={{
           completed: ['## Executive Summary'],
           remaining: ['## Risks and Gaps'],
@@ -429,7 +429,7 @@ describe('ChatMessage markdown rendering', () => {
         role="assistant"
         content=""
         isStreaming={true}
-        streamStatusText="Generating response..."
+        streamStatusText="Generating answer..."
         streamSectionProgress={{
           completed: ['## Executive Summary', '## Risks and Gaps'],
           remaining: ['## Action Checklist'],
@@ -440,5 +440,18 @@ describe('ChatMessage markdown rendering', () => {
 
     expect(screen.getByText(/\u2713 Executive Summary · Risks and Gaps/)).toBeInTheDocument()
     expect(screen.getByText(/\| Action Checklist/)).toBeInTheDocument()
+  })
+
+  it('uses the status-aligned typing indicator when streaming status text is present', () => {
+    const { container } = render(
+      <ChatMessage
+        role="assistant"
+        content=""
+        isStreaming={true}
+        streamStatusText="Searching for relevant information..."
+      />,
+    )
+
+    expect(container.querySelector('.chat-message__typing-indicator--status')).not.toBeNull()
   })
 })

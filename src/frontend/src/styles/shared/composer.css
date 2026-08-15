@@ -29,6 +29,11 @@
   --composer-inline-inset:      0.875rem;
   --composer-controls-left-inset: calc(var(--composer-inline-inset) + 4px);
   --composer-scoped-top-padding:  3.25rem;   /* overridden dynamically via JS */
+  --composer-textarea-padding-top: 0.75rem;
+  --composer-textarea-padding-right: var(--composer-inline-inset);
+  --composer-textarea-padding-bottom: 3.5rem;
+  --composer-textarea-padding-left: calc(var(--composer-inline-inset) + 6px);
+  --composer-controls-row-bottom: 0.75rem;
   --composer-scroll-clip-bottom:  3.3rem;
   --composer-content-max-width:   900px;
 }
@@ -283,7 +288,11 @@
   max-width: 100%;
   min-height: 104px;
   max-height: 304px;
-  padding: 0.75rem var(--composer-inline-inset) 3.25rem calc(var(--composer-inline-inset) + 6px);
+  padding:
+    var(--composer-textarea-padding-top)
+    var(--composer-textarea-padding-right)
+    var(--composer-textarea-padding-bottom)
+    var(--composer-textarea-padding-left);
   font-family: inherit;
   font-size: var(--font-size-base);
   line-height: 1.5;
@@ -299,6 +308,7 @@
 
 .composer__textarea--scoped {
   padding-top: var(--composer-scoped-top-padding);
+  padding-bottom: var(--composer-scoped-top-padding);
 }
 
 .composer__textarea:focus,
@@ -325,7 +335,7 @@
   position: absolute;
   left: var(--composer-controls-left-inset);
   right: var(--composer-inline-inset);
-  bottom: 0.75rem;
+  bottom: var(--composer-controls-row-bottom);
   z-index: 8;
   display: flex;
   align-items: center;
