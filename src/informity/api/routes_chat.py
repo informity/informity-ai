@@ -77,7 +77,6 @@ from informity.api.security import EndpointGuard
 from informity.api.upload_helpers import index_uploaded_file
 from informity.chat_trace import get_trace_writer
 from informity.config import settings
-from informity.exceptions import LLMError
 from informity.db.models import ChatMessage, ChatUploadAttachment, ContinuationPassArtifact
 from informity.db.sqlite import (
     append_chat_upload_reference_message,
@@ -106,6 +105,7 @@ from informity.db.sqlite import (
 )
 from informity.diagnostics.observer import EvalMetrics, detect_issues, estimate_evidence_metrics
 from informity.diagnostics.resource_snapshot import build_resource_delta, capture_resource_snapshot
+from informity.exceptions import LLMError
 from informity.indexer.pipeline import remove_file
 from informity.llm.chat_mode import resolve_chat_mode
 from informity.llm.contract_gate import (
