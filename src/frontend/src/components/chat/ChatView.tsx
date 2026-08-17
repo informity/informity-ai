@@ -40,6 +40,8 @@ const UPLOAD_OVERFLOW_CHIP_FALLBACK_WIDTH = 52
 const UPLOAD_PENDING_CHIP_FALLBACK_WIDTH = 116
 const ALL_CHAT_MODES: ChatMode[] = ['assistant', 'researcher']
 const GENERAL_SPECIALIZATION_LABEL = 'General Assistant'
+const AGENT_SLASH_PREFIX = '/agent'
+const AGENT_SLASH_HINT = 'Query expected after /agent.'
 
 interface ChatViewProps {
   prefillMessage?: string
@@ -106,6 +108,17 @@ function resolveLockedSpecializationId(history: ChatMessageDisplay[]): string | 
     ?? history.find((msg) => msg.role === 'assistant' && !!msg.specializationId)?.specializationId
     ?? null
   )
+}
+
+function resolveSlashAgentRequest(text: string): { useAgentMode: boolean; message: string } {
+  const trimmed = String(text || '').trimStart()
+  if (!trimmed.toLowerCase().startsWith(AGENT_SLASH_PREFIX)) {
+    return { useAgentMode: false, message: String(text || '') }
+  }
+  return {
+    useAgentMode: true,
+    message: trimmed.slice(AGENT_SLASH_PREFIX.length).replace(/^\s+/, ''),
+  }
 }
 
 function readStoredChatAgentModes(): Record<string, boolean> {
@@ -211,6 +224,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
   const [specializations, setSpecializations] = useState<ChatSpecializationDefinition[]>([])
   const [specializationsLoaded, setSpecializationsLoaded] = useState(false)
   const [specializationMenuOpen, setSpecializationMenuOpen] = useState(false)
+  const [slashCommandHint, setSlashCommandHint] = useState<string | null>(null)
   const [showScrollToBottom, setShowScrollToBottom] = useState(false)
   const [animateToDocked, setAnimateToDocked] = useState(false)
   const [textareaCanScroll, setTextareaCanScroll] = useState(false)
@@ -891,6 +905,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     newChatRequestedRef.current = true
     pendingAgentModeRef.current = null
     setInputValue('')
+    setSlashCommandHint(null)
     setChatMode('researcher')
     setAgentMode(false)
     setSelectedSpecializationId(null)
@@ -993,11 +1008,21 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
     if (offline) return
     if (isTranslating) return
     if (isTranslatingReply) return
-    const text = inputValue.trim()
-    if (!text) return
+    const { useAgentMode, message } = (
+      effectiveChatMode === 'researcher'
+        ? resolveSlashAgentRequest(inputValue)
+        : { useAgentMode: false, message: inputValue }
+    )
+    const text = message.trim()
+    if (!text) {
+      if (useAgentMode) {
+        setSlashCommandHint(AGENT_SLASH_HINT)
+      }
+      return
+    }
 
     setInputValue('')
-    if (!contextChatId) {
+    if (!contextChatId && !useAgentMode) {
       pendingAgentModeRef.current = effectiveChatMode === 'researcher' && agentMode
     }
     await sendMessage(text, {
@@ -1006,7 +1031,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
       fileScope: chatFileScope,
       chatWebSearchEnabled,
       chatWebSearchPrivacyOverride,
-      agentMode: effectiveChatMode === 'researcher' && agentMode,
+      agentMode: effectiveChatMode === 'researcher' && (agentMode || useAgentMode),
     })
   }, [offline, inputValue, isTranslating, isTranslatingReply, sendMessage, effectiveChatMode, requestSpecializationId, chatFileScope, chatWebSearchPrivacyOverride, chatWebSearchEnabled, agentMode])
 
@@ -1063,6 +1088,9 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
 
   const handleTextareaChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (offline) return
+    if (slashCommandHint) {
+      setSlashCommandHint(null)
+    }
     setInputValue(e.target.value)
   }
 
@@ -1361,6 +1389,7 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                       nextAction={msg.nextAction}
                       continueLabel={msg.continueLabel}
                       webSearchUsed={msg.webSearchUsed}
+                      agentModeUsed={msg.agentModeUsed}
                       specializationName={msg.specializationId ? (specializations.find((specialization) => specialization.id === msg.specializationId)?.name || msg.specializationId) : undefined}
                       specializationIcon={msg.specializationId ? (specializations.find((specialization) => specialization.id === msg.specializationId)?.icon || undefined) : undefined}
                       createdAt={msg.createdAt}
@@ -1544,6 +1573,11 @@ export function ChatView({ prefillMessage = '', initialChatId = null, initialSco
                     rows={1}
                     disabled={offline || isStreaming}
                   />
+                  {slashCommandHint && (
+                    <div className="chat-view__slash-hint" role="status" aria-live="polite">
+                      {slashCommandHint}
+                    </div>
+                  )}
                   <div className="chat-view__controls-row composer__controls-row">
                     <div className="chat-view__controls-left">
                       {effectiveChatMode === 'researcher' && !chatFileScope && import.meta.env.DEV && (

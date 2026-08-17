@@ -207,6 +207,7 @@ export interface ChatMessageApi {
   translation_is_stale?: boolean
   retrieval_scope_kind?: string | null
   retrieval_scope_key?: string | null
+  agent_mode?: boolean
 }
 
 export interface ChatMessageDisplay {
@@ -218,6 +219,7 @@ export interface ChatMessageDisplay {
   displayBlocks?: DisplayBlock[]
   fileDiscovery?: FileDiscoveryInfo | null
   isInternal?: boolean
+  agentModeUsed?: boolean
   isContinuation?: boolean
   isStreaming?: boolean
   streamStatusText?: string

@@ -125,6 +125,7 @@ function ChatProbe() {
       <div data-testid="error">{error ?? ''}</div>
       <div data-testid="assistant-content">{assistant?.content ?? ''}</div>
       <div data-testid="assistant-streaming">{assistant?.isStreaming ? 'yes' : 'no'}</div>
+      <div data-testid="assistant-agent-mode">{assistant?.agentModeUsed ? 'yes' : 'no'}</div>
       <div data-testid="assistant-id">{assistant?.id ?? ''}</div>
       <div data-testid="assistant-seconds">{assistant?.generationSeconds ?? ''}</div>
       <div data-testid="assistant-status">{assistant?.streamStatusText ?? ''}</div>
@@ -194,6 +195,7 @@ describe('ChatProvider streaming lifecycle', () => {
     fireEvent.click(screen.getByRole('button', { name: 'SendAgent' }))
     await waitFor(() => expect(screen.getByTestId('assistant-plan-steps')).toHaveTextContent('3'))
     await waitFor(() => expect(screen.getByTestId('assistant-agent-events')).toHaveTextContent('2'))
+    expect(screen.getByTestId('assistant-agent-mode')).toHaveTextContent('yes')
     expect(screen.getByTestId('assistant-status')).toHaveTextContent(/Retrieving evidence/)
     expect(screen.getByTestId('assistant-agent-event-0-title')).toHaveTextContent('Retrieving evidence')
     expect(screen.getByTestId('assistant-agent-event-0-status')).toHaveTextContent('running')

@@ -654,6 +654,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           ),
           sources: m.sources || [],
           displayBlocks: nextDisplayBlocks,
+          agentModeUsed: m.agent_mode === true,
           isPartial: completionMode === 'partial',
           hasRemainingScope,
           completionMode,
@@ -874,6 +875,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
       content: '',
       sources: [],
       fileDiscovery: null,
+      agentModeUsed: agentMode,
       chatMode,
       specializationId,
       scopedFileName: effectiveFileScope?.filename ?? null,
@@ -1003,6 +1005,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
               content: persisted.content || msg.content || '',
               sources: persisted.sources || msg.sources || [],
               displayBlocks: persistedDisplayBlocks ?? msg.displayBlocks,
+              agentModeUsed: persisted.agent_mode === true || msg.agentModeUsed,
               completionMode: persistedCompletionMode,
               isPartial: persistedCompletionMode === 'partial',
               hasRemainingScope: persistedHasRemainingScope,
@@ -1046,6 +1049,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
         const nextActionReason: 'stopped' | 'timeout' | 'unresolved_content' | 'budget_exhausted' | 'stalled' | 'out_of_scope' | null =
           data?.next_action_reason ?? null
         const chatMode = isChatMode(data?.chat_mode) ? data.chat_mode : undefined
+        const agentModeUsed = data?.agent_mode === true || agentMode
         const webSearchUsed = data?.web_search_used === true
           || (data?.budget_metrics != null
             && typeof data.budget_metrics === 'object'
@@ -1080,6 +1084,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
           content: streamContentRef.current,
           displayBlocks: nextDisplayBlocks,
           fileDiscovery,
+          agentModeUsed,
           scopedFileName: effectiveFileScope?.filename ?? null,
           isStreaming: false,
           streamStatusText: undefined,
@@ -1110,6 +1115,7 @@ export function ChatProvider({ children }: ChatProviderProps) {
                 content: streamContentRef.current,
                 displayBlocks: nextDisplayBlocks ?? last.displayBlocks,
                 fileDiscovery,
+                agentModeUsed: agentModeUsed || last.agentModeUsed,
                 isStreaming: false,
                 streamStatusText: undefined,
                 streamSectionProgress: undefined,

@@ -260,6 +260,73 @@ describe('ChatView new chat behavior', () => {
     expect(streamChatMock.mock.calls[0][3]).toMatchObject({ requestId: expect.any(String) })
   })
 
+  it('strips /agent from researcher queries and sets agent mode only for that request', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockImplementation(async (_message, _chatId, callbacks) => {
+      callbacks.onChatId?.('chat-agent-slash-1')
+      callbacks.onToken?.('Here is the answer.')
+      callbacks.onCleaned?.('Here is the answer.')
+      callbacks.onDone?.({
+        elapsed_seconds: 0.2,
+        message_id: 222,
+        completion_mode: 'complete',
+        next_action: 'none',
+        agent_mode: true,
+      })
+    })
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({ messages: [] })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    fireEvent.change(screen.getByLabelText('Chat message input'), {
+      target: { value: '/agent Show me all information I have on my Escondido property.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => expect(streamChatMock).toHaveBeenCalledTimes(1))
+    expect(streamChatMock.mock.calls[0][0]).toBe('Show me all information I have on my Escondido property.')
+    expect(streamChatMock.mock.calls[0][3]).toMatchObject({ agentMode: true, mode: 'researcher' })
+    expect(screen.getByLabelText('Chat message input')).toHaveValue('')
+    expect(await screen.findByText('Here is the answer.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Enable agent mode' })).toBeInTheDocument()
+    expect(await screen.findByText('Agent')).toBeInTheDocument()
+    expect(screen.queryByText('/agent Show me all information I have on my Escondido property.')).toBeNull()
+  })
+
+  it('shows a hint and does not send when /agent has no query text', async () => {
+    getSettingsMock.mockResolvedValue({ enable_raw_output_control: false })
+    getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })
+    getMessageRawMock.mockResolvedValue({ raw_content: null })
+    streamChatMock.mockResolvedValue(undefined)
+    updateSettingsMock.mockResolvedValue({})
+    updateCurrentChatMock.mockResolvedValue({})
+    getChatMock.mockResolvedValue({ messages: [] })
+
+    render(
+      <ConfirmProvider>
+        <ChatProvider>
+          <ChatView />
+        </ChatProvider>
+      </ConfirmProvider>,
+    )
+
+    fireEvent.change(screen.getByLabelText('Chat message input'), { target: { value: '/agent' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    expect(streamChatMock).not.toHaveBeenCalled()
+    expect(await screen.findByText('Query expected after /agent.')).toBeInTheDocument()
+  })
+
   it('clears draft role when switching from assistant back to researcher', async () => {
     getSettingsMock.mockResolvedValue({ enable_raw_output_control: false, enable_specializations: true })
     getCurrentChatMock.mockResolvedValue({ current_chat_id: undefined })

@@ -265,6 +265,15 @@ html[data-accent='canvas'] .chat-view__scroll-to-bottom:hover {
   color: var(--color-text-muted);
 }
 
+.chat-view__slash-hint {
+  margin-top: -0.15rem;
+  padding-left: 0.25rem;
+  color: var(--color-text-dimmed);
+  font-size: var(--font-size-sm);
+  line-height: 1.2;
+  user-select: none;
+}
+
 .chat-view__auto-continue-status {
   display: inline-flex;
   align-items: center;
