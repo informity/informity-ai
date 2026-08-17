@@ -8,6 +8,7 @@ import type {
   ChatMode,
   ChatMessageTranslationResponse,
   FileSearchResponse,
+  AgentEventPayload,
   LogChannel,
   LogEventsResponse,
   ChatSpecializationDefinition,
@@ -490,7 +491,7 @@ function handleEvent(
     }
     case 'agent_event': {
       try {
-        const parsed = JSON.parse(data) as { kind?: string; status?: string; title?: string; message?: string; tool_name?: string; subquery_index?: number; subquery_total?: number; result_count?: number; query?: string }
+        const parsed = JSON.parse(data) as AgentEventPayload
         onAgentEvent?.(parsed)
       } catch {
         // ignore

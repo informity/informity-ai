@@ -143,7 +143,7 @@ export function ConfigurationPage() {
             <CenteredState
               icon="ri-error-warning-line"
               title="Failed to load environment variables."
-              description={error}
+              description={error || ''}
             />
           )}
         </div>
