@@ -740,12 +740,12 @@ export function SettingsPage() {
         <PageHeader title={sectionMeta.title} subtitle={sectionMeta.subtitle} icon={sectionMeta.icon} />
         <div className="page__scroll" ref={pageScrollRef}>
           {offline ? (
-            <ServiceUnavailableState />
+          <ServiceUnavailableState />
           ) : (
             <CenteredState
               icon="ri-error-warning-line"
               title="Failed to load settings."
-              description={error}
+              description={error || ''}
             />
           )}
         </div>
