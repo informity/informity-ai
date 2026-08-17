@@ -23,6 +23,8 @@ from informity.llm.engine import (
     _STREAM_END,
     LLMEngine,
     StreamSignalTag,
+    _check_generation_model_memory_headroom,
+    _estimate_request_time_model_memory_requirement_gb,
     _run_stream_worker,
     _truncate_messages_to_fit,
 )
@@ -654,12 +656,11 @@ def test_load_model_caps_context_length_to_configured_limit(
 def test_generation_memory_gate_blocks_low_ram_before_load(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Test generation memory gate blocks low ram before load."""
+    """Test generation memory gate warns and continues before load."""
     class _FakeServer:
         def __init__(self, params) -> None:  # type: ignore[no-untyped-def]
             """Initialize the instance."""
-            _ = params
-            raise AssertionError("Server should not be constructed when RAM is insufficient")
+            self.params = params
 
     class _FakeCommonParams:
         def __init__(self) -> None:
@@ -691,21 +692,88 @@ def test_generation_memory_gate_blocks_low_ram_before_load(
     monkeypatch.setattr("informity.llm.engine.settings.llm_context_length", 8192)
     monkeypatch.setattr("informity.llm.engine.settings.llm_cpu_threads", 4)
     monkeypatch.setattr("informity.llm.engine.get_profile", lambda: SimpleNamespace(context_length=4096, generation_tokens_per_second=12.0, chat_template_kwargs={}))
+    monkeypatch.setattr("informity.llm.engine._pick_free_loopback_port", lambda: 12345)
 
     engine = LLMEngine()
-    with pytest.raises(LLMError, match="insufficient memory available for this model"):
-        engine.load_model()
+    warning_events: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setattr(
+        "informity.llm.engine.log.warning",
+        lambda event, **kwargs: warning_events.append((event, kwargs)),
+    )
+
+    engine.load_model()
+    assert engine.is_loaded is True
+    assert any(event == "llm_generation_memory_warning" for event, _ in warning_events)
+
+
+@pytest.mark.parametrize(
+    ("filename", "expected_required_gb", "should_block"),
+    (
+        ("Qwen_Qwen3.5-9B-Q4_K_M.gguf", 5.89, False),
+        ("Qwen3-14B-Q5_K_M.gguf", 8.95, False),
+        ("Qwen3.6-35B-A3B-UD-Q4_K_M.gguf", 16.64, True),
+    ),
+)
+def test_generation_memory_gate_uses_model_size_based_request_time_threshold(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    filename: str,
+    expected_required_gb: float,
+    should_block: bool,
+) -> None:
+    """Test generation memory gate uses model size based request-time threshold."""
+    model_path = tmp_path / filename
+    model_sizes = {
+        "Qwen_Qwen3.5-9B-Q4_K_M.gguf": 5_889_811_552,
+        "Qwen3-14B-Q5_K_M.gguf": 10_514_569_568,
+        "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf": 22_134_528_992,
+    }
+    with model_path.open("wb") as handle:
+        handle.truncate(model_sizes[filename])
+
+    model_size_gb, resident_footprint_gb, required_ram_gb = (
+        _estimate_request_time_model_memory_requirement_gb(model_path=model_path)
+    )
+
+    assert round(model_size_gb, 2) > 0
+    assert round(resident_footprint_gb + 2.0, 2) == round(required_ram_gb, 2)
+    assert round(required_ram_gb, 2) == expected_required_gb
+
+    monkeypatch.setattr(
+        "informity.llm.engine.capture_resource_snapshot",
+        lambda: {"system_memory_available_mb": 15_689.0},
+    )
+    monkeypatch.setattr("informity.llm.engine.settings.llm_provider", "local_gguf")
+    monkeypatch.setattr("informity.llm.engine.settings.models_dir", tmp_path)
+    monkeypatch.setattr("informity.llm.engine.settings.llm_model_filename", filename)
+
+    warning_events: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setattr(
+        "informity.llm.engine.log.warning",
+        lambda event, **kwargs: warning_events.append((event, kwargs)),
+    )
+    info_events: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setattr(
+        "informity.llm.engine.log.info",
+        lambda event, **kwargs: info_events.append((event, kwargs)),
+    )
+
+    _check_generation_model_memory_headroom(model_path=model_path, stage="generate_stream")
+
+    if should_block:
+        assert any(event == "llm_generation_memory_warning" for event, _ in warning_events)
+    else:
+        assert any(event == "llm_generation_memory_gate" for event, _ in info_events)
 
 
 def test_generation_memory_gate_blocks_lazy_load_model_path(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Test generation memory gate blocks lazy load model path."""
+    """Test generation memory gate warns and continues on lazy load model path."""
     class _FakeServer:
         def __init__(self, params) -> None:  # type: ignore[no-untyped-def]
             """Initialize the instance."""
-            _ = params
-            raise AssertionError("Server should not be constructed when RAM is insufficient")
+            self.params = params
 
     class _FakeCommonParams:
         def __init__(self) -> None:
@@ -737,26 +805,35 @@ def test_generation_memory_gate_blocks_lazy_load_model_path(
     monkeypatch.setattr("informity.llm.engine.settings.llm_context_length", 8192)
     monkeypatch.setattr("informity.llm.engine.settings.llm_cpu_threads", 4)
     monkeypatch.setattr("informity.llm.engine.get_profile", lambda: SimpleNamespace(context_length=4096, generation_tokens_per_second=12.0, chat_template_kwargs={}))
+    monkeypatch.setattr("informity.llm.engine._pick_free_loopback_port", lambda: 12345)
 
     engine = LLMEngine()
-    engine._server = object()  # type: ignore[assignment]
-    with pytest.raises(LLMError, match="insufficient memory available for this model"):
-        async def _run() -> None:
-            async for _ in engine.generate_stream(messages=[{"role": "user", "content": "hi"}]):
-                pass
+    warning_events: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setattr(
+        "informity.llm.engine.log.warning",
+        lambda event, **kwargs: warning_events.append((event, kwargs)),
+    )
 
-        asyncio.run(_run())
+    engine.load_model()
+
+    assert engine.is_loaded is True
+    assert any(event == "llm_generation_memory_warning" for event, _ in warning_events)
 
 
 def test_generation_memory_gate_blocks_when_snapshot_is_unavailable(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    """Test generation memory gate blocks when memory snapshot is unavailable."""
+    """Test generation memory gate warns when memory snapshot is unavailable."""
     class _FakeServer:
         def __init__(self, params) -> None:  # type: ignore[no-untyped-def]
             """Initialize the instance."""
-            _ = params
-            raise AssertionError("Server should not be constructed when RAM is unavailable")
+            self.params = params
+
+        def handle_chat_completions(self, payload, callback) -> None:  # type: ignore[no-untyped-def]
+            """Simulate a minimal streaming response."""
+            _ = payload
+            callback({"choices": [{"delta": {"content": "hello"}, "finish_reason": None}]})
+            callback({"choices": [{"delta": {}, "finish_reason": "stop"}]})
 
     class _FakeCommonParams:
         def __init__(self) -> None:
@@ -803,13 +880,22 @@ def test_generation_memory_gate_blocks_when_snapshot_is_unavailable(
     )
 
     engine = LLMEngine()
-    engine._server = object()  # type: ignore[assignment]
-    with pytest.raises(LLMError, match="insufficient memory available for this model"):
-        async def _run() -> None:
-            async for _ in engine.generate_stream(messages=[{"role": "user", "content": "hi"}]):
-                pass
+    engine._server = _FakeServer(params=None)  # type: ignore[assignment]
+    warning_events: list[tuple[str, dict[str, object]]] = []
+    monkeypatch.setattr(
+        "informity.llm.engine.log.warning",
+        lambda event, **kwargs: warning_events.append((event, kwargs)),
+    )
 
-        asyncio.run(_run())
+    async def _run() -> str:
+        chunks: list[str] = []
+        async for chunk in engine.generate_stream(messages=[{"role": "user", "content": "hi"}]):
+            if isinstance(chunk, str):
+                chunks.append(chunk)
+        return "".join(chunks)
+
+    assert asyncio.run(_run()) == "hello"
+    assert any(event == "llm_generation_memory_warning" for event, _ in warning_events)
 
 
 def test_low_memory_error_maps_to_client_message() -> None:

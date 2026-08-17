@@ -75,6 +75,10 @@ DEFAULT_RERANKER_MODEL = _DEFAULT_RERANKER_MODEL
 # Default Hugging Face repository for LLM model downloads
 _DEFAULT_LLM_HF_REPO = "unsloth/Qwen3.6-35B-A3B-GGUF"
 STARTUP_RAM_HEADROOM_RATIO = 0.85
+# Request-time generation memory gate estimates resident footprint from model size and
+# adds a fixed safety margin, rather than reusing the startup warmup ratio.
+REQUEST_TIME_MODEL_RESIDENT_RATIO = 0.71
+REQUEST_TIME_MEMORY_SAFETY_MARGIN_GB = 2.0
 
 # Default auto-continuation policy for long responses.
 _DEFAULT_CHAT_AUTO_CONTINUE_PROMPT = (

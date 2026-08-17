@@ -33,7 +33,12 @@ from pathlib import Path
 import structlog
 from thinkstrip import ThinkStrip, strip_think_prefill
 
-from informity.config import DEFAULT_OLLAMA_BASE_URL, STARTUP_RAM_HEADROOM_RATIO, settings
+from informity.config import (
+    DEFAULT_OLLAMA_BASE_URL,
+    REQUEST_TIME_MEMORY_SAFETY_MARGIN_GB,
+    REQUEST_TIME_MODEL_RESIDENT_RATIO,
+    settings,
+)
 from informity.diagnostics.resource_snapshot import capture_resource_snapshot
 from informity.exceptions import LLMError
 from informity.llm.model_adapter import (
@@ -71,6 +76,16 @@ _SLOW_PROFILE_WATCHDOG_RATIO = 0.50
 _SLOW_PROFILE_WATCHDOG_MAX_SECONDS = 600.0
 
 
+def _estimate_request_time_model_memory_requirement_gb(
+    *, model_path: Path
+) -> tuple[float, float, float]:
+    """Estimate model-size-based resident footprint and required RAM for requests."""
+    model_size_gb = model_path.stat().st_size / (1024**3)
+    resident_footprint_gb = model_size_gb * REQUEST_TIME_MODEL_RESIDENT_RATIO
+    required_ram_gb = resident_footprint_gb + REQUEST_TIME_MEMORY_SAFETY_MARGIN_GB
+    return model_size_gb, resident_footprint_gb, required_ram_gb
+
+
 def _merge_chat_template_kwargs(
     base_kwargs: dict[str, object] | None,
     override_kwargs: dict[str, object] | None,
@@ -92,41 +107,55 @@ def _pick_free_loopback_port() -> int:
 
 
 def _check_generation_model_memory_headroom(*, model_path: Path, stage: str) -> None:
-    """Fail fast when the generation model would exceed the configured RAM headroom."""
+    """Log when the generation model would exceed the configured RAM headroom."""
     # Local GGUF only: OllamaProvider is a separate synthesis backend and should
     # not use this in-process memory gate.
     if not model_path.is_file():
         return
 
+    model_size_gb, resident_footprint_gb, required_ram_gb = (
+        _estimate_request_time_model_memory_requirement_gb(model_path=model_path)
+    )
     snapshot = capture_resource_snapshot()
     available_mb = snapshot.get("system_memory_available_mb")
     if not isinstance(available_mb, (int, float)):
         log.warning(
-            "llm_generation_memory_gate",
+            "llm_generation_memory_warning",
             stage=stage,
             model=model_path.name,
-            model_size_gb=round(model_path.stat().st_size / (1024**3), 1),
+            model_size_gb=round(model_size_gb, 1),
+            resident_footprint_gb=round(resident_footprint_gb, 1),
+            required_ram_gb=round(required_ram_gb, 1),
             available_ram_gb=None,
-            headroom_ratio=STARTUP_RAM_HEADROOM_RATIO,
             allowed=False,
             reason="memory_snapshot_unavailable",
         )
-        raise LLMError("insufficient memory available for this model")
+        return
 
-    model_size_gb = model_path.stat().st_size / (1024**3)
     available_ram_gb = float(available_mb) / 1024.0
-    allowed = model_size_gb <= available_ram_gb * STARTUP_RAM_HEADROOM_RATIO
-    log.info(
-        "llm_generation_memory_gate",
+    allowed = required_ram_gb <= available_ram_gb
+    if allowed:
+        log.info(
+            "llm_generation_memory_gate",
+            stage=stage,
+            model=model_path.name,
+            model_size_gb=round(model_size_gb, 1),
+            resident_footprint_gb=round(resident_footprint_gb, 1),
+            required_ram_gb=round(required_ram_gb, 1),
+            available_ram_gb=round(available_ram_gb, 1),
+            allowed=True,
+        )
+        return
+    log.warning(
+        "llm_generation_memory_warning",
         stage=stage,
         model=model_path.name,
         model_size_gb=round(model_size_gb, 1),
+        resident_footprint_gb=round(resident_footprint_gb, 1),
+        required_ram_gb=round(required_ram_gb, 1),
         available_ram_gb=round(available_ram_gb, 1),
-        headroom_ratio=STARTUP_RAM_HEADROOM_RATIO,
-        allowed=allowed,
+        allowed=False,
     )
-    if not allowed:
-        raise LLMError("insufficient memory available for this model")
 
 
 def _profile_chat_template_kwargs(profile: object) -> dict[str, object]:
