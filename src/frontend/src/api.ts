@@ -498,6 +498,16 @@ function handleEvent(
       }
       break
     }
+    case 'error': {
+      let errorMessage = 'Request failed'
+      try {
+        const parsed = JSON.parse(data) as { error?: string; detail?: string; message?: string }
+        errorMessage = parsed.error || parsed.detail || parsed.message || errorMessage
+      } catch {
+        errorMessage = data || errorMessage
+      }
+      throw new ApiError(errorMessage, 500, errorMessage)
+    }
     case 'done': {
       state.seenDone = true
       try {

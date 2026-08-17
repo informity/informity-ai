@@ -97,6 +97,20 @@ describe('ChatMessage markdown rendering', () => {
     expect(container.querySelector('.chat-message__sources-toggle-inline')).not.toBeNull()
   })
 
+  it('renders the agent badge in the assistant footer when agent mode was used', () => {
+    const { container } = render(
+      <ChatMessage
+        role="assistant"
+        content={'Answer body'}
+        agentModeUsed
+        isStreaming={false}
+      />,
+    )
+
+    expect(screen.getByText('Agent')).toBeInTheDocument()
+    expect(container.querySelector('.ri-ai-agent-line')).not.toBeNull()
+  })
+
   it('renders a browse-all-files footer link for file discovery messages with remaining matches', () => {
     render(
       <MemoryRouter>

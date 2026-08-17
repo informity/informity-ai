@@ -65,6 +65,7 @@ interface ChatMessageProps {
   nextAction?: 'none' | 'continue' | 'regenerate' | 'assistant_switch'
   continueLabel?: 'Continue' | 'Continue Again'
   webSearchUsed?: boolean
+  agentModeUsed?: boolean
   specializationName?: string
   specializationIcon?: string
   createdAt?: string
@@ -113,6 +114,7 @@ function ChatMessageComponent({
   nextAction = 'none',
   continueLabel = 'Continue',
   webSearchUsed = false,
+  agentModeUsed = false,
   specializationName,
   specializationIcon,
   createdAt,
@@ -262,6 +264,17 @@ function ChatMessageComponent({
         <div className="chat-message__meta-item">
           <i className="ri-global-line chat-message__meta-icon" aria-hidden />
           <span>Web Search</span>
+        </div>
+      ),
+    })
+  }
+  if (!isUser && agentModeUsed) {
+    assistantMetaItems.push({
+      key: 'agent_mode',
+      node: (
+        <div className="chat-message__meta-item">
+          <i className="ri-ai-agent-line chat-message__meta-icon" aria-hidden />
+          <span>Agent</span>
         </div>
       ),
     })

@@ -77,6 +77,7 @@ from informity.api.security import EndpointGuard
 from informity.api.upload_helpers import index_uploaded_file
 from informity.chat_trace import get_trace_writer
 from informity.config import settings
+from informity.exceptions import LLMError
 from informity.db.models import ChatMessage, ChatUploadAttachment, ContinuationPassArtifact
 from informity.db.sqlite import (
     append_chat_upload_reference_message,
@@ -189,6 +190,7 @@ _VALID_COMPLETION_MODES = {
 }
 _PERSISTENCE_EXCEPTIONS = (aiosqlite.Error, ValueError, RuntimeError, OSError)
 _STREAM_RUNTIME_EXCEPTIONS = (
+    LLMError,
     RuntimeError,
     ValueError,
     TypeError,
